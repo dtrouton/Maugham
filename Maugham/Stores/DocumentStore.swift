@@ -768,8 +768,22 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         case .opLog(let docId):
             if let doc = document(forDocId: docId) {
                 Task { @MainActor in
+                    // The merge announces `.maughamAnnotationsChanged` itself,
+                    // past its echo guard: this callback also fires on our OWN
+                    // appends, and announcing here would put a project-wide
+                    // walk on every typing burst (M3 P2 Task 9).
                     try? await doc.handleExternalLogChange()
                 }
+            } else {
+                // **The document is not open, so nothing else can notice.**
+                // A peer device's note arriving through sync used to end
+                // exactly here — the `if` above resolved nothing and the arm
+                // returned — while the board's open-notes column and the
+                // queue's project scope both count notes in closed pieces.
+                // No echo to guard against: this window appends nothing to a
+                // log it has not opened.
+                MaughamEvent.postAnnotationsChanged(
+                    docId: docId, projectURL: projectURL)
             }
 
         case .checkpoints:

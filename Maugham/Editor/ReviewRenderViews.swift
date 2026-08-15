@@ -477,10 +477,10 @@ final class ReviewMarginRailView: NSView {
         bodyAttr.draw(with: bodyRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
     }
 
-    /// The "stet" acknowledgement painted briefly on a card whose suggested
-    /// change was just rejected: a tinted card, a bold "STET" chip + "let it
-    /// stand", and the suggestion's text reinstated with a dotted underline (the
-    /// proofreader's "leave it as it was" mark). Held ~2s by the coordinator.
+    /// The "stet" acknowledgement painted briefly on a card the writer has just
+    /// STETTED: a tinted card, a bold "STET" chip + "let it stand", and the
+    /// note's text reinstated with a dotted underline (the proofreader's "leave
+    /// it as it was" mark). Held ~2s by the coordinator.
     private func drawStetCard(_ mark: ResolvedReviewMark, in rect: NSRect) {
         // Card background + tinted border in the stet ink.
         let bg = NSColor.textBackgroundColor.withAlphaComponent(0.96)
@@ -523,7 +523,8 @@ final class ReviewMarginRailView: NSView {
             x: chipRect.maxX + 5,
             y: rect.minY + cardPadding + (chipRect.height - stand.size().height) / 2))
 
-        // Reinstated text (the suggestion text struck-no-more), dotted-underlined.
+        // Reinstated text (a suggestion's, struck-no-more; any other kind's body),
+        // dotted-underlined.
         let reinstated = railBodyText(mark)
         let para = NSMutableParagraphStyle()
         let bodyAttr = NSAttributedString(
@@ -624,6 +625,7 @@ final class ReviewMarginRailView: NSView {
         switch action {
         case .accept:  return "accept"
         case .reject:  return "reject"
+        case .stet:    return "stet"
         case .archive: return "archive"
         case .reply:   return "reply"
         case .edit:    return "edit"
@@ -635,6 +637,7 @@ final class ReviewMarginRailView: NSView {
         switch tag {
         case "accept":  return .accept
         case "reject":  return .reject
+        case "stet":    return .stet
         case "archive": return .archive
         case "reply":   return .reply
         case "edit":    return .edit

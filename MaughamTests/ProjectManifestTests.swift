@@ -88,7 +88,7 @@ final class ProjectManifestTests: XCTestCase {
         XCTAssertNoThrow(try makeISODecoder().decode(ProjectManifest.self, from: json))
     }
 
-    func test_schemaVersion6_isCurrent() {
+    func test_schemaVersion7_isCurrent() {
         // claudeAcceptRevert (2026-07-08) bumped the schema 1 -> 2; annotationReopen
         // (2026-07-09, ADR 0015 contract) bumped 2 -> 3; the `statements` section
         // (M1A, 2026-07-31) bumped 3 -> 4 — see ProjectManifest.statements for why
@@ -100,7 +100,11 @@ final class ProjectManifestTests: XCTestCase {
         // `reviewPasses` section, plus `passStates` on each `StructureItem` — an
         // older build's re-save would silently drop a writer's per-piece pass
         // state across a whole collection; honest refusal beats silent loss.
-        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 6)
+        // M3 P2 (2026-08-15) bumped 6 -> 7: the `annotationStet` and
+        // `annotationTriage` op kinds, under `OpKind`'s "adding a case ⇒ bump
+        // this" contract — an older build derives a stetted note as still
+        // OPEN, so the writer is shown a queue they already cleared.
+        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 7)
     }
 
     func test_codable_roundTrips_withTypographyOverride() throws {

@@ -77,15 +77,21 @@ final class AnnotationsCharacterization: XCTestCase {
 
     // MARK: - The op-kind census
 
-    /// M5-AN-001 — eleven of `OpKind`'s cases are annotation ops. The
+    /// M5-AN-001 — thirteen of `OpKind`'s cases are annotation ops. The
     /// membership decides which merged ops flip `_hasAnyAnnotationOps`, the
     /// sticky flag that lets the typing hot path skip annotation work.
-    func test_annotationOpKindsAreExactlyTheElevenAnnotationCases() {
+    ///
+    /// M3 P2 widened it by two: `annotation_stet` (the fourth resolution) and
+    /// `annotation_triage` (a mark on a note the writer still holds). Both must
+    /// be here or a merged one is invisible; only the stet is also a LIFECYCLE
+    /// kind (`AnnotationStetTests`' census owns that narrower list).
+    func test_annotationOpKindsAreExactlyTheThirteenAnnotationCases() {
         let annotationKinds = OpKind.allCases.filter { Document.isAnnotationOpKind($0) }
         XCTAssertEqual(Set(annotationKinds.map(\.rawValue)), [
             "claude_comment", "claude_suggestion", "claude_query", "claude_craft_note",
             "claude_accept", "claude_reject", "claude_archive", "claude_accept_revert",
             "annotation_edit", "annotation_withdraw", "annotation_reopen",
+            "annotation_stet", "annotation_triage",
         ])
         for k in [OpKind.typingBurst, .bootstrap, .checkpoint, .checkpointRestore,
                   .externalEdit, .taskCreate, .taskArchive, .unknown] {

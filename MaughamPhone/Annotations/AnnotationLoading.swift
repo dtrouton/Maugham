@@ -63,14 +63,15 @@ enum AnnotationLoading {
     /// (All) mode needs resolved annotations too, so we derive the full set once
     /// and let callers partition by `.status`.
     static func allAnnotations(ops: [Op]) -> [Annotation] {
-        let paragraphs = Deriver.derive(ops: ops).paragraphs
-        return AnnotationDeriver.derive(ops: ops, paragraphs: paragraphs)
+        // Single source of truth lives in MaughamCore (tripwire 19) — the Mac's
+        // project-wide walk derives through the same pair. Do NOT reimplement.
+        AnnotationAggregation.allAnnotations(ops: ops)
     }
 
     /// Open annotations only — the triage subset. Kept as the thin filter over
     /// `allAnnotations` so the two never drift.
     static func openAnnotations(ops: [Op]) -> [Annotation] {
-        allAnnotations(ops: ops).filter { $0.status == .open }
+        AnnotationAggregation.openAnnotations(ops: ops)
     }
 
     /// Group a project's annotations (ALL statuses) by document, in binder order,

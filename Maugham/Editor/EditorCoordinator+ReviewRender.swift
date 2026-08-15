@@ -16,9 +16,9 @@ extension EditorCoordinator {
     /// this is guarded against no-op churn the same way `setReviewMode` is.
     func setReviewAnnotations(_ annotations: [Annotation]) {
         guard annotations != reviewAnnotations else { return }
-        // A reject's annotationsVersion bump can drive this push DURING the stet
+        // A stet's annotationsVersion bump can drive this push DURING the stet
         // dwell. Defer it so the held STET card isn't recomputed away early; the
-        // dwell completion (`rejectReviewCardWithStet`) re-pulls the fresh set.
+        // dwell completion (`stetReviewCardWithFlourish`) re-pulls the fresh set.
         if stetReviewCardId != nil { return }
         reviewAnnotations = annotations
         recomputeReviewMarks()
@@ -196,7 +196,9 @@ extension EditorCoordinator {
         case .accept:
             runReviewAction { [weak self] in await self?.reviewAcceptHandler?(id) }
         case .reject:
-            rejectReviewCardWithStet(id: id)
+            runReviewAction { [weak self] in await self?.reviewRejectHandler?(id) }
+        case .stet:
+            stetReviewCardWithFlourish(id: id)
         case .archive:
             runReviewAction { [weak self] in await self?.reviewArchiveHandler?(id) }
         case .reply:
@@ -235,15 +237,19 @@ extension EditorCoordinator {
         }
     }
 
-    /// Reject from the margin card with the proofreader's "stet" acknowledgement.
-    /// Records the reject immediately (never blocked), dismisses the actions row,
+    /// Stet from the margin card with the proofreader's own acknowledgement.
+    /// Records the stet immediately (never blocked), dismisses the actions row,
     /// then holds the card on-screen with a STET treatment for ~2s before
-    /// refreshing the marks (which drops the now-rejected annotation out of the
+    /// refreshing the marks (which drops the now-stetted annotation out of the
     /// open set). Mirrors the AnnotationsPane dwell so the gesture reads here too.
-    private func rejectReviewCardWithStet(id: String) {
+    ///
+    /// M3 P2 moved the flourish here from reject, where it had been since the
+    /// margin card shipped: "stet" means *let it stand*, and a rejected note is
+    /// precisely the one that did not.
+    private func stetReviewCardWithFlourish(id: String) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.reviewRejectHandler?(id)
+            await self.reviewStetHandler?(id)
             // Keep the card present (don't refresh it away yet) and paint STET.
             self.stetReviewCardId = id
             self.clearReviewCardSelection()  // hides the actions row + redraws; card stays

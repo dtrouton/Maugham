@@ -86,3 +86,78 @@ final class AnnotationInverseTests: XCTestCase {
         XCTAssertEqual(derived.first?.status, .open)
     }
 }
+
+// MARK: - M3 P2: stet's reopen inverse, and triage's revert
+
+extension AnnotationInverseTests {
+
+    func test_undoStet_currentStetted_producesReopen() {
+        let outcome = AnnotationInverse.reopenOp(
+            undoing: .annotationStet, annotationId: "01A", currentStatus: .stetted,
+            docId: "d1", device: "mac", session: "s1")
+        guard case .op(let op) = outcome else { return XCTFail("expected op") }
+        XCTAssertEqual(op.kind, .annotationReopen)
+        XCTAssertEqual(op.provenance?.sourceAnnotationId, "01A")
+        XCTAssertTrue(op.changes.isEmpty)
+    }
+
+    func test_undoStet_driftedStatus_declines() {
+        let outcome = AnnotationInverse.reopenOp(
+            undoing: .annotationStet, annotationId: "01A", currentStatus: .open,
+            docId: "d1", device: "mac", session: "s1")
+        guard case .declined(.stateDrifted) = outcome else {
+            return XCTFail("expected drift decline")
+        }
+    }
+
+    /// Triage's inverse is another triage carrying the PRIOR mark — never a
+    /// reopen, because triage never resolved anything.
+    func test_triageRevert_restoresThePriorMark() {
+        let creation = Op(opId: "01A", docId: "d1", at: Date(timeIntervalSince1970: 1_000),
+                          device: "mac", session: "s1", kind: .claudeComment,
+                          changes: [.init(paragraphId: "ab2c", prior: "t", next: "t")],
+                          provenance: Op.Provenance(sessionId: "s1", annotationBody: "n"))
+        let toDo = Op(opId: "01B", docId: "d1", at: Date(timeIntervalSince1970: 1_001),
+                      device: "mac", session: "s1", kind: .annotationTriage, changes: [],
+                      provenance: Op.Provenance(
+                          sessionId: "s1", sourceAnnotationId: "01A", triageMark: "do"))
+        let toDiscuss = Op(opId: "01C", docId: "d1", at: Date(timeIntervalSince1970: 1_002),
+                           device: "mac", session: "s1", kind: .annotationTriage, changes: [],
+                           provenance: Op.Provenance(
+                               sessionId: "s1", sourceAnnotationId: "01A", triageMark: "discuss"))
+
+        let revert = AnnotationInverse.triageRevertOp(
+            annotationId: "01A", priorMark: .do,
+            docId: "d1", device: "mac", session: "s1")
+        XCTAssertEqual(revert.kind, .annotationTriage)
+        XCTAssertEqual(revert.provenance?.sourceAnnotationId, "01A")
+        XCTAssertEqual(revert.provenance?.triageMark, "do")
+
+        let derived = AnnotationDeriver.derive(
+            ops: [creation, toDo, toDiscuss, revert], paragraphs: ["ab2c": "t"])
+        XCTAssertEqual(derived.first?.triage, .do,
+            "reverting the .discuss must put the note back where the writer had it")
+        XCTAssertEqual(derived.first?.status, .open,
+            "…and triage never touched the note's status")
+    }
+
+    /// A nil prior mark is "it was untriaged" — the revert clears the mark.
+    func test_triageRevert_withNoPriorMark_clearsTheMark() {
+        let creation = Op(opId: "01A", docId: "d1", at: Date(timeIntervalSince1970: 1_000),
+                          device: "mac", session: "s1", kind: .claudeComment,
+                          changes: [.init(paragraphId: "ab2c", prior: "t", next: "t")],
+                          provenance: Op.Provenance(sessionId: "s1", annotationBody: "n"))
+        let toDo = Op(opId: "01B", docId: "d1", at: Date(timeIntervalSince1970: 1_001),
+                      device: "mac", session: "s1", kind: .annotationTriage, changes: [],
+                      provenance: Op.Provenance(
+                          sessionId: "s1", sourceAnnotationId: "01A", triageMark: "do"))
+        let revert = AnnotationInverse.triageRevertOp(
+            annotationId: "01A", priorMark: nil,
+            docId: "d1", device: "mac", session: "s1")
+        XCTAssertNil(revert.provenance?.triageMark)
+
+        let derived = AnnotationDeriver.derive(
+            ops: [creation, toDo, revert], paragraphs: ["ab2c": "t"])
+        XCTAssertNil(derived.first?.triage)
+    }
+}

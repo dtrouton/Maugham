@@ -38,6 +38,17 @@ import MaughamCore
 /// accessibility identifier on the chip is the obvious replacement), not the
 /// counts loosened.
 ///
+/// **M3 P2 Task 9 added the board's second control and re-derived it again.**
+/// The open-notes column draws a `Button` for a piece that HAS open notes, and
+/// nothing at all — no view, no control — for one that does not; an unreadable
+/// piece draws a plain `Text` dash. So `chips(in:)` now counts chips PLUS
+/// counted cells, which is why every mounted expectation here reads
+/// `pieces × passes + <counted pieces>` and why the suite's older tests, which
+/// mount with no counts at all, still mean exactly what they meant. That the
+/// uncounted cases add no control is not incidental — it is
+/// `test_aPieceWithNothingOpenAddsNoControl` and
+/// `test_anUnreadablePieceOffersNoClick`.
+///
 /// The accessibility tree carries the state each chip is showing, and the test
 /// that reads it skips by name when no assistive client can attach.
 @MainActor
@@ -417,6 +428,200 @@ final class ReviewBoardPaneTests: XCTestCase {
         }
     }
 
+    // MARK: - The open-notes column's truth table (no window)
+
+    /// A piece with nothing open draws NOTHING — not a zero. A board of zeros
+    /// hides the two numbers that matter, and the column exists to say where
+    /// the unanswered feedback is.
+    func test_aPieceWithNoOpenNotesDrawsAnEmptyCell() {
+        let cell = ReviewBoardOpenNotes.cell(
+            piece: "Chapter One", summary: nil, isUnreadable: false,
+            passes: Self.passes)
+        XCTAssertEqual(cell.kind, .none)
+        XCTAssertEqual(cell.text, "")
+        XCTAssertEqual(cell.label, "",
+                       "nothing drawn says nothing aloud either")
+    }
+
+    /// The count, and the sentence behind it: the piece, the number, and where
+    /// those notes were written — the pass split is the reason the column is
+    /// worth clicking rather than just worth reading.
+    func test_theCountCarriesItsPassBreakdown() {
+        let cell = ReviewBoardOpenNotes.cell(
+            piece: "Chapter One",
+            summary: OpenNotesSummary(total: 3, byPass: ["line": 2]),
+            isUnreadable: false, passes: Self.passes)
+
+        XCTAssertEqual(cell.kind, .count)
+        XCTAssertEqual(cell.text, "3")
+        XCTAssertEqual(cell.label, "Chapter One — 3 open notes: 2 Line, 1 unstamped",
+                       "the split names passes the way the project does and "
+                       + "accounts for the remainder — the two numbers must "
+                       + "never silently disagree")
+    }
+
+    /// Passes are named in the PROJECT's order, not the dictionary's, and the
+    /// unstamped remainder is last: the split reads like the board's own
+    /// columns.
+    func test_theBreakdownFollowsTheProjectsPassOrder() {
+        let cell = ReviewBoardOpenNotes.cell(
+            piece: "Chapter One",
+            summary: OpenNotesSummary(
+                total: 6, byPass: ["proof": 1, "structural": 3, "line": 2]),
+            isUnreadable: false, passes: Self.passes)
+        XCTAssertEqual(cell.label,
+                       "Chapter One — 6 open notes: 3 Structural, 2 Line, 1 Proof")
+    }
+
+    /// Nothing stamped is the default state of every project that has not
+    /// started using passes — and "3 open notes: 3 unstamped" tells the writer
+    /// nothing they did not just read.
+    func test_anEntirelyUnstampedPieceSaysJustTheCount() {
+        let cell = ReviewBoardOpenNotes.cell(
+            piece: "Chapter One",
+            summary: OpenNotesSummary(total: 1, byPass: [:]),
+            isUnreadable: false, passes: Self.passes)
+        XCTAssertEqual(cell.text, "1")
+        XCTAssertEqual(cell.label, "Chapter One — 1 open note",
+                       "singular, and no split worth the words")
+    }
+
+    /// A stamp naming a pass the project no longer lists still counts. It is in
+    /// the total, so dropping it from the split would make the sentence add up
+    /// to less than the number beside it, with nothing to say why.
+    func test_aStampForARetiredPassIsCountedRatherThanDropped() {
+        let cell = ReviewBoardOpenNotes.cell(
+            piece: "Chapter One",
+            summary: OpenNotesSummary(total: 2, byPass: ["line": 1, "sensitivity": 1]),
+            isUnreadable: false, passes: Self.passes)
+        XCTAssertEqual(cell.label, "Chapter One — 2 open notes: 1 Line, 1 sensitivity")
+    }
+
+    /// **RULING-54's honesty half, in one cell.** The walk skips a document
+    /// whose op log it cannot read rather than throwing the whole count away —
+    /// so this piece's cell must say UNKNOWN. A zero here would be the board
+    /// asserting "nothing to answer" about a file it could not open.
+    func test_anUnreadablePieceSaysUnknownAndNotZero() {
+        let cell = ReviewBoardOpenNotes.cell(
+            piece: "Chapter Three", summary: nil, isUnreadable: true,
+            passes: Self.passes)
+
+        XCTAssertEqual(cell.kind, .unreadable)
+        XCTAssertEqual(cell.text, "\u{2014}")
+        XCTAssertTrue(cell.label.contains("Chapter Three"))
+        XCTAssertTrue(cell.label.contains("could not be read"),
+                      "the help string must name the FILE problem, not just "
+                      + "shrug: \(cell.label)")
+        XCTAssertFalse(cell.text.contains("0"))
+    }
+
+    /// The two inputs cannot both arrive today (`openNotesSummaries` keys only
+    /// the pieces it could read), which is exactly why the precedence is
+    /// asserted rather than assumed.
+    func test_unreadableWinsOverAStaleCount() {
+        let cell = ReviewBoardOpenNotes.cell(
+            piece: "Chapter Three",
+            summary: OpenNotesSummary(total: 9, byPass: [:]),
+            isUnreadable: true, passes: Self.passes)
+        XCTAssertEqual(cell.kind, .unreadable)
+        XCTAssertFalse(cell.text.contains("9"))
+    }
+
+    // MARK: - Mounted: the open-notes column
+
+    /// The counts reach the board as VALUES and land on the right rows.
+    ///
+    /// Read off the accessibility tree, which is where the count's whole
+    /// sentence lives — the cell itself is a bare number, and a number in a
+    /// grid says nothing on its own.
+    func test_eachPiecesCountIsPublishedOnItsOwnRow() async throws {
+        let structure = [doc("ch1", "Chapter One"), doc("ch2", "Chapter Two"),
+                         doc("ch3", "Chapter Three")]
+        let window = mount(
+            structure: structure,
+            openNotes: ["ch1": OpenNotesSummary(total: 3, byPass: ["line": 2]),
+                        "ch3": OpenNotesSummary(total: 1, byPass: [:])],
+            unreadable: [])
+        // Three rows of chips plus the two counted cells.
+        _ = try await chipsSettling(in: window,
+                                    expecting: 3 * Self.passes.count + 2)
+
+        let labels = try axButtonLabels(in: window)
+        XCTAssertTrue(labels.contains("Chapter One — 3 open notes: 2 Line, 1 unstamped"),
+                      "published: \(labels.sorted())")
+        XCTAssertTrue(labels.contains("Chapter Three — 1 open note"))
+        XCTAssertFalse(labels.contains { $0.contains("Chapter Two — 0") },
+                       "a piece with nothing open must draw no count at all")
+    }
+
+    /// The absent entry is an EMPTY cell and not a control: the exact chip
+    /// count is what says so, since a count cell is the only other button the
+    /// board has.
+    func test_aPieceWithNothingOpenAddsNoControl() async throws {
+        let structure = [doc("ch1", "Chapter One"), doc("ch2", "Chapter Two")]
+        let window = mount(structure: structure,
+                           openNotes: ["ch1": OpenNotesSummary(total: 2, byPass: [:])])
+        let found = try await chipsSettling(
+            in: window, expecting: 2 * Self.passes.count + 1)
+
+        XCTAssertEqual(found.count, 2 * Self.passes.count + 1,
+                       "one count cell for the counted piece and none for the "
+                       + "other — an empty cell is not a button")
+    }
+
+    /// **Clicking a count carries the ROW's own piece id**, like every other
+    /// control on this board, and rules on nothing.
+    func test_aCountClickCarriesItsOwnRowsPiece() async throws {
+        let structure = [doc("ch1", "Chapter One"), doc("ch2", "Chapter Two")]
+        let window = mount(structure: structure,
+                           openNotes: ["ch2": OpenNotesSummary(total: 4, byPass: [:])])
+        let all = try await orderedChipsSettling(
+            in: window, expecting: 2 * Self.passes.count + 1)
+
+        // The counted row is the second, and its count is the last cell across
+        // it — read off the layout the board actually got.
+        let count = try XCTUnwrap(all.last)
+        await click(count, in: window, until: { !self.calls.opened.isEmpty })
+
+        XCTAssertEqual(calls.opened, ["ch2"])
+        XCTAssertTrue(calls.navigations.isEmpty,
+                      "a count is not a chip: it must not navigate a pass")
+        XCTAssertTrue(calls.writes.isEmpty, "and it rules on nothing")
+    }
+
+    /// **An unreadable piece's cell is not a control.** "Open the notes we
+    /// could not read" is a button that cannot do what it offers; the honest
+    /// affordance is the dash and a tooltip saying why.
+    func test_anUnreadablePieceOffersNoClick() async throws {
+        let window = mount(structure: [doc("ch1", "Chapter One")],
+                           unreadable: ["ch1"])
+        let found = try await chipsSettling(in: window, expecting: Self.passes.count)
+        pump(0.2)
+
+        XCTAssertEqual(found.count, Self.passes.count,
+                       "the dash must not be a button")
+        await sweepClicks(over: window)
+        XCTAssertTrue(calls.opened.isEmpty,
+                      "an unreadable piece offered a click into notes it "
+                      + "cannot show")
+    }
+
+    /// A reference row is chip-less AND countless: the notes on the project it
+    /// points at are adjudicated in ITS window, and a number here would invite
+    /// a click this window cannot honour.
+    func test_aReferenceRowCarriesNoCountEither() async throws {
+        let window = mount(
+            structure: [doc("ref", "Another Novel", kind: .reference)],
+            openNotes: ["ref": OpenNotesSummary(total: 7, byPass: [:])])
+        pump(0.3)
+
+        XCTAssertTrue(chips(in: window).isEmpty,
+                      "the reference row drew a control — it has neither chips "
+                      + "nor a count")
+        await sweepClicks(over: window)
+        XCTAssertTrue(calls.opened.isEmpty)
+    }
+
     // MARK: - Mounted: the two scrolling axes are the pane's
 
     /// **A wide pass set scrolls INSIDE the pane, and the pane still fits its
@@ -464,9 +669,13 @@ final class ReviewBoardPaneTests: XCTestCase {
                           "premise: four passes want less than a 900pt column")
         XCTAssertEqual(
             ReviewBoardPane.intrinsicWidth(passCount: 12),
-            ReviewBoardPane.minimumTitleColumnWidth + 12 * ReviewBoardPane.passColumnWidth,
+            ReviewBoardPane.minimumTitleColumnWidth
+                + 12 * ReviewBoardPane.passColumnWidth
+                + ReviewBoardPane.openNotesColumnWidth,
             "the intrinsic width is the piece column's floor plus every pass "
-            + "column — the number the pane compares its own width against")
+            + "column plus the open-notes column (M3 P2 Task 9) — the number "
+            + "the pane compares its own width against, and a trailing column "
+            + "left out of it is a column drawn off the end of the grid")
     }
 
     // MARK: - Censuses
@@ -541,11 +750,16 @@ final class ReviewBoardPaneTests: XCTestCase {
 
     private func mount(structure: [StructureItem],
                        passes: [ReviewPass] = ReviewBoardPaneTests.passes,
+                       openNotes: [String: OpenNotesSummary] = [:],
+                       unreadable: Set<String> = [],
                        width: CGFloat = 700) -> NSWindow {
         let frame = CGRect(x: 0, y: 0, width: width, height: 600)
         let calls = self.calls
         let hosting = NSHostingView(rootView: AnyView(
             ReviewBoardPane(title: "The Project", structure: structure, passes: passes,
+                            openNotes: openNotes,
+                            unreadableDocIds: unreadable,
+                            onOpenNotes: { calls.opened.append($0) },
                             onNavigate: { piece, pass in
                                 calls.navigations.append(BoardClick(piece: piece, pass: pass))
                             },
@@ -746,4 +960,6 @@ struct BoardWrite: Equatable { let piece: String; let pass: String; let state: P
 final class BoardCalls: @unchecked Sendable {
     var navigations: [BoardClick] = []
     var writes: [BoardWrite] = []
+    /// Pieces whose open-notes count was clicked (M3 P2 Task 9).
+    var opened: [String] = []
 }

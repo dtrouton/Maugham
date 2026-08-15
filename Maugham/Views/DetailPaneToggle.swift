@@ -52,6 +52,11 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// `AssistantColumnModel`. Optional so a caller that surfaces no References
     /// segment (the `StatementMountFixture` probes) can omit it.
     let assistant: AssistantColumnModel?
+    /// How wide the annotations queue is looking (M3 P2 Task 7). Window state
+    /// on `ProjectWindow` so Task 9's board click-through can set it from the
+    /// centre column; `.constant(.document)` for the probe callers that mount
+    /// this view without a window behind it.
+    @Binding var annotationScope: AnnotationScope
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
@@ -84,6 +89,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
+        annotationScope: Binding<AnnotationScope> = .constant(.document),
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -106,6 +112,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
+        self._annotationScope = annotationScope
         self.inspectorContent = inspectorContent
     }
 
@@ -532,15 +539,32 @@ struct DetailPaneToggle<Inspector: View>: View {
 
     @ViewBuilder
     private var annotationsPane: some View {
-        if let ds = documentStore,
-           activeDocId != BinderSubject.noDocumentSubject,
-           let doc = ds.document(forDocId: activeDocId) {
-            AnnotationsPane(document: doc)
+        if let ds = documentStore {
+            // The pane renders with NO open document as of M3 P2 Task 7: its
+            // project scope is a view of the whole manuscript, and that is the
+            // state a writer arrives in from the board's open-notes column.
+            // Document scope's "Select a document" empty state moved inside,
+            // so the scope toggle above it stays reachable.
+            AnnotationsPane(
+                document: activeDocId == BinderSubject.noDocumentSubject
+                    ? nil : ds.document(forDocId: activeDocId),
+                store: store,
+                documentStore: ds,
+                scope: $annotationScope,
+                onTravel: { docId in
+                    // Travelling to a piece is the window's SUBJECT write and
+                    // nothing else. No persona rides along: Review's centre
+                    // shows documents, so a reviewer clicking a note about
+                    // another chapter must land there with their notes still
+                    // beside them (`ManuscriptNavigation`'s ruling, and
+                    // `AnnotationScopeTests`' census over this closure).
+                    selectedSubject = .item(docId)
+                })
         } else {
             ContentUnavailableView(
-                "Select a document",
+                "Open a project",
                 systemImage: "doc.text",
-                description: Text("Open a manuscript to see and act on annotations."))
+                description: Text("Annotations live with a project's pieces."))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

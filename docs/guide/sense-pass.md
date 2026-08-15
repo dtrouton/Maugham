@@ -58,7 +58,9 @@ story is not "missing" sensory detail.
 3. **Audit** — ask Claude (via Claude Desktop + the Maugham MCP connection) to
    run the sense pass below. Claude reads your intent, your palette, and the
    manuscript, and leaves paragraph-anchored annotations you triage in the
-   Annotations pane (⌘⌥A) — Accept, Reject, or Archive, as with any annotation.
+   Annotations pane (⌘⌥A) — Accept, Reject, Stet or Archive, as with any
+   annotation, and mark what you plan to do about each one first if the pile is
+   large.
 
 ## The prompt
 

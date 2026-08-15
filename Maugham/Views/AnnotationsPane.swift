@@ -1,9 +1,32 @@
 import SwiftUI
+import AppKit
 import MaughamCore
 
 @MainActor
 struct AnnotationsPane: View {
-    @Bindable var document: Document
+    /// The piece the centre column is showing.
+    ///
+    /// **Optional as of M3 P2 Task 7.** The queue's project scope is a view of
+    /// the whole manuscript and has to render with nothing open at all — which
+    /// is exactly the state a writer arrives in from the board's open-notes
+    /// column. Document scope answers the same nil with the "Select a document"
+    /// empty state the mount used to hold.
+    let document: Document?
+    /// The project: the cross-document walk's owner
+    /// (`listAnnotationsAcrossProject`, Task 6) and the manifest whose order
+    /// the sections follow.
+    let store: ProjectStore
+    /// Where a project-scope row finds ITS document. The open-vs-closed
+    /// question every row verb is gated on is asked here and nowhere else.
+    let documentStore: DocumentStore
+    /// How wide the queue is looking. Window state on `ProjectWindow` rather
+    /// than the pane's own, so Task 9's board click-through can set it from
+    /// outside — and not persisted (a scope is a glance, not a home).
+    @Binding var scope: AnnotationScope
+    /// Travel to another piece. The window's SUBJECT write and nothing else:
+    /// Review's centre shows documents, so this navigation never moves the
+    /// persona (the ejection trap — `ManuscriptNavigation`).
+    let onTravel: (String) -> Void
     @Environment(UserPreferences.self) private var userPreferences
     /// The window's undo manager — passed into every accept so the Document
     /// registers its undo action against the manager ⌘Z reaches (and clears
@@ -11,30 +34,86 @@ struct AnnotationsPane: View {
     @Environment(\.undoManager) private var undoManager
 
     @State private var kindFilter: KindOption = .all
+    /// Which review pass the queue is looking through (M3 P2 Task 8).
+    /// `.followActivePass` — the state it starts in, and returns to whenever
+    /// the writer travels to another piece — means "whatever pass this piece
+    /// is being reviewed through", so a board chip click lands here already
+    /// narrowed to the pass that was clicked.
+    @State private var passSelection: AnnotationPassFilter.Selection = .followActivePass
+    @State private var triageFilter: AnnotationTriageFilter = .all
     @State private var authorFilter: String = AnnotationAuthorFilter.all
     @State private var showResolved: Bool = false
-    @State private var rejectSheet: Annotation?
-    @State private var querySheet: Annotation?
-    @State private var staleConfirm: Annotation?
+    @State private var rejectSheet: AnnotationTarget?
+    @State private var querySheet: AnnotationTarget?
+    @State private var staleConfirm: AnnotationTarget?
     /// A suggestion whose accept was REFUSED because its quoted phrase is no
     /// longer in the paragraph (RULING-5). Drives the told-why alert; the
     /// refusal itself is `Document.acceptAnnotation`'s throw — this state only
     /// makes it audible.
-    @State private var anchorLostNotice: Annotation?
+    @State private var anchorLostNotice: AnnotationTarget?
     /// The accepted suggestion pending a revert confirmation — set when the
     /// paragraph's text drifted since the accept, so reverting would clobber
     /// the intervening edits (mirror of `staleConfirm` on the accept path).
-    @State private var revertConfirm: Annotation?
+    @State private var revertConfirm: AnnotationTarget?
     /// The annotation currently being edited in the inline edit sheet (author
     /// self-service). Only ever the reviewer's own annotation (gated by the
     /// Edit affordance's `isOwn` check).
-    @State private var editSheet: Annotation?
+    @State private var editSheet: AnnotationTarget?
     /// The annotation pending a withdraw (delete) confirmation.
-    @State private var withdrawConfirm: Annotation?
-    /// Annotation ids currently showing the transient "stet" flourish after a
-    /// reject of a suggested change. Keyed per-row so it survives the ~2.5s
-    /// window between the reject op and the row leaving the open list.
-    @State private var stetIds: Set<String> = []
+    @State private var withdrawConfirm: AnnotationTarget?
+    /// Annotation ids currently showing the transient "stet" flourish after the
+    /// writer STETS a note. Keyed per-row so it survives the ~2.5s window
+    /// between the stet op and the row leaving the open list.
+    ///
+    /// It fired on REJECT until M3 P2, where the word got a verb of its own and
+    /// the flourish went with it: "stet" means *let it stand*, and a rejected
+    /// note is precisely the one that did not.
+    @State private var stetFlourishIds: Set<String> = []
+    /// Selection mode (M3 P2 Task 5). While on, every row grows a leading
+    /// selection control and the bulk bar sits at the foot of the column. Off
+    /// by default and off is the pane Task 4 left: a writer working one note at
+    /// a time never sees a checkbox.
+    @State private var showBulkBar: Bool = false
+    /// The ids the writer has ticked. Read through `effectiveSelection`, never
+    /// directly — an id in here can stop being on screen (a bulk stet hides its
+    /// row under the default `[.open]` filter; a filter change narrows the set),
+    /// and acting on a row nobody can see is the author filter's stale-target
+    /// bug in another key.
+    @State private var selectedIds: Set<String> = []
+    /// The one summary a bulk run posts when some of it could not be done
+    /// (`AnnotationBulkActions.Outcome.notice`). One notice for the batch —
+    /// never an alert per refusal, and never silence.
+    @State private var bulkNotice: String?
+    /// True while a batch is running, so the bar's verbs cannot be fired twice
+    /// over a set the first run is still changing.
+    @State private var bulkInFlight: Bool = false
+    /// **Project scope's own refresh** (M3 P2 Task 7).
+    ///
+    /// `ProjectStore.listAnnotationsAcrossProject` is deliberately
+    /// NON-reactive: its cache is `@ObservationIgnored`, so nothing re-renders
+    /// because a note somewhere in the project changed. Every verb below bumps
+    /// this, and `projectSnapshot` reads it — so a stet fired from a
+    /// cross-document row re-reads the walk instead of leaving its own row on
+    /// screen unchanged. `AnnotationScopeTests`' census keeps the two halves
+    /// together as verbs are added.
+    ///
+    /// It is also the seam for Task 9's annotation event, which is what will
+    /// refresh a change arriving from another device or a closed document.
+    @State private var projectRefreshToken: Int = 0
+    /// This pane's hosting window, for the ADR 0021 receive helper's liveness
+    /// guard (`.onProjectEvent` on `.maughamAnnotationsChanged`).
+    @State private var window: NSWindow?
+
+    /// A sheet's subject, plus the document it belongs to.
+    ///
+    /// In project scope the row's document is not the pane's own, and a sheet
+    /// that remembered only the annotation would commit its reject reason or
+    /// its edit against whichever piece happened to be centred.
+    private struct AnnotationTarget: Identifiable {
+        let document: Document
+        let annotation: Annotation
+        var id: String { annotation.id }
+    }
 
     enum KindOption: String, CaseIterable, Identifiable, FilterRowItem {
         case all, comments, suggestions, queries, craft
@@ -78,122 +157,218 @@ struct AnnotationsPane: View {
         return AnnotationFilter(kinds: kinds, statuses: statuses)
     }
 
-    /// Annotations after the kind/status filter, before the author filter.
-    /// The distinct-authors list derives from these so it reflects everything
-    /// currently in scope regardless of which author is selected.
-    private var kindStatusAnnotations: [Annotation] {
+    /// **The kind + status pass, in one place for both scopes.**
+    ///
+    /// The status half deliberately keeps any row mid-"stet" on screen after
+    /// the stet flips its status out of the open filter, so the ~2.5s flourish
+    /// is visible. The KIND half still applies to a retained row: a note the
+    /// writer filtered out by kind has no business reappearing because they
+    /// stetted it.
+    private func passesKindAndStatus(_ annotation: Annotation) -> Bool {
+        if let kinds = filter.kinds, !kinds.contains(annotation.kind) { return false }
+        guard let statuses = filter.statuses else { return true }
+        return statuses.contains(annotation.status)
+            || stetFlourishIds.contains(annotation.id)
+    }
+
+    /// The author + triage + review-pass filters. **The resolved author filter
+    /// is passed IN** rather than read per row: resolving it consults the whole
+    /// in-scope pool, and in project scope that pool comes from a walk whose
+    /// cache key stats every closed piece's op log. Asking per annotation
+    /// turned one render into one file-stat sweep per note. The resolved pass
+    /// travels the same way for symmetry, and because both scopes resolve it
+    /// once per render rather than once per row.
+    private func passesRowFilters(
+        _ annotation: Annotation, authorFilter selected: String, passId: String?
+    ) -> Bool {
+        AnnotationAuthorFilter.matches(annotation, selected: selected)
+            && triageFilter.matches(annotation)
+            && AnnotationPassFilter.matches(annotation, passId: passId)
+    }
+
+    // MARK: - The active pass (M3 P2 Task 8)
+    //
+    // All three inputs are read off the two stores this pane already holds,
+    // the way `boardRows` reads `store.manifest.structure` a few lines down.
+    // Threading copies of them through the mount would be a second path to
+    // the same values with nothing keeping the two in step — and the pane can
+    // reach both stores regardless, so the copies would buy no confinement.
+    // Reading them inside the body is also what makes them REACTIVE: both
+    // stores are `@Observable`, so an inspector ruling on a pass, or a board
+    // chip recording one, re-renders the queue.
+    //
+    // Reading pass states is all this pane ever does with them. Writing one is
+    // a closed census of three files (`PersonaPaneRegistryTests.
+    // passStateWritingFiles`) and the queue is deliberately not among them:
+    // it advises about passes, it never rules on them.
+
+    /// The project's named passes — the filter menu's contents, and the order
+    /// the advisory nudge reads "earlier" off.
+    private var reviewPasses: [ReviewPass] { store.manifest.effectiveReviewPasses }
+
+    /// Which pass each piece was last looked at through. The board's chip
+    /// click is the only writer; this pane only ever reads it.
+    private var activePassMemory: ActivePassMemory {
+        documentStore.uiState.activePassMemory
+    }
+
+    /// The centred piece's recorded pass states, for the nudge. Nil with no
+    /// piece open, which is also every case in which the nudge has nothing to
+    /// be about.
+    private var piecePassStates: [String: PassState]? {
+        guard let docId = document?.docId else { return nil }
+        return TreeWalk.find(id: docId, in: store.manifest.structure)?.passStates
+    }
+
+    /// **Which pass the queue is looking through**, or nil for every pass —
+    /// the pane's selection resolved against the piece's remembered active
+    /// pass and the project's live pass list (`AnnotationPassFilter.resolved`).
+    ///
+    /// `piece` is the CENTRED document in document scope and nil in project
+    /// scope, where there is no single piece whose active pass could be the
+    /// default; an explicit choice still narrows every piece's section.
+    private var resolvedPassId: String? {
+        AnnotationPassFilter.resolved(
+            passSelection,
+            piece: scope.isProject ? nil : document?.docId,
+            memory: activePassMemory,
+            passes: reviewPasses)
+    }
+
+    /// Document scope's rows after the kind/status filter, before the author
+    /// filter.
+    private func kindStatusAnnotations(of document: Document) -> [Annotation] {
         // Observing annotationsVersion forces re-render when cache invalidates.
         _ = document.annotationsVersion
-        return document.annotations(filter: filter)
+        return document.annotations(filter: AnnotationFilter(statuses: nil))
+            .filter(passesKindAndStatus)
+    }
+
+    /// The notes in scope after the kind/status filter, whichever scope that
+    /// is. The distinct-authors list derives from these so it reflects
+    /// everything currently in scope regardless of which author is selected.
+    private var kindStatusPool: [Annotation] {
+        switch scope {
+        case .document:
+            return document.map(kindStatusAnnotations(of:)) ?? []
+        case .project:
+            return projectSnapshot.annotations
+                .map(\.annotation).filter(passesKindAndStatus)
+        }
     }
 
     /// The author filter, ignored when its target is no longer in scope (e.g.
     /// the status filter changed and that contributor's only rows fell away).
     /// Prevents a stale selection from hiding everything with no way to reset.
-    private var effectiveAuthorFilter: String {
+    private func effectiveAuthorFilter(in pool: [Annotation]) -> String {
         guard authorFilter != AnnotationAuthorFilter.all else { return authorFilter }
-        return authorLabels.contains(authorFilter) ? authorFilter : AnnotationAuthorFilter.all
+        return AnnotationAuthorFilter.distinctLabels(in: pool).contains(authorFilter)
+            ? authorFilter : AnnotationAuthorFilter.all
     }
 
-    private var visibleAnnotations: [Annotation] {
-        var rows = kindStatusAnnotations
-        // Keep any row mid-"stet" on screen even after its reject flips the
-        // status out of the open filter, so the ~2.5s flourish is visible. The
-        // retained row is appended at the end (not re-spliced at its prior
-        // index) — it only lingers briefly before the stet completes and it
-        // drops out.
-        if !stetIds.isEmpty {
-            let present = Set(rows.map(\.id))
-            let retained = document.annotations(filter: AnnotationFilter(statuses: nil))
-                .filter { stetIds.contains($0.id) && !present.contains($0.id) }
-            rows.append(contentsOf: retained)
+    private func visibleAnnotations(of document: Document) -> [Annotation] {
+        let pool = kindStatusAnnotations(of: document)
+        let selected = effectiveAuthorFilter(in: pool)
+        let passId = resolvedPassId
+        let rows = pool.filter {
+            passesRowFilters($0, authorFilter: selected, passId: passId)
         }
-        let selected = effectiveAuthorFilter
-        return rows.filter {
-            AnnotationAuthorFilter.matches($0, selected: selected)
-        }
+        // The queue's working order (M3 P2): what the writer said they'd do,
+        // then document order. The DERIVER's newest-first order (claim
+        // M5-AN-004) is untouched — that claim is about the projection, and
+        // this sorts the pane's rows out of it.
+        return AnnotationQueueOrder.sorted(rows, sequence: document.sequence)
     }
 
     private var authorLabels: [String] {
-        AnnotationAuthorFilter.distinctLabels(in: kindStatusAnnotations)
+        AnnotationAuthorFilter.distinctLabels(in: kindStatusPool)
+    }
+
+    // MARK: - Project scope
+
+    /// The project-wide walk (Task 6), read through Task 7's refresh
+    /// obligation: the token every verb bumps, and the OPEN document's own
+    /// version counter, so an edit made from the margin card or the editor
+    /// while project scope is up reaches the queue too. The store's cache key
+    /// already folds every open document's version — what these two reads add
+    /// is somebody OBSERVING them, which the `@ObservationIgnored` cache
+    /// otherwise leaves nobody to do.
+    private var projectSnapshot: ProjectAnnotationsSnapshot {
+        _ = projectRefreshToken
+        _ = document?.annotationsVersion
+        return store.listAnnotationsAcrossProject()
+    }
+
+    /// The board's rows — the order and grouping of the whole project, asked of
+    /// the one walk that already answers it (`ReviewBoardRows`, P1).
+    private var boardRows: [ReviewBoardRows.Row] {
+        ReviewBoardRows.derive(structure: store.manifest.structure)
+    }
+
+    private func projectSections(
+        _ snapshot: ProjectAnnotationsSnapshot
+    ) -> [AnnotationScopeSections.Section] {
+        let pool = snapshot.annotations.filter { passesKindAndStatus($0.annotation) }
+        let selected = effectiveAuthorFilter(in: pool.map(\.annotation))
+        let passId = resolvedPassId
+        let entries = pool.filter {
+            passesRowFilters($0.annotation, authorFilter: selected, passId: passId)
+        }
+        return AnnotationScopeSections.build(
+            rows: boardRows, annotations: entries, sequences: snapshot.sequences)
+    }
+
+    // MARK: - Selection (document scope only)
+
+    /// The selection narrowed to what is actually on screen — the self-healing
+    /// read of `selectedIds`, mirroring `effectiveAuthorFilter`'s shape (a
+    /// computed fallback, because a stored set cannot be pruned from inside
+    /// `body`). A bulk stet that hides its own rows leaves the tick marks
+    /// pointing at nothing; this is what stops the next verb acting on them.
+    /// The stored set is pruned to this after each run.
+    private func effectiveSelection(in rows: [Annotation]) -> Set<String> {
+        guard !selectedIds.isEmpty else { return [] }
+        return selectedIds.intersection(rows.map(\.id))
+    }
+
+    /// What a bulk verb acts on: the selection when there is one, else the
+    /// whole visible filtered set (spec §5's "over the current filtered set").
+    /// The bar says which, so the writer is never guessing.
+    private func bulkTargets(in rows: [Annotation]) -> [Annotation] {
+        let selection = effectiveSelection(in: rows)
+        guard !selection.isEmpty else { return rows }
+        return rows.filter { selection.contains($0.id) }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             toolbar
             Divider()
-            let deletedNotes = showResolved ? document.withdrawnAnnotations() : []
-            if visibleAnnotations.isEmpty && deletedNotes.isEmpty {
-                ContentUnavailableView(
-                    "No annotations",
-                    systemImage: "bubble.left.and.bubble.right",
-                    description: Text("Claude proposes; you dispose. Ask Claude for editorial feedback to see annotations here."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    let livePids = Set(document.sequence)
-                    LazyVStack(spacing: 0) {
-                        ForEach(visibleAnnotations) { ann in
-                            AnnotationRow(
-                                annotation: ann,
-                                revertIsEnabled: AnnotationRowPolicy.revertEnabled(ann, livePids: livePids),
-                                showingStet: stetIds.contains(ann.id),
-                                isOwn: AnnotationOwnership.isOwn(
-                                    ann, localName: userPreferences.collaboratorDisplayName),
-                                onAccept: { accept(ann) },
-                                onReject: { rejectSheet = ann },
-                                onArchive: { archive(ann) },
-                                onReply: { querySheet = ann },
-                                onEdit: { editSheet = ann },
-                                onWithdraw: { withdrawConfirm = ann },
-                                onRevert: { revert(ann) },
-                                onReopen: {
-                                    Task { try? await document.reopenAnnotation(id: ann.id, undoManager: undoManager) }
-                                },
-                                onJumpToParagraph: { jump(ann) })
-                            Divider()
-                        }
-                        // RULING-34: delete is normalised for annotations too.
-                        // The writer's withdrawn notes are findable here and
-                        // restorable — not gone at one expired ⌘Z's mercy.
-                        if showResolved {
-                            let deleted = deletedNotes
-                            if !deleted.isEmpty {
-                                Text("Deleted")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 12).padding(.top, 10)
-                                ForEach(deleted, id: \.id) { note in
-                                    HStack(spacing: 8) {
-                                        Text(note.body)
-                                            .font(.callout).foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                        Spacer()
-                                        Button("Restore") {
-                                            Task { try? await document.reopenAnnotation(id: note.id) }
-                                        }
-                                        .buttonStyle(.bordered).controlSize(.small)
-                                    }
-                                    .padding(.horizontal, 12).padding(.vertical, 8)
-                                    Divider()
-                                }
-                            }
-                        }
-                    }
-                }
+            passOrderNudge
+            switch scope {
+            case .document:
+                documentScope
+            case .project(let focusPiece):
+                projectScope(focusPiece: focusPiece)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .sheet(item: $rejectSheet) { ann in
-            RejectReasoningSheet(annotation: ann) { reason in
-                reject(ann, reason: reason)
+        // The pass default is PER PIECE, so travelling re-asks the question.
+        // Carrying an explicit choice across would filter the new piece's
+        // queue by a pass the writer chose while reading a different chapter —
+        // and, worse, silently hide notes on a piece they have just arrived at.
+        .onChange(of: document?.docId) { _, _ in
+            passSelection = .followActivePass
+        }
+        .sheet(item: $rejectSheet) { target in
+            RejectReasoningSheet(annotation: target.annotation) { reason in
+                reject(target.document, target.annotation, reason: reason)
                 rejectSheet = nil
             } onCancel: { rejectSheet = nil }
         }
-        .sheet(item: $querySheet) { ann in
-            QueryReplySheet(annotation: ann) { reply in
-                Task { try? await document.acceptAnnotation(
-                    id: ann.id, userResponse: reply, undoManager: undoManager) }
+        .sheet(item: $querySheet) { target in
+            QueryReplySheet(annotation: target.annotation) { reply in
+                replyToQuery(target.document, target.annotation, reply: reply)
                 querySheet = nil
             } onCancel: { querySheet = nil }
         }
@@ -204,8 +379,8 @@ struct AnnotationsPane: View {
                 set: { if !$0 { staleConfirm = nil } })
         ) {
             Button("Apply anyway") {
-                if let ann = staleConfirm {
-                    Task { await performAccept(ann) }
+                if let target = staleConfirm {
+                    Task { await performAccept(target.document, target.annotation) }
                 }
                 staleConfirm = nil
             }
@@ -230,16 +405,29 @@ struct AnnotationsPane: View {
                 set: { if !$0 { revertConfirm = nil } })
         ) {
             Button("Revert anyway") {
-                if let ann = revertConfirm { performRevert(ann) }
+                if let target = revertConfirm {
+                    performRevert(target.document, target.annotation)
+                }
                 revertConfirm = nil
             }
             Button("Cancel", role: .cancel) { revertConfirm = nil }
         } message: {
             Text("Reverting will replace the current paragraph text with what it was before the accept. Edits made since the accept will be lost.")
         }
-        .sheet(item: $editSheet) { ann in
-            EditAnnotationSheet(annotation: ann) { newBody, newSuggested in
-                editOwn(ann, newBody: newBody, newSuggested: newSuggested)
+        .alert(
+            "Not everything in the batch could be done",
+            isPresented: Binding(
+                get: { bulkNotice != nil },
+                set: { if !$0 { bulkNotice = nil } })
+        ) {
+            Button("OK") { bulkNotice = nil }
+        } message: {
+            Text(bulkNotice ?? "")
+        }
+        .sheet(item: $editSheet) { target in
+            EditAnnotationSheet(annotation: target.annotation) { newBody, newSuggested in
+                editOwn(target.document, target.annotation,
+                        newBody: newBody, newSuggested: newSuggested)
                 editSheet = nil
             } onCancel: { editSheet = nil }
         }
@@ -250,12 +438,323 @@ struct AnnotationsPane: View {
                 set: { if !$0 { withdrawConfirm = nil } })
         ) {
             Button("Delete", role: .destructive) {
-                if let ann = withdrawConfirm { withdrawOwn(ann) }
+                if let target = withdrawConfirm {
+                    withdrawOwn(target.document, target.annotation)
+                }
                 withdrawConfirm = nil
             }
             Button("Cancel", role: .cancel) { withdrawConfirm = nil }
         } message: {
             Text("This removes your annotation. The history is preserved, but the annotation will no longer appear here or in the editor.")
+        }
+        // The closed-document / cross-device half of project scope's refresh
+        // (M3 P2 Task 9). The verbs below bump the token for the notes the
+        // writer changes HERE; this is for the ones that changed somewhere
+        // else — a peer device's sync, a note added to a piece this window
+        // never opened. `.onProjectEvent` owns the scope filter and the
+        // closed-window liveness guard (ADR 0021, tripwire 21); the window is
+        // resolved through `WindowAccessor` because a cached `nil` is not a
+        // close check (`MaughamEvent.isLive`).
+        .background(WindowAccessor(window: $window))
+        .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { _ in
+            noteChanged()
+        }
+    }
+
+    // MARK: - The advisory nudge (M3 P2 Task 8)
+
+    /// One quiet line when the piece is being worked through a pass while an
+    /// earlier one is still open. **Advice, not a gate** (the constitution's
+    /// lenses-not-gates): nothing is disabled, nothing is confirmed, and a
+    /// writer who means to proofread before the structural pass is finished
+    /// reads one sentence and carries on.
+    ///
+    /// **Keyed on the piece's RECORDED active pass, never on `resolvedPassId`.**
+    /// The filter is a lens over the same piece; what the writer is *working*
+    /// it through does not change because they widened the view to see every
+    /// note (spec §2, and `PassOrderAdvice.advice`, whose signature has no
+    /// selection to hand it).
+    ///
+    /// Document scope only: it is a statement about ONE piece's pass states,
+    /// and in project scope every section is a different piece with different
+    /// ones — a single caption there could only be wrong.
+    @ViewBuilder
+    private var passOrderNudge: some View {
+        if !scope.isProject,
+           let earlier = PassOrderAdvice.advice(
+                forPiece: document?.docId, memory: activePassMemory,
+                passes: reviewPasses, passStates: piecePassStates) {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "info.circle").font(.caption2)
+                Text(PassOrderAdvice.caption(for: earlier))
+                    .font(.caption2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            Divider()
+        }
+    }
+
+    // MARK: - Document scope
+
+    @ViewBuilder
+    private var documentScope: some View {
+        if let document {
+            documentQueue(document)
+        } else {
+            // The empty state the mount used to hold, moved inside so the scope
+            // toggle above it stays reachable: a writer who closed the piece
+            // must still be able to widen to the project (tripwire 15's frame
+            // chain travels with it).
+            ContentUnavailableView(
+                "Select a document",
+                systemImage: "doc.text",
+                description: Text("Open a manuscript to see and act on its notes — or switch to All Pieces for the whole project."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func documentQueue(_ document: Document) -> some View {
+        let rows = visibleAnnotations(of: document)
+        let deletedNotes = showResolved ? document.withdrawnAnnotations() : []
+        if rows.isEmpty && deletedNotes.isEmpty {
+            ContentUnavailableView(
+                "No annotations",
+                systemImage: "bubble.left.and.bubble.right",
+                description: Text("Claude proposes; you dispose. Ask Claude for editorial feedback to see annotations here."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                let livePids = Set(document.sequence)
+                let selection = effectiveSelection(in: rows)
+                LazyVStack(spacing: 0) {
+                    ForEach(rows) { ann in
+                        annotationRow(
+                            ann, docId: document.docId, document: document,
+                            livePids: livePids,
+                            isSelectable: showBulkBar,
+                            isSelected: selection.contains(ann.id))
+                        Divider()
+                    }
+                    // RULING-34: delete is normalised for annotations too.
+                    // The writer's withdrawn notes are findable here and
+                    // restorable — not gone at one expired ⌘Z's mercy.
+                    if showResolved && !deletedNotes.isEmpty {
+                        Text("Deleted")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12).padding(.top, 10)
+                        ForEach(deletedNotes, id: \.id) { note in
+                            HStack(spacing: 8) {
+                                Text(note.body)
+                                    .font(.callout).foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                Spacer()
+                                Button("Restore") { reopen(document, id: note.id) }
+                                    .buttonStyle(.bordered).controlSize(.small)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            Divider()
+                        }
+                    }
+                }
+            }
+            // Only over rows: the Deleted section below the queue is
+            // restore-only, and a bar offering to accept nothing is a
+            // dead control (RULING-35).
+            if showBulkBar && !rows.isEmpty {
+                Divider()
+                bulkBar(document: document, rows: rows)
+            }
+        }
+    }
+
+    // MARK: - Project scope (M3 P2 Task 7)
+
+    @ViewBuilder
+    private func projectScope(focusPiece: String?) -> some View {
+        let snapshot = projectSnapshot
+        let sections = projectSections(snapshot)
+        let notice = AnnotationScopeSections.unreadableNotice(
+            unreadableDocIds: snapshot.unreadableDocIds, rows: boardRows)
+        if sections.isEmpty && notice == nil {
+            ContentUnavailableView(
+                "No annotations in this project",
+                systemImage: "bubble.left.and.bubble.right",
+                description: Text("Every piece's notes gather here. Ask Claude for editorial feedback to see annotations."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(sections) { section in
+                            // The sequences travel DOWN from the one snapshot
+                            // read: asking the store per section would restat
+                            // every closed piece's op log once per heading.
+                            sectionView(section, sequences: snapshot.sequences)
+                        }
+                        if let notice { unreadableFootnote(notice) }
+                    }
+                }
+                .onAppear { scroll(to: focusPiece, proxy: proxy) }
+                .onChange(of: scope) { _, newScope in
+                    if case .project(let piece) = newScope {
+                        scroll(to: piece, proxy: proxy)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Bring an arriving piece's section into view (Task 9's click-through from
+    /// the board sets `focusPiece`). Deferred a tick: the sections mount lazily
+    /// and a `scrollTo` issued in the same pass lands on a stack that has not
+    /// laid its rows out yet — the `TreeScrollTarget` shape.
+    private func scroll(to piece: String?, proxy: ScrollViewProxy) {
+        guard let piece else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            withAnimation { proxy.scrollTo(piece, anchor: .top) }
+        }
+    }
+
+    @ViewBuilder
+    private func sectionView(
+        _ section: AnnotationScopeSections.Section,
+        sequences: [String: [String]]
+    ) -> some View {
+        switch section.kind {
+        case .group(let depth):
+            Text(section.item.title)
+                .font(.caption.smallCaps())
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 12 + CGFloat(depth) * 12)
+                .padding(.trailing, 12)
+                .padding(.top, 14).padding(.bottom, 2)
+                .id(section.id)
+        case .piece:
+            pieceSection(section, sequences: sequences)
+        }
+    }
+
+    @ViewBuilder
+    private func pieceSection(
+        _ section: AnnotationScopeSections.Section,
+        sequences: [String: [String]]
+    ) -> some View {
+        // The row's own document, and the whole of the open-vs-closed question:
+        // a closed piece's notes are readable here and actable in ITS window.
+        let rowDocument = documentStore.document(forDocId: section.item.id)
+        let livePids = Set(rowDocument?.sequence
+            ?? sequences[section.item.id] ?? [])
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text(section.item.title)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                Text("\(section.annotations.count)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                Spacer(minLength: 4)
+                if rowDocument == nil {
+                    Image(systemName: "lock")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .help(AnnotationScopePolicy.closedPieceReason)
+                        .accessibilityLabel(AnnotationScopePolicy.closedPieceReason)
+                }
+            }
+            .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 4)
+            ForEach(section.annotations) { ann in
+                annotationRow(ann, docId: section.item.id,
+                              document: rowDocument, livePids: livePids)
+                Divider()
+            }
+        }
+        .id(section.id)
+    }
+
+    /// RULING-54's honesty half at the queue's foot — see
+    /// `AnnotationScopeSections.unreadableNotice`.
+    @ViewBuilder
+    private func unreadableFootnote(_ notice: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle").font(.caption2)
+            Text(notice).font(.caption2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12).padding(.vertical, 10)
+    }
+
+    // MARK: - One row, either scope
+
+    /// The one row builder. Document scope passes its own document for every
+    /// row; project scope passes the row's, which is `nil` for a closed piece —
+    /// and that nil is the whole of the verb gate.
+    @ViewBuilder
+    private func annotationRow(
+        _ ann: Annotation,
+        docId: String,
+        document rowDocument: Document?,
+        livePids: Set<String>,
+        isSelectable: Bool = false,
+        isSelected: Bool = false
+    ) -> some View {
+        AnnotationRow(
+            annotation: ann,
+            revertIsEnabled: AnnotationRowPolicy.revertEnabled(ann, livePids: livePids),
+            showingStet: stetFlourishIds.contains(ann.id),
+            isOwn: AnnotationOwnership.isOwn(
+                ann, localName: userPreferences.collaboratorDisplayName),
+            verbsEnabled: AnnotationScopePolicy.verbsEnabled(
+                documentIsOpen: rowDocument != nil),
+            verbsDisabledReason: AnnotationScopePolicy.closedPieceReason,
+            isSelectable: isSelectable,
+            isSelected: isSelected,
+            onToggleSelection: { toggleSelection(ann.id) },
+            onAccept: { withDocument(rowDocument) { accept($0, ann) } },
+            onReject: { withDocument(rowDocument) {
+                rejectSheet = AnnotationTarget(document: $0, annotation: ann) } },
+            onStet: { withDocument(rowDocument) { stet($0, ann) } },
+            onTriage: { mark in
+                withDocument(rowDocument) { triage($0, ann, mark: mark) } },
+            onArchive: { withDocument(rowDocument) { archive($0, ann) } },
+            onReply: { withDocument(rowDocument) {
+                querySheet = AnnotationTarget(document: $0, annotation: ann) } },
+            onEdit: { withDocument(rowDocument) {
+                editSheet = AnnotationTarget(document: $0, annotation: ann) } },
+            onWithdraw: { withDocument(rowDocument) {
+                withdrawConfirm = AnnotationTarget(document: $0, annotation: ann) } },
+            onRevert: { withDocument(rowDocument) { revert($0, ann) } },
+            onReopen: { withDocument(rowDocument) { reopen($0, id: ann.id) } },
+            onJumpToParagraph: { click(docId: docId, annotation: ann) })
+    }
+
+    /// Belt behind the disabled verbs: a control that somehow fires with no
+    /// live document does nothing, rather than reaching for a transient one
+    /// whose ops the writer's ⌘Z could never find.
+    private func withDocument(_ document: Document?, _ body: (Document) -> Void) {
+        guard let document else { return }
+        body(document)
+    }
+
+    /// **What clicking a row means** — the pure rule's answer, applied.
+    /// Travelling writes the window's SUBJECT and nothing else; the persona is
+    /// never touched (`AnnotationScopeTests`, and `ManuscriptNavigation`'s
+    /// ruling behind it).
+    private func click(docId: String, annotation: Annotation) {
+        switch AnnotationScopePolicy.click(
+            rowDocId: docId, activeDocId: document?.docId) {
+        case .jump:
+            jump(annotation)
+        case .travel(let piece):
+            onTravel(piece)
         }
     }
 
@@ -267,6 +766,15 @@ struct AnnotationsPane: View {
                 selection: $kindFilter)
                 .layoutPriority(1)
             Spacer(minLength: 4)
+            passMenu
+            scopeMenu
+            // Multiselect is document-scope only — see
+            // `AnnotationScopePolicy.showsBulkAffordances` for why a
+            // cross-document bulk bar would be a lying count.
+            if AnnotationScopePolicy.showsBulkAffordances(scope) {
+                selectionModeButton
+            }
+            triageFilterMenu
             authorMenu
             Button {
                 showResolved.toggle()
@@ -282,6 +790,299 @@ struct AnnotationsPane: View {
                 : "Showing open only · click to include resolved")
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
+    }
+
+    /// **Which pass the queue is looking through** (M3 P2 Task 8). A menu, for
+    /// `triageFilterMenu`'s reason — the toolbar is a 280pt column and a
+    /// project may name any number of passes, so a segmented row is not an
+    /// option here at all.
+    ///
+    /// The label carries the pass's own name when one is selected, so what the
+    /// queue is showing is readable without opening the menu; "All Passes"
+    /// leads, because widening back out is the escape hatch from a filter that
+    /// was chosen FOR the writer by the board's chip click.
+    @ViewBuilder
+    private var passMenu: some View {
+        let current = resolvedPassId
+        Menu {
+            Button {
+                passSelection = .allPasses
+            } label: {
+                if current == nil {
+                    Label("All Passes", systemImage: "checkmark")
+                } else {
+                    Text("All Passes")
+                }
+            }
+            Divider()
+            ForEach(reviewPasses) { pass in
+                Button {
+                    passSelection = .pass(pass.id)
+                } label: {
+                    if current == pass.id {
+                        Label(pass.name, systemImage: "checkmark")
+                    } else {
+                        Text(pass.name)
+                    }
+                }
+            }
+        } label: {
+            Label(
+                reviewPasses.first { $0.id == current }?.name ?? "Pass",
+                systemImage: current == nil
+                    ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Show only the notes written during one review pass. Notes "
+            + "written outside any pass appear under every one.")
+    }
+
+    /// **This Piece / All Pieces** (M3 P2 Task 7). A menu rather than a
+    /// segmented picker for `triageFilterMenu`'s reason: the toolbar already
+    /// carries the kind row, and two more segments would push it into
+    /// icon-only mode in a 280pt column. The label always carries the word, so
+    /// which way the queue is looking is readable without opening it.
+    @ViewBuilder
+    private var scopeMenu: some View {
+        Menu {
+            scopeItem("This Piece", isCurrent: !scope.isProject, target: .document)
+            scopeItem("All Pieces", isCurrent: scope.isProject,
+                      target: .project(focusPiece: nil))
+        } label: {
+            Label(scope.isProject ? "All Pieces" : "This Piece",
+                  systemImage: scope.isProject ? "books.vertical" : "doc.text")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Show this piece's notes, or every piece's, grouped by piece")
+    }
+
+    @ViewBuilder
+    private func scopeItem(
+        _ title: String, isCurrent: Bool, target: AnnotationScope
+    ) -> some View {
+        Button {
+            setScope(target)
+        } label: {
+            if isCurrent {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+    }
+
+    /// Widening leaves selection mode behind. The ticks are document-scope
+    /// state, and a selection nobody can see is the trap the mode's own door
+    /// already clears them to avoid.
+    private func setScope(_ newScope: AnnotationScope) {
+        scope = newScope
+        if !AnnotationScopePolicy.showsBulkAffordances(newScope) {
+            showBulkBar = false
+            selectedIds.removeAll()
+        }
+    }
+
+    /// Selection mode's door. A mode rather than always-on checkboxes: the
+    /// column is 280pt and a writer answering notes one at a time should not
+    /// pay for a control they are not using. Leaving the mode drops the ticks —
+    /// a selection nobody can see is a trap the next entry would spring.
+    @ViewBuilder
+    private var selectionModeButton: some View {
+        Button {
+            showBulkBar.toggle()
+            if !showBulkBar { selectedIds.removeAll() }
+        } label: {
+            Image(systemName: "checklist")
+                .font(.caption)
+                .foregroundStyle(showBulkBar ? Color.accentColor : .secondary)
+        }
+        .buttonStyle(.plain)
+        .help(showBulkBar
+            ? "Leave selection mode"
+            : "Select several notes and answer them together")
+    }
+
+    /// The bulk bar. Two rows so nothing truncates in a narrow column: the
+    /// scope on top (what is being acted on, and the one control that changes
+    /// it), the verbs below.
+    @ViewBuilder
+    private func bulkBar(document: Document, rows: [Annotation]) -> some View {
+        let targets = bulkTargets(in: rows)
+        let selection = effectiveSelection(in: rows)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button(selection.isEmpty ? "Select All" : "Deselect All") {
+                    selectedIds = selection.isEmpty ? Set(rows.map(\.id)) : []
+                }
+                .buttonStyle(.link)
+                Spacer(minLength: 4)
+                Text(selection.isEmpty
+                     ? "All \(targets.count) shown"
+                     : "\(selection.count) selected")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                bulkTriageMenu(document: document, targets: targets,
+                               hasSelection: !selection.isEmpty)
+            }
+            HStack(spacing: 8) {
+                bulkButton(.accept, document: document, targets: targets,
+                           hasSelection: !selection.isEmpty,
+                           help: "Answer these at once. ⌘Z reverses the batch — "
+                               + "except for accepted suggestions, where it reaches "
+                               + "only the last; use a row's Revert for the others.")
+                bulkButton(.stet, document: document, targets: targets,
+                           hasSelection: !selection.isEmpty,
+                           help: "Read, considered — and the words stand. "
+                               + "Resolves these without applying or refusing anything.")
+                Spacer(minLength: 0)
+            }
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 8).padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private func bulkButton(
+        _ verb: AnnotationBulkActions.BulkVerb, document: Document,
+        targets: [Annotation], hasSelection: Bool, help: String
+    ) -> some View {
+        let planned = AnnotationBulkActions.plan(targets, verb: verb)
+        Button(AnnotationBulkActions.buttonTitle(
+            verb, planned: planned.count, targetCount: targets.count,
+            hasSelection: hasSelection)
+        ) {
+            runBulk(verb, on: planned, in: document)
+        }
+        .buttonStyle(.bordered)
+        .disabled(planned.isEmpty || bulkInFlight)
+        .help(help)
+    }
+
+    /// Marking a pile is the gesture bulk was built for — a writer skims forty
+    /// notes, flags what they mean to do, then works the `Do` band. Each item
+    /// carries its own honest count, since the notes already holding that mark
+    /// are not reached (the row's menu refuses the same re-mark).
+    @ViewBuilder
+    private func bulkTriageMenu(
+        document: Document, targets: [Annotation], hasSelection: Bool
+    ) -> some View {
+        Menu {
+            ForEach(TriageMark.allCases, id: \.self) { mark in
+                bulkMenuItem(.triage(mark), document: document, targets: targets,
+                             hasSelection: hasSelection)
+            }
+            Divider()
+            bulkMenuItem(.triage(nil), document: document, targets: targets,
+                         hasSelection: hasSelection)
+        } label: {
+            Label("Triage", systemImage: "flag")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(bulkInFlight)
+        .help("Mark what you plan to do about all of these")
+    }
+
+    @ViewBuilder
+    private func bulkMenuItem(
+        _ verb: AnnotationBulkActions.BulkVerb, document: Document,
+        targets: [Annotation], hasSelection: Bool
+    ) -> some View {
+        let planned = AnnotationBulkActions.plan(targets, verb: verb)
+        Button(AnnotationBulkActions.buttonTitle(
+            verb, planned: planned.count, targetCount: targets.count,
+            hasSelection: hasSelection)
+        ) {
+            runBulk(verb, on: planned, in: document)
+        }
+        .disabled(planned.isEmpty)
+    }
+
+    /// Run one verb over the planned ids.
+    ///
+    /// **No undo group wraps this** (ADR 0023's D1 corollary): a group would
+    /// have to cover accept, and `Document.acceptAnnotation` calls
+    /// `removeAllActions` from inside itself. Each note registers its own undo
+    /// action instead; `NSUndoManager`'s event grouping then coalesces the
+    /// batch, so one ⌘Z reverses it — which is what one deliberate click should
+    /// cost. The accepted consequence is accept's own: each accept wipes the
+    /// previous one's registration, so after a bulk accept only the LAST
+    /// suggestion is reachable by ⌘Z and the rest need a row's Revert. The
+    /// Accept button's tooltip says so; `AnnotationBulkActionsTests` pins it.
+    private func runBulk(
+        _ verb: AnnotationBulkActions.BulkVerb, on ids: [String],
+        in document: Document
+    ) {
+        guard !ids.isEmpty, !bulkInFlight else { return }
+        bulkInFlight = true
+        // The same flourish a single Stet wears, at scale: the rows stay put
+        // for ~2.5s wearing the proofreader's mark before they resolve out of
+        // the open list, so the writer sees what they just did.
+        if verb == .stet { stetFlourishIds.formUnion(ids) }
+        Task {
+            let outcome = await AnnotationBulkActions.perform(
+                verb, on: ids, in: document, undoManager: undoManager)
+            bulkInFlight = false
+            noteChanged()
+            // Selection hygiene: the run may have taken its own rows off
+            // screen. Prune to what is still visible rather than leaving ticks
+            // pointing at nothing.
+            selectedIds = effectiveSelection(in: visibleAnnotations(of: document))
+            if let notice = outcome.notice { bulkNotice = notice }
+            if verb == .stet {
+                // Drop the mark from anything that did NOT stet immediately:
+                // the flourish says "this note has been let stand", and a row
+                // wearing it for 2.5s over a note that is still open is the
+                // surface lying about what happened.
+                stetFlourishIds.subtract(
+                    Set(ids).subtracting(outcome.succeeded))
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                stetFlourishIds.subtract(outcome.succeeded)
+            }
+        }
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedIds.contains(id) {
+            selectedIds.remove(id)
+        } else {
+            selectedIds.insert(id)
+        }
+    }
+
+    /// The queue's own filter (M3 P2): show only what you said you'd do, only
+    /// what you said you'd decline, only what you haven't looked at yet. A menu
+    /// rather than another segmented row — the toolbar already carries the kind
+    /// filter, and five more segments would push both into icon-only mode in a
+    /// 280pt column.
+    @ViewBuilder
+    private var triageFilterMenu: some View {
+        Menu {
+            ForEach(AnnotationTriageFilter.allCases) { option in
+                Button {
+                    triageFilter = option
+                } label: {
+                    if option == triageFilter {
+                        Label(option.label, systemImage: "checkmark")
+                    } else {
+                        Text(option.label)
+                    }
+                }
+            }
+        } label: {
+            Label(
+                triageFilter == .all ? "Triage" : triageFilter.label,
+                systemImage: triageFilter == .all ? "flag" : "flag.fill")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Filter by what you plan to do about each note")
     }
 
     @ViewBuilder
@@ -309,17 +1110,28 @@ struct AnnotationsPane: View {
         }
     }
 
-    private func accept(_ ann: Annotation) {
+    // MARK: - The verbs
+    //
+    // Every one of them takes the document EXPLICITLY. In project scope the
+    // row's document is not the pane's own, and a verb that reached for
+    // `self.document` would answer a note about Chapter Nine by editing
+    // whatever happens to be centred. The pane's own document is just the
+    // argument document scope passes.
+    //
+    // Every one of them also calls `noteChanged()` when its work lands — see
+    // `projectRefreshToken`. `AnnotationScopeTests` keeps the two together.
+
+    private func accept(_ document: Document, _ ann: Annotation) {
         if ann.kind == .suggestedChange && ann.isStale {
-            staleConfirm = ann
+            staleConfirm = AnnotationTarget(document: document, annotation: ann)
             return
         }
-        Task { await performAccept(ann) }
+        Task { await performAccept(document, ann) }
     }
 
     private var anchorLostMessage: String {
         let quoted: String
-        if let quote = anchorLostNotice?.span?.quote, !quote.isEmpty {
+        if let quote = anchorLostNotice?.annotation.span?.quote, !quote.isEmpty {
             quoted = " (\u{201C}\(quote)\u{201D})"
         } else {
             quoted = ""
@@ -333,38 +1145,82 @@ struct AnnotationsPane: View {
     /// The one accept executor for suggestion-capable paths: a refusal for a
     /// lost span anchor (RULING-5) is surfaced, never swallowed — `try?` here
     /// would be the M5-AN-050 silence back again.
-    private func performAccept(_ ann: Annotation) async {
+    private func performAccept(_ document: Document, _ ann: Annotation) async {
         do {
             try await document.acceptAnnotation(id: ann.id, undoManager: undoManager)
         } catch let error as AnnotationAcceptError where error == .suggestionAnchorLost {
-            anchorLostNotice = ann
+            anchorLostNotice = AnnotationTarget(document: document, annotation: ann)
         } catch {
             documentLog.error("acceptAnnotation failed for \(ann.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+        noteChanged()
     }
 
-    private func reject(_ ann: Annotation, reason: String) {
-        // For a suggested change, show the proofreader's "stet" flourish briefly
-        // before the rejected row leaves the open list. The op is recorded
-        // immediately (never blocked); the stet flag keeps the row on-screen for
-        // ~1.5s so the strike-through resolves back with a "stet" mark.
-        if ann.kind == .suggestedChange {
-            stetIds.insert(ann.id)
-            Task {
-                try? await document.rejectAnnotation(id: ann.id, userResponse: reason, undoManager: undoManager)
-                // Hold ~2.5s so the strike-removed "prior" text + the STET badge
-                // read clearly before the row resolves out of the open list. The
-                // op above already landed; this only governs the visual dwell.
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
-                stetIds.remove(ann.id)
-            }
-        } else {
-            Task { try? await document.rejectAnnotation(id: ann.id, userResponse: reason, undoManager: undoManager) }
+    /// Reply to a query — an accept carrying the writer's words.
+    private func replyToQuery(
+        _ document: Document, _ ann: Annotation, reply: String
+    ) {
+        Task {
+            try? await document.acceptAnnotation(
+                id: ann.id, userResponse: reply, undoManager: undoManager)
+            noteChanged()
         }
     }
 
-    private func archive(_ ann: Annotation) {
-        Task { try? await document.archiveAnnotation(id: ann.id, undoManager: undoManager) }
+    private func reject(_ document: Document, _ ann: Annotation, reason: String) {
+        Task {
+            try? await document.rejectAnnotation(
+                id: ann.id, userResponse: reason, undoManager: undoManager)
+            noteChanged()
+        }
+    }
+
+    /// Stet — the proofreader's own gesture, and now the only one that wears the
+    /// proofreader's mark. The op is recorded immediately (never blocked); the
+    /// flag holds the row on-screen ~2.5s so the STET badge and the reinstated
+    /// text read clearly before the row resolves out of the open list.
+    private func stet(_ document: Document, _ ann: Annotation) {
+        stetFlourishIds.insert(ann.id)
+        Task {
+            try? await document.stetAnnotation(id: ann.id, undoManager: undoManager)
+            noteChanged()
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            stetFlourishIds.remove(ann.id)
+        }
+    }
+
+    /// Mark (or clear) what the writer plans to do about a note. Not a
+    /// resolution — the row stays exactly as open as it was; only its place in
+    /// the queue moves.
+    private func triage(_ document: Document, _ ann: Annotation, mark: TriageMark?) {
+        Task {
+            try? await document.triageAnnotation(
+                id: ann.id, mark: mark, undoManager: undoManager)
+            noteChanged()
+        }
+    }
+
+    private func archive(_ document: Document, _ ann: Annotation) {
+        Task {
+            try? await document.archiveAnnotation(id: ann.id, undoManager: undoManager)
+            noteChanged()
+        }
+    }
+
+    /// RULING-29's verb, and RULING-34's Restore — one spelling, taking an id
+    /// because a withdrawn note is not in the projection to be passed whole.
+    /// Extracted from the row's closure so the refresh census can see it; the
+    /// `reopenAnnotation` caller census is unmoved, since this is the same file
+    /// it already names. Restore reaches the undo-manager overload where it
+    /// used to call the bare one, which changes nothing: that overload
+    /// registers a ⌘Z pair only for a rejected / archived / stetted note and
+    /// falls through un-registered for a withdrawn one, which is all Restore
+    /// ever passes it.
+    private func reopen(_ document: Document, id: String) {
+        Task {
+            try? await document.reopenAnnotation(id: id, undoManager: undoManager)
+            noteChanged()
+        }
     }
 
     /// Revert an accepted suggestion from the pane (visible under the
@@ -375,25 +1231,31 @@ struct AnnotationsPane: View {
     /// Only THIS pane button gates: the ⌘Z undo closure calls
     /// `revertAcceptedAnnotation` directly (undo of an immediately-prior
     /// action needs no confirm).
-    private func revert(_ ann: Annotation) {
+    private func revert(_ document: Document, _ ann: Annotation) {
         if document.acceptedTextDrifted(annotationId: ann.id) {
-            revertConfirm = ann
+            revertConfirm = AnnotationTarget(document: document, annotation: ann)
             return
         }
-        performRevert(ann)
+        performRevert(document, ann)
     }
 
     /// Passing the window's undo manager makes the revert itself ⌘Z-undoable
     /// (re-accept, original reply preserved).
-    private func performRevert(_ ann: Annotation) {
-        Task { try? await document.revertAcceptedAnnotation(
-            id: ann.id, undoManager: undoManager) }
+    private func performRevert(_ document: Document, _ ann: Annotation) {
+        Task {
+            try? await document.revertAcceptedAnnotation(
+                id: ann.id, undoManager: undoManager)
+            noteChanged()
+        }
     }
 
     /// Author self-service edit of one's own annotation. The pane updates via
     /// `annotationsVersion`; the notification refreshes the key-window editor's
     /// crafted marks immediately (mirrors the create-case refresh).
-    private func editOwn(_ ann: Annotation, newBody: String, newSuggested: String?) {
+    private func editOwn(
+        _ document: Document, _ ann: Annotation,
+        newBody: String, newSuggested: String?
+    ) {
         Task {
             try? await document.editReviewerAnnotation(
                 id: ann.id,
@@ -401,6 +1263,7 @@ struct AnnotationsPane: View {
                 newSuggestedText: newSuggested,
                 authorName: userPreferences.collaboratorDisplayName,
                 undoManager: undoManager)
+            noteChanged()
             // No explicit editor notify: the edit bumps `annotationsVersion` on
             // the shared Document, which EditorHost mirrors into the control model
             // → `applyControl` → `setReviewAnnotations`, recomputing crafted marks
@@ -409,13 +1272,22 @@ struct AnnotationsPane: View {
     }
 
     /// Author self-service withdraw (delete) of one's own annotation.
-    private func withdrawOwn(_ ann: Annotation) {
+    private func withdrawOwn(_ document: Document, _ ann: Annotation) {
         Task {
             try? await document.withdrawReviewerAnnotation(
                 id: ann.id,
                 authorName: userPreferences.collaboratorDisplayName,
                 undoManager: undoManager)
+            noteChanged()
         }
+    }
+
+    /// Something changed under a row. Bumps the token `projectSnapshot` is
+    /// keyed on, so the cross-document queue re-reads a walk nothing else
+    /// observes (see `projectRefreshToken`). Cheap and unconditional: it costs
+    /// one integer in document scope, where nothing reads it.
+    private func noteChanged() {
+        projectRefreshToken &+= 1
     }
 
     private func jump(_ ann: Annotation) {
@@ -432,6 +1304,20 @@ struct AnnotationsPane: View {
             MaughamEvent.post(
                 .maughamNavigateToParagraph, to: .keyWindow,
                 payload: ["paragraph_id": pid])
+        }
+    }
+}
+
+/// RULING-35's other half as a modifier: a reason when there is one, and no
+/// tooltip at all when there is not.
+private struct RowDisabledReason: ViewModifier {
+    let reason: String?
+
+    func body(content: Content) -> some View {
+        if let reason {
+            content.help(reason)
+        } else {
+            content
         }
     }
 }
@@ -458,19 +1344,64 @@ struct AnnotationRow: View {
     /// Edit + Delete (withdraw) affordances. Claude's / other humans' rows
     /// never show them.
     var isOwn: Bool = false
+    /// **Whether this row's verbs can act** (M3 P2 Task 7). False in the
+    /// cross-document scope when the row's piece is closed: there is no live
+    /// `Document` to append to, and the alternative — a transient one — would
+    /// land an op the writer's ⌘Z could never reach. Disabled WITH a reason,
+    /// never enabled and silently inert (RULING-35).
+    var verbsEnabled: Bool = true
+    var verbsDisabledReason: String? = nil
+    /// Multiselect (M3 P2 Task 5) — true only while the pane is in selection
+    /// mode. The control is a `Button`, so it takes the click the row's
+    /// whole-body `.onTapGesture` would otherwise read as navigation: selecting
+    /// a note and travelling to it are different intentions and must not share
+    /// a gesture.
+    var isSelectable: Bool = false
+    var isSelected: Bool = false
+    var onToggleSelection: () -> Void = {}
     let onAccept: () -> Void
     let onReject: () -> Void
+    /// M3 P2's fourth resolution — read, considered, and the words stand.
+    var onStet: () -> Void = {}
+    /// Set or clear the note's triage mark (nil clears). Pane-only: the margin
+    /// card deliberately has no triage affordance — see `ReviewCardActions`.
+    var onTriage: (TriageMark?) -> Void = { _ in }
     let onArchive: () -> Void
     let onReply: () -> Void
     var onEdit: () -> Void = {}
     var onWithdraw: () -> Void = {}
     var onRevert: () -> Void = {}
     /// RULING-29: resolution is the writer's to reverse, from the surface that
-    /// shows it — rendered for archived/rejected rows.
+    /// shows it — rendered for archived, rejected and (M3 P2) stetted rows.
     var onReopen: () -> Void = {}
     let onJumpToParagraph: () -> Void
 
     var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            if isSelectable { selectionToggle }
+            rowContent
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(isSelected ? Color.accentColor.opacity(0.10) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture { onJumpToParagraph() }
+        .animation(.easeInOut(duration: 0.3), value: showingStet)
+    }
+
+    @ViewBuilder
+    private var selectionToggle: some View {
+        Button(action: onToggleSelection) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 1)
+        .help(isSelected ? "Deselect this note" : "Select this note")
+        .accessibilityLabel(isSelected ? "Selected" : "Not selected")
+    }
+
+    @ViewBuilder
+    private var rowContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             header
             Text(annotation.body)
@@ -484,15 +1415,15 @@ struct AnnotationRow: View {
                     .foregroundStyle(.secondary)
                     .italic()
             }
-            if annotation.kind == .suggestedChange {
+            // Stet reaches every kind now, so the flourish has to as well —
+            // it can no longer live inside the suggestion-only diff card.
+            if showingStet {
+                stetCard
+            } else if annotation.kind == .suggestedChange {
                 diffCard
             }
             actionRow
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture { onJumpToParagraph() }
-        .animation(.easeInOut(duration: 0.3), value: showingStet)
     }
 
     @ViewBuilder
@@ -546,37 +1477,33 @@ struct AnnotationRow: View {
 
     @ViewBuilder
     private var diffCard: some View {
-        if showingStet {
-            stetCard
-        } else {
-            VStack(alignment: .leading, spacing: 1) {
-                // "Before" matches the suggestion's grain: the SPAN's original
-                // text for a sub-paragraph suggestion, else the whole paragraph —
-                // so a one-word suggestion reads `very angry → furious`, not
-                // `<whole paragraph> → furious` (SuggestionDisplay, shared w/ phone).
-                if let prior = SuggestionDisplay.before(for: annotation) {
-                    Text("\u{2212} \(AnnotationRow.displayText(prior))")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.red)
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.red.opacity(0.08))
-                }
-                if let suggested = annotation.suggestedText {
-                    Text("+ \(AnnotationRow.displayText(suggested))")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.green)
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.green.opacity(0.08))
-                }
+        VStack(alignment: .leading, spacing: 1) {
+            // "Before" matches the suggestion's grain: the SPAN's original
+            // text for a sub-paragraph suggestion, else the whole paragraph —
+            // so a one-word suggestion reads `very angry → furious`, not
+            // `<whole paragraph> → furious` (SuggestionDisplay, shared w/ phone).
+            if let prior = SuggestionDisplay.before(for: annotation) {
+                Text("\u{2212} \(AnnotationRow.displayText(prior))")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.08))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            if let suggested = annotation.suggestedText {
+                Text("+ \(AnnotationRow.displayText(suggested))")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.green.opacity(0.08))
+            }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
-    /// The proofreader's "stet" treatment shown briefly on rejecting a suggested
-    /// change: the struck prior text is reinstated (no strike), marked with a
+    /// The proofreader's "stet" treatment shown briefly on stetting a note: for
+    /// a suggestion the struck prior text is reinstated (no strike), marked with a
     /// dotted underline, and headed by a clear "STET — let it stand" badge so the
     /// gesture is unmistakable rather than a faint italic aside. A subtle tinted
     /// card + the row-level fade give the eye something to catch in the ~2.5s
@@ -617,51 +1544,154 @@ struct AnnotationRow: View {
     /// from the red/green diff so the eye reads it as a separate gesture.
     private var stetAccent: Color { Color(red: 0.20, green: 0.45, blue: 0.78) }
 
+    /// RULING-29's arm: a resolution is the writer's to reverse, from the
+    /// surface that shows it. Stet joined archive and reject there in M3 P2 — it
+    /// is a resolution like the other two. Exhaustive on purpose: a fifth status
+    /// must decide whether it is reopenable, not inherit an `else`.
+    private var showsReopen: Bool {
+        switch annotation.status {
+        case .archived, .rejected, .stetted: return true
+        case .open, .accepted: return false
+        }
+    }
+
+    /// The row's answers. Every verb keeps its word at the pane's default width;
+    /// under pressure (a 240pt column, an own suggestion carrying seven
+    /// controls) the secondary ones fall back to icons with the same word as the
+    /// tooltip, the way `AdaptiveFilterRow` degrades the kind filter above. The
+    /// primary verb — Accept / Got it / Reply — never loses its label.
     @ViewBuilder
     private var actionRow: some View {
+        ViewThatFits(in: .horizontal) {
+            actions(useIcons: false)
+            actions(useIcons: true)
+        }
+        .controlSize(.small)
+        // The whole row of verbs, gated together: a closed piece's note is
+        // readable and not actable, and the tooltip says what to do about it.
+        // The `.help` is applied only when there IS something to say — an
+        // empty help string is a tooltip that opens with nothing in it.
+        .disabled(!verbsEnabled)
+        .modifier(RowDisabledReason(
+            reason: verbsEnabled ? nil : verbsDisabledReason))
+    }
+
+    @ViewBuilder
+    private func actions(useIcons: Bool) -> some View {
         HStack(spacing: 8) {
-            if annotation.status == .archived || annotation.status == .rejected {
-                // RULING-29: any archived or rejected annotation can be
-                // reopened from the pane. (An accepted suggestion keeps its
-                // Revert below — reopening it is Revert's job, text included.)
+            if showsReopen {
+                // (An accepted suggestion keeps its Revert below — reopening it
+                // is Revert's job, text included.)
                 Button("Reopen", action: onReopen).buttonStyle(.bordered)
                     .help("Return this to the open list — resolution is yours to reverse (⌘Z re-applies it)")
             } else {
-            switch annotation.kind {
-            case .comment:
-                Button("Got it", action: onAccept).buttonStyle(.borderedProminent)
-                Button("Archive", action: onArchive).buttonStyle(.bordered)
-            case .suggestedChange:
-                if annotation.status == .accepted {
-                    // Accepted rows (visible under the resolved/All filter):
-                    // the one meaningful action is putting the text back.
-                    // ⌘Z only reaches the MOST RECENT accept; this reaches
-                    // any accepted suggestion at any time.
-                    Button("Revert", action: onRevert).buttonStyle(.bordered)
-                        .disabled(!revertIsEnabled)
-                        .help(revertIsEnabled
-                              ? "Restore the pre-accept text and reopen this suggestion"
-                              : "Its paragraph was deleted — there is nothing to revert into")
-                } else {
-                    Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
-                    Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
-                    Button("Archive", action: onArchive).buttonStyle(.bordered)
-                }
-            case .query:
-                Button("Reply\u{2026}", action: onReply).buttonStyle(.borderedProminent)
-                Button("Archive", action: onArchive).buttonStyle(.bordered)
-            case .craftNote:
-                Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
-                Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
-                Button("Archive", action: onArchive).buttonStyle(.bordered)
+                dispositions(useIcons: useIcons)
             }
-            }
+            triageMenu
             if isOwn {
                 Spacer(minLength: 4)
                 ownAffordances
             }
         }
-        .controlSize(.small)
+    }
+
+    @ViewBuilder
+    private func dispositions(useIcons: Bool) -> some View {
+        switch annotation.kind {
+        case .comment:
+            Button("Got it", action: onAccept).buttonStyle(.borderedProminent)
+            stetButton(useIcons: useIcons)
+            secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+        case .suggestedChange:
+            if annotation.status == .accepted {
+                // Accepted rows (visible under the resolved/All filter):
+                // the one meaningful action is putting the text back.
+                // ⌘Z only reaches the MOST RECENT accept; this reaches
+                // any accepted suggestion at any time.
+                Button("Revert", action: onRevert).buttonStyle(.bordered)
+                    .disabled(!revertIsEnabled)
+                    .help(revertIsEnabled
+                          ? "Restore the pre-accept text and reopen this suggestion"
+                          : "Its paragraph was deleted — there is nothing to revert into")
+            } else {
+                Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
+                secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
+                stetButton(useIcons: useIcons)
+                secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+            }
+        case .query:
+            Button("Reply\u{2026}", action: onReply).buttonStyle(.borderedProminent)
+            stetButton(useIcons: useIcons)
+            secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+        case .craftNote:
+            Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
+            secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
+            stetButton(useIcons: useIcons)
+            secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+        }
+    }
+
+    /// Stet — offered wherever Archive is, and the margin card mirrors it
+    /// (`ReviewCardActions`). The symbol is the proofreader's own mark: dots
+    /// under the words that stand.
+    @ViewBuilder
+    private func stetButton(useIcons: Bool) -> some View {
+        secondary(
+            "Stet", symbol: "textformat.abc.dottedunderline", useIcons: useIcons,
+            help: "Read, considered — and the words stand. Resolves the note without applying or refusing anything.",
+            action: onStet)
+    }
+
+    @ViewBuilder
+    private func secondary(
+        _ title: String, symbol: String, useIcons: Bool,
+        help: String? = nil, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            if useIcons {
+                Image(systemName: symbol)
+            } else {
+                Text(title)
+            }
+        }
+        .buttonStyle(.bordered)
+        .help(help ?? title)
+    }
+
+    /// What the writer plans to DO about this note — the queue's sort key, not a
+    /// resolution. The mark it already holds is checked AND disabled: re-applying
+    /// it appends an op whose ⌘Z undoes nothing the writer can see, so the
+    /// affordance refuses rather than the verb.
+    @ViewBuilder
+    private var triageMenu: some View {
+        Menu {
+            ForEach(TriageMark.allCases, id: \.self) { mark in
+                Button {
+                    onTriage(mark)
+                } label: {
+                    if annotation.triage == mark {
+                        Label(mark.queueLabel, systemImage: "checkmark")
+                    } else {
+                        Text(mark.queueLabel)
+                    }
+                }
+                .disabled(annotation.triage == mark)
+            }
+            if annotation.triage != nil {
+                Divider()
+                Button("Clear") { onTriage(nil) }
+            }
+        } label: {
+            if let mark = annotation.triage {
+                Label(mark.queueLabel, systemImage: mark.symbolName)
+            } else {
+                Image(systemName: "flag")
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(annotation.triage.map { "Triaged \($0.queueLabel) — change or clear it" }
+              ?? "Mark what you plan to do about this note")
     }
 
     /// Edit (pencil) + Delete (trash) for the reviewer's own annotation only.

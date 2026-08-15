@@ -65,6 +65,19 @@ public enum AnnotationDeriver {
         }
         let withdrawn = Set(withdrawState.filter { $0.value.kind == .annotationWithdraw }.keys)
 
+        // 1c. Triage (M3 P2): the latest `annotationTriage` op per target
+        //     carries the mark. Deliberately NOT folded into
+        //     `latestLifecycle` — a triaged note is still open, so a triage
+        //     must never displace a resolution, nor be displaced by one.
+        var latestTriage: [String: Op] = [:]
+        for op in ops {
+            guard op.kind == .annotationTriage,
+                  let src = op.provenance?.sourceAnnotationId else { continue }
+            if latestTriage[src].map({ op.opId > $0.opId }) ?? true {
+                latestTriage[src] = op
+            }
+        }
+
         // 2. Walk creation ops; build annotations.
         var result: [Annotation] = []
         for op in ops {
@@ -142,6 +155,14 @@ public enum AnnotationDeriver {
                 return reject.provenance?.userResponse
             }()
 
+            // The writer's triage mark (M3 P2) — parse-or-nil, mirroring the
+            // no-`.unknown`-case reasoning on `TriageMark` itself: the mark is
+            // a projection this deriver never re-encodes, so a raw value a
+            // newer build wrote surfaces as untriaged here while staying
+            // intact on the wire.
+            let triage = latestTriage[op.opId]?.provenance?.triageMark
+                .flatMap { TriageMark(rawValue: $0) }
+
             result.append(Annotation(
                 id: op.opId,
                 kind: kind,
@@ -159,7 +180,9 @@ public enum AnnotationDeriver {
                 span: span,
                 resolvedSpanRange: resolvedSpanRange,
                 language: language,
-                previousRejectionReason: previousRejectionReason))
+                previousRejectionReason: previousRejectionReason,
+                triage: triage,
+                reviewPassId: prov?.reviewPassId))
         }
         // Newest first by createdAt; tie-break by op_id (descending) for
         // stable ordering of same-instant ops.
@@ -242,10 +265,15 @@ public enum AnnotationDeriver {
         return (try? JSONDecoder().decode(ToolArgsLanguage.self, from: data))?.language
     }
 
-    private static func isLifecycleKind(_ kind: OpKind) -> Bool {
+    /// Which op kinds settle (or re-open) an annotation. `internal` rather
+    /// than `private` so the contract tests can pin membership directly — the
+    /// list is the difference between a note leaving the queue and a note
+    /// merely being marked, and `.annotationTriage`'s ABSENCE from it is as
+    /// load-bearing as `.annotationStet`'s presence.
+    static func isLifecycleKind(_ kind: OpKind) -> Bool {
         switch kind {
         case .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert,
-             .annotationReopen:
+             .annotationReopen, .annotationStet:
             return true
         default: return false
         }
@@ -265,6 +293,7 @@ public enum AnnotationDeriver {
             case .claudeAccept:  return .accepted
             case .claudeReject:  return .rejected
             case .claudeArchive: return .archived
+            case .annotationStet: return .stetted
             default:             return .open
             }
         }()

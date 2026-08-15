@@ -16,7 +16,8 @@ extension Document {
         switch kind {
         case .claudeComment, .claudeSuggestion, .claudeQuery, .claudeCraftNote,
              .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert,
-             .annotationEdit, .annotationWithdraw, .annotationReopen:
+             .annotationEdit, .annotationWithdraw, .annotationReopen,
+             .annotationStet, .annotationTriage:
             return true
         default:
             return false
@@ -31,17 +32,33 @@ extension Document {
         if !_annotationsCacheValid {
             rebuildAnnotationsCache()
         }
-        return _annotationsCache.filter { ann in
-            if let kinds = filter.kinds, !kinds.contains(ann.kind) { return false }
-            if let statuses = filter.statuses, !statuses.contains(ann.status) { return false }
-            if let pid = filter.paragraphId, ann.paragraphId != pid { return false }
-            return true
-        }
+        // `AnnotationFilter.matches` rather than three inline lines: the
+        // project-wide snapshot (M3 P2) is derived unfiltered and its readers
+        // apply the same filter, so the predicate is shared substrate.
+        return _annotationsCache.filter(filter.matches)
     }
 
     internal func invalidateAnnotationsCache() {
         _annotationsCacheValid = false
         annotationsVersion &+= 1
+    }
+
+    /// **Tell the project this document's notes moved** (M3 P2 Task 9).
+    ///
+    /// `annotationsVersion` above serves every surface HOLDING this document;
+    /// this serves the ones that cannot hold it — the board's open-notes column
+    /// and the queue's project scope, both of which count notes in documents
+    /// that are closed. `MaughamEvent.postAnnotationsChanged` owns the scope
+    /// (`.project`, `opStore.projectURL` — the same root `notifyWriter` uses).
+    ///
+    /// **Called from the APPEND sites, deliberately not from the invalidator
+    /// above.** The invalidator fires on keystroke-adjacent paths (the burst
+    /// flush's sweep among them) and every receiver walks the whole project;
+    /// announcing from there would put that walk on the typing path
+    /// (`AnnotationChangeEventTests`, both halves).
+    internal func announceAnnotationsChanged() {
+        MaughamEvent.postAnnotationsChanged(
+            docId: docId, projectURL: opStore.projectURL)
     }
 
     private func rebuildAnnotationsCache() {
@@ -61,7 +78,16 @@ extension Document {
         prompt: String? = nil,
         toolArgs: String? = nil,
         span: SpanAnchor? = nil,
-        author: AnnotationAuthor? = nil
+        author: AnnotationAuthor? = nil,
+        /// The `ReviewPass.id` the writer was working through when this note
+        /// was made (M3 P2 Task 8), or nil for a note that belongs to no pass.
+        /// Defaulted so every caller that has not been taught about passes
+        /// keeps writing unstamped notes rather than inventing one — and an
+        /// unstamped note appears in EVERY pass's queue, so nothing is hidden
+        /// by the default. Resolution is each caller's: the editor asks the
+        /// window, the MCP tools ask `activeReviewPassId`, and both go through
+        /// `ActivePassMemory.validatedActivePass`.
+        reviewPassId: String? = nil
     ) async throws -> String {
         // Owes the caller an annotation id, so it throws rather than
         // fabricating one for an annotation that was never persisted.
@@ -143,12 +169,14 @@ extension Document {
                 spanQuote: span?.quote,
                 spanPrefix: span?.prefix,
                 spanSuffix: span?.suffix,
-                spanPosHint: span?.posHint))
+                spanPosHint: span?.posHint,
+                reviewPassId: reviewPassId))
         try await opStore.append(op)
         appendToMirror(op)
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         invalidateTasksCache()
+        announceAnnotationsChanged()
         return op.opId
     }
 
@@ -164,7 +192,9 @@ extension Document {
         body: String,
         suggestedText: String? = nil,
         authorName: String,
-        authorId: String? = nil
+        authorId: String? = nil,
+        /// See `addAnnotation`'s own parameter — this wrapper only carries it.
+        reviewPassId: String? = nil
     ) async throws -> String {
         try await addAnnotation(
             kind: kind,
@@ -175,7 +205,8 @@ extension Document {
             author: AnnotationAuthor(
                 sourceKind: .human,
                 displayName: authorName,
-                collaboratorId: authorId))
+                collaboratorId: authorId),
+            reviewPassId: reviewPassId)
     }
 
     /// Author self-service: edit YOUR OWN annotation's body (and, for a
@@ -344,14 +375,18 @@ extension Document {
             undo: { doc in
                 try? await doc.reopenAnnotation(id: id)
                 switch priorStatus {
-                case .archived, .rejected, .accepted:
+                case .archived, .rejected, .accepted, .stetted:
                     // The reopen may itself have declined (a peer already
                     // reopened it, the doc husked) — re-applying the prior
                     // status regardless is still right: it is the status the
                     // writer had, and the deriver takes the latest lifecycle
                     // op either way.
-                    let kind: OpKind = priorStatus == .archived ? .claudeArchive
-                        : priorStatus == .rejected ? .claudeReject : .claudeAccept
+                    let kind: OpKind = switch priorStatus {
+                    case .archived: .claudeArchive
+                    case .rejected: .claudeReject
+                    case .stetted:  .annotationStet
+                    default:        .claudeAccept
+                    }
                     do {
                         try await doc.appendLifecycleOp(
                             kind: kind, sourceAnnotationId: id,
@@ -525,6 +560,7 @@ extension Document {
 
         invalidateAnnotationsCache()
         invalidateTasksCache()   // accept may have changed paragraph text → inline tasks
+        announceAnnotationsChanged()
     }
 
     /// True iff the paragraph's live text has DRIFTED since this annotation's
@@ -658,6 +694,7 @@ extension Document {
 
         invalidateAnnotationsCache()
         invalidateTasksCache()
+        announceAnnotationsChanged()
     }
 
     public func rejectAnnotation(
@@ -685,6 +722,60 @@ extension Document {
             })
     }
 
+    /// **Stet** — the fourth resolution (spec §5): the note was read,
+    /// considered, and the words stand. Not an accept (nothing is applied),
+    /// not a reject (nothing is refused), not an archive (it was not set aside
+    /// unread) — the writer answered it, and the answer was no change.
+    ///
+    /// Status-only, exactly like reject and archive: no manuscript text moves,
+    /// so none of accept's `removeAllActions` / `_undoCoherentApplyPending`
+    /// choreography applies (ADR 0023's D1 is about undo stacks that reference
+    /// pre-replace text storage; there is no replace here).
+    ///
+    /// Like reject, it refuses nothing on the way in: the deriver's
+    /// latest-lifecycle-op-wins rule settles a stet over an earlier
+    /// resolution. Which notes the queue OFFERS Stet on is the pane's business.
+    public func stetAnnotation(
+        id: String, userResponse: String? = nil,
+        undoManager: UndoManager? = nil
+    ) async throws {
+        try await appendLifecycleOp(
+            kind: .annotationStet,
+            sourceAnnotationId: id,
+            userResponse: userResponse)
+
+        // ⌘Z: undo reopens (annotationReopen → .open); redo re-stets,
+        // forwarding the original userResponse AND the LIVE undo manager so
+        // ⇧⌘Z re-arms a fresh undo pair (reject's precedent — indefinite
+        // ⌘Z/⇧⌘Z cycling; `[weak undoManager]` because NSUndoManager retains
+        // the closure).
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Stet Annotation", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                // Fire-time re-check with a LOUD decline (RULING-22,
+                // `editReviewerAnnotation`'s shape). Reject and archive lean on
+                // `reopenAnnotation`'s own drift guard, which declines to
+                // `documentLog` and to nobody else; the Edit menu still read
+                // "Undo Stet Annotation" and the writer pressed it. Unfiltered
+                // query — a `.stetted` note is invisible to the default
+                // `[.open]` filter (M5-AN-002).
+                let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
+                    .first { $0.id == id }
+                guard live?.status == .stetted else {
+                    documentLog.error("stetAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.status), privacy: .public)) — ignoring")
+                    doc.notifyWriter(
+                        "Couldn't undo stetting the note — it changed on another device.")
+                    return
+                }
+                try? await doc.reopenAnnotation(id: id)
+            },
+            redo: { [weak undoManager] doc in
+                try? await doc.stetAnnotation(
+                    id: id, userResponse: userResponse, undoManager: undoManager)
+            })
+    }
+
     public func archiveAnnotation(
         id: String, undoManager: UndoManager? = nil
     ) async throws {
@@ -701,6 +792,90 @@ extension Document {
             undo: { doc in try? await doc.reopenAnnotation(id: id) },
             redo: { [weak undoManager] doc in
                 try? await doc.archiveAnnotation(id: id, undoManager: undoManager)
+            })
+    }
+
+    // MARK: - Triage (the mark, not a resolution)
+
+    /// **Triage** — what the writer intends to DO about a note they are still
+    /// holding (spec §5): `do`, `decline`, `discuss`, or `nil` for untriaged.
+    /// This is how a writer plans a pass over a queue rather than answering it
+    /// note by note in arrival order.
+    ///
+    /// It is NOT a resolution and must never read as one. `.annotationTriage`
+    /// is outside `lifecycleOpKinds` (Task 1's deriver indexes marks
+    /// separately), so a mark can neither displace a resolution nor be
+    /// displaced by one, and a triaged note stays exactly as open as it was.
+    ///
+    /// A RESOLVED note takes a mark too, deliberately: the mark is metadata,
+    /// and a note the writer let stand can still be worth marking `discuss`
+    /// for the conversation that follows. Refusing here would make them reopen
+    /// a note they had already settled just to label it.
+    ///
+    /// Loud no-op when the projection does not hold the id (unknown, or
+    /// withdrawn) — a mark op naming a note nobody can see would sit in the
+    /// log forever marking nothing.
+    public func triageAnnotation(
+        id: String, mark: TriageMark?, undoManager: UndoManager? = nil
+    ) async throws {
+        // Unfiltered: `annotations()` defaults to `[.open]`, and a resolved
+        // note is a legitimate target (M5-AN-002, the documented footgun).
+        // This query is doing two jobs — the existence guard, and reading the
+        // mark ⌘Z has to put back.
+        let current = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
+        guard let current else {
+            documentLog.error("triageAnnotation: \(id, privacy: .public) is not in the projection — ignoring")
+            return
+        }
+        let priorMark = current.triage
+
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .annotationTriage, changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                sourceAnnotationId: id,
+                triageMark: mark?.rawValue))
+        try await appendAnnotationOpInternal(op)
+
+        // ⌘Z: undo appends another triage carrying the mark the note had
+        // BEFORE this one — not a clear. Marking `do`, changing your mind to
+        // `discuss` and pressing ⌘Z must leave `do` standing; blanket-clearing
+        // would take a decision the writer never asked to undo (M5-AN-036's
+        // lesson in the mark's own key). `nil` is a legitimate prior state and
+        // the factory writes it as one.
+        //
+        // Redo re-marks with the LIVE undo manager so ⇧⌘Z re-arms a fresh
+        // pair (reject's precedent — indefinite cycling; `[weak undoManager]`
+        // because NSUndoManager retains the closure).
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Triage Annotation", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                // Fire-time re-check with a LOUD decline (RULING-22,
+                // `stetAnnotation`'s shape): if a peer has re-marked the note
+                // since, reverting would overwrite their mark with
+                // capture-time state, and declining silently is the Edit menu
+                // saying "Undo Triage Annotation" and doing nothing.
+                let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
+                    .first { $0.id == id }
+                guard let live, live.triage == mark else {
+                    documentLog.error("triageAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.triage), privacy: .public)) — ignoring")
+                    doc.notifyWriter(
+                        "Couldn't undo the triage mark — it changed on another device.")
+                    return
+                }
+                let revert = AnnotationInverse.triageRevertOp(
+                    annotationId: id, priorMark: priorMark,
+                    docId: doc.docId, device: doc.device, session: doc.session)
+                try? await doc.appendAnnotationOpInternal(revert)
+            },
+            redo: { [weak undoManager] doc in
+                try? await doc.triageAnnotation(
+                    id: id, mark: mark, undoManager: undoManager)
             })
     }
 
@@ -722,6 +897,7 @@ extension Document {
         switch current?.status {
         case .rejected: undoneKind = .claudeReject
         case .archived: undoneKind = .claudeArchive
+        case .stetted:  undoneKind = .annotationStet
         case nil:
             // Absent from the projection — withdrawn iff the latest
             // withdraw/reopen op for this id is a withdraw; otherwise the id is
@@ -757,15 +933,17 @@ extension Document {
 
     /// The pane's Reopen (RULING-29): `reopenAnnotation` wrapped in a ⌘Z pair.
     /// Undo re-applies the PRIOR resolution whole — a reject returns with its
-    /// written reason (RULING-31's history is the projection's job; undo's job
-    /// is fidelity). Statuses without a clean prior resolution to re-apply
-    /// (withdrawn) fall through to the plain reopen, un-registered.
+    /// written reason, and so does a stet (RULING-31's history is the
+    /// projection's job; undo's job is fidelity). Statuses without a clean
+    /// prior resolution to re-apply (withdrawn) fall through to the plain
+    /// reopen, un-registered.
     public func reopenAnnotation(id: String, undoManager: UndoManager?) async throws {
         let prior = annotations(filter: AnnotationFilter(statuses: nil))
             .first { $0.id == id }
         try await reopenAnnotation(id: id)
         guard let priorStatus = prior?.status,
-              priorStatus == .rejected || priorStatus == .archived else { return }
+              priorStatus == .rejected || priorStatus == .archived
+                || priorStatus == .stetted else { return }
         let priorResponse = prior?.userResponse
         OpUndoRegistrar.register(
             undoManager, actionName: "Reopen Annotation", target: self,
@@ -776,6 +954,8 @@ extension Document {
                     try? await doc.rejectAnnotation(id: id, userResponse: priorResponse)
                 case .archived:
                     try? await doc.archiveAnnotation(id: id)
+                case .stetted:
+                    try? await doc.stetAnnotation(id: id, userResponse: priorResponse)
                 default:
                     break
                 }
@@ -799,6 +979,7 @@ extension Document {
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         invalidateTasksCache()
+        announceAnnotationsChanged()
     }
 
     /// Shared helper for reject/archive (and the paragraph-deletion sweep in
@@ -815,12 +996,23 @@ extension Document {
     /// supplies a payload is `repairRejectedButSplicedAnnotations` (RULING-33),
     /// whose repair reject has to be both the newest lifecycle op and the
     /// newest changes-carrying op to make status and manuscript agree.
+    ///
+    /// `announcing` is the one seam in the announce contract, and it exists for
+    /// a caller that appends N ops for ONE writer-visible event: the deletion
+    /// sweep, which archives every note orphaned by a burst of paragraph
+    /// deletions. Every receiver of `.maughamAnnotationsChanged` walks the
+    /// whole project, so a sweep of a dozen notes posting a dozen times is a
+    /// dozen project walks for a single act. Pass `false` and announce ONCE
+    /// after the loop — never to skip announcing altogether.
+    /// `AnnotationChangeEventTests` polices both halves: the funnel still
+    /// announces by default, and the sweep is the only site that suppresses it.
     internal func appendLifecycleOp(
         kind: OpKind,
         sourceAnnotationId: String,
         userResponse: String?,
         synthesisSource: SynthesisSource? = nil,
-        changes: [Op.ParagraphChange] = []
+        changes: [Op.ParagraphChange] = [],
+        announcing: Bool = true
     ) async throws {
         // The other annotation funnel (reject / archive / the deletion sweep).
         // Recovery arm only: M5-AN-048 pins archive and reject as appending to
@@ -841,6 +1033,7 @@ extension Document {
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         invalidateTasksCache()
+        if announcing { announceAnnotationsChanged() }
     }
 
     /// Merge a fresh sweep reason into any pending one. The merge unions
@@ -881,25 +1074,36 @@ extension Document {
                 && ann.kind != .craftNote
                 && (ann.paragraphId.map { removed.contains($0) } ?? false)
         }
+        var archived = 0
         for orphan in orphans {
             do {
+                // `announcing: false` — one deletion burst is ONE event to
+                // every surface counting this project's notes, and each of
+                // them walks the whole project to answer it. The announce is
+                // batched below rather than skipped.
                 try await appendLifecycleOp(
                     kind: .claudeArchive,
                     sourceAnnotationId: orphan.id,
                     userResponse: nil,
-                    synthesisSource: reason.cause)
+                    synthesisSource: reason.cause,
+                    announcing: false)
                 // RULING-32: count what was actually archived, so the summary
                 // at the next burst boundary reports a number the log agrees
                 // with. Incremented on SUCCESS only — a swallowed append that
                 // still bumped the count would tell the writer a note went
                 // away that is still open in front of them.
                 _sweptSinceLastReport += 1
+                archived += 1
             } catch {
                 documentLog.error("sweepOrphanedAnnotations: archive append failed for \(orphan.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
         // appendLifecycleOp already invalidates the cache on each call;
-        // no extra invalidation needed here.
+        // no extra invalidation needed here. The announce is the one thing it
+        // did NOT do, and it is owed exactly once — and only if something was
+        // really archived, on the same rule as `_sweptSinceLastReport`: a
+        // sweep that swallowed every append changed nothing to hear about.
+        if archived > 0 { announceAnnotationsChanged() }
     }
 
     // MARK: - Convergence: status and manuscript may not disagree (RULING-33)
@@ -1012,17 +1216,37 @@ extension Document {
     }
 
     /// The kinds `AnnotationDeriver` reads as lifecycle — the ops that can move
-    /// an annotation's status. Mirrors its private `isLifecycleKind`; the two
-    /// are read together by `repairRejectedButSplicedAnnotations`, whose whole
-    /// correctness is that it applies the deriver's own rule rather than a
-    /// second opinion about which op wins.
-    private static func isLifecycleOpKind(_ kind: OpKind) -> Bool {
+    /// an annotation's status. Mirrors its `isLifecycleKind`, which is internal
+    /// to MaughamCore and so unreachable from here; the two are read together
+    /// by `repairRejectedButSplicedAnnotations`, whose whole correctness is
+    /// that it applies the deriver's own rule rather than a second opinion
+    /// about which op wins. `AnnotationStetTests`' census binds the restatement
+    /// case by case — `.annotationStet` is exactly the member one list gains
+    /// and the other silently does not.
+    ///
+    /// `.annotationTriage` is deliberately NOT here: a triage is a MARK on a
+    /// note the writer is still holding, and a mark that could displace a
+    /// resolution would take notes out of the queue for being labelled.
+    internal nonisolated static func isLifecycleOpKind(_ kind: OpKind) -> Bool {
         switch kind {
         case .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert,
-             .annotationReopen:
+             .annotationReopen, .annotationStet:
             return true
         default:
             return false
         }
     }
+
+    /// The same rule as a `Set`, for the two rewind sites that test membership
+    /// over an op stream rather than filtering with a predicate
+    /// (`RewindImpact.preview` and `restoreToOp`'s step-9 return journey).
+    /// Each carried its own literal copy until M3 P2 — four spellings of one
+    /// rule, none of them tested. Derived from the predicate so there is
+    /// nothing left to keep in step.
+    ///
+    /// `nonisolated` because `RewindImpact.preview` is a pure function with no
+    /// isolation of its own; an immutable `Set<OpKind>` is `Sendable`, so the
+    /// only thing `Document`'s `@MainActor` would buy here is a Swift 6 error.
+    internal nonisolated static let lifecycleOpKinds: Set<OpKind> =
+        Set(OpKind.allCases.filter(Document.isLifecycleOpKind))
 }

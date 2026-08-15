@@ -53,6 +53,18 @@ struct EditorHost: View {
     /// Control-plane model owned by ProjectWindow, threaded ONE-WAY to the
     /// EditorSurface/coordinator (ADR 0017).
     var control: EditorControl
+    /// **The review pass a note written from the margin belongs to**
+    /// (M3 P2 Task 8) — asked of the window, per document id, at the moment of
+    /// creation.
+    ///
+    /// Keyed on the doc id rather than a bare `() -> String?` because this
+    /// host's loaded `Document` and the window's selected subject are two
+    /// values that agree *eventually* (`loadDocumentIfNeeded` is asynchronous
+    /// and generation-guarded), and a note must carry the pass of the piece it
+    /// is ON, never the pass of whatever the tree last named. The default
+    /// stamps nothing, so the probe mounts keep compiling and keep writing
+    /// unstamped notes.
+    var activeReviewPassId: (String) -> String? = { _ in nil }
     @Environment(UserPreferences.self) private var userPreferences
     /// The window's undo manager — the one ⌘Z reaches. Passed into every
     /// accept/revert so the Document registers its undo action against it
@@ -713,7 +725,12 @@ struct EditorHost: View {
                         span: span,
                         body: body,
                         suggestedText: suggestedText,
-                        authorName: userPreferences.collaboratorDisplayName)
+                        authorName: userPreferences.collaboratorDisplayName,
+                        // The pass the writer is working this piece through
+                        // (M3 P2 Task 8), so the note lands in that pass's
+                        // queue. Nil when no pass is active — an unstamped
+                        // note is in every pass's queue, never in none.
+                        reviewPassId: activeReviewPassId(doc.docId))
                 },
                 reviewParagraphTextProvider: { pid in
                     doc.paragraph(id: pid).map {
@@ -765,6 +782,12 @@ struct EditorHost: View {
                     // stays in the AnnotationsPane. A card-reject records no
                     // reason (a follow-up could surface the sheet from here).
                     try? await doc.rejectAnnotation(id: id, undoManager: um)
+                },
+                reviewStetHandler: { id in
+                    // M3 P2's fourth resolution. Like reject, the card has no
+                    // reasoning field — a stet needs none: the answer IS "no
+                    // change", and the pane is where a writer explains one.
+                    try? await doc.stetAnnotation(id: id, undoManager: um)
                 },
                 reviewArchiveHandler: { id in
                     try? await doc.archiveAnnotation(id: id, undoManager: um)

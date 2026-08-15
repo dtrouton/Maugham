@@ -22,17 +22,43 @@ A suggestion is Claude's proposal to change a span of text or an entire paragrap
 
 **Reject** — Dismisses the suggestion without changing your text. Status changes to **Rejected** and it moves to the resolved filter.
 
+**Stet** — The proofreader's mark, and the fourth answer. You read it, you considered it, and the words stand. Nothing is applied and nothing is refused; the note is answered, and the status changes to **Stetted**. Use it where **Reject** would overstate the case — the suggestion wasn't wrong, you just aren't taking it. The row flashes a **STET** badge for a couple of seconds before it leaves the open list.
+
 **Archive** — Moves the suggestion out of the active list without accepting or rejecting it. Status changes to **Archived**.
+
+Stet is offered on comments, queries and craft notes too, wherever Archive is — from the Annotations pane and from the margin card in the editor.
 
 **Undo an accepted suggestion** — Press **⌘Z** (or use **Edit → Undo Accept Suggestion**). The suggestion returns to **Open** status and the text reverts. Redo with **⌘⇧Z** to re-apply it (the redo re-arms another ⌘Z, so you can cycle back and forth).
 
 Accepted suggestions can also be reverted from the **Annotations pane** at any time — turn on the show-resolved filter (the tray icon) and click **Revert** on the accepted suggestion. Accepting a *second* suggestion clears ⌘Z's reach back to the first one — that's specific to accept (each accept starts a fresh typing-undo baseline), so the pane's Revert is the way to reach an older accepted suggestion once a newer accept has happened. No other undoable action in Maugham has this one-deep limit — see below.
+
+### Working the queue — triage and order
+
+A pile of notes is easier to answer once it's sorted, so every row in the Annotations pane carries a small flag menu: **Do**, **Decline**, **Discuss**, and **Clear**. That's a *mark*, not an answer — a triaged note is exactly as open as it was, and marking one settles nothing. What it changes is where the note sits.
+
+Everything you've marked **Do** leads the list. Behind it comes everything else, in the order the notes appear in your manuscript, so working down the pane is one pass down the text rather than a scatter of jumps. Notes that aren't anchored to a paragraph (craft notes are about the whole document) sit at the end of their own group, as do notes whose paragraph you've since deleted.
+
+The toolbar's flag menu filters by mark — **All**, **Do**, **Decline**, **Discuss**, or **Untriaged** — so you can take one band at a time, or find what you haven't looked at yet. It stacks with the kind, author and show-resolved filters beside it.
+
+Triage lives in the pane only. The margin cards in the editor answer one note beside the sentence it's about; there's no pile there to sort.
+
+### One piece, or the whole project
+
+The pane's scope menu switches between **This Piece** and **All Pieces**. Widened, it shows every piece's notes at once, grouped by piece and in the order your binder holds them — parts and chapters where you put them, so the queue reads like the book. Every filter above still applies across the whole set, so "every unanswered suggestion in the manuscript" is two clicks.
+
+Notes belonging to a piece that's **open** can be answered where they sit. A closed piece's notes are readable but its buttons are off, with *Open this piece to act* on the tooltip: clicking the note takes you to that piece, and once it's open the buttons come alive. Nothing moves you out of Review while you do it.
+
+Multiselect and the bulk bar stay in **This Piece** — a batch runs against one piece at a time, and a count that quietly skipped every closed chapter would be worse than no count. Widen to find the work; travel to the piece to do it in bulk.
+
+If a piece's history can't be read, the queue says so in a line at the foot naming the piece, rather than showing you a short list as if it were the whole one.
 
 ### Undoing reject, archive, and your own notes
 
 Reject, archive, and the other non-text-mutating annotation actions are undoable the same way as anywhere else in Maugham: **⌘Z** reverses the most recent one, and each ⌘Z you press walks one step further back, exactly like undoing typed edits. **⌘⇧Z** redoes forward again, and redoing re-arms the action so you can keep cycling ⌘Z ⟷ ⌘⇧Z.
 
 - **Edit → Undo Reject Annotation** — reopens a rejected suggestion.
+- **Edit → Undo Stet Annotation** — reopens a note you let stand.
+- **Edit → Undo Triage Annotation** — puts back the mark the note carried *before* the one you just applied, rather than clearing it. Marking a note **Do**, changing your mind to **Discuss** and pressing ⌘Z leaves **Do** standing.
 - **Edit → Undo Archive Annotation** — reopens an archived comment, query, craft note, or suggestion.
 - **Edit → Undo Withdraw Annotation** — if you withdrew your own note or suggestion, ⌘Z brings it back.
 - **Edit → Undo Edit Annotation** — if you edited the body (or, for a suggestion, the proposed replacement) of a note you authored, ⌘Z restores the prior wording.

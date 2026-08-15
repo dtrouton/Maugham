@@ -115,6 +115,7 @@ struct EditorSurfaceConfiguration {
     struct AnnotationActions {
         var reviewAcceptHandler: ((String) async -> Void)? = nil
         var reviewRejectHandler: ((String) async -> Void)? = nil
+        var reviewStetHandler: ((String) async -> Void)? = nil
         var reviewArchiveHandler: ((String) async -> Void)? = nil
         var reviewReplyHandler: ((String, String) async -> Void)? = nil
         var reviewEditHandler: ((String, String, String?) async -> Void)? = nil
@@ -217,6 +218,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.reviewLocalAuthorName = rp.reviewLocalAuthorName
         coordinator.reviewAcceptHandler = aa.reviewAcceptHandler
         coordinator.reviewRejectHandler = aa.reviewRejectHandler
+        coordinator.reviewStetHandler = aa.reviewStetHandler
         coordinator.reviewArchiveHandler = aa.reviewArchiveHandler
         coordinator.reviewReplyHandler = aa.reviewReplyHandler
         coordinator.reviewEditHandler = aa.reviewEditHandler

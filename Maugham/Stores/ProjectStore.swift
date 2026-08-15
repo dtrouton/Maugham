@@ -290,6 +290,39 @@ public final class ProjectStore {
         let projectLogVersion: Int
     }
 
+    // MARK: - Project-wide annotation state (M3 P2)
+    //
+    // Behaviour lives in `ProjectStore+Annotations.swift`; only the storage is
+    // here, for the `@Observable` reason above.
+    //
+    // `@ObservationIgnored` deliberately, where the task cache is not: these
+    // are written from inside a READ (`listAnnotationsAcrossProject`), and a
+    // read that publishes is a view-update loop waiting to happen in the board
+    // and the queue, which call it from a body. What tells SwiftUI a note
+    // changed is the annotation event, not this cache.
+
+    @ObservationIgnored
+    internal var _projectAnnotationsCache: ProjectAnnotationsSnapshot? = nil
+    @ObservationIgnored
+    internal var _projectAnnotationsCacheKey: ProjectAnnotationsCacheKey? = nil
+
+    /// Cache key for the project-wide annotation walk: open documents'
+    /// `annotationsVersion` sum plus closed documents' op-log mtimes, and the
+    /// number of documents the manifest holds.
+    public struct ProjectAnnotationsCacheKey: Equatable {
+        let perDocVersionSum: Int
+        let documentCount: Int
+    }
+
+    #if DEBUG
+    /// Debug counter for the annotation-cache tests, mirroring
+    /// `_debugTasksRebuildCount`. A hit on the cache key leaves it unchanged —
+    /// the only observable difference between a cache hit and a re-derive that
+    /// happens to produce the same answer.
+    @ObservationIgnored
+    internal var _debugAnnotationsRebuildCount: Int = 0
+    #endif
+
     private init(
         url: URL,
         manifest: ProjectManifest,

@@ -623,6 +623,7 @@ private struct HistoryRow: View {
         case .bootstrap, .checkpoint, .claudeComment, .claudeSuggestion,
              .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive,
              .annotationEdit, .annotationWithdraw, .annotationReopen,
+             .annotationStet, .annotationTriage,
              .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:
             return false
@@ -730,6 +731,22 @@ private struct HistoryRow: View {
                     .font(.caption).foregroundStyle(.secondary)
             case .annotationReopen:
                 Text("Annotation reopened")
+                    .font(.caption).foregroundStyle(.secondary)
+            case .annotationStet:
+                // Same shape as the reject arm: the writer's own words about
+                // why it stands, else the note they were answering.
+                if let r = op.provenance?.userResponse {
+                    Text("\"\(r)\"").italic()
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else if let body = resolvedBody(for: op) {
+                    Text(body).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text("Stetted").font(.caption).foregroundStyle(.secondary)
+                }
+            case .annotationTriage:
+                Text(op.provenance?.triageMark.map { "Triaged · \($0)" } ?? "Triage cleared")
                     .font(.caption).foregroundStyle(.secondary)
             case .externalEdit:
                 Text("\(op.changes.count) paragraph\(op.changes.count == 1 ? "" : "s") changed externally")
@@ -850,6 +867,11 @@ private struct HistoryRow: View {
             case .annotationEdit: return "Annotation edited"
             case .annotationWithdraw: return "Annotation withdrawn"
             case .annotationReopen: return "Annotation reopened"
+            // "Stet" is the one user-facing word for the verb (M3 P2) — the
+            // pane's button, the margin card's tooltip, the Edit menu's undo
+            // and this row all say it.
+            case .annotationStet: return "Annotation stetted"
+            case .annotationTriage: return "Annotation triaged"
             case .unknown: return "Newer version"
             }
         case .checkpoint:
@@ -878,6 +900,8 @@ private struct HistoryRow: View {
             case .annotationEdit: return "pencil"
             case .annotationWithdraw: return "trash"
             case .annotationReopen: return "arrow.uturn.up"
+            case .annotationStet: return "checkmark.seal"
+            case .annotationTriage: return "line.3.horizontal.decrease.circle"
             case .unknown: return "questionmark.square.dashed"
             }
         case .checkpoint: return "flag"
@@ -901,7 +925,8 @@ private struct HistoryRow: View {
             case .taskCreate, .taskStatusChange, .taskPriorityChange,
                  .taskParentChange, .taskBodyEdit, .taskArchive:
                 return Color(red: 0.38, green: 0.76, blue: 0.45)
-            case .annotationEdit, .annotationWithdraw, .annotationReopen: return .orange
+            case .annotationEdit, .annotationWithdraw, .annotationReopen,
+                 .annotationStet, .annotationTriage: return .orange
             case .unknown: return .gray
             }
         case .checkpoint: return .green

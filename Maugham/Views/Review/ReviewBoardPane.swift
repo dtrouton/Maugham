@@ -35,8 +35,18 @@ import MaughamCore
 /// a surface Review shows, never a thing that decides Review is showing
 /// (`ReviewBoardRoutingTests.test_theBoardsOwnFileWritesNoPersona`).
 ///
-/// **A reference row offers neither** — no chips, so no click and no verbs. Its
-/// passes live in the project it points at, and a control here would be a
+/// **The trailing column is how much is still unanswered** (M3 P2 Task 9): one
+/// number per piece, the notes nobody has resolved yet, clickable straight into
+/// the queue at that piece. It is the column P1 named and deferred, because
+/// counting a closed piece's notes means reading its op log and the board's body
+/// runs once per row — so the count is computed by the MOUNT, off the body path,
+/// and arrives here as a value like everything else. `ReviewBoardOpenNotes` owns
+/// what one cell says; an unreadable piece says "unknown" rather than a number
+/// that would be short (RULING-54), and a piece with nothing open says nothing
+/// at all.
+///
+/// **A reference row offers neither** — no chips, no count, so no click and no
+/// verbs. Its passes live in the project it points at, and a control here would be a
 /// decision made in the wrong window.
 ///
 /// Nothing about pass ORDER is offered here: the board says where each piece
@@ -56,6 +66,24 @@ struct ReviewBoardPane: View {
     let title: String
     let structure: [StructureItem]
     let passes: [ReviewPass]
+    /// **How many notes each piece still has open** (M3 P2 Task 9), keyed by
+    /// piece id. A VALUE, computed off the body path by the mount and handed in
+    /// — counting them here would open every document in the project once per
+    /// row, which is precisely why P1 deferred this column.
+    ///
+    /// An absent entry is a piece with nothing open (`openNotesSummaries` keys
+    /// only the pieces that have notes), which draws as an empty cell rather
+    /// than a zero: a grid of zeros is noise, and the column exists to show
+    /// where the work is.
+    let openNotes: [String: OpenNotesSummary]
+    /// The pieces whose op log could not be read (RULING-54's honesty half).
+    /// They get no entry in `openNotes` — a zero would be a lie — so the column
+    /// says "unknown" for them instead of "none".
+    let unreadableDocIds: Set<String>
+    /// A count was clicked: take the writer to that piece's notes. Like
+    /// `onNavigate`, the payload is the ROW's own id and the decision about
+    /// what it means belongs to the mount.
+    let onOpenNotes: (String) -> Void
     /// A chip was clicked: `(pieceId, passId)`, the cell's own identity.
     let onNavigate: (String, String) -> Void
     /// A chip's menu ruled on a pass: `(pieceId, passId, state)`. `nil` is
@@ -79,6 +107,9 @@ struct ReviewBoardPane: View {
     /// One pass column. Wide enough for a short pass name ("Copyedit") to sit
     /// over its chips without truncating at the usual sizes.
     static let passColumnWidth: CGFloat = 92
+    /// The open-notes column, trailing every pass column (M3 P2 Task 9).
+    /// Narrower than a pass column: it holds a small number, not a name.
+    static let openNotesColumnWidth: CGFloat = 62
     private static let horizontalPadding: CGFloat = 10
     private static let groupIndent: CGFloat = 14
     private static let pieceRowHeight: CGFloat = 30
@@ -91,11 +122,13 @@ struct ReviewBoardPane: View {
     /// the slack goes to the piece column (see `board`).
     static func intrinsicWidth(passCount: Int) -> CGFloat {
         minimumTitleColumnWidth + CGFloat(passCount) * passColumnWidth
+            + openNotesColumnWidth
     }
 
     private func titleColumnWidth(in width: CGFloat) -> CGFloat {
         max(Self.minimumTitleColumnWidth,
-            width - CGFloat(passes.count) * Self.passColumnWidth)
+            width - CGFloat(passes.count) * Self.passColumnWidth
+                - Self.openNotesColumnWidth)
     }
 
     // MARK: - Body
@@ -165,6 +198,9 @@ struct ReviewBoardPane: View {
                     .truncationMode(.tail)
                     .frame(width: Self.passColumnWidth)
             }
+            Text(ReviewBoardOpenNotes.columnHeading)
+                .lineLimit(1)
+                .frame(width: Self.openNotesColumnWidth)
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -205,8 +241,51 @@ struct ReviewBoardPane: View {
                 chip(item: item, pass: pass)
                     .frame(width: Self.passColumnWidth)
             }
+            openNotesCell(item: item)
+                .frame(width: Self.openNotesColumnWidth)
         }
         .frame(width: width, height: Self.pieceRowHeight, alignment: .leading)
+    }
+
+    /// **The row's own open-note count** (M3 P2 Task 9), at the end of its
+    /// chips: how much unadjudicated feedback is still sitting in this piece.
+    ///
+    /// Three renderings, decided by `ReviewBoardOpenNotes.cell` rather than
+    /// here, so the truth table is assertable with nothing mounted — and only
+    /// the counted one is a control. Nothing (the common case) is an empty
+    /// cell; an unreadable piece is an em dash with a tooltip saying WHY, and
+    /// deliberately not a button, because "open the notes we could not read" is
+    /// a control that cannot do what it offers (RULING-35's rule read the other
+    /// way round).
+    @ViewBuilder
+    private func openNotesCell(item: StructureItem) -> some View {
+        let cell = ReviewBoardOpenNotes.cell(
+            piece: item.title,
+            summary: openNotes[item.id],
+            isUnreadable: unreadableDocIds.contains(item.id),
+            passes: passes)
+        switch cell.kind {
+        case .none:
+            Color.clear
+        case .unreadable:
+            Text(cell.text)
+                .foregroundStyle(.tertiary)
+                .help(cell.label)
+                .accessibilityLabel(cell.label)
+        case .count:
+            Button {
+                onOpenNotes(item.id)
+            } label: {
+                Text(cell.text)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(cell.label)
+            .accessibilityLabel(cell.label)
+        }
     }
 
     /// A Collection piece that IS another project. Thin, chip-less, and it says
@@ -333,6 +412,105 @@ struct ReviewBoardChipVerbs {
                 isCurrent: state == current,
                 perform: { onSetState(piece, passId, state) })
         }
+    }
+}
+
+/// **What one cell of the open-notes column says** (M3 P2 Task 9) — the number,
+/// the tooltip and the VoiceOver label for one piece's unresolved feedback.
+///
+/// Split out of the pane's body for `ReviewBoardChip`'s reason: the truth table
+/// is then assertable without mounting anything, and the cell, its tooltip and
+/// its spoken label cannot disagree about what it says.
+///
+/// **Three cases, and the difference between two of them is the whole point.**
+/// A piece with nothing open draws NOTHING — a grid of zeros hides the numbers
+/// that matter — and a piece whose op log could not be read draws an em dash,
+/// because the walk skipped it (RULING-54) and a zero there would be the
+/// surface saying "none" where the honest answer is "unknown".
+enum ReviewBoardOpenNotes {
+
+    /// The column's own heading. Short, because the column is narrow and the
+    /// row's tooltip carries the sentence.
+    static let columnHeading = "Open"
+
+    enum Kind: Equatable {
+        /// Nothing open: an empty cell, and nothing to click.
+        case none
+        case count
+        /// The walk could not read this piece's op log.
+        case unreadable
+    }
+
+    /// What to draw, what to say, and whether it is a control.
+    struct Cell: Equatable {
+        let kind: Kind
+        /// The glyph-free text in the cell. Empty for `.none`.
+        let text: String
+        /// The tooltip AND the accessibility label — one string, because a
+        /// number in a grid says nothing on its own: it names the piece, the
+        /// count and, where the notes carry pass stamps, the split.
+        let label: String
+    }
+
+    /// The cell for one piece.
+    ///
+    /// `isUnreadable` wins over a summary, though the two cannot both be true
+    /// today: `openNotesSummaries` deliberately keys only the pieces it could
+    /// read. Ordering them rather than assuming that is the difference between
+    /// a rule and a coincidence.
+    static func cell(
+        piece: String,
+        summary: OpenNotesSummary?,
+        isUnreadable: Bool,
+        passes: [ReviewPass]
+    ) -> Cell {
+        if isUnreadable {
+            return Cell(
+                kind: .unreadable,
+                text: "\u{2014}",
+                label: "\(piece) — notes unknown: this piece\u{2019}s op log "
+                    + "could not be read.")
+        }
+        guard let summary, summary.total > 0 else {
+            return Cell(kind: .none, text: "", label: "")
+        }
+        let noun = summary.total == 1 ? "open note" : "open notes"
+        let head = "\(piece) — \(summary.total) \(noun)"
+        let split = breakdown(summary, passes: passes)
+        return Cell(kind: .count, text: "\(summary.total)",
+                    label: split.isEmpty ? head : "\(head): \(split)")
+    }
+
+    /// "2 Line, 1 unstamped" — the pass split, in the project's own pass order,
+    /// with the unstamped remainder last.
+    ///
+    /// Empty when NOTHING is stamped, which is every project that has not
+    /// started using passes: "3 open notes: 3 unstamped" is a sentence that
+    /// tells the writer nothing they did not just read.
+    private static func breakdown(
+        _ summary: OpenNotesSummary, passes: [ReviewPass]
+    ) -> String {
+        guard !summary.byPass.isEmpty else { return "" }
+        var parts: [String] = []
+        var accounted = 0
+        for pass in passes {
+            guard let n = summary.byPass[pass.id], n > 0 else { continue }
+            parts.append("\(n) \(pass.name)")
+            accounted += n
+        }
+        // A stamp naming a pass this project no longer lists: counted under its
+        // raw id rather than dropped, because the note exists and the total
+        // already includes it — a split that silently came up short would make
+        // the two numbers disagree with nothing to explain it.
+        let known = Set(passes.map(\.id))
+        for (id, n) in summary.byPass.sorted(by: { $0.key < $1.key })
+        where !known.contains(id) && n > 0 {
+            parts.append("\(n) \(id)")
+            accounted += n
+        }
+        let unstamped = summary.total - accounted
+        if unstamped > 0 { parts.append("\(unstamped) unstamped") }
+        return parts.joined(separator: ", ")
     }
 }
 

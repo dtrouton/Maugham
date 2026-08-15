@@ -206,11 +206,14 @@ public enum Deriver {
         case .checkpoint, .claudeSuggestion, .claudeComment,
              .claudeQuery, .claudeCraftNote, .claudeArchive,
              .annotationEdit, .annotationWithdraw, .annotationReopen,
+             .annotationStet, .annotationTriage,
              .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:
             // annotationEdit/annotationWithdraw/annotationReopen live purely
             // in the annotation projection (AnnotationDeriver) — they never
-            // touch derived .md.
+            // touch derived .md. So do annotationStet and annotationTriage
+            // (M3 P2): a stet's whole point is that the WORDS DO NOT CHANGE,
+            // and a triage is a mark on a note, not on the prose.
             return false
         case .unknown:
             // An op kind written by a newer build. We can't know whether it

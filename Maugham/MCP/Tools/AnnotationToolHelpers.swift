@@ -30,8 +30,7 @@ func withAnnotationDocument<T>(
         throw MCPError.unknownProjectID(projectId)
     }
     // Case 1: doc is loaded in the editor — use the live instance.
-    if let ds = entry.store.documentStore,
-       let doc = ds.document(forDocId: documentId) {
+    if let doc = openAnnotationDocument(documentId, in: entry) {
         return try await body(doc)
     }
     // Case 2: doc not loaded — transient-load from disk.
@@ -55,6 +54,45 @@ func withAnnotationDocument<T>(
     // `body`, so the caller observes a fully durable state on return.
     Task { await doc.close() }
     return result
+}
+
+/// `withAnnotationDocument`'s CASE 1, extracted: the live instance when the
+/// editor has this document open, nil when it does not. One spelling, because
+/// the pass-stamp resolution below is *about* which arm a call takes and a
+/// second copy of the condition could drift from the arm it describes.
+@MainActor
+func openAnnotationDocument(
+    _ documentId: String, in entry: ProjectRegistry.Entry
+) -> Document? {
+    entry.store.documentStore?.document(forDocId: documentId)
+}
+
+/// The review pass an MCP-created note is stamped with (M3 P2 Task 8), or nil.
+///
+/// **Nil for a closed document, by design.** The active pass is a WINDOW's
+/// state — `UIState.activePassMemory`, written when the writer clicks a pass
+/// chip on the board — so it exists only where a window has one. Case 1 (the
+/// document is open) can read it; case 2 transient-loads a document nobody is
+/// looking at, and there is no pass to attribute the note to. That nil is an
+/// answer rather than a gap: an unstamped note appears in EVERY pass's queue,
+/// so nothing is hidden, and M5-AN-048's pinned behaviour — a craft note
+/// appended to a CLOSED document — keeps working exactly as it did, its note
+/// simply belonging to no pass. The alternative (stamping whatever pass the
+/// piece was last opened under, weeks ago) would be the memory inventing a
+/// context the writer is not in.
+///
+/// Validated through `ActivePassMemory.validatedActivePass`, so a pass the
+/// project has since retired stamps nothing: a note carrying an id no column
+/// can show is a note in a queue nobody can reach.
+@MainActor
+func activeReviewPassId(
+    projectId: String, documentId: String, registry: ProjectRegistry
+) -> String? {
+    guard let entry = registry.lookup(id: projectId),
+          openAnnotationDocument(documentId, in: entry) != nil,
+          let ds = entry.store.documentStore else { return nil }
+    return ds.uiState.activePassMemory.validatedActivePass(
+        forPiece: documentId, in: entry.store.manifest.effectiveReviewPasses)
 }
 
 /// The author stamp for every annotation emitted through the MCP bridge.
