@@ -5,12 +5,13 @@ import SwiftUI
 import MaughamCore
 @testable import Maugham
 
-/// **What the Review board DRAWS** (M3 P1 Task 7).
+/// **What the Review board DRAWS, and what its chips DO** (M3 P1 Tasks 7 & 8).
 /// `ReviewBoardRoutingTests` (Task 6) is about the pane's place in the centre
 /// column's stack; this file is about its contents: the chip per (piece × pass),
 /// the states those chips show, the group headers, the chip-less reference row,
-/// the empty project, and the two scrolling axes that are the pane's and never
-/// the window's.
+/// the empty project, the two scrolling axes that are the pane's and never the
+/// window's — and, as of Task 8, the two things a chip does: a click that names
+/// its own cell, and a menu whose four verbs rule on it.
 ///
 /// **Nothing here needs a project on disk**, which is itself the point. The pane
 /// takes a title, a structure array and a pass list — no `ProjectStore`, no
@@ -25,14 +26,35 @@ import MaughamCore
 /// focus-ring container as a real `NSView`, one per `ForEach` element, at the
 /// frame the layout gave it. Counting those containers is the reliable
 /// structural reading of "how many chips are on this board", and it holds
-/// precisely because this task's rows carry no OTHER buttons: titles are plain
-/// `Text` until Task 8. The accessibility tree carries the state each chip is
-/// showing, and the test that reads it skips by name when no assistive client
-/// can attach.
+/// precisely because the rows carry no OTHER buttons.
+///
+/// **Task 8 re-derived that premise rather than inheriting it** (Task 7's own
+/// carry). Wiring the chips added no second control: a click is the chip's own
+/// `Button` action, and the menu is a `.contextMenu` on that same button, which
+/// mounts nothing until a right-click builds it. Titles, group headers and
+/// reference rows are still plain `Text`. So `chips(in:)` is still exact, and
+/// the exact counts in this file are what would go red the day a row grows a
+/// clickable title — at which point the helper must be re-derived (an
+/// accessibility identifier on the chip is the obvious replacement), not the
+/// counts loosened.
+///
+/// The accessibility tree carries the state each chip is showing, and the test
+/// that reads it skips by name when no assistive client can attach.
 @MainActor
 final class ReviewBoardPaneTests: XCTestCase {
 
     private var windows: [NSWindow] = []
+
+    /// What a mounted board told its host to do — one recorder per test, since
+    /// XCTest builds a fresh instance for each.
+    private let calls = BoardCalls()
+
+    /// The verb factory under test, recording into this test's own `calls`.
+    private var verbs: ReviewBoardChipVerbs {
+        ReviewBoardChipVerbs(onSetState: { [calls] piece, pass, state in
+            calls.writes.append(BoardWrite(piece: piece, pass: pass, state: state))
+        })
+    }
 
     override func tearDown() async throws {
         for window in windows { window.contentView = NSView(frame: .zero) }
@@ -125,6 +147,160 @@ final class ReviewBoardPaneTests: XCTestCase {
             XCTAssertTrue(label.contains(fragment),
                           "\u{201C}\(label)\u{201D} does not name \(fragment)")
         }
+    }
+
+    // MARK: - The chip's menu (no window)
+
+    /// **The menu is asserted at the factory, not at the menu** (M3 P1 Task 8).
+    /// `.contextMenu` builds its `NSMenu` on the right-click itself and is
+    /// unreachable from a headless test — `BinderView.linkResearchVerb`'s
+    /// discipline — so `ReviewBoardChipVerbs` is exposed and its truth table is
+    /// driven here. The alternative is a menu asserted nowhere.
+
+    /// Four verbs, in the ladder's order, in the ladder's words. Untouched comes
+    /// FIRST because clearing a pass is a ruling like any other; buried under
+    /// the three positive ones it reads as an absence.
+    func test_theMenuOffersTheLaddersFourStatesInItsOwnWords() {
+        let items = verbs.chipMenuItems(for: "ch1", passId: "line", current: nil)
+
+        XCTAssertEqual(items.map(\.title),
+                       [PassLadder.untouchedTitle, PassLadder.inProgressTitle,
+                        PassLadder.doneTitle, PassLadder.skipTitle],
+                       "the board's menu and the Inspector's ladder must call "
+                       + "the same state the same thing")
+        XCTAssertEqual(items.map(\.state), [nil, .inProgress, .done, .skipped])
+    }
+
+    /// **Exactly one checkmark, and it is on the state the cell is in.** Driven
+    /// over all four so a factory that checkmarked, say, the first row whatever
+    /// the cell held cannot pass on the one case that happens to agree.
+    func test_theCurrentStateIsTheOneVerbCheckmarked() {
+        for current in ReviewBoardChipVerbs.offeredStates {
+            let items = verbs.chipMenuItems(for: "ch1", passId: "line", current: current)
+            let checked = items.filter(\.isCurrent)
+
+            XCTAssertEqual(checked.count, 1,
+                           "\(String(describing: current)): one checkmark, not "
+                           + "\(checked.count)")
+            XCTAssertEqual(checked.first?.state, current,
+                           "…and on the state the cell actually holds")
+        }
+    }
+
+    /// **A state this build cannot read checkmarks NOTHING** — and still offers
+    /// all four. Checkmarking one of them would claim the piece stands somewhere
+    /// it does not; offering none would leave the writer unable to correct a
+    /// value they can see on the chip. (`PassLadder`'s picker keeps a fifth row
+    /// for the raw value because a `Picker` selection must match a tag or the
+    /// popup renders blank; a menu of verbs has no such constraint, and a verb
+    /// that re-set the unknown would be a control with no effect.)
+    func test_anUnknownStateChecksNothingAndStillOffersTheFour() {
+        let items = verbs.chipMenuItems(for: "ch1", passId: "line",
+                                        current: .unknown("hyphenated"))
+
+        XCTAssertEqual(items.count, 4)
+        XCTAssertTrue(items.allSatisfy { !$0.isCurrent },
+                      "no verb may claim to be a state written by a newer build")
+        XCTAssertFalse(items.contains { $0.state == .unknown("hyphenated") },
+                       "…and none of them offers to set it back")
+    }
+
+    /// **Pressing a verb writes THAT cell, in THAT state.** The ids are the ones
+    /// the factory was asked about — a verb built for one cell can never write
+    /// another's, which on a grid is the whole safety property.
+    func test_eachVerbWritesItsOwnCellAndItsOwnState() {
+        let items = verbs.chipMenuItems(for: "ch2", passId: "copyedit", current: .done)
+        for item in items { item.perform() }
+
+        XCTAssertEqual(calls.writes,
+                       [BoardWrite(piece: "ch2", pass: "copyedit", state: nil),
+                        BoardWrite(piece: "ch2", pass: "copyedit", state: .inProgress),
+                        BoardWrite(piece: "ch2", pass: "copyedit", state: .done),
+                        BoardWrite(piece: "ch2", pass: "copyedit", state: .skipped)],
+                       "each verb forwards its own state for its own cell — and "
+                       + "untouched is `nil`, which is what makes the store verb "
+                       + "REMOVE the key rather than store a fourth state")
+    }
+
+    /// The verbs write and do nothing else: no navigation rides along with a
+    /// ruling. Setting a state from the board must not move the writer off the
+    /// board they are ruling from.
+    func test_aVerbNavigatesNowhere() {
+        for item in verbs.chipMenuItems(for: "ch1", passId: "line", current: nil) {
+            item.perform()
+        }
+        XCTAssertTrue(calls.navigations.isEmpty,
+                      "a ruling is not a navigation — the reviewer stays on the "
+                      + "board")
+    }
+
+    // MARK: - Mounted: the click
+
+    /// **A chip click carries the cell's own identity** — the piece from its
+    /// row, the pass from its column. Driven at the SECOND piece's THIRD pass so
+    /// neither id could be the first of anything, and through a real click on
+    /// the mounted control rather than by calling the closure: writing the
+    /// binding from the test would prove nothing about whether the chip can be
+    /// reached at all.
+    func test_aChipClickCarriesItsOwnCellsIdentity() async throws {
+        let structure = [
+            doc("ch1", "Chapter One"),
+            doc("ch2", "Chapter Two"),
+        ]
+        let window = mount(structure: structure)
+        let chips = try await orderedChipsSettling(in: window,
+                                                   expecting: 2 * Self.passes.count)
+
+        // Row 2 (`ch2`), column 3 (`copyedit`) — read off the layout the board
+        // actually got, so a display that laid the grid out differently fails
+        // loudly here rather than clicking whatever is at a hardcoded index.
+        let cell = chips[Self.passes.count + 2]
+        await click(cell, in: window, until: { !self.calls.navigations.isEmpty })
+
+        XCTAssertEqual(calls.navigations,
+                       [BoardClick(piece: "ch2", pass: Self.passes[2].id)],
+                       "the click must carry the chip's OWN two ids — never a "
+                       + "piece read back out of some selection state, which on "
+                       + "a grid is always the wrong piece")
+        XCTAssertTrue(calls.writes.isEmpty, "a click rules on nothing")
+    }
+
+    /// **A reference row has nothing to click anywhere on it.** Its chips are
+    /// absent (asserted above), and the row must not have quietly become a
+    /// control of its own instead: a reviewer aiming at the pass columns of a
+    /// piece reviewed elsewhere lands on the row itself.
+    ///
+    /// Swept rather than aimed — the board is a project holding ONLY the
+    /// reference, so every point in the column is fair game and the test needs
+    /// no row geometry to be right about.
+    func test_aReferenceRowOffersNothingToClickAnywhereOnIt() async throws {
+        let window = mount(structure: [doc("ref", "Another Novel", kind: .reference)])
+        pump(0.3)
+        XCTAssertTrue(chips(in: window).isEmpty, "premise: no chips at all")
+
+        await sweepClicks(over: window)
+
+        XCTAssertTrue(calls.navigations.isEmpty,
+                      "a reference row offered a click — its passes belong to "
+                      + "the project it points at, and a control here would be "
+                      + "a decision made in the wrong window")
+        XCTAssertTrue(calls.writes.isEmpty)
+    }
+
+    /// The control the sweep above needs to mean anything: the same sweep over
+    /// the same board with the piece LOOSE does reach a chip. Without it, a
+    /// board that mounted nothing at all — or a sweep that missed the column
+    /// entirely — would read exactly like a reference row behaving.
+    func test_control_theSameSweepOverALoosePieceDoesReachAChip() async throws {
+        let window = mount(structure: [doc("ref", "Another Novel", kind: .loose)])
+        _ = try await chipsSettling(in: window, expecting: Self.passes.count)
+
+        await sweepClicks(over: window)
+
+        XCTAssertFalse(calls.navigations.isEmpty,
+                       "the sweep never reached a chip, so the reference row's "
+                       + "silence above is about the sweep and not about the row")
+        XCTAssertTrue(calls.navigations.allSatisfy { $0.piece == "ref" })
     }
 
     // MARK: - Mounted: one chip per (piece × pass)
@@ -367,8 +543,16 @@ final class ReviewBoardPaneTests: XCTestCase {
                        passes: [ReviewPass] = ReviewBoardPaneTests.passes,
                        width: CGFloat = 700) -> NSWindow {
         let frame = CGRect(x: 0, y: 0, width: width, height: 600)
+        let calls = self.calls
         let hosting = NSHostingView(rootView: AnyView(
-            ReviewBoardPane(title: "The Project", structure: structure, passes: passes)
+            ReviewBoardPane(title: "The Project", structure: structure, passes: passes,
+                            onNavigate: { piece, pass in
+                                calls.navigations.append(BoardClick(piece: piece, pass: pass))
+                            },
+                            onSetState: { piece, pass, state in
+                                calls.writes.append(
+                                    BoardWrite(piece: piece, pass: pass, state: state))
+                            })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)))
         hosting.frame = frame
         let window = NSWindow(contentRect: frame, styleMask: [.titled],
@@ -407,6 +591,79 @@ final class ReviewBoardPaneTests: XCTestCase {
         XCTAssertFalse(found.isEmpty,
                        "the board mounted no chips at all", file: file, line: line)
         return found
+    }
+
+    /// The same chips, in the order a reviewer reads them: down the rows, then
+    /// across the passes. Sorted by the frame each one GOT rather than by
+    /// subview order, so "the second piece's third pass" names the cell on
+    /// screen whatever the layout did with the width this display granted
+    /// (`ProjectAltitudeCentreTests.cards`' rule).
+    private func orderedChips(in window: NSWindow) -> [NSView] {
+        guard let content = window.contentView else { return [] }
+        return chips(in: window)
+            .map { (view: $0, frame: $0.convert($0.bounds, to: content)) }
+            .sorted { a, b in
+                if abs(a.frame.midY - b.frame.midY) > 1 { return a.frame.midY < b.frame.midY }
+                return a.frame.minX < b.frame.minX
+            }
+            .map(\.view)
+    }
+
+    private func orderedChipsSettling(in window: NSWindow, expecting count: Int,
+                                      file: StaticString = #filePath,
+                                      line: UInt = #line) async throws -> [NSView] {
+        _ = try await chipsSettling(in: window, expecting: count,
+                                    file: file, line: line)
+        let ordered = orderedChips(in: window)
+        XCTAssertEqual(ordered.count, count,
+                       "the board drew \(ordered.count) chips, not \(count)",
+                       file: file, line: line)
+        return ordered
+    }
+
+    /// A real click at the centre of a view — down and up through the window, so
+    /// the `Button` gets its chance exactly as it does under a mouse
+    /// (`ProjectAltitudeCentreTests`' technique, which is what this file's
+    /// mounted readings are calibrated against). `until` is the thing the
+    /// caller's next assertion reads, so the wait costs what the click really
+    /// takes rather than its worst case.
+    private func click(_ view: NSView, in window: NSWindow,
+                       until settled: (() -> Bool)? = nil) async {
+        let centre = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        await click(at: view.convert(centre, to: nil), in: window, until: settled)
+    }
+
+    private func click(at inWindow: CGPoint, in window: NSWindow,
+                       until settled: (() -> Bool)? = nil) async {
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            if let event = NSEvent.mouseEvent(
+                with: type, location: inWindow, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1,
+                pressure: type == .leftMouseDown ? 1 : 0) {
+                window.sendEvent(event)
+            }
+            pump(0.03)
+        }
+        if let settled { _ = await pumpUntil(deadline: 3, settled) }
+    }
+
+    /// Click a coarse grid of points over the whole hosted column. Used where
+    /// the question is "is there anything clickable HERE at all" rather than
+    /// "does this control work" — it needs no row geometry, so it cannot be
+    /// wrong about where a row ended up.
+    private func sweepClicks(over window: NSWindow) async {
+        guard let content = window.contentView else { return }
+        let bounds = content.bounds
+        for row in 1...8 {
+            for column in 1...5 {
+                let point = CGPoint(x: bounds.width * CGFloat(column) / 6,
+                                    y: bounds.height * CGFloat(row) / 9)
+                await click(at: content.convert(point, to: nil), in: window)
+            }
+        }
+        pump(0.2)
     }
 
     private func scrollViews(in window: NSWindow) -> [NSScrollView] {
@@ -470,4 +727,23 @@ final class ReviewBoardPaneTests: XCTestCase {
         let url = appSourceDir.appendingPathComponent(relativePath)
         return SourceScan.codeLines(of: try String(contentsOf: url, encoding: .utf8))
     }
+}
+
+// MARK: - Recording what the board asked its host to do
+
+/// A chip click's payload: the cell's own two ids.
+struct BoardClick: Equatable { let piece: String; let pass: String }
+
+/// A menu verb's payload.
+struct BoardWrite: Equatable { let piece: String; let pass: String; let state: PassState? }
+
+/// Deliberately not `@MainActor` and at file scope: the pane's closures are
+/// plain function values — nothing about `ReviewBoardPane` requires its host to
+/// hand it isolated ones, and a recorder that demanded isolation would be a
+/// constraint the test invented rather than one the view has. Everything here
+/// still runs on the main thread: the mount, the clicks and the reads are all
+/// inside a `@MainActor` test class.
+final class BoardCalls: @unchecked Sendable {
+    var navigations: [BoardClick] = []
+    var writes: [BoardWrite] = []
 }

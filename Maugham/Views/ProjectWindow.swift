@@ -1798,9 +1798,30 @@ struct ProjectWindow: View {
                 // Values, not the store (tripwire 4): the board reads
                 // `manifest` here, at the one mount, and nothing on its body
                 // path can reach a document or the disk.
-                ReviewBoardPane(title: store.manifest.title,
-                                structure: store.manifest.structure,
-                                passes: store.manifest.effectiveReviewPasses)
+                ReviewBoardPane(
+                    title: store.manifest.title,
+                    structure: store.manifest.structure,
+                    passes: store.manifest.effectiveReviewPasses,
+                    // **A chip click is a SUBJECT write and nothing else**
+                    // (Task 8). The window is already in Review — the board is
+                    // what Review shows — so moving the persona here would be
+                    // the board deciding which persona is showing, which is
+                    // the ejection trap `TripwireGrepTests`' persona-decision
+                    // census names. Opening the chapter drops the subject
+                    // below `reviewCentreShowsBoard`, so the board uncovers
+                    // the host that was mounted underneath it all along; no
+                    // arm is torn down.
+                    onNavigate: { pieceId, passId in
+                        selectedSubject = .item(pieceId)
+                        recordActivePass(forPiece: pieceId, passId: passId)
+                    },
+                    // The board's write, at the board's HOST — the same place
+                    // and the same shape as the pass ladder's, which lands at
+                    // `InspectorView` and `PieceInspector` rather than inside
+                    // `PassLadder` (`PersonaPaneRegistryTests`' census).
+                    onSetState: { pieceId, passId, state in
+                        Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
+                    })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(nsColor: .windowBackgroundColor))
             }

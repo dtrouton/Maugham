@@ -1254,10 +1254,22 @@ private struct AltitudeCentreProbeView: View {
             .background(Color(nsColor: .windowBackgroundColor))
     }
 
+    /// This suite is about which layer covers which, so the board's Task 8
+    /// closures are wired to the subject (the only window state this probe has)
+    /// and to the store, rather than left empty: a layer whose controls did
+    /// nothing would still hit-test the same, but a probe that models the
+    /// shipped view badly is how a coverage reading outlives what it describes.
+    /// The interactions themselves belong to `ReviewBoardRoutingTests` and
+    /// `ReviewBoardPaneTests`.
     private var board: some View {
-        ReviewBoardPane(title: store.manifest.title,
-                        structure: store.manifest.structure,
-                        passes: store.manifest.effectiveReviewPasses)
+        ReviewBoardPane(
+            title: store.manifest.title,
+            structure: store.manifest.structure,
+            passes: store.manifest.effectiveReviewPasses,
+            onNavigate: { pieceId, _ in probe.subject = .item(pieceId) },
+            onSetState: { pieceId, passId, state in
+                Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
+            })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
     }

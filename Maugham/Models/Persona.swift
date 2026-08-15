@@ -318,12 +318,21 @@ public extension Persona {
             // `InspectorView`'s Document section): one row per
             // `ProjectManifest.effectiveReviewPasses` entry, each saying where
             // this piece stands, with the derived `ReviewStatus` read-only
-            // above it. Those two files are the only callers of
-            // `ProjectStore.setPassState`, and no MCP tool writes the record.
-            // Take `.inspector` off Review and the persona whose job is
-            // adjudicating a draft cannot record a verdict at all; the writer
-            // has to leave for another persona to mark a chapter's Copyedit
-            // done.
+            // above it. No MCP tool writes the record.
+            //
+            // **The reason narrowed in M3 P1 Task 8 and still holds.** Until
+            // Task 8 those two arms were the ONLY places a pass could be
+            // ruled on anywhere in the app. Now Review's own centre column —
+            // the passes board — rules on one too, through its chips (the
+            // census's third member is `ProjectWindow`, the board's host,
+            // for the reason recorded there). But the board is PROJECT-level
+            // only: `ProjectWindow.reviewCentreShowsBoard` composes
+            // `subjectShowsAltitude`, so the moment the reviewer opens a
+            // chapter — where most of a review is spent — the board is gone
+            // and the ladder is the only ruling surface on screen. Take
+            // `.inspector` off Review and a reviewer reading a chapter has to
+            // go back up to the project, or leave for another persona, to
+            // mark its Copyedit done.
             //
             // **This argument was re-made in M3 P1 Task 4, not merely
             // reworded.** It used to rest on `StructureItem.status`, the free
@@ -336,12 +345,9 @@ public extension Persona {
             //
             // Pinned by `PersonaPaneRegistryTests
             // .test_reviewKeepsTheInspectorBecauseItIsWhereAPassIsRuledOn`,
-            // whose census goes red if a third pass-state writer appears — at
-            // which point this argument needs re-making again, not patching.
-            // (M3 P1 Task 8's Review board is expected to be that third writer,
-            // and it does not weaken this: the board is Review's own centre
-            // column, so it adds a Review surface rather than moving the ladder
-            // out of the Inspector.)
+            // whose census goes red if a FOURTH pass-state writer appears — at
+            // which point this argument needs re-making again, not patching,
+            // exactly as Task 8 re-made it when the third arrived.
             return [.annotations, .intent, .references, .tasks, .history, .inspector]
         case .publish:
             // Visual Language · Tasks · Translation · History · Inspector.

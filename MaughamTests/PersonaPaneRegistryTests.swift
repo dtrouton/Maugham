@@ -251,17 +251,33 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// on a Collection. They now host the pass LADDER, and the ladder is the
     /// only place in the app a writer can say where a piece stands on a pass.
     ///
-    /// **`ReviewBoardPane.swift` is deliberately NOT pre-listed.** This is a
-    /// set-equality census — a listed-but-absent file fails it — so Task 8's
-    /// board adds itself here when it exists, in the commit that makes it a
-    /// writer. A pre-listed name would mean shipping a red test, or loosening
-    /// the census to tolerate absences, which is the same as not having one.
-    /// When the board lands, the argument below does not weaken: the board is
-    /// Review's own centre column, so its arrival adds a Review surface rather
-    /// than moving the ladder out of the Inspector.
+    /// **The third member is the BOARD's host, and its name is a surprise worth
+    /// reading** (M3 P1 Task 8). Task 7's carry expected `ReviewBoardPane.swift`
+    /// here; what landed is `ProjectWindow.swift`, and the two facts that force
+    /// it are both load-bearing:
+    ///
+    /// 1. The board takes **values and closures, never a store** — tripwire 4,
+    ///    enforced on the pane's own file by
+    ///    `ReviewBoardPaneTests.test_theSourceReadsNoStoreAtAll`, because the
+    ///    pane's body runs once per row on a project that can hold hundreds and a
+    ///    `ProjectStore` in that scope is an invitation to a disk read. So the
+    ///    pane *cannot* be the caller without breaking the census that made it
+    ///    cheap.
+    /// 2. Which means the store call lands at the board's HOST — and that is the
+    ///    same shape the other two members have, not an exception to it.
+    ///    `PassLadder` does not write either; `InspectorView` and `PieceInspector`
+    ///    do, because they host it (see `PassLadder`'s own doc comment on why the
+    ///    write stays at the host). The census names hosts, and Review's board is
+    ///    hosted by the window's centre column.
+    ///
+    /// **So the census is deliberately NOT what a reader would guess from the
+    /// board's own directory**, and the self-check below asserts
+    /// `ReviewBoardPane.swift`'s ABSENCE by name so that a future refactor
+    /// handing the pane a store fails here as well as at the pane's own census.
     static let passStateWritingFiles: Set<String> = [
         "InspectorView.swift",
         "PieceInspector.swift",
+        "ProjectWindow.swift",
     ]
 
     /// Where `setPassState` is DECLARED. Excluded from the census because a
@@ -345,25 +361,34 @@ final class PersonaPaneRegistryTests: XCTestCase {
         return found
     }
 
-    /// **Review keeps `.inspector` because the Inspector is where a writer
-    /// rules on a pass.**
+    /// **Review keeps `.inspector` because the Inspector is where a writer rules
+    /// on the piece they are READING.**
     ///
-    /// The warrant is the same shape as the one it replaces and rests on a
-    /// different control. `StructureItem.passStates` — where this piece stands
-    /// on each of the project's named review passes — is written by exactly two
-    /// controls, both of them Inspector arms, and by no MCP tool. Drop
-    /// `.inspector` from Review and the persona for adjudicating a draft cannot
-    /// record a verdict at all; the writer has to switch persona to mark a
-    /// chapter's Copyedit done.
+    /// **Re-made in M3 P1 Task 8, not patched.** The warrant this replaces said
+    /// the two Inspector arms were the only surfaces that could record a verdict
+    /// at all. That stopped being true the moment the board's chips could rule:
+    /// a reviewer at project level now sets a pass from the centre column, and
+    /// the old sentence would have gone on being cited while the census that
+    /// backed it named three files.
     ///
-    /// The census is the load-bearing half. Asserting only that Review lists
-    /// `.inspector` would pass just as happily under the cosmetic warrant the
-    /// comment used to give ("it anchors the far end of the order"), and it is
-    /// the warrant — not the entry — that nearly cost a shipped control twice
-    /// on the persona-shell milestone.
+    /// What is true instead, and is why the entry stays: **the board is
+    /// project-level only.** `ProjectWindow.reviewCentreShowsBoard` composes
+    /// `subjectShowsAltitude`, so the moment the reviewer opens a chapter — the
+    /// state they are in for most of a review — the board is gone and the pass
+    /// ladder in the Inspector is the only ruling surface on screen. Drop
+    /// `.inspector` from Review and a reviewer reading a chapter has to go back
+    /// up to the project, or switch persona, to mark its Copyedit done. That is
+    /// a narrower claim than the old one and it is the one the code supports.
+    ///
+    /// The census is still the load-bearing half, and it now guards a second
+    /// thing: that the board's write went where the ladder's writes go — to the
+    /// host — rather than into the pane, which would have cost the board its
+    /// tripwire-4 cheapness (see `passStateWritingFiles`).
     func test_reviewKeepsTheInspectorBecauseItIsWhereAPassIsRuledOn() throws {
         XCTAssertTrue(Persona.review.panes.contains(.inspector),
-            "Review must offer the Inspector: it is the only surface that writes "
+            "Review must offer the Inspector: with a chapter open — where a "
+            + "reviewer spends most of a review — the passes board is not on "
+            + "screen, and the ladder is the only surface that writes "
             + "StructureItem.passStates, the record Review adjudicates.")
 
         XCTAssertEqual(
@@ -371,13 +396,14 @@ final class PersonaPaneRegistryTests: XCTestCase {
             Self.passStateWritingFiles,
             "The set of files writing a piece's pass states has changed.\n\n"
             + "`Persona.swift`'s `.review` case argues for keeping `.inspector` on "
-            + "the grounds that these two files — both Inspector arms, reached via "
+            + "the grounds that a reviewer READING a chapter has no board on "
+            + "screen, so the two Inspector arms — reached via "
             + "`ProjectWindow.inspectorRoute`'s `.segment` and `.collectionPiece` "
-            + "routes — are the ONLY places a writer can rule on a review pass.\n\n"
+            + "routes — are the only ruling surfaces there. The third member is "
+            + "`ProjectWindow` itself, hosting the Review board's chips at "
+            + "project level (M3 P1 Task 8).\n\n"
             + "If you have added a writer somewhere else, re-make that argument at "
-            + "the `.review` case; do not just add a name to the expectation above. "
-            + "(M3 P1 Task 8's Review board is expected to join this set — in the "
-            + "commit that makes it a writer, not before.)")
+            + "the `.review` case; do not just add a name to the expectation above.")
     }
 
     /// The census must be able to fail, and must be reading real code.
@@ -399,6 +425,14 @@ final class PersonaPaneRegistryTests: XCTestCase {
         XCTAssertFalse(census.contains("OutlineTable.swift"),
             "OutlineTable only READS the projection. If it appears here the "
             + "census is matching reads.")
+        XCTAssertFalse(census.contains("ReviewBoardPane.swift"),
+            "The Review board's own file must not write: it takes values and "
+            + "closures so nothing on its per-row body path can reach a store or "
+            + "the disk (tripwire 4, `ReviewBoardPaneTests"
+            + ".test_theSourceReadsNoStoreAtAll`). Its write belongs to its host, "
+            + "which is why `ProjectWindow.swift` — and not this file — is the "
+            + "census's third member. If the pane has been handed a store, that "
+            + "is the change to argue about, not this expectation.")
 
         // The one excluded file must still be the DECLARATION. Without this the
         // exclusion is a hole: move the declaration and `passStateWriteDefiner`

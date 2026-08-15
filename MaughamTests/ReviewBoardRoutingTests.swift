@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import ApplicationServices
 import SwiftUI
 import Observation
 import MaughamCore
@@ -514,6 +515,115 @@ final class ReviewBoardRoutingTests: XCTestCase {
             + "this control exists rather than a comment saying an arm is worse")
     }
 
+    // MARK: - Mounted: the chip's click is the hop
+
+    /// **A chip click makes the same hop the subject change makes** (M3 P1 Task
+    /// 8) — the chapter opens in the host that was already mounted underneath,
+    /// nothing is torn down, and the pass the reviewer clicked through is
+    /// remembered for that piece.
+    ///
+    /// Driven as a real click on the mounted chip rather than by moving the
+    /// subject: the test above proves the HOP is cheap, and this one proves the
+    /// chip is what makes it. Writing `box.subject` from the test would prove
+    /// nothing about whether the cell can be reached at all.
+    ///
+    /// The chip clicked is the SECOND chapter's SECOND pass, so neither id could
+    /// be the first of anything — the payload has to have come from the cell.
+    func test_aChipClickOpensThatChapterInTheHostAndRemembersThePass() async throws {
+        let store = try await novel()
+        let documents = TreeWalk.collect(in: store.manifest.structure,
+                                         where: { $0.type == .document })
+        let second = try XCTUnwrap(documents.dropFirst().first,
+                                   "fixture premise: the novel has two chapters")
+        let passes = store.manifest.effectiveReviewPasses
+        try XCTSkipUnless(passes.count >= 2,
+                          "this project offers \(passes.count) passes, too few "
+                          + "to ask the question about a second column")
+        let mount = try await host(store: store, subject: .project)
+
+        await pumpUntil(deadline: 5) {
+            self.boardScroller(in: mount.window) != nil
+                && self.orderedChips(in: mount.window).count >= documents.count * passes.count
+        }
+        let chips = orderedChips(in: mount.window)
+        XCTAssertEqual(chips.count, documents.count * passes.count,
+                       "premise: one chip per (piece × pass)")
+        XCTAssertEqual(mount.hostLife.disappearances, 0, "premise: nothing torn down yet")
+
+        await click(chips[passes.count + 1], in: mount.window, until: {
+            mount.box.subject == .item(second.id)
+                && !self.textViews(in: mount.window).isEmpty
+        })
+
+        XCTAssertEqual(mount.box.subject, .item(second.id),
+                       "the click must take the window's subject to the piece "
+                       + "the chip is drawn for")
+        XCTAssertEqual(
+            documentStores.last?.uiState.activePassMemory.activePass(forPiece: second.id),
+            passes[1].id,
+            "…and record the pass it was clicked through, so the piece opens "
+            + "on it next time")
+        XCTAssertFalse(textViews(in: mount.window).isEmpty,
+                       "the chapter opened in the centre column")
+        XCTAssertEqual(mount.hostLife.disappearances, 0,
+                       "…in the host that was mounted underneath the board all "
+                       + "along — a click that tore it down would be `doc.close()` "
+                       + "and `loads.abandon()` on the reviewer's commonest gesture")
+        XCTAssertEqual(mount.hostLife.appearances, 1)
+        XCTAssertEqual(mount.box.persona, .review,
+                       "and the board moved no persona: it is a surface Review "
+                       + "shows, not a thing that decides Review is showing")
+    }
+
+    /// **A verb's write reaches the manifest, and the board redraws on it.**
+    ///
+    /// The menu itself is headless-unreachable (`ReviewBoardChipVerbs`' own doc
+    /// comment), so the verb is built here in the production shape —
+    /// `onSetState` → `store.setPassState` — and pressed. What that proves that
+    /// `ProjectStoreInspectorTests` does not: the board is fed the manifest's
+    /// LIVE values at the mount, so a ruling made from it is visible on it
+    /// without a reload. A board handed a snapshot would persist the write and
+    /// go on showing the old chip.
+    func test_aVerbsWritePersistsAndTheBoardRedrawsOnIt() async throws {
+        let store = try await novel()
+        let chapter = try Self.firstDocument(in: store)
+        let pass = try XCTUnwrap(store.manifest.effectiveReviewPasses.first)
+        let mount = try await host(store: store, subject: .project)
+        await pumpUntil(deadline: 5) { self.boardScroller(in: mount.window) != nil }
+
+        let before = try axChipLabels(in: mount.window)
+        try XCTSkipUnless(!before.isEmpty,
+                          "no assistive client could attach, so the redraw "
+                          + "cannot be read here (InspectorIntentAffordanceTests' "
+                          + "rule)")
+        let untouched = "\(chapter.title) — \(pass.name): \(PassLadder.untouchedTitle)"
+        let done = "\(chapter.title) — \(pass.name): \(PassLadder.doneTitle)"
+        XCTAssertTrue(before.contains(untouched),
+                      "premise: the cell starts untouched. Published: \(before.sorted())")
+
+        let verbs = ReviewBoardChipVerbs(onSetState: { piece, passId, state in
+            Task { try? await store.setPassState(id: piece, passId: passId, state) }
+        })
+        let doneVerb = try XCTUnwrap(
+            verbs.chipMenuItems(for: chapter.id, passId: pass.id, current: nil)
+                .first { $0.state == .done })
+        doneVerb.perform()
+
+        await pumpUntil(deadline: 5) {
+            (try? self.axChipLabels(in: mount.window))?.contains(done) == true
+        }
+        XCTAssertEqual(
+            store.manifest.structure.first { $0.id == chapter.id }?.passStates?[pass.id],
+            .done,
+            "the verb's write must reach the manifest through the store")
+        let after = try axChipLabels(in: mount.window)
+        XCTAssertTrue(after.contains(done),
+                      "…and the chip must redraw on it without a reload. "
+                      + "Published: \(after.sorted())")
+        XCTAssertFalse(after.contains(untouched),
+                       "…and stop saying the old state")
+    }
+
     // MARK: - The shape of the mount, in production
 
     /// **The bridge from the probe's spelling to the window's.** The mounted
@@ -588,6 +698,73 @@ final class ReviewBoardRoutingTests: XCTestCase {
                            + "`ManuscriptNavigation`, `PersonaModifier`, "
                            + "`CanvasClaudeArrivalModifier` and `TreeTravel`")
         }
+    }
+
+    /// **What the production mount's chips are wired TO** (M3 P1 Task 8).
+    ///
+    /// The mounted tests above drive the probe, and the probe's closures are the
+    /// probe's own — so this reads the real call's argument list, bounded to it,
+    /// and checks the three facts that make a chip click the hop it is: the
+    /// window's SUBJECT moves, the pass is recorded, and the ruling goes through
+    /// the store. Plus the ejection trap's other half: no persona write rides
+    /// along. `test_theBoardsOwnFileWritesNoPersona` covers the pane's file;
+    /// this covers the closures the pane is handed, which live here.
+    func test_theBoardsChipsAreWiredToTheWindowsSubjectAndTheStore() throws {
+        let source = try Self.source(of: "Views/ProjectWindow.swift")
+        let arm = try XCTUnwrap(
+            Self.declaration(named: "private func manuscriptEditor(", in: source))
+        let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm),
+                                 "the board's mount must still be a call with "
+                                 + "arguments this scan can read")
+        // Comment lines dropped before the forbidden-pattern half: the mount's
+        // own comment explains at length why the persona is NOT written there,
+        // and a scan that could not tell the explanation from the act would be
+        // a census that fires on its own documentation.
+        let code = SourceScan.codeLines(of: call).joined(separator: "\n")
+
+        for expected in ["onNavigate:", "selectedSubject = .item(",
+                         "recordActivePass(forPiece:", "onSetState:",
+                         "store.setPassState("] {
+            XCTAssertTrue(code.contains(expected),
+                          "the board's mount does not pass `\(expected)`")
+        }
+        XCTAssertFalse(
+            code.contains("persona"),
+            "the board's own closures move the window's PERSONA. The board is a "
+            + "surface Review shows, never a thing that decides Review is "
+            + "showing — a layer that wrote the persona would fight the picker, "
+            + "⌘1–4 and `ManuscriptNavigation` for it "
+            + "(`TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromThe"
+            + "ClosedSetOfDecisionSites`)")
+    }
+
+    /// The control for the scan above: `argumentList(after:)` must stop at the
+    /// call's own closing paren. `ProjectAltitudePane(` is mounted in the same
+    /// arm, one layer up, and its arguments must not be visible from inside the
+    /// board's — or the scan is really reading the arm again and cannot fail.
+    func test_theBoardsArgumentScanStopsAtItsOwnCall() throws {
+        let source = try Self.source(of: "Views/ProjectWindow.swift")
+        let arm = try XCTUnwrap(
+            Self.declaration(named: "private func manuscriptEditor(", in: source))
+        let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm))
+
+        XCTAssertTrue(arm.contains("ProjectAltitudePane("),
+                      "premise: the arm really does mount altitude too")
+        XCTAssertFalse(call.contains("ProjectAltitudePane("),
+                       "the board's argument scan ran past its own call")
+        XCTAssertFalse(call.contains("EditorHost("),
+                       "…and past the host underneath it")
+
+        // The other half of the scan above: its persona check runs over CODE
+        // lines only, and this is what says that filter is doing work rather
+        // than passing because nothing in the call mentions a persona at all.
+        XCTAssertTrue(call.contains("persona"),
+                      "premise: the mount's own comment explains why the click "
+                      + "moves no persona — so a scan that did not drop comments "
+                      + "would fire on that explanation")
+        XCTAssertFalse(SourceScan.codeLines(of: call).joined(separator: "\n")
+                        .contains("persona"),
+                       "…and with comments dropped, nothing is left")
     }
 
     // MARK: - Hosting
@@ -667,6 +844,92 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// only, so this is the window's one table.
     private func altitudeTable(in window: NSWindow) -> NSTableView? {
         collect(NSTableView.self, in: window).first
+    }
+
+    /// **The board's chips, in the order a reviewer reads them** — down the
+    /// rows, then across the passes.
+    ///
+    /// A SwiftUI `Button` mounts no `NSButton` on this SDK; what it leaves is a
+    /// focus-ring container at the frame the layout gave it
+    /// (`ReviewBoardPaneTests`' class doc records the measurement). Scoped to
+    /// the board's own scroller rather than the window, because the altitude
+    /// view underneath carries buttons of its own — the corkboard's cards are
+    /// focus rings too, and counting the window's would mix the two layers.
+    private func orderedChips(in window: NSWindow) -> [NSView] {
+        guard let scroller = boardScroller(in: window) else { return [] }
+        var rings: [NSView] = []
+        collect(NSView.self, in: scroller, into: &rings)
+        return rings
+            .filter { String(describing: type(of: $0)).contains("FocusRingView") }
+            .map { (view: $0, frame: $0.convert($0.bounds, to: scroller)) }
+            .sorted { a, b in
+                if abs(a.frame.midY - b.frame.midY) > 1 { return a.frame.midY < b.frame.midY }
+                return a.frame.minX < b.frame.minX
+            }
+            .map(\.view)
+    }
+
+    /// A real click at the centre of a view — down and up through the window, so
+    /// the `Button` gets its chance exactly as it does under a mouse
+    /// (`ProjectAltitudeCentreTests`' technique). `until` is the state the
+    /// caller's next assertion reads, waited on rather than slept through.
+    private func click(_ view: NSView, in window: NSWindow,
+                       until settled: @escaping () -> Bool) async {
+        let centre = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        let inWindow = view.convert(centre, to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            if let event = NSEvent.mouseEvent(
+                with: type, location: inWindow, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1,
+                pressure: type == .leftMouseDown ? 1 : 0) {
+                window.sendEvent(event)
+            }
+            pump(0.03)
+        }
+        await pumpUntil(deadline: 5, settled)
+    }
+
+    /// What the board's chips are saying aloud — `ReviewBoardPaneTests`'
+    /// reading, walked from the window's content view and filtered to the chip's
+    /// own label SHAPE (`ReviewBoardChip.label`: piece — pass: state).
+    ///
+    /// Walked from the top rather than from the board's scroller because
+    /// SwiftUI publishes a synthesized element tree hung off the hosting view:
+    /// measured here, the scroller's own AX children carry no buttons at all, so
+    /// scoping the walk to it returns nothing and the test skips itself for the
+    /// wrong reason. The shape filter is what keeps the corkboard mounted
+    /// underneath from contributing — its cards publish no pass label.
+    ///
+    /// Empty when no assistive client can attach, which callers skip on by name
+    /// rather than fail.
+    private func axChipLabels(in window: NSWindow) throws -> [String] {
+        var role: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(
+            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
+        guard error == .success, role != nil else { return [] }
+        guard let root = window.contentView else { return [] }
+        let states = [PassLadder.untouchedTitle, PassLadder.inProgressTitle,
+                      PassLadder.doneTitle, PassLadder.skipTitle]
+        return Self.axElements(under: root)
+            .filter { (Self.axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
+            .compactMap { Self.axAttribute($0, "accessibilityLabel") as? String }
+            .filter { label in
+                label.contains(" \u{2014} ") && states.contains { label.hasSuffix(": \($0)") }
+            }
+    }
+
+    private static func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
+        guard let object = element as? NSObject,
+              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
+        return object.value(forKey: attribute)
+    }
+
+    private static func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
+        guard depth < 40 else { return [] }
+        let children = axAttribute(root, "accessibilityChildren") as? [AnyObject] ?? []
+        return [root] + children.flatMap { axElements(under: $0, depth: depth + 1) }
     }
 
     private func textViews(in window: NSWindow) -> [MaughamTextView] {
@@ -753,6 +1016,21 @@ final class ReviewBoardRoutingTests: XCTestCase {
 
     private static func occurrences(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1
+    }
+
+    /// One call's argument list, from `opener` to its own balanced close paren.
+    /// Bounded for the reason `declaration(named:)` is: a scan that ran to the
+    /// end of the arm would be asserting about every layer in the stack while
+    /// claiming to be about one of them.
+    private static func argumentList(after opener: String, in source: String) -> String? {
+        guard let start = source.range(of: opener) else { return nil }
+        var depth = 1
+        var index = start.upperBound
+        while index < source.endIndex, depth > 0 {
+            if source[index] == "(" { depth += 1 } else if source[index] == ")" { depth -= 1 }
+            index = source.index(after: index)
+        }
+        return String(source[start.upperBound..<index])
     }
 }
 
@@ -883,10 +1161,31 @@ struct ReviewCentreProbeView: View {
             .background(Color(nsColor: .windowBackgroundColor))
     }
 
+    /// **Wired the way the production mount is wired** (Task 8): a chip click
+    /// writes the SUBJECT and records the pass, and a menu verb writes through
+    /// the store. The probe cannot vouch for production's own closures — those
+    /// are read off `manuscriptEditor`'s text by
+    /// `test_theBoardsChipsAreWiredToTheWindowsSubjectAndTheStore` — but it can
+    /// carry what a click DOES through a real mounted board, which is what the
+    /// hop tests here drive.
+    ///
+    /// Production also updates its `@State` copy of `ActivePassMemory`; the
+    /// probe has no window state of its own, so the persisted half is what it
+    /// models and what the tests read back.
     private var board: some View {
-        ReviewBoardPane(title: store.manifest.title,
-                        structure: store.manifest.structure,
-                        passes: store.manifest.effectiveReviewPasses)
+        ReviewBoardPane(
+            title: store.manifest.title,
+            structure: store.manifest.structure,
+            passes: store.manifest.effectiveReviewPasses,
+            onNavigate: { pieceId, passId in
+                box.subject = .item(pieceId)
+                documentStore.updateUIState {
+                    $0.activePassMemory.record(piece: pieceId, passId: passId)
+                }
+            },
+            onSetState: { pieceId, passId, state in
+                Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
+            })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
     }
