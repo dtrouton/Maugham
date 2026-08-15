@@ -165,6 +165,58 @@ final class UIStatePersonaTests: XCTestCase {
         }
     }
 
+    // MARK: - Active pass memory (additive, no schema bump — M3-P1 Task 5)
+
+    func test_activePassMemory_roundTripsThroughEncoding() throws {
+        var state = UIState.empty
+        state.activePassMemory.record(piece: "piece-1", passId: "line")
+        state.activePassMemory.record(piece: "piece-2", passId: "proof")
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(UIState.self, from: data)
+        XCTAssertEqual(decoded.activePassMemory, state.activePassMemory)
+        XCTAssertEqual(decoded.activePassMemory.activePass(forPiece: "piece-1"), "line")
+        XCTAssertEqual(decoded.activePassMemory.activePass(forPiece: "piece-2"), "proof")
+    }
+
+    /// A project last opened by a pre-Task-5 build has no `activePassMemory`
+    /// key. It must decode, not throw, land on `.empty`, and cost the schema
+    /// no bump — `currentSchemaVersion` stays 5, this is one additive key
+    /// with a default (`compilerModel`'s own no-bump reason).
+    func test_decode_ofStateWithoutActivePassMemory_isEmptyNotAFailure() throws {
+        let json = Data("""
+        {"schemaVersion":5,"isNoChromeOn":false,
+         "researchPreviewVisible":false,"detailSegment":"inspector",
+         "outlineLayout":"table","isReviewModeOn":false,"persona":"author"}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(UIState.self, from: json)
+        XCTAssertEqual(decoded.activePassMemory, .empty)
+        XCTAssertEqual(decoded.persona, .author,
+                       "the fields this build still has come through beside the "
+                       + "one it did not carry yet")
+    }
+
+    func test_currentSchemaVersion_didNotBumpForActivePassMemory() {
+        // Additive key with a default — see the property's doc comment.
+        XCTAssertEqual(UIState.currentSchemaVersion, 5)
+    }
+
+    /// A stored pass id no longer present in a project's current pass list
+    /// still reads back raw from `UIState` — sitting harmlessly, never swept
+    /// — because `UIState`'s decode is `ActivePassMemory`'s own tolerant
+    /// decode; there is nothing UIState-specific to filter here. Threading a
+    /// validity check against `effectiveReviewPasses` happens where the
+    /// board reads the memory (a later task), not at this decode.
+    func test_decode_ofAStalePassId_stillReadsBackRawFromUIState() throws {
+        let json = Data("""
+        {"schemaVersion":5,"isNoChromeOn":false,
+         "researchPreviewVisible":false,"detailSegment":"inspector",
+         "outlineLayout":"table","isReviewModeOn":false,"persona":"author",
+         "activePassMemory":{"active":{"piece-1":"retired-pass"}}}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(UIState.self, from: json)
+        XCTAssertEqual(decoded.activePassMemory.activePass(forPiece: "piece-1"), "retired-pass")
+    }
+
     func test_loadOrEmpty_rejectsStateFromANewerSchema() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("UIStatePersonaTests-\(UUID().uuidString)")

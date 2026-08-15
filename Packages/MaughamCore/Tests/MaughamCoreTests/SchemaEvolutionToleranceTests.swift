@@ -142,6 +142,33 @@ final class SchemaEvolutionToleranceTests: XCTestCase {
         XCTAssertEqual(m.title, "Now")
     }
 
+    // MARK: - ReviewPass: additive field, absent-tolerant (M3 P1, schema 6)
+
+    /// A manifest at the schema this build shipped BEFORE `reviewPasses`
+    /// existed (one below current) must still decode with no `reviewPasses`
+    /// key present at all — the same absent-tolerant shape `statements`
+    /// proved out at the 3→4 bump. Version-relative so this test survives
+    /// the next bump without editing (the 2026-08-09 lesson).
+    func testManifestOneVersionBelowCurrentWithNoReviewPassesKeyStillDecodes() throws {
+        let priorVersion = ProjectManifest.currentSchemaVersion - 1
+        let manifestJSON = Data("""
+        {
+          "schemaVersion": \(priorVersion),
+          "type": "novel",
+          "title": "Before Review Passes",
+          "author": "A",
+          "created": "2026-01-01T00:00:00Z",
+          "modified": "2026-01-01T00:00:00Z",
+          "structure": [],
+          "research": []
+        }
+        """.utf8)
+        let manifest = try ProjectManifest.decodeGuardingSchema(manifestJSON)
+        XCTAssertEqual(manifest.reviewPasses, [])
+        XCTAssertEqual(manifest.effectiveReviewPasses, ReviewPass.presets,
+            "an absent reviewPasses section must project to the presets, not an empty board")
+    }
+
     // MARK: - TypographySettings: missing field → default, not a throw
 
     func testTypographySettingsMissingFieldDecodesWithDefaults() throws {

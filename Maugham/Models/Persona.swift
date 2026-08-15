@@ -308,25 +308,46 @@ public extension Persona {
             // records the near-miss). Written down here so the next reader
             // cannot delete this entry on the weaker one.
             //
-            // The real reason: **the Inspector is the only place in the app a
-            // writer can set `StructureItem.status`** — the draft/revising/
-            // final field that Review is *about*. In Review the left column is
-            // the project's own tree (`TreePane`), and Review does not
-            // `centresTheCanvas`, so `ProjectWindow.inspectorRoute`
+            // The real reason: **the Inspector is where a writer rules on a
+            // review pass** — the record Review is *about*. In Review the left
+            // column is the project's own tree (`TreePane`), and Review does
+            // not `centresTheCanvas`, so `ProjectWindow.inspectorRoute`
             // returns `.collectionPiece` on a Collection and `.document`
-            // otherwise, and both arms land on a status control:
-            // `PieceInspector.statusSection` and `InspectorView`'s Status
-            // picker. Those two are the only callers of
-            // `ProjectStore.updateInspector(… status:)`, and no MCP tool writes
-            // the field — `ProjectTools` only reads it. Take `.inspector` off
-            // Review and the persona whose job is adjudicating a draft's state
-            // cannot record that state; the writer has to leave for another
-            // persona to mark the chapter final.
+            // otherwise, and both arms land on the pass LADDER
+            // (`PassLadder`, hosted by `PieceInspector.statusSection` and
+            // `InspectorView`'s Document section): one row per
+            // `ProjectManifest.effectiveReviewPasses` entry, each saying where
+            // this piece stands, with the derived `ReviewStatus` read-only
+            // above it. No MCP tool writes the record.
+            //
+            // **The reason narrowed in M3 P1 Task 8 and still holds.** Until
+            // Task 8 those two arms were the ONLY places a pass could be
+            // ruled on anywhere in the app. Now Review's own centre column —
+            // the passes board — rules on one too, through its chips (the
+            // census's third member is `ProjectWindow`, the board's host,
+            // for the reason recorded there). But the board is PROJECT-level
+            // only: `ProjectWindow.reviewCentreShowsBoard` composes
+            // `subjectShowsAltitude`, so the moment the reviewer opens a
+            // chapter — where most of a review is spent — the board is gone
+            // and the ladder is the only ruling surface on screen. Take
+            // `.inspector` off Review and a reviewer reading a chapter has to
+            // go back up to the project, or leave for another persona, to
+            // mark its Copyedit done.
+            //
+            // **This argument was re-made in M3 P1 Task 4, not merely
+            // reworded.** It used to rest on `StructureItem.status`, the free
+            // string the two inspector pickers wrote through
+            // `updateInspector(… status:)`. That argument survived its own
+            // control: the pickers are gone, the argument's field is
+            // legacy-read-only (`ReviewStatus.derived` falls back to it and
+            // nothing writes it), and the reasoning now names the thing that
+            // actually stands here.
             //
             // Pinned by `PersonaPaneRegistryTests
-            // .test_reviewKeepsTheInspectorBecauseItIsTheOnlyPlaceStatusIsWritten`,
-            // whose census goes red if a third status writer appears — at which
-            // point this argument needs re-making, not patching.
+            // .test_reviewKeepsTheInspectorBecauseItIsWhereAPassIsRuledOn`,
+            // whose census goes red if a FOURTH pass-state writer appears — at
+            // which point this argument needs re-making again, not patching,
+            // exactly as Task 8 re-made it when the third arrived.
             return [.annotations, .intent, .references, .tasks, .history, .inspector]
         case .publish:
             // Visual Language · Tasks · Translation · History · Inspector.
@@ -475,6 +496,45 @@ public extension Persona {
         switch self {
         case .publish: return true
         case .plan, .author, .review: return false
+        }
+    }
+
+    /// **The one spelling of "the centre column is the review board"** (M3 P1
+    /// Task 6, spec §4 — the board is Review's project altitude).
+    ///
+    /// `centresTheCanvas`'s and `previewsThePublishedBook`'s sibling, written
+    /// for their reason: the alternative is a `== .review` at every gate that
+    /// needs the question — the centre column's own layer and the routing
+    /// static that composes it — and the compiler cannot check that two
+    /// equalities spread over two files still mean the same thing. The canvas's
+    /// version of exactly this cost three sites a visible defect apiece before
+    /// it was named, and `editsResearchInTheCentre` below is a FOURTH question
+    /// about `.review` in this same file: two facts about the same persona that
+    /// happen to agree today are still two facts, and a reader who derived one
+    /// from the other would have Review's board disappear the day a reviewer is
+    /// allowed to edit a note.
+    ///
+    /// **It is deliberately NOT derived from the other predicates, in either
+    /// direction.** It is not `!centresTheCanvas && !previewsThePublishedBook`
+    /// — Author satisfies that and Author's project row is the corkboard, which
+    /// is stage 3a's altitude view and stays exactly as it is. It is not
+    /// `!editsResearchInTheCentre` either, for the reason above. This is a
+    /// third independent fact about the centre column, and the fourth about
+    /// Review.
+    ///
+    /// **What it does NOT decide is WHEN the board shows.** The board is a
+    /// project-level surface for the reason the book is — a chapter subject in
+    /// Review opens the chapter — so the layer's gate is
+    /// `ProjectWindow.reviewCentreShowsBoard`, which composes this predicate
+    /// with `subjectShowsAltitude` rather than spelling a second
+    /// document-resolution rule beside it.
+    ///
+    /// Exhaustive with no `default:`, so a fifth persona has to say whether its
+    /// centre is the board rather than inheriting "no".
+    var showsTheReviewBoard: Bool {
+        switch self {
+        case .review: return true
+        case .plan, .author, .publish: return false
         }
     }
 

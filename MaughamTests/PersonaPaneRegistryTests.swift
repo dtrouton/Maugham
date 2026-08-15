@@ -1,5 +1,6 @@
 import SwiftUI
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// `DetailPaneToggle` is generic over its inspector content, so a static
@@ -237,41 +238,61 @@ final class PersonaPaneRegistryTests: XCTestCase {
 
     // MARK: - Why Review keeps the Inspector
 
-    /// The files allowed to write `StructureItem.status` — the draft / revising
-    /// / final field — through `ProjectStore.updateInspector`.
+    /// The files allowed to write a piece's review state — `setPassState`'s
+    /// production callers.
     ///
-    /// Both are Inspector surfaces: `InspectorView` is what
-    /// `ProjectWindow.existingInspectorSwitch` renders under Review's binder
-    /// home, and `PieceInspector` is the arm `inspectorRoute` takes instead on a
-    /// Collection. That is the whole argument for `.inspector` being in
-    /// `Persona.review.panes`, and it is stronger than the one the shared
-    /// `panes` doc comment gives ("it anchors the far end of the order").
-    static let statusWritingFiles: Set<String> = [
+    /// **This census replaces `statusWritingFiles` and re-makes its argument on
+    /// the control that replaced its control** (M3 P1 Task 4). The old one
+    /// pinned the two files that wrote `StructureItem.status` through
+    /// `updateInspector(… status:)`; that argument was `status:`-shaped, and
+    /// `status:` no longer exists. Both members are the same two Inspector
+    /// arms: `InspectorView` is what `ProjectWindow.existingInspectorSwitch`
+    /// renders, and `PieceInspector` is the arm `inspectorRoute` takes instead
+    /// on a Collection. They now host the pass LADDER, and the ladder is the
+    /// only place in the app a writer can say where a piece stands on a pass.
+    ///
+    /// **The third member is the BOARD's host, and its name is a surprise worth
+    /// reading** (M3 P1 Task 8). Task 7's carry expected `ReviewBoardPane.swift`
+    /// here; what landed is `ProjectWindow.swift`, and the two facts that force
+    /// it are both load-bearing:
+    ///
+    /// 1. The board takes **values and closures, never a store** — tripwire 4,
+    ///    enforced on the pane's own file by
+    ///    `ReviewBoardPaneTests.test_theSourceReadsNoStoreAtAll`, because the
+    ///    pane's body runs once per row on a project that can hold hundreds and a
+    ///    `ProjectStore` in that scope is an invitation to a disk read. So the
+    ///    pane *cannot* be the caller without breaking the census that made it
+    ///    cheap.
+    /// 2. Which means the store call lands at the board's HOST — and that is the
+    ///    same shape the other two members have, not an exception to it.
+    ///    `PassLadder` does not write either; `InspectorView` and `PieceInspector`
+    ///    do, because they host it (see `PassLadder`'s own doc comment on why the
+    ///    write stays at the host). The census names hosts, and Review's board is
+    ///    hosted by the window's centre column.
+    ///
+    /// **So the census is deliberately NOT what a reader would guess from the
+    /// board's own directory**, and the self-check below asserts
+    /// `ReviewBoardPane.swift`'s ABSENCE by name so that a future refactor
+    /// handing the pane a store fails here as well as at the pane's own census.
+    static let passStateWritingFiles: Set<String> = [
         "InspectorView.swift",
         "PieceInspector.swift",
+        "ProjectWindow.swift",
     ]
 
-    /// Where `updateInspector` is DECLARED. Excluded from the census because a
+    /// Where `setPassState` is DECLARED. Excluded from the census because a
     /// declaration is not a writer — the store is the one channel every writer
-    /// goes through, which is what makes the census meaningful in the first
-    /// place. Named rather than pattern-matched so moving the declaration
-    /// somewhere else fails loudly here.
-    static let statusWriteDefiner = "ProjectStore+Metadata.swift"
+    /// goes through, which is what makes the census meaningful at all. Named
+    /// rather than pattern-matched so moving the declaration fails loudly here.
+    static let passStateWriteDefiner = "ProjectStore+Metadata.swift"
 
-    /// Every production file that calls `updateInspector(` with a `status:`
-    /// argument, by file name.
+    /// Every production file under `Maugham/` that calls `needle`, by file
+    /// name, ignoring comment-only lines.
     ///
-    /// A census rather than a warning: the reasoning at `Persona.swift`'s
-    /// `.review` case rests on this set having exactly these two members, so a
-    /// third writer must force the argument to be re-made rather than quietly
-    /// falsifying a comment nobody re-reads.
-    ///
-    /// **The argument list is read to its balanced close paren, not to the end
-    /// of the line.** `InspectorView` spreads its call over four lines with
-    /// `status:` on the last of them, so a line-based matcher silently misses
-    /// the primary writer and reports a one-member census — which would have
-    /// made this guard argue the opposite of the truth while staying green.
-    private func statusWriterCensus() throws -> Set<String> {
+    /// One walker for both censuses below. Comment-only lines are dropped
+    /// first so a doc comment naming a call is never a hit — several of the
+    /// comments in this very milestone name `setPassState` in prose.
+    private func callers(of needle: String, excluding excluded: String? = nil) throws -> Set<String> {
         let sourceDir = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()          // MaughamTests/
             .deletingLastPathComponent()          // repo root
@@ -282,100 +303,362 @@ final class PersonaPaneRegistryTests: XCTestCase {
         }
         var found: Set<String> = []
         for case let url as URL in walker where url.pathExtension == "swift" {
-            guard url.lastPathComponent != Self.statusWriteDefiner else { continue }
+            if let excluded, url.lastPathComponent == excluded { continue }
             let text = try String(contentsOf: url, encoding: .utf8)
-            // Comment-only lines are dropped first so a doc comment naming the
-            // call is never a hit.
             let code = text.split(separator: "\n", omittingEmptySubsequences: false)
                 .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
                 .joined(separator: "\n")
-            var rest = Substring(code)
-            while let call = rest.range(of: "updateInspector(") {
-                var depth = 1
-                var idx = call.upperBound
-                while idx < rest.endIndex, depth > 0 {
-                    if rest[idx] == "(" { depth += 1 } else if rest[idx] == ")" { depth -= 1 }
-                    idx = rest.index(after: idx)
-                }
-                if rest[call.upperBound..<idx].range(of: "status:") != nil {
-                    found.insert(url.lastPathComponent)
-                }
-                rest = rest[idx...]
-            }
+            if code.contains(needle) { found.insert(url.lastPathComponent) }
         }
         return found
     }
 
-    /// **Review keeps `.inspector` because the Inspector is the only place a
-    /// writer can set the field Review is about.**
+    /// Every production file that still passes a `status:` argument to
+    /// `updateInspector(`.
     ///
-    /// `StructureItem.status` (draft / revising / final) is written by exactly
-    /// two controls, both of them Inspector arms, and by no MCP tool —
-    /// `ProjectTools` reads it and never writes it. Drop `.inspector` from
-    /// Review and the persona for adjudicating a draft cannot record the
-    /// verdict; the writer has to switch persona to mark a chapter final.
-    ///
-    /// The census is the load-bearing half. Asserting only that Review lists
-    /// `.inspector` would pass just as happily under the cosmetic warrant the
-    /// comment used to give, and it is the warrant — not the entry — that
-    /// nearly cost a shipped control twice on this milestone.
-    func test_reviewKeepsTheInspectorBecauseItIsTheOnlyPlaceStatusIsWritten() throws {
-        XCTAssertTrue(Persona.review.panes.contains(.inspector),
-            "Review must offer the Inspector: it is the only surface that writes "
-            + "StructureItem.status, the field Review adjudicates.")
+    /// **The argument list is read to its balanced close paren, not to the end
+    /// of the line** — the inherited rule from the retired census, kept because
+    /// it is the reason that one ever saw its primary writer: `InspectorView`
+    /// spread its call over four lines with `status:` on the last, and a
+    /// line-based matcher reported a one-member census while arguing from it.
+    /// The expectation is now EMPTY, and this matcher is what makes an empty
+    /// answer mean something.
+    private func statusArgumentCensus() throws -> Set<String> {
+        let sourceDir = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Maugham", isDirectory: true)
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var found: Set<String> = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            found.formUnion(Self.statusArgumentHits(in: code, from: url.lastPathComponent))
+        }
+        return found
+    }
 
-        XCTAssertEqual(try statusWriterCensus(), Self.statusWritingFiles,
-            "The set of files writing StructureItem.status has changed.\n\n"
+    /// The matcher itself, over a string, so the planted-offender self-check
+    /// can feed it code that is not on disk.
+    static func statusArgumentHits(in code: String, from name: String) -> Set<String> {
+        var found: Set<String> = []
+        var rest = Substring(code)
+        while let call = rest.range(of: "updateInspector(") {
+            var depth = 1
+            var idx = call.upperBound
+            while idx < rest.endIndex, depth > 0 {
+                if rest[idx] == "(" { depth += 1 } else if rest[idx] == ")" { depth -= 1 }
+                idx = rest.index(after: idx)
+            }
+            if rest[call.upperBound..<idx].range(of: "status:") != nil { found.insert(name) }
+            rest = rest[idx...]
+        }
+        return found
+    }
+
+    /// **Review keeps `.inspector` because the Inspector is where a writer rules
+    /// on the piece they are READING.**
+    ///
+    /// **Re-made in M3 P1 Task 8, not patched.** The warrant this replaces said
+    /// the two Inspector arms were the only surfaces that could record a verdict
+    /// at all. That stopped being true the moment the board's chips could rule:
+    /// a reviewer at project level now sets a pass from the centre column, and
+    /// the old sentence would have gone on being cited while the census that
+    /// backed it named three files.
+    ///
+    /// What is true instead, and is why the entry stays: **the board is
+    /// project-level only.** `ProjectWindow.reviewCentreShowsBoard` composes
+    /// `subjectShowsAltitude`, so the moment the reviewer opens a chapter — the
+    /// state they are in for most of a review — the board is gone and the pass
+    /// ladder in the Inspector is the only ruling surface on screen. Drop
+    /// `.inspector` from Review and a reviewer reading a chapter has to go back
+    /// up to the project, or switch persona, to mark its Copyedit done. That is
+    /// a narrower claim than the old one and it is the one the code supports.
+    ///
+    /// The census is still the load-bearing half, and it now guards a second
+    /// thing: that the board's write went where the ladder's writes go — to the
+    /// host — rather than into the pane, which would have cost the board its
+    /// tripwire-4 cheapness (see `passStateWritingFiles`).
+    func test_reviewKeepsTheInspectorBecauseItIsWhereAPassIsRuledOn() throws {
+        XCTAssertTrue(Persona.review.panes.contains(.inspector),
+            "Review must offer the Inspector: with a chapter open — where a "
+            + "reviewer spends most of a review — the passes board is not on "
+            + "screen, and the ladder is the only surface that writes "
+            + "StructureItem.passStates, the record Review adjudicates.")
+
+        XCTAssertEqual(
+            try callers(of: "setPassState(", excluding: Self.passStateWriteDefiner),
+            Self.passStateWritingFiles,
+            "The set of files writing a piece's pass states has changed.\n\n"
             + "`Persona.swift`'s `.review` case argues for keeping `.inspector` on "
-            + "the grounds that these two files — both Inspector arms, reached via "
+            + "the grounds that a reviewer READING a chapter has no board on "
+            + "screen, so the two Inspector arms — reached via "
             + "`ProjectWindow.inspectorRoute`'s `.segment` and `.collectionPiece` "
-            + "routes — are the ONLY places a writer can set draft/revising/final.\n\n"
-            + "If you have added a status writer somewhere else, that argument is "
-            + "now weaker or wrong. Re-make it at the `.review` case; do not just "
-            + "add a name to the expectation above.")
+            + "routes — are the only ruling surfaces there. The third member is "
+            + "`ProjectWindow` itself, hosting the Review board's chips at "
+            + "project level (M3 P1 Task 8).\n\n"
+            + "If you have added a writer somewhere else, re-make that argument at "
+            + "the `.review` case; do not just add a name to the expectation above.")
     }
 
     /// The census must be able to fail, and must be reading real code.
     ///
     /// Both halves matter: a walker that found nothing would make the set
-    /// comparison above pass only by accident of also being empty, and a
-    /// matcher that took every `updateInspector` call would sweep in the
-    /// synopsis/wordTarget/pageTarget writers and stop being about status at
-    /// all — `PieceInspector` calls it four times and only one carries
-    /// `status:`.
-    func test_theStatusWriterCensusIsReadingRealCodeAndCanFail() throws {
-        let census = try statusWriterCensus()
+    /// comparison above pass only by accident of also being empty, and one that
+    /// matched reads as well as writes would sweep in every view that draws a
+    /// pass state and stop being about writing at all.
+    func test_thePassStateWriterCensusIsReadingRealCodeAndCanFail() throws {
+        let census = try callers(of: "setPassState(", excluding: Self.passStateWriteDefiner)
         XCTAssertFalse(census.isEmpty,
-            "The census found no status writers at all — it is reading nothing, "
-            + "and the comparison above is vacuous.")
-        XCTAssertTrue(census.contains("InspectorView.swift"),
-            "The census must see InspectorView, whose call spans four lines with "
-            + "`status:` on the last. If this fails, the matcher has gone back to "
-            + "reading one line at a time and is blind to the primary writer.")
-        XCTAssertFalse(census.contains("ProjectTools.swift"),
-            "ProjectTools only READS status. If it appears here the census is "
-            + "matching reads, and a widening of MCP's write surface would slip "
-            + "past it.")
+            "The census found no pass-state writers at all — it is reading "
+            + "nothing, and the comparison above is vacuous.")
+        XCTAssertFalse(census.contains("PassLadder.swift"),
+            "`PassLadder` renders the ladder and must not write through it: the "
+            + "write is the host's, so this census names the SURFACES that can "
+            + "record a verdict. A shared leaf writer would collapse it to one "
+            + "file and hide them (see PassLadder's doc comment).")
+        XCTAssertFalse(census.contains("OutlineTable.swift"),
+            "OutlineTable only READS the projection. If it appears here the "
+            + "census is matching reads.")
+        XCTAssertFalse(census.contains("ReviewBoardPane.swift"),
+            "The Review board's own file must not write: it takes values and "
+            + "closures so nothing on its per-row body path can reach a store or "
+            + "the disk (tripwire 4, `ReviewBoardPaneTests"
+            + ".test_theSourceReadsNoStoreAtAll`). Its write belongs to its host, "
+            + "which is why `ProjectWindow.swift` — and not this file — is the "
+            + "census's third member. If the pane has been handed a store, that "
+            + "is the change to argue about, not this expectation.")
 
-        // The one excluded file must still be the DECLARATION. Without this,
-        // the exclusion is a hole: move the declaration and `statusWriteDefiner`
+        // The one excluded file must still be the DECLARATION. Without this the
+        // exclusion is a hole: move the declaration and `passStateWriteDefiner`
         // starts silently exempting whatever file inherits the name.
         let definer = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Maugham/Stores/\(Self.statusWriteDefiner)")
+            .appendingPathComponent("Maugham/Stores/\(Self.passStateWriteDefiner)")
         XCTAssertTrue(
-            try String(contentsOf: definer, encoding: .utf8).contains("func updateInspector("),
-            "\(Self.statusWriteDefiner) is excluded from the census as the place "
-            + "`updateInspector` is declared, but it no longer declares it — the "
+            try String(contentsOf: definer, encoding: .utf8).contains("func setPassState("),
+            "\(Self.passStateWriteDefiner) is excluded from the census as the place "
+            + "`setPassState` is declared, but it no longer declares it — the "
             + "exclusion is now exempting a file for no reason.")
 
-        // Planted offender: a third file writing status would be reported, and
-        // would not equal the expectation.
+        // Planted offender: a third writer would be reported, and would not
+        // equal the expectation.
         var planted = census
         planted.insert("SomeNewPane.swift")
-        XCTAssertNotEqual(planted, Self.statusWritingFiles,
-            "Self-check: a third status writer must disagree with the expectation.")
+        XCTAssertNotEqual(planted, Self.passStateWritingFiles,
+            "Self-check: a third pass-state writer must disagree with the expectation.")
+    }
+
+    /// **`StructureItem.status` has no production writers left.** (M3 P1 Task 4.)
+    ///
+    /// FOUR greps, because the field can be written four ways and only one of
+    /// them was ever a picker:
+    ///
+    /// 1. No `updateInspector(… status:)` call anywhere — the argument is gone
+    ///    from the declaration, so this is belt to the compiler's braces, and it
+    ///    is what fails if somebody re-adds the parameter and a call with it.
+    /// 2. The declaration really has dropped the parameter (a call census over
+    ///    an argument nobody could pass is trivially empty otherwise).
+    /// 3. No production `.swift` file mints a status VALUE — no `status: "…"`
+    ///    and no `.status = "…"`. This is the one that catches `ProjectFactory`'s
+    ///    old `status: "draft"` seed, which was not a picker but did decide what
+    ///    a brand-new document's field said.
+    /// 4. **No bundled manifest RESOURCE carries a `status` key.** The third
+    ///    creation path is not code at all: `SampleProjectBuilder` copies
+    ///    `Maugham/Resources/Samples/<kind>/project.maugham.json` verbatim, so a
+    ///    key in that JSON is a status write with no Swift to grep. Task 4's
+    ///    first cut swept the Swift seed and left both samples hardcoding
+    ///    `"status": "draft"` — onboarding's projects arrived pre-touched (a dot
+    ///    on every chapter) while New Project's arrived clean, which is the
+    ///    disagreement the seed removal existed to end. A `.swift`-only walker
+    ///    could not see it; this arm is why the review's find cannot come back.
+    ///
+    /// What remains legal, and is deliberately not caught: `status: piece.status`
+    /// (promotion CARRIES the writer's legacy string to the new project) and
+    /// `.status = nil` (converting a piece to a reference CLEARS it). Both move
+    /// or drop an existing value; neither invents one. A writer's OWN project on
+    /// disk is untouched by any of this — the field is still read.
+    func test_theStatusStringHasNoProductionWriters() throws {
+        XCTAssertEqual(try statusArgumentCensus(), [],
+            "Something passes `status:` to `updateInspector` again. The field is "
+            + "legacy-read-only: `ReviewStatus.derived` falls back to it for "
+            + "projects written before M3, and the ladder is what writes now.")
+
+        let definer = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Stores/\(Self.passStateWriteDefiner)")
+        let metadata = try String(contentsOf: definer, encoding: .utf8)
+        let declaration = try XCTUnwrap(metadata.range(of: "func updateInspector("))
+        let signature = metadata[declaration.upperBound...].prefix(while: { $0 != ")" })
+        XCTAssertFalse(signature.contains("status:"),
+            "`updateInspector` grew its `status:` parameter back. Removing it is "
+            + "what made the compiler sweep the call sites in the first place.")
+
+        var minters: Set<String> = []
+        for file in try mintersOfAStatusLiteral() { minters.insert(file) }
+        XCTAssertEqual(minters, [],
+            "\(minters.sorted()) mints a literal `status` value. A seeded or "
+            + "hardcoded draft/revising/final is a second answer beside the "
+            + "derived one, and it makes an untouched piece indistinguishable "
+            + "from a ruled-on one (`StatusSwatch.showsDot`).")
+
+        let seeds = try Self.bundledSampleManifests()
+        XCTAssertFalse(seeds.isEmpty,
+            "the sample-manifest arm found no seeds to read — it is vacuous, and "
+            + "the samples are a creation path with no Swift to grep")
+        for (name, json) in seeds {
+            XCTAssertFalse(Self.carriesAStatusKey(json),
+                "\(name) hardcodes a `status` on a structure item. "
+                + "`SampleProjectBuilder` copies this file verbatim, so every "
+                + "sample project the writer creates from onboarding would arrive "
+                + "pre-adjudicated — a dot on every chapter — while a New Project "
+                + "document arrives untouched.")
+        }
+    }
+
+    /// The three greps above must be able to fail — a census that cannot go red
+    /// over an offender it was written for is cover, not a guard.
+    func test_theStatusRetirementCensusFiresOnPlantedOffenders() throws {
+        XCTAssertEqual(
+            Self.statusArgumentHits(
+                in: """
+                    Task { try? await store.updateInspector(
+                        id: piece.id,
+                        status: newValue) }
+                    """,
+                from: "SomeNewPane.swift"),
+            ["SomeNewPane.swift"],
+            "the argument matcher missed a call spread over three lines with "
+            + "`status:` on the last — the exact shape that once made this "
+            + "census argue the opposite of the truth while staying green")
+        XCTAssertEqual(
+            Self.statusArgumentHits(
+                in: "store.updateInspector(id: id, synopsis: s, tags: t)",
+                from: "SomeNewPane.swift"),
+            [],
+            "control: the matcher must not report every `updateInspector` call, "
+            + "or it is not about status at all")
+
+        XCTAssertTrue(Self.mintsAStatusLiteral(in: #"status: "draft")"#),
+                      "the literal matcher missed ProjectFactory's own old seed")
+        XCTAssertTrue(Self.mintsAStatusLiteral(in: #"item.status = "final""#))
+        XCTAssertFalse(Self.mintsAStatusLiteral(in: #"static let status = "status""#),
+                       "control: a constant NAMED status is not a write of the "
+                       + "field — DiagnosticIngest's JSON key, which the first "
+                       + "run of this census reported")
+        XCTAssertFalse(Self.mintsAStatusLiteral(in: "status: piece.status"),
+                       "control: promotion CARRIES a legacy value and must stay legal")
+        XCTAssertFalse(Self.mintsAStatusLiteral(in: "manifest.structure[i].status = nil"),
+                       "control: converting to a reference CLEARS the field")
+
+        // The resource arm, planted in the samples' own spelling (SwiftyJSON-
+        // style spacing around the colon, which is what `JSONEncoder`'s
+        // `.prettyPrinted` + `.sortedKeys` output in these files actually uses —
+        // a matcher written for `"status":` alone would have read both seeds as
+        // clean).
+        XCTAssertTrue(Self.carriesAStatusKey("""
+            { "structure" : [ { "id" : "doc-001", "status" : "draft" } ] }
+            """),
+            "the resource matcher missed the samples' own spelling — the exact "
+            + "bytes that shipped pre-touched sample projects")
+        XCTAssertTrue(Self.carriesAStatusKey(#"{"status":"final"}"#),
+                      "…and the compact spelling a hand-edited seed would use")
+        XCTAssertFalse(Self.carriesAStatusKey("""
+            { "structure" : [ { "id" : "doc-001", "title" : "Welcome" } ] }
+            """),
+            "control: a seed with no status key must pass, or the arm is not "
+            + "about status at all")
+    }
+
+    /// Does this manifest JSON carry a `status` key?
+    ///
+    /// Both spellings, because these files are `JSONEncoder` output with spaces
+    /// around the colon and a hand-edited seed would not be.
+    static func carriesAStatusKey(_ json: String) -> Bool {
+        json.contains("\"status\" :") || json.contains("\"status\":")
+    }
+
+    /// Every bundled sample manifest, as `(path-ish name, contents)`.
+    static func bundledSampleManifests() throws -> [(String, String)] {
+        let samples = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Resources/Samples", isDirectory: true)
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: samples, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var found: [(String, String)] = []
+        for case let url as URL in walker
+        where url.lastPathComponent == ProjectManifest.fileName {
+            let kind = url.deletingLastPathComponent().lastPathComponent
+            found.append(("Samples/\(kind)/\(url.lastPathComponent)",
+                          try String(contentsOf: url, encoding: .utf8)))
+        }
+        return found
+    }
+
+    /// Does this line mint a literal status value?
+    ///
+    /// The assignment arm requires the LEADING DOT (`.status = "`), because a
+    /// bare `status = "` also matches a constant named `status` holding the
+    /// string `"status"` — `DiagnosticIngest`'s JSON key, which this census
+    /// reported on its first run. A field write always goes through a receiver.
+    static func mintsAStatusLiteral(in line: String) -> Bool {
+        line.contains("status: \"") || line.contains(".status = \"")
+    }
+
+    /// Production files minting a literal status value, comment lines dropped.
+    private func mintersOfAStatusLiteral() throws -> [String] {
+        let sourceDir = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Maugham", isDirectory: true)
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var found: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let hit = text.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .contains { Self.mintsAStatusLiteral(in: String($0)) }
+            if hit { found.append(url.lastPathComponent) }
+        }
+        return found
+    }
+
+    /// The Status column at altitude reads the PROJECTION, not the legacy
+    /// string.
+    ///
+    /// A source census because the rendered value is not observable: measured
+    /// (macOS 26.5) `OutlineTable`'s cells publish no `NSTextField` and the
+    /// table's accessibility tree comes back unlabelled and valueless — see
+    /// `InspectorPassLadderTests`' live-projection test, which makes the
+    /// mounted half of this claim on the controls that ARE observable. With
+    /// nothing writing `status`, a column printing it would have sat at "draft"
+    /// under a green dot for ever.
+    func test_theAltitudeStatusColumnReadsTheProjection() throws {
+        let table = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Views/OutlineTable.swift")
+        let code = try String(contentsOf: table, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        XCTAssertTrue(code.contains("StatusSwatch.label(for:"),
+                      "the Status column must render the derived status in words")
+        XCTAssertFalse(code.contains("Text(item.status"),
+                      "the Status column still prints the raw legacy string")
     }
 
     // MARK: - The whole matrix, not a row at a time

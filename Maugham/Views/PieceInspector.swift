@@ -84,20 +84,22 @@ struct PieceInspector: View {
         }
     }
 
+    /// The review section: the derived status, then the pass ladder (M3 P1
+    /// Task 4). The segmented draft/revising/final picker that stood here is
+    /// gone — the writer rules on passes and the status is read off them.
+    ///
+    /// The write is this file's, not `PassLadder`'s: see that view's doc
+    /// comment, and `PersonaPaneRegistryTests`' `setPassState` census, which is
+    /// what the Review persona's claim on the Inspector now rests on.
     @ViewBuilder private func statusSection(piece: StructureItem) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Status").font(.caption).foregroundStyle(.secondary)
-            Picker("Status", selection: Binding(
-                get: { piece.status ?? "draft" },
-                set: { newValue in
-                    Task { try? await store.updateInspector(id: piece.id, status: newValue) }
-                })) {
-                Text("Draft").tag("draft")
-                Text("Revising").tag("revising")
-                Text("Final").tag("final")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            Text("Review").font(.caption).foregroundStyle(.secondary)
+            PassLadder(
+                item: piece,
+                passes: store.manifest.effectiveReviewPasses,
+                onSet: { passId, state in
+                    Task { try? await store.setPassState(id: piece.id, passId: passId, state) }
+                })
         }
     }
 

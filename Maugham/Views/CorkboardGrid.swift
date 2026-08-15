@@ -32,7 +32,10 @@ struct CorkboardGrid: View {
                         .lineLimit(2)
                     Spacer(minLength: 4)
                     Circle()
-                        .fill(statusColor(item.status))
+                        .fill(StatusSwatch.color(for: ReviewStatus.derived(
+                            passStates: item.passStates,
+                            passes: store.manifest.effectiveReviewPasses,
+                            legacyStatus: item.status)))
                         .frame(width: 8, height: 8)
                 }
                 if let synopsis = item.synopsis, !synopsis.isEmpty {
@@ -71,13 +74,5 @@ struct CorkboardGrid: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    private func statusColor(_ status: String?) -> Color {
-        switch status {
-        case "revising": return .orange
-        case "final":    return .green
-        default:         return .secondary
-        }
     }
 }

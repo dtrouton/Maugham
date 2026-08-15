@@ -568,7 +568,11 @@ extension ProjectStore {
             wordTarget: piece.wordTarget,
             pageTarget: piece.pageTarget,
             tags: piece.tags,
-            links: piece.links)
+            links: piece.links,
+            // The review record travels with the prose (M3 P1): the writer's
+            // finished passes describe the words, not the Collection row they
+            // used to sit in, and the row itself is cleared below.
+            passStates: piece.passStates)
         // Carry over per-piece research as the new project's research items;
         // rewrite their paths from pieces/<NN>-<slug>/research/X to research/X.
         let carriedResearch: [ResearchItem] = manifest.research.compactMap { item in
@@ -658,6 +662,10 @@ extension ProjectStore {
         manifest.structure[pieceIdx].linkedProjectBookmark = bookmarkData
         manifest.structure[pieceIdx].synopsis = nil
         manifest.structure[pieceIdx].status = nil
+        // …and the review state beside it (M3 P1): a reference owns no prose,
+        // so a kept pass state would draw a stale cell on the board against a
+        // project whose real record now lives in its own manifest.
+        manifest.structure[pieceIdx].passStates = nil
         manifest.structure[pieceIdx].wordTarget = nil
         manifest.structure[pieceIdx].pageTarget = nil
         // Remove per-piece research entries from Collection's manifest

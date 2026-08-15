@@ -475,4 +475,71 @@ final class PromotePieceTests: XCTestCase {
         XCTAssertTrue(derived.allSatisfy { $0.path?.hasPrefix("research/") == true },
                       "carried paths must be rewritten to research/…")
     }
+
+    // MARK: - Pass state travels with the prose (M3 P1 Task 2)
+
+    /// The promoted project's document carries the piece's review state, the
+    /// same way it carries `status` — the two are set in the same place in
+    /// `writePromotedManifest`, and a promotion that kept the writer's status
+    /// but dropped which passes they had finished would be a silent loss of
+    /// exactly the record the Review board is about.
+    func test_aPromotedPieceCarriesItsStatusAndItsPassStates() async throws {
+        let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
+        // `status` is legacy-read-only as of M3 P1 Task 4 (no store verb
+        // writes it any more), so the fixture seeds it directly — the CARRY is
+        // what this test is about, and a project written by an older build
+        // still arrives with the string set.
+        let idx = try XCTUnwrap(store.manifest.structure.firstIndex { $0.id == piece.id })
+        store.manifest.structure[idx].status = "revising"
+        store.manifest.structure[idx].passStates = [
+            "structural": .done, "line": .inProgress, "sensitivity": .unknown("awaiting_reader"),
+        ]
+
+        let destination = collection.deletingLastPathComponent()
+            .appendingPathComponent("Promoted With State")
+        let newProjectURL = try await store.promotePieceToProject(
+            pieceId: piece.id, destination: destination)
+
+        let promoted = try await ProjectStore.load(from: newProjectURL)
+        let doc = try XCTUnwrap(TreeWalk.collect(in: promoted.manifest.structure,
+                                                 where: { $0.type == .document }).first)
+        XCTAssertEqual(doc.status, "revising")
+        XCTAssertEqual(doc.passStates?["structural"], .done)
+        XCTAssertEqual(doc.passStates?["line"], .inProgress)
+        XCTAssertEqual(doc.passStates?["sensitivity"], .unknown("awaiting_reader"),
+                       "a newer build's state must survive the promotion verbatim")
+    }
+
+    /// …and the Collection's own row, now a reference, keeps none of it. A
+    /// reference piece owns no prose, so the fields describing prose are
+    /// cleared — `status` already was; `passStates` is cleared beside it, or
+    /// the board would draw a stale finished-Structural cell against a project
+    /// whose real state lives in its own manifest.
+    func test_convertingToAReferenceClearsPassStatesBesideStatus() async throws {
+        let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
+        // `status` is legacy-read-only as of M3 P1 Task 4 (no store verb
+        // writes it any more), so the fixture seeds it directly — the CARRY is
+        // what this test is about, and a project written by an older build
+        // still arrives with the string set.
+        let idx = try XCTUnwrap(store.manifest.structure.firstIndex { $0.id == piece.id })
+        store.manifest.structure[idx].status = "revising"
+        store.manifest.structure[idx].passStates = ["structural": .done]
+
+        let destination = collection.deletingLastPathComponent()
+            .appendingPathComponent("Promoted Then Cleared")
+        _ = try await store.promotePieceToProject(
+            pieceId: piece.id, destination: destination)
+
+        let converted = try XCTUnwrap(store.manifest.structure.first { $0.id == piece.id })
+        XCTAssertEqual(converted.pieceKind, .reference)
+        XCTAssertNil(converted.status)
+        XCTAssertNil(converted.passStates,
+                     "a reference piece must not keep the prose's pass states")
+
+        // …and the cleared state must survive the round-trip to disk, not just
+        // live in memory.
+        let reloaded = try await ProjectStore.load(from: collection)
+        let onDisk = try XCTUnwrap(reloaded.manifest.structure.first { $0.id == piece.id })
+        XCTAssertNil(onDisk.passStates)
+    }
 }

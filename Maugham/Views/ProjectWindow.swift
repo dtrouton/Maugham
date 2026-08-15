@@ -48,6 +48,12 @@ struct ProjectWindow: View {
     /// `UIState.compilerModel` at `load()` and written back through
     /// `updateUIState` on change — the `outlineLayout` pattern.
     @State private var compilerModel: CompilerModelChoice = .standard
+    /// Which review pass each piece was last looked at through
+    /// (M3-P1 Task 5), seeded from `UIState.activePassMemory` at `load()` and
+    /// written back through `updateUIState` on change — the `outlineLayout`
+    /// pattern. Threading a piece's remembered pass onto the board itself is
+    /// a later task; this only carries the memory.
+    @State private var activePassMemory: ActivePassMemory = .empty
     /// What this window's tree names — the window's single subject (spec §3).
     /// Typed rather than a `String?` so no site can answer "is this a manuscript
     /// document?" by accident; see `BinderSubject`.
@@ -1451,6 +1457,46 @@ struct ProjectWindow: View {
         }
     }
 
+    /// **Does Review's centre column show the passes board?** (M3 P1 Task 6,
+    /// spec §4 — the board is Review's project altitude.)
+    ///
+    /// `publishCentre`'s shape without its resolution: two independent facts,
+    /// composed here so no caller can hold one without the other.
+    ///
+    /// - **Which persona.** `Persona.showsTheReviewBoard`, asked rather than
+    ///   spelled — a `== .review` here would be the fifth equality in the shape
+    ///   `centresTheCanvas` was written to close off, and the compiler cannot
+    ///   check that two of them in two files still agree.
+    /// - **Which subject.** `subjectShowsAltitude`, composed rather than
+    ///   restated, for the reason `publishCentre` composes it: two
+    ///   document-resolution rules are two answers free to disagree about what a
+    ///   document is, and the disagreement here would put a board of chips over
+    ///   the chapter a reviewer is reading. Review's board is a PROJECT-level
+    ///   surface exactly as Publish's book is — the project row, a group, or
+    ///   nothing selected — and a chapter subject in Review opens the chapter,
+    ///   which is what a reviewer with a note to leave needs.
+    ///
+    /// A research subject in Review resolves to no manuscript document, so it
+    /// lands here as project level and gets the board — the same fall-through
+    /// Publish's book already has, and the same one the corkboard had before
+    /// either of them.
+    ///
+    /// **`showsStatusFooter` needs no clause of its own for this**, for the
+    /// argument the footer's own comment makes about the book: the board only
+    /// ever shows where `subjectShowsAltitude` is already true, and the footer's
+    /// altitude clause has therefore already refused. A fifth clause would be a
+    /// parameter that cannot move the result.
+    /// `ReviewBoardRoutingTests.test_theBoardOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`
+    /// asserts that implication over the whole product rather than leaving it
+    /// here.
+    static func reviewCentreShowsBoard(persona: Persona,
+                                       subject: BinderSubject?,
+                                       structure: [StructureItem]) -> Bool {
+        guard persona.showsTheReviewBoard else { return false }
+        return subjectShowsAltitude(persona: persona, subject: subject,
+                                    structure: structure)
+    }
+
     /// **Does the centre column show the project at altitude rather than a
     /// document?** (shell-finish stage 3a Task 2.)
     ///
@@ -1666,8 +1712,15 @@ struct ProjectWindow: View {
     /// names. A screenplay reaches it too; its tree is the slugline navigator,
     /// and the underlying `.fountain` is the same file.
     ///
-    /// **And Publish's own surface, as of stage 3b Task 5 — a THIRD layer of
-    /// the same stack**, over altitude and over the host: the compiled book at
+    /// **And Review's own surface, as of M3 P1 Task 6** — the passes board,
+    /// over altitude and under the book: at project level in Review the board
+    /// is what the reviewer asked for, and a corkboard over it is the truth
+    /// table upside down. `reviewCentreShowsBoard` composes
+    /// `subjectShowsAltitude` the way `publishCentre` does, so a chapter
+    /// subject in Review opens the chapter and nothing is layered over it.
+    ///
+    /// **And Publish's own surface, as of stage 3b Task 5 — the LAST layer of
+    /// the stack**, over altitude and over the host: the compiled book at
     /// project level, or a banner naming which kind of nothing there is (never
     /// compiled, or a catalog that cannot be read). Over a CHAPTER the layer
     /// does not appear at all — Denver, 2026-08-12: *"a chapter/piece subject in
@@ -1725,6 +1778,52 @@ struct ProjectWindow: View {
                     title: store.manifest.title)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(nsColor: .windowBackgroundColor))
+            }
+            // **Review's own layer** (M3 P1 Task 6), between altitude and the
+            // book. Above altitude for the reason Publish's layer is: at
+            // project level in Review the subject answers both rules, and what
+            // the reviewer asked for is the board — a corkboard drawn over it
+            // is the truth table upside down. Below the book because the two
+            // are never both offered (`showsTheReviewBoard` and
+            // `previewsThePublishedBook` are true of one persona each), so the
+            // order between them decides nothing today and the book's position
+            // is what `PublishPreviewCentreTests` pins: LAST.
+            //
+            // Project-level by construction: `reviewCentreShowsBoard` composes
+            // `subjectShowsAltitude`, so a chapter subject in Review reaches
+            // neither this layer nor altitude and opens in the host underneath.
+            if Self.reviewCentreShowsBoard(persona: persona,
+                                           subject: selectedSubject,
+                                           structure: store.manifest.structure) {
+                // Values, not the store (tripwire 4): the board reads
+                // `manifest` here, at the one mount, and nothing on its body
+                // path can reach a document or the disk.
+                ReviewBoardPane(
+                    title: store.manifest.title,
+                    structure: store.manifest.structure,
+                    passes: store.manifest.effectiveReviewPasses,
+                    // **A chip click is a SUBJECT write and nothing else**
+                    // (Task 8). The window is already in Review — the board is
+                    // what Review shows — so moving the persona here would be
+                    // the board deciding which persona is showing, which is
+                    // the ejection trap `TripwireGrepTests`' persona-decision
+                    // census names. Opening the chapter drops the subject
+                    // below `reviewCentreShowsBoard`, so the board uncovers
+                    // the host that was mounted underneath it all along; no
+                    // arm is torn down.
+                    onNavigate: { pieceId, passId in
+                        selectedSubject = .item(pieceId)
+                        recordActivePass(forPiece: pieceId, passId: passId)
+                    },
+                    // The board's write, at the board's HOST — the same place
+                    // and the same shape as the pass ladder's, which lands at
+                    // `InspectorView` and `PieceInspector` rather than inside
+                    // `PassLadder` (`PersonaPaneRegistryTests`' census).
+                    onSetState: { pieceId, passId, state in
+                        Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
+                    })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(nsColor: .windowBackgroundColor))
             }
             // **Publish's own layer, LAST of the three** (stage 3b Task 5,
             // re-cut 2026-08-12). Above altitude rather than beside it: at
@@ -2827,6 +2926,20 @@ struct ProjectWindow: View {
         BinderSubject.activeDocId(for: selectedSubject)
     }
 
+    /// Remember that `piece` was last looked at through `passId` —
+    /// `activePassMemory`'s write half, the `outlineLayout` pattern: update
+    /// the local `@State` so this window reflects it immediately, then
+    /// persist through `updateUIState` on the same debounce as every other
+    /// UI-state write. **The record has no reader in P1** — the chip click
+    /// (Task 8) writes it, and its consumer is M3 P2's queue pane, which
+    /// restores the pass a piece was last reviewed through. Writing ahead of
+    /// the reader is deliberate: the memory accumulates from the writer's
+    /// first chip click, so the queue arrives already primed.
+    private func recordActivePass(forPiece piece: String, passId: String) {
+        activePassMemory.record(piece: piece, passId: passId)
+        documentStore?.updateUIState { $0.activePassMemory.record(piece: piece, passId: passId) }
+    }
+
     /// Whether the window's subject still names something, and what it becomes
     /// when it does not.
     ///
@@ -3120,6 +3233,7 @@ struct ProjectWindow: View {
             self.detailSegment = ds.uiState.detailSegment
             self.persona = ds.uiState.persona
             self.outlineLayout = ds.uiState.outlineLayout
+            self.activePassMemory = ds.uiState.activePassMemory
             applyNoChrome()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {

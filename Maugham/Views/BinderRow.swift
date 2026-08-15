@@ -4,6 +4,13 @@ import UniformTypeIdentifiers
 
 struct BinderRow: View {
     let item: StructureItem
+    /// The project's effective review-pass list (`ProjectManifest
+    /// .effectiveReviewPasses`) — threaded down so `statusDot`'s
+    /// `ReviewStatus.derived` scores this item's `passStates` against the
+    /// SAME passes the Review board and inspector use, rather than a
+    /// hardcoded stand-in that would silently disagree with a customized
+    /// pass list (M3 P1 Task 3).
+    let effectiveReviewPasses: [ReviewPass]
     @Binding var renamingItemId: String?
     let onRename: (String, String) -> Void  // (id, newTitle)
     /// Called when a drop completes on this row. The closure receives the
@@ -117,20 +124,15 @@ struct BinderRow: View {
     private var statusDot: some View {
         if item.type == .document {
             Circle()
-                .fill(statusColor)
+                .fill(StatusSwatch.color(for: ReviewStatus.derived(
+                    passStates: item.passStates,
+                    passes: effectiveReviewPasses,
+                    legacyStatus: item.status)))
                 .frame(width: 6, height: 6)
         } else {
             Image(systemName: "folder")
                 .imageScale(.small)
                 .foregroundStyle(.secondary)
-        }
-    }
-
-    private var statusColor: Color {
-        switch item.status {
-        case "revising": return .orange
-        case "final":    return .green
-        default:         return .secondary
         }
     }
 

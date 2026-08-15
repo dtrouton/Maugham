@@ -1207,8 +1207,12 @@ final class PublishPreviewCentreTests: XCTestCase {
                       "…with the host mounted unconditionally underneath")
         XCTAssertTrue(arm.contains("ProjectAltitudePane("),
                       "…altitude over it")
+        XCTAssertTrue(arm.contains("ReviewBoardPane("),
+                      "…Review's passes board over that (M3 P1 Task 6)")
+        XCTAssertTrue(arm.contains("Self.reviewCentreShowsBoard("),
+                      "…gated on its own named rule, for this layer's reason")
         XCTAssertTrue(arm.contains("PublishPreviewCentre("),
-                      "…and the book over both")
+                      "…and the book over all of them")
         XCTAssertTrue(arm.contains("PublishCentreNoticeBanner("),
                       "…with the notice standing in the same place when there "
                       + "is no book")
@@ -1219,11 +1223,18 @@ final class PublishPreviewCentreTests: XCTestCase {
                       + "compiled book")
 
         let altitudeAt = try XCTUnwrap(arm.range(of: "ProjectAltitudePane("))
+        let boardAt = try XCTUnwrap(arm.range(of: "ReviewBoardPane("))
         let bookAt = try XCTUnwrap(arm.range(of: "PublishPreviewCentre("))
         XCTAssertTrue(altitudeAt.lowerBound < bookAt.lowerBound,
                       "the book must be the LAST layer of the stack — a "
                       + "corkboard drawn over a compiled book is the truth "
                       + "table read upside down")
+        XCTAssertTrue(boardAt.lowerBound < bookAt.lowerBound,
+                      "…LAST means after Review's board too. The two are never "
+                      + "both offered today (each predicate is true of one "
+                      + "persona), so nothing behavioural would catch a layer "
+                      + "that slipped in front of the book — this ordering is "
+                      + "the only thing holding the book's place")
 
         XCTAssertEqual(
             Self.occurrences(of: "PublishPreviewCentre(", in: source), 1,

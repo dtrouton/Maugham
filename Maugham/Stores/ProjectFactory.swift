@@ -180,12 +180,20 @@ public enum ProjectFactory {
             try Data().write(to: docURL)
 
             let now = Date()
+            // **No seeded `status`** (M3 P1 Task 4). The free-string field was
+            // minted `"draft"` here and then written only by the two inspector
+            // status pickers; those are the pass ladder now, and the verdict is
+            // derived (`ReviewStatus`). A seed would make every brand-new
+            // document arrive already *touched* — which is exactly the
+            // distinction `StatusSwatch.showsDot` draws — while saying nothing
+            // a reader cannot derive: no passes and no string both read
+            // `.draft`. A Collection's loose pieces have never carried a seed,
+            // so this also ends a disagreement between the two creation paths.
             let item = StructureItem(
                 id: ProjectStore.newId(prefix: "doc"),
                 title: initialDocumentTitle,
                 type: .document,
-                path: "manuscript/\(filename)",
-                status: "draft")
+                path: "manuscript/\(filename)")
             let manifest = ProjectManifest(
                 type: type,
                 title: name, author: "",
