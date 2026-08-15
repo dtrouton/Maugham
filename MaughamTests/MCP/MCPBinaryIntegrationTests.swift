@@ -161,11 +161,21 @@ extension MCPBinaryIntegrationTests {
         // loaded serial suite starved the subprocess past it (the test took
         // 9.4s and measured the machine, not the binary). 60s can only fire on
         // a binary that genuinely does not exit.
+        // A dedicated `Thread`, NOT a global dispatch queue: this host reaches
+        // libdispatch's 64-thread ceiling during launch (see
+        // `MCPServerLifecycleTests`' census), so a block posted to a global
+        // queue can be scheduled late or never — and a watcher scheduled late
+        // reports the exit late, which is indistinguishable from a binary that
+        // did not exit. That is what made this test "load-sensitive" in the
+        // 2026-07-29 note; it never was.
         let exitExpectation = expectation(description: "binary exits")
-        DispatchQueue.global().async {
+        let watcher = Thread {
             process.waitUntilExit()
             exitExpectation.fulfill()
         }
+        watcher.name = "mcp-binary-exit-watch"
+        watcher.stackSize = 512 * 1024
+        watcher.start()
         wait(for: [exitExpectation], timeout: 60)
         XCTAssertFalse(process.isRunning)
     }

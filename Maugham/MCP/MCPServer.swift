@@ -12,9 +12,24 @@ public enum MCPServerStartError: Error {
 /// MCPRouter, and writes responses back. Disabled preference short-circuits
 /// every request with mcp_disabled (-32003).
 ///
-/// Blocking POSIX calls (accept, recv) run on DispatchQueue.global() via
-/// withCheckedContinuation so Swift's cooperative thread pool is never
-/// starved by blocking syscalls.
+/// Blocking POSIX calls (accept, recv) run on **dedicated `Thread`s** via
+/// withCheckedContinuation, so Swift's cooperative thread pool is never
+/// starved by blocking syscalls — and neither is libdispatch's.
+///
+/// These used to be `DispatchQueue.global(qos: .utility).async`, which is the
+/// documented anti-pattern: a blocking syscall on a dispatch worker occupies
+/// that worker for the whole call, and the global pool has a hard 64-thread
+/// soft limit. When something else in the process reaches that limit, the
+/// accept loop simply never gets a thread and **the server silently stops
+/// answering** — no error, no log, no connection refused. Measured 2026-08-15
+/// in the xctest host, which reaches the ceiling during launch: the server
+/// could not accept a connection at all, and `MCPServerLifecycleTests` failed
+/// or hung depending on which side lost the race. The shipping app has one
+/// blocked thread rather than 64, so this was latent there rather than live —
+/// but "MCP stops responding if some unrelated subsystem saturates GCD" is not
+/// a property worth keeping. A `Thread` is created by the kernel, costs one
+/// 512 KB stack, and cannot be starved by the dispatch pool. One thread per
+/// server for the accept loop, one per open connection.
 @MainActor
 public final class MCPServer {
     private let socketPath: String
@@ -107,16 +122,25 @@ public final class MCPServer {
 
     // MARK: - Private helpers
 
-    /// Wraps blocking accept() in a GCD dispatch so Swift's cooperative thread
-    /// pool thread is not permanently occupied by a blocking syscall.
-    private static func blockingAccept(listenFD: Int32) async -> Int32 {
+    /// Runs a blocking syscall on a dedicated thread so neither Swift's
+    /// cooperative pool nor libdispatch's worker pool is occupied by it.
+    /// See the type's doc comment for why this is not a dispatch queue.
+    private static func onBlockingThread<T: Sendable>(
+        _ name: String, _ work: @escaping @Sendable () -> T
+    ) async -> T {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                var clientAddr = sockaddr()
-                var len = socklen_t(MemoryLayout<sockaddr>.size)
-                let clientFD = accept(listenFD, &clientAddr, &len)
-                continuation.resume(returning: clientFD)
-            }
+            let thread = Thread { continuation.resume(returning: work()) }
+            thread.name = name
+            thread.stackSize = 512 * 1024
+            thread.start()
+        }
+    }
+
+    private static func blockingAccept(listenFD: Int32) async -> Int32 {
+        await onBlockingThread("mcp-accept") {
+            var clientAddr = sockaddr()
+            var len = socklen_t(MemoryLayout<sockaddr>.size)
+            return accept(listenFD, &clientAddr, &len)
         }
     }
 
@@ -137,17 +161,20 @@ public final class MCPServer {
         }
     }
 
-    /// Wraps blocking recv() in a GCD dispatch so Swift's cooperative thread
-    /// pool thread is not permanently occupied.
     private static func blockingRecv(fd: Int32, count: Int) async -> (data: Data, n: Int) {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                var buf = [UInt8](repeating: 0, count: count)
-                let n = recv(fd, &buf, count, 0)
-                let data = n > 0 ? Data(buf.prefix(Int(n))) : Data()
-                continuation.resume(returning: (data, Int(n)))
-            }
+        let result: RecvResult = await onBlockingThread("mcp-recv") {
+            var buf = [UInt8](repeating: 0, count: count)
+            let n = recv(fd, &buf, count, 0)
+            return RecvResult(data: n > 0 ? Data(buf.prefix(Int(n))) : Data(), n: Int(n))
         }
+        return (result.data, result.n)
+    }
+
+    /// `onBlockingThread` needs a `Sendable` return; a tuple of `(Data, Int)`
+    /// is one in principle but not one the compiler will infer here.
+    private struct RecvResult: Sendable {
+        let data: Data
+        let n: Int
     }
 
     private static func handleConnection(
