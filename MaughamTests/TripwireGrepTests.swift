@@ -1014,24 +1014,35 @@ final class TripwireGrepTests: XCTestCase {
 
     // MARK: - ContentUnavailableView frame guard (tripwire 15)
 
-    /// How many lines after a `ContentUnavailableView(` opener the required
-    /// `.frame(maxWidth: .infinity` must appear. Measured against the actual
-    /// codebase (2026-07-11): the shortest single-line calls chain the frame
-    /// on the very next line (distance 1); the longest multi-line calls —
-    /// title + systemImage + description args each on their own line, then
-    /// the closing paren, then `.frame(...)` — land at distance 4
-    /// (e.g. DetailPaneToggle.swift, InboxPane.swift, HistoryPane.swift all
-    /// legitimately sit at 4). A 3-line window would false-positive on those
-    /// real, correct call sites, so the window is 4 — still crisp enough to
-    /// catch a genuinely frameless CUV (tripwire 15: recurred 4+ times
-    /// because `ContentUnavailableView` sizes to intrinsic content and an
-    /// unframed one lets the enclosing pane's toolbar float to window center).
-    private static let contentUnavailableViewFrameWindow = 4
+    /// A runaway stop for the span walk below — no real call site is anywhere
+    /// near this long, and a malformed file must not make the scan walk a
+    /// whole file looking for a frame chain that would then satisfy the guard
+    /// from somewhere else entirely.
+    private static let contentUnavailableViewSpanLimit = 60
 
-    /// Recurrence-tripper: every `ContentUnavailableView(` in Maugham/Views/
-    /// must chain `.frame(maxWidth: .infinity` within the next
-    /// `contentUnavailableViewFrameWindow` lines. Canonical examples:
+    /// Recurrence-tripper: every `ContentUnavailableView` in `Maugham/` must
+    /// chain `.frame(maxWidth: .infinity` onto ITSELF. Canonical examples:
     /// HistoryPane, AnnotationsPane, ProjectAltitudePane (CLAUDE.md tripwire 15).
+    ///
+    /// **This census used to be two-thirds blind, and M3 P1 Task 7 is what
+    /// found it** (2026-08-15). It matched the literal `"ContentUnavailableView("`
+    /// only, so the trailing-closure form —
+    /// `ContentUnavailableView { Label(…) } description: { Text(…) }`, which is
+    /// what `ProjectAltitudePane`, `ResearchNoteEditor`, `CollectionPiecesPane`
+    /// and the new `ReviewBoardPane` all use — was never inspected at all; and
+    /// even had it matched, that form's frame chain lands FIVE lines after the
+    /// opener, outside the fixed 4-line lookahead the scan used. Three of the
+    /// panes CLAUDE.md names as canonical examples of tripwire 15 were being
+    /// guarded by nothing, and a tidy-up dropping their frame chain would have
+    /// shipped green — which is the same failure the 1C-c1 directory widening
+    /// (below) was written to end. A vacuous census is no guard.
+    ///
+    /// The fix is in two parts, and both matter: the opener is recognised in
+    /// BOTH syntactic forms, and the lookahead is no longer a line count. The
+    /// scan now walks the construct to the end of its own modifier chain
+    /// (`contentUnavailableViewSpan`), so a call site is measured by its
+    /// SHAPE rather than by how many lines its arguments happen to take —
+    /// there is no length at which a pane silently stops being checked.
     func test_contentUnavailableViewAlwaysChainsFullFrame() throws {
         // **`Maugham/`, not `Maugham/Views`.** 1C-c1's docs sweep found the scan
         // pointed at one directory while the panes it protects had spread out of
@@ -1042,10 +1053,29 @@ final class TripwireGrepTests: XCTestCase {
         // is now covered by default, which is the point — a rule that only holds
         // in the directory it was written in is a rule about a directory.
         let appDir = repoRoot.appendingPathComponent("Maugham", isDirectory: true)
-        let offenders = try Self.findFramelessContentUnavailableViews(in: appDir)
+
+        // **Non-vacuity, by name rather than by count.** The reason this census
+        // sat blind for milestones is that a scan finding nothing and a scan
+        // looking at nothing read identically from the outside. These four
+        // panes use the trailing-closure form, so ALL FOUR were invisible to
+        // the old scan; if a future edit narrows the opener again, this fails
+        // before the emptiness of `offenders` can be mistaken for safety.
+        let inspected = try Self.contentUnavailableViewSites(in: appDir)
+        for pane in ["Maugham/Views/ProjectAltitudePane.swift",
+                     "Maugham/Views/Review/ReviewBoardPane.swift",
+                     "Maugham/Views/ResearchNoteEditor.swift",
+                     "Maugham/Views/CollectionPiecesPane.swift"] {
+            XCTAssertTrue(inspected.contains { $0.path == pane },
+                "\(pane) holds a trailing-closure ContentUnavailableView that "
+                + "this census did not even look at. Inspected: "
+                + "\(Set(inspected.map(\.path)).sorted().joined(separator: ", "))")
+        }
+
+        let offenders = inspected.filter { !$0.hasFrame }.map(\.description)
         XCTAssertTrue(offenders.isEmpty,
-            "ContentUnavailableView( without a .frame(maxWidth: .infinity within "
-            + "\(Self.contentUnavailableViewFrameWindow) lines (tripwire 15). "
+            "a ContentUnavailableView (either syntactic form) with no "
+            + ".frame(maxWidth: .infinity anywhere in its own modifier chain "
+            + "(tripwire 15). "
             + "SwiftUI sizes ContentUnavailableView to intrinsic content, so an "
             + "unframed one lets the enclosing pane's toolbar float to window "
             + "center — this has recurred 4+ times. Canonical examples: "
@@ -1054,9 +1084,10 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// Shared scan: walk every `.swift` file in `dir`, and for each
-    /// `ContentUnavailableView(` opener, look ahead up to
-    /// `contentUnavailableViewFrameWindow` lines for the required frame
-    /// chain. SHARED between the production check and the self-test.
+    /// `ContentUnavailableView` opener — `(` for the argument form, `{` for
+    /// the trailing-closure form — look for the required frame chain anywhere
+    /// in that construct's OWN span (`contentUnavailableViewSpan`). SHARED
+    /// between the production check and the self-tests.
     ///
     /// **Offenders are reported by PATH, not by basename.** Over the 103 files
     /// of one directory a basename was unambiguous; over the 338 of the whole
@@ -1068,6 +1099,23 @@ final class TripwireGrepTests: XCTestCase {
     /// does not sit under that base falls back to the basename rather than
     /// printing an absolute path from someone else's machine.
     static func findFramelessContentUnavailableViews(in dir: URL) throws -> [String] {
+        try contentUnavailableViewSites(in: dir).filter { !$0.hasFrame }.map(\.description)
+    }
+
+    /// One inspected call site. Carries `hasFrame` rather than only the
+    /// offenders, so the production test can assert the census LOOKED at the
+    /// panes it is supposed to protect — the assertion that would have caught
+    /// this guard's blindness years earlier than Task 7 did.
+    struct ContentUnavailableViewSite {
+        let path: String
+        let line: Int
+        let text: String
+        let hasFrame: Bool
+
+        var description: String { "\(path):\(line): \(text)" }
+    }
+
+    static func contentUnavailableViewSites(in dir: URL) throws -> [ContentUnavailableViewSite] {
         let fm = FileManager.default
         guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
             return []
@@ -1078,33 +1126,129 @@ final class TripwireGrepTests: XCTestCase {
         // the same shape in production. Without it the fallback silently hands
         // back basenames, which is the thing this is here to stop.
         let base = dir.deletingLastPathComponent().resolvingSymlinksInPath().path
-        var offenders: [String] = []
+        var sites: [ContentUnavailableViewSite] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
             let text = try String(contentsOf: url, encoding: .utf8)
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
                 .map(String.init)
-            for (i, line) in lines.enumerated() where line.contains("ContentUnavailableView(") {
-                let lookahead = lines[i..<min(i + contentUnavailableViewFrameWindow + 1, lines.count)]
+            for (i, line) in lines.enumerated() where opensContentUnavailableView(line) {
+                let span = contentUnavailableViewSpan(from: i, in: lines)
                 // Comment lines don't count — a comment merely DISCUSSING the
                 // frame chain (e.g. explaining why one is missing) must not
                 // satisfy the requirement. Caught in dev: an early self-check
                 // fixture's own explanatory comment contained the frame
                 // substring and silently passed a frameless CUV.
-                let hasFrame = lookahead.contains {
+                let hasFrame = lines[span].contains {
                     let trimmed = $0.trimmingCharacters(in: .whitespaces)
                     guard !trimmed.hasPrefix("//") && !trimmed.hasPrefix("///") else { return false }
                     return trimmed.contains(".frame(maxWidth: .infinity")
                 }
-                if !hasFrame {
-                    let resolved = url.resolvingSymlinksInPath().path
-                    let shown = resolved.hasPrefix(base + "/")
-                        ? String(resolved.dropFirst(base.count + 1))
-                        : url.lastPathComponent
-                    offenders.append("\(shown):\(i + 1): \(line.trimmingCharacters(in: .whitespaces))")
-                }
+                let resolved = url.resolvingSymlinksInPath().path
+                let shown = resolved.hasPrefix(base + "/")
+                    ? String(resolved.dropFirst(base.count + 1))
+                    : url.lastPathComponent
+                sites.append(ContentUnavailableViewSite(
+                    path: shown, line: i + 1,
+                    text: line.trimmingCharacters(in: .whitespaces),
+                    hasFrame: hasFrame))
             }
         }
-        return offenders
+        return sites
+    }
+
+    /// **Both syntactic forms open a `ContentUnavailableView`**: the argument
+    /// form `ContentUnavailableView("…", systemImage: …)` and the
+    /// trailing-closure form `ContentUnavailableView { Label(…) } description:
+    /// { … }`. Recognised by the first non-space character after the type name,
+    /// so `ContentUnavailableView{` and a line break before the brace are the
+    /// same opener — and a mere MENTION of the type (this file is full of them,
+    /// and so is `CollectionPiecesPane`'s doc comment) is not an opener at all.
+    static func opensContentUnavailableView(_ line: String) -> Bool {
+        var searchStart = line.startIndex
+        while let hit = line.range(of: "ContentUnavailableView", range: searchStart..<line.endIndex) {
+            let rest = line[hit.upperBound...].drop { $0 == " " }
+            if rest.first == "(" || rest.first == "{" { return true }
+            searchStart = hit.upperBound
+        }
+        return false
+    }
+
+    /// **The lines the construct opening at `start` actually occupies** — its
+    /// arguments and trailing closures, plus every modifier chained onto it.
+    ///
+    /// This replaces the fixed 4-line lookahead the scan used until 2026-08-15,
+    /// and the difference is not a tuning: a line count silently stops checking
+    /// a call site as soon as its arguments grow, which is exactly how the
+    /// trailing-closure form (frame chain at distance 5) would have gone
+    /// unguarded even once the opener was matched. A span asks the question of
+    /// the whole construct however long it is.
+    ///
+    /// Bracket depth is counted with string literals removed, because a title
+    /// like `"Nothing here (yet)"` would otherwise leave the walk permanently
+    /// unbalanced. The walk stops when depth returns to zero AND the next line
+    /// of code does not continue the chain with a leading `.` — so a SIBLING
+    /// view's `.frame(maxWidth: .infinity` can never satisfy a frameless pane
+    /// above it (`test_theGuardReadsTheTrailingClosureFormToo` plants exactly
+    /// that).
+    static func contentUnavailableViewSpan(from start: Int, in lines: [String]) -> ClosedRange<Int> {
+        let limit = min(lines.count - 1, start + contentUnavailableViewSpanLimit)
+        var depth = 0
+        var opened = false
+        var end = start
+        var j = start
+
+        while j <= limit {
+            for character in strippingStringLiterals(lines[j]) {
+                switch character {
+                case "(", "{", "[": depth += 1; opened = true
+                case ")", "}", "]": depth -= 1
+                default: break
+                }
+            }
+            end = j
+
+            if opened && depth <= 0 {
+                guard let next = nextCodeLine(after: j, in: lines, limit: limit),
+                      lines[next].trimmingCharacters(in: .whitespaces).hasPrefix(".")
+                else { break }
+                j = next          // the chained modifier is part of this construct
+                continue
+            }
+            j += 1
+        }
+        return start...end
+    }
+
+    /// The next line that is neither blank nor a whole-line comment, or nil.
+    private static func nextCodeLine(after index: Int, in lines: [String],
+                                     limit: Int) -> Int? {
+        var k = index + 1
+        while k <= limit {
+            let trimmed = lines[k].trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty && !trimmed.hasPrefix("//") { return k }
+            k += 1
+        }
+        return nil
+    }
+
+    /// `line` with the contents of its string literals removed, so brackets
+    /// inside a title or a description cannot unbalance the depth walk. An
+    /// escaped quote (`\"`) does not close a literal.
+    private static func strippingStringLiterals(_ line: String) -> String {
+        var out = ""
+        var inString = false
+        var escaped = false
+        for character in line {
+            if inString {
+                if escaped { escaped = false; continue }
+                if character == "\\" { escaped = true; continue }
+                if character == "\"" { inString = false }
+                continue
+            }
+            if character == "\"" { inString = true; continue }
+            out.append(character)
+        }
+        return out
     }
 
     /// **An offender names its PATH, so two panes sharing a basename are
@@ -1204,6 +1348,129 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders.contains { $0.contains("Comment trap") },
             "Self-check: the planted CommentTrapPane offender should be caught "
             + "even though a nearby COMMENT contains the frame substring.")
+    }
+
+    /// **The trailing-closure form is a `ContentUnavailableView` too** — the
+    /// hole this census carried until 2026-08-15, and the reason it is worth a
+    /// test of its own rather than three more panes in the fixture above.
+    ///
+    /// `ContentUnavailableView { Label(…) } description: { Text(…) }` is the
+    /// form `ProjectAltitudePane`, `ResearchNoteEditor`, `CollectionPiecesPane`
+    /// and `ReviewBoardPane` all use, and the old scan matched neither its
+    /// opener (`ContentUnavailableView(` with a paren) nor, had it matched, its
+    /// frame chain — which lands FIVE lines down, past the fixed lookahead.
+    /// Three panes CLAUDE.md names as canonical examples of tripwire 15 were
+    /// guarded by nothing at all.
+    ///
+    /// Three fixtures, in three files so the offenders are distinguishable by
+    /// path (their opener lines are byte-identical):
+    /// - the compliant brace form, which must NOT fire — the assertion that the
+    ///   span really does reach a frame chain further down than any line count;
+    /// - the frameless brace form, which must fire;
+    /// - **a frameless brace form whose SIBLING carries the frame chain**, which
+    ///   must fire too. This is the control on the widening itself: a span that
+    ///   ran past the construct's own modifiers would find the neighbour's
+    ///   `.frame(maxWidth: .infinity` and call an unframed pane compliant, which
+    ///   is a worse census than the blind one it replaced.
+    func test_theGuardReadsTheTrailingClosureFormToo() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-cuv-brace-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let good = """
+        struct GoodTrailingClosurePane: View {
+            var body: some View {
+                ContentUnavailableView {
+                    Label("Nothing to review yet", systemImage: "checklist")
+                } description: {
+                    Text("Add chapters and their passes appear here.")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        """
+        try good.write(to: tmp.appendingPathComponent("GoodTrailingClosure.swift"),
+                       atomically: true, encoding: .utf8)
+
+        try """
+        struct BadTrailingClosurePane: View {
+            var body: some View {
+                ContentUnavailableView {
+                    Label("Nothing here", systemImage: "tray")
+                } description: {
+                    Text("And no frame chain anywhere on it.")
+                }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("BadTrailingClosure.swift"),
+                  atomically: true, encoding: .utf8)
+
+        try """
+        struct SiblingFramePane: View {
+            var body: some View {
+                VStack {
+                    ContentUnavailableView {
+                        Label("Still frameless", systemImage: "tray")
+                    } description: {
+                        Text("The frame below belongs to the sibling.")
+                    }
+                    Text("A neighbour")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SiblingFrame.swift"),
+                  atomically: true, encoding: .utf8)
+
+        // The premise, stated as an assertion: the compliant fixture's frame
+        // chain is further from its opener than the old 4-line lookahead
+        // reached, so this test would have been green over a broken guard.
+        let goodLines = good.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let openerAt = try XCTUnwrap(goodLines.firstIndex { Self.opensContentUnavailableView($0) })
+        let frameAt = try XCTUnwrap(goodLines.firstIndex { $0.contains(".frame(maxWidth: .infinity") })
+        XCTAssertGreaterThan(frameAt - openerAt, 4,
+            "premise: the trailing-closure form's frame chain must sit outside "
+            + "the old fixed lookahead, or this fixture is not the shape that "
+            + "was going unchecked")
+
+        let offenders = try Self.findFramelessContentUnavailableViews(in: tmp)
+        XCTAssertEqual(offenders.count, 2,
+            "expected exactly the two frameless brace-form panes. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("BadTrailingClosure.swift") },
+            "the frameless trailing-closure form must fire — this is the form "
+            + "the census could not see at all until 2026-08-15. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("SiblingFrame.swift") },
+            "a frameless pane whose SIBLING carries the frame chain must still "
+            + "fire, or the span runs past the construct's own modifiers and "
+            + "the widening has made the census weaker. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertFalse(offenders.contains { $0.contains("GoodTrailingClosure.swift") },
+            "the compliant trailing-closure form was reported as an offender — "
+            + "the span stops before the frame chain it actually has. Got:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// The opener recogniser, on its own: both forms open one, and a mere
+    /// MENTION of the type does not. Prose about `ContentUnavailableView` is
+    /// ordinary in this codebase (`CollectionPiecesPane`'s doc comment, the
+    /// `InboxPane` tripwire note, and this very file), and an opener test that
+    /// fired on the word would put every one of them in the offender list.
+    func test_theOpenerRecogniserReadsBothFormsAndNoMereMention() {
+        XCTAssertTrue(Self.opensContentUnavailableView(
+            #"ContentUnavailableView("No items", systemImage: "tray")"#))
+        XCTAssertTrue(Self.opensContentUnavailableView("            ContentUnavailableView {"))
+        XCTAssertTrue(Self.opensContentUnavailableView("ContentUnavailableView{"))
+        XCTAssertTrue(Self.opensContentUnavailableView("ContentUnavailableView ("),
+                      "a space before the paren is still an opener")
+        XCTAssertFalse(Self.opensContentUnavailableView(
+            "/// measured here, because `ContentUnavailableView` is a system view"),
+            "a mention in prose is not a call site")
+        XCTAssertFalse(Self.opensContentUnavailableView(
+            "        // Tripwire #15: empty-state panes need BOTH the inner ContentUnavailableView"))
     }
 
     // MARK: - Paragraph-id literal alphabet lint (tripwire 8)
