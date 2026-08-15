@@ -375,6 +375,7 @@ final class AnnotationScopeTests: XCTestCase {
         let source = try Self.source(of: "Views/AnnotationsPane.swift")
         let verbs = [
             "private func performAccept(",
+            "private func replyToQuery(",
             "private func reject(",
             "private func stet(",
             "private func triage(",
@@ -393,6 +394,27 @@ final class AnnotationScopeTests: XCTestCase {
                           "\(header) does not bump the project-scope refresh "
                           + "token, so a cross-document row it changes stays "
                           + "stale on screen")
+        }
+
+        // **And the list itself is checked, because it is hand-maintained and
+        // it was one short the first time it was written** (`replyToQuery`,
+        // caught in review). A verb list that can silently fall behind is a
+        // census that passes by omission — so every MUTATION SITE in the file
+        // must fall inside one of the declarations above. Adding a verb
+        // without adding it here now fails, which is the whole point.
+        let mutationLines = source.split(separator: "\n")
+            .map(String.init)
+            .filter { $0.contains("await document.")
+                   || $0.contains("await AnnotationBulkActions.perform") }
+        XCTAssertFalse(mutationLines.isEmpty,
+                       "the scan found no mutation sites at all — it has "
+                       + "stopped reading the file it is about")
+        let covered = verbs.compactMap { Self.declaration(named: $0, in: source) }
+        for line in mutationLines {
+            XCTAssertTrue(covered.contains { $0.contains(line) },
+                          "a document mutation lives outside every verb this "
+                          + "census names, so nothing checks that it bumps the "
+                          + "token: \(line.trimmingCharacters(in: .whitespaces))")
         }
     }
 
