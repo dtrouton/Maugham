@@ -2613,6 +2613,58 @@ final class CompilerRunCommandTests: XCTestCase {
                        "one run is one entry in the ring, however many sections streamed")
     }
 
+    /// **A preview is not a round either.** The round ring records rounds that
+    /// FINISHED: one ⌘R is one entry, however many sections streamed under it,
+    /// and the entry is the run the finished one superseded — never the
+    /// half-report the same run put on the pane on its way there.
+    ///
+    /// Two runs, because the ring holds the OUTGOING run: a cold document's
+    /// first replace has nothing to remember. Falsification: append to the ring
+    /// from `preview` and this reads two.
+    func test_aPreviewNeverEntersTheRoundRing() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Should she already know?", about: "a1b2"))
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(harness.diagnostics.roundHistory(docId: docId), [],
+                       "control: the first run has no prior round to remember")
+
+        // A second run, streamed section by section, then finished.
+        runner.nextEvent = nil
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        let strain = conformanceLine("Cold, and never wistful.", "strains",
+                                     whatPulls: "The last line reaches for a sigh.")
+        runner.stream(strain + "\n")
+        runner.stream(strain + "\n")
+        XCTAssertEqual(harness.diagnostics.roundHistory(docId: docId), [],
+                       "a preview must not touch the ring at all")
+
+        runner.release(.resultText("""
+            \(strain)
+            {"section":"continuity","questions":[]}
+            {"section":"reader","reports":[]}
+            {"section":"facts","candidates":[]}
+            """))
+        settle()
+
+        let history = harness.diagnostics.roundHistory(docId: docId)
+        XCTAssertEqual(history.count, 1,
+                       "one run is one entry in the ring, however many sections streamed")
+        XCTAssertEqual(history.first?.runId, finished.id,
+                       "and the entry is the run that FINISHED before this one — not "
+                       + "this run's own half-report, which would compare a round "
+                       + "against itself")
+        XCTAssertEqual(history.first?.fingerprints.count, 1,
+                       "carrying what run 1 raised")
+    }
+
     /// **A preview is never written to disk.** A half-report in the sidecar
     /// would be read back on the next launch as the standing answer, and
     /// nothing on the pane would distinguish it from a check that finished.

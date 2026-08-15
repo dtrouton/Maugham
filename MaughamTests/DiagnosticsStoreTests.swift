@@ -247,6 +247,11 @@ final class DiagnosticsStoreTests: XCTestCase {
 
         XCTAssertEqual(store.live(docId: docId, currentText: { _ in "anything" }), [])
         XCTAssertNil(store.lastRun(docId: docId))
+        XCTAssertEqual(store.clauseStatusHistory(docId: docId), [])
+        XCTAssertEqual(store.roundHistory(docId: docId), [],
+                       "the round ring is derived state like everything else here — "
+                       + "an unreadable file is a document with no rounds, never a throw")
+        XCTAssertNil(store.latestRound(forPass: "pass-line", docId: docId))
     }
 
     func test_dismiss_removesOneNote_andBumpsVersion() {
@@ -276,6 +281,8 @@ final class DiagnosticsStoreTests: XCTestCase {
         let store = DiagnosticsStore(
             projectRoot: project, device: DeviceSlug.make(from: "test-mac"))
         let docId = "docG"
+        let firstRun = makeRun(lastOpId: "op0")
+        store.replace(run: firstRun, diagnostics: [], docId: docId)
         let run = makeRun(lastOpId: "op1")
         let note = makeDiagnostic(docId: docId, runId: run.id)
         store.replace(run: run, diagnostics: [note], docId: docId)
@@ -284,6 +291,9 @@ final class DiagnosticsStoreTests: XCTestCase {
         store.advanceMarker(to: "op2", docId: docId)
 
         XCTAssertEqual(store.lastOpId(docId: docId), "op2")
+        XCTAssertEqual(store.roundHistory(docId: docId).map(\.runId), [firstRun.id],
+                       "moving the marker copies the whole record — the round ring "
+                       + "rides along with the notes")
         XCTAssertEqual(store.live(docId: docId, currentText: { _ in nil }).map(\.id),
                        [note.id],
                        "a run that produced nothing does not clear the last one's notes")
@@ -295,6 +305,9 @@ final class DiagnosticsStoreTests: XCTestCase {
             projectRoot: project, device: DeviceSlug.make(from: "test-mac"))
         reread.load(docId: docId)
         XCTAssertEqual(reread.lastOpId(docId: docId), "op2")
+        XCTAssertEqual(reread.roundHistory(docId: docId).map(\.runId), [firstRun.id],
+                       "…and so does the ring, or a marker-only run would cost the "
+                       + "next one its comparison")
     }
 
     /// A document nobody has ever run against has no marker to move: the marker
