@@ -147,6 +147,22 @@ final class CompilerRunCommandTests: XCTestCase {
             sequence: ["a1b2", "c3d4"])
     }
 
+    /// A third paragraph, for the tests that need three runs — a lane that is
+    /// left and then returned to needs one ⌘R per lane change, and every run
+    /// after the first needs prose the marker has not seen.
+    private func readingAfterAThirdParagraph() -> CompilerOrchestrator.DocumentReading {
+        CompilerOrchestrator.DocumentReading(
+            ops: [makeOp(opId: "op1", kind: .bootstrap,
+                         changes: [.init(paragraphId: "a1b2", prior: nil, next: "The fog came.")]),
+                  makeOp(opId: "op2",
+                         changes: [.init(paragraphId: "c3d4", prior: nil, next: "It stayed.")]),
+                  makeOp(opId: "op3",
+                         changes: [.init(paragraphId: "e5f6", prior: nil, next: "Then it lifted.")])],
+            paragraphs: ["a1b2": "The fog came.", "c3d4": "It stayed.",
+                         "e5f6": "Then it lifted."],
+            sequence: ["a1b2", "c3d4", "e5f6"])
+    }
+
     private struct Harness {
         let orchestrator: CompilerOrchestrator
         let diagnostics: DiagnosticsStore
@@ -162,6 +178,10 @@ final class CompilerRunCommandTests: XCTestCase {
         let acknowledgments: () -> [CompilerOrchestrator.Acknowledgment]
         /// What the next run reads off the live document — the writer, typing.
         let setReading: (CompilerOrchestrator.DocumentReading?) -> Void
+        /// The pass the writer has active on the piece — the round's lane.
+        /// Settable because the sharp case is a pass that changes DURING a run
+        /// (`test_thePreviewAndTheFinishedRunAgreeOnTheRound`).
+        let setActivePass: (String?) -> Void
         /// How many times the run reached for a fresh derivation — the lazy
         /// trigger's own counter (`AREA.md`, "the derivation trigger").
         var derivations: Int { derivationCount() }
@@ -211,6 +231,9 @@ final class CompilerRunCommandTests: XCTestCase {
         cachedWorld: DerivedWorld? = nil,
         derivedWorld: DerivedWorld? = nil,
         bibleFacts: [BibleFact] = [],
+        /// The review pass active on the piece when a run starts. `nil` — the
+        /// default, and every pre-P3 test's world — is the passless lane.
+        activePass: String? = nil,
         liveParagraphText: @escaping (String, String) -> String? = { _, _ in "The fog came." },
         pinnedListing: @escaping (String) -> [String] = { _ in [] },
         paletteListing: @escaping () -> [String] = { [] },
@@ -228,6 +251,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let derivations = Box(0)
         let recorded = Box<[BibleFact]>([])
         let slices = Box<[String]>([])
+        let pass = Box(activePass)
         let orchestrator = CompilerOrchestrator()
         orchestrator.configure(
             environment: CompilerOrchestrator.Environment(
@@ -242,6 +266,7 @@ final class CompilerRunCommandTests: XCTestCase {
                             statementText: $0, scopeKey: "doc-doc-1")
                     }
                 },
+                activePass: { id in id == self.docId ? pass.value : nil },
                 cachedWorld: { _ in cachedWorld },
                 deriveWorld: { _, _ in
                     derivations.value += 1
@@ -266,6 +291,7 @@ final class CompilerRunCommandTests: XCTestCase {
                        root: root, configURL: configURL,
                        acknowledgments: { flashes.value },
                        setReading: { live.value = $0 },
+                       setActivePass: { pass.value = $0 },
                        derivationCount: { derivations.value },
                        factsRecorded: { recorded.value },
                        slicesAsked: { slices.value })
@@ -2735,5 +2761,209 @@ final class CompilerRunCommandTests: XCTestCase {
 
         runner.release(.resultText(Self.fourEmptySections))
         settle()
+    }
+
+    // MARK: - The round stamps (M3-P3 Task 2)
+
+    /// **A ⌘R while a pass is active is a numbered round.** The lane is the
+    /// pass the writer has on the piece; the first run in it is round 1, and
+    /// nothing before the pass existed counts toward it.
+    func test_aRunUnderAnActivePassIsRoundOne() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.passId, "line", "the run records the lane it belongs to")
+        XCTAssertEqual(run.round, 1, "the first round of a lane is round 1")
+    }
+
+    /// The next ⌘R in the same lane is the next round — the counting the
+    /// whole loop is built on.
+    func test_aSecondRunInTheSameLaneIsRoundTwo() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        // The writer keeps writing; a run over unchanged prose is an empty
+        // delta and would spend no round at all.
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.passId, "line")
+        XCTAssertEqual(run.round, 2, "the second ⌘R in a lane is round 2")
+    }
+
+    /// **A lane is a lane of its own, and leaving one does not forget it.**
+    /// The writer moves the piece from Line to Proof: Proof starts at 1, and
+    /// coming back to Line resumes at 2 — which is only possible because the
+    /// count survives in the round ring after the run carrying it has been
+    /// superseded twice over.
+    func test_aLaneChangeStartsAtOneAndTheOldLanesCountSurvives() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1)
+
+        harness.setActivePass("proof")
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+        let proof = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(proof.passId, "proof")
+        XCTAssertEqual(proof.round, 1,
+                       "a new lane starts at 1 — the Line rounds are not its own")
+
+        harness.setActivePass("line")
+        harness.setReading(readingAfterAThirdParagraph())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(3, on: runner)
+        settle()
+        let line = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(line.passId, "line")
+        XCTAssertEqual(line.round, 2,
+                       "returning to a lane resumes its count, which by now lives "
+                       + "only in the round ring")
+    }
+
+    /// **A run with no active pass is an ordinary M2 run**, and says so on
+    /// disk: no lane, no round, and not a `null` for either — decision 1's
+    /// passless lane is an absence rather than a degenerate round 1.
+    ///
+    /// Asserted against the sidecar's own bytes, because the in-memory record
+    /// cannot tell "never stamped" from "stamped nil" and the file is what a
+    /// later launch reads back.
+    func test_aRunWithNoActivePassStampsNoLaneAndNoRound() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertNil(run.passId)
+        XCTAssertNil(run.round)
+
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        let json = try String(contentsOf: sidecar, encoding: .utf8)
+        XCTAssertFalse(json.contains("\"passId\""),
+                       "a passless run writes no lane at all; got \(json)")
+        // `"round":` and not `"round"` — the ring's own key is `"rounds"`.
+        XCTAssertFalse(json.contains("\"round\":"),
+                       "…and no round number; got \(json)")
+    }
+
+    /// **The lane and the round are minted at the KEYSTROKE, and the preview
+    /// and the finished run carry the same pair.**
+    ///
+    /// Two defects in one assertion. A mint at `record(...)` time reads the
+    /// store — which, mid-stream, holds this run's OWN preview — so the final
+    /// record would be round 2 of a lane that has had one run: the run
+    /// counting itself. And a writer who clicks another pass chip while the
+    /// check is in flight would have the answer filed in a lane it was never
+    /// read for.
+    func test_thePreviewAndTheFinishedRunAgreeOnTheRound() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // the turn stays open
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+        streamingRun(runner: runner, harness: harness)
+
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        let preview = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(preview.passId, "line")
+        XCTAssertEqual(preview.round, 1)
+
+        // The writer switches the piece to another pass while the check runs.
+        harness.setActivePass("proof")
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+
+        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(finished.passId, preview.passId,
+                       "the run was read for the lane it started in; a mid-run "
+                       + "switch belongs to the NEXT round")
+        XCTAssertEqual(finished.round, preview.round,
+                       "one ⌘R is one round — a mint at record time would have "
+                       + "counted this run's own preview and filed round 2")
+        XCTAssertEqual(finished.round, 1)
+    }
+
+    // MARK: - The round stamps: production wiring
+
+    /// The compiler's read of the active pass is `validatedActivePass` off
+    /// `uiState` — the same one-line spelling the margin stamp uses, keyed by
+    /// the document (the piece IS the document here).
+    func test_productionActivePassIsTheValidatedReadOffUIState() async throws {
+        let root = try makeListingsProjectRoot()
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        documentStore.updateUIState {
+            $0.activePassMemory.record(piece: "ch-1", passId: "line")
+        }
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        XCTAssertEqual(environment.activePass("ch-1"), "line")
+        XCTAssertNil(environment.activePass("ch-2"),
+                     "a piece the writer never opened a pass on has no lane")
+    }
+
+    /// A stored pass the project no longer offers mints nothing — pinned at
+    /// the compiler's own read rather than only at `ActivePassMemory`, so a
+    /// later "optimize to the raw read" files rounds into a lane that does not
+    /// exist.
+    func test_productionMintsNoLaneForAPassTheProjectRetired() async throws {
+        let root = try makeListingsProjectRoot()
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        documentStore.updateUIState {
+            $0.activePassMemory.record(piece: "ch-1", passId: "retired-pass")
+        }
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        XCTAssertNil(environment.activePass("ch-1"),
+                     "a pass absent from effectiveReviewPasses is no lane at all")
+    }
+
+    /// The weak-capture discipline this file's own doc states, one closure
+    /// further on: a window closed mid-run answers honestly rather than
+    /// crashing on a store that is gone.
+    func test_productionHasNoLaneOnceTheWindowsStoresAreGone() async throws {
+        let root = try makeListingsProjectRoot()
+        var store: ProjectStore? = try await ProjectStore.load(from: root)
+        var documentStore: DocumentStore? = try await DocumentStore.open(url: root)
+        documentStore?.updateUIState {
+            $0.activePassMemory.record(piece: "ch-1", passId: "line")
+        }
+        let environment = makeProductionEnvironment(
+            store: store!, documentStore: documentStore!, root: root)
+        XCTAssertEqual(environment.activePass("ch-1"), "line")
+
+        store = nil
+        documentStore = nil
+
+        XCTAssertNil(environment.activePass("ch-1"))
     }
 }

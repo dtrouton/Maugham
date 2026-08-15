@@ -147,6 +147,23 @@ extension CompilerOrchestrator.Environment {
                     // caches, and one of them is never hit).
                     scopeKey: DeclaredWorldStore.scopeKey(for: resolved.scope))
             },
+            activePass: { [weak store, weak documentStore] docId in
+                // **`validatedActivePass` — the one spelling of the read rule**
+                // (`ActivePassMemory`'s own doc), off `uiState` rather than any
+                // window's `@State` mirror, for the margin stamp's reason
+                // (`ProjectWindow`, the `activeReviewPassId` closure): the
+                // mirror is per WINDOW, and a second window on the same project
+                // recording a pass would leave this one filing rounds into a
+                // lane the writer left. A run record is a durable write, so it
+                // reads the shared value.
+                //
+                // Keyed `forPiece:` with a document id, as both existing
+                // readers are: the piece IS the document here.
+                guard let store, let documentStore else { return nil }
+                return documentStore.uiState.activePassMemory.validatedActivePass(
+                    forPiece: docId,
+                    in: store.manifest.effectiveReviewPasses)
+            },
             cachedWorld: { [weak declaredWorld] briefing in
                 // The hash gate is the whole cache: a reading is served only
                 // against the exact text it was made from, so the writer

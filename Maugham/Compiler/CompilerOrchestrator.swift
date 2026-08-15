@@ -161,6 +161,19 @@ final class CompilerOrchestrator {
         /// answer and mints nothing (M1A's rule): the run proceeds with nothing
         /// declared, and the conformance section simply has nothing to check.
         var intent: @MainActor (String) -> IntentBriefing?
+        /// **The review pass the writer has active on this piece** — the
+        /// round's comparison lane, asked once per run at the keystroke.
+        ///
+        /// Already validated against the project's live pass list by whoever
+        /// answers: a lane is a pass that exists, and a run filed against a
+        /// retired id would be a round nothing can ever compare. `nil` is the
+        /// passless lane — an ordinary M2 ⌘R, which mints no round number at
+        /// all rather than round 1 of nothing.
+        ///
+        /// Defaulted so that every `Environment` built before rounds existed
+        /// still compiles: the answer it gives is the passless lane, which is
+        /// exactly what those runs were.
+        var activePass: @MainActor (String) -> String? = { _ in nil }
         /// The reading already held for this statement's EXACT text, or `nil`
         /// for a miss. Pure — it never derives and never spawns, which is what
         /// lets the run tell a hit from a miss before deciding to spend a
@@ -277,6 +290,11 @@ final class CompilerOrchestrator {
         let lastOpId: String?
         let deltaSummary: String
         let intentSnapshot: String?
+        /// The round's lane and its number, minted at the keystroke
+        /// (`beginRun`) and carried so the preview cannot describe a different
+        /// round from the answer that supersedes it.
+        let passId: String?
+        let round: Int?
         /// Text delivered that has not closed a line yet. A chunk is cut by
         /// the transport, not by the contract — a section's JSON object
         /// routinely arrives in three pieces — so nothing is read until a
@@ -400,6 +418,35 @@ final class CompilerOrchestrator {
             return
         }
 
+        // **The lane and the round, minted HERE — at the keystroke, before a
+        // single byte of the answer can arrive** (M3-P3 §6).
+        //
+        // Two reasons it cannot wait for the record:
+        //
+        // - `latestRound` reads the store, and in production every run
+        //   streams, so from the first closed section onward the standing
+        //   content for this document is THIS run's own preview. A mint at
+        //   record time would read its own round back and file the answer as
+        //   the round after itself.
+        // - The writer can click another pass chip while the check runs. The
+        //   run was read for the lane it started in; a switch mid-check
+        //   belongs to the next ⌘R.
+        //
+        // So it is minted once, carried on `StreamingRun`, and threaded
+        // through the one `record(...)` spelling — the preview and the final
+        // answer describe one round or they describe two checks.
+        //
+        // Below the empty-delta guard on purpose: a ⌘R with nothing new is not
+        // a round, and numbering it would leave a gap in the lane the writer
+        // never saw a report for.
+        let passId = environment.activePass(docId)
+        // A passless run mints no number at all rather than round 1 of
+        // nothing (decision 1: the passless lane is a lane, and an ordinary M2
+        // run is what it holds).
+        let round = passId == nil
+            ? nil
+            : (diagnostics.latestRound(forPass: passId, docId: docId) ?? 0) + 1
+
         let briefing = environment.intent(docId)
         // The essay half alone (spec §3.2). **This is the atomic switch**: the
         // strata below the essay reach the run as the derived clauses resolved
@@ -472,7 +519,7 @@ final class CompilerOrchestrator {
             self.streaming = StreamingRun(
                 generation: generation, docId: docId, runId: runId, model: model,
                 lastOpId: lastOpId, deltaSummary: deltaSummary,
-                intentSnapshot: briefing?.statementText)
+                intentSnapshot: briefing?.statementText, passId: passId, round: round)
             runner.setPartialHandler { [weak self] chunk in
                 self?.receivePartial(chunk, generation: generation)
             }
@@ -481,6 +528,7 @@ final class CompilerOrchestrator {
             self.finish(event, docId: docId, runId: runId, lastOpId: lastOpId,
                         deltaSummary: deltaSummary,
                         intentSnapshot: briefing?.statementText,
+                        passId: passId, round: round,
                         briefingHash: briefingHash, model: model)
         }
     }
@@ -536,7 +584,9 @@ final class CompilerOrchestrator {
         diagnostics.preview(
             run: Self.record(id: runId, model: run.model, lastOpId: run.lastOpId,
                              deltaSummary: run.deltaSummary,
-                             intentSnapshot: run.intentSnapshot, outcome: run.outcome),
+                             intentSnapshot: run.intentSnapshot,
+                             passId: run.passId, round: run.round,
+                             outcome: run.outcome),
             diagnostics: run.outcome.accepted, docId: docId)
     }
 
@@ -557,9 +607,15 @@ final class CompilerOrchestrator {
     /// The run record — **one spelling, read by the preview and by the final
     /// answer**, so what the pane says mid-check and what it says afterwards
     /// cannot describe the same check differently.
+    ///
+    /// `passId`/`round` are required rather than defaulted: they are minted at
+    /// the keystroke and carried, and a third call site that could quietly
+    /// omit them would file an unnumbered round nothing downstream could
+    /// notice — the preview and the answer would simply disagree.
     private static func record(
         id: String, model: String, lastOpId: String?, deltaSummary: String,
-        intentSnapshot: String?, outcome: DiagnosticIngest.SectionedOutcome
+        intentSnapshot: String?, passId: String?, round: Int?,
+        outcome: DiagnosticIngest.SectionedOutcome
     ) -> CompilerRun {
         CompilerRun(
             id: id, at: Date(), model: model, lastOpId: lastOpId,
@@ -573,7 +629,10 @@ final class CompilerOrchestrator {
             clauseStatuses: outcome.conformance,
             // How many reader reports were over the schema's cap of three,
             // stored with the run so the pane can report the truncation.
-            truncatedReader: outcome.truncatedReader)
+            truncatedReader: outcome.truncatedReader,
+            // The lane and its number. Both nil on a passless run, which is an
+            // ordinary M2 run rather than a degenerate round.
+            passId: passId, round: round)
     }
 
     /// The declared world for this run: the cached reading if one was made from
@@ -676,7 +735,8 @@ final class CompilerOrchestrator {
 
     private func finish(
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
-        deltaSummary: String, intentSnapshot: String?, briefingHash: String?, model: String
+        deltaSummary: String, intentSnapshot: String?, passId: String?, round: Int?,
+        briefingHash: String?, model: String
     ) {
         switch event {
         case .started:
@@ -721,6 +781,11 @@ final class CompilerOrchestrator {
             let run = Self.record(
                 id: runId, model: model, lastOpId: lastOpId,
                 deltaSummary: deltaSummary, intentSnapshot: intentSnapshot,
+                // The pair minted at the keystroke, not re-asked here: the
+                // store's own standing content is this run's preview by now,
+                // and the writer may have moved the piece to another pass
+                // while it ran.
+                passId: passId, round: round,
                 outcome: outcome)
             // Dropped rather than discarded: `replace` below supersedes the
             // preview wholesale, so taking it off the pane first would blink
