@@ -191,7 +191,38 @@ final class RoundHistoryTests: XCTestCase {
         XCTAssertEqual(RoundFingerprint.make(of: first), RoundFingerprint.make(of: second))
     }
 
-    func test_adifferentClauseIsADifferentFinding() {
+    /// **A note with nothing to be identified BY takes no part either.** An
+    /// anchorless note is supported by design and a refless reader report or a
+    /// cites-less continuity question produces one, so `(kind, nil, nil)` is a
+    /// reachable shape — and it is a bucket rather than an identity: every such
+    /// note in a round would collapse into one finding, so three that persisted
+    /// would read as one persisting and two resolved.
+    func test_aNoteWithNeitherAnchorNorClauseHasNoFingerprint() {
+        XCTAssertNil(RoundFingerprint.make(
+            of: makeDiagnostic(kind: .readerReport, clauseQuote: nil, paragraphId: nil)))
+        XCTAssertNil(RoundFingerprint.make(
+            of: makeDiagnostic(kind: .continuity, clauseQuote: nil, paragraphId: nil)))
+        XCTAssertNotNil(RoundFingerprint.make(
+            of: makeDiagnostic(kind: .readerReport, clauseQuote: nil, paragraphId: "c3d4")),
+            "one discriminator is enough — this is not a demand for both")
+        XCTAssertNotNil(RoundFingerprint.make(
+            of: makeDiagnostic(kind: .continuity, clauseQuote: "the fog", paragraphId: nil)),
+            "…from either side")
+    }
+
+    /// Two such notes in one run are not silently one finding: they are no
+    /// findings at all, which is the honest answer rather than an arithmetic
+    /// that quietly under-reports.
+    func test_compare_ignoresNotesWithNothingToIdentifyThem() {
+        let outcome = RoundComparison.compare(
+            previous: record([]),
+            current: [makeDiagnostic(kind: .readerReport, clauseQuote: nil, paragraphId: nil),
+                      makeDiagnostic(kind: .readerReport, clauseQuote: nil, paragraphId: nil),
+                      note("A")])
+        XCTAssertEqual(outcome, RoundComparison.Outcome(resolved: 0, persisting: 0, new: 1))
+    }
+
+    func test_aDifferentClauseIsADifferentFinding() {
         let first = makeDiagnostic(kind: .conformanceStrain, clauseQuote: "Cold.")
         let second = makeDiagnostic(kind: .conformanceStrain, clauseQuote: "Never wistful.")
         XCTAssertNotEqual(RoundFingerprint.make(of: first), RoundFingerprint.make(of: second))
@@ -285,6 +316,64 @@ final class RoundHistoryTests: XCTestCase {
         let reopened = DiagnosticsStore(projectRoot: project, device: device)
         reopened.load(docId: docId)
         XCTAssertEqual(reopened.roundHistory(docId: docId), history)
+    }
+
+    /// **A cold document's FIRST run streams, and it has no prior round.**
+    ///
+    /// The trap this pins: `preview` sets the last finished content aside, and
+    /// for a document with no run there is none — but assigning `nil` to a
+    /// dictionary subscript removes the key, so "set aside, and there was
+    /// nothing" reads exactly like "never set aside". A `replace` that decided
+    /// by nil-ness would fall through to the standing content, which at that
+    /// moment is this very run's own half-report: round 1 filed against
+    /// itself, on the ordinary first ⌘R against a new document.
+    func test_aColdDocumentsFirstStreamingRunFilesNothing() {
+        let store = DiagnosticsStore(
+            projectRoot: URL(fileURLWithPath: "/tmp/unused"),
+            device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docColdStream"
+
+        let run1 = makeRun(id: "run-1", passId: "P", round: 1)
+        let note1 = makeDiagnostic(kind: .conformanceStrain, clauseQuote: "Cold.",
+                                   runId: run1.id)
+        store.preview(run: run1, diagnostics: [], docId: docId)
+        store.preview(run: run1, diagnostics: [note1], docId: docId)
+        store.replace(run: run1, diagnostics: [note1], docId: docId)
+
+        XCTAssertEqual(store.roundHistory(docId: docId), [],
+                       "a first run has no prior round — least of all itself")
+
+        // …and the run after it, also streamed, files run 1 exactly once.
+        let run2 = makeRun(id: "run-2", passId: "P", round: 2)
+        store.preview(run: run2, diagnostics: [], docId: docId)
+        store.preview(run: run2, diagnostics: [], docId: docId)
+        store.replace(run: run2, diagnostics: [], docId: docId)
+
+        XCTAssertEqual(store.roundHistory(docId: docId).map(\.runId), ["run-1"])
+        XCTAssertEqual(store.latestRound(forPass: "P", docId: docId), 2)
+    }
+
+    /// A preview the writer cancelled leaves the finished run standing, and the
+    /// next run that finishes files THAT — not the abandoned half-report, and
+    /// not nothing.
+    func test_anAbandonedPreviewLeavesTheFinishedRunToBeFiled() throws {
+        // A real project root, because `discardPreview` puts the standing
+        // answer back by re-reading the sidecar the finished run wrote.
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docAbandoned"
+
+        store.replace(run: makeRun(id: "run-1", passId: "P", round: 1),
+                      diagnostics: [], docId: docId)
+        store.preview(run: makeRun(id: "run-2", passId: "P", round: 2),
+                      diagnostics: [], docId: docId)
+        store.discardPreview(docId: docId)
+        store.replace(run: makeRun(id: "run-3", passId: "P", round: 2),
+                      diagnostics: [], docId: docId)
+
+        XCTAssertEqual(store.roundHistory(docId: docId).map(\.runId), ["run-1"],
+                       "the cancelled run was never a round, and the one it "
+                       + "interrupted still had to be filed")
     }
 
     func test_theRingCapsAtRoundHistoryDepth() {

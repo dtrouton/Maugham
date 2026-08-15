@@ -28,8 +28,18 @@ struct RoundFingerprint: Codable, Hashable, Sendable {
     /// no identity this contract can compare. `DiagnosticsStore.load` drops
     /// those as superseded anyway; inventing an identity for one would match it
     /// against notes written under a contract it never spoke.
+    ///
+    /// **Also `nil` when a note has neither an anchor nor a clause to be
+    /// measured against.** Both are reachable shapes — an anchorless note is
+    /// supported by design, and a reader report with no resolving ref or a
+    /// continuity question with no `cites` produces one — and a fingerprint of
+    /// `(kind, nil, nil)` is not an identity but a bucket: every such note in a
+    /// round would collapse into a single finding, so three that persisted
+    /// would read as one persisting and two resolved. An unidentifiable
+    /// finding takes no part, exactly as a v1 note does.
     static func make(of diagnostic: Diagnostic) -> RoundFingerprint? {
         guard let kind = diagnostic.kind else { return nil }
+        guard diagnostic.clauseQuote != nil || diagnostic.anchor != nil else { return nil }
         return RoundFingerprint(
             kind: kind.rawValue,
             clauseQuote: diagnostic.clauseQuote,

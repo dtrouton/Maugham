@@ -186,8 +186,21 @@ final class DiagnosticsStore {
 
         var rounds = byDoc[docId]?.rounds ?? []
         // The outgoing run is whatever finished last: the standing content,
-        // unless a preview of THIS run has been standing in for it.
-        if let outgoing = finishedBeforePreview[docId] ?? byDoc[docId] {
+        // unless a preview of THIS run has been standing in for it — in which
+        // case the shadow is the only place a finished run can be.
+        //
+        // **Keyed on the previewing FLAG, never on the shadow's nil-ness.** A
+        // cold document's first preview captures nothing, and assigning nil to
+        // a Dictionary subscript REMOVES the key, so "captured, and there was
+        // nothing" reads exactly like "never captured" — a `??` fallthrough
+        // would then reach for `byDoc`, which is that same run's own preview,
+        // and the first ⌘R against a new document would file round 1 against
+        // itself. `previewing.remove` runs further down, so the flag is still
+        // set here.
+        let outgoing = previewing.contains(docId)
+            ? finishedBeforePreview[docId]
+            : byDoc[docId]
+        if let outgoing {
             rounds.append(RoundRecord(
                 runId: outgoing.run.id, at: outgoing.run.at, passId: outgoing.run.passId,
                 round: outgoing.run.round, freshEyes: outgoing.run.freshEyes,

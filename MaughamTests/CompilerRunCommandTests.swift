@@ -2619,20 +2619,28 @@ final class CompilerRunCommandTests: XCTestCase {
     /// half-report the same run put on the pane on its way there.
     ///
     /// Two runs, because the ring holds the OUTGOING run: a cold document's
-    /// first replace has nothing to remember. Falsification: append to the ring
-    /// from `preview` and this reads two.
+    /// first replace has nothing to remember. **Both of them stream**, because
+    /// the first ⌘R against a new document is the sharp case — there is no
+    /// finished run to set aside, and a `replace` that could not tell "set
+    /// aside, and there was nothing" from "never set aside" would file round 1
+    /// against its own half-report. Falsification: append to the ring from
+    /// `preview` and this reads two.
     func test_aPreviewNeverEntersTheRoundRing() throws {
         let runner = SpyRunner()
-        runner.nextEvent = .resultText(
-            oneQuestion("Should she already know?", about: "a1b2"))
+        runner.nextEvent = nil   // the first turn streams too
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
         harness.orchestrator.runRequested(docId: docId)
         awaitSends(1, on: runner)
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        runner.release(.resultText(
+            oneQuestion("Should she already know?", about: "a1b2")))
         settle()
         let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
         XCTAssertEqual(harness.diagnostics.roundHistory(docId: docId), [],
-                       "control: the first run has no prior round to remember")
+                       "a cold document's first run has no prior round to file — "
+                       + "least of all itself")
 
         // A second run, streamed section by section, then finished.
         runner.nextEvent = nil
