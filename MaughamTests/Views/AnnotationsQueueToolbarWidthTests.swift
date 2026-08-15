@@ -71,9 +71,19 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
     /// two labels; the pass is the longest preset unless a longer one is asked
     /// for. Nothing here is hypothetical: a project names its own passes and a
     /// shared project names its own people.
+    ///
+    /// **`authorFilter` is a parameter and not a constant, and that is the
+    /// point of it.** The author menu's label is `authorFilter`, not
+    /// `authorLabels` — the labels only populate the menu's items, which have no
+    /// bearing on the row's width. A version of this factory that pinned the
+    /// filter to `.all` made `test_aLongCollaboratorNameDoesNotWidenTheToolbar`
+    /// a test of the word "Author" (six characters, no ceiling in sight): it
+    /// stayed green with `authorNameCeiling` deleted. Found in review of
+    /// `ba9346f3`. A long name has to be SELECTED to be measured.
     private func toolbar(
         passName: String = "Structural",
         authors: [String] = ["Denver", "Claude"],
+        authorFilter: String = AnnotationAuthorFilter.all,
         bulk: Bool = true
     ) -> some View {
         let pass = ReviewPass(id: "p1", name: passName)
@@ -81,7 +91,7 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             kindFilter: .constant(.all),
             passSelection: .constant(.pass(pass.id)),
             triageFilter: .constant(.all),
-            authorFilter: .constant(AnnotationAuthorFilter.all),
+            authorFilter: .constant(authorFilter),
             showResolved: .constant(false),
             reviewPasses: [pass] + ReviewPass.presets,
             resolvedPassId: pass.id,
@@ -156,14 +166,109 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
     }
 
     /// The same, for the other unbounded label: a collaborator's display name.
+    /// The same, for the other unbounded label: a collaborator's display name,
+    /// which reaches the toolbar as whatever a person typed into their own
+    /// preferences on some other machine.
+    ///
+    /// **The name is SELECTED, not merely present in the menu.** `authorMenu`
+    /// draws `authorFilter`; a long name sitting in `authorLabels` while the
+    /// filter reads `.all` renders the six-character word "Author" and measures
+    /// nothing at all — which is what the first version of this test did.
     func test_aLongCollaboratorNameDoesNotWidenTheToolbar() {
+        let long = "A Reader With A Very Long Display Name Indeed"
         for width in Self.columnWidths {
             let measured = Self.width(
-                of: toolbar(authors: ["Denver", "A Reader With A Long Name"]),
+                of: toolbar(authors: ["Denver", long], authorFilter: long),
                 proposing: width)
-            XCTAssertLessThanOrEqual(measured, width + Self.slack,
-                                     "author label at \(width)pt: \(measured)pt")
+            XCTAssertLessThanOrEqual(
+                measured, width + Self.slack,
+                "with \"\(long)\" selected the toolbar wants \(measured)pt in a "
+                + "\(width)pt column. A collaborator's display name is their "
+                + "own string and cannot be allowed to set the row's width — it "
+                + "truncates to `authorNameCeiling` when worded and moves into "
+                + "the tooltip when compact.")
         }
+    }
+
+    /// **The assertion the two tests above only sample: nothing a writer can
+    /// type is on the toolbar's critical path at all.**
+    ///
+    /// A fit assertion at 240pt and 280pt is satisfied by the stacked fallback
+    /// whatever the labels do, which is how the first version of this suite
+    /// stayed green over a broken ceiling. This measures the toolbar's own IDEAL
+    /// width — `intrinsicContentSize`, what the content asks for before any
+    /// column squeezes it — and requires that a writer's pass name and a
+    /// collaborator's display name move it by exactly nothing.
+    ///
+    /// Measured while this was being fixed: with the labels worded, a 45-char
+    /// display name took the ideal from 668pt to **939pt** and a 46-char pass
+    /// name to **912pt**, ceilings notwithstanding — `.frame(maxWidth:)` bounds
+    /// what a `Text` is proposed, not the ideal it reports, and `.fixedSize()`
+    /// then forces the label to that unbounded ideal. Restore a worded label and
+    /// this goes red; every other test in this file stays green, which is
+    /// exactly why it has to exist.
+    func test_nothingAWriterCanTypeChangesWhatTheToolbarAsksFor() {
+        let baseline = Self.idealWidth(of: toolbar(
+            passName: "P", authors: ["Denver", "Ann"], authorFilter: "Ann"))
+
+        let longAuthor = "A Reader With A Very Long Display Name Indeed"
+        let cases: [(String, CGFloat)] = [
+            ("a 46-character pass name",
+             Self.idealWidth(of: toolbar(
+                passName: "Second pass \u{2014} continuity, timeline and the dog",
+                authors: ["Denver", "Ann"], authorFilter: "Ann"))),
+            ("a 45-character collaborator name",
+             Self.idealWidth(of: toolbar(
+                passName: "P", authors: ["Denver", longAuthor],
+                authorFilter: longAuthor))),
+        ]
+        for (what, measured) in cases {
+            XCTAssertEqual(
+                measured, baseline, accuracy: Self.slack,
+                "\(what) moved the toolbar's ideal width from \(baseline)pt to "
+                + "\(measured)pt. A label carrying a string the writer owns is "
+                + "a width budget handed to whoever names a pass — the words "
+                + "belong in the tooltip and the menu, which have no width.")
+        }
+    }
+
+    // MARK: - No variant may be unreachable
+
+    /// **The test that would have caught the defect this suite shipped with.**
+    ///
+    /// The first fix offered three variants and the widest — a worded cluster —
+    /// needed 668pt at its narrowest. The right column is capped at 480pt by
+    /// `UIState.detailColumnWidthRange`, so nothing could ever draw it: it was
+    /// dead on arrival, and the two label ceilings living inside it were dead
+    /// with it. Every assertion in this file passed anyway, because a variant
+    /// nobody reaches breaks nothing.
+    ///
+    /// A `ViewThatFits` is a ladder, and a rung above the top of the wall is not
+    /// a rung. So: the toolbar's widest variant must be drawable somewhere
+    /// inside the range the writer can actually drag to.
+    func test_everyVariantIsReachableInsideTheColumnsOwnRange() {
+        let ceiling = CGFloat(UIState.detailColumnWidthRange.upperBound)
+        let ideal = Self.idealWidth(of: toolbar())
+        XCTAssertLessThanOrEqual(
+            ideal, ceiling,
+            "the toolbar's widest variant wants \(ideal)pt and the right column "
+            + "stops at \(ceiling)pt, so it can never be drawn — it is dead "
+            + "code, and anything it alone contains is untested by every fit "
+            + "assertion in this file. Either make it fit or delete it.")
+
+        // The other end: the widest variant must actually be REACHED at the
+        // column's ceiling, not merely fit in theory — otherwise a toolbar that
+        // stacked at every width would satisfy the line above.
+        let atCeiling = Self.size(of: toolbar(), proposing: ceiling)
+        let stacked = Self.size(
+            of: toolbar(),
+            proposing: CGFloat(UIState.detailColumnWidthRange.lowerBound))
+        XCTAssertLessThan(
+            atCeiling.height, stacked.height,
+            "at the widest column the writer can drag to the toolbar must be "
+            + "on one line (\(atCeiling.height)pt) rather than still stacked "
+            + "(\(stacked.height)pt) — a fallback that is the only thing ever "
+            + "drawn means the variant above it is unreachable too")
     }
 
     // MARK: - The row underneath it
@@ -299,6 +404,18 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
 
     private static func width(of view: some View, proposing width: CGFloat) -> CGFloat {
         size(of: view, proposing: width).width
+    }
+
+    /// **What the content asks for before any column squeezes it.**
+    ///
+    /// `sizeThatFits` cannot answer this: the toolbar's one-line variant holds a
+    /// `Spacer`, so it fills whatever it is proposed and a 4000pt proposal comes
+    /// back as 4000. `intrinsicContentSize` is SwiftUI's ideal under an
+    /// unspecified proposal, which is where a `ViewThatFits` reports its FIRST
+    /// child — exactly the variant a fit assertion at 240pt never touches, and
+    /// exactly where the ceiling defect was hiding.
+    private static func idealWidth(of view: some View) -> CGFloat {
+        NSHostingView(rootView: AnyView(view)).intrinsicContentSize.width
     }
 
     // MARK: - The instrument's own control
