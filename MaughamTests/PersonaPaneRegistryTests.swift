@@ -1,5 +1,6 @@
 import SwiftUI
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// `DetailPaneToggle` is generic over its inspector content, so a static
@@ -422,7 +423,7 @@ final class PersonaPaneRegistryTests: XCTestCase {
 
     /// **`StructureItem.status` has no production writers left.** (M3 P1 Task 4.)
     ///
-    /// Three greps, because the field can be written three ways and only one of
+    /// FOUR greps, because the field can be written four ways and only one of
     /// them was ever a picker:
     ///
     /// 1. No `updateInspector(… status:)` call anywhere — the argument is gone
@@ -430,15 +431,25 @@ final class PersonaPaneRegistryTests: XCTestCase {
     ///    is what fails if somebody re-adds the parameter and a call with it.
     /// 2. The declaration really has dropped the parameter (a call census over
     ///    an argument nobody could pass is trivially empty otherwise).
-    /// 3. No production file mints a status VALUE — no `status: "…"` and no
-    ///    `.status = "…"`. This is the one that catches `ProjectFactory`'s old
-    ///    `status: "draft"` seed, which was not a picker but did decide what a
-    ///    brand-new document's field said.
+    /// 3. No production `.swift` file mints a status VALUE — no `status: "…"`
+    ///    and no `.status = "…"`. This is the one that catches `ProjectFactory`'s
+    ///    old `status: "draft"` seed, which was not a picker but did decide what
+    ///    a brand-new document's field said.
+    /// 4. **No bundled manifest RESOURCE carries a `status` key.** The third
+    ///    creation path is not code at all: `SampleProjectBuilder` copies
+    ///    `Maugham/Resources/Samples/<kind>/project.maugham.json` verbatim, so a
+    ///    key in that JSON is a status write with no Swift to grep. Task 4's
+    ///    first cut swept the Swift seed and left both samples hardcoding
+    ///    `"status": "draft"` — onboarding's projects arrived pre-touched (a dot
+    ///    on every chapter) while New Project's arrived clean, which is the
+    ///    disagreement the seed removal existed to end. A `.swift`-only walker
+    ///    could not see it; this arm is why the review's find cannot come back.
     ///
     /// What remains legal, and is deliberately not caught: `status: piece.status`
     /// (promotion CARRIES the writer's legacy string to the new project) and
     /// `.status = nil` (converting a piece to a reference CLEARS it). Both move
-    /// or drop an existing value; neither invents one.
+    /// or drop an existing value; neither invents one. A writer's OWN project on
+    /// disk is untouched by any of this — the field is still read.
     func test_theStatusStringHasNoProductionWriters() throws {
         XCTAssertEqual(try statusArgumentCensus(), [],
             "Something passes `status:` to `updateInspector` again. The field is "
@@ -463,6 +474,19 @@ final class PersonaPaneRegistryTests: XCTestCase {
             + "hardcoded draft/revising/final is a second answer beside the "
             + "derived one, and it makes an untouched piece indistinguishable "
             + "from a ruled-on one (`StatusSwatch.showsDot`).")
+
+        let seeds = try Self.bundledSampleManifests()
+        XCTAssertFalse(seeds.isEmpty,
+            "the sample-manifest arm found no seeds to read — it is vacuous, and "
+            + "the samples are a creation path with no Swift to grep")
+        for (name, json) in seeds {
+            XCTAssertFalse(Self.carriesAStatusKey(json),
+                "\(name) hardcodes a `status` on a structure item. "
+                + "`SampleProjectBuilder` copies this file verbatim, so every "
+                + "sample project the writer creates from onboarding would arrive "
+                + "pre-adjudicated — a dot on every chapter — while a New Project "
+                + "document arrives untouched.")
+        }
     }
 
     /// The three greps above must be able to fail — a census that cannot go red
@@ -499,6 +523,52 @@ final class PersonaPaneRegistryTests: XCTestCase {
                        "control: promotion CARRIES a legacy value and must stay legal")
         XCTAssertFalse(Self.mintsAStatusLiteral(in: "manifest.structure[i].status = nil"),
                        "control: converting to a reference CLEARS the field")
+
+        // The resource arm, planted in the samples' own spelling (SwiftyJSON-
+        // style spacing around the colon, which is what `JSONEncoder`'s
+        // `.prettyPrinted` + `.sortedKeys` output in these files actually uses —
+        // a matcher written for `"status":` alone would have read both seeds as
+        // clean).
+        XCTAssertTrue(Self.carriesAStatusKey("""
+            { "structure" : [ { "id" : "doc-001", "status" : "draft" } ] }
+            """),
+            "the resource matcher missed the samples' own spelling — the exact "
+            + "bytes that shipped pre-touched sample projects")
+        XCTAssertTrue(Self.carriesAStatusKey(#"{"status":"final"}"#),
+                      "…and the compact spelling a hand-edited seed would use")
+        XCTAssertFalse(Self.carriesAStatusKey("""
+            { "structure" : [ { "id" : "doc-001", "title" : "Welcome" } ] }
+            """),
+            "control: a seed with no status key must pass, or the arm is not "
+            + "about status at all")
+    }
+
+    /// Does this manifest JSON carry a `status` key?
+    ///
+    /// Both spellings, because these files are `JSONEncoder` output with spaces
+    /// around the colon and a hand-edited seed would not be.
+    static func carriesAStatusKey(_ json: String) -> Bool {
+        json.contains("\"status\" :") || json.contains("\"status\":")
+    }
+
+    /// Every bundled sample manifest, as `(path-ish name, contents)`.
+    static func bundledSampleManifests() throws -> [(String, String)] {
+        let samples = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Resources/Samples", isDirectory: true)
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: samples, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var found: [(String, String)] = []
+        for case let url as URL in walker
+        where url.lastPathComponent == ProjectManifest.fileName {
+            let kind = url.deletingLastPathComponent().lastPathComponent
+            found.append(("Samples/\(kind)/\(url.lastPathComponent)",
+                          try String(contentsOf: url, encoding: .utf8)))
+        }
+        return found
     }
 
     /// Does this line mint a literal status value?

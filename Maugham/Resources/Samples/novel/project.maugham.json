@@ -16,21 +16,18 @@
     {
       "id" : "doc-001",
       "path" : "manuscript\/01-welcome.md",
-      "status" : "draft",
       "title" : "Welcome",
       "type" : "document"
     },
     {
       "id" : "doc-002",
       "path" : "manuscript\/02-try-it.md",
-      "status" : "draft",
       "title" : "Try It",
       "type" : "document"
     },
     {
       "id" : "doc-003",
       "path" : "manuscript\/03-going-further.md",
-      "status" : "draft",
       "title" : "Going Further",
       "type" : "document"
     }

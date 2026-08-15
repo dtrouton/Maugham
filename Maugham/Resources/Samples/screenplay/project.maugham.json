@@ -10,7 +10,6 @@
     {
       "id" : "doc-001",
       "path" : "manuscript\/01-welcome.fountain",
-      "status" : "draft",
       "title" : "Welcome",
       "type" : "document"
     }
