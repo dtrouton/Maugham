@@ -3,7 +3,29 @@ import MaughamCore
 
 @MainActor
 struct AnnotationsPane: View {
-    @Bindable var document: Document
+    /// The piece the centre column is showing.
+    ///
+    /// **Optional as of M3 P2 Task 7.** The queue's project scope is a view of
+    /// the whole manuscript and has to render with nothing open at all — which
+    /// is exactly the state a writer arrives in from the board's open-notes
+    /// column. Document scope answers the same nil with the "Select a document"
+    /// empty state the mount used to hold.
+    let document: Document?
+    /// The project: the cross-document walk's owner
+    /// (`listAnnotationsAcrossProject`, Task 6) and the manifest whose order
+    /// the sections follow.
+    let store: ProjectStore
+    /// Where a project-scope row finds ITS document. The open-vs-closed
+    /// question every row verb is gated on is asked here and nowhere else.
+    let documentStore: DocumentStore
+    /// How wide the queue is looking. Window state on `ProjectWindow` rather
+    /// than the pane's own, so Task 9's board click-through can set it from
+    /// outside — and not persisted (a scope is a glance, not a home).
+    @Binding var scope: AnnotationScope
+    /// Travel to another piece. The window's SUBJECT write and nothing else:
+    /// Review's centre shows documents, so this navigation never moves the
+    /// persona (the ejection trap — `ManuscriptNavigation`).
+    let onTravel: (String) -> Void
     @Environment(UserPreferences.self) private var userPreferences
     /// The window's undo manager — passed into every accept so the Document
     /// registers its undo action against the manager ⌘Z reaches (and clears
@@ -14,24 +36,24 @@ struct AnnotationsPane: View {
     @State private var triageFilter: AnnotationTriageFilter = .all
     @State private var authorFilter: String = AnnotationAuthorFilter.all
     @State private var showResolved: Bool = false
-    @State private var rejectSheet: Annotation?
-    @State private var querySheet: Annotation?
-    @State private var staleConfirm: Annotation?
+    @State private var rejectSheet: AnnotationTarget?
+    @State private var querySheet: AnnotationTarget?
+    @State private var staleConfirm: AnnotationTarget?
     /// A suggestion whose accept was REFUSED because its quoted phrase is no
     /// longer in the paragraph (RULING-5). Drives the told-why alert; the
     /// refusal itself is `Document.acceptAnnotation`'s throw — this state only
     /// makes it audible.
-    @State private var anchorLostNotice: Annotation?
+    @State private var anchorLostNotice: AnnotationTarget?
     /// The accepted suggestion pending a revert confirmation — set when the
     /// paragraph's text drifted since the accept, so reverting would clobber
     /// the intervening edits (mirror of `staleConfirm` on the accept path).
-    @State private var revertConfirm: Annotation?
+    @State private var revertConfirm: AnnotationTarget?
     /// The annotation currently being edited in the inline edit sheet (author
     /// self-service). Only ever the reviewer's own annotation (gated by the
     /// Edit affordance's `isOwn` check).
-    @State private var editSheet: Annotation?
+    @State private var editSheet: AnnotationTarget?
     /// The annotation pending a withdraw (delete) confirmation.
-    @State private var withdrawConfirm: Annotation?
+    @State private var withdrawConfirm: AnnotationTarget?
     /// Annotation ids currently showing the transient "stet" flourish after the
     /// writer STETS a note. Keyed per-row so it survives the ~2.5s window
     /// between the stet op and the row leaving the open list.
@@ -58,6 +80,30 @@ struct AnnotationsPane: View {
     /// True while a batch is running, so the bar's verbs cannot be fired twice
     /// over a set the first run is still changing.
     @State private var bulkInFlight: Bool = false
+    /// **Project scope's own refresh** (M3 P2 Task 7).
+    ///
+    /// `ProjectStore.listAnnotationsAcrossProject` is deliberately
+    /// NON-reactive: its cache is `@ObservationIgnored`, so nothing re-renders
+    /// because a note somewhere in the project changed. Every verb below bumps
+    /// this, and `projectSnapshot` reads it — so a stet fired from a
+    /// cross-document row re-reads the walk instead of leaving its own row on
+    /// screen unchanged. `AnnotationScopeTests`' census keeps the two halves
+    /// together as verbs are added.
+    ///
+    /// It is also the seam for Task 9's annotation event, which is what will
+    /// refresh a change arriving from another device or a closed document.
+    @State private var projectRefreshToken: Int = 0
+
+    /// A sheet's subject, plus the document it belongs to.
+    ///
+    /// In project scope the row's document is not the pane's own, and a sheet
+    /// that remembered only the annotation would commit its reject reason or
+    /// its edit against whichever piece happened to be centred.
+    private struct AnnotationTarget: Identifiable {
+        let document: Document
+        let annotation: Annotation
+        var id: String { annotation.id }
+    }
 
     enum KindOption: String, CaseIterable, Identifiable, FilterRowItem {
         case all, comments, suggestions, queries, craft
@@ -101,50 +147,108 @@ struct AnnotationsPane: View {
         return AnnotationFilter(kinds: kinds, statuses: statuses)
     }
 
-    /// Annotations after the kind/status filter, before the author filter.
-    /// The distinct-authors list derives from these so it reflects everything
-    /// currently in scope regardless of which author is selected.
-    private var kindStatusAnnotations: [Annotation] {
+    /// **The kind + status pass, in one place for both scopes.**
+    ///
+    /// The status half deliberately keeps any row mid-"stet" on screen after
+    /// the stet flips its status out of the open filter, so the ~2.5s flourish
+    /// is visible. The KIND half still applies to a retained row: a note the
+    /// writer filtered out by kind has no business reappearing because they
+    /// stetted it.
+    private func passesKindAndStatus(_ annotation: Annotation) -> Bool {
+        if let kinds = filter.kinds, !kinds.contains(annotation.kind) { return false }
+        guard let statuses = filter.statuses else { return true }
+        return statuses.contains(annotation.status)
+            || stetFlourishIds.contains(annotation.id)
+    }
+
+    /// The author + triage pass. **The resolved author filter is passed IN**
+    /// rather than read per row: resolving it consults the whole in-scope pool,
+    /// and in project scope that pool comes from a walk whose cache key stats
+    /// every closed piece's op log. Asking per annotation turned one render
+    /// into one file-stat sweep per note.
+    private func passes(_ annotation: Annotation, authorFilter selected: String) -> Bool {
+        AnnotationAuthorFilter.matches(annotation, selected: selected)
+            && triageFilter.matches(annotation)
+    }
+
+    /// Document scope's rows after the kind/status filter, before the author
+    /// filter.
+    private func kindStatusAnnotations(of document: Document) -> [Annotation] {
         // Observing annotationsVersion forces re-render when cache invalidates.
         _ = document.annotationsVersion
-        return document.annotations(filter: filter)
+        return document.annotations(filter: AnnotationFilter(statuses: nil))
+            .filter(passesKindAndStatus)
+    }
+
+    /// The notes in scope after the kind/status filter, whichever scope that
+    /// is. The distinct-authors list derives from these so it reflects
+    /// everything currently in scope regardless of which author is selected.
+    private var kindStatusPool: [Annotation] {
+        switch scope {
+        case .document:
+            return document.map(kindStatusAnnotations(of:)) ?? []
+        case .project:
+            return projectSnapshot.annotations
+                .map(\.annotation).filter(passesKindAndStatus)
+        }
     }
 
     /// The author filter, ignored when its target is no longer in scope (e.g.
     /// the status filter changed and that contributor's only rows fell away).
     /// Prevents a stale selection from hiding everything with no way to reset.
-    private var effectiveAuthorFilter: String {
+    private func effectiveAuthorFilter(in pool: [Annotation]) -> String {
         guard authorFilter != AnnotationAuthorFilter.all else { return authorFilter }
-        return authorLabels.contains(authorFilter) ? authorFilter : AnnotationAuthorFilter.all
+        return AnnotationAuthorFilter.distinctLabels(in: pool).contains(authorFilter)
+            ? authorFilter : AnnotationAuthorFilter.all
     }
 
-    private var visibleAnnotations: [Annotation] {
-        var rows = kindStatusAnnotations
-        // Keep any row mid-"stet" on screen even after the stet flips its status
-        // out of the open filter, so the ~2.5s flourish is visible. Where it is
-        // re-inserted no longer matters: the queue sort below puts it back in
-        // its own place, which is where the writer's eye already is.
-        if !stetFlourishIds.isEmpty {
-            let present = Set(rows.map(\.id))
-            let retained = document.annotations(filter: AnnotationFilter(statuses: nil))
-                .filter { stetFlourishIds.contains($0.id) && !present.contains($0.id) }
-            rows.append(contentsOf: retained)
-        }
-        let selected = effectiveAuthorFilter
-        let filtered = rows.filter {
-            AnnotationAuthorFilter.matches($0, selected: selected)
-                && triageFilter.matches($0)
-        }
+    private func visibleAnnotations(of document: Document) -> [Annotation] {
+        let pool = kindStatusAnnotations(of: document)
+        let selected = effectiveAuthorFilter(in: pool)
+        let rows = pool.filter { passes($0, authorFilter: selected) }
         // The queue's working order (M3 P2): what the writer said they'd do,
         // then document order. The DERIVER's newest-first order (claim
         // M5-AN-004) is untouched — that claim is about the projection, and
         // this sorts the pane's rows out of it.
-        return AnnotationQueueOrder.sorted(filtered, sequence: document.sequence)
+        return AnnotationQueueOrder.sorted(rows, sequence: document.sequence)
     }
 
     private var authorLabels: [String] {
-        AnnotationAuthorFilter.distinctLabels(in: kindStatusAnnotations)
+        AnnotationAuthorFilter.distinctLabels(in: kindStatusPool)
     }
+
+    // MARK: - Project scope
+
+    /// The project-wide walk (Task 6), read through Task 7's refresh
+    /// obligation: the token every verb bumps, and the OPEN document's own
+    /// version counter, so an edit made from the margin card or the editor
+    /// while project scope is up reaches the queue too. The store's cache key
+    /// already folds every open document's version — what these two reads add
+    /// is somebody OBSERVING them, which the `@ObservationIgnored` cache
+    /// otherwise leaves nobody to do.
+    private var projectSnapshot: ProjectAnnotationsSnapshot {
+        _ = projectRefreshToken
+        _ = document?.annotationsVersion
+        return store.listAnnotationsAcrossProject()
+    }
+
+    /// The board's rows — the order and grouping of the whole project, asked of
+    /// the one walk that already answers it (`ReviewBoardRows`, P1).
+    private var boardRows: [ReviewBoardRows.Row] {
+        ReviewBoardRows.derive(structure: store.manifest.structure)
+    }
+
+    private func projectSections(
+        _ snapshot: ProjectAnnotationsSnapshot
+    ) -> [AnnotationScopeSections.Section] {
+        let pool = snapshot.annotations.filter { passesKindAndStatus($0.annotation) }
+        let selected = effectiveAuthorFilter(in: pool.map(\.annotation))
+        let entries = pool.filter { passes($0.annotation, authorFilter: selected) }
+        return AnnotationScopeSections.build(
+            rows: boardRows, annotations: entries, sequences: snapshot.sequences)
+    }
+
+    // MARK: - Selection (document scope only)
 
     /// The selection narrowed to what is actually on screen — the self-healing
     /// read of `selectedIds`, mirroring `effectiveAuthorFilter`'s shape (a
@@ -152,109 +256,41 @@ struct AnnotationsPane: View {
     /// `body`). A bulk stet that hides its own rows leaves the tick marks
     /// pointing at nothing; this is what stops the next verb acting on them.
     /// The stored set is pruned to this after each run.
-    private var effectiveSelection: Set<String> {
+    private func effectiveSelection(in rows: [Annotation]) -> Set<String> {
         guard !selectedIds.isEmpty else { return [] }
-        return selectedIds.intersection(visibleAnnotations.map(\.id))
+        return selectedIds.intersection(rows.map(\.id))
     }
 
     /// What a bulk verb acts on: the selection when there is one, else the
     /// whole visible filtered set (spec §5's "over the current filtered set").
     /// The bar says which, so the writer is never guessing.
-    private var bulkTargets: [Annotation] {
-        let selection = effectiveSelection
-        guard !selection.isEmpty else { return visibleAnnotations }
-        return visibleAnnotations.filter { selection.contains($0.id) }
+    private func bulkTargets(in rows: [Annotation]) -> [Annotation] {
+        let selection = effectiveSelection(in: rows)
+        guard !selection.isEmpty else { return rows }
+        return rows.filter { selection.contains($0.id) }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             toolbar
             Divider()
-            let deletedNotes = showResolved ? document.withdrawnAnnotations() : []
-            if visibleAnnotations.isEmpty && deletedNotes.isEmpty {
-                ContentUnavailableView(
-                    "No annotations",
-                    systemImage: "bubble.left.and.bubble.right",
-                    description: Text("Claude proposes; you dispose. Ask Claude for editorial feedback to see annotations here."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    let livePids = Set(document.sequence)
-                    let selection = effectiveSelection
-                    LazyVStack(spacing: 0) {
-                        ForEach(visibleAnnotations) { ann in
-                            AnnotationRow(
-                                annotation: ann,
-                                revertIsEnabled: AnnotationRowPolicy.revertEnabled(ann, livePids: livePids),
-                                showingStet: stetFlourishIds.contains(ann.id),
-                                isOwn: AnnotationOwnership.isOwn(
-                                    ann, localName: userPreferences.collaboratorDisplayName),
-                                isSelectable: showBulkBar,
-                                isSelected: selection.contains(ann.id),
-                                onToggleSelection: { toggleSelection(ann.id) },
-                                onAccept: { accept(ann) },
-                                onReject: { rejectSheet = ann },
-                                onStet: { stet(ann) },
-                                onTriage: { mark in triage(ann, mark: mark) },
-                                onArchive: { archive(ann) },
-                                onReply: { querySheet = ann },
-                                onEdit: { editSheet = ann },
-                                onWithdraw: { withdrawConfirm = ann },
-                                onRevert: { revert(ann) },
-                                onReopen: {
-                                    Task { try? await document.reopenAnnotation(id: ann.id, undoManager: undoManager) }
-                                },
-                                onJumpToParagraph: { jump(ann) })
-                            Divider()
-                        }
-                        // RULING-34: delete is normalised for annotations too.
-                        // The writer's withdrawn notes are findable here and
-                        // restorable — not gone at one expired ⌘Z's mercy.
-                        if showResolved {
-                            let deleted = deletedNotes
-                            if !deleted.isEmpty {
-                                Text("Deleted")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 12).padding(.top, 10)
-                                ForEach(deleted, id: \.id) { note in
-                                    HStack(spacing: 8) {
-                                        Text(note.body)
-                                            .font(.callout).foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                        Spacer()
-                                        Button("Restore") {
-                                            Task { try? await document.reopenAnnotation(id: note.id) }
-                                        }
-                                        .buttonStyle(.bordered).controlSize(.small)
-                                    }
-                                    .padding(.horizontal, 12).padding(.vertical, 8)
-                                    Divider()
-                                }
-                            }
-                        }
-                    }
-                }
-                // Only over rows: the Deleted section below the queue is
-                // restore-only, and a bar offering to accept nothing is a
-                // dead control (RULING-35).
-                if showBulkBar && !visibleAnnotations.isEmpty {
-                    Divider()
-                    bulkBar
-                }
+            switch scope {
+            case .document:
+                documentScope
+            case .project(let focusPiece):
+                projectScope(focusPiece: focusPiece)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .sheet(item: $rejectSheet) { ann in
-            RejectReasoningSheet(annotation: ann) { reason in
-                reject(ann, reason: reason)
+        .sheet(item: $rejectSheet) { target in
+            RejectReasoningSheet(annotation: target.annotation) { reason in
+                reject(target.document, target.annotation, reason: reason)
                 rejectSheet = nil
             } onCancel: { rejectSheet = nil }
         }
-        .sheet(item: $querySheet) { ann in
-            QueryReplySheet(annotation: ann) { reply in
-                Task { try? await document.acceptAnnotation(
-                    id: ann.id, userResponse: reply, undoManager: undoManager) }
+        .sheet(item: $querySheet) { target in
+            QueryReplySheet(annotation: target.annotation) { reply in
+                replyToQuery(target.document, target.annotation, reply: reply)
                 querySheet = nil
             } onCancel: { querySheet = nil }
         }
@@ -265,8 +301,8 @@ struct AnnotationsPane: View {
                 set: { if !$0 { staleConfirm = nil } })
         ) {
             Button("Apply anyway") {
-                if let ann = staleConfirm {
-                    Task { await performAccept(ann) }
+                if let target = staleConfirm {
+                    Task { await performAccept(target.document, target.annotation) }
                 }
                 staleConfirm = nil
             }
@@ -291,7 +327,9 @@ struct AnnotationsPane: View {
                 set: { if !$0 { revertConfirm = nil } })
         ) {
             Button("Revert anyway") {
-                if let ann = revertConfirm { performRevert(ann) }
+                if let target = revertConfirm {
+                    performRevert(target.document, target.annotation)
+                }
                 revertConfirm = nil
             }
             Button("Cancel", role: .cancel) { revertConfirm = nil }
@@ -308,9 +346,10 @@ struct AnnotationsPane: View {
         } message: {
             Text(bulkNotice ?? "")
         }
-        .sheet(item: $editSheet) { ann in
-            EditAnnotationSheet(annotation: ann) { newBody, newSuggested in
-                editOwn(ann, newBody: newBody, newSuggested: newSuggested)
+        .sheet(item: $editSheet) { target in
+            EditAnnotationSheet(annotation: target.annotation) { newBody, newSuggested in
+                editOwn(target.document, target.annotation,
+                        newBody: newBody, newSuggested: newSuggested)
                 editSheet = nil
             } onCancel: { editSheet = nil }
         }
@@ -321,12 +360,275 @@ struct AnnotationsPane: View {
                 set: { if !$0 { withdrawConfirm = nil } })
         ) {
             Button("Delete", role: .destructive) {
-                if let ann = withdrawConfirm { withdrawOwn(ann) }
+                if let target = withdrawConfirm {
+                    withdrawOwn(target.document, target.annotation)
+                }
                 withdrawConfirm = nil
             }
             Button("Cancel", role: .cancel) { withdrawConfirm = nil }
         } message: {
             Text("This removes your annotation. The history is preserved, but the annotation will no longer appear here or in the editor.")
+        }
+    }
+
+    // MARK: - Document scope
+
+    @ViewBuilder
+    private var documentScope: some View {
+        if let document {
+            documentQueue(document)
+        } else {
+            // The empty state the mount used to hold, moved inside so the scope
+            // toggle above it stays reachable: a writer who closed the piece
+            // must still be able to widen to the project (tripwire 15's frame
+            // chain travels with it).
+            ContentUnavailableView(
+                "Select a document",
+                systemImage: "doc.text",
+                description: Text("Open a manuscript to see and act on its notes — or switch to All Pieces for the whole project."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func documentQueue(_ document: Document) -> some View {
+        let rows = visibleAnnotations(of: document)
+        let deletedNotes = showResolved ? document.withdrawnAnnotations() : []
+        if rows.isEmpty && deletedNotes.isEmpty {
+            ContentUnavailableView(
+                "No annotations",
+                systemImage: "bubble.left.and.bubble.right",
+                description: Text("Claude proposes; you dispose. Ask Claude for editorial feedback to see annotations here."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                let livePids = Set(document.sequence)
+                let selection = effectiveSelection(in: rows)
+                LazyVStack(spacing: 0) {
+                    ForEach(rows) { ann in
+                        annotationRow(
+                            ann, docId: document.docId, document: document,
+                            livePids: livePids,
+                            isSelectable: showBulkBar,
+                            isSelected: selection.contains(ann.id))
+                        Divider()
+                    }
+                    // RULING-34: delete is normalised for annotations too.
+                    // The writer's withdrawn notes are findable here and
+                    // restorable — not gone at one expired ⌘Z's mercy.
+                    if showResolved && !deletedNotes.isEmpty {
+                        Text("Deleted")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12).padding(.top, 10)
+                        ForEach(deletedNotes, id: \.id) { note in
+                            HStack(spacing: 8) {
+                                Text(note.body)
+                                    .font(.callout).foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                Spacer()
+                                Button("Restore") { reopen(document, id: note.id) }
+                                    .buttonStyle(.bordered).controlSize(.small)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            Divider()
+                        }
+                    }
+                }
+            }
+            // Only over rows: the Deleted section below the queue is
+            // restore-only, and a bar offering to accept nothing is a
+            // dead control (RULING-35).
+            if showBulkBar && !rows.isEmpty {
+                Divider()
+                bulkBar(document: document, rows: rows)
+            }
+        }
+    }
+
+    // MARK: - Project scope (M3 P2 Task 7)
+
+    @ViewBuilder
+    private func projectScope(focusPiece: String?) -> some View {
+        let snapshot = projectSnapshot
+        let sections = projectSections(snapshot)
+        let notice = AnnotationScopeSections.unreadableNotice(
+            unreadableDocIds: snapshot.unreadableDocIds, rows: boardRows)
+        if sections.isEmpty && notice == nil {
+            ContentUnavailableView(
+                "No annotations in this project",
+                systemImage: "bubble.left.and.bubble.right",
+                description: Text("Every piece's notes gather here. Ask Claude for editorial feedback to see annotations."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(sections) { section in
+                            // The sequences travel DOWN from the one snapshot
+                            // read: asking the store per section would restat
+                            // every closed piece's op log once per heading.
+                            sectionView(section, sequences: snapshot.sequences)
+                        }
+                        if let notice { unreadableFootnote(notice) }
+                    }
+                }
+                .onAppear { scroll(to: focusPiece, proxy: proxy) }
+                .onChange(of: scope) { _, newScope in
+                    if case .project(let piece) = newScope {
+                        scroll(to: piece, proxy: proxy)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Bring an arriving piece's section into view (Task 9's click-through from
+    /// the board sets `focusPiece`). Deferred a tick: the sections mount lazily
+    /// and a `scrollTo` issued in the same pass lands on a stack that has not
+    /// laid its rows out yet — the `TreeScrollTarget` shape.
+    private func scroll(to piece: String?, proxy: ScrollViewProxy) {
+        guard let piece else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            withAnimation { proxy.scrollTo(piece, anchor: .top) }
+        }
+    }
+
+    @ViewBuilder
+    private func sectionView(
+        _ section: AnnotationScopeSections.Section,
+        sequences: [String: [String]]
+    ) -> some View {
+        switch section.kind {
+        case .group(let depth):
+            Text(section.item.title)
+                .font(.caption.smallCaps())
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 12 + CGFloat(depth) * 12)
+                .padding(.trailing, 12)
+                .padding(.top, 14).padding(.bottom, 2)
+                .id(section.id)
+        case .piece:
+            pieceSection(section, sequences: sequences)
+        }
+    }
+
+    @ViewBuilder
+    private func pieceSection(
+        _ section: AnnotationScopeSections.Section,
+        sequences: [String: [String]]
+    ) -> some View {
+        // The row's own document, and the whole of the open-vs-closed question:
+        // a closed piece's notes are readable here and actable in ITS window.
+        let rowDocument = documentStore.document(forDocId: section.item.id)
+        let livePids = Set(rowDocument?.sequence
+            ?? sequences[section.item.id] ?? [])
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text(section.item.title)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                Text("\(section.annotations.count)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                Spacer(minLength: 4)
+                if rowDocument == nil {
+                    Image(systemName: "lock")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .help(AnnotationScopePolicy.closedPieceReason)
+                        .accessibilityLabel(AnnotationScopePolicy.closedPieceReason)
+                }
+            }
+            .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 4)
+            ForEach(section.annotations) { ann in
+                annotationRow(ann, docId: section.item.id,
+                              document: rowDocument, livePids: livePids)
+                Divider()
+            }
+        }
+        .id(section.id)
+    }
+
+    /// RULING-54's honesty half at the queue's foot — see
+    /// `AnnotationScopeSections.unreadableNotice`.
+    @ViewBuilder
+    private func unreadableFootnote(_ notice: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle").font(.caption2)
+            Text(notice).font(.caption2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12).padding(.vertical, 10)
+    }
+
+    // MARK: - One row, either scope
+
+    /// The one row builder. Document scope passes its own document for every
+    /// row; project scope passes the row's, which is `nil` for a closed piece —
+    /// and that nil is the whole of the verb gate.
+    @ViewBuilder
+    private func annotationRow(
+        _ ann: Annotation,
+        docId: String,
+        document rowDocument: Document?,
+        livePids: Set<String>,
+        isSelectable: Bool = false,
+        isSelected: Bool = false
+    ) -> some View {
+        AnnotationRow(
+            annotation: ann,
+            revertIsEnabled: AnnotationRowPolicy.revertEnabled(ann, livePids: livePids),
+            showingStet: stetFlourishIds.contains(ann.id),
+            isOwn: AnnotationOwnership.isOwn(
+                ann, localName: userPreferences.collaboratorDisplayName),
+            verbsEnabled: AnnotationScopePolicy.verbsEnabled(
+                documentIsOpen: rowDocument != nil),
+            verbsDisabledReason: AnnotationScopePolicy.closedPieceReason,
+            isSelectable: isSelectable,
+            isSelected: isSelected,
+            onToggleSelection: { toggleSelection(ann.id) },
+            onAccept: { withDocument(rowDocument) { accept($0, ann) } },
+            onReject: { withDocument(rowDocument) {
+                rejectSheet = AnnotationTarget(document: $0, annotation: ann) } },
+            onStet: { withDocument(rowDocument) { stet($0, ann) } },
+            onTriage: { mark in
+                withDocument(rowDocument) { triage($0, ann, mark: mark) } },
+            onArchive: { withDocument(rowDocument) { archive($0, ann) } },
+            onReply: { withDocument(rowDocument) {
+                querySheet = AnnotationTarget(document: $0, annotation: ann) } },
+            onEdit: { withDocument(rowDocument) {
+                editSheet = AnnotationTarget(document: $0, annotation: ann) } },
+            onWithdraw: { withDocument(rowDocument) {
+                withdrawConfirm = AnnotationTarget(document: $0, annotation: ann) } },
+            onRevert: { withDocument(rowDocument) { revert($0, ann) } },
+            onReopen: { withDocument(rowDocument) { reopen($0, id: ann.id) } },
+            onJumpToParagraph: { click(docId: docId, annotation: ann) })
+    }
+
+    /// Belt behind the disabled verbs: a control that somehow fires with no
+    /// live document does nothing, rather than reaching for a transient one
+    /// whose ops the writer's ⌘Z could never find.
+    private func withDocument(_ document: Document?, _ body: (Document) -> Void) {
+        guard let document else { return }
+        body(document)
+    }
+
+    /// **What clicking a row means** — the pure rule's answer, applied.
+    /// Travelling writes the window's SUBJECT and nothing else; the persona is
+    /// never touched (`AnnotationScopeTests`, and `ManuscriptNavigation`'s
+    /// ruling behind it).
+    private func click(docId: String, annotation: Annotation) {
+        switch AnnotationScopePolicy.click(
+            rowDocId: docId, activeDocId: document?.docId) {
+        case .jump:
+            jump(annotation)
+        case .travel(let piece):
+            onTravel(piece)
         }
     }
 
@@ -338,7 +640,13 @@ struct AnnotationsPane: View {
                 selection: $kindFilter)
                 .layoutPriority(1)
             Spacer(minLength: 4)
-            selectionModeButton
+            scopeMenu
+            // Multiselect is document-scope only — see
+            // `AnnotationScopePolicy.showsBulkAffordances` for why a
+            // cross-document bulk bar would be a lying count.
+            if AnnotationScopePolicy.showsBulkAffordances(scope) {
+                selectionModeButton
+            }
             triageFilterMenu
             authorMenu
             Button {
@@ -355,6 +663,53 @@ struct AnnotationsPane: View {
                 : "Showing open only · click to include resolved")
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
+    }
+
+    /// **This Piece / All Pieces** (M3 P2 Task 7). A menu rather than a
+    /// segmented picker for `triageFilterMenu`'s reason: the toolbar already
+    /// carries the kind row, and two more segments would push it into
+    /// icon-only mode in a 280pt column. The label always carries the word, so
+    /// which way the queue is looking is readable without opening it.
+    @ViewBuilder
+    private var scopeMenu: some View {
+        Menu {
+            scopeItem("This Piece", isCurrent: !scope.isProject, target: .document)
+            scopeItem("All Pieces", isCurrent: scope.isProject,
+                      target: .project(focusPiece: nil))
+        } label: {
+            Label(scope.isProject ? "All Pieces" : "This Piece",
+                  systemImage: scope.isProject ? "books.vertical" : "doc.text")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Show this piece's notes, or every piece's, grouped by piece")
+    }
+
+    @ViewBuilder
+    private func scopeItem(
+        _ title: String, isCurrent: Bool, target: AnnotationScope
+    ) -> some View {
+        Button {
+            setScope(target)
+        } label: {
+            if isCurrent {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+    }
+
+    /// Widening leaves selection mode behind. The ticks are document-scope
+    /// state, and a selection nobody can see is the trap the mode's own door
+    /// already clears them to avoid.
+    private func setScope(_ newScope: AnnotationScope) {
+        scope = newScope
+        if !AnnotationScopePolicy.showsBulkAffordances(newScope) {
+            showBulkBar = false
+            selectedIds.removeAll()
+        }
     }
 
     /// Selection mode's door. A mode rather than always-on checkboxes: the
@@ -381,15 +736,13 @@ struct AnnotationsPane: View {
     /// scope on top (what is being acted on, and the one control that changes
     /// it), the verbs below.
     @ViewBuilder
-    private var bulkBar: some View {
-        let targets = bulkTargets
-        let selection = effectiveSelection
+    private func bulkBar(document: Document, rows: [Annotation]) -> some View {
+        let targets = bulkTargets(in: rows)
+        let selection = effectiveSelection(in: rows)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Button(selection.isEmpty ? "Select All" : "Deselect All") {
-                    selectedIds = selection.isEmpty
-                        ? Set(visibleAnnotations.map(\.id))
-                        : []
+                    selectedIds = selection.isEmpty ? Set(rows.map(\.id)) : []
                 }
                 .buttonStyle(.link)
                 Spacer(minLength: 4)
@@ -398,15 +751,16 @@ struct AnnotationsPane: View {
                      : "\(selection.count) selected")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                bulkTriageMenu(targets: targets, hasSelection: !selection.isEmpty)
+                bulkTriageMenu(document: document, targets: targets,
+                               hasSelection: !selection.isEmpty)
             }
             HStack(spacing: 8) {
-                bulkButton(.accept, targets: targets,
+                bulkButton(.accept, document: document, targets: targets,
                            hasSelection: !selection.isEmpty,
                            help: "Answer these at once. ⌘Z reverses the batch — "
                                + "except for accepted suggestions, where it reaches "
                                + "only the last; use a row's Revert for the others.")
-                bulkButton(.stet, targets: targets,
+                bulkButton(.stet, document: document, targets: targets,
                            hasSelection: !selection.isEmpty,
                            help: "Read, considered — and the words stand. "
                                + "Resolves these without applying or refusing anything.")
@@ -419,15 +773,15 @@ struct AnnotationsPane: View {
 
     @ViewBuilder
     private func bulkButton(
-        _ verb: AnnotationBulkActions.BulkVerb, targets: [Annotation],
-        hasSelection: Bool, help: String
+        _ verb: AnnotationBulkActions.BulkVerb, document: Document,
+        targets: [Annotation], hasSelection: Bool, help: String
     ) -> some View {
         let planned = AnnotationBulkActions.plan(targets, verb: verb)
         Button(AnnotationBulkActions.buttonTitle(
             verb, planned: planned.count, targetCount: targets.count,
             hasSelection: hasSelection)
         ) {
-            runBulk(verb, on: planned)
+            runBulk(verb, on: planned, in: document)
         }
         .buttonStyle(.bordered)
         .disabled(planned.isEmpty || bulkInFlight)
@@ -440,15 +794,15 @@ struct AnnotationsPane: View {
     /// are not reached (the row's menu refuses the same re-mark).
     @ViewBuilder
     private func bulkTriageMenu(
-        targets: [Annotation], hasSelection: Bool
+        document: Document, targets: [Annotation], hasSelection: Bool
     ) -> some View {
         Menu {
             ForEach(TriageMark.allCases, id: \.self) { mark in
-                bulkMenuItem(.triage(mark), targets: targets,
+                bulkMenuItem(.triage(mark), document: document, targets: targets,
                              hasSelection: hasSelection)
             }
             Divider()
-            bulkMenuItem(.triage(nil), targets: targets,
+            bulkMenuItem(.triage(nil), document: document, targets: targets,
                          hasSelection: hasSelection)
         } label: {
             Label("Triage", systemImage: "flag")
@@ -462,15 +816,15 @@ struct AnnotationsPane: View {
 
     @ViewBuilder
     private func bulkMenuItem(
-        _ verb: AnnotationBulkActions.BulkVerb, targets: [Annotation],
-        hasSelection: Bool
+        _ verb: AnnotationBulkActions.BulkVerb, document: Document,
+        targets: [Annotation], hasSelection: Bool
     ) -> some View {
         let planned = AnnotationBulkActions.plan(targets, verb: verb)
         Button(AnnotationBulkActions.buttonTitle(
             verb, planned: planned.count, targetCount: targets.count,
             hasSelection: hasSelection)
         ) {
-            runBulk(verb, on: planned)
+            runBulk(verb, on: planned, in: document)
         }
         .disabled(planned.isEmpty)
     }
@@ -487,7 +841,8 @@ struct AnnotationsPane: View {
     /// suggestion is reachable by ⌘Z and the rest need a row's Revert. The
     /// Accept button's tooltip says so; `AnnotationBulkActionsTests` pins it.
     private func runBulk(
-        _ verb: AnnotationBulkActions.BulkVerb, on ids: [String]
+        _ verb: AnnotationBulkActions.BulkVerb, on ids: [String],
+        in document: Document
     ) {
         guard !ids.isEmpty, !bulkInFlight else { return }
         bulkInFlight = true
@@ -499,10 +854,11 @@ struct AnnotationsPane: View {
             let outcome = await AnnotationBulkActions.perform(
                 verb, on: ids, in: document, undoManager: undoManager)
             bulkInFlight = false
+            noteChanged()
             // Selection hygiene: the run may have taken its own rows off
             // screen. Prune to what is still visible rather than leaving ticks
             // pointing at nothing.
-            selectedIds = effectiveSelection
+            selectedIds = effectiveSelection(in: visibleAnnotations(of: document))
             if let notice = outcome.notice { bulkNotice = notice }
             if verb == .stet {
                 // Drop the mark from anything that did NOT stet immediately:
@@ -580,17 +936,28 @@ struct AnnotationsPane: View {
         }
     }
 
-    private func accept(_ ann: Annotation) {
+    // MARK: - The verbs
+    //
+    // Every one of them takes the document EXPLICITLY. In project scope the
+    // row's document is not the pane's own, and a verb that reached for
+    // `self.document` would answer a note about Chapter Nine by editing
+    // whatever happens to be centred. The pane's own document is just the
+    // argument document scope passes.
+    //
+    // Every one of them also calls `noteChanged()` when its work lands — see
+    // `projectRefreshToken`. `AnnotationScopeTests` keeps the two together.
+
+    private func accept(_ document: Document, _ ann: Annotation) {
         if ann.kind == .suggestedChange && ann.isStale {
-            staleConfirm = ann
+            staleConfirm = AnnotationTarget(document: document, annotation: ann)
             return
         }
-        Task { await performAccept(ann) }
+        Task { await performAccept(document, ann) }
     }
 
     private var anchorLostMessage: String {
         let quoted: String
-        if let quote = anchorLostNotice?.span?.quote, !quote.isEmpty {
+        if let quote = anchorLostNotice?.annotation.span?.quote, !quote.isEmpty {
             quoted = " (\u{201C}\(quote)\u{201D})"
         } else {
             quoted = ""
@@ -604,29 +971,45 @@ struct AnnotationsPane: View {
     /// The one accept executor for suggestion-capable paths: a refusal for a
     /// lost span anchor (RULING-5) is surfaced, never swallowed — `try?` here
     /// would be the M5-AN-050 silence back again.
-    private func performAccept(_ ann: Annotation) async {
+    private func performAccept(_ document: Document, _ ann: Annotation) async {
         do {
             try await document.acceptAnnotation(id: ann.id, undoManager: undoManager)
         } catch let error as AnnotationAcceptError where error == .suggestionAnchorLost {
-            anchorLostNotice = ann
+            anchorLostNotice = AnnotationTarget(document: document, annotation: ann)
         } catch {
             documentLog.error("acceptAnnotation failed for \(ann.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+        noteChanged()
     }
 
-    private func reject(_ ann: Annotation, reason: String) {
-        Task { try? await document.rejectAnnotation(
-            id: ann.id, userResponse: reason, undoManager: undoManager) }
+    /// Reply to a query — an accept carrying the writer's words.
+    private func replyToQuery(
+        _ document: Document, _ ann: Annotation, reply: String
+    ) {
+        Task {
+            try? await document.acceptAnnotation(
+                id: ann.id, userResponse: reply, undoManager: undoManager)
+            noteChanged()
+        }
+    }
+
+    private func reject(_ document: Document, _ ann: Annotation, reason: String) {
+        Task {
+            try? await document.rejectAnnotation(
+                id: ann.id, userResponse: reason, undoManager: undoManager)
+            noteChanged()
+        }
     }
 
     /// Stet — the proofreader's own gesture, and now the only one that wears the
     /// proofreader's mark. The op is recorded immediately (never blocked); the
     /// flag holds the row on-screen ~2.5s so the STET badge and the reinstated
     /// text read clearly before the row resolves out of the open list.
-    private func stet(_ ann: Annotation) {
+    private func stet(_ document: Document, _ ann: Annotation) {
         stetFlourishIds.insert(ann.id)
         Task {
             try? await document.stetAnnotation(id: ann.id, undoManager: undoManager)
+            noteChanged()
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             stetFlourishIds.remove(ann.id)
         }
@@ -635,13 +1018,35 @@ struct AnnotationsPane: View {
     /// Mark (or clear) what the writer plans to do about a note. Not a
     /// resolution — the row stays exactly as open as it was; only its place in
     /// the queue moves.
-    private func triage(_ ann: Annotation, mark: TriageMark?) {
-        Task { try? await document.triageAnnotation(
-            id: ann.id, mark: mark, undoManager: undoManager) }
+    private func triage(_ document: Document, _ ann: Annotation, mark: TriageMark?) {
+        Task {
+            try? await document.triageAnnotation(
+                id: ann.id, mark: mark, undoManager: undoManager)
+            noteChanged()
+        }
     }
 
-    private func archive(_ ann: Annotation) {
-        Task { try? await document.archiveAnnotation(id: ann.id, undoManager: undoManager) }
+    private func archive(_ document: Document, _ ann: Annotation) {
+        Task {
+            try? await document.archiveAnnotation(id: ann.id, undoManager: undoManager)
+            noteChanged()
+        }
+    }
+
+    /// RULING-29's verb, and RULING-34's Restore — one spelling, taking an id
+    /// because a withdrawn note is not in the projection to be passed whole.
+    /// Extracted from the row's closure so the refresh census can see it; the
+    /// `reopenAnnotation` caller census is unmoved, since this is the same file
+    /// it already names. Restore reaches the undo-manager overload where it
+    /// used to call the bare one, which changes nothing: that overload
+    /// registers a ⌘Z pair only for a rejected / archived / stetted note and
+    /// falls through un-registered for a withdrawn one, which is all Restore
+    /// ever passes it.
+    private func reopen(_ document: Document, id: String) {
+        Task {
+            try? await document.reopenAnnotation(id: id, undoManager: undoManager)
+            noteChanged()
+        }
     }
 
     /// Revert an accepted suggestion from the pane (visible under the
@@ -652,25 +1057,31 @@ struct AnnotationsPane: View {
     /// Only THIS pane button gates: the ⌘Z undo closure calls
     /// `revertAcceptedAnnotation` directly (undo of an immediately-prior
     /// action needs no confirm).
-    private func revert(_ ann: Annotation) {
+    private func revert(_ document: Document, _ ann: Annotation) {
         if document.acceptedTextDrifted(annotationId: ann.id) {
-            revertConfirm = ann
+            revertConfirm = AnnotationTarget(document: document, annotation: ann)
             return
         }
-        performRevert(ann)
+        performRevert(document, ann)
     }
 
     /// Passing the window's undo manager makes the revert itself ⌘Z-undoable
     /// (re-accept, original reply preserved).
-    private func performRevert(_ ann: Annotation) {
-        Task { try? await document.revertAcceptedAnnotation(
-            id: ann.id, undoManager: undoManager) }
+    private func performRevert(_ document: Document, _ ann: Annotation) {
+        Task {
+            try? await document.revertAcceptedAnnotation(
+                id: ann.id, undoManager: undoManager)
+            noteChanged()
+        }
     }
 
     /// Author self-service edit of one's own annotation. The pane updates via
     /// `annotationsVersion`; the notification refreshes the key-window editor's
     /// crafted marks immediately (mirrors the create-case refresh).
-    private func editOwn(_ ann: Annotation, newBody: String, newSuggested: String?) {
+    private func editOwn(
+        _ document: Document, _ ann: Annotation,
+        newBody: String, newSuggested: String?
+    ) {
         Task {
             try? await document.editReviewerAnnotation(
                 id: ann.id,
@@ -678,6 +1089,7 @@ struct AnnotationsPane: View {
                 newSuggestedText: newSuggested,
                 authorName: userPreferences.collaboratorDisplayName,
                 undoManager: undoManager)
+            noteChanged()
             // No explicit editor notify: the edit bumps `annotationsVersion` on
             // the shared Document, which EditorHost mirrors into the control model
             // → `applyControl` → `setReviewAnnotations`, recomputing crafted marks
@@ -686,13 +1098,22 @@ struct AnnotationsPane: View {
     }
 
     /// Author self-service withdraw (delete) of one's own annotation.
-    private func withdrawOwn(_ ann: Annotation) {
+    private func withdrawOwn(_ document: Document, _ ann: Annotation) {
         Task {
             try? await document.withdrawReviewerAnnotation(
                 id: ann.id,
                 authorName: userPreferences.collaboratorDisplayName,
                 undoManager: undoManager)
+            noteChanged()
         }
+    }
+
+    /// Something changed under a row. Bumps the token `projectSnapshot` is
+    /// keyed on, so the cross-document queue re-reads a walk nothing else
+    /// observes (see `projectRefreshToken`). Cheap and unconditional: it costs
+    /// one integer in document scope, where nothing reads it.
+    private func noteChanged() {
+        projectRefreshToken &+= 1
     }
 
     private func jump(_ ann: Annotation) {
@@ -709,6 +1130,20 @@ struct AnnotationsPane: View {
             MaughamEvent.post(
                 .maughamNavigateToParagraph, to: .keyWindow,
                 payload: ["paragraph_id": pid])
+        }
+    }
+}
+
+/// RULING-35's other half as a modifier: a reason when there is one, and no
+/// tooltip at all when there is not.
+private struct RowDisabledReason: ViewModifier {
+    let reason: String?
+
+    func body(content: Content) -> some View {
+        if let reason {
+            content.help(reason)
+        } else {
+            content
         }
     }
 }
@@ -735,6 +1170,13 @@ struct AnnotationRow: View {
     /// Edit + Delete (withdraw) affordances. Claude's / other humans' rows
     /// never show them.
     var isOwn: Bool = false
+    /// **Whether this row's verbs can act** (M3 P2 Task 7). False in the
+    /// cross-document scope when the row's piece is closed: there is no live
+    /// `Document` to append to, and the alternative — a transient one — would
+    /// land an op the writer's ⌘Z could never reach. Disabled WITH a reason,
+    /// never enabled and silently inert (RULING-35).
+    var verbsEnabled: Bool = true
+    var verbsDisabledReason: String? = nil
     /// Multiselect (M3 P2 Task 5) — true only while the pane is in selection
     /// mode. The control is a `Button`, so it takes the click the row's
     /// whole-body `.onTapGesture` would otherwise read as navigation: selecting
@@ -951,6 +1393,13 @@ struct AnnotationRow: View {
             actions(useIcons: true)
         }
         .controlSize(.small)
+        // The whole row of verbs, gated together: a closed piece's note is
+        // readable and not actable, and the tooltip says what to do about it.
+        // The `.help` is applied only when there IS something to say — an
+        // empty help string is a tooltip that opens with nothing in it.
+        .disabled(!verbsEnabled)
+        .modifier(RowDisabledReason(
+            reason: verbsEnabled ? nil : verbsDisabledReason))
     }
 
     @ViewBuilder

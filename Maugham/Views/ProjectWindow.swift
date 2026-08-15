@@ -54,6 +54,15 @@ struct ProjectWindow: View {
     /// pattern. Threading a piece's remembered pass onto the board itself is
     /// a later task; this only carries the memory.
     @State private var activePassMemory: ActivePassMemory = .empty
+    /// **How wide the annotations queue is looking** (M3 P2 Task 7).
+    ///
+    /// Window state rather than the pane's own, because the board's
+    /// open-notes column will set it from the CENTRE column — a click on
+    /// "11 notes" against Chapter Nine widens the queue and points it at that
+    /// piece. Deliberately NOT persisted to `UIState`: a scope is a glance, not
+    /// a home, and reopening the project in a list of the whole book is not
+    /// where the writer left off.
+    @State private var annotationScopeRequest: AnnotationScope = .document
     /// What this window's tree names — the window's single subject (spec §3).
     /// Typed rather than a `String?` so no site can answer "is this a manuscript
     /// document?" by accident; see `BinderSubject`.
@@ -2521,7 +2530,8 @@ struct ProjectWindow: View {
                 compiler.updateModel(newValue.claudeModel)
                 documentStore.updateUIState { $0.compilerModel = newValue }
             },
-            assistant: assistant
+            assistant: assistant,
+            annotationScope: $annotationScopeRequest
         ) {
             researchOrSubject(store: store)
         }

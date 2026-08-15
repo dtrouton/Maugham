@@ -106,6 +106,21 @@ public struct AnnotationFilter: Equatable, Sendable {
         self.statuses = statuses
         self.paragraphId = paragraphId
     }
+
+    /// Does this annotation pass the filter? A nil field means "no opinion".
+    ///
+    /// **The one spelling.** `Document.annotations(filter:)` filters its cached
+    /// projection with it, and the queue's cross-document scope (M3 P2 Task 7)
+    /// filters the project-wide snapshot with it — that snapshot is derived
+    /// whole and unfiltered, so its readers have to apply the filter
+    /// themselves, and a second inline copy of these three lines is how two
+    /// surfaces come to disagree about what "open" means.
+    public func matches(_ annotation: Annotation) -> Bool {
+        if let kinds, !kinds.contains(annotation.kind) { return false }
+        if let statuses, !statuses.contains(annotation.status) { return false }
+        if let paragraphId, annotation.paragraphId != paragraphId { return false }
+        return true
+    }
 }
 
 extension AnnotationKind {

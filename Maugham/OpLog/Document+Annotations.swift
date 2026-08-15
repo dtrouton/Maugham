@@ -32,12 +32,10 @@ extension Document {
         if !_annotationsCacheValid {
             rebuildAnnotationsCache()
         }
-        return _annotationsCache.filter { ann in
-            if let kinds = filter.kinds, !kinds.contains(ann.kind) { return false }
-            if let statuses = filter.statuses, !statuses.contains(ann.status) { return false }
-            if let pid = filter.paragraphId, ann.paragraphId != pid { return false }
-            return true
-        }
+        // `AnnotationFilter.matches` rather than three inline lines: the
+        // project-wide snapshot (M3 P2) is derived unfiltered and its readers
+        // apply the same filter, so the predicate is shared substrate.
+        return _annotationsCache.filter(filter.matches)
     }
 
     internal func invalidateAnnotationsCache() {
