@@ -55,6 +55,17 @@ public struct UIState: Codable, Equatable, Sendable {
     /// of the version skew read cleanly, which is what the constant is for.
     public var compilerModel: CompilerModelChoice
 
+    /// Which review pass each piece was last looked at through
+    /// (`ActivePassMemory`, M3-P1 Task 5).
+    ///
+    /// **No schema bump**, for `compilerModel`'s reason one field up: this is
+    /// one additive key with a default, so a file written without it decodes
+    /// to `.empty` — every piece then opens on the board's own default pass
+    /// the first time it is looked at, which is the correct first-run
+    /// behaviour anyway — and an older build ignores a key it has never heard
+    /// of.
+    public var activePassMemory: ActivePassMemory
+
     /// How wide the assistant column is when a reference is being studied
     /// (M2 §6.2, Plan 2 Task 5).
     ///
@@ -144,6 +155,7 @@ public struct UIState: Codable, Equatable, Sendable {
         persona: Persona = .default,
         personaMemory: PersonaMemory = .empty,
         compilerModel: CompilerModelChoice = .standard,
+        activePassMemory: ActivePassMemory = .empty,
         assistantColumnWidth: Double = UIState.defaultAssistantColumnWidth,
         detailColumnWidth: Double = UIState.defaultDetailColumnWidth
     ) {
@@ -157,6 +169,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.persona = persona
         self.personaMemory = personaMemory
         self.compilerModel = compilerModel
+        self.activePassMemory = activePassMemory
         self.assistantColumnWidth =
             UIState.clampedAssistantColumnWidth(assistantColumnWidth)
         self.detailColumnWidth =
@@ -170,8 +183,8 @@ public struct UIState: Codable, Equatable, Sendable {
              selectedResearchItemId,
              isNoChromeOn,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
-             persona, personaMemory, compilerModel, assistantColumnWidth,
-             detailColumnWidth
+             persona, personaMemory, compilerModel, activePassMemory,
+             assistantColumnWidth, detailColumnWidth
     }
 
     /// Hand-written because `selectedSubject` is not stored the way it is
@@ -198,6 +211,7 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(persona, forKey: .persona)
         try c.encode(personaMemory, forKey: .personaMemory)
         try c.encode(compilerModel, forKey: .compilerModel)
+        try c.encode(activePassMemory, forKey: .activePassMemory)
         try c.encode(assistantColumnWidth, forKey: .assistantColumnWidth)
         try c.encode(detailColumnWidth, forKey: .detailColumnWidth)
     }
@@ -228,6 +242,8 @@ public struct UIState: Codable, Equatable, Sendable {
             (try? c.decode(PersonaMemory.self, forKey: .personaMemory)) ?? .empty
         self.compilerModel =
             (try? c.decode(CompilerModelChoice.self, forKey: .compilerModel)) ?? .standard
+        self.activePassMemory =
+            (try? c.decode(ActivePassMemory.self, forKey: .activePassMemory)) ?? .empty
         // Clamped on the way IN as well as on the way out — see the property.
         self.assistantColumnWidth = UIState.clampedAssistantColumnWidth(
             (try? c.decode(Double.self, forKey: .assistantColumnWidth))

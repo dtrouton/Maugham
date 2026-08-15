@@ -48,6 +48,12 @@ struct ProjectWindow: View {
     /// `UIState.compilerModel` at `load()` and written back through
     /// `updateUIState` on change — the `outlineLayout` pattern.
     @State private var compilerModel: CompilerModelChoice = .standard
+    /// Which review pass each piece was last looked at through
+    /// (M3-P1 Task 5), seeded from `UIState.activePassMemory` at `load()` and
+    /// written back through `updateUIState` on change — the `outlineLayout`
+    /// pattern. Threading a piece's remembered pass onto the board itself is
+    /// a later task; this only carries the memory.
+    @State private var activePassMemory: ActivePassMemory = .empty
     /// What this window's tree names — the window's single subject (spec §3).
     /// Typed rather than a `String?` so no site can answer "is this a manuscript
     /// document?" by accident; see `BinderSubject`.
@@ -2827,6 +2833,17 @@ struct ProjectWindow: View {
         BinderSubject.activeDocId(for: selectedSubject)
     }
 
+    /// Remember that `piece` was last looked at through `passId` —
+    /// `activePassMemory`'s write half, the `outlineLayout` pattern: update
+    /// the local `@State` so this window reflects it immediately, then
+    /// persist through `updateUIState` on the same debounce as every other
+    /// UI-state write. Reading it back onto the board is Task 6/8's; this is
+    /// only the verb they will call.
+    private func recordActivePass(forPiece piece: String, passId: String) {
+        activePassMemory.record(piece: piece, passId: passId)
+        documentStore?.updateUIState { $0.activePassMemory.record(piece: piece, passId: passId) }
+    }
+
     /// Whether the window's subject still names something, and what it becomes
     /// when it does not.
     ///
@@ -3120,6 +3137,7 @@ struct ProjectWindow: View {
             self.detailSegment = ds.uiState.detailSegment
             self.persona = ds.uiState.persona
             self.outlineLayout = ds.uiState.outlineLayout
+            self.activePassMemory = ds.uiState.activePassMemory
             applyNoChrome()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {
