@@ -180,6 +180,77 @@ final class IntentStripTests: XCTestCase {
             + "resolver, so the statement-text path is no longer structural")
     }
 
+    /// **The view's stored inputs are exactly a line and a flag** — the
+    /// structural half of ADR 0027 §1 now that the strip draws something the
+    /// compiler caused (M3-P3 §7).
+    ///
+    /// The forbidden-token census above catches a diagnostic *reached for* from
+    /// inside this file. It cannot catch the other shape, which is the one a
+    /// hurry would take: a model-authored sentence handed IN at the mounting
+    /// site — `IntentStrip(line: line, mayTrailDraft: flag, note: run.driftNote)`
+    /// — because every token of that lives in `ProjectWindow.swift`. What makes
+    /// it impossible is the input list: a sentence needs somewhere to land, and
+    /// the only inputs are a `String` the resolver produces from the writer's
+    /// own statement and a `Bool`, which cannot carry prose.
+    ///
+    /// Planted offender below, because a census that cannot be shown to see an
+    /// offender is a census that passes for the wrong reason.
+    func test_theStripStoresALineAndAFlagAndNothingElse() throws {
+        let strip = try code(of: sourceDir.appendingPathComponent("Views/IntentStrip.swift"))
+
+        XCTAssertEqual(
+            Self.storedInputs(in: strip),
+            [Self.StoredInput(name: "line", type: "String"),
+             Self.StoredInput(name: "mayTrailDraft", type: "Bool")],
+            "the strip's stored inputs changed. A second `String` is a place for "
+            + "model-produced prose to land in the editor's chrome (ADR 0027 §1) "
+            + "— the mark's words are `IntentStrip.mayTrailDraftMark`, written "
+            + "here and fixed at compile time")
+
+        // The planted offender: the same detector, over the shape this test
+        // exists to stop. If this passes silently the assertion above proves
+        // nothing.
+        let planted = """
+            struct IntentStrip: View {
+                let line: String
+                var mayTrailDraft: Bool = false
+                let driftNote: String
+                var body: some View { Text(line) }
+            }
+            """
+        XCTAssertEqual(
+            Self.storedInputs(in: planted),
+            [Self.StoredInput(name: "line", type: "String"),
+             Self.StoredInput(name: "mayTrailDraft", type: "Bool"),
+             Self.StoredInput(name: "driftNote", type: "String")],
+            "the detector cannot see a third input, so the assertion above is "
+            + "vacuous")
+    }
+
+    private struct StoredInput: Equatable {
+        let name: String
+        let type: String
+    }
+
+    /// Every stored input a view declares: a `let`/`var` member with a written
+    /// type, minus `static` (constants of the view's own), `private` (state
+    /// nobody hands in) and property wrappers. A local `let x = …` inside a
+    /// function has no type annotation and never matches.
+    private static func storedInputs(in source: String) -> [StoredInput] {
+        source.components(separatedBy: "\n").compactMap { raw -> StoredInput? in
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("let ") || line.hasPrefix("var ") else { return nil }
+            let declaration = line.components(separatedBy: "=")[0]
+                .trimmingCharacters(in: .whitespaces)
+            guard !declaration.contains("("), !declaration.contains("{") else { return nil }
+            let parts = declaration.dropFirst(4).components(separatedBy: ":")
+            guard parts.count == 2 else { return nil }
+            return StoredInput(
+                name: parts[0].trimmingCharacters(in: .whitespaces),
+                type: parts[1].trimmingCharacters(in: .whitespaces))
+        }
+    }
+
     /// A Swift file's code, with whole-line comments dropped — the census is a
     /// claim about what the file *does*, and a doc comment naming a diagnostic
     /// in order to forbid it must not trip its own rule.
@@ -338,6 +409,181 @@ final class IntentStripTests: XCTestCase {
             .document(chapter.id),
             "the pane's scope now follows the strip's fallback — Open-sets-scope "
             + "was built after all, and the accepted divergence is gone")
+    }
+
+    // MARK: - Contract 7: the quiet mark (M3-P3 §7)
+
+    /// The truth table of the ONE decision, asked over the product of its
+    /// inputs rather than down the one path the window takes.
+    func test_theMarkIsRaisedOnlyByADriftedVerdictOverAnUntouchedIntent() {
+        let intent = "Cold, and never wistful."
+
+        XCTAssertTrue(
+            IntentDrift.mayTrailDraft(
+                lastRun: Self.runRecord(verdict: "drifted", snapshot: intent),
+                currentStatementText: intent),
+            "a drifted verdict over the very text it checked is the mark's one case")
+
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(
+                lastRun: Self.runRecord(verdict: "drifted", snapshot: intent),
+                currentStatementText: intent + " Warmer at the end."),
+            "the writer answered the mark by moving the intent; it must clear")
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(
+                lastRun: Self.runRecord(verdict: "holds", snapshot: intent),
+                currentStatementText: intent),
+            "a later round said the draft holds; the mark is the standing "
+            + "round's, not a sticky one")
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(lastRun: nil, currentStatementText: intent),
+            "no run has judged this document at all")
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(
+                lastRun: Self.runRecord(verdict: nil, snapshot: intent),
+                currentStatementText: intent),
+            "a run that answered the four sections it knew judged nothing")
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(
+                lastRun: Self.runRecord(verdict: "drifted", snapshot: nil),
+                currentStatementText: intent),
+            "a run with no snapshot checked against nothing this can compare")
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(
+                lastRun: Self.runRecord(verdict: "drifted", snapshot: intent),
+                currentStatementText: nil),
+            "the intent is gone; there is nothing left for the draft to trail")
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(
+                lastRun: Self.runRecord(verdict: "wandering", snapshot: intent),
+                currentStatementText: intent),
+            "a word this build has no glyph for must not raise a mark "
+            + "(`DiagnosticIngest` admits two verdicts and nil)")
+    }
+
+    /// **The clearing rule end-to-end, through a real statement edit and with
+    /// NO further run** — the half a stored mark would get wrong.
+    ///
+    /// The edit is made through the live `Document` the Intent pane binds, so
+    /// this asserts the same signal the window sees: no save, no flush, no
+    /// event, and the mark is gone on the next body pass.
+    func test_editingTheStatementClearsTheMarkWithNoFurtherRun() async throws {
+        let (url, store, chapter) = try await novelWithChapter(named: "StripDriftEdit")
+        let statement = try await store.createStatement(
+            kind: .intent, scope: .document(chapter.id))
+        let document = try await Document.load(
+            url: url.appendingPathComponent(statement.path),
+            device: MacDeviceID.current, session: "strip-test", presenter: nil)
+        store.noteStatementDocumentOpened(document, id: statement.id)
+        defer {
+            store.forgetStatementDocument(id: statement.id)
+            Task { await document.close() }
+        }
+        document.setFullText("Cold, and never wistful.\n\n## Rulings\n\n- 2026-08-15: no warmth.")
+
+        // What a run would have snapshotted: the statement WHOLE, through the
+        // same reader the compiler's briefing uses.
+        let checked = try store.statementText(of: statement)
+        let drifted = Self.runRecord(verdict: "drifted", snapshot: checked)
+
+        XCTAssertTrue(
+            IntentDrift.mayTrailDraft(store: store, docId: chapter.id, lastRun: drifted),
+            "control: the standing run drifted against the intent as it reads now")
+
+        document.setFullText(
+            "Cold, and never wistful. Warmer at the end.\n\n## Rulings\n\n- 2026-08-15: no warmth.")
+
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(store: store, docId: chapter.id, lastRun: drifted),
+            "the writer edited the intent and no run has judged the new one — "
+            + "the mark is standing over a comparison nobody made")
+    }
+
+    /// A document with no intent anywhere raises nothing, whatever the run
+    /// said. Absence is valid (M1A's rule) and there is no strip to mark.
+    func test_aDocumentWithNoIntentRaisesNoMark() async throws {
+        let (_, store, chapter) = try await novelWithChapter(named: "StripDriftNoIntent")
+        XCTAssertFalse(IntentDrift.mayTrailDraft(
+            store: store, docId: chapter.id,
+            lastRun: Self.runRecord(verdict: "drifted", snapshot: "Cold, and never wistful.")))
+    }
+
+    /// The mark reaches the screen as the app's own fixed words.
+    func test_theMarkedStripDrawsTheAppsOwnWords() throws {
+        let line = "A woman walks into the sea."
+        let window = mount(AnyView(IntentStrip(line: line, mayTrailDraft: true)))
+
+        let spoken = try axStrings(in: window)
+        XCTAssertTrue(
+            spoken.contains { $0.contains(IntentStrip.mayTrailDraftMark) },
+            "the mark never reached the tree. Found: \(spoken)")
+        XCTAssertTrue(
+            spoken.contains { $0.contains(line) },
+            "control: the writer's own line must still be there")
+    }
+
+    /// And it is absent — not dimmed, not empty — when the flag is false, which
+    /// is every strip in a project whose last round said nothing about drift.
+    func test_anUnmarkedStripDrawsNoTraceOfTheMark() throws {
+        let line = "A woman walks into the sea."
+        let window = mount(AnyView(IntentStrip(line: line, mayTrailDraft: false)))
+
+        let spoken = try axStrings(in: window)
+        XCTAssertFalse(
+            spoken.contains { $0.contains(IntentStrip.mayTrailDraftMark) },
+            "an unmarked strip is carrying the mark. Found: \(spoken)")
+        XCTAssertTrue(
+            spoken.contains { $0.contains(line) },
+            "control: the strip drew nothing at all, so the assertion above "
+            + "could not have failed. Found: \(spoken)")
+    }
+
+    /// **The wiring census.** The decision, the flag and the mounting site are
+    /// three files; delete the middle one and every assertion above still
+    /// passes while no writer ever sees the mark.
+    func test_theMarkIsWiredFromTheDecisionToTheOneMountingSite() throws {
+        let window = try code(
+            of: sourceDir.appendingPathComponent("Views/ProjectWindow.swift"))
+        XCTAssertTrue(
+            window.contains("IntentDrift.mayTrailDraft("),
+            "the window must ask the one decision rather than write a condition "
+            + "of its own")
+        XCTAssertTrue(
+            window.contains("mayTrailDraft: intentStripMayTrailDraft"),
+            "the flag reaches the strip nowhere; the mark can never be drawn")
+        XCTAssertTrue(
+            window.contains("lastRun(docId:"),
+            "the decision is being fed something other than the standing run")
+    }
+
+    /// A glyph that does not resolve draws nothing at all and says nothing
+    /// about itself — the one failure mode of a symbol name that survives
+    /// every other assertion here.
+    func test_theMarksGlyphIsASymbolThisSystemHas() {
+        XCTAssertNotNil(
+            NSImage(systemSymbolName: IntentStrip.mayTrailDraftSymbol,
+                    accessibilityDescription: nil),
+            "\u{201C}\(IntentStrip.mayTrailDraftSymbol)\u{201D} is not an SF Symbol "
+            + "this system can draw; the mark would show its words with a hole "
+            + "in front of them")
+    }
+
+    /// A run record with just enough on it for the drift decision — the fields
+    /// this contract reads and no fixture arithmetic beside them.
+    private static func runRecord(verdict: String?, snapshot: String?) -> CompilerRun {
+        CompilerRun(
+            id: "run-1", at: Date(), model: "test-model", lastOpId: "op1",
+            deltaSummary: "1 new, 0 revised \u{00b6}", intentSnapshot: snapshot,
+            intentDriftVerdict: verdict)
+    }
+
+    /// Every string the tree speaks, which is what a writer with VoiceOver
+    /// hears and what a sighted writer reads.
+    private func axStrings(in window: NSWindow) throws -> [String] {
+        try axTree(in: window).flatMap { element in
+            ["accessibilityLabel", "accessibilityValue", "accessibilityTitle"]
+                .compactMap { axAttribute(element, $0) as? String }
+        }
     }
 
     // MARK: - Contract 5: the register

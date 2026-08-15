@@ -4,7 +4,7 @@ import MaughamCore
 
 /// Assembles what a compiler run sends to the spawned Claude: the session's
 /// one-time system preamble, and each run's message (delta + diffed-in
-/// context + the standing drift question + the output-shape instruction).
+/// context + what the previous round raised + the output-shape instruction).
 ///
 /// A pure function of its inputs — no I/O, no clock — so the prompt itself is
 /// testable without a subprocess.
@@ -269,7 +269,7 @@ enum CompilerPrompt {
     /// intent.
     ///
     /// **No new answer section comes with it.** The model's confirmation rides
-    /// the four sections it already answers in; what resolved and what
+    /// the note sections it already answers in; what resolved and what
     /// persists is computed app-side from fingerprints (`RoundComparison`),
     /// never parsed back out of prose the model wrote.
     static func roundSection(previousRound: RoundRecord, notes: [PriorNote]) -> String? {

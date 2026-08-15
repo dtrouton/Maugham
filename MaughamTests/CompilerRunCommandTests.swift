@@ -3269,4 +3269,99 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(
             harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted")
     }
+
+    // MARK: - The strip's quiet mark (M3-P3 Task 5)
+
+    /// **A run against no declared intent records NO verdict**, whatever the
+    /// model says — the honesty guard.
+    ///
+    /// The schema instructs `holds` where nothing is declared, which is the
+    /// obliging answer and not a true one: there was no intent to check the
+    /// draft against, so there is nothing the model can have judged. Recording
+    /// it would put a judgement on the run record that no reading produced,
+    /// and the sidecar is where a later build looks to tell "never judged"
+    /// from "judged and held". The key must be absent, not false-ish.
+    ///
+    /// Nothing downstream of this reads `holds` — the mark fires on `drifted`
+    /// alone — so this is about what the record is allowed to CLAIM rather
+    /// than about the strip.
+    func test_aRunWithNoDeclaredIntentRecordsNoVerdict() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "holds"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), statementText: nil)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertNotNil(harness.diagnostics.lastRun(docId: docId),
+                        "control: the run must have finished and filed a record")
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict)
+
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        let json = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertFalse(
+            json.contains("\"intentDriftVerdict\""),
+            "a run with nothing declared recorded a verdict anyway; got \(json)")
+    }
+
+    /// The same guard's converse, so the fix cannot be "record nothing ever":
+    /// with an intent declared, the verdict rides the record as Task 4 built
+    /// it.
+    func test_aRunWithADeclaredIntentStillRecordsItsVerdict() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "holds"))
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "holds")
+    }
+
+    /// **The mark, end to end from the keystroke**: a round answers `drifted`
+    /// and the decision the window asks raises it; the next round answers
+    /// `holds` and it clears, with the writer having touched nothing.
+    ///
+    /// Driven through the orchestrator rather than a hand-built record,
+    /// because the thing under test is the join — the snapshot the run stored
+    /// and the statement text the window resolves have to be the same string
+    /// or the hash comparison never matches and the mark can never appear.
+    func test_theMarkFollowsTheStandingRoundsVerdict() throws {
+        let intent = "Cold, and never wistful."
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "drifted"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), statementText: intent)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertTrue(
+            IntentDrift.mayTrailDraft(
+                lastRun: harness.diagnostics.lastRun(docId: docId),
+                currentStatementText: intent),
+            "the round judged the draft drifted and the intent is untouched")
+
+        // The writer keeps writing; the next round finds the draft back on
+        // its intent.
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "holds"))
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(
+                lastRun: harness.diagnostics.lastRun(docId: docId),
+                currentStatementText: intent),
+            "a later round said the draft holds; the mark must clear with no "
+            + "stored state to un-set")
+    }
 }

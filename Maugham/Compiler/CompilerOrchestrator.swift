@@ -654,7 +654,19 @@ final class CompilerOrchestrator {
             // preview carries it in memory, where the strip can draw it as it
             // arrives, and a cancel puts the last finished run's verdict back
             // by re-reading the untouched sidecar.
-            intentDriftVerdict: outcome.intentDriftVerdict)
+            //
+            // **A run with nothing declared records NO verdict, whatever the
+            // model answered** (M3-P3 Task 5). The schema instructs `holds`
+            // where there is no intent, which is the obliging answer and not a
+            // true one: nothing was checked against anything, so nothing was
+            // judged. The guard is here rather than at ingest because this is
+            // where the two halves meet — the snapshot is what the round was
+            // briefed on, and a verdict without one is a judgement with no
+            // subject. Downstream is unaffected either way (the strip's mark
+            // fires on `drifted` alone); what this protects is what the RECORD
+            // is allowed to claim, since the sidecar is where a later build
+            // looks to tell "never judged" from "judged and held".
+            intentDriftVerdict: intentSnapshot == nil ? nil : outcome.intentDriftVerdict)
     }
 
     /// **What the last round in this run's lane raised**, or `nil` when there
