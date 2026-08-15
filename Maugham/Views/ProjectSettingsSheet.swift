@@ -8,6 +8,7 @@ struct ProjectSettingsSheet: View {
 
     @State private var useDefaults: Bool = true
     @State private var draft: TypographySettings = .defaults
+    @State private var reviewPasses: [ReviewPass] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -64,6 +65,7 @@ struct ProjectSettingsSheet: View {
                 }
 
                 screenplaySection()
+                reviewPassesSection()
             }
             .formStyle(.grouped)
 
@@ -92,6 +94,7 @@ struct ProjectSettingsSheet: View {
             useDefaults = true
             draft = userPreferences.typography
         }
+        reviewPasses = store.manifest.effectiveReviewPasses
     }
 
     private func applyDefaultsToggle(_ usingDefaults: Bool) async {
@@ -126,5 +129,86 @@ struct ProjectSettingsSheet: View {
     private func applyGutterToggle(_ newValue: Bool) async {
         // Persist as nil when value matches default (show), else explicit.
         try? await store.setShowElementGutter(newValue ? nil : false)
+    }
+
+    // MARK: - Review Passes (M3 P1 Task 9)
+
+    /// A list editor over `effectiveReviewPasses` — rename in place, add,
+    /// delete, drag-reorder. Nothing here writes to the store per keystroke;
+    /// Save writes the whole array at once. Rows use a plain always-editable
+    /// `TextField`, matching this sheet's existing style for every other
+    /// control — there's no `List(selection:)` here and so no rename-mode
+    /// focus race to guard against (tripwire 16 doesn't apply: nothing ever
+    /// transitions a row INTO rename mode: it's always in it).
+    @ViewBuilder
+    private func reviewPassesSection() -> some View {
+        Section {
+            ForEach(reviewPasses) { pass in
+                reviewPassRow(pass)
+            }
+
+            HStack {
+                Button {
+                    addReviewPass()
+                } label: {
+                    Label("Add Pass", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+
+                Spacer()
+
+                Button("Save") {
+                    saveReviewPasses()
+                }
+            }
+        } header: {
+            Text("Review Passes")
+        } footer: {
+            Text("These are the columns on Review's board and the rows on each piece's pass ladder. Removing every pass restores the four defaults — Structural, Line, Copyedit, Proof — rather than leaving the project with none.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func reviewPassRow(_ pass: ReviewPass) -> some View {
+        HStack {
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            TextField("Pass name", text: Binding(
+                get: { reviewPasses.first { $0.id == pass.id }?.name ?? pass.name },
+                set: { reviewPasses = ReviewPassEditorLogic.renamed(reviewPasses, id: pass.id, to: $0) }))
+
+            Spacer()
+
+            Button {
+                reviewPasses = ReviewPassEditorLogic.deleted(reviewPasses, id: pass.id)
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.plain)
+            .help("Delete \(pass.name)")
+        }
+        .draggable(pass.id) {
+            Text(pass.name)
+                .padding(6)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+        }
+        .dropDestination(for: String.self) { draggedIds, _ in
+            guard let draggedId = draggedIds.first else { return false }
+            reviewPasses = ReviewPassEditorLogic.reordered(
+                reviewPasses, draggedId: draggedId, droppedOnId: pass.id)
+            return true
+        }
+    }
+
+    private func addReviewPass() {
+        reviewPasses = ReviewPassEditorLogic.added(to: reviewPasses, name: "New Pass")
+    }
+
+    private func saveReviewPasses() {
+        let passes = reviewPasses
+        Task { try? await store.setReviewPasses(passes) }
     }
 }

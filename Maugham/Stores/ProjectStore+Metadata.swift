@@ -94,6 +94,31 @@ extension ProjectStore {
         try await saveManifest()
     }
 
+    /// Replace the project's whole review-pass list (M3 P1 Task 9 — the pass
+    /// editor's one write path). An empty array is a valid, intentional
+    /// value: `ProjectManifest.effectiveReviewPasses` reads an absent-or-empty
+    /// `reviewPasses` as "not customized" and falls back to `ReviewPass.presets`
+    /// (Task 1's rule) — so deleting every configured pass here doesn't strand
+    /// the project without a ladder, it restores the four defaults.
+    ///
+    /// This verb never touches `StructureItem.passStates`. A pass removed
+    /// from the list leaves every piece's recorded state for that id sitting
+    /// untouched in the manifest — never swept — and if the same id is added
+    /// back later (same slug, same name), those states are simply visible
+    /// again. Documented behaviour, not a bug: sweeping on delete would need
+    /// a second reader of every structure item just to throw away data a
+    /// re-add would want back.
+    ///
+    /// Deliberately NOT a member of `PersonaPaneRegistryTests.passStateWritingFiles`
+    /// — that census tracks writers of `setPassState(` (per-piece, per-pass
+    /// state); this verb writes the pass LIST itself and the two never
+    /// collide on the same substring.
+    public func setReviewPasses(_ passes: [ReviewPass]) async throws {
+        manifest.reviewPasses = passes
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
     /// Toggle the per-project element gutter. nil = default (show); false =
     /// hide. The screenplay editor reads this on each layout pass.
     public func setShowElementGutter(_ value: Bool?) async throws {
