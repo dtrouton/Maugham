@@ -1457,6 +1457,46 @@ struct ProjectWindow: View {
         }
     }
 
+    /// **Does Review's centre column show the passes board?** (M3 P1 Task 6,
+    /// spec §3's Review column.)
+    ///
+    /// `publishCentre`'s shape without its resolution: two independent facts,
+    /// composed here so no caller can hold one without the other.
+    ///
+    /// - **Which persona.** `Persona.showsTheReviewBoard`, asked rather than
+    ///   spelled — a `== .review` here would be the fifth equality in the shape
+    ///   `centresTheCanvas` was written to close off, and the compiler cannot
+    ///   check that two of them in two files still agree.
+    /// - **Which subject.** `subjectShowsAltitude`, composed rather than
+    ///   restated, for the reason `publishCentre` composes it: two
+    ///   document-resolution rules are two answers free to disagree about what a
+    ///   document is, and the disagreement here would put a board of chips over
+    ///   the chapter a reviewer is reading. Review's board is a PROJECT-level
+    ///   surface exactly as Publish's book is — the project row, a group, or
+    ///   nothing selected — and a chapter subject in Review opens the chapter,
+    ///   which is what a reviewer with a note to leave needs.
+    ///
+    /// A research subject in Review resolves to no manuscript document, so it
+    /// lands here as project level and gets the board — the same fall-through
+    /// Publish's book already has, and the same one the corkboard had before
+    /// either of them.
+    ///
+    /// **`showsStatusFooter` needs no clause of its own for this**, for the
+    /// argument the footer's own comment makes about the book: the board only
+    /// ever shows where `subjectShowsAltitude` is already true, and the footer's
+    /// altitude clause has therefore already refused. A fifth clause would be a
+    /// parameter that cannot move the result.
+    /// `ReviewBoardRoutingTests.test_theBoardOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn`
+    /// asserts that implication over the whole product rather than leaving it
+    /// here.
+    static func reviewCentreShowsBoard(persona: Persona,
+                                       subject: BinderSubject?,
+                                       structure: [StructureItem]) -> Bool {
+        guard persona.showsTheReviewBoard else { return false }
+        return subjectShowsAltitude(persona: persona, subject: subject,
+                                    structure: structure)
+    }
+
     /// **Does the centre column show the project at altitude rather than a
     /// document?** (shell-finish stage 3a Task 2.)
     ///
@@ -1672,8 +1712,15 @@ struct ProjectWindow: View {
     /// names. A screenplay reaches it too; its tree is the slugline navigator,
     /// and the underlying `.fountain` is the same file.
     ///
-    /// **And Publish's own surface, as of stage 3b Task 5 — a THIRD layer of
-    /// the same stack**, over altitude and over the host: the compiled book at
+    /// **And Review's own surface, as of M3 P1 Task 6** — the passes board,
+    /// over altitude and under the book: at project level in Review the board
+    /// is what the reviewer asked for, and a corkboard over it is the truth
+    /// table upside down. `reviewCentreShowsBoard` composes
+    /// `subjectShowsAltitude` the way `publishCentre` does, so a chapter
+    /// subject in Review opens the chapter and nothing is layered over it.
+    ///
+    /// **And Publish's own surface, as of stage 3b Task 5 — the LAST layer of
+    /// the stack**, over altitude and over the host: the compiled book at
     /// project level, or a banner naming which kind of nothing there is (never
     /// compiled, or a catalog that cannot be read). Over a CHAPTER the layer
     /// does not appear at all — Denver, 2026-08-12: *"a chapter/piece subject in
@@ -1731,6 +1778,26 @@ struct ProjectWindow: View {
                     title: store.manifest.title)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(nsColor: .windowBackgroundColor))
+            }
+            // **Review's own layer** (M3 P1 Task 6), between altitude and the
+            // book. Above altitude for the reason Publish's layer is: at
+            // project level in Review the subject answers both rules, and what
+            // the reviewer asked for is the board — a corkboard drawn over it
+            // is the truth table upside down. Below the book because the two
+            // are never both offered (`showsTheReviewBoard` and
+            // `previewsThePublishedBook` are true of one persona each), so the
+            // order between them decides nothing today and the book's position
+            // is what `PublishPreviewCentreTests` pins: LAST.
+            //
+            // Project-level by construction: `reviewCentreShowsBoard` composes
+            // `subjectShowsAltitude`, so a chapter subject in Review reaches
+            // neither this layer nor altitude and opens in the host underneath.
+            if Self.reviewCentreShowsBoard(persona: persona,
+                                           subject: selectedSubject,
+                                           structure: store.manifest.structure) {
+                ReviewBoardPane(store: store)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(nsColor: .windowBackgroundColor))
             }
             // **Publish's own layer, LAST of the three** (stage 3b Task 5,
             // re-cut 2026-08-12). Above altitude rather than beside it: at

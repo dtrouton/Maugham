@@ -394,19 +394,31 @@ final class ProjectAltitudeCentreTests: XCTestCase {
                       "and no editor is open behind it")
     }
 
-    /// **Review and Publish show the same altitude for the project** — the
-    /// recorded decision: Review's overview is M3's, and until it exists the
-    /// degrade is what keeps the centre column from rendering nothing at all.
+    /// **Every manuscript persona puts the SAME altitude view in the stack for
+    /// the project — and Review is the one that covers it.**
     ///
-    /// **Publish's half is now the UNCOMPILED case, and that is a narrowing
-    /// rather than a coincidence** (stage 3b Task 5). Publish's preview shipped:
-    /// with a compiled PDF in the catalog its centre is the book, layered over
-    /// this very view. The probe mounts no preview layer, so what this drives is
-    /// the degrade — which is exactly the state the sentence above is about, and
-    /// the compiled state is `PublishPreviewCentreTests`'. Review is unchanged
-    /// and keeps altitude whatever the catalog holds.
-    func test_reviewAndPublishShowTheSameAltitudeAsAuthor() async throws {
-        for persona in Self.manuscriptPersonas where persona != .author {
+    /// The sentence this test used to carry ("Review and Publish show the same
+    /// altitude as Author") was the recorded degrade: *Review's overview is
+    /// M3's, and until it exists the corkboard keeps the centre column from
+    /// rendering nothing at all.* M3 P1 Task 6 built the overview, so the
+    /// degrade is spent and the claim re-derives in two halves:
+    ///
+    /// - **The stack is still one stack.** `subjectShowsAltitude` is persona-
+    ///   blind below `showsManuscriptDocuments`, so altitude is mounted for the
+    ///   project in all three — with the same rows, rather than a persona's own.
+    ///   That is what keeps the board and the book LAYERS rather than arms, and
+    ///   it is the fact `EditorHost`'s zero teardowns rests on.
+    /// - **What the writer SEES differs, and only in Review.** Author's project
+    ///   row is the corkboard, unchanged. Publish's is the book or a notice over
+    ///   this same view, and its truth table is `PublishPreviewCentreTests`'
+    ///   (this probe mounts no preview layer, so what it drives here is the
+    ///   uncompiled degrade, which is exactly the state the fixture is in).
+    ///   Review's is the passes board, which is what the middle of the column
+    ///   hit-tests to — measured the way the OS measures coverage, because the
+    ///   corkboard being *mounted* underneath is the shape working rather than a
+    ///   bug.
+    func test_everyManuscriptPersonaStacksTheSameAltitudeAndOnlyReviewCoversIt() async throws {
+        for persona in Self.manuscriptPersonas {
             let store = try await novel()
             let mount = try await host(store: store, persona: persona,
                                        subject: .project)
@@ -418,6 +430,25 @@ final class ProjectAltitudeCentreTests: XCTestCase {
             XCTAssertEqual(table.numberOfRows, Self.documentCount(in: store),
                            "\(persona): and it is the same altitude view, with "
                            + "the same rows, rather than a persona's own")
+
+            let scroller = try XCTUnwrap(table.enclosingScrollView,
+                                         "premise: the altitude table scrolls")
+            let content = try XCTUnwrap(mount.window.contentView)
+            try XCTSkipUnless(
+                content.bounds.width >= 300 && content.bounds.height >= 300,
+                "this display mounted a \(content.bounds.size) centre column")
+            let middle = NSPoint(x: content.bounds.midX, y: content.bounds.midY)
+            let hit = try XCTUnwrap(
+                content.hitTest(content.convert(middle, to: nil)),
+                "\(persona): nothing at all at the middle of the column")
+            let reachesTheCorkboard = hit === scroller || hit.isDescendant(of: scroller)
+
+            XCTAssertEqual(
+                reachesTheCorkboard, !persona.showsTheReviewBoard,
+                "\(persona): the middle of the column hit-tests to "
+                + "\(type(of: hit)). Review's altitude is covered by the passes "
+                + "board (M3 P1 Task 6) and nobody else's is — the board's own "
+                + "mounted contracts are `ReviewBoardRoutingTests`'")
         }
     }
 
@@ -601,16 +632,22 @@ final class ProjectAltitudeCentreTests: XCTestCase {
         XCTAssertEqual(mount.hostLife.appearances, 1)
     }
 
-    /// **Review and Publish open the chapter from the same click.** They show
-    /// the same altitude (the test above), so they inherit the same way out of
-    /// it — and the thing on the other side of the click is the editor in each
-    /// of them: Review's overview is M3's, and Publish's preview (stage 3b Task
-    /// 5) is a layer that is not there while nothing has been compiled, which is
-    /// the state this fixture is in. Asserted rather than assumed: a persona
-    /// that took some other arm below the click would leave the writer on a card
-    /// that does nothing.
-    func test_reviewAndPublishOpenTheChapterFromTheSameCardClick() async throws {
-        for persona in Self.manuscriptPersonas where persona != .author {
+    /// **Publish opens the chapter from the same card click Author does.** It
+    /// shows the same altitude (the test above), so it inherits the same way out
+    /// of it — and the thing on the other side of the click is the editor:
+    /// Publish's preview (stage 3b Task 5) is a layer that is not there while
+    /// nothing has been compiled, which is the state this fixture is in.
+    /// Asserted rather than assumed: a persona that took some other arm below
+    /// the click would leave the writer on a card that does nothing.
+    ///
+    /// **Review is deliberately not in this loop as of M3 P1 Task 6.** Its
+    /// corkboard is still mounted, and covered by the passes board — so the
+    /// cards are not reachable by a click there at all, and a test that clicked
+    /// one would be measuring a card no reviewer can hit. Review's own way out
+    /// of the board is the chip, and it is Task 8's.
+    func test_publishOpensTheChapterFromTheSameCardClick() async throws {
+        for persona in Self.manuscriptPersonas
+        where persona != .author && !persona.showsTheReviewBoard {
             let store = try await novel()
             let documents = Self.documents(in: store)
             let wanted = try XCTUnwrap(documents.last)
@@ -975,6 +1012,23 @@ final class ProjectAltitudeCentreTests: XCTestCase {
                       + "'Select a document.' placeholder, which is still "
                       + "mounted underneath and would otherwise read through it")
 
+        // **The layers above altitude, and their order** (M3 P1 Task 6 for the
+        // board; stage 3b Task 5 for the book). Named here as well as in their
+        // own suites because this scan is the one that reads the arm from
+        // altitude's side: a layer inserted UNDER the corkboard is invisible and
+        // silent, and neither of the other two suites is looking down.
+        XCTAssertTrue(arm.contains("ReviewBoardPane("),
+                      "…Review's passes board over that")
+        XCTAssertTrue(arm.contains("Self.reviewCentreShowsBoard("),
+                      "…gated on its own named rule, for altitude's reason")
+        let altitudeAt = try XCTUnwrap(arm.range(of: "ProjectAltitudePane("))
+        let boardAt = try XCTUnwrap(arm.range(of: "ReviewBoardPane("))
+        let bookAt = try XCTUnwrap(arm.range(of: "PublishPreviewCentre("))
+        XCTAssertTrue(altitudeAt.lowerBound < boardAt.lowerBound,
+                      "the corkboard must not be drawn over Review's board")
+        XCTAssertTrue(boardAt.lowerBound < bookAt.lowerBound,
+                      "…and the compiled book stays the LAST layer of the stack")
+
         XCTAssertEqual(
             Self.occurrences(of: "manuscriptEditor(", in: source), 2,
             "the declaration and exactly ONE call — `editorPane`'s last arm. A "
@@ -1133,6 +1187,18 @@ private struct AltitudeCentreProbeView: View {
                                            structure: store.manifest.structure)
     }
 
+    /// Review's passes board (M3 P1 Task 6) — modelled here because this probe
+    /// claims to be wired the way `editorPane` is, and a probe that left out a
+    /// layer production draws would answer "the corkboard is what a reviewer
+    /// sees" long after it stopped being true. The publish layer stays out for
+    /// the reason the palette wall does: nothing here is Publish, and
+    /// `PublishPreviewCentreTests` owns that layer's probe.
+    private var showsBoard: Bool {
+        ProjectWindow.reviewCentreShowsBoard(persona: persona,
+                                             subject: probe.subject,
+                                             structure: store.manifest.structure)
+    }
+
     var body: some View {
         centre.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1164,7 +1230,11 @@ private struct AltitudeCentreProbeView: View {
             ZStack {
                 editor
                 if showsAltitude { altitude }
+                if showsBoard { board }
             }
+        // The rejected shape is about ALTITUDE's identity split and is driven
+        // in Author only, so it models the two branches that question is
+        // between and no more.
         case .sixthArm:
             if showsAltitude { altitude } else { editor }
         }
@@ -1180,6 +1250,12 @@ private struct AltitudeCentreProbeView: View {
     private var altitude: some View {
         ProjectAltitudePane(store: store, layout: $layout,
                             selectedSubject: subject, title: store.manifest.title)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var board: some View {
+        ReviewBoardPane(store: store)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
     }

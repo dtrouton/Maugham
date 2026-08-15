@@ -1060,6 +1060,11 @@ final class RegionBindingTests: XCTestCase {
                        + "`.outline` arm that used to hold the second mount was "
                        + "deleted whole in stage 3a Task 6 — a second occurrence "
                        + "anywhere is a mount nobody decided to add")
+        XCTAssertEqual(occurrences(of: "ReviewBoardPane(", in: source), 1,
+                       "and one for Review's passes board (M3 P1 Task 6), the "
+                       + "third surface of the same stack — a second mount is a "
+                       + "second board with its own scroll position and, once "
+                       + "its chips write pass state, a second writer of it")
     }
 
     /// The control for the count above: `DetailPaneToggle` must no longer name
