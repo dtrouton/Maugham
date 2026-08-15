@@ -1795,7 +1795,12 @@ struct ProjectWindow: View {
             if Self.reviewCentreShowsBoard(persona: persona,
                                            subject: selectedSubject,
                                            structure: store.manifest.structure) {
-                ReviewBoardPane(store: store)
+                // Values, not the store (tripwire 4): the board reads
+                // `manifest` here, at the one mount, and nothing on its body
+                // path can reach a document or the disk.
+                ReviewBoardPane(title: store.manifest.title,
+                                structure: store.manifest.structure,
+                                passes: store.manifest.effectiveReviewPasses)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(nsColor: .windowBackgroundColor))
             }

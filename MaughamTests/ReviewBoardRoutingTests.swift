@@ -884,7 +884,9 @@ struct ReviewCentreProbeView: View {
     }
 
     private var board: some View {
-        ReviewBoardPane(store: store)
+        ReviewBoardPane(title: store.manifest.title,
+                        structure: store.manifest.structure,
+                        passes: store.manifest.effectiveReviewPasses)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
     }
