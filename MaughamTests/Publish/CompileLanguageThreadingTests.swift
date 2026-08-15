@@ -175,13 +175,8 @@ final class CompileLanguageThreadingTests: XCTestCase {
     // in isolation, but don't prove `CompileOrchestrator.compile` actually
     // threads `language` through to PDFCompiler in the production call path.
     func test_rule5_orchestratorPdfCompile_threadsLanguageToMetadataTexAndFilename() async throws {
-        let testBundlePath = Bundle(for: CompileLanguageThreadingTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        guard (try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath))) != nil else {
-            throw XCTSkip("tectonic missing")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
 
         let outcome = try await makeOrchestrator().compile(
             format: .pdf, label: nil, language: "es")

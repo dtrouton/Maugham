@@ -67,12 +67,24 @@ run_core() {
   swift test --parallel --package-path Packages/MaughamCore
 }
 
+# A PARKED TEST MUST BE KILLED AND NAMED, not left to eat the gate.
+#
+# CI has passed these two since it was written; local runs did not, and the
+# difference cost three whole local gates on 2026-08-14/15. A single test in
+# `MCPServerLifecycleTests` parked forever with no deadline, no output and no
+# test name — under CI's allowance it would have died at 120s carrying its own
+# name, which is the entire difference between a diagnosable failure and a dead
+# afternoon. 120s matches CI exactly; the slowest honest test in the suite is
+# well under a tenth of it (the mounted-canvas family, ~9s).
+TIMEOUTS="-test-timeouts-enabled YES -default-test-execution-time-allowance 120"
+
 case "$MODE" in
   fast)
     run_core
     echo "▸ Mac scheme (skipping the CanvasViewMounting* family)"
+    # shellcheck disable=SC2086
     xcodebuild -project Maugham.xcodeproj -scheme Maugham test \
-      CODE_SIGNING_ALLOWED=NO \
+      CODE_SIGNING_ALLOWED=NO $TIMEOUTS \
       -skip-testing:MaughamTests/CanvasViewMountingSurfaceTests \
       -skip-testing:MaughamTests/CanvasViewMountingEditingTests \
       -skip-testing:MaughamTests/CanvasViewMountingRegionTests
@@ -85,8 +97,9 @@ case "$MODE" in
     # with no recoverable detail — never again).
     BUNDLE="${TMPDIR:-/tmp}/maugham-full-$(date +%Y%m%d-%H%M%S).xcresult"
     echo "▸ Mac scheme, full — no skips (result bundle: $BUNDLE)"
+    # shellcheck disable=SC2086
     xcodebuild -project Maugham.xcodeproj -scheme Maugham test \
-      CODE_SIGNING_ALLOWED=NO \
+      CODE_SIGNING_ALLOWED=NO $TIMEOUTS \
       -resultBundlePath "$BUNDLE"
     ;;
   phone)

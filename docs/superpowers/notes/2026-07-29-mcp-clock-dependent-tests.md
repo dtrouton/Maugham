@@ -122,44 +122,270 @@ expectation whose fulfilling path can now early-return without
 fulfilling. Nobody has measured yet — this section records sightings, not
 a diagnosis.
 
-### M3-P2 sightings and diagnostics, 2026-08-15
+### Sighting, 2026-08-15 10:01 BST (tectonic-bundle-fetch branch)
 
-P2 ran roughly ten full-ish gates over one day and hit the park about that
-often — frequently enough that the interim protocol above was the *normal*
-way to gate the branch rather than a fallback. Nothing was root-caused, but
-four facts were measured that the next hunt should not have to rediscover:
+Third occurrence of the hang shape, on a **quiet** machine (one gate, no
+rival `xcodebuild`, no other session building). `./scripts/test.sh full`
+reached 5,746 passing tests, printed `Test suite 'MCPServerLifecycleTests'
+started`, and then emitted nothing further for ~9 minutes before being
+killed at 11m41s elapsed. No test case line for that suite ever appeared —
+the park again, not a deadline miss.
 
-1. **The buffered gate log hides which suite is hanging.** `xcodebuild`'s
-   output is buffered, so a parked run's log ends mid-stream with no clue in
-   it — and worse, the log reads as BINARY to `grep`, which then answers
-   "Binary file matches" and nothing else. The cause is a NUL byte in
-   `MaughamTests/MCP/Tools/PublishFileToolsTests.swift` (line 217, the fixture
-   for a JSON payload carrying a literal NUL — **deliberate test data, not a
-   corruption to clean up**) which the compiler echoes into the diagnostics.
-   So the gate log will read as binary for as long as that test exists:
-   **use `grep -a`** on every gate log, or the search silently tells you
-   nothing.
-2. **`sample <worker-pid>` identifies the park in about three seconds.** Find
-   the hosted app worker (`ps ax | grep Maugham.app`), sample it, and read the
-   stack: the park is an `XCTWaiter` wait over `MCPServer.blockingAccept`'s
-   `accept()` (`Maugham/MCP/MCPServer.swift:117`, inside the GCD hop that keeps
-   the blocking syscall off the cooperative pool) — an accept on the test's
-   isolated socket that never returns. This is far cheaper than re-running the gate to
-   see whether it hangs again, and it is the first thing to do rather than the
-   last.
-3. **The park is not always permanent.** One ~20-minute park RELEASED on its
-   own and the gate went on to pass with a wall time of 1130s. So "it is still
-   running after 15 minutes" does not prove a deadlock, and a killed run is not
-   evidence of one either — which also means a hang and a very slow release may
-   be the same phenomenon at two durations.
-4. **The park can happen BEFORE the MCP suites are dispatched at all.** In
-   several sightings the three MCP classes never appear in the started-test
-   list, yet the parked stack is `blockingAccept`. Whatever holds the accept is
-   therefore reachable from a worker that has not been given an MCP test —
-   which points at process/socket setup shared across workers rather than at
-   any one test's body, and makes "a socket left held by a crashed sibling"
-   the strongest of the three hypotheses above.
+The interim protocol worked and cost one extra run:
 
-Still owed on main: the root-cause hunt. The cheapest next step is (2) on a
-fresh park, plus an `lsof` of the isolated socket path at that moment to see
-who else holds it.
+| run | result |
+|---|---|
+| whole Mac suite minus the three MCP classes | 5,767 passed, 0 failed |
+| the three MCP classes in isolation | 12 passed, 0 failed |
+
+The branch under test touched only `MaughamTests` publish/tectonic guards
+and `.github/workflows/ci.yml` — nothing on any MCP path — which is one
+more data point that the hang is independent of the diff. Still no
+diagnosis; still recording sightings.
+
+## ROOT-CAUSED, 2026-08-15: the host runs at libdispatch's thread ceiling
+
+The hang is not clock-dependent and has nothing to do with the main actor. It
+is not any branch's diff, and it is not a product defect.
+
+### What was measured
+
+A stalled gate was caught live and sampled (`/usr/bin/sample`, pid 15648).
+`sample` diagnosed it in its own header:
+
+```
+Dispatch Thread Soft Limit: 64 reached in 3490 of 3490 samples
+  -- too many dispatch threads blocked in synchronous operations
+```
+
+63 of the process's 69 threads were parked identically:
+
+```
+_dispatch_worker_thread2  (DispatchQueue_19: com.apple.root.user-interactive-qos)
+  _dispatch_call_block_and_release
+    -[NSAnimation _runBlocking]
+      -[NSRunLoop runMode:beforeDate:]
+        __CFRunLoopRun -> mach_msg2_trap
+```
+
+The control that matters:
+
+| process | total threads | in `-[NSAnimation _runBlocking]` |
+|---|---|---|
+| `Maugham.app` launched normally | 10 | 1 |
+| any xctest host, during launch, **before a test runs** | 68 | 63–64 |
+
+So **every** Maugham test host sits at the dispatch ceiling from launch. This
+was verified against a pure, non-mounting suite (`OpLogStoreTests` alone) —
+it is not caused by mounted-view tests, and not by any particular class.
+
+### Why that produced an unkillable park
+
+At the ceiling, whether a `DispatchQueue.global(...).async` block ever gets a
+thread is up to the kernel workqueue governor. Usually it gets one in
+microseconds. Sometimes it never gets one at all — which is exactly the
+observed bimodal signature: `test_request_dispatchesViaRouter` takes **0.006 s
+or forever**, never anything between.
+
+And the hardening from `5fe107b` could not save it. The 10 s `SO_RCVTIMEO`
+lives *inside* the block that never ran, so when the block was never scheduled
+the continuation never resumed and the timeout never fired. A deadline that is
+only reachable through the thing that failed is not a deadline.
+
+### Corroboration from the M3-P2 branch (~10 sightings, same day)
+
+M3 P2 gated through this all day — often enough that the interim protocol
+was the branch's *normal* gate — and its measurements, made before the root
+cause landed, all read cleanly under it now:
+
+1. **A live `sample <worker-pid>` fingerprinted the park directly**: an
+   `XCTWaiter` wait over `MCPServer.blockingAccept`'s `accept()`
+   (`MCPServer.swift:117`) that never returns. At the time this pointed at
+   sockets; under the root cause it is the direct field evidence for "The
+   production half" below — the server side starved of a worker to accept
+   on, observed in the wild rather than inferred from a timeout.
+2. **One ~20-minute park RELEASED on its own** (the gate went on to pass at
+   1130 s wall). So past the ceiling, a global-queue block is not "scheduled
+   in microseconds or never" — it **may be delayed indefinitely from the
+   test's point of view, with a 19-minute release actually observed**. Wall
+   clock alone can never distinguish a park from a crawl, which is exactly
+   why the 120 s per-test allowance in `scripts/test.sh` is what makes the
+   condition decidable, not any amount of waiting.
+3. **The park was seen before the MCP suites were dispatched at all** (the
+   three classes absent from the started-test list, the parked stack still
+   `blockingAccept`). P2 read that as "a socket held by a crashed sibling" —
+   wrong, and the root cause explains it: the ceiling is reached at HOST
+   LAUNCH, so any worker's global-queue block can starve regardless of
+   which tests have run.
+4. **Practical residue that outlives the fix**: gate logs read as binary to
+   `grep` — a deliberate NUL fixture at
+   `MaughamTests/MCP/Tools/PublishFileToolsTests.swift:217` (a JSON payload
+   carrying a literal NUL) is echoed into the diagnostics, so **use
+   `grep -a` on every gate log**, permanently; and `sample` remains the
+   three-second diagnostic for any future park-shaped stall, far cheaper
+   than re-running a gate to see if it repeats.
+
+### Reproduction (deterministic, ~2 minutes)
+
+Run the stuck worker's 31 classes serially in one process:
+
+```
+xcodebuild ... -parallel-testing-enabled NO \
+  -only-testing:MaughamTests/DiagnosticsPaneTests ... (the 31 from that worker)
+```
+
+`test_request_dispatchesViaRouter` parked 1-for-1 this way, versus roughly one
+full-suite run in two.
+
+### What shipped
+
+1. **`MCPServerLifecycleTests.sendAndReceive` reads on a dedicated `Thread`.**
+   A `Thread` is not drawn from the dispatch pool and cannot be starved by it,
+   so the receive timeout can always fire. Verified: in a saturated host the
+   test now **fails in 15 s with its own name and message** instead of parking;
+   alone it still passes in 0.002 s. `test_theReadDoesNot...Exhausted` is the
+   census that keeps the read off a global queue.
+2. **`scripts/test.sh` now passes `-test-timeouts-enabled YES
+   -default-test-execution-time-allowance 120`**, which CI has always passed
+   and local runs never did. That asymmetry is why the three sightings were all
+   local: under CI's allowance the same park dies at 120 s carrying its name.
+
+### Wrong turns, recorded so nobody repeats them
+
+- **"`DiagnosticsPaneTests` leaks a window per test and that is the source."**
+  Plausible (72 tests, ~63 threads, `mount` calls `orderFront` and nothing ever
+  closes the windows) and **wrong**. Closing and ordering out every window in
+  `tearDown` moved the peak from 74 to 71. A single test from a *pure* suite
+  shows the same 69, because the threads are there before any test runs.
+- **"The Welcome window's appearance animation is the source."** Tested by
+  suppressing the scene at launch (`.defaultLaunchBehavior(.suppressed)`):
+  peak stayed at 69. Falsified.
+
+### Still open
+
+**What starts the animations.** They exist before the first test and the
+`_runBlocking` frames carry no enqueuer, so a sample cannot name the creator;
+`lldb` could, via a breakpoint on `-[NSAnimation startAnimation]`, but attach
+was denied in the environment this was chased from. Whoever picks this up
+should start there — it is the true root cause, and removing it would also fix
+the remaining consequence below.
+
+*(The second item that stood here — `MCPServer.blockingAccept`/`blockingRecv`
+having the same dependency — was closed; see "The production half" below.)*
+
+## The production half: MCPServer no longer blocks dispatch workers
+
+Fixing only the test left the gate red in a different place: with the test's
+read on a dedicated thread it proceeded immediately and then waited 10s for a
+server that could not get a worker to `accept()` on. Four gates in a row failed
+somewhere in this family and never twice the same way — `dispatchesViaRouter`
+and `whenDisabled` (server starved), `pollsUntilServerBinds` (staging starved),
+`exitsCleanly_onStdinClose` (watcher starved).
+
+So `MCPServer.blockingAccept` / `blockingRecv` now run their blocking syscalls
+on dedicated `Thread`s (`onBlockingThread`) instead of
+`DispatchQueue.global(qos: .utility)`. This is the documented shape: a blocking
+syscall on a dispatch worker holds that worker for the duration, and the global
+pool has a hard 64-thread ceiling. **The property being restored is a product
+one** — as written, MCP would silently stop answering if anything else in the
+process saturated GCD, with no error, no log and no refused connection. The
+shipping app has one blocked thread rather than 64, so this was latent rather
+than live, but it is not a property worth keeping. Cost: one thread per server
+plus one per open connection, 512 KB of stack each; Claude Desktop opens one.
+
+**Result: two consecutive full local gates green — 5,780 passed, 0 failed,
+exit 0** — where the four before this change failed 1–3 tests each.
+
+## Still open
+
+**What starts the animations.** They exist before the first test and the
+`_runBlocking` frames carry no enqueuer, so a sample cannot name the creator;
+`lldb` could, via a breakpoint on `-[NSAnimation startAnimation]`, but attach
+was denied in the environment this was chased from. It is the true root cause,
+and while nothing now depends on the starved pool, a host sitting at the
+ceiling is still a latent trap for the next test that reaches for
+`DispatchQueue.global`.
+
+### The 2026-07-29 note's three tests were ONE defect all along
+
+This section's original title — "three MCP tests depend on wall-clock
+progress" — was the symptom, not the cause. All three are simply the only
+tests in the suite that depend on a **global-queue block actually being
+scheduled**, in a process that runs at the dispatch ceiling:
+
+| test | its dependency | outcome when the block is starved |
+|---|---|---|
+| `MCPServerLifecycleTests.test_request_dispatchesViaRouter` | `DispatchQueue.global(.userInitiated).async { recv }` | park with no deadline (the `SO_RCVTIMEO` is inside it) |
+| `MCPColdStartTests.test_firstCallAfterLaunch_pollsUntilServerBinds` | `DispatchQueue.global().asyncAfter(+2.5s)` staging the bind | bind slips, bridge's budget expires, `-32001` — the exact answer the test exists to disprove |
+| `MCPBinaryIntegrationTests.test_binary_exitsCleanly_onStdinClose` | `DispatchQueue.global().async { waitUntilExit() }` | the exit event is observed late; survives only because its allowance is 60s |
+
+The first two now use dedicated `Thread`s (`CancellableBringUp` is the
+cold-start one) and are green. **The third is unchanged** — its 60s allowance
+absorbs the delay today, so it degrades rather than fails, but it is the same
+shape and the same fix applies if it ever bites.
+
+None of this is load-dependence in the ordinary sense: a quiet machine hits it
+just as readily, because the ceiling is reached at launch and has nothing to do
+with how busy the machine is. That is why "it happened on a QUIET machine" was
+so confusing in the reopened section above.
+
+## CLOSED, 2026-08-15: it was window state restoration
+
+The last open question — what starts the animations — has an answer, caught by
+attaching `lldb` at exec (`process attach --name Maugham --waitfor`, so the
+breakpoints exist before the app's launch code runs) with a breakpoint on
+`-[NSAnimation startAnimation]`. The receiver is `_NSWindowTransformAnimation`
+and the stack names the whole chain:
+
+```
+-[NSAnimation startAnimation]
+-[_NSWindowTransformAnimation startAnimation]
+NSPerformVisuallyAtomicChange
+-[NSWindow _doOrderWindow:]
+-[NSWindow makeKeyAndOrderFront:]
+SwiftUI`closure #1 in AppWindowsController.showInitialWindows()
+SwiftUI`AppDelegate.applicationOpenUntitledFile(_:)
+AppKit`-[NSApplication _doOpenUntitled]
+AppKit`-[NSApplication _reopenWindowsAsNecessaryIncludingRestorableState:...]
+AppKit`-[NSDocumentController _autoreopenDocumentsIgnoringExpendable:...]
+```
+
+**macOS window restoration.** Every test-host launch went through
+`_reopenWindowsAsNecessaryIncludingRestorableState:` into SwiftUI's
+`showInitialWindows()`, and each `makeKeyAndOrderFront:` gets a
+`_NSWindowTransformAnimation` that AppKit runs BLOCKING on a dispatch worker.
+In a test host the window is never really presented, so the animation never
+completes and the worker is held for the life of the process — up to the
+64-thread ceiling, reached before the first test runs.
+
+This is also why suppressing the Welcome window changed nothing: the windows
+being restored are not the Welcome scene, they are whatever the developer had
+open.
+
+### The fix
+
+`project.yml`'s Maugham test action now passes `-ApplePersistenceIgnoreState
+YES` to the host, so tests never restore windows. Measured on
+`DiagnosticsPaneTests` (72 tests, heaviest mounting suite):
+
+| | peak threads | in `_runBlocking` | soft limit | tests |
+|---|---|---|---|---|
+| before | 74 | 51–63 | **reached** | 75 pass |
+| after | 37 | 6 | not reached | 75 pass |
+
+**Second reason to want this independently of the hang:** the test host was
+reopening whatever project windows the developer happened to have had open — a
+hidden dependency on machine state that no test asks for and none should have.
+
+### What this means for the two earlier fixes
+
+Both stand, and neither is redundant:
+
+- The dedicated `Thread`s in the three MCP test classes are what make a
+  starved pool *diagnosable* rather than an unkillable park. Cheap insurance.
+- `MCPServer.blockingAccept`/`blockingRecv` on dedicated threads is a product
+  property in its own right — MCP must not stop answering because something
+  else saturated GCD — and does not depend on this note being true.
+
+The ceiling itself is now gone, so a future test that reaches for
+`DispatchQueue.global` is no longer walking into a trap.

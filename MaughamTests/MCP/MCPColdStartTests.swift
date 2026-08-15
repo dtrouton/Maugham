@@ -60,11 +60,22 @@ final class MCPColdStartTests: XCTestCase {
             var listener: StubSocketListener?
             var boundAt: Date?
             let sentAt = Date()
-            let bringUp = DispatchWorkItem {
+            // A dedicated `Thread`, NOT `DispatchQueue.global().asyncAfter`.
+            // This host runs at libdispatch's 64-thread ceiling before the
+            // first test executes (63 of 69 threads parked in
+            // `-[NSAnimation _runBlocking]`; the app launched normally has one
+            // — see MCPServerLifecycleTests' census and the 2026-07-29 note).
+            // A block posted to a global queue there may be scheduled in
+            // microseconds or not at all, and this one IS the scenario: if the
+            // bind slips, the bridge's poll budget expires and the test reads
+            // the "isn't running" answer it exists to prove is not given.
+            // Measured 2026-08-15: 46.353s and red on a gate where every other
+            // MCP test passed; usual time 3.1s.
+            let bringUp = CancellableBringUp {
                 listener = try? StubSocketListener(path: path)
                 boundAt = Date()
             }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2.5, execute: bringUp)
+            bringUp.start(after: 2.5)
             defer { listener?.stop(unlinkFile: false) }
 
             do {
@@ -353,4 +364,43 @@ final class StubSocketListener {
     }
 
     enum Err: Error { case create(Int32), bind(Int32), listen(Int32) }
+}
+
+/// A cancellable delayed action that does NOT come out of the dispatch pool.
+///
+/// `DispatchWorkItem` + `DispatchQueue.global().asyncAfter` is the natural
+/// spelling, and it is the wrong one in this process: every Maugham xctest
+/// host reaches libdispatch's 64-thread soft limit during launch, so a block
+/// posted to a global queue is at the workqueue governor's mercy. A `Thread`
+/// is created by the kernel and cannot be starved by that pool.
+///
+/// The cancel semantics match `DispatchWorkItem.cancel()` closely enough for
+/// the one caller: cancelling before the delay elapses means the body never
+/// runs. It does not interrupt a body already in flight, which the caller —
+/// staging a bind that either happened or did not — does not need.
+final class CancellableBringUp: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private let body: () -> Void
+
+    init(_ body: @escaping () -> Void) { self.body = body }
+
+    func cancel() {
+        lock.lock(); cancelled = true; lock.unlock()
+    }
+
+    private var isCancelled: Bool {
+        lock.lock(); defer { lock.unlock() }; return cancelled
+    }
+
+    func start(after delay: TimeInterval) {
+        let thread = Thread { [self] in
+            Thread.sleep(forTimeInterval: delay)
+            guard !isCancelled else { return }
+            body()
+        }
+        thread.name = "mcp-coldstart-bringup"
+        thread.stackSize = 512 * 1024
+        thread.start()
+    }
 }

@@ -23,14 +23,8 @@ final class PublishBodyRenderingEndToEndTests: XCTestCase {
     }
 
     func testRenderedPDF_hasFormattingNotRawMarkdownOrAnchors() async throws {
-        // Same tectonic-availability guard the compiler uses.
-        let testBundlePath = Bundle(for: type(of: self)).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        guard (try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath))) != nil else {
-            throw XCTSkip("tectonic binary not bundled in test host")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
 
         struct Src: ProjectASTBuilder.Source {
             func orderedPieces() -> [ProjectASTBuilder.PieceRef] {

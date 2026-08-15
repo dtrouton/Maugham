@@ -225,6 +225,32 @@ schemes:
       config: Debug
     test:
       config: Debug
+      # THE TEST HOST MUST NOT RESTORE WINDOWS. Two reasons, one of them a
+      # gate-killer (root-caused 2026-08-15, `lldb` on
+      # `-[NSAnimation startAnimation]`):
+      #
+      # 1. Every launch went through
+      #    `-[NSApplication _reopenWindowsAsNecessaryIncludingRestorableState:]`
+      #    -> `_autoreopenDocuments...` -> SwiftUI's
+      #    `AppWindowsController.showInitialWindows()` -> `makeKeyAndOrderFront:`,
+      #    and AppKit answers each of those with a `_NSWindowTransformAnimation`
+      #    that runs BLOCKING on a dispatch worker thread. In a test host the
+      #    window is never really presented, so the animation never completes
+      #    and the worker is held for the life of the process. They accumulated
+      #    to libdispatch's 64-thread soft limit DURING LAUNCH, before the first
+      #    test ran — after which any `DispatchQueue.global(...).async` block in
+      #    the process might never be scheduled at all. That is what parked
+      #    `MCPServerLifecycleTests` and killed whole gates.
+      # 2. It also meant the test host was reopening whatever project windows
+      #    the developer happened to have had open — a hidden dependency on
+      #    machine state that no test asks for and none should have.
+      #
+      # Measured on `DiagnosticsPaneTests` (72 tests, the heaviest mounting
+      # suite): 74 threads peak / 51-63 blocked in `-[NSAnimation _runBlocking]`
+      # / soft limit reached, versus 46 / 3 / not reached with this set. Same 75
+      # tests pass either way.
+      commandLineArguments:
+        "-ApplePersistenceIgnoreState YES": true
       targets:
         # parallelizable: tests run across multiple hosted app processes.
         # Measured 2026-08-08: full suite 7.6 → 2.75 min wall, 4,313 passed /

@@ -17,15 +17,9 @@ final class TectonicInvokerTests: XCTestCase {
     }
 
     func testCompiles_simpleDocument() async throws {
-        // Skip if tectonic binary not available
-        let testBundle = Bundle(for: TectonicInvokerTests.self)
-        let appPath = testBundle.bundlePath.replacingOccurrences(of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        let binary: URL
-        do {
-            binary = try TectonicLocator.locateInBundle(at: URL(fileURLWithPath: appPath))
-        } catch {
-            throw XCTSkip("tectonic binary not bundled in test host: \(error)")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
+        let binary = try XCTUnwrap(TectonicProbe.binaryURL())
 
         let texPath = workDir.appendingPathComponent("doc.tex")
         try """
@@ -49,14 +43,10 @@ final class TectonicInvokerTests: XCTestCase {
     }
 
     func testReports_nonZero_onSyntaxError() async throws {
-        let testBundle = Bundle(for: TectonicInvokerTests.self)
-        let appPath = testBundle.bundlePath.replacingOccurrences(of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        let binary: URL
-        do {
-            binary = try TectonicLocator.locateInBundle(at: URL(fileURLWithPath: appPath))
-        } catch {
-            throw XCTSkip("tectonic binary not bundled in test host: \(error)")
-        }
+        // Still the right premise: this test asserts a LaTeX error in the log,
+        // which a run that never obtained its TeX bundle cannot produce.
+        try await TectonicProbe.requireReady()
+        let binary = try XCTUnwrap(TectonicProbe.binaryURL())
 
         let texPath = workDir.appendingPathComponent("bad.tex")
         try """

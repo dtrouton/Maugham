@@ -121,10 +121,59 @@ final class MCPServerLifecycleTests: XCTestCase {
         XCTAssertEqual(r2, 0, "server should still accept connections after a peer disconnect; errno=\(errno)")
     }
 
+    /// The read in `sendAndReceive` must never go back onto a global dispatch
+    /// queue, because this test host runs permanently AT libdispatch's
+    /// 64-thread ceiling and a block posted there may never be scheduled.
+    ///
+    /// Measured 2026-08-15 with `/usr/bin/sample` on a deliberately stalled
+    /// gate and then on a clean single-suite run:
+    ///
+    /// | process | threads | in `-[NSAnimation _runBlocking]` |
+    /// |---|---|---|
+    /// | `Maugham.app` launched normally | 10 | 1 |
+    /// | any xctest host, during launch, before a test runs | 68 | 63–64 |
+    ///
+    /// with `sample` reporting *"Dispatch Thread Soft Limit: 64 reached in
+    /// 3490 of 3490 samples — too many dispatch threads blocked in synchronous
+    /// operations"*. The animations are AppKit's and are unfinished because
+    /// nothing drives them to completion in a test host; the product is not
+    /// affected (see the table's first row).
+    ///
+    /// This is a census, not a style rule: a `DispatchQueue.global` here is
+    /// what made this class park a whole gate with no deadline, no output and
+    /// no test name, three times in two days.
+    func test_theReadDoesNotDependOnTheDispatchPoolThisHostHasAlreadyExhausted() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8)
+        // COMMENT LINES ARE STRIPPED FIRST. The prose above has to be able to
+        // name the thing it forbids — a whole-file substring census failed on
+        // its own explanation, twice, which is a cheap mistake to make and an
+        // expensive one to read back.
+        let code = source
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        // Assembled at runtime so the census does not match its own line.
+        let forbidden = "DispatchQueue" + ".global"
+        XCTAssertFalse(
+            code.contains(forbidden),
+            """
+            `sendAndReceive` reads on a dedicated `Thread` on purpose. A global \
+            dispatch queue cannot be relied on in this host — it is already at \
+            the 64-thread ceiling before the first test runs, so the block may \
+            never start, and the SO_RCVTIMEO that lives inside it can then \
+            never fire. That combination is an unkillable, unnamed park.
+            """)
+        XCTAssertTrue(
+            source.contains("let reader = Thread {"),
+            "the dedicated reader thread is the mechanism this census protects")
+    }
+
     /// Connect to a Unix socket, write `request` + newline, read one line.
-    /// All blocking syscalls run on DispatchQueue.global() via
-    /// withCheckedContinuation so Swift's cooperative thread pool is never
-    /// starved, keeping the main actor free for MCPRouter.dispatch hops.
+    /// The blocking `recv` runs on a dedicated `Thread` via
+    /// `withCheckedContinuation`, so Swift's cooperative pool is never starved
+    /// — the main actor stays free for `MCPRouter.dispatch` hops — AND the
+    /// read cannot be starved by the dispatch pool this host has already
+    /// exhausted (see the census above).
     private func sendAndReceive(socketPath: String, request: String) async throws -> String {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         XCTAssertTrue(fd >= 0)
@@ -180,11 +229,32 @@ final class MCPServerLifecycleTests: XCTestCase {
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
                    socklen_t(MemoryLayout<timeval>.size))
 
-        // Read response on a GCD thread so we don't block a cooperative thread
-        // while the server is awaiting the main actor for router.dispatch.
+        // Read the response on a **dedicated `Thread`**, not a global dispatch
+        // queue — see `test_theReadDoesNotDependOnTheDispatchPoolThisHostHasAlreadyExhausted`.
+        //
+        // Measured 2026-08-15: every Maugham xctest host reaches libdispatch's
+        // 64-thread soft limit DURING LAUNCH, with all 64 parked in
+        // `-[NSAnimation _runBlocking]` (the same app launched normally has
+        // one such thread and ten in total, so this is a property of the test
+        // host, not of the product). At the ceiling a
+        // `DispatchQueue.global(...).async` block is at the mercy of the
+        // workqueue governor: usually it gets a thread in microseconds, and
+        // sometimes it never gets one at all.
+        //
+        // That was the whole defect. The `SO_RCVTIMEO` below lives INSIDE the
+        // block, so when the block never ran, the timeout that `5fe107b` added
+        // to turn this hang into a named failure could not fire either — the
+        // continuation simply never resumed. The result was a park with no
+        // deadline, no output and no test name, which killed whole local gates
+        // (three sightings, 2026-08-14/15) and is why this class was quarantined.
+        //
+        // A `Thread` is created directly by the kernel and is not drawn from
+        // the dispatch pool, so it cannot be starved by it. The timeout can
+        // now always fire, which restores the property that this test either
+        // passes or fails within 10s — never parks.
         let fdCopy = fd
         let resp: String = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            let reader = Thread {
                 var buf = [UInt8](repeating: 0, count: 65_536)
                 let n = recv(fdCopy, &buf, buf.count, 0)
                 let err = errno
@@ -202,6 +272,9 @@ final class MCPServerLifecycleTests: XCTestCase {
                 }
                 continuation.resume(returning: s)
             }
+            reader.name = "mcp-test-recv"
+            reader.stackSize = 512 * 1024
+            reader.start()
         }
         return resp
     }

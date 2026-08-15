@@ -17,14 +17,8 @@ final class PDFCompilerTests: XCTestCase {
     }
 
     func testCompiles_simpleProject_producesPDF() async throws {
-        // Skip if no tectonic anywhere (the same fallback the compiler uses).
-        let testBundlePath = Bundle(for: PDFCompilerTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        guard let _ = try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath)) else {
-            throw XCTSkip("tectonic binary not bundled in test host")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
 
         struct Src: ProjectASTBuilder.Source {
             func orderedPieces() -> [ProjectASTBuilder.PieceRef] {

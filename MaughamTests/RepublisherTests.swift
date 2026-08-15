@@ -19,13 +19,8 @@ final class RepublisherTests: XCTestCase {
     }
 
     func testRepublish_usesSnapshotTemplate_notCurrent() async throws {
-        let testBundlePath = Bundle(for: RepublisherTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        guard let _ = try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath)) else {
-            throw XCTSkip("tectonic missing")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
 
         struct Src: ProjectASTBuilder.Source {
             func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
@@ -86,13 +81,8 @@ final class RepublisherTests: XCTestCase {
     /// thus the compiled content) was already Spanish. Republisher must
     /// carry the prior publication's `language` forward.
     func testRepublish_carriesEditionLanguageAndFilenameSuffix() async throws {
-        let testBundlePath = Bundle(for: RepublisherTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        guard let _ = try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath)) else {
-            throw XCTSkip("tectonic missing")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
 
         struct Src: ProjectASTBuilder.Source {
             func orderedPieces() -> [ProjectASTBuilder.PieceRef] {

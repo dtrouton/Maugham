@@ -27,16 +27,6 @@ final class PublicationToolsTests: XCTestCase {
         try? FileManager.default.removeItem(at: tmp)
     }
 
-    // MARK: - tectonic locator (mirrors CompileToolsTests pattern)
-
-    private func tectonicAvailable() -> Bool {
-        let testBundlePath = Bundle(for: PublicationToolsTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        return (try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath))) != nil
-    }
-
     // MARK: - list_publications
 
     func testList_emptyProject_returnsEmpty() async throws {
@@ -137,9 +127,8 @@ final class PublicationToolsTests: XCTestCase {
     }
 
     func testReadPage_returnsImageEnvelope() async throws {
-        guard tectonicAvailable() else {
-            throw XCTSkip("tectonic binary not bundled in test host")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
         // Compile to produce a real PDF first.
         _ = try await CompileTool.handle(
             paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"pdf","wait_seconds":120}"#.utf8),
@@ -168,9 +157,8 @@ final class PublicationToolsTests: XCTestCase {
     }
 
     func testReadPage_outOfRange_throws() async throws {
-        guard tectonicAvailable() else {
-            throw XCTSkip("tectonic binary not bundled in test host")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
         _ = try await CompileTool.handle(
             paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"pdf","wait_seconds":120}"#.utf8),
             registry: registry)
@@ -206,9 +194,8 @@ final class PublicationToolsTests: XCTestCase {
     }
 
     func testRepublish_recompilesFromSnapshot() async throws {
-        guard tectonicAvailable() else {
-            throw XCTSkip("tectonic binary not bundled in test host")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
         // Initial compile.
         _ = try await CompileTool.handle(
             paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"pdf","wait_seconds":120}"#.utf8),

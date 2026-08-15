@@ -130,6 +130,41 @@ jobs:
           restore-keys: |
             spm-${{ runner.os }}-
 
+      - name: Restore the tectonic TeX bundle cache
+        # WHY THIS EXISTS (run 31874029028, 2026-08-15): the PDF half of the
+        # publish suite shells out to the bundled `tectonic`, which fetches its
+        # TeX Live bundle from a THIRD-PARTY host
+        # (relay.fullyjustified.net -> data1.fullyjustified.net) on a cold
+        # cache. Nothing cached that fetch, so every CI run did it cold — and
+        # when it failed partway, `PublishingEndToEndTests` went red with
+        # `status: failed` and an empty `errors` array (no LaTeX error at all;
+        # the process died mid-download). The same run then re-fetched
+        # successfully 8.3s later in another suite, which is what a transient
+        # network failure looks like from the inside.
+        #
+        # A cache hit removes the network from the common path entirely and
+        # takes ~12s off the gate. Keyed on scripts/fetch-tectonic.sh because
+        # that file pins the tectonic VERSION, and the version chooses which
+        # bundle URL/format is fetched — bump the pin, mint a new cache.
+        #
+        # Restore/save are SPLIT (rather than one `actions/cache` step) so the
+        # save still runs when the suite goes red: a failing gate is exactly
+        # when the warm bundle is most worth keeping, and the combined action
+        # only saves on success. Same action SHA as the SPM cache above.
+        id: tectonic-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Debug builds are the `dev` BuildVariant, so the tests write to
+          # "Maugham Dev"; the stable path is listed too so this keeps working
+          # if the gate ever runs a Release configuration. A path that does not
+          # exist is skipped, not an error. See TectonicCache.cacheURL().
+          path: |
+            ~/Library/Caches/Maugham Dev/tectonic
+            ~/Library/Caches/Maugham/tectonic
+          key: tectonic-bundle-${{ runner.os }}-${{ hashFiles('scripts/fetch-tectonic.sh') }}
+          restore-keys: |
+            tectonic-bundle-${{ runner.os }}-
+
       - name: Run Mac tests
         run: |
           xcodebuild \
@@ -140,6 +175,19 @@ jobs:
             -default-test-execution-time-allowance 120 \
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath TestResults-Mac.xcresult
+
+      - name: Save the tectonic TeX bundle cache
+        # `always()` so a red gate still seeds the cache for the next run — see
+        # the restore step's note. Non-fatal: a "cache already exists" on an
+        # exact key hit is the normal steady state, not a failure.
+        if: always() && steps.tectonic-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/Library/Caches/Maugham Dev/tectonic
+            ~/Library/Caches/Maugham/tectonic
+          key: tectonic-bundle-${{ runner.os }}-${{ hashFiles('scripts/fetch-tectonic.sh') }}
 
       - name: Upload Mac test results
         if: always()

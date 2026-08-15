@@ -22,19 +22,9 @@ final class StrikethroughCompileProbeTests: XCTestCase {
 
     var tmp: URL!
 
-    // Mirrors FontSpikeTests/StyleFileCompileEndToEndTests: in the xctest
-    // harness Bundle.main isn't the host .app, so TectonicLocator.locate()
-    // returns nil even though tectonic is bundled. Probe the host explicitly.
-    private func tectonicAvailableInBundle() -> URL? {
-        let testBundlePath = Bundle(for: StrikethroughCompileProbeTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        return try? TectonicLocator.locateInBundle(at: URL(fileURLWithPath: appPath))
-    }
-
     override func setUp() async throws {
-        try XCTSkipUnless(tectonicAvailableInBundle() != nil,
-                          "tectonic binary not bundled in test host")
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("StrikethroughProbe-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -74,10 +64,9 @@ final class StrikethroughCompileProbeTests: XCTestCase {
     /// ProjectStore/PDFCompiler machinery, since this probes the LaTeX
     /// distribution itself rather than Maugham's emission pipeline.
     private func compileMinimal(preambleLine: String, body: String) async throws -> TectonicInvoker.Result {
-        let binary = try TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: Bundle(for: StrikethroughCompileProbeTests.self)
-                .bundlePath.replacingOccurrences(
-                    of: "/Contents/PlugIns/MaughamTests.xctest", with: "")))
+        let binary = try XCTUnwrap(
+            TectonicProbe.binaryURL(),
+            "the probe reported ready, so the binary must be locatable")
         let cache = try TectonicCache.ensureCacheExists()
         let invoker = TectonicInvoker(binaryURL: binary, cacheURL: cache)
         let source = """
