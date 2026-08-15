@@ -30,6 +30,16 @@ import MaughamCore
 ///   of plan — and a stale *comment* is not, because the row's gate is
 ///   `kind == .suggestedChange && isStale` and a comment has no replacement
 ///   text to misplace.
+///
+///   **A `.query` is out of plan for accept entirely**, and this is the arm the
+///   rule was worth writing down for. A query row has no Accept affordance at
+///   all — `AnnotationRow.dispositions`' `.query` case offers *Reply…*, which
+///   opens a sheet and calls `acceptAnnotation(id:userResponse:)` with the
+///   writer's own words. Bulk accept would call it with `userResponse: nil`:
+///   the question leaves the open queue answered with **silence**, and it does
+///   so quietly, because accept registers no undo for a non-suggestion kind and
+///   `.accepted` has no Reopen arm. Reply is the verb, a reply is text, and text
+///   is the one thing a batch cannot supply.
 /// - **Stet** — a resolution like the others: open notes only. "Skips the
 ///   already-stetted" is that rule's special case, not a clause of its own.
 ///   Staleness gates nothing here; a stet moves no text.
@@ -112,6 +122,9 @@ enum AnnotationBulkActions {
         switch verb {
         case .accept:
             guard annotation.status == .open else { return false }
+            // A query has no Accept on its row at all — only Reply…, and a
+            // reply is text a batch cannot write. See above.
+            guard annotation.kind != .query else { return false }
             // The row would have asked first; a batch cannot. See above.
             return !(annotation.kind == .suggestedChange && annotation.isStale)
         case .stet:

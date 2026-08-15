@@ -76,11 +76,42 @@ final class AnnotationBulkActionsTests: XCTestCase {
         let notes = [
             note(id: "aaaa", kind: .comment, isStale: true),
             note(id: "bbbb", kind: .craftNote, isStale: true),
-            note(id: "cccc", kind: .query, isStale: true),
         ]
         XCTAssertEqual(
             AnnotationBulkActions.plan(notes, verb: .accept),
-            ["aaaa", "bbbb", "cccc"])
+            ["aaaa", "bbbb"])
+    }
+
+    /// **A query is never in an accept plan.** Its row has no Accept affordance
+    /// at all — `AnnotationRow.dispositions`' `.query` case offers *Reply…*,
+    /// which opens a sheet and calls `acceptAnnotation(id:userResponse:)` with
+    /// the writer's own words. Bulk accept would call it with
+    /// `userResponse: nil`, and the failure is quiet in three directions at
+    /// once: the question leaves the default `[.open]` queue, accept registers
+    /// no undo for a non-suggestion kind, and `.accepted` has no Reopen arm.
+    /// The writer's outstanding question, answered with silence and no way
+    /// back. Reply is the verb; a reply is text; text is what a batch cannot
+    /// supply.
+    func test_aQueryIsNeverInAnAcceptPlan() {
+        let notes = [
+            note(id: "aaaa", kind: .query),
+            note(id: "bbbb", kind: .query, isStale: true),
+            note(id: "cccc", kind: .comment),
+        ]
+        XCTAssertEqual(
+            AnnotationBulkActions.plan(notes, verb: .accept), ["cccc"])
+    }
+
+    /// …and the OTHER verbs still reach it. Excluding the query from accept is
+    /// about Reply being the query's verb, not about queries being untouchable:
+    /// a writer can still stet a question ("read, considered, no change") or
+    /// mark it `discuss` in bulk. Without this control the accept fix could
+    /// quietly become "bulk skips queries", which is a different rule.
+    func test_theOtherVerbsStillReachAQuery() {
+        let notes = [note(id: "aaaa", kind: .query)]
+        XCTAssertEqual(AnnotationBulkActions.plan(notes, verb: .stet), ["aaaa"])
+        XCTAssertEqual(
+            AnnotationBulkActions.plan(notes, verb: .triage(.discuss)), ["aaaa"])
     }
 
     // MARK: - plan: stet
@@ -407,6 +438,42 @@ final class AnnotationBulkActionsTests: XCTestCase {
         XCTAssertFalse(
             um.canUndo,
             "each accept cleared the one before it — this is accept's own choreography, not the bar's")
+    }
+
+    /// The same exclusion on the delivery path, where the damage would have
+    /// been done: the writer's question is still open and still in the queue
+    /// after a bulk Accept over a set that contains it, and the bar's own
+    /// button said so before the click ("Accept 1 of 2").
+    func test_aBulkAcceptLeavesTheWritersQuestionStandingAndSaysSoFirst() async throws {
+        let h = try await makeHarness(prefix: "Bulk-AcceptQuery")
+        let question = try await h.doc.addAnnotation(
+            kind: .query, paragraphId: h.pids[0],
+            body: "is this the same brother as in chapter two?")
+        let remark = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pids[1], body: "nicely turned")
+
+        let shown = h.doc.annotations()
+        XCTAssertEqual(shown.count, 2)
+        let planned = AnnotationBulkActions.plan(shown, verb: .accept)
+        XCTAssertEqual(planned, [remark])
+        XCTAssertEqual(
+            AnnotationBulkActions.buttonTitle(
+                .accept, planned: planned.count, targetCount: shown.count,
+                hasSelection: false),
+            "Accept 1 of 2",
+            "the shortfall is visible before the click, not discovered after")
+
+        let outcome = await AnnotationBulkActions.perform(
+            .accept, on: planned, in: h.doc, undoManager: nil)
+
+        XCTAssertEqual(outcome.succeeded, [remark])
+        XCTAssertNil(outcome.notice, "a skip is not a failure — nothing went wrong")
+        XCTAssertEqual(status(h.doc, remark), .accepted)
+        XCTAssertEqual(status(h.doc, question), .open,
+                       "the question is still a question")
+        XCTAssertEqual(
+            h.doc.annotations().map(\.id), [question],
+            "and it is still in the queue, waiting for a Reply")
     }
 
     // MARK: - Integration: bulk triage
