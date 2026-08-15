@@ -160,6 +160,13 @@ struct ProjectSettingsSheet: View {
                 Button("Save") {
                     saveReviewPasses()
                 }
+                // A blank-named pass must not persist as a blank column
+                // header / ladder row — see `ReviewPassEditorLogic.isSavable`
+                // for why the guard is here and not in `renamed`.
+                .disabled(!ReviewPassEditorLogic.isSavable(reviewPasses))
+                .help(ReviewPassEditorLogic.isSavable(reviewPasses)
+                      ? "Save the pass list"
+                      : "Every pass needs a name before saving")
             }
         } header: {
             Text("Review Passes")

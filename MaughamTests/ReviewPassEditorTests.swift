@@ -225,4 +225,24 @@ final class ReviewPassEditorTests: XCTestCase {
             moved, draggedId: "line", droppedOnId: "copyedit")
         XCTAssertEqual(restored.map(\.id), original.map(\.id))
     }
+
+    // MARK: - ReviewPassEditorLogic.isSavable (whole-branch review)
+
+    /// A blank-named pass must not be persistable: it would sit as a blank
+    /// column header on the board and a blank ladder row in both inspectors.
+    /// The sheet's Save button reads this and disables.
+    func test_isSavable_refusesABlankOrWhitespaceName() {
+        XCTAssertTrue(ReviewPassEditorLogic.isSavable(ReviewPass.presets))
+        XCTAssertFalse(ReviewPassEditorLogic.isSavable(
+            ReviewPassEditorLogic.renamed(ReviewPass.presets, id: "line", to: "")))
+        XCTAssertFalse(ReviewPassEditorLogic.isSavable(
+            ReviewPassEditorLogic.renamed(ReviewPass.presets, id: "line", to: "   ")))
+    }
+
+    /// The empty LIST stays savable — deleting every pass and Saving is the
+    /// deliberate delete-all-restores-presets path (Task 1's rule), and the
+    /// blank-name guard must not close it.
+    func test_isSavable_anEmptyListIsStillSavable() {
+        XCTAssertTrue(ReviewPassEditorLogic.isSavable([]))
+    }
 }

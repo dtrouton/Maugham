@@ -21,8 +21,10 @@ import MaughamCore
 /// exactly where it was — `record(piece:passId:)` never validates against the
 /// live pass list, and `activePass(forPiece:)` returns whatever string is
 /// stored, full stop. Validity is a READ-TIME question for whoever consults
-/// `effectiveReviewPasses` when deciding what to show (the board, Task 6/8):
-/// a stored id absent from that list is treated as "no active pass" there,
+/// `effectiveReviewPasses` when deciding what to show — **in P1 that reader
+/// does not exist yet**: the board's chip click writes the record
+/// (`ProjectWindow.recordActivePass`) and M3 P2's queue pane is the consumer:
+/// a stored id absent from the effective list is treated as "no active pass" there,
 /// not swept from this memory, so the piece's real chosen pass is exactly
 /// where it was if the pass list is ever restored. This mirrors
 /// `PersonaMemory.restoredDetailSegment`'s own validity check

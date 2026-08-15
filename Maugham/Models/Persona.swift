@@ -500,7 +500,7 @@ public extension Persona {
     }
 
     /// **The one spelling of "the centre column is the review board"** (M3 P1
-    /// Task 6, spec §3's Review column).
+    /// Task 6, spec §4 — the board is Review's project altitude).
     ///
     /// `centresTheCanvas`'s and `previewsThePublishedBook`'s sibling, written
     /// for their reason: the alternative is a `== .review` at every gate that

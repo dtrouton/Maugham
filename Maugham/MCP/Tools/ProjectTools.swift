@@ -94,6 +94,16 @@ public enum GetOutlineTool: MCPTool {
         public let id: String
         public let title: String
         public let type: String     // "document" or "group"
+        /// **The RAW legacy `StructureItem.status` string — a known, bounded
+        /// disagreement window** (M3 P1's whole-branch review, seam 1). As of
+        /// M3 P1 nothing writes this field: the app derives one status from
+        /// per-pass states (`ReviewStatus.derived`) and every in-app surface
+        /// shows the projection, so a piece ruled on entirely through the pass
+        /// ladder reads "final" everywhere in Maugham while this tool still
+        /// reports its pre-M3 string (or null). Read-only display on both
+        /// sides — no MCP tool writes `status`, so the window cannot compound.
+        /// P3 widens this tool to report the projection (and the pass detail);
+        /// until then a Claude reading `status` is reading history, not state.
         public let status: String?
         public let synopsis: String?
         public let word_count: Int?

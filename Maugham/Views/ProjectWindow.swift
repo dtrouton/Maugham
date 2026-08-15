@@ -1458,7 +1458,7 @@ struct ProjectWindow: View {
     }
 
     /// **Does Review's centre column show the passes board?** (M3 P1 Task 6,
-    /// spec §3's Review column.)
+    /// spec §4 — the board is Review's project altitude.)
     ///
     /// `publishCentre`'s shape without its resolution: two independent facts,
     /// composed here so no caller can hold one without the other.
@@ -2930,8 +2930,11 @@ struct ProjectWindow: View {
     /// `activePassMemory`'s write half, the `outlineLayout` pattern: update
     /// the local `@State` so this window reflects it immediately, then
     /// persist through `updateUIState` on the same debounce as every other
-    /// UI-state write. Reading it back onto the board is Task 6/8's; this is
-    /// only the verb they will call.
+    /// UI-state write. **The record has no reader in P1** — the chip click
+    /// (Task 8) writes it, and its consumer is M3 P2's queue pane, which
+    /// restores the pass a piece was last reviewed through. Writing ahead of
+    /// the reader is deliberate: the memory accumulates from the writer's
+    /// first chip click, so the queue arrives already primed.
     private func recordActivePass(forPiece piece: String, passId: String) {
         activePassMemory.record(piece: piece, passId: passId)
         documentStore?.updateUIState { $0.activePassMemory.record(piece: piece, passId: passId) }

@@ -485,6 +485,61 @@ final class ReviewBoardRoutingTests: XCTestCase {
                        + "with the same Document")
     }
 
+    /// **The PERSONA hop — Review's board up, ⌘4 to Publish, ⌘3 back — tears
+    /// the host down ZERO times** (the whole-branch review's seam 3: the board
+    /// layer × the publish layer in one ZStack, a trip no per-task test made
+    /// because each probe models its own persona's layer only).
+    ///
+    /// What this drives that the subject round trip above cannot: the persona
+    /// is the OTHER input to `reviewCentreShowsBoard`, and a persona write
+    /// re-runs every routing decision in the centre — `editorRoute`,
+    /// `researchSubjectPlacement`, both layer gates — in one render. The host
+    /// must ride through all of it, because ⌘3/⌘4 is a keystroke the writer
+    /// makes constantly and `.onDisappear` here is `doc.close()` +
+    /// `unregister(path:)`.
+    ///
+    /// The probe deliberately does not mount Publish's BOOK layer (its own
+    /// suite owns that probe — see the probe's doc), so what stands over
+    /// altitude in Publish here is nothing rather than the book; the layer
+    /// gates and the host's lifetime are production's own statics either way.
+    func test_aPersonaHopToPublishAndBackNeverTearsTheHostDown() async throws {
+        let store = try await novel()
+        let mount = try await host(store: store, subject: .project)
+
+        await pumpUntil(deadline: 5) {
+            self.boardScroller(in: mount.window) != nil
+                && mount.hostLife.appearances == 1
+        }
+        XCTAssertNotNil(boardScroller(in: mount.window),
+                        "premise: Review at project level shows the board")
+        XCTAssertEqual(mount.hostLife.appearances, 1, "premise: the host mounted")
+        XCTAssertEqual(mount.hostLife.disappearances, 0, "premise: and is still up")
+
+        // ⌘4 — the persona moves; the subject stays at .project.
+        mount.box.persona = .publish
+        await pumpUntil(deadline: 5) { self.boardScroller(in: mount.window) == nil }
+        XCTAssertNil(boardScroller(in: mount.window),
+                     "the board is Review's alone — Publish at project level "
+                     + "must not keep it mounted")
+        XCTAssertNotNil(altitudeTable(in: mount.window),
+                        "premise: Publish at project level still shows altitude "
+                        + "underneath (the probe mounts no book layer)")
+        XCTAssertEqual(mount.hostLife.disappearances, 0,
+                       "the host was torn down on ⌘4 — a persona hop must only "
+                       + "swap the layers over it, never the host")
+
+        // ⌘3 — back to Review; the board returns over the same host.
+        mount.box.persona = .review
+        await pumpUntil(deadline: 5) { self.boardScroller(in: mount.window) != nil }
+        XCTAssertNotNil(boardScroller(in: mount.window), "the board is back")
+        XCTAssertEqual(mount.hostLife.disappearances, 0,
+                       "the host was torn down on the way back — same ZStack, "
+                       + "same host, or ⌘3⌘4 costs a document close per keystroke")
+        XCTAssertEqual(mount.hostLife.appearances, 1,
+                       "…and never re-appeared, so it is the same host with the "
+                       + "same Document across the whole round trip")
+    }
+
     /// **The control that makes the zero above mean something**: the same hop
     /// through the shape this task rejected — the board as an arm of its own
     /// beside the editor. The counter is the same counter; if it could not see a
