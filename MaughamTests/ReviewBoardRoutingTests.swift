@@ -793,6 +793,102 @@ final class ReviewBoardRoutingTests: XCTestCase {
             + "ClosedSetOfDecisionSites`)")
     }
 
+    /// **What the open-notes count is wired TO** (M3 P2 Task 9) — the other
+    /// half of the mount, and a different verb from the chip's.
+    ///
+    /// A chip click TRAVELS: opening the chapter is what a chip means, so it
+    /// writes the subject. A count click does not — it widens the QUEUE in the
+    /// right column and points it at the piece, leaving the board exactly where
+    /// it was, because a writer scanning where the feedback piled up is reading
+    /// the whole column and must not lose it to the first number they press.
+    /// So the closure writes three things (the pane's visibility, the segment,
+    /// the scope) and neither the subject nor the persona.
+    func test_theCountIsWiredToTheQueueAndMovesNeitherSubjectNorPersona() throws {
+        let source = try Self.source(of: "Views/ProjectWindow.swift")
+        let arm = try XCTUnwrap(
+            Self.declaration(named: "private func manuscriptEditor(", in: source))
+        let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm))
+        let code = SourceScan.codeLines(of: call).joined(separator: "\n")
+        let closure = try XCTUnwrap(
+            Self.closureBody(after: "onOpenNotes: { pieceId in", in: code),
+            "the mount must still wire `onOpenNotes` as a closure this scan "
+            + "can read")
+
+        for expected in ["showInspector = true",
+                         "detailSegment = .annotations",
+                         "annotationScopeRequest = .project(focusPiece: pieceId)"] {
+            XCTAssertTrue(closure.contains(expected),
+                          "the count's closure does not `\(expected)` — the "
+                          + "click has to land the writer IN the queue, in "
+                          + "project scope, at the piece they pressed")
+        }
+        // The control for the two refusals below: the mount's OTHER closure
+        // does write the subject, one argument away, so a scan that ran past
+        // its own braces would find it and this test could not fail.
+        XCTAssertTrue(code.contains("selectedSubject = .item("),
+                      "premise: the chip's closure, in the same call, travels")
+        XCTAssertFalse(
+            closure.contains("selectedSubject"),
+            "the count click writes the window's SUBJECT, so pressing a number "
+            + "on the board throws the board away — that is the chip's verb, "
+            + "not this one")
+        XCTAssertFalse(
+            closure.contains("persona"),
+            "…and it must not write the persona either (the ejection trap, "
+            + "`TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromThe"
+            + "ClosedSetOfDecisionSites`)")
+
+        // The counts themselves are VALUES, computed off the body path.
+        for expected in ["openNotes: openNotesCounts",
+                         "unreadableDocIds: openNotesUnreadable"] {
+            XCTAssertTrue(code.contains(expected),
+                          "the mount must pass `\(expected)` — a store read "
+                          + "here would be a project-wide walk per redraw")
+        }
+    }
+
+    /// **The count is refreshed off the body path, and by the event.**
+    ///
+    /// This is P1's deferral honoured: the board's body must never ask a store
+    /// how many notes a piece has, because that walk opens every document in
+    /// the project and the body runs once per row. The one writer is
+    /// `refreshOpenNotes`, and the two things that call it are the board's own
+    /// `.task` and `.maughamAnnotationsChanged` — the second being what makes a
+    /// closed piece's synced-in note reach the number on screen.
+    func test_theCountsAreRecomputedOffTheBodyPathAndOnTheEvent() throws {
+        let source = try Self.source(of: "Views/ProjectWindow.swift")
+        let arm = try XCTUnwrap(
+            Self.declaration(named: "private func manuscriptEditor(", in: source))
+
+        XCTAssertTrue(arm.contains(".task { refreshOpenNotes(store: store) }"),
+                      "the board must recount when it appears")
+        XCTAssertTrue(arm.contains(".onProjectEvent(.maughamAnnotationsChanged"),
+                      "…and when the project says its notes changed — through "
+                      + "the receive helper that owns the scope filter and the "
+                      + "closed-window liveness guard (ADR 0021)")
+
+        let refresh = try XCTUnwrap(
+            Self.declaration(named: "private func refreshOpenNotes(", in: source),
+            "`refreshOpenNotes` is gone or renamed — this census is stale")
+        XCTAssertEqual(
+            Self.occurrences(of: "listAnnotationsAcrossProject()", in: refresh), 1,
+            "ONE walk per refresh: the aggregation is cached, but its cache key "
+            + "stats every closed document's op-log files, so reading it twice "
+            + "for the two halves of one refresh pays that cost twice "
+            + "(`openNotesSummaries(in:)` takes the snapshot for this reason)")
+
+        // And the board's own file still cannot reach a store — the census in
+        // `ReviewBoardPaneTests` says so for the pane; this says the count did
+        // not arrive by giving it one.
+        // Code lines only: the pane's doc comment names the aggregation to say
+        // where the numbers come from, and a scan that could not tell the
+        // explanation from the act would fire on its own documentation.
+        let pane = SourceScan.codeLines(
+            of: try Self.source(of: "Views/Review/ReviewBoardPane.swift"))
+        XCTAssertFalse(pane.contains { $0.contains("openNotesSummaries") },
+                       "the pane must not derive the counts itself")
+    }
+
     /// The control for the scan above: `argumentList(after:)` must stop at the
     /// call's own closing paren. `ProjectAltitudePane(` is mounted in the same
     /// arm, one layer up, and its arguments must not be visible from inside the
@@ -1077,6 +1173,22 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// Bounded for the reason `declaration(named:)` is: a scan that ran to the
     /// end of the arm would be asserting about every layer in the stack while
     /// claiming to be about one of them.
+    /// One CLOSURE's body, from `opener` (which must end just past its opening
+    /// brace) to the matching close. `argumentList` cannot do this job: it
+    /// counts parens, and inside an argument list already stripped of its own
+    /// it would run to the end and quietly assert about the sibling closures —
+    /// which is exactly where `selectedSubject` and the persona comment live.
+    private static func closureBody(after opener: String, in source: String) -> String? {
+        guard let start = source.range(of: opener) else { return nil }
+        var depth = 1
+        var index = start.upperBound
+        while index < source.endIndex, depth > 0 {
+            if source[index] == "{" { depth += 1 } else if source[index] == "}" { depth -= 1 }
+            index = source.index(after: index)
+        }
+        return String(source[start.upperBound..<index])
+    }
+
     private static func argumentList(after opener: String, in source: String) -> String? {
         guard let start = source.range(of: opener) else { return nil }
         var depth = 1
@@ -1098,6 +1210,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
 final class ReviewCentreProbeBox {
     var persona: Persona
     var subject: BinderSubject?
+    /// Pieces whose open-notes count was clicked (M3 P2 Task 9).
+    var openedNotesFor: [String] = []
 
     init(persona: Persona, subject: BinderSubject?) {
         self.persona = persona
@@ -1232,6 +1346,13 @@ struct ReviewCentreProbeView: View {
             title: store.manifest.title,
             structure: store.manifest.structure,
             passes: store.manifest.effectiveReviewPasses,
+            // The counts are the WINDOW's own state in production, refreshed
+            // off the body path; the probe has no window state, so it models
+            // the shape that matters here — values in, and a click that does
+            // not move the centre.
+            openNotes: [:],
+            unreadableDocIds: [],
+            onOpenNotes: { box.openedNotesFor.append($0) },
             onNavigate: { pieceId, passId in
                 box.subject = .item(pieceId)
                 documentStore.updateUIState {

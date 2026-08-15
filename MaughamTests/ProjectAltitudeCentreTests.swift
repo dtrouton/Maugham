@@ -1266,6 +1266,12 @@ private struct AltitudeCentreProbeView: View {
             title: store.manifest.title,
             structure: store.manifest.structure,
             passes: store.manifest.effectiveReviewPasses,
+            // No counts: this suite is about which layer covers which, and the
+            // open-notes column (M3 P2 Task 9) is a value the window computes
+            // off the body path — `ReviewBoardPaneTests` owns what it draws.
+            openNotes: [:],
+            unreadableDocIds: [],
+            onOpenNotes: { _ in },
             onNavigate: { pieceId, _ in probe.subject = .item(pieceId) },
             onSetState: { pieceId, passId, state in
                 Task { try? await store.setPassState(id: pieceId, passId: passId, state) }

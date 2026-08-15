@@ -135,6 +135,21 @@ extension Document {
         invalidateAnnotationsCache()
         invalidateTasksCache()   // log merge may have added task ops
 
+        // M3 P2 Task 9 — the open half of the cross-device gap. A peer's note
+        // merged into a document THIS window has open still reaches no surface
+        // that isn't holding the document: the board's open-notes column and the
+        // queue's project scope both count notes they never opened.
+        //
+        // Announced from HERE rather than from the presenter callback that got
+        // us here, because this is the far side of the echo guard above:
+        // `NSFilePresenter` fires on our own appends, so a post at the callback
+        // would announce once per typing burst and put a project-wide walk on
+        // the writer's keystrokes. Filtered to annotation ops for the same
+        // reason — a peer's paragraph edit changes no count.
+        if newOps.contains(where: { Document.isAnnotationOpKind($0.kind) }) {
+            announceAnnotationsChanged()
+        }
+
         // Sweep only when a paragraph genuinely disappeared (flagged above
         // by comparing priorSequence to the merged-state sequence). For
         // cross-Mac sync that only adds new ops without dropping paragraphs,

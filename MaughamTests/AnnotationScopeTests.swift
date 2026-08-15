@@ -418,6 +418,35 @@ final class AnnotationScopeTests: XCTestCase {
         }
     }
 
+    /// **The third half, which Task 7 could not build: a change that happened
+    /// somewhere else.**
+    ///
+    /// The verbs above cover notes the writer resolves in this pane, and the
+    /// open document's version counter covers ones they resolve in the editor.
+    /// Neither covers a note arriving in a piece this window never opened — a
+    /// peer device's sync, or Claude writing into a closed chapter — because
+    /// nothing in this process is observing that file. `.maughamAnnotations
+    /// Changed` (Task 9) is that channel, and the pane's job is to bump the
+    /// same token its own verbs do.
+    func test_theQueueReReadsWhenTheProjectSaysItsNotesChanged() throws {
+        let source = try Self.source(of: "Views/AnnotationsPane.swift")
+
+        let receiver = try XCTUnwrap(
+            source.range(of: ".onProjectEvent(.maughamAnnotationsChanged"),
+            "the pane must subscribe to the annotation-change event — without "
+            + "it a closed piece's synced-in note never reaches project scope")
+        let after = String(source[receiver.upperBound...].prefix(400))
+        XCTAssertTrue(after.contains("noteChanged()"),
+                      "the receiver must bump the SAME token the verbs bump, "
+                      + "not invent a second refresh path")
+        XCTAssertTrue(after.contains("window: window") || source.contains("window: window"),
+                      "…through the receive helper's window, which is what "
+                      + "carries the closed-window liveness guard (ADR 0021)")
+        XCTAssertTrue(source.contains("WindowAccessor(window: $window)"),
+                      "and the window is resolved the documented way — a "
+                      + "cached nil is not a close check (`MaughamEvent.isLive`)")
+    }
+
     /// The other half of the obligation: the snapshot read is keyed on the
     /// token AND on the open document's own version counter, so an edit made in
     /// the margin card or the editor while project scope is up reaches the

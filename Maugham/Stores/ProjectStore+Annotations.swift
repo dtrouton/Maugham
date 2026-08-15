@@ -109,10 +109,18 @@ extension ProjectStore {
     /// A piece in `unreadableDocIds` gets no entry here: a zero would be a lie
     /// and this map has nowhere to say "unknown" — the caller that needs to
     /// distinguish the two reads the snapshot.
-    public func openNotesSummaries() -> [String: OpenNotesSummary] {
+    ///
+    /// **Pass the snapshot when you have already read one** (the board's count
+    /// recompute wants both halves at once, M3 P2 Task 9). The cache makes a
+    /// second call cheap but not free: the KEY check stats every closed
+    /// document's op-log files, and doing that twice for one refresh is the
+    /// aggregation's own cost paid for nothing.
+    public func openNotesSummaries(
+        in snapshot: ProjectAnnotationsSnapshot? = nil
+    ) -> [String: OpenNotesSummary] {
         var totals: [String: Int] = [:]
         var passes: [String: [String: Int]] = [:]
-        for entry in listAnnotationsAcrossProject().annotations
+        for entry in (snapshot ?? listAnnotationsAcrossProject()).annotations
         where entry.annotation.status == .open {
             totals[entry.docId, default: 0] += 1
             if let pass = entry.annotation.reviewPassId {

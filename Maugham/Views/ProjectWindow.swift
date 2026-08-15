@@ -63,6 +63,18 @@ struct ProjectWindow: View {
     /// a home, and reopening the project in a list of the whole book is not
     /// where the writer left off.
     @State private var annotationScopeRequest: AnnotationScope = .document
+    /// **The board's open-notes column, computed OFF the body path** (M3 P2
+    /// Task 9) — piece id → how many notes it still has open, and the pieces
+    /// whose op logs could not be read.
+    ///
+    /// Held as window state precisely because the count is a project-wide walk
+    /// over every document, open or closed: asking for it inside `body` would
+    /// put that walk on every redraw of a board that can hold hundreds of rows,
+    /// which is why P1 deferred this column rather than counting on the row.
+    /// `refreshOpenNotes()` is the one writer, and it runs from the board's own
+    /// `.task` and from `.maughamAnnotationsChanged` — never from a body.
+    @State private var openNotesCounts: [String: OpenNotesSummary] = [:]
+    @State private var openNotesUnreadable: Set<String> = []
     /// What this window's tree names — the window's single subject (spec §3).
     /// Typed rather than a `String?` so no site can answer "is this a manuscript
     /// document?" by accident; see `BinderSubject`.
@@ -1831,6 +1843,25 @@ struct ProjectWindow: View {
                     title: store.manifest.title,
                     structure: store.manifest.structure,
                     passes: store.manifest.effectiveReviewPasses,
+                    // Values again, and these two are the reason the window
+                    // holds them at all: they are a walk over every document in
+                    // the project, so they are computed in `refreshOpenNotes`
+                    // below and merely READ here (M3 P2 Task 9).
+                    openNotes: openNotesCounts,
+                    unreadableDocIds: openNotesUnreadable,
+                    // **A count click widens the QUEUE and moves nothing
+                    // else.** The right column takes the writer to the notes —
+                    // in project scope, pointed at the piece they clicked — and
+                    // the centre stays exactly where it was: the board is what
+                    // Review shows, so the subject is not written here and
+                    // neither is the persona (the ejection trap; the chip
+                    // click above is the one that travels, because opening a
+                    // chapter is what a chip MEANS).
+                    onOpenNotes: { pieceId in
+                        showInspector = true
+                        detailSegment = .annotations
+                        annotationScopeRequest = .project(focusPiece: pieceId)
+                    },
                     // **A chip click is a SUBJECT write and nothing else**
                     // (Task 8). The window is already in Review — the board is
                     // what Review shows — so moving the persona here would be
@@ -1853,6 +1884,16 @@ struct ProjectWindow: View {
                     })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(nsColor: .windowBackgroundColor))
+                    // The counts are read HERE and never in the board's body:
+                    // one project-wide walk when the board appears, and one per
+                    // announced annotation change. `.task` is cancelled and
+                    // re-run on identity, so a board uncovered by a subject hop
+                    // recounts on arrival.
+                    .task { refreshOpenNotes(store: store) }
+                    .onProjectEvent(.maughamAnnotationsChanged,
+                                    url: store.url, window: window) { _ in
+                        refreshOpenNotes(store: store)
+                    }
             }
             // **Publish's own layer, LAST of the three** (stage 3b Task 5,
             // re-cut 2026-08-12). Above altitude rather than beside it: at
@@ -1882,6 +1923,25 @@ struct ProjectWindow: View {
                 EmptyView()
             }
         }
+    }
+
+    /// **Recount the board's open notes** (M3 P2 Task 9) — the one writer of
+    /// `openNotesCounts`/`openNotesUnreadable`.
+    ///
+    /// ONE walk, not two: `listAnnotationsAcrossProject` is cached, but its
+    /// cache KEY stats every closed document's op-log files, so asking twice
+    /// for the two halves of one refresh pays the aggregation's real cost
+    /// twice. The snapshot is read here and `openNotesSummaries(in:)` derives
+    /// the counts from it.
+    ///
+    /// Called from the board's `.task` and from `.maughamAnnotationsChanged` —
+    /// never from a `body`. A false alarm (an announcement about a document
+    /// with no notes) costs one cached read; a call per body would cost a walk
+    /// per redraw, which is why P1 deferred this column in the first place.
+    private func refreshOpenNotes(store: ProjectStore) {
+        let snapshot = store.listAnnotationsAcrossProject()
+        openNotesCounts = store.openNotesSummaries(in: snapshot)
+        openNotesUnreadable = Set(snapshot.unreadableDocIds)
     }
 
     /// **The one place the canvas is mounted in production.**

@@ -92,6 +92,26 @@ enum MaughamEvent {
     /// end.
     static let noticeMessageKey = "notice_message"
 
+    /// Payload key for `.maughamAnnotationsChanged` — the document whose notes
+    /// changed. Same reason as `personaKey`: the post sites are in
+    /// `Maugham/OpLog/` and `Maugham/Stores/`, the readers are two panes and a
+    /// window's count column, and a rename on one side must not silently make
+    /// the other read nil.
+    static let annotationDocIdKey = "doc_id"
+
+    /// **The one spelling of the annotations-changed post** (M3 P2 Task 9).
+    ///
+    /// Six callers — four append sites on `Document`, the merge that brought
+    /// foreign annotation ops in, and `DocumentStore`'s presenter arm for a
+    /// document that is not open — so the scope and the payload key are decided
+    /// here rather than six times. `projectURL` is the project ROOT (the
+    /// `Document` reaches it through `opStore.projectURL`), matching what the
+    /// `.onProjectEvent` receivers subscribe with.
+    static func postAnnotationsChanged(docId: String, projectURL: URL) {
+        post(.maughamAnnotationsChanged, to: .project(for: projectURL),
+             payload: [annotationDocIdKey: docId])
+    }
+
     /// **The one spelling of the document-notice post.** `message` is a
     /// finished sentence in the writer's language — the caller composes it,
     /// because only the caller knows what it declined or swept.

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MaughamCore
 
 @MainActor
@@ -99,6 +100,9 @@ struct AnnotationsPane: View {
     /// It is also the seam for Task 9's annotation event, which is what will
     /// refresh a change arriving from another device or a closed document.
     @State private var projectRefreshToken: Int = 0
+    /// This pane's hosting window, for the ADR 0021 receive helper's liveness
+    /// guard (`.onProjectEvent` on `.maughamAnnotationsChanged`).
+    @State private var window: NSWindow?
 
     /// A sheet's subject, plus the document it belongs to.
     ///
@@ -442,6 +446,18 @@ struct AnnotationsPane: View {
             Button("Cancel", role: .cancel) { withdrawConfirm = nil }
         } message: {
             Text("This removes your annotation. The history is preserved, but the annotation will no longer appear here or in the editor.")
+        }
+        // The closed-document / cross-device half of project scope's refresh
+        // (M3 P2 Task 9). The verbs below bump the token for the notes the
+        // writer changes HERE; this is for the ones that changed somewhere
+        // else — a peer device's sync, a note added to a piece this window
+        // never opened. `.onProjectEvent` owns the scope filter and the
+        // closed-window liveness guard (ADR 0021, tripwire 21); the window is
+        // resolved through `WindowAccessor` because a cached `nil` is not a
+        // close check (`MaughamEvent.isLive`).
+        .background(WindowAccessor(window: $window))
+        .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { _ in
+            noteChanged()
         }
     }
 

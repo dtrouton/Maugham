@@ -43,6 +43,24 @@ extension Document {
         annotationsVersion &+= 1
     }
 
+    /// **Tell the project this document's notes moved** (M3 P2 Task 9).
+    ///
+    /// `annotationsVersion` above serves every surface HOLDING this document;
+    /// this serves the ones that cannot hold it — the board's open-notes column
+    /// and the queue's project scope, both of which count notes in documents
+    /// that are closed. `MaughamEvent.postAnnotationsChanged` owns the scope
+    /// (`.project`, `opStore.projectURL` — the same root `notifyWriter` uses).
+    ///
+    /// **Called from the APPEND sites, deliberately not from the invalidator
+    /// above.** The invalidator fires on keystroke-adjacent paths (the burst
+    /// flush's sweep among them) and every receiver walks the whole project;
+    /// announcing from there would put that walk on the typing path
+    /// (`AnnotationChangeEventTests`, both halves).
+    internal func announceAnnotationsChanged() {
+        MaughamEvent.postAnnotationsChanged(
+            docId: docId, projectURL: opStore.projectURL)
+    }
+
     private func rebuildAnnotationsCache() {
         _annotationsCache = AnnotationDeriver.derive(
             ops: _opLogMirror, paragraphs: paragraphs)
@@ -158,6 +176,7 @@ extension Document {
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         invalidateTasksCache()
+        announceAnnotationsChanged()
         return op.opId
     }
 
@@ -541,6 +560,7 @@ extension Document {
 
         invalidateAnnotationsCache()
         invalidateTasksCache()   // accept may have changed paragraph text → inline tasks
+        announceAnnotationsChanged()
     }
 
     /// True iff the paragraph's live text has DRIFTED since this annotation's
@@ -674,6 +694,7 @@ extension Document {
 
         invalidateAnnotationsCache()
         invalidateTasksCache()
+        announceAnnotationsChanged()
     }
 
     public func rejectAnnotation(
@@ -958,6 +979,7 @@ extension Document {
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         invalidateTasksCache()
+        announceAnnotationsChanged()
     }
 
     /// Shared helper for reject/archive (and the paragraph-deletion sweep in
@@ -1000,6 +1022,7 @@ extension Document {
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         invalidateTasksCache()
+        announceAnnotationsChanged()
     }
 
     /// Merge a fresh sweep reason into any pending one. The merge unions

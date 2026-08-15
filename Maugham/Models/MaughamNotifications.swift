@@ -17,8 +17,8 @@ import Foundation
 ///   `maughamCheckpointAdded`, `maughamQuarantineRecordsChanged`,
 ///   `maughamSessionLogChanged`, `maughamNavigateToDocument`,
 ///   `maughamTranslationDidUpdate`, `maughamCanvasNodesAdded`,
-///   `maughamDocumentNotice`): delivered to live windows on the matching
-///   project only.
+///   `maughamDocumentNotice`, `maughamAnnotationsChanged`): delivered to live
+///   windows on the matching project only.
 /// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
 ///   per-name zombie-harm audit note where present): `maughamNewProject`,
 ///   `maughamOpenProject`, `maughamAppWillTerminate`, `maughamShowHelp`.
@@ -189,6 +189,37 @@ extension Notification.Name {
     /// closed window must report nothing at all (the receive helper's liveness
     /// guard, ADR 0021).
     public static let maughamDocumentNotice = Notification.Name("maugham.document.notice")
+    /// **A document's ANNOTATIONS changed** (M3 P2 Task 9) — the first event
+    /// this app has had for that fact.
+    ///
+    /// `Document.annotationsVersion` already tells any surface HOLDING that
+    /// document; this is for the surfaces that are not holding it and cannot
+    /// be — the review board's open-notes column, which counts notes across
+    /// every piece open or closed, and the queue in project scope, whose walk
+    /// (`ProjectStore.listAnnotationsAcrossProject`) is deliberately
+    /// non-reactive. Without it a note arriving in a CLOSED document (a peer
+    /// device's sync) changes a number on screen that nothing re-reads until
+    /// the writer reopens the project.
+    ///
+    /// `userInfo[MaughamEvent.annotationDocIdKey]` (String) is the document
+    /// whose notes moved. Post via `MaughamEvent.postAnnotationsChanged`, never
+    /// by hand — there are six post sites across `Document` and
+    /// `DocumentStore`, and a scope spelled six times is a scope spelled wrong
+    /// once.
+    ///
+    /// **Posted from the APPEND sites, never from the cache invalidator.**
+    /// `invalidateAnnotationsCache` fires on keystroke-adjacent paths, and the
+    /// receivers walk every document in the project; the same reason the
+    /// presenter's open-document arm routes through `handleExternalLogChange`'s
+    /// echo guard rather than announcing every callback (`NSFilePresenter`
+    /// fires on our own writes).
+    ///
+    /// Scope: .project(id:) — a data event, like `maughamMCPNoteAdded`. Windows
+    /// on another project must not re-walk their own manuscripts because this
+    /// one gained a note, and a closed window must walk nothing at all (the
+    /// receive helper's liveness guard, ADR 0021).
+    public static let maughamAnnotationsChanged = Notification.Name(
+        "maugham.annotations.changed")
     /// Posted when ⌘S is pressed — triggers a checkpoint capture with an auto-label.
     public static let maughamSaveCheckpoint = Notification.Name("maugham.save.checkpoint")
     /// Posted when Shift-⌘S is pressed — triggers the checkpoint label prompt sheet.
