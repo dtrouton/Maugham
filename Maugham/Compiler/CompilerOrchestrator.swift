@@ -447,6 +447,16 @@ final class CompilerOrchestrator {
             ? nil
             : (diagnostics.latestRound(forPass: passId, docId: docId) ?? 0) + 1
 
+        // **The previous round, read HERE for the same reason the round number
+        // is minted here** (M3-P3 §6). At this instant the standing sidecar
+        // content IS the previous round — `replace` happens at finish — so
+        // this is the last moment it can be asked for. From the first closed
+        // section onward the standing content is this run's own preview, and
+        // a briefing assembled then would hand the model its own half-report
+        // as "what the last round found".
+        let previousRound = Self.previousRound(
+            inLane: passId, docId: docId, diagnostics: diagnostics, environment: environment)
+
         let briefing = environment.intent(docId)
         // The essay half alone (spec §3.2). **This is the atomic switch**: the
         // strata below the essay reach the run as the derived clauses resolved
@@ -510,6 +520,7 @@ final class CompilerOrchestrator {
             let (message, briefingHash) = CompilerPrompt.runMessageV2(
                 delta: delta, world: world, essay: essay, bibleFacts: bibleFacts,
                 paletteListing: paletteListing, pinnedListing: pinnedListing,
+                previousRound: previousRound,
                 previousBriefingHash: previousHash)
 
             // **Armed immediately before the send, and never earlier.** A run
@@ -633,6 +644,48 @@ final class CompilerOrchestrator {
             // The lane and its number. Both nil on a passless run, which is an
             // ordinary M2 run rather than a degenerate round.
             passId: passId, round: round)
+    }
+
+    /// **What the last round in this run's lane raised**, or `nil` when there
+    /// is nothing this round can honestly be measured against.
+    ///
+    /// The lane rule, in one place (`RoundComparison`'s decision 1): only a
+    /// prior round with the SAME `passId` briefs the next one. A passless ⌘R
+    /// is an ordinary M2 run and is briefed on nothing; a run that opens a new
+    /// lane starts clean, because the Line pass's findings are not what a
+    /// Proof round is measured against.
+    ///
+    /// The standing run is the ONLY candidate, and that is not a shortcut: a
+    /// round's notes are gone the moment the next round replaces them, so a
+    /// round older than the standing one has fingerprints in the ring and no
+    /// prose anywhere. If the standing run belongs to another lane, this
+    /// lane's last round left nothing to say.
+    private static func previousRound(
+        inLane passId: String?, docId: String, diagnostics: DiagnosticsStore,
+        environment: Environment
+    ) -> CompilerPrompt.PriorRound? {
+        guard passId != nil,
+              let standing = diagnostics.standingRound(docId: docId),
+              standing.record.passId == passId,
+              standing.record.round != nil
+        else { return nil }
+
+        let notes = standing.notes.compactMap { note -> CompilerPrompt.PriorNote? in
+            // A note with no section is a v1 record, which has no identity
+            // under this contract — `RoundFingerprint.make` refuses one for
+            // the same reason, so counting it and briefing it stay in step.
+            guard let kind = note.kind else { return nil }
+            return CompilerPrompt.PriorNote(
+                body: note.body, kind: kind,
+                // `DiagnosticsStore.live`'s rule, asked directly: the
+                // paragraph's text now against the text the note was anchored
+                // to. A paragraph that is gone answers `nil`, which is not the
+                // anchor text either — the writer edited it away.
+                sinceEdited: note.anchor.map {
+                    environment.liveParagraphText(docId, $0.paragraphId) != $0.anchorText
+                } ?? false)
+        }
+        return CompilerPrompt.PriorRound(record: standing.record, notes: notes)
     }
 
     /// The declared world for this run: the cached reading if one was made from

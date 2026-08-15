@@ -68,6 +68,30 @@ struct RoundRecord: Codable, Equatable, Sendable {
     let round: Int?
     let freshEyes: Bool?
     let fingerprints: [RoundFingerprint]
+
+    init(runId: String, at: Date, passId: String?, round: Int?, freshEyes: Bool?,
+         fingerprints: [RoundFingerprint]) {
+        self.runId = runId
+        self.at = at
+        self.passId = passId
+        self.round = round
+        self.freshEyes = freshEyes
+        self.fingerprints = fingerprints
+    }
+
+    /// **One spelling of "this finished run, as a round".** Two callers, and
+    /// they read the same content from opposite ends of a run:
+    /// `DiagnosticsStore.replace` files the run it is superseding, and
+    /// `DiagnosticsStore.standingRound` hands the run still standing to the
+    /// briefing of the round about to begin. A second spelling is two ways to
+    /// describe one round, and the pane's line and the model's briefing are
+    /// exactly the two things that must never disagree about what the last
+    /// round found.
+    init(run: CompilerRun, diagnostics: [Diagnostic]) {
+        self.init(runId: run.id, at: run.at, passId: run.passId, round: run.round,
+                  freshEyes: run.freshEyes,
+                  fingerprints: diagnostics.compactMap(RoundFingerprint.make(of:)))
+    }
 }
 
 /// What changed between one round and the next, computed from records.

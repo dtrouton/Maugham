@@ -91,9 +91,17 @@ enum CompilerPrompt {
     /// nothing declared at all (no essay, an empty or absent world, no
     /// facts) — an empty declared world is a valid, un-hashed state (spec
     /// §7: the conformance section is simply absent).
+    ///
+    /// `previousRound` is per-run state and is **never** part of that hash —
+    /// see `roundSection`. Defaulted because "there is no previous round" is
+    /// the ordinary answer (round 1 of a lane, a passless ⌘R, a fresh-eyes
+    /// read) and because this function has exactly one production caller,
+    /// `CompilerOrchestrator.beginRun`, which is where the lane rule is
+    /// decided.
     static func runMessageV2(
         delta: CompilerDelta, world: DerivedWorld?, essay: String?,
         bibleFacts: [BibleFact], paletteListing: [String], pinnedListing: [String],
+        previousRound: PriorRound? = nil,
         previousBriefingHash: String?
     ) -> (message: String, briefingHash: String?) {
         var sections: [String] = []
@@ -116,6 +124,15 @@ enum CompilerPrompt {
 
         sections.append(
             contentsOf: listingSections(pinnedListing: pinnedListing, paletteListing: paletteListing))
+
+        // Between the listings and the delta: context about the prose the
+        // delta is about to show, rather than part of the standing briefing
+        // above it or of the thing being checked below it.
+        if let previousRound,
+           let round = roundSection(
+            previousRound: previousRound.record, notes: previousRound.notes) {
+            sections.append(round)
+        }
 
         sections.append(deltaSection(delta))
 
@@ -166,6 +183,119 @@ enum CompilerPrompt {
         }
         parts.append("facts:" + bibleFacts.map { "\($0.subject)|\($0.fact)" }.joined(separator: ";"))
         return parts.joined(separator: "\n")
+    }
+
+    // MARK: - The previous round (M3-P3 §6)
+
+    /// One note the previous round raised, as the next round's briefing sees
+    /// it: what it said, which section said it, and whether the writer has
+    /// been working behind it since.
+    ///
+    /// `kind` is the enum rather than its string, on tripwire 12's reasoning —
+    /// the section a note came from is its whole classification, and a
+    /// stringly-typed one here would be a second vocabulary to keep in step
+    /// with `DiagnosticIngest.SectionField`.
+    struct PriorNote {
+        let body: String
+        let kind: DiagnosticKind
+        /// The paragraph this note was anchored to no longer reads as it did
+        /// — `DiagnosticsStore.live`'s own anchor-text equality, asked at the
+        /// keystroke. An anchorless note is never "since edited": it has
+        /// nothing to track, exactly as it has nothing to go stale against.
+        let sinceEdited: Bool
+    }
+
+    /// The previous round in this run's lane, with what it found.
+    ///
+    /// The record and the notes travel together because the section needs
+    /// both halves and neither is derivable from the other: the round's
+    /// identity lives on the record, and its prose lives only in the standing
+    /// sidecar (`DiagnosticsStore.standingRound`).
+    struct PriorRound {
+        let record: RoundRecord
+        let notes: [PriorNote]
+    }
+
+    /// **The partition the app knows and the model cannot**: the writer has
+    /// rewritten the prose one of these notes was measured against, so the
+    /// note may already be answered by the draft itself.
+    static let sinceEditedHeading = "The writer has since edited the prose behind these:"
+
+    /// Its complement — the prose still reads exactly as it did when the note
+    /// landed, so anything that has changed is the reading, not the draft.
+    static let untouchedHeading = "Untouched since that round:"
+
+    /// **What the last round in this lane raised, so this one confirms rather
+    /// than reconstructs** (spec §6, M3-P3 §6).
+    ///
+    /// `nil` — no section at all — in two cases, neither of them a round the
+    /// model should hear about:
+    ///
+    /// - the record carries no lane, or no round number. The comparison lane
+    ///   is `(document, pass)` and a passless run is an ordinary M2 run; this
+    ///   is the second door on the room `CompilerOrchestrator` guards first.
+    /// - the round raised no notes. There is nothing to confirm, and a
+    ///   sentence saying so is a paragraph of prompt telling the model
+    ///   nothing it can act on. What that round DID is still counted — the
+    ///   pane's line reads the ring, not this.
+    ///
+    /// **It is never folded into `briefingHashInput`, and that is the whole
+    /// reason it is assembled here rather than up there.** This section
+    /// changes every single round by construction, so a hash covering it would
+    /// never match its predecessor and the essay, the declared world and the
+    /// bible slice would re-embed in full on every ⌘R — the diff-in the hash
+    /// exists to make possible, undone by the one thing that can never be
+    /// diffed. `CompilerPromptTests.test_theRoundSectionNeverFoldsIntoTheBriefingHash`
+    /// asserts the hash is byte-identical across two rounds with unchanged
+    /// intent.
+    ///
+    /// **No new answer section comes with it.** The model's confirmation rides
+    /// the four sections it already answers in; what resolved and what
+    /// persists is computed app-side from fingerprints (`RoundComparison`),
+    /// never parsed back out of prose the model wrote.
+    static func roundSection(previousRound: RoundRecord, notes: [PriorNote]) -> String? {
+        guard let passId = previousRound.passId, let round = previousRound.round else {
+            return nil
+        }
+        guard !notes.isEmpty else { return nil }
+
+        var lines: [String] = [
+            "Round \(round) of the \u{201C}\(passId)\u{201D} pass raised these notes."
+        ]
+        // The edited-behind half first: it is the one the model would
+        // otherwise re-raise against prose that has moved under it.
+        for (heading, partition) in [
+            (sinceEditedHeading, notes.filter(\.sinceEdited)),
+            (untouchedHeading, notes.filter { !$0.sinceEdited }),
+        ] where !partition.isEmpty {
+            lines.append("")
+            lines.append(heading)
+            for note in partition {
+                lines.append("- (\(sectionName(of: note.kind))) \(cleaned(note.body))")
+            }
+        }
+
+        lines.append("")
+        lines.append(
+            "Confirm rather than reconstruct. Where one of these still stands "
+            + "against the prose as it reads now, raise it again in its own "
+            + "section, in your own words and from your own reading. Where it "
+            + "no longer stands, let it go and say nothing about it. And raise "
+            + "whatever this round shows you that the last one did not \u{2014} a "
+            + "note is not worth less for being new, or more for having been "
+            + "made before.")
+        return lines.joined(separator: "\n")
+    }
+
+    /// The section a note came out of, in the schema's own vocabulary — read
+    /// off `DiagnosticIngest.SectionField` rather than restated, so the words
+    /// the model is reminded of are the words it was asked to answer in.
+    private static func sectionName(of kind: DiagnosticKind) -> String {
+        switch kind {
+        case .conformanceStrain: return DiagnosticIngest.SectionField.conformance
+        case .continuity: return DiagnosticIngest.SectionField.continuity
+        case .readerReport: return DiagnosticIngest.SectionField.reader
+        }
     }
 
     // MARK: - Listings (pinned / palette)

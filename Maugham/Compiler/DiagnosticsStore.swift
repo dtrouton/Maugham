@@ -102,6 +102,25 @@ final class DiagnosticsStore {
     /// finishes (`discardPreview`) drops it untouched.
     private var finishedBeforePreview: [String: FileContent] = [:]
 
+    /// The content of the last run against `docId` that actually FINISHED —
+    /// the standing content, unless a preview has been standing in for it, in
+    /// which case the shadow is the only place a finished run can be.
+    ///
+    /// **Keyed on the previewing FLAG, never on the shadow's nil-ness.** A
+    /// cold document's first preview captures nothing, and assigning nil to a
+    /// Dictionary subscript REMOVES the key, so "captured, and there was
+    /// nothing" reads exactly like "never captured" — a `??` fallthrough would
+    /// then reach for `byDoc`, which is that same run's own preview, and the
+    /// first ⌘R against a new document would file round 1 against itself.
+    ///
+    /// Both readers of "the previous round" come through here — `replace`
+    /// filing it into the ring, and `standingRound` handing it to the briefing
+    /// of the round about to begin — so the two can never disagree about which
+    /// run that is.
+    private func finishedContent(docId: String) -> FileContent? {
+        previewing.contains(docId) ? finishedBeforePreview[docId] : byDoc[docId]
+    }
+
     /// docIds the writer has told the cold-start offer "Not now" to, on THIS
     /// device — spec §4's "never re-asked as a nag" (`DiagnosticsPane`'s
     /// `showsColdStartOffer`). Loaded once here rather than per-doc-lazily
@@ -185,26 +204,12 @@ final class DiagnosticsStore {
         }
 
         var rounds = byDoc[docId]?.rounds ?? []
-        // The outgoing run is whatever finished last: the standing content,
-        // unless a preview of THIS run has been standing in for it — in which
-        // case the shadow is the only place a finished run can be.
-        //
-        // **Keyed on the previewing FLAG, never on the shadow's nil-ness.** A
-        // cold document's first preview captures nothing, and assigning nil to
-        // a Dictionary subscript REMOVES the key, so "captured, and there was
-        // nothing" reads exactly like "never captured" — a `??` fallthrough
-        // would then reach for `byDoc`, which is that same run's own preview,
-        // and the first ⌘R against a new document would file round 1 against
-        // itself. `previewing.remove` runs further down, so the flag is still
-        // set here.
-        let outgoing = previewing.contains(docId)
-            ? finishedBeforePreview[docId]
-            : byDoc[docId]
+        // The outgoing run is whatever finished last. `previewing.remove` runs
+        // further down, so the flag `finishedContent` reads is still set here.
+        let outgoing = finishedContent(docId: docId)
         if let outgoing {
             rounds.append(RoundRecord(
-                runId: outgoing.run.id, at: outgoing.run.at, passId: outgoing.run.passId,
-                round: outgoing.run.round, freshEyes: outgoing.run.freshEyes,
-                fingerprints: outgoing.diagnostics.compactMap(RoundFingerprint.make(of:))))
+                run: outgoing.run, diagnostics: outgoing.diagnostics))
             if rounds.count > Self.roundHistoryDepth {
                 rounds.removeFirst(rounds.count - Self.roundHistoryDepth)
             }
@@ -387,6 +392,26 @@ final class DiagnosticsStore {
     /// comparing rounds filters to its own `passId` (`RoundComparison`).
     func roundHistory(docId: String) -> [RoundRecord] {
         byDoc[docId]?.rounds ?? []
+    }
+
+    /// **The round a run beginning now is briefed against**, and the notes it
+    /// raised — the last run that FINISHED against `docId`, whatever lane it
+    /// belonged to (the caller matches the lane; this reader has no opinion).
+    ///
+    /// It is deliberately not the ring: a round's notes are gone the moment
+    /// the next round replaces them, so the standing content is the only
+    /// place a previous round's PROSE still exists. The ring holds
+    /// fingerprints, which is enough to count what changed and not enough to
+    /// tell a model what was said.
+    ///
+    /// **Read at the keystroke, before the run's first section lands.** From
+    /// the first closed line onward the standing content is this run's own
+    /// preview — asked later, it would brief a round against itself.
+    /// `finishedContent` is what makes an answer mid-preview still honest.
+    func standingRound(docId: String) -> (record: RoundRecord, notes: [Diagnostic])? {
+        guard let content = finishedContent(docId: docId) else { return nil }
+        return (RoundRecord(run: content.run, diagnostics: content.diagnostics),
+                content.diagnostics)
     }
 
     /// The most recent round number in `passId`'s lane for this document, or

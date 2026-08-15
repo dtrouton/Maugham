@@ -2966,4 +2966,166 @@ final class CompilerRunCommandTests: XCTestCase {
 
         XCTAssertNil(environment.activePass("ch-1"))
     }
+
+    // MARK: - Since last round (M3-P3 Task 3)
+
+    /// **The next round is briefed on what the last one raised.** The whole
+    /// loop in one test: run 1 asks a question, the writer writes on, and run
+    /// 2's message carries that question back with the round it came from — so
+    /// the model confirms rather than re-derives it.
+    func test_theNextRoundIsBriefedOnWhatTheLastOneRaised() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Whose coat is on the chair?", about: "a1b2"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1)
+        XCTAssertFalse(runner.sends[0].message.contains("raised these notes"),
+                       "control: round 1 has no prior round to be briefed on")
+
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        let second = runner.sends[1].message
+        XCTAssertTrue(second.contains("Whose coat is on the chair?"),
+                      "the previous round's note must reach the next round's "
+                      + "message; got \(second)")
+        // The lane in curly quotes, not a bare "line" — the schema description
+        // says "four lines" a paragraph later, and a substring check for the
+        // bare word would pass on a message with no round section at all.
+        XCTAssertTrue(second.contains("Round 1 of the \u{201C}line\u{201D} pass"),
+                      "…named by its round and its lane; got \(second)")
+
+        // **The pane's line is the same comparison, computed** — the previous
+        // round's one finding is gone from this round, and nothing replaced it.
+        XCTAssertEqual(
+            DiagnosticsPane.sinceLastRoundLine(
+                history: harness.diagnostics.roundHistory(docId: docId),
+                run: harness.diagnostics.lastRun(docId: docId),
+                current: harness.diagnostics.live(
+                    docId: docId, currentText: { _ in "The fog came." })),
+            "Since round 1: 1 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
+    }
+
+    /// **The partition the app knows and the model cannot.** A note anchored
+    /// to a paragraph the writer has since rewritten is exactly "they have
+    /// been working behind this one" — `DiagnosticsStore.live`'s own
+    /// anchor-text equality, read at the keystroke.
+    func test_aNoteTheWriterHasEditedBehindIsBriefedAsSuch() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Whose coat is on the chair?", about: "a1b2"))
+        let live = Box("The fog came.")
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line",
+            liveParagraphText: { _, _ in live.value })
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        // The writer rewrites the paragraph the question was about.
+        live.value = "The fog lifted before noon."
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        let second = runner.sends[1].message
+        guard let heading = second.range(of: CompilerPrompt.sinceEditedHeading),
+              let body = second.range(of: "Whose coat is on the chair?")
+        else { return XCTFail("expected the edited-behind partition; got \(second)") }
+        XCTAssertLessThan(heading.lowerBound, body.lowerBound)
+        XCTAssertFalse(second.contains(CompilerPrompt.untouchedHeading),
+                       "the only note there was has moved out of the untouched half")
+    }
+
+    /// **A new lane is briefed on nothing.** The comparison lane is
+    /// `(document, pass)`: the Line pass's findings are not what a Proof round
+    /// is measured against, and briefing them would have the model confirming
+    /// notes from a pass the writer has finished.
+    func test_aRoundThatOpensANewLaneIsBriefedOnNoPriorRound() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Whose coat is on the chair?", about: "a1b2"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        harness.setActivePass("proof")
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1,
+                       "control: the new lane starts at round 1")
+        XCTAssertFalse(runner.sends[1].message.contains("Whose coat is on the chair?"),
+                       "got: \(runner.sends[1].message)")
+        XCTAssertFalse(runner.sends[1].message.contains("raised these notes"))
+    }
+
+    /// A ⌘R with no pass active is an ordinary M2 run: no lane, no round, and
+    /// nothing to be measured against — not even the last round of the pass
+    /// the writer has since stepped out of.
+    func test_aPasslessRunIsBriefedOnNoPriorRound() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Whose coat is on the chair?", about: "a1b2"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        harness.setActivePass(nil)
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.round)
+        XCTAssertFalse(runner.sends[1].message.contains("raised these notes"),
+                       "got: \(runner.sends[1].message)")
+    }
+
+    /// **A failed run consumes no round number.** It records nothing, so the
+    /// standing content is still the round before it — the next ⌘R takes the
+    /// number the failure did not. Verified by reading in Task 2 and pinned
+    /// here, where the lane's arithmetic is the subject.
+    func test_aFailedRunConsumesNoRoundNumber() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .failed(.unusableOutput)
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "control: a failed run records nothing at all")
+
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1,
+                       "the failure spent no round \u{2014} the writer's first "
+                       + "report is round 1")
+    }
 }
