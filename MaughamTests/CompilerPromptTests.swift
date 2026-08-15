@@ -49,28 +49,51 @@ final class CompilerPromptTests: XCTestCase {
             recordedAt: Date(timeIntervalSince1970: 0))
     }
 
+    /// Five since M3-P3 Task 4: `intent_drift` is asked last, after the four
+    /// note sections, because it is a verdict on the whole reading rather than
+    /// one more thing found in it.
     func test_sectionOrderIsFixed() {
         let schema = CompilerPrompt.sectionSchemaDescription
         guard let conformance = schema.range(of: "\"section\":\"conformance\""),
               let continuity = schema.range(of: "\"section\":\"continuity\""),
               let reader = schema.range(of: "\"section\":\"reader\""),
-              let facts = schema.range(of: "\"section\":\"facts\"")
+              let facts = schema.range(of: "\"section\":\"facts\""),
+              let drift = schema.range(of: "\"section\":\"intent_drift\"")
         else {
-            return XCTFail("all four sections must be present")
+            return XCTFail("all five sections must be present")
         }
         XCTAssertLessThan(conformance.lowerBound, continuity.lowerBound)
         XCTAssertLessThan(continuity.lowerBound, reader.lowerBound)
         XCTAssertLessThan(reader.lowerBound, facts.lowerBound)
+        XCTAssertLessThan(facts.lowerBound, drift.lowerBound)
     }
 
-    func test_refsArraysPresentForEverySection() {
+    /// **Scoped to the four NOTE sections rather than widened to five, and
+    /// `intent_drift`'s lack of a `refs` slot is asserted rather than merely
+    /// tolerated.** Of the two ways Task 4 could have kept this test true, the
+    /// other — giving the drift section a `refs` array — would invite the model
+    /// to anchor a judgement about the whole draft to one paragraph, and
+    /// nothing downstream could read it: the verdict lands as a `String?` on
+    /// the run record, never as a `Diagnostic` with an anchor. A field with no
+    /// reader is a field that drifts.
+    func test_refsArraysPresentForEveryNoteSection() {
         let schema = CompilerPrompt.sectionSchemaDescription
         let templateLines = schema.components(separatedBy: "\n")
             .filter { $0.contains("\"section\":") }
-        XCTAssertEqual(templateLines.count, 4)
-        for line in templateLines {
+        XCTAssertEqual(templateLines.count, 5)
+
+        let driftName = "\"\(DiagnosticIngest.SectionField.intentDrift)\""
+        let noteLines = templateLines.filter { !$0.contains(driftName) }
+        XCTAssertEqual(noteLines.count, 4, "four sections carry notes or facts")
+        for line in noteLines {
             XCTAssertTrue(line.contains("\"refs\""), line)
         }
+
+        let driftLine = templateLines.filter { $0.contains(driftName) }
+        XCTAssertEqual(driftLine.count, 1)
+        XCTAssertFalse(
+            driftLine[0].contains("\"refs\""),
+            "the drift verdict is about the reading, not about a paragraph")
     }
 
     func test_theSchemaForbidsIdsInProse() {

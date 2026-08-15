@@ -11,9 +11,11 @@ supersession —
 keeps the run's mechanism unchanged (§5's opening line) but replaces the
 workflow half: notes, fates, the answer flow and the pane's organization.
 
-**The run speaks the v2 contract** (spec §5): four line-delimited sections —
-conformance against the writer's derived clauses, continuity questions, a
-reader's report, and fact-candidates that land silently in the bible.
+**The run speaks the v2 contract** (spec §5), and M3-P3 added a fifth line to
+it: four line-delimited note sections — conformance against the writer's
+derived clauses, continuity questions, a reader's report, and fact-candidates
+that land silently in the bible — plus `intent_drift`, a verdict on the reading
+as a whole rather than a thing found in it.
 `CompilerPrompt.sectionSchemaDescription` is what is asked for and
 `DiagnosticIngest.parseSection`/`parseAll` is what reads it. **The v1 contract
 is gone**: `runMessage`, `CompilerContext` and `DiagnosticIngest.parse` were
@@ -21,10 +23,17 @@ retired in Stage 2's own docs task once the atomic switch (below) proved they
 had no production caller — a grep for `runMessage(` today finds nothing at
 all, not even a test.
 
-Two things v1 had that v2 does not: a free-form category tag (the section a
-note came from is its whole classification), and the drift diagnostic — drift
-becomes a PATTERN computed across run records in Stage 3, and nothing
-replaces it here.
+One thing v1 had that v2 still does not: a free-form category tag (the section
+a note came from is its whole classification).
+
+**The word "drift" now names two separate things, and they must never be
+merged.** `DriftDetector`/`DriftFinding` are M2's clause-strain PATTERN across
+run records — the same clause straining for `consecutiveRunsThreshold` runs,
+surfaced as `DiagnosticsPane.driftNote`. `intent_drift` is M3-P3's per-round
+JUDGEMENT, a `holds`/`drifted` verdict the model returns in the fifth section
+and the run record carries on `CompilerRun.intentDriftVerdict`. They have
+different inputs, different lifetimes and different surfaces; the wire word is
+`intent_drift` and the app word for the pattern is `drift`.
 
 Two sentences hold the whole design:
 
@@ -242,15 +251,25 @@ is the resumed session id, not the process.
 
 This is what the milestone exists for, and the two halves are asymmetric:
 
-- **Drift — no longer a note, and now a pattern.** v1 raised it as an
-  anchorless diagnostic from an `intent_drift` field; the v2 contract has no
-  such field and the run carries nothing in its place. Stage 3 reads it back
-  from the run records the sidecar already keeps — a clause straining the same
-  way across `DriftDetector.consecutiveRunsThreshold` (3) consecutive runs
-  (spec §3.4) — and surfaces it as one line above the pane's conformance
-  summary (`DiagnosticsPane.driftNote`), not a `Diagnostic`: no id, no
-  dismissal, no reply field. Pressing it opens Intent; the pattern breaking on
-  the next run is what takes the line away, not a tap.
+- **Drift — never a note again, and now two readings of the same worry.** v1
+  raised it as an anchorless diagnostic from an `intent_drift` field. What
+  replaced that is the PATTERN: read back from the run records the sidecar
+  already keeps — a clause straining the same way across
+  `DriftDetector.consecutiveRunsThreshold` (3) consecutive runs (spec §3.4) —
+  and surfaced as one line above the pane's conformance summary
+  (`DiagnosticsPane.driftNote`), not a `Diagnostic`: no id, no dismissal, no
+  reply field. Pressing it opens Intent; the pattern breaking on the next run
+  is what takes the line away, not a tap. **M3-P3 then asked the question
+  directly again**, as a fifth schema section and a per-round verdict
+  (`DiagnosticIngest.parseIntentDrift` → `SectionedOutcome.intentDriftVerdict`
+  → `CompilerRun.intentDriftVerdict`) — and it is still not a `Diagnostic`, for
+  the same reason: a judgement about the whole reading has nothing to anchor to
+  and nothing to answer. Two rules keep it honest. `holds`/`drifted` and
+  nothing else, with an unrecognised word reading as no verdict rather than an
+  `unknown` case, because the verdict is a projection this build never
+  re-encodes. And the one sentence the schema asks for alongside it is read at
+  ingest and **dropped** (ADR 0027: nothing model-produced renders in the
+  editor's chrome) — the mark the verdict raises is app-authored.
 - **Accretion** — an anchored note offers **Answer**, and the writer's sentence
   becomes a **ruling** on the **piece's** intent statement (never the
   project's), minting it if absent: an itemized, dated line under `## Rulings`
@@ -485,9 +504,9 @@ three of them are about what a half-arrived report may NOT do.
 `DiagnosticsStore.preview` is the storage verb and is deliberately weaker than
 `replace` in three ways, each a defect if a preview did it: **no persistence**
 (a half-report on disk reads back as the standing answer), **no drift ring**
-(`DriftDetector` counts consecutive RUNS — one check's four sections would
-fabricate a pattern), **no unread badge** (a badge for notes the cancel
-removed is a badge nothing can clear). `discardPreview` is a re-read of the
+(`DriftDetector` counts consecutive RUNS — one check's sections, folded in one
+at a time, would fabricate a pattern), **no unread badge** (a badge for notes
+the cancel removed is a badge nothing can clear). `discardPreview` is a re-read of the
 untouched sidecar, which is why a cancelled preview puts the previous *finished*
 run back rather than clearing the document. Every path where a run ends without
 an answer discards: `finish`'s failure arm, the unusable-output arm, `cancel()`
@@ -566,7 +585,11 @@ drifted from them is a defect in this file.
   preamble.
 - `ClaudeCLISessionTests` — the process, its arguments, and every path it has to
   die on.
-- `DiagnosticIngestTests` — live anchoring, and a bad note never failing a run.
+- `DiagnosticIngestTests` — live anchoring, a bad note never failing a run, and
+  the `intent_drift` verdict: its two recognised words, an unrecognised one
+  reading as none, a four-section answer still ingesting whole, the fold
+  keeping the latest non-nil, and the model's sentence reaching nothing the
+  writer reads.
 - `DiagnosticsStoreTests` — the sidecar, the staleness rule, the marker.
 - `DiagnosticsPaneTests` / `DiagnosticPromoteToTaskTests` — the pane's states
   and the promotion, pressed through the real accessibility tree.

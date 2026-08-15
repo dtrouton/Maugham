@@ -643,7 +643,18 @@ final class CompilerOrchestrator {
             truncatedReader: outcome.truncatedReader,
             // The lane and its number. Both nil on a passless run, which is an
             // ordinary M2 run rather than a degenerate round.
-            passId: passId, round: round)
+            passId: passId, round: round,
+            // The round's judgement of the draft against the declared intent
+            // (M3-P3 Task 4). Read straight off the outcome, so the preview
+            // and the finished answer say the same thing about the same turn
+            // — and nil for a turn that answered only the four sections it
+            // knew, which is the additive contract working.
+            //
+            // It reaches DISK only through `DiagnosticsStore.replace`: a
+            // preview carries it in memory, where the strip can draw it as it
+            // arrives, and a cancel puts the last finished run's verdict back
+            // by re-reading the untouched sidecar.
+            intentDriftVerdict: outcome.intentDriftVerdict)
     }
 
     /// **What the last round in this run's lane raised**, or `nil` when there

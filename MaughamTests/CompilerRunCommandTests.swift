@@ -3128,4 +3128,145 @@ final class CompilerRunCommandTests: XCTestCase {
                        "the failure spent no round \u{2014} the writer's first "
                        + "report is round 1")
     }
+
+    // MARK: - The intent-drift verdict (M3-P3 Task 4)
+
+    /// A turn that answers all five sections, with the drift verdict the test
+    /// asks for and nothing else to report.
+    private static func fiveSections(verdict: String) -> String {
+        fourEmptySections + "\n"
+            + "{\"section\":\"intent_drift\",\"verdict\":\"\(verdict)\","
+            + "\"note\":\"The last scenes reach for a warmth the intent rules out.\"}"
+    }
+
+    /// **The verdict rides the run record all the way to the sidecar's own
+    /// bytes** — the field Task 1 added, written for the first time here.
+    ///
+    /// Against the raw JSON rather than the in-memory record: the pane, the
+    /// strip and the next round all read a decoded file, and a field threaded
+    /// into `record` but missing from the encoder would pass every in-memory
+    /// assertion and lose the verdict on the first relaunch.
+    func test_theDriftVerdictReachesTheSidecar() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "drifted"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted")
+
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        let json = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertTrue(json.contains("\"intentDriftVerdict\":\"drifted\""),
+                      "the verdict never reached disk; got \(json)")
+        // The model's own sentence is dropped at ingest (ADR 0027) and must
+        // not have travelled here by some other route.
+        XCTAssertFalse(json.contains("warmth the intent rules out"),
+                       "the model's drift sentence was persisted; got \(json)")
+    }
+
+    /// A run that answers the four sections it knows records no verdict —
+    /// and writes no key for one, so a later build can tell "never judged"
+    /// from "judged and unrecognised".
+    func test_aFourSectionAnswerRecordsNoVerdict() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict)
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        let json = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertFalse(json.contains("\"intentDriftVerdict\""),
+                       "an unjudged run wrote a verdict key; got \(json)")
+    }
+
+    /// **A cancelled preview leaves the previous verdict standing** — the
+    /// storage half of "a preview persists nothing", asserted on the field
+    /// this task adds.
+    ///
+    /// The verdict is the sharpest case of the preview rule, because it is the
+    /// one field a half-report can carry that reads as a judgement on the whole
+    /// draft: a stream cut off after the drift section would otherwise leave
+    /// "drifted" on the strip, sourced from a check that stopped reading. The
+    /// byte comparison is the one assertion a write that merely round-trips
+    /// cannot satisfy (its neighbour,
+    /// `test_aDismissalCannotReachAPreview_soTheSidecarSurvivesACancelByteIdentical`,
+    /// makes the same argument about `dismiss`).
+    func test_aCancelledPreviewLeavesThePreviousVerdictStanding() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "holds"))
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict,
+                       "holds", "control: the finished run judged the draft")
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        let before = try Data(contentsOf: sidecar) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+
+        // A second run, held open, its drift section already streamed.
+        runner.nextEvent = nil
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        runner.stream("{\"section\":\"intent_drift\",\"verdict\":\"drifted\"}\n")
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted",
+            "control: the preview shows the verdict as it arrives")
+        XCTAssertEqual(
+            try Data(contentsOf: sidecar), before, // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+            "a previewed verdict was persisted")
+
+        harness.orchestrator.cancel()
+        settle()
+
+        XCTAssertEqual(
+            try Data(contentsOf: sidecar), before, // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+            "the cancelled run left its verdict behind")
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "holds",
+            "the last finished run's verdict is the standing one")
+    }
+
+    /// **The verdict survives the stream's fold**, which it can only do if
+    /// `combining` keeps the latest non-nil: the model answers the sections in
+    /// the schema's order, so on a real stream the drift line arrives LAST and
+    /// each preceding section folds a nil over whatever came before it. This
+    /// drives the reverse — the drift line first, four nils after it — because
+    /// that is the ordering a lost verdict would survive.
+    func test_aStreamedVerdictSurvivesTheSectionsAfterIt() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        runner.stream("{\"section\":\"intent_drift\",\"verdict\":\"drifted\"}\n")
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted")
+
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted",
+            "a section with no verdict erased the one already streamed")
+
+        runner.release(.resultText(Self.fiveSections(verdict: "drifted")))
+        settle()
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted")
+    }
 }

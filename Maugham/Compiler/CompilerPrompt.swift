@@ -10,10 +10,19 @@ import MaughamCore
 /// testable without a subprocess.
 enum CompilerPrompt {
 
-    /// The output contract: four line-delimited JSON objects, one per
-    /// section, in fixed order (conformance, continuity, reader, facts).
-    /// `DiagnosticIngestTests` reference this SAME constant, so prompt and
-    /// parser cannot drift apart in a rewording.
+    /// The output contract: five line-delimited JSON objects, one per
+    /// section, in fixed order (conformance, continuity, reader, facts,
+    /// intent_drift). `DiagnosticIngestTests` reference this SAME constant,
+    /// so prompt and parser cannot drift apart in a rewording.
+    ///
+    /// **`intent_drift` (M3-P3 Task 4) is the odd one and deliberately so.**
+    /// The first four are things found IN the prose and each entry carries a
+    /// `refs` array; the fifth is a verdict on the reading as a whole and
+    /// carries none, because a judgement about the draft anchored to one
+    /// paragraph is a judgement about that paragraph. Its `note` is asked for
+    /// and thrown away at ingest — see `DiagnosticIngest.parseIntentDrift`.
+    /// It shares nothing with M2's `DriftDetector`, which is a clause-strain
+    /// PATTERN across run records and keeps its own meaning.
     ///
     /// No severity field, no suggestion field anywhere in this string —
     /// the register is enforced structurally, not by asking nicely
@@ -22,11 +31,12 @@ enum CompilerPrompt {
     /// (`test_theSchemaForbidsIdsInProse`) — the enforcement with teeth is
     /// Task 2's ingest-side scrub, this is the instruction half.
     static let sectionSchemaDescription: String = """
-        Respond with four lines, each one JSON object, in this exact order \
-        — conformance, then continuity, then reader, then facts. Nothing \
-        else: no prose before, between, or after them, and no line \
-        skipped — a section with nothing to report still gets its line, \
-        with an empty array:
+        Respond with five lines, each one JSON object, in this exact order \
+        — conformance, then continuity, then reader, then facts, then \
+        intent_drift. Nothing else: no prose before, between, or after \
+        them, and no line skipped — a section with nothing to report still \
+        gets its line, with an empty array, and intent_drift always carries \
+        a verdict:
         {"section":"conformance","checks":[{"clause_quote":<string>,"status":\
         "holds"|"strains"|"silent","refs":[<paragraph id>...],"what_pulls":\
         <string or null>}]}
@@ -36,6 +46,15 @@ enum CompilerPrompt {
         [<paragraph id>...],"report":<string>}]}
         {"section":"facts","candidates":[{"subject":<string>,"fact":<string>,\
         "refs":[<paragraph id>...]}]}
+        {"section":"intent_drift","verdict":"holds"|"drifted","note":<one \
+        sentence, only when drifted>}
+        The last line answers one question about this reading as a whole: \
+        has the draft drifted from the declared intent? Weigh the prose in \
+        this run's delta against the intent declared above — holds when \
+        the writing is still going where the writer said it was going, \
+        drifted when it has moved away from what they declared. Judge the \
+        draft, never the writer's decision to change their mind; if there \
+        is no declared intent to measure against, the answer is holds. \
         Every reference to a paragraph travels in that entry's refs array, \
         copied exactly as the paragraph id appears above. Prose — \
         what_pulls, question, report, cites, and fact — never contains a \

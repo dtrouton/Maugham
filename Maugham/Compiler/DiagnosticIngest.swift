@@ -54,7 +54,7 @@ enum DiagnosticIngest {
 
 // MARK: - The sectioned contract
 
-/// Reads `CompilerPrompt.sectionSchemaDescription`'s four sections. Two rules
+/// Reads `CompilerPrompt.sectionSchemaDescription`'s five sections. Two rules
 /// carry the weight, stated once at the top of this file and still true here:
 /// anchors are captured live at ingest, and a bad entry is dropped and
 /// counted rather than failing the run. Three more are this contract's own:
@@ -112,6 +112,24 @@ extension DiagnosticIngest {
         static let subject = "subject"
         static let fact = "fact"
 
+        /// The fifth section (M3-P3 Task 4) — the round's verdict on whether
+        /// the draft has drifted from the declared intent. Nothing to do with
+        /// `DriftDetector`, which is M2's clause-strain pattern across run
+        /// records; the wire word is `intent_drift` and the app word for the
+        /// pattern is `drift`, and neither may be spelled the other's way.
+        static let intentDrift = "intent_drift"
+        static let verdict = "verdict"
+        /// `holds` is shared with a conformance check's status — the same
+        /// English word for the same shape of answer, on purpose. Its
+        /// opposite here is `drifted`, and there is no third value: an
+        /// unrecognised word reads as no verdict at all.
+        static let drifted = "drifted"
+        /// The model's one sentence of explanation, asked for and DROPPED —
+        /// see `parseIntentDrift`. Named here because the parser reads it, and
+        /// everything the parser reads has to be something the prompt asks
+        /// for (`test_v2FieldNamesComeFromTheSectionSchema`).
+        static let driftNote = "note"
+
         /// Every paragraph reference travels here, in every section.
         static let refs = "refs"
     }
@@ -137,9 +155,18 @@ extension DiagnosticIngest {
         /// say it did. The run record may carry it; the register never shows
         /// it.
         let truncatedReader: Int
+        /// The round's verdict on intent drift: `holds`, `drifted`, or `nil`
+        /// for a turn that did not answer the fifth section (a four-section
+        /// v2 answer, and every answer this build streamed before the drift
+        /// line arrived). Never a `Diagnostic`: it has no anchor, no id and
+        /// no reply — it is a projection onto `CompilerRun.intentDriftVerdict`
+        /// and is never re-encoded, which is why an unrecognised word becomes
+        /// `nil` here rather than an `unknown` case.
+        let intentDriftVerdict: String?
 
         static let empty = SectionedOutcome(
-            accepted: [], facts: [], conformance: [], droppedDangling: 0, truncatedReader: 0)
+            accepted: [], facts: [], conformance: [], droppedDangling: 0, truncatedReader: 0,
+            intentDriftVerdict: nil)
     }
 
     /// One section's contribution has exactly the shape of a whole turn's —
@@ -164,7 +191,9 @@ extension DiagnosticIngest {
     /// Parse one section object. Returns `nil` for a line that is not a
     /// section at all — prose, a fence marker, a truncated object, or a
     /// section name this build has never heard of (forward tolerance: a later
-    /// contract's fifth section must not cost the four this one knows).
+    /// contract's sixth section must not cost the five this one knows — which
+    /// is exactly what let M3-P3's `intent_drift` land, harmlessly ignored, on
+    /// a build that had never heard of it).
     ///
     /// Tolerant of what surrounds the object, the way v1 is: a fenced or
     /// narrated line still parses. Given a whole turn it reads only the FIRST
@@ -186,6 +215,8 @@ extension DiagnosticIngest {
             return parseReader(object, runId: runId, docId: docId, live: liveParagraphText)
         case SectionField.facts:
             return parseFacts(object, docId: docId, live: liveParagraphText)
+        case SectionField.intentDrift:
+            return parseIntentDrift(object)
         default:
             return nil
         }
@@ -216,7 +247,13 @@ extension DiagnosticIngest {
             facts: accumulated.facts + next.facts,
             conformance: accumulated.conformance + next.conformance,
             droppedDangling: accumulated.droppedDangling + next.droppedDangling,
-            truncatedReader: accumulated.truncatedReader + next.truncatedReader)
+            truncatedReader: accumulated.truncatedReader + next.truncatedReader,
+            // The one field that is not a sum: the latest non-nil wins. A
+            // stream folds the sections one at a time in whatever order they
+            // arrive, and every section but one carries no verdict — so `next`
+            // alone would erase a verdict already folded in, and `accumulated`
+            // alone would ignore a model that restated the section.
+            intentDriftVerdict: next.intentDriftVerdict ?? accumulated.intentDriftVerdict)
     }
 
     // MARK: - Sections
@@ -269,7 +306,7 @@ extension DiagnosticIngest {
 
         return PartialSection(
             accepted: notes, facts: [], conformance: statuses, droppedDangling: dropped,
-            truncatedReader: 0)
+            truncatedReader: 0, intentDriftVerdict: nil)
     }
 
     private static func parseContinuity(
@@ -298,7 +335,7 @@ extension DiagnosticIngest {
 
         return PartialSection(
             accepted: notes, facts: [], conformance: [], droppedDangling: dropped,
-            truncatedReader: 0)
+            truncatedReader: 0, intentDriftVerdict: nil)
     }
 
     private static func parseReader(
@@ -333,7 +370,7 @@ extension DiagnosticIngest {
         let truncated = max(0, notes.count - readerReportCap)
         return PartialSection(
             accepted: Array(notes.prefix(readerReportCap)), facts: [], conformance: [],
-            droppedDangling: dropped, truncatedReader: truncated)
+            droppedDangling: dropped, truncatedReader: truncated, intentDriftVerdict: nil)
     }
 
     /// The schema's "at most 3 entries — the sharpest three".
@@ -374,7 +411,49 @@ extension DiagnosticIngest {
 
         return PartialSection(
             accepted: [], facts: facts, conformance: [], droppedDangling: dropped,
-            truncatedReader: 0)
+            truncatedReader: 0, intentDriftVerdict: nil)
+    }
+
+    /// **The fifth section: one verdict, and nothing the writer reads**
+    /// (M3-P3 Task 4).
+    ///
+    /// Three things this does not do, each a decision:
+    ///
+    /// - **It mints no `Diagnostic`.** v1 raised drift as an anchorless note
+    ///   with an id, a dismissal and a reply field; a judgement about the whole
+    ///   reading has nothing to anchor to and nothing to answer. The verdict
+    ///   rides `CompilerRun.intentDriftVerdict` and is drawn from there.
+    /// - **It counts nothing as dropped.** `droppedDangling` is what the
+    ///   REGISTER lost — entries the writer would have read. An unusable
+    ///   verdict costs the register nothing, and reporting it as a loss would
+    ///   put the pane's "lost some notes" seal over a complete report.
+    /// - **It admits no third value.** `holds` and `drifted`, or `nil`. There
+    ///   is no `unknown` case because the verdict is a projection this build
+    ///   never re-encodes (tripwire 12's discipline read in the direction that
+    ///   applies): a word we cannot draw must not reach a surface that has no
+    ///   glyph for it, and a later contract widening the vocabulary is an
+    ///   additive change on both sides.
+    private static func parseIntentDrift(_ object: [String: Any]) -> PartialSection {
+        // **The model's sentence is read here and dropped here.** ADR 0027:
+        // nothing model-produced renders in the editor's chrome, and the mark
+        // this verdict raises is app-authored from the verdict alone — so
+        // there is nowhere for a sentence of the model's own to go.
+        //
+        // Read rather than left unmentioned, for two reasons. The drop is a
+        // decision, and a decision belongs at the site that makes it rather
+        // than in the absence of a line. And `driftNote` is a name the parser
+        // uses, which is what earns it a place in the schema census
+        // (`test_v2FieldNamesComeFromTheSectionSchema`) — a field nothing
+        // reads has no business being asserted against the prompt.
+        _ = nonEmptyString(object[SectionField.driftNote])
+
+        let spoken = nonEmptyString(object[SectionField.verdict])?.lowercased()
+        let verdict = [SectionField.holds, SectionField.drifted].contains(spoken ?? "")
+            ? spoken : nil
+
+        return PartialSection(
+            accepted: [], facts: [], conformance: [], droppedDangling: 0,
+            truncatedReader: 0, intentDriftVerdict: verdict)
     }
 
     // MARK: - Refs
