@@ -33,6 +33,12 @@ struct AnnotationsPane: View {
     @Environment(\.undoManager) private var undoManager
 
     @State private var kindFilter: KindOption = .all
+    /// Which review pass the queue is looking through (M3 P2 Task 8).
+    /// `.followActivePass` — the state it starts in, and returns to whenever
+    /// the writer travels to another piece — means "whatever pass this piece
+    /// is being reviewed through", so a board chip click lands here already
+    /// narrowed to the pass that was clicked.
+    @State private var passSelection: AnnotationPassFilter.Selection = .followActivePass
     @State private var triageFilter: AnnotationTriageFilter = .all
     @State private var authorFilter: String = AnnotationAuthorFilter.all
     @State private var showResolved: Bool = false
@@ -161,14 +167,68 @@ struct AnnotationsPane: View {
             || stetFlourishIds.contains(annotation.id)
     }
 
-    /// The author + triage pass. **The resolved author filter is passed IN**
-    /// rather than read per row: resolving it consults the whole in-scope pool,
-    /// and in project scope that pool comes from a walk whose cache key stats
-    /// every closed piece's op log. Asking per annotation turned one render
-    /// into one file-stat sweep per note.
-    private func passes(_ annotation: Annotation, authorFilter selected: String) -> Bool {
+    /// The author + triage + review-pass filters. **The resolved author filter
+    /// is passed IN** rather than read per row: resolving it consults the whole
+    /// in-scope pool, and in project scope that pool comes from a walk whose
+    /// cache key stats every closed piece's op log. Asking per annotation
+    /// turned one render into one file-stat sweep per note. The resolved pass
+    /// travels the same way for symmetry, and because both scopes resolve it
+    /// once per render rather than once per row.
+    private func passesRowFilters(
+        _ annotation: Annotation, authorFilter selected: String, passId: String?
+    ) -> Bool {
         AnnotationAuthorFilter.matches(annotation, selected: selected)
             && triageFilter.matches(annotation)
+            && AnnotationPassFilter.matches(annotation, passId: passId)
+    }
+
+    // MARK: - The active pass (M3 P2 Task 8)
+    //
+    // All three inputs are read off the two stores this pane already holds,
+    // the way `boardRows` reads `store.manifest.structure` a few lines down.
+    // Threading copies of them through the mount would be a second path to
+    // the same values with nothing keeping the two in step — and the pane can
+    // reach both stores regardless, so the copies would buy no confinement.
+    // Reading them inside the body is also what makes them REACTIVE: both
+    // stores are `@Observable`, so an inspector ruling on a pass, or a board
+    // chip recording one, re-renders the queue.
+    //
+    // Reading pass states is all this pane ever does with them. Writing one is
+    // a closed census of three files (`PersonaPaneRegistryTests.
+    // passStateWritingFiles`) and the queue is deliberately not among them:
+    // it advises about passes, it never rules on them.
+
+    /// The project's named passes — the filter menu's contents, and the order
+    /// the advisory nudge reads "earlier" off.
+    private var reviewPasses: [ReviewPass] { store.manifest.effectiveReviewPasses }
+
+    /// Which pass each piece was last looked at through. The board's chip
+    /// click is the only writer; this pane only ever reads it.
+    private var activePassMemory: ActivePassMemory {
+        documentStore.uiState.activePassMemory
+    }
+
+    /// The centred piece's recorded pass states, for the nudge. Nil with no
+    /// piece open, which is also every case in which the nudge has nothing to
+    /// be about.
+    private var piecePassStates: [String: PassState]? {
+        guard let docId = document?.docId else { return nil }
+        return TreeWalk.find(id: docId, in: store.manifest.structure)?.passStates
+    }
+
+    /// **Which pass the queue is looking through**, or nil for every pass —
+    /// the pane's selection resolved against the piece's remembered active
+    /// pass and the project's live pass list (`AnnotationPassFilter.resolved`).
+    ///
+    /// `piece` is the CENTRED document in document scope and nil in project
+    /// scope, where there is no single piece whose active pass could be the
+    /// default; an explicit choice still narrows every piece's section.
+    private var resolvedPassId: String? {
+        AnnotationPassFilter.resolved(
+            passSelection,
+            piece: scope.isProject ? nil : document?.docId,
+            memory: activePassMemory,
+            passes: reviewPasses)
     }
 
     /// Document scope's rows after the kind/status filter, before the author
@@ -205,7 +265,10 @@ struct AnnotationsPane: View {
     private func visibleAnnotations(of document: Document) -> [Annotation] {
         let pool = kindStatusAnnotations(of: document)
         let selected = effectiveAuthorFilter(in: pool)
-        let rows = pool.filter { passes($0, authorFilter: selected) }
+        let passId = resolvedPassId
+        let rows = pool.filter {
+            passesRowFilters($0, authorFilter: selected, passId: passId)
+        }
         // The queue's working order (M3 P2): what the writer said they'd do,
         // then document order. The DERIVER's newest-first order (claim
         // M5-AN-004) is untouched — that claim is about the projection, and
@@ -243,7 +306,10 @@ struct AnnotationsPane: View {
     ) -> [AnnotationScopeSections.Section] {
         let pool = snapshot.annotations.filter { passesKindAndStatus($0.annotation) }
         let selected = effectiveAuthorFilter(in: pool.map(\.annotation))
-        let entries = pool.filter { passes($0.annotation, authorFilter: selected) }
+        let passId = resolvedPassId
+        let entries = pool.filter {
+            passesRowFilters($0.annotation, authorFilter: selected, passId: passId)
+        }
         return AnnotationScopeSections.build(
             rows: boardRows, annotations: entries, sequences: snapshot.sequences)
     }
@@ -274,6 +340,7 @@ struct AnnotationsPane: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
+            passOrderNudge
             switch scope {
             case .document:
                 documentScope
@@ -282,6 +349,13 @@ struct AnnotationsPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // The pass default is PER PIECE, so travelling re-asks the question.
+        // Carrying an explicit choice across would filter the new piece's
+        // queue by a pass the writer chose while reading a different chapter —
+        // and, worse, silently hide notes on a piece they have just arrived at.
+        .onChange(of: document?.docId) { _, _ in
+            passSelection = .followActivePass
+        }
         .sheet(item: $rejectSheet) { target in
             RejectReasoningSheet(annotation: target.annotation) { reason in
                 reject(target.document, target.annotation, reason: reason)
@@ -368,6 +442,36 @@ struct AnnotationsPane: View {
             Button("Cancel", role: .cancel) { withdrawConfirm = nil }
         } message: {
             Text("This removes your annotation. The history is preserved, but the annotation will no longer appear here or in the editor.")
+        }
+    }
+
+    // MARK: - The advisory nudge (M3 P2 Task 8)
+
+    /// One quiet line when the piece is being worked through a pass while an
+    /// earlier one is still open. **Advice, not a gate** (the constitution's
+    /// lenses-not-gates): nothing is disabled, nothing is confirmed, and a
+    /// writer who means to proofread before the structural pass is finished
+    /// reads one sentence and carries on.
+    ///
+    /// Document scope only: it is a statement about ONE piece's pass states,
+    /// and in project scope every section is a different piece with different
+    /// ones — a single caption there could only be wrong.
+    @ViewBuilder
+    private var passOrderNudge: some View {
+        if !scope.isProject, let passId = resolvedPassId,
+           let earlier = PassOrderAdvice.openEarlierPass(
+                activePassId: passId, passes: reviewPasses,
+                passStates: piecePassStates) {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "info.circle").font(.caption2)
+                Text(PassOrderAdvice.caption(for: earlier))
+                    .font(.caption2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            Divider()
         }
     }
 
@@ -640,6 +744,7 @@ struct AnnotationsPane: View {
                 selection: $kindFilter)
                 .layoutPriority(1)
             Spacer(minLength: 4)
+            passMenu
             scopeMenu
             // Multiselect is document-scope only — see
             // `AnnotationScopePolicy.showsBulkAffordances` for why a
@@ -663,6 +768,53 @@ struct AnnotationsPane: View {
                 : "Showing open only · click to include resolved")
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
+    }
+
+    /// **Which pass the queue is looking through** (M3 P2 Task 8). A menu, for
+    /// `triageFilterMenu`'s reason — the toolbar is a 280pt column and a
+    /// project may name any number of passes, so a segmented row is not an
+    /// option here at all.
+    ///
+    /// The label carries the pass's own name when one is selected, so what the
+    /// queue is showing is readable without opening the menu; "All Passes"
+    /// leads, because widening back out is the escape hatch from a filter that
+    /// was chosen FOR the writer by the board's chip click.
+    @ViewBuilder
+    private var passMenu: some View {
+        let current = resolvedPassId
+        Menu {
+            Button {
+                passSelection = .allPasses
+            } label: {
+                if current == nil {
+                    Label("All Passes", systemImage: "checkmark")
+                } else {
+                    Text("All Passes")
+                }
+            }
+            Divider()
+            ForEach(reviewPasses) { pass in
+                Button {
+                    passSelection = .pass(pass.id)
+                } label: {
+                    if current == pass.id {
+                        Label(pass.name, systemImage: "checkmark")
+                    } else {
+                        Text(pass.name)
+                    }
+                }
+            }
+        } label: {
+            Label(
+                reviewPasses.first { $0.id == current }?.name ?? "Pass",
+                systemImage: current == nil
+                    ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Show only the notes written during one review pass. Notes "
+            + "written outside any pass appear under every one.")
     }
 
     /// **This Piece / All Pieces** (M3 P2 Task 7). A menu rather than a

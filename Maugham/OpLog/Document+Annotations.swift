@@ -60,7 +60,16 @@ extension Document {
         prompt: String? = nil,
         toolArgs: String? = nil,
         span: SpanAnchor? = nil,
-        author: AnnotationAuthor? = nil
+        author: AnnotationAuthor? = nil,
+        /// The `ReviewPass.id` the writer was working through when this note
+        /// was made (M3 P2 Task 8), or nil for a note that belongs to no pass.
+        /// Defaulted so every caller that has not been taught about passes
+        /// keeps writing unstamped notes rather than inventing one — and an
+        /// unstamped note appears in EVERY pass's queue, so nothing is hidden
+        /// by the default. Resolution is each caller's: the editor asks the
+        /// window, the MCP tools ask `activeReviewPassId`, and both go through
+        /// `ActivePassMemory.validatedActivePass`.
+        reviewPassId: String? = nil
     ) async throws -> String {
         // Owes the caller an annotation id, so it throws rather than
         // fabricating one for an annotation that was never persisted.
@@ -142,7 +151,8 @@ extension Document {
                 spanQuote: span?.quote,
                 spanPrefix: span?.prefix,
                 spanSuffix: span?.suffix,
-                spanPosHint: span?.posHint))
+                spanPosHint: span?.posHint,
+                reviewPassId: reviewPassId))
         try await opStore.append(op)
         appendToMirror(op)
         _hasAnyAnnotationOps = true
@@ -163,7 +173,9 @@ extension Document {
         body: String,
         suggestedText: String? = nil,
         authorName: String,
-        authorId: String? = nil
+        authorId: String? = nil,
+        /// See `addAnnotation`'s own parameter — this wrapper only carries it.
+        reviewPassId: String? = nil
     ) async throws -> String {
         try await addAnnotation(
             kind: kind,
@@ -174,7 +186,8 @@ extension Document {
             author: AnnotationAuthor(
                 sourceKind: .human,
                 displayName: authorName,
-                collaboratorId: authorId))
+                collaboratorId: authorId),
+            reviewPassId: reviewPassId)
     }
 
     /// Author self-service: edit YOUR OWN annotation's body (and, for a

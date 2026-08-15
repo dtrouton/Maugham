@@ -21,12 +21,14 @@ import MaughamCore
 /// exactly where it was — `record(piece:passId:)` never validates against the
 /// live pass list, and `activePass(forPiece:)` returns whatever string is
 /// stored, full stop. Validity is a READ-TIME question for whoever consults
-/// `effectiveReviewPasses` when deciding what to show — **in P1 that reader
-/// does not exist yet**: the board's chip click writes the record
-/// (`ProjectWindow.recordActivePass`) and M3 P2's queue pane is the consumer:
-/// a stored id absent from the effective list is treated as "no active pass" there,
-/// not swept from this memory, so the piece's real chosen pass is exactly
-/// where it was if the pass list is ever restored. This mirrors
+/// `effectiveReviewPasses` when deciding what to show, and as of M3 P2 Task 8
+/// that question has exactly one spelling: `validatedActivePass(forPiece:in:)`
+/// below. The board's chip click writes the record
+/// (`ProjectWindow.recordActivePass`); the queue pane's pass filter and the
+/// annotation-creation stamp are the consumers. A stored id absent from the
+/// effective list is treated as "no active pass" there, not swept from this
+/// memory, so the piece's real chosen pass is exactly where it was if the
+/// pass list is ever restored. This mirrors
 /// `PersonaMemory.restoredDetailSegment`'s own validity check
 /// (`persona.panes.contains(remembered)`) — the filtering happens at the
 /// reader, not inside the stored map.
@@ -52,6 +54,25 @@ public struct ActivePassMemory: Codable, Equatable, Sendable {
     /// see the type doc comment for why that check belongs to the caller.
     public func activePass(forPiece piece: String) -> String? {
         active[piece]
+    }
+
+    /// The pass id `piece` was last looked at through, **validated against the
+    /// project's live pass list** — the read rule this type's doc comment
+    /// prescribes, in its one production spelling (M3 P2 Task 8).
+    ///
+    /// A stored id that no longer names a pass in `passes` reads as "no active
+    /// pass" and is left exactly where it is: the queue's filter falls back to
+    /// every pass, a note created under it is written unstamped, and restoring
+    /// the pass list restores the writer's place. Every reader — the queue's
+    /// filter default, the creation stamp, the board — calls this rather than
+    /// re-deriving the check, which `AnnotationPassStampTests`' census keeps
+    /// true.
+    public func validatedActivePass(
+        forPiece piece: String, in passes: [ReviewPass]
+    ) -> String? {
+        guard let stored = activePass(forPiece: piece),
+              passes.contains(where: { $0.id == stored }) else { return nil }
+        return stored
     }
 
     // MARK: - Writing

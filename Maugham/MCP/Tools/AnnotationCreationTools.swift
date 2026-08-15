@@ -31,6 +31,12 @@ public enum AddCommentTool: MCPTool {
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
         let params = try decodeParams(Params.self, from: paramsJSON)
+        // The pass the writer is working this piece through, resolved before
+        // the document is opened so the two arms of `withAnnotationDocument`
+        // cannot disagree about it (see `activeReviewPassId`).
+        let activePass = activeReviewPassId(
+            projectId: params.project_id, documentId: params.document_id,
+            registry: registry)
         let id = try await withAnnotationDocument(
             projectId: params.project_id,
             documentId: params.document_id,
@@ -44,7 +50,8 @@ public enum AddCommentTool: MCPTool {
                 body: params.body,
                 toolArgs: annotationToolArgsJSON(params),
                 span: span,
-                author: claudeAnnotationAuthor)
+                author: claudeAnnotationAuthor,
+                reviewPassId: activePass)
         }
         return try JSONEncoder().encode(Result(annotation_id: id))
     }
@@ -82,6 +89,9 @@ public enum AddSuggestedChangeTool: MCPTool {
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
         let params = try decodeParams(Params.self, from: paramsJSON)
+        let activePass = activeReviewPassId(
+            projectId: params.project_id, documentId: params.document_id,
+            registry: registry)
         let id = try await withAnnotationDocument(
             projectId: params.project_id,
             documentId: params.document_id,
@@ -96,7 +106,8 @@ public enum AddSuggestedChangeTool: MCPTool {
                 suggestedText: params.suggested_text,
                 toolArgs: annotationToolArgsJSON(params),
                 span: span,
-                author: claudeAnnotationAuthor)
+                author: claudeAnnotationAuthor,
+                reviewPassId: activePass)
         }
         return try JSONEncoder().encode(Result(annotation_id: id))
     }
@@ -138,6 +149,9 @@ public enum AddQueryTool: MCPTool {
            !TranslationRecord.isValidLanguageTag(language) {
             throw MCPError.invalidArgument("invalid language tag: \(language)")
         }
+        let activePass = activeReviewPassId(
+            projectId: params.project_id, documentId: params.document_id,
+            registry: registry)
         let id = try await withAnnotationDocument(
             projectId: params.project_id,
             documentId: params.document_id,
@@ -151,7 +165,8 @@ public enum AddQueryTool: MCPTool {
                 body: params.body,
                 toolArgs: annotationToolArgsJSON(params),
                 span: span,
-                author: claudeAnnotationAuthor)
+                author: claudeAnnotationAuthor,
+                reviewPassId: activePass)
         }
         return try JSONEncoder().encode(Result(annotation_id: id))
     }
@@ -182,6 +197,12 @@ public enum AddCraftNoteTool: MCPTool {
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
         let params = try decodeParams(Params.self, from: paramsJSON)
+        // Nil whenever the piece is closed — which is the case M5-AN-048 pins
+        // for this tool in particular. The note still lands; it belongs to no
+        // pass, and so appears under every one.
+        let activePass = activeReviewPassId(
+            projectId: params.project_id, documentId: params.document_id,
+            registry: registry)
         let id = try await withAnnotationDocument(
             projectId: params.project_id,
             documentId: params.document_id,
@@ -191,7 +212,8 @@ public enum AddCraftNoteTool: MCPTool {
                 kind: .craftNote,
                 paragraphId: nil,
                 body: params.body,
-                toolArgs: annotationToolArgsJSON(params))
+                toolArgs: annotationToolArgsJSON(params),
+                reviewPassId: activePass)
         }
         return try JSONEncoder().encode(Result(annotation_id: id))
     }

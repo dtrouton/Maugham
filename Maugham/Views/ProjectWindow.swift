@@ -1775,7 +1775,27 @@ struct ProjectWindow: View {
                 // model (ADR 0017): an author's manual ⌘⌥⇧R drives the render; a
                 // reviewer/unknown is FORCED into review render AND hard-locked
                 // (lockEditing) via `effectivePosture` mirrored into the control.
-                control: editorControl
+                control: editorControl,
+                // M3 P2 Task 8: a note written from the margin carries the pass
+                // this piece is being reviewed through.
+                //
+                // Read off `uiState`, not this window's `@State` mirror of it,
+                // even though the mirror is right here. The mirror exists for
+                // the `outlineLayout` pattern's reason — immediate local
+                // feedback — and is per WINDOW: a second window on the same
+                // project records a pass through `updateUIState` and this
+                // one's copy never hears about it. That is harmless for a
+                // control's appearance and not harmless for a STAMP, which is
+                // a durable write into the op log. The queue pane and the MCP
+                // tools (`activeReviewPassId`) already read `uiState`, so this
+                // is the third reader of one value rather than a second value.
+                // The validity check against the project's live pass list is
+                // `validatedActivePass`'s and is never re-spelled here.
+                activeReviewPassId: { docId in
+                    documentStore.uiState.activePassMemory.validatedActivePass(
+                        forPiece: docId,
+                        in: store.manifest.effectiveReviewPasses)
+                }
             )
             if Self.subjectShowsAltitude(persona: persona,
                                          subject: selectedSubject,

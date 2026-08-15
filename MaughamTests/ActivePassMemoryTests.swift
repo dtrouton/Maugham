@@ -68,12 +68,61 @@ final class ActivePassMemoryTests: XCTestCase {
         // The memory itself never swept the entry.
         XCTAssertEqual(memory.activePass(forPiece: "piece-1"), "structural")
 
-        // The intended caller-side pattern (Task 6/8's board): a stale id is
-        // treated as "no active pass" without touching the stored memory.
-        let filtered = customized.contains(where: { $0.id == memory.activePass(forPiece: "piece-1") })
-            ? memory.activePass(forPiece: "piece-1")
-            : nil
-        XCTAssertNil(filtered)
+        // The caller-side rule, which as of M3 P2 Task 8 has ONE spelling
+        // (`validatedActivePass`): a stale id reads as "no active pass"
+        // without touching the stored memory.
+        XCTAssertNil(memory.validatedActivePass(forPiece: "piece-1", in: customized))
+        XCTAssertEqual(memory.activePass(forPiece: "piece-1"), "structural")
+    }
+
+    // MARK: - The validated read (M3 P2 Task 8)
+    //
+    // `validatedActivePass` is the one spelling of the read rule the type doc
+    // prescribes. Three callers depend on it — the queue's pass-filter
+    // default, the creation stamp, and the board — and a second inline
+    // spelling anywhere is the drift these three cases exist to prevent.
+
+    func test_validatedActivePass_returnsAStoredIdThatStillNamesAPass() {
+        var memory = ActivePassMemory.empty
+        memory.record(piece: "piece-1", passId: "line")
+        XCTAssertEqual(
+            memory.validatedActivePass(forPiece: "piece-1", in: ReviewPass.presets),
+            "line")
+    }
+
+    func test_validatedActivePass_readsARetiredIdAsNoActivePass() {
+        var memory = ActivePassMemory.empty
+        memory.record(piece: "piece-1", passId: "structural")
+        let customized = [ReviewPass(id: "line", name: "Line")]
+        XCTAssertNil(memory.validatedActivePass(forPiece: "piece-1", in: customized))
+    }
+
+    func test_validatedActivePass_isNilWhenNothingWasEverRecorded() {
+        XCTAssertNil(
+            ActivePassMemory.empty.validatedActivePass(
+                forPiece: "piece-1", in: ReviewPass.presets))
+    }
+
+    /// The validated read never mutates: a piece whose recorded pass is
+    /// currently retired keeps it, so restoring the pass list restores the
+    /// writer's place (the type doc's "never swept").
+    func test_validatedActivePass_leavesTheStoredEntryAloneAndRecoversLater() {
+        var memory = ActivePassMemory.empty
+        memory.record(piece: "piece-1", passId: "structural")
+        XCTAssertNil(memory.validatedActivePass(
+            forPiece: "piece-1", in: [ReviewPass(id: "line", name: "Line")]))
+        XCTAssertEqual(
+            memory.validatedActivePass(forPiece: "piece-1", in: ReviewPass.presets),
+            "structural")
+    }
+
+    /// An empty pass list is not "anything goes" — `effectiveReviewPasses`
+    /// never returns one (it falls back to the presets), so a caller that
+    /// somehow passes one is asking about a project with no passes at all.
+    func test_validatedActivePass_withNoPassesAtAllIsNil() {
+        var memory = ActivePassMemory.empty
+        memory.record(piece: "piece-1", passId: "line")
+        XCTAssertNil(memory.validatedActivePass(forPiece: "piece-1", in: []))
     }
 
     // MARK: - Codable
