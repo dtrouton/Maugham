@@ -758,121 +758,36 @@ struct AnnotationsPane: View {
         }
     }
 
+    /// The queue's filters. Its composition — and the width pressure a narrow
+    /// right column puts it under — is `AnnotationsQueueToolbar`'s, so that the
+    /// one thing it must do can be measured without mounting this whole pane
+    /// (`AnnotationsQueueToolbarWidthTests`).
     @ViewBuilder
     private var toolbar: some View {
-        HStack(spacing: 0) {
-            AdaptiveFilterRow(
-                items: KindOption.allCases,
-                selection: $kindFilter)
-                .layoutPriority(1)
-            Spacer(minLength: 4)
-            passMenu
-            scopeMenu
-            // Multiselect is document-scope only — see
-            // `AnnotationScopePolicy.showsBulkAffordances` for why a
-            // cross-document bulk bar would be a lying count.
-            if AnnotationScopePolicy.showsBulkAffordances(scope) {
-                selectionModeButton
-            }
-            triageFilterMenu
-            authorMenu
-            Button {
-                showResolved.toggle()
-            } label: {
-                Image(systemName: showResolved ? "tray.full" : "tray")
-                    .font(.caption)
-                    .foregroundStyle(showResolved
-                        ? Color.accentColor : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(showResolved
-                ? "Showing all statuses · click to show only open"
-                : "Showing open only · click to include resolved")
-        }
-        .padding(.horizontal, 8).padding(.vertical, 6)
+        AnnotationsQueueToolbar(
+            kindFilter: $kindFilter,
+            passSelection: $passSelection,
+            triageFilter: $triageFilter,
+            authorFilter: $authorFilter,
+            showResolved: $showResolved,
+            reviewPasses: reviewPasses,
+            resolvedPassId: resolvedPassId,
+            scopeIsProject: scope.isProject,
+            showsBulkAffordances:
+                AnnotationScopePolicy.showsBulkAffordances(scope),
+            selectionModeOn: showBulkBar,
+            authorLabels: authorLabels,
+            onSetScope: { setScope($0) },
+            onToggleSelectionMode: toggleSelectionMode)
     }
 
-    /// **Which pass the queue is looking through** (M3 P2 Task 8). A menu, for
-    /// `triageFilterMenu`'s reason — the toolbar is a 280pt column and a
-    /// project may name any number of passes, so a segmented row is not an
-    /// option here at all.
-    ///
-    /// The label carries the pass's own name when one is selected, so what the
-    /// queue is showing is readable without opening the menu; "All Passes"
-    /// leads, because widening back out is the escape hatch from a filter that
-    /// was chosen FOR the writer by the board's chip click.
-    @ViewBuilder
-    private var passMenu: some View {
-        let current = resolvedPassId
-        Menu {
-            Button {
-                passSelection = .allPasses
-            } label: {
-                if current == nil {
-                    Label("All Passes", systemImage: "checkmark")
-                } else {
-                    Text("All Passes")
-                }
-            }
-            Divider()
-            ForEach(reviewPasses) { pass in
-                Button {
-                    passSelection = .pass(pass.id)
-                } label: {
-                    if current == pass.id {
-                        Label(pass.name, systemImage: "checkmark")
-                    } else {
-                        Text(pass.name)
-                    }
-                }
-            }
-        } label: {
-            Label(
-                reviewPasses.first { $0.id == current }?.name ?? "Pass",
-                systemImage: current == nil
-                    ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
-                .font(.caption)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Show only the notes written during one review pass. Notes "
-            + "written outside any pass appear under every one.")
-    }
-
-    /// **This Piece / All Pieces** (M3 P2 Task 7). A menu rather than a
-    /// segmented picker for `triageFilterMenu`'s reason: the toolbar already
-    /// carries the kind row, and two more segments would push it into
-    /// icon-only mode in a 280pt column. The label always carries the word, so
-    /// which way the queue is looking is readable without opening it.
-    @ViewBuilder
-    private var scopeMenu: some View {
-        Menu {
-            scopeItem("This Piece", isCurrent: !scope.isProject, target: .document)
-            scopeItem("All Pieces", isCurrent: scope.isProject,
-                      target: .project(focusPiece: nil))
-        } label: {
-            Label(scope.isProject ? "All Pieces" : "This Piece",
-                  systemImage: scope.isProject ? "books.vertical" : "doc.text")
-                .font(.caption)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Show this piece's notes, or every piece's, grouped by piece")
-    }
-
-    @ViewBuilder
-    private func scopeItem(
-        _ title: String, isCurrent: Bool, target: AnnotationScope
-    ) -> some View {
-        Button {
-            setScope(target)
-        } label: {
-            if isCurrent {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
-        }
+    /// Selection mode's door. A mode rather than always-on checkboxes: the
+    /// column is narrow and a writer answering notes one at a time should not
+    /// pay for a control they are not using. Leaving the mode drops the ticks —
+    /// a selection nobody can see is a trap the next entry would spring.
+    private func toggleSelectionMode() {
+        showBulkBar.toggle()
+        if !showBulkBar { selectedIds.removeAll() }
     }
 
     /// Widening leaves selection mode behind. The ticks are document-scope
@@ -884,26 +799,6 @@ struct AnnotationsPane: View {
             showBulkBar = false
             selectedIds.removeAll()
         }
-    }
-
-    /// Selection mode's door. A mode rather than always-on checkboxes: the
-    /// column is 280pt and a writer answering notes one at a time should not
-    /// pay for a control they are not using. Leaving the mode drops the ticks —
-    /// a selection nobody can see is a trap the next entry would spring.
-    @ViewBuilder
-    private var selectionModeButton: some View {
-        Button {
-            showBulkBar.toggle()
-            if !showBulkBar { selectedIds.removeAll() }
-        } label: {
-            Image(systemName: "checklist")
-                .font(.caption)
-                .foregroundStyle(showBulkBar ? Color.accentColor : .secondary)
-        }
-        .buttonStyle(.plain)
-        .help(showBulkBar
-            ? "Leave selection mode"
-            : "Select several notes and answer them together")
     }
 
     /// The bulk bar. Two rows so nothing truncates in a narrow column: the
@@ -1052,61 +947,6 @@ struct AnnotationsPane: View {
             selectedIds.remove(id)
         } else {
             selectedIds.insert(id)
-        }
-    }
-
-    /// The queue's own filter (M3 P2): show only what you said you'd do, only
-    /// what you said you'd decline, only what you haven't looked at yet. A menu
-    /// rather than another segmented row — the toolbar already carries the kind
-    /// filter, and five more segments would push both into icon-only mode in a
-    /// 280pt column.
-    @ViewBuilder
-    private var triageFilterMenu: some View {
-        Menu {
-            ForEach(AnnotationTriageFilter.allCases) { option in
-                Button {
-                    triageFilter = option
-                } label: {
-                    if option == triageFilter {
-                        Label(option.label, systemImage: "checkmark")
-                    } else {
-                        Text(option.label)
-                    }
-                }
-            }
-        } label: {
-            Label(
-                triageFilter == .all ? "Triage" : triageFilter.label,
-                systemImage: triageFilter == .all ? "flag" : "flag.fill")
-                .font(.caption)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Filter by what you plan to do about each note")
-    }
-
-    @ViewBuilder
-    private var authorMenu: some View {
-        let labels = authorLabels
-        // Only worth showing when more than one contributor is present.
-        if labels.count > 1 {
-            Menu {
-                Button(AnnotationAuthorFilter.all) {
-                    authorFilter = AnnotationAuthorFilter.all
-                }
-                Divider()
-                ForEach(labels, id: \.self) { name in
-                    Button(name) { authorFilter = name }
-                }
-            } label: {
-                Label(
-                    authorFilter == AnnotationAuthorFilter.all ? "Author" : authorFilter,
-                    systemImage: "person.crop.circle")
-                    .font(.caption)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Filter annotations by who wrote them")
         }
     }
 
@@ -1560,11 +1400,24 @@ struct AnnotationRow: View {
     /// controls) the secondary ones fall back to icons with the same word as the
     /// tooltip, the way `AdaptiveFilterRow` degrades the kind filter above. The
     /// primary verb — Accept / Got it / Reply — never loses its label.
+    ///
+    /// **Three variants, not two, because `ViewThatFits` draws its LAST child
+    /// whether it fits or not.** Measured 2026-08-15 on the worst honest row —
+    /// the writer's own open suggestion, carrying Accept / Reject / Stet /
+    /// Archive / triage / edit / delete — the icon variant at the row's default
+    /// `spacing: 8` wanted 245pt in a 240pt column and 280.6pt in a 280pt one.
+    /// A few points over is the same defect as a hundred: it inflates the pane's
+    /// layout width, and everything in the column is then centred against a
+    /// width the column does not have. The third variant closes the gaps instead
+    /// of taking anything else away, since by that point there is no word left
+    /// to lose. `AnnotationsQueueToolbarWidthTests.test_theRowsVerbsFitTheColumn`
+    /// is the measurement.
     @ViewBuilder
     private var actionRow: some View {
         ViewThatFits(in: .horizontal) {
             actions(useIcons: false)
             actions(useIcons: true)
+            actions(useIcons: true, spacing: Self.tightVerbSpacing)
         }
         .controlSize(.small)
         // The whole row of verbs, gated together: a closed piece's note is
@@ -1576,9 +1429,14 @@ struct AnnotationRow: View {
             reason: verbsEnabled ? nil : verbsDisabledReason))
     }
 
+    /// The gap the last-resort variant closes to. Small enough to buy back the
+    /// points the seven-control row was over by, large enough that two bordered
+    /// buttons still read as two.
+    static let tightVerbSpacing: CGFloat = 3
+
     @ViewBuilder
-    private func actions(useIcons: Bool) -> some View {
-        HStack(spacing: 8) {
+    private func actions(useIcons: Bool, spacing: CGFloat = 8) -> some View {
+        HStack(spacing: spacing) {
             if showsReopen {
                 // (An accepted suggestion keeps its Revert below — reopening it
                 // is Revert's job, text included.)
