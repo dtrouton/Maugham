@@ -9,21 +9,9 @@ final class CompileLogSurfacingTests: XCTestCase {
     var registry: ProjectRegistry!
     var pid: String!
 
-    // Mirrors PublishingEndToEndTests: in the xctest harness Bundle.main isn't
-    // the host .app, so TectonicLocator.locate() returns nil even though
-    // tectonic is bundled. Probe the host explicitly.
-    private func tectonicAvailable() -> Bool {
-        let testBundlePath = Bundle(for: CompileLogSurfacingTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        return (try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath))) != nil
-    }
-
     override func setUp() async throws {
-        guard tectonicAvailable() else {
-            throw XCTSkip("tectonic binary not bundled in test host — full E2E requires bundled binary")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("CompileLogE2E-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)

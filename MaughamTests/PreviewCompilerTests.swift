@@ -20,13 +20,8 @@ final class PreviewCompilerTests: XCTestCase {
     }
 
     func testPreview_doesNotBumpVersion() async throws {
-        let testBundlePath = Bundle(for: PreviewCompilerTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        guard let _ = try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath)) else {
-            throw XCTSkip("tectonic missing")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
 
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(

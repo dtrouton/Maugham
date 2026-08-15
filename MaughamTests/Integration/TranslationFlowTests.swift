@@ -15,7 +15,8 @@ import MaughamCore
 ///   `dc:language` in the OPF, or — PDF — `\MaughamLanguage` in metadata.tex).
 ///
 /// The EPUB leg is pure Swift (no bundled tectonic) so it always runs; the PDF
-/// leg follows the established XCTSkip-if-unbundled pattern.
+/// leg skips by name via `TectonicProbe` when a real compile cannot succeed on
+/// this machine.
 @MainActor
 final class TranslationFlowTests: XCTestCase {
 
@@ -254,7 +255,8 @@ final class TranslationFlowTests: XCTestCase {
     // MARK: - PDF end-to-end (tectonic-gated)
 
     func test_endToEnd_pdf_gateAndLanguageSuffixedFilename() async throws {
-        guard tectonicBundled() else { throw XCTSkip("tectonic missing") }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
 
         let (h, _) = try await runToRetranslated()
 
@@ -287,14 +289,6 @@ final class TranslationFlowTests: XCTestCase {
     }
 
     // MARK: - low-level helpers
-
-    private func tectonicBundled() -> Bool {
-        let testBundlePath = Bundle(for: TranslationFlowTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        return (try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath))) != nil
-    }
 
     private func unzipEntry(_ archive: URL, entry: String) throws -> String {
         let proc = Process()

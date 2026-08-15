@@ -26,19 +26,9 @@ final class FontSpikeTests: XCTestCase {
     var projectURL: URL!
     var store: ProjectStore!
 
-    // Mirrors PublishingEndToEndTests: in the xctest harness Bundle.main isn't
-    // the host .app, so TectonicLocator.locate() returns nil even though
-    // tectonic is bundled. Probe the host explicitly to gate availability.
-    private func tectonicAvailableInBundle() -> URL? {
-        let testBundlePath = Bundle(for: FontSpikeTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        return try? TectonicLocator.locateInBundle(at: URL(fileURLWithPath: appPath))
-    }
-
     override func setUp() async throws {
-        try XCTSkipUnless(tectonicAvailableInBundle() != nil,
-                          "tectonic binary not bundled in test host")
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("FontSpike-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)

@@ -18,16 +18,9 @@ final class SectionIncludeToCProbeTests: XCTestCase {
 
     private var tmp: URL!
 
-    private func tectonicAvailableInBundle() -> URL? {
-        let testBundlePath = Bundle(for: SectionIncludeToCProbeTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        return try? TectonicLocator.locateInBundle(at: URL(fileURLWithPath: appPath))
-    }
-
     override func setUp() async throws {
-        try XCTSkipUnless(tectonicAvailableInBundle() != nil,
-                          "tectonic binary not bundled in test host")
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("SectionToCProbe-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)

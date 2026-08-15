@@ -31,16 +31,8 @@ final class CompileToolsTests: XCTestCase {
     // MARK: - compile
 
     func testCompile_pdf_completedSync_whenWithinWait() async throws {
-        // Mirror PDFCompilerTests' lookup: in the xctest harness,
-        // Bundle.main isn't the host .app, so locate() returns nil even
-        // though tectonic is bundled. Probe the host explicitly.
-        let testBundlePath = Bundle(for: CompileToolsTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        guard (try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath))) != nil else {
-            throw XCTSkip("tectonic binary not bundled in test host")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
         let data = try await CompileTool.handle(
             paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"pdf","wait_seconds":120}"#.utf8),
             registry: registry)
@@ -65,13 +57,8 @@ final class CompileToolsTests: XCTestCase {
     // publication first — without it the es compile fails loudly ("compile the
     // source edition first"). The edition's version must equal the source's.
     func testCompile_pdf_language_completedSync_surfacesLanguageKey() async throws {
-        let testBundlePath = Bundle(for: CompileToolsTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        guard (try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath))) != nil else {
-            throw XCTSkip("tectonic binary not bundled in test host")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
         let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
         try await stores.publicationStore.append(Publication(
             publicationID: "pub-src", version: "0.1", label: nil, format: .pdf,
@@ -128,13 +115,9 @@ final class CompileToolsTests: XCTestCase {
         // warm, so this races: if the orchestrator hasn't finished by
         // the post-timeout lookup we get "in_progress" + a job_id; if
         // it has, we get "completed". Both are valid handoff shapes.
-        let testBundlePath = Bundle(for: CompileToolsTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        guard (try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath))) != nil else {
-            throw XCTSkip("tectonic binary not bundled in test host")
-        }
+        //
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
         let data = try await CompileTool.handle(
             paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"pdf","wait_seconds":0}"#.utf8),
             registry: registry)
@@ -209,16 +192,8 @@ final class CompileToolsTests: XCTestCase {
     // MARK: - preview_compile
 
     func testPreview_pdf_runs() async throws {
-        // Mirror PDFCompilerTests' lookup: in the xctest harness,
-        // Bundle.main isn't the host .app, so locate() returns nil even
-        // though tectonic is bundled. Probe the host explicitly.
-        let testBundlePath = Bundle(for: CompileToolsTests.self).bundlePath
-        let appPath = testBundlePath.replacingOccurrences(
-            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
-        guard (try? TectonicLocator.locateInBundle(
-            at: URL(fileURLWithPath: appPath))) != nil else {
-            throw XCTSkip("tectonic binary not bundled in test host")
-        }
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
         let data = try await PreviewCompileTool.handle(
             paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"pdf"}"#.utf8),
             registry: registry)
