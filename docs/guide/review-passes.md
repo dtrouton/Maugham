@@ -67,7 +67,7 @@ run is a numbered **round** in that pass's own count. The report leads with
 the distance travelled: *"Since round 4: 2 resolved · 1 persisting · 1 new"*
 — what the last round in this lane raised that's gone, what's still here,
 what's new. Round numbers are per pass, but the memory is the document's, not
-any one pass's: Maugham remembers a document's last five finished checks,
+any one pass's: Maugham remembers a document's last six finished checks,
 across every pass it's been worked through. Run enough checks in other
 passes and a pass you haven't touched in a while ages out of that memory —
 the next check in it starts back at round 1, with nothing to compare against.

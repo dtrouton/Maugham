@@ -121,11 +121,12 @@ the [Review board](review-passes.md#the-board) — and the check becomes a
 numbered **round** in that pass's own count. The report leads with what
 changed since the last one: *"Since round 4: 2 resolved · 1 persisting · 1
 new"*. Round numbers are per pass, but the memory behind them is the
-document's, not any one pass's: Maugham remembers a document's last five
-finished checks, across every pass. Work five checks through Line and the
-Structural round from before them falls out of memory, so the next check
-back in Structural starts over at round 1, with nothing behind it to compare
-against. See [Review Passes](review-passes.md#rounds-and-fresh-eyes) for the
+document's, not any one pass's: Maugham remembers a document's last six
+finished checks, across every pass. Once enough later checks stack up behind
+a round — six, counting the one still standing — it ages out of memory, so a
+Structural round buried under a long run of Line checks is gone, and the next
+check back in Structural starts over at round 1, with nothing behind it to
+compare against. See [Review Passes](review-passes.md#rounds-and-fresh-eyes) for the
 pass side of this.
 
 ## Fresh Eyes
