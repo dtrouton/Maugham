@@ -143,4 +143,118 @@ final class AnnotationReadToolsTests: XCTestCase {
 
         await h.documentStore.close()
     }
+
+    // MARK: - the writer's marks come back (M3 P3 Task 8)
+
+    /// RAW JSON, not the tool's own `Codable` type: decoding through `Item`
+    /// cannot tell an OMITTED key from an emitted `null`, and "untriaged" has
+    /// to be distinguishable from "this tool does not report triage".
+    private func rawArray(_ data: Data) throws -> [[String: Any]] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+    }
+
+    private func rawObject(_ data: Data) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    func test_listAnnotations_reportsTriageAndTheReviewPassStamp() async throws {
+        let h = try await makeHarness()
+        let pid = try await h.doc.opLog()
+            .first(where: { $0.kind == .bootstrap })!
+            .changes.first!.paragraphId
+
+        let stamped = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "stamped",
+            reviewPassId: "line")
+        try await h.doc.triageAnnotation(id: stamped, mark: .do)
+
+        let data = try JSONSerialization.data(
+            withJSONObject: [
+                "project_id": h.projectId,
+                "document_id": h.doc.docId,
+            ])
+        let items = try rawArray(
+            try await ListAnnotationsTool.handle(paramsJSON: data, registry: h.registry))
+        let item = try XCTUnwrap(items.first { $0["id"] as? String == stamped })
+        XCTAssertEqual(item["triage"] as? String, "do")
+        XCTAssertEqual(item["review_pass_id"] as? String, "line")
+
+        await h.documentStore.close()
+    }
+
+    /// An untriaged note written before passes existed. Both keys are emitted
+    /// carrying JSON `null` — an unstamped note belongs to EVERY pass, which
+    /// is a fact a reader has to be able to read off the wire.
+    func test_listAnnotations_unstampedUntriagedNoteEmitsBothKeysAsNull() async throws {
+        let h = try await makeHarness()
+        let pid = try await h.doc.opLog()
+            .first(where: { $0.kind == .bootstrap })!
+            .changes.first!.paragraphId
+        let legacy = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "legacy")
+
+        let data = try JSONSerialization.data(
+            withJSONObject: [
+                "project_id": h.projectId,
+                "document_id": h.doc.docId,
+            ])
+        let items = try rawArray(
+            try await ListAnnotationsTool.handle(paramsJSON: data, registry: h.registry))
+        let item = try XCTUnwrap(items.first { $0["id"] as? String == legacy })
+        XCTAssertTrue(item.keys.contains("triage"),
+                      "triage must be emitted as null, not omitted")
+        XCTAssertTrue(item["triage"] is NSNull)
+        XCTAssertTrue(item.keys.contains("review_pass_id"),
+                      "review_pass_id must be emitted as null, not omitted")
+        XCTAssertTrue(item["review_pass_id"] is NSNull)
+
+        await h.documentStore.close()
+    }
+
+    func test_getAnnotation_agreesWithTheListOnTriageAndPass() async throws {
+        let h = try await makeHarness()
+        let pid = try await h.doc.opLog()
+            .first(where: { $0.kind == .bootstrap })!
+            .changes.first!.paragraphId
+
+        let stamped = try await h.doc.addAnnotation(
+            kind: .query, paragraphId: pid, body: "q", reviewPassId: "copyedit")
+        try await h.doc.triageAnnotation(id: stamped, mark: .discuss)
+        let legacy = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "legacy")
+
+        func fetch(_ id: String) async throws -> [String: Any] {
+            let data = try JSONSerialization.data(
+                withJSONObject: [
+                    "project_id": h.projectId,
+                    "document_id": h.doc.docId,
+                    "annotation_id": id,
+                ])
+            return try rawObject(
+                try await GetAnnotationTool.handle(paramsJSON: data, registry: h.registry))
+        }
+
+        let marked = try await fetch(stamped)
+        XCTAssertEqual(marked["triage"] as? String, "discuss")
+        XCTAssertEqual(marked["review_pass_id"] as? String, "copyedit")
+
+        let bare = try await fetch(legacy)
+        XCTAssertTrue(bare.keys.contains("triage"))
+        XCTAssertTrue(bare["triage"] is NSNull)
+        XCTAssertTrue(bare.keys.contains("review_pass_id"))
+        XCTAssertTrue(bare["review_pass_id"] is NSNull)
+
+        await h.documentStore.close()
+    }
+
+    /// The P2 staleness the survey caught: `stetted` shipped as a status and
+    /// the tool's own description never learned about it.
+    func test_bothDescriptions_nameTheStettedStatusAndTheTwoSemantics() {
+        XCTAssertTrue(ListAnnotationsTool.description.contains("stetted"))
+        XCTAssertTrue(ListAnnotationsTool.description.contains("review_pass_id"))
+        for text in [ListAnnotationsTool.description, GetAnnotationTool.description] {
+            XCTAssertTrue(text.contains("triage"),
+                          "the description must say Claude never sets triage")
+        }
+    }
 }

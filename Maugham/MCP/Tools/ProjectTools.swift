@@ -89,22 +89,50 @@ public enum GetOutlineTool: MCPTool {
     public struct Params: Codable { public let project_id: String }
     public struct Outline: Codable, Equatable {
         public let nodes: [Node]
+        /// The project's effective review passes in LADDER ORDER (M3 P3).
+        /// Without it a reader has a `pass_states` map and no way to order it:
+        /// a JSON object's key order is `Dictionary` iteration order, which is
+        /// not the writer's ladder and is not even stable between two reads.
+        /// Always the projection `ProjectManifest.effectiveReviewPasses` —
+        /// never the raw stored array, which is empty until the writer
+        /// customizes it and would report "this project has no passes" for
+        /// every project that has simply never been customized.
+        public let review_passes: [PassInfo]
+    }
+    /// The wire shape of one review pass. A local type rather than
+    /// `MaughamCore.ReviewPass` on purpose: this is a published wire contract
+    /// and must not move because a model type grew a field.
+    public struct PassInfo: Codable, Equatable {
+        public let id: String
+        public let name: String
+        public init(id: String, name: String) {
+            self.id = id
+            self.name = name
+        }
     }
     public struct Node: Codable, Equatable {
         public let id: String
         public let title: String
         public let type: String     // "document" or "group"
-        /// **The RAW legacy `StructureItem.status` string — a known, bounded
-        /// disagreement window** (M3 P1's whole-branch review, seam 1). As of
-        /// M3 P1 nothing writes this field: the app derives one status from
-        /// per-pass states (`ReviewStatus.derived`) and every in-app surface
-        /// shows the projection, so a piece ruled on entirely through the pass
-        /// ladder reads "final" everywhere in Maugham while this tool still
-        /// reports its pre-M3 string (or null). Read-only display on both
-        /// sides — no MCP tool writes `status`, so the window cannot compound.
-        /// P3 widens this tool to report the projection (and the pass detail);
-        /// until then a Claude reading `status` is reading history, not state.
+        /// **The RAW legacy `StructureItem.status` string, kept for
+        /// compatibility only.** The disagreement window M3 P1's whole-branch
+        /// review opened (seam 1) is CLOSED as of P3: `review_status` beside
+        /// it is the projection every in-app surface draws, and that is the
+        /// truth. Nothing writes this field — not the app, not any MCP tool —
+        /// so what it carries is a project's pre-M3 string (or null), i.e.
+        /// history rather than state. It stays on the wire because removing a
+        /// shipped field is a breaking change this milestone does not make;
+        /// read `review_status`.
         public let status: String?
+        /// The one derived review status (M3 P3) — `ReviewStatus.derived` over
+        /// this piece's `pass_states`, the project's `review_passes` and the
+        /// legacy `status`. `"draft"` / `"revising"` / `"final"`. Null on a
+        /// GROUP node: a group is not a piece and has nothing to be ruled on.
+        public let review_status: String?
+        /// This piece's per-pass states, keyed by `ReviewPass.id`. An absent
+        /// KEY and an absent map both mean untouched, so a piece the writer
+        /// has never ruled on reports null. Null on a group node too.
+        public let pass_states: [String: PassState]?
         public let synopsis: String?
         public let word_count: Int?
         public let word_target: Int?
@@ -112,17 +140,22 @@ public enum GetOutlineTool: MCPTool {
         public let children: [Node]?
 
         enum CodingKeys: String, CodingKey {
-            case id, title, type, status, synopsis, word_count, word_target, modified, children
+            case id, title, type, status, review_status, pass_states
+            case synopsis, word_count, word_target, modified, children
         }
 
         public init(id: String, title: String, type: String,
-                    status: String?, synopsis: String?,
+                    status: String?,
+                    review_status: String?, pass_states: [String: PassState]?,
+                    synopsis: String?,
                     word_count: Int?, word_target: Int?,
                     modified: Date?, children: [Node]?) {
             self.id = id
             self.title = title
             self.type = type
             self.status = status
+            self.review_status = review_status
+            self.pass_states = pass_states
             self.synopsis = synopsis
             self.word_count = word_count
             self.word_target = word_target
@@ -140,6 +173,8 @@ public enum GetOutlineTool: MCPTool {
             // Optionals encoded explicitly so nil emits as JSON null rather
             // than omitting the key (uniform schema across nodes).
             try c.encode(status, forKey: .status)
+            try c.encode(review_status, forKey: .review_status)
+            try c.encode(pass_states, forKey: .pass_states)
             try c.encode(synopsis, forKey: .synopsis)
             try c.encode(word_count, forKey: .word_count)
             try c.encode(word_target, forKey: .word_target)
@@ -151,7 +186,12 @@ public enum GetOutlineTool: MCPTool {
     }
     public static let method = "get_outline"
     public static let description =
-        "Return the hierarchical manuscript structure with status, synopsis, and word counts."
+        "Return the hierarchical manuscript structure with review status, " +
+        "synopsis, and word counts. `review_status` (draft/revising/final) is " +
+        "the derived truth for a piece; `pass_states` says where it stands on " +
+        "each named review pass, keyed by the ids in the top-level " +
+        "`review_passes` ladder (an absent key means untouched). The legacy " +
+        "`status` string is kept for compatibility only — nothing writes it."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#
 
@@ -160,17 +200,24 @@ public enum GetOutlineTool: MCPTool {
         let params = try decodeParams(Params.self, from: paramsJSON)
         let entry = try resolveProject(params.project_id, in: registry)
         let store = entry.store
-        let nodes = Self.toNodes(store.manifest.structure, store: store)
+        // The projection, never `manifest.reviewPasses` raw — an absent or
+        // emptied stored list IS the presets, and is never written back.
+        let passes = store.manifest.effectiveReviewPasses
+        let nodes = Self.toNodes(store.manifest.structure, store: store, passes: passes)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        return try encoder.encode(Outline(nodes: nodes))
+        return try encoder.encode(Outline(
+            nodes: nodes,
+            review_passes: passes.map { PassInfo(id: $0.id, name: $0.name) }))
     }
 
     @MainActor
-    private static func toNodes(_ items: [StructureItem], store: ProjectStore) -> [Node] {
+    private static func toNodes(
+        _ items: [StructureItem], store: ProjectStore, passes: [ReviewPass]
+    ) -> [Node] {
         items.map { item in
             let isDoc = (item.type == .document)
-            let childNodes = item.children.map { toNodes($0, store: store) }
+            let childNodes = item.children.map { toNodes($0, store: store, passes: passes) }
             let modified: Date? = isDoc
                 ? Self.modifiedDate(for: item, store: store)
                 : Self.maxDescendantModified(in: item.children ?? [], store: store)
@@ -179,6 +226,16 @@ public enum GetOutlineTool: MCPTool {
                 title: item.title,
                 type: isDoc ? "document" : "group",
                 status: item.status,
+                // A group is not a piece: it is ruled on nowhere in the app,
+                // so it reports null rather than a status derived from an
+                // empty state map (which would read "draft" and be a claim).
+                review_status: isDoc
+                    ? ReviewStatus.derived(
+                        passStates: item.passStates,
+                        passes: passes,
+                        legacyStatus: item.status).rawValue
+                    : nil,
+                pass_states: isDoc ? item.passStates : nil,
                 synopsis: item.synopsis,
                 word_count: isDoc ? store.cachedWordCount(for: item.id) : nil,
                 word_target: item.wordTarget,

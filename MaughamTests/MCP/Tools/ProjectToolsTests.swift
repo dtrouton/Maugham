@@ -68,6 +68,138 @@ final class ProjectToolsTests: XCTestCase {
     }
 }
 
+// MARK: - get_outline reports the derived review status (M3 P3 Task 8)
+
+/// These assert the RAW JSON, not the tool's own `Codable` type. Decoding
+/// through `GetOutlineTool.Outline` cannot see whether a key was EMITTED —
+/// an absent key and an explicit `null` both decode to the same `nil` — and
+/// `Node`'s hand-written encoder exists precisely to make that distinction
+/// (uniform schema across nodes). A test that cannot see the difference
+/// cannot guard it.
+extension ProjectToolsTests {
+
+    /// Builds a project whose single document carries `passStates`, plus a
+    /// group with a child, so a group node's shape is assertable too.
+    fileprivate func makeReviewProject(
+        passStates: [String: PassState]?,
+        legacyStatus: String?,
+        reviewPasses: [ReviewPass] = []
+    ) async throws -> (URL, ProjectStore) {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PT-rev-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try "x".write(to: tmp.appendingPathComponent("manuscript/c1.md"),
+                      atomically: true, encoding: .utf8)
+        let doc = StructureItem(
+            id: "ch-1", title: "Ch 1", type: .document,
+            path: "manuscript/c1.md",
+            status: legacyStatus,
+            passStates: passStates)
+        let group = StructureItem(
+            id: "part-1", title: "Part One", type: .group,
+            children: [doc])
+        let manifest = ProjectManifest(
+            type: .novel, title: "Rev", author: "A",
+            created: Date(), modified: Date(),
+            structure: [group], research: [],
+            reviewPasses: reviewPasses)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        return (tmp, try await ProjectStore.load(from: tmp))
+    }
+
+    fileprivate func outlineJSON(_ url: URL, _ store: ProjectStore) async throws -> [String: Any] {
+        let reg = ProjectRegistry()
+        reg.register(url: url, store: store)
+        let id = ProjectIdentifier.id(for: url)
+        let data = try await GetOutlineTool.handle(
+            paramsJSON: Data("{\"project_id\":\"\(id)\"}".utf8), registry: reg)
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    func test_getOutline_reportsDerivedStatusAndPassStates() async throws {
+        // One preset pass touched, three untouched → `.revising`.
+        let (url, store) = try await makeReviewProject(
+            passStates: ["structural": .done, "line": .inProgress],
+            legacyStatus: nil)
+        let root = try await outlineJSON(url, store)
+        let nodes = try XCTUnwrap(root["nodes"] as? [[String: Any]])
+        let children = try XCTUnwrap(nodes[0]["children"] as? [[String: Any]])
+        let docNode = children[0]
+
+        XCTAssertEqual(docNode["review_status"] as? String, "revising")
+        let states = try XCTUnwrap(docNode["pass_states"] as? [String: Any])
+        XCTAssertEqual(states["structural"] as? String, "done")
+        XCTAssertEqual(states["line"] as? String, "in_progress")
+        XCTAssertEqual(states.count, 2)
+    }
+
+    /// Without the ladder a reader cannot ORDER the `pass_states` map, so the
+    /// outline carries the project's effective passes at its top level, in
+    /// ladder order.
+    func test_getOutline_carriesTheEffectivePassLadderInOrder() async throws {
+        let custom = [
+            ReviewPass(id: "beta", name: "Beta Read"),
+            ReviewPass(id: "polish", name: "Polish"),
+        ]
+        let (url, store) = try await makeReviewProject(
+            passStates: nil, legacyStatus: nil, reviewPasses: custom)
+        let root = try await outlineJSON(url, store)
+        let passes = try XCTUnwrap(root["review_passes"] as? [[String: Any]])
+        XCTAssertEqual(passes.map { $0["id"] as? String }, ["beta", "polish"])
+        XCTAssertEqual(passes.map { $0["name"] as? String }, ["Beta Read", "Polish"])
+    }
+
+    /// A project that has never customized its passes reports the presets —
+    /// `effectiveReviewPasses`, never the raw stored array.
+    func test_getOutline_uncustomizedProjectReportsThePresets() async throws {
+        let (url, store) = try await makeReviewProject(
+            passStates: nil, legacyStatus: nil)
+        let root = try await outlineJSON(url, store)
+        let passes = try XCTUnwrap(root["review_passes"] as? [[String: Any]])
+        XCTAssertEqual(passes.map { $0["id"] as? String },
+                       ReviewPass.presets.map(\.id))
+    }
+
+    /// A pre-M3 piece: no pass states, a legacy `"final"` string. The derived
+    /// status falls back to the legacy string, and `pass_states` is an emitted
+    /// JSON `null` rather than a missing key.
+    func test_getOutline_preM3Piece_derivesFromLegacyStatusAndNullsPassStates() async throws {
+        let (url, store) = try await makeReviewProject(
+            passStates: nil, legacyStatus: "final")
+        let root = try await outlineJSON(url, store)
+        let nodes = try XCTUnwrap(root["nodes"] as? [[String: Any]])
+        let docNode = try XCTUnwrap((nodes[0]["children"] as? [[String: Any]])?[0])
+
+        XCTAssertEqual(docNode["review_status"] as? String, "final")
+        XCTAssertEqual(docNode["status"] as? String, "final",
+                       "the legacy raw string stays on the wire")
+        // The uniform-schema rule: the KEY is present, carrying null.
+        XCTAssertTrue(docNode.keys.contains("pass_states"),
+                      "pass_states must be emitted as null, not omitted")
+        XCTAssertTrue(docNode["pass_states"] is NSNull)
+    }
+
+    /// A group is not a piece: it has no pass states and no derived status,
+    /// and both keys are emitted as null so every node has one schema.
+    func test_getOutline_groupNodesEmitBothReviewKeysAsNull() async throws {
+        let (url, store) = try await makeReviewProject(
+            passStates: ["structural": .done], legacyStatus: nil)
+        let root = try await outlineJSON(url, store)
+        let group = try XCTUnwrap((root["nodes"] as? [[String: Any]])?[0])
+        XCTAssertEqual(group["type"] as? String, "group")
+        XCTAssertTrue(group.keys.contains("review_status"))
+        XCTAssertTrue(group["review_status"] is NSNull)
+        XCTAssertTrue(group.keys.contains("pass_states"))
+        XCTAssertTrue(group["pass_states"] is NSNull)
+    }
+}
+
 extension ProjectToolsTests {
     func test_listProjects_includesCollection() async throws {
         let tmp = FileManager.default.temporaryDirectory
