@@ -106,6 +106,7 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `DeclaredWorldDeriver.swift` | Also the one-shot's pipe discipline: stdout is drained WHILE the process runs. Reading it from `terminationHandler` deadlocked on any answer past ~64 KB — the child blocks on its own write, so it never exits, so the handler never fires. **120s deadline** (Stage 3), four times the spike's measured 30s sonnet cost: an overrunning process is `terminate()`d and the derivation returns its ordinary honest `nil` — ordinarily through the SAME EOF-and-exit resolution every other unreadable answer already goes through, and by force (`OneShotOutput.deadlineExpired`, after a 2s `terminationGrace`) when a group member escapes the group SIGTERM and withholds EOF by holding the inherited pipe: CI run 31595012981 hit exactly that (the killpg/fork race), and a real CLI grandchild that setsids has the same shape. Both doors are the deadline's own; `derive` never hangs on a stranger's file descriptor |
 | `Diagnostic.swift` | `Diagnostic` + `CompilerRun` — the wire and sidecar shapes |
 | `DiagnosticsStore.swift` | The per-device, per-document sidecar, and the staleness rule |
+| `RoundHistory.swift` | `RoundFingerprint` (the one join-key for round-over-round identity — section + clause quote + anchor, never prose) + `RoundRecord` (a finished round's lane, number and fingerprints) + `RoundComparison` (the pure resolved/persisting/new count, on `DriftDetector`'s mould — no store, no I/O) |
 | `DiagnosticPromotion.swift` | What a kept note says once it is an op-logged task |
 | `RulingPerformer.swift` | rule / revoke / edit / restore — the only writes into a statement's `## Rulings` stratum |
 | `StatementEssay.swift` | Where the essay ends and the strata begin — the byte-exact split the Intent pane's editor binds through |
@@ -218,6 +219,31 @@ is the resumed session id, not the process.
   one per statement scope) and `.maugham/bible.<slug>.json`
   (`BibleStore.sidecarURL`, one per project). `.raw` is interpolated only at
   each of those two call sites.
+- **The round ring is the DOCUMENT's, not any one pass's.** `FileContent.rounds`
+  is one array per `docId`, capped at `roundHistoryDepth` (5) — every pass
+  files into the same ring, so five finished checks in Line push a Structural
+  round out of it exactly as five more Structural checks would. It is written
+  only by `replace`, and only for the run being SUPERSEDED — `RoundRecord(run:
+  diagnostics:)` is built from `finishedContent(docId:)`, which reads the
+  in-memory `byDoc` entry directly except while a preview is standing in for
+  it, when it reads the shadow `finishedBeforePreview` captured the moment the
+  preview began (keyed on the `previewing` Set, never on the shadow's
+  nil-ness — a cold document's first preview captures nothing, and a `??`
+  fallthrough there would read the run's own half-report as the previous
+  round). `latestRound(forPass:docId:)` — the one reader both `beginRun`'s
+  minting and the pane's `sinceLastRoundLine` go through — checks the standing
+  run first (newest of all, and not yet in the ring) and only then walks the
+  ring newest-first for a fingerprint-record matching that `passId`; a lane
+  whose records have all aged out of the shared ring answers `nil`, same as a
+  lane that has never run, so the next check in it mints round 1. **The round
+  number, and which pass it belongs to, are minted in `beginRun`'s synchronous
+  prefix — before the request is sent, before a single byte of preview
+  arrives.** They cannot wait: from the first closed section onward the
+  standing content IS this run's own preview, so a mint at record time would
+  read the run's half-report back and file the answer as the round after
+  itself. Minted once, the pair rides `StreamingRun` and threads through the
+  one `record(...)` spelling, so the preview and the final answer describe one
+  round rather than two checks that happen to disagree.
 - **3 / 6 — the arrival.** Nothing here holds an editor binding or a
   `Document`. What a run needs off the live document arrives as a
   `DocumentReading` value captured at the keystroke, and paragraph text is

@@ -66,8 +66,10 @@ Press **⌘R** — *Check Writing* — while a piece has an active pass, and the
 run is a numbered **round** in that pass's own count. The report leads with
 the distance travelled: *"Since round 4: 2 resolved · 1 persisting · 1 new"*
 — what the last round in this lane raised that's gone, what's still here,
-what's new. Round numbers are per pass, and Maugham only remembers the last
-five finished rounds of each; step away from a lane for longer than that and
+what's new. Round numbers are per pass, but the memory is the document's, not
+any one pass's: Maugham remembers a document's last five finished checks,
+across every pass it's been worked through. Run enough checks in other
+passes and a pass you haven't touched in a while ages out of that memory —
 the next check in it starts back at round 1, with nothing to compare against.
 
 **⌘⇧R** — *Fresh Eyes* — is a different kind of run: it ends the warm
@@ -90,9 +92,10 @@ question gets answered.
 ## What Claude sees, and what it can never set
 
 Claude's read tools carry the same facts the board and the queue draw from:
-`get_outline` reports each piece's derived status and its per-pass states,
-plus the project's own pass ladder in order; `list_annotations` and
-`get_annotation` report a note's triage mark and which pass it's stamped
-with. None of it is something Claude can write. Triage, Stet, and a piece's
-pass states are yours alone — the same membrane that keeps Claude out of your
-manuscript keeps it out of your review workflow too.
+`get_outline` reports each piece's derived status and its per-pass states —
+a pass with no entry there is untouched, the same reading the Inspector's
+ladder gives an unruled row — plus the project's own pass ladder in order;
+`list_annotations` and `get_annotation` report a note's triage mark and which
+pass it's stamped with. None of it is something Claude can write. Triage,
+Stet, and a piece's pass states are yours alone — the same membrane that
+keeps Claude out of your manuscript keeps it out of your review workflow too.

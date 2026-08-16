@@ -85,7 +85,7 @@ How the book looks — typography, cover direction, the references you're steeri
 
 ### Diagnostics mode (⌘⌥D)
 
-The compiler's report on the open document — Author's own pane, and its default. Press ⌘R ("Check Writing") to ask Claude to check what you've written since the last check; the header line says what happened last, and while a check is running you can press **Cancel**.
+The compiler's report on the open document — Author's own pane, and its default. Press ⌘R ("Check Writing") to ask Claude to check what you've written since the last check, or ⌘⇧R ("Fresh Eyes") to have it reread the whole piece cold; the header line says what happened last, and while a check is running you can press **Cancel**. See [Review Passes](review-passes.md#rounds-and-fresh-eyes) for what a check becomes once a piece has an active review pass.
 
 It reads as a report, three sections in order: **Conformance** — every clause you've declared, quoted back in your own words, each *holds*, *strains*, or untouched by this draft, with an **Open Intent** button in the section header; **Continuity** — questions raised against established facts and rules, each ending as a question rather than a verdict; **The reader** — dream-breaks and belief statements from the reading itself, capped at the sharpest three. No note ever shows a paragraph id — each carries the words that paragraph said, as a chip you click to jump there.
 
@@ -108,9 +108,9 @@ The gear menu picks the model a check runs against — **Fast**, **Standard**, o
 
 Research notes, PDFs, recordings, links, palette cards, photographs and loose canvas scraps all appear; a photograph shows a thumbnail, everything else shows the same kind glyph the canvas draws it with. If you delete something, it simply leaves the shelf — you'll never see a row that's only an id.
 
-**In Author, click a pin and it opens as a column beside your prose.** One at a time: clicking another swaps it, clicking the same one again sends it back, and Escape closes it. Drag the divider to set the width — it's remembered per project. The column squeezes your writing column while it's open and gives the width straight back when it isn't, and it goes away with everything else under ⌘\.
+**In Author or Review, click a pin and it opens as a column beside your prose.** One at a time: clicking another swaps it, clicking the same one again sends it back, and Escape closes it. Drag the divider to set the width — it's remembered per project. The column squeezes your writing column while it's open and gives the width straight back when it isn't, and it goes away with everything else under ⌘\.
 
-**The column itself is Author's only.** In Review the shelf is still there — you can see what a piece is pinned to while you adjudicate it — but a row isn't a button there: a caption at the bottom reads *"Studying a pin opens in Author (⌘2)."* Study something in Author, switch to Review and back, and it's still up — Author remembers what you were looking at, so ⌘2 brings the column straight back.
+**The column studies in Author and Review.** In Plan or Publish the shelf is still there — you can see what a piece is pinned to — but a row isn't a button there: a caption at the bottom reads *"Studying a pin opens here in Author or Review."* Study something in Author, switch to Review and back (or the other way round), and it's still up — what's studied doesn't reset on a persona switch between the two personas that study it, only on leaving to one that doesn't.
 
 **This is the same set Claude is briefed on.** When you press ⌘R the compiler is told what this piece is pinned to, by name — so what you see on the shelf is what it can go and read.
 
