@@ -132,6 +132,13 @@ public enum GetOutlineTool: MCPTool {
         /// This piece's per-pass states, keyed by `ReviewPass.id`. An absent
         /// KEY and an absent map both mean untouched, so a piece the writer
         /// has never ruled on reports null. Null on a group node too.
+        ///
+        /// **A key that is NOT in `review_passes` is residue of a deleted
+        /// pass, and that is by design**: deleting a pass removes it from the
+        /// ladder and never rewrites every piece's state map, so the writer
+        /// who restores it finds their rulings intact. `ReviewStatus.derived`
+        /// walks the LADDER, so residue is inert — it is reported because the
+        /// map is reported whole, not because anything reads it.
         public let pass_states: [String: PassState]?
         public let synopsis: String?
         public let word_count: Int?
@@ -190,7 +197,9 @@ public enum GetOutlineTool: MCPTool {
         "synopsis, and word counts. `review_status` (draft/revising/final) is " +
         "the derived truth for a piece; `pass_states` says where it stands on " +
         "each named review pass, keyed by the ids in the top-level " +
-        "`review_passes` ladder (an absent key means untouched). The legacy " +
+        "`review_passes` ladder (an absent key means untouched; a key NOT in " +
+        "the ladder is residue of a pass the writer deleted — states outlive " +
+        "their pass by design, and nothing derives from them). The legacy " +
         "`status` string is kept for compatibility only — nothing writes it."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#

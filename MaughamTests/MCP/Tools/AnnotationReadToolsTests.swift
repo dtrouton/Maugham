@@ -178,6 +178,15 @@ final class AnnotationReadToolsTests: XCTestCase {
         let item = try XCTUnwrap(items.first { $0["id"] as? String == stamped })
         XCTAssertEqual(item["triage"] as? String, "do")
         XCTAssertEqual(item["review_pass_id"] as? String, "line")
+        // **The wire census.** `Item.encode` is hand-written, so a field added
+        // to the struct and forgotten in the encoder vanishes with nothing
+        // red. This is the shape of an open, triaged, stamped comment — the
+        // nil optionals below it use `encodeIfPresent` and are absent by
+        // design (`suggested_text`, `user_response`, `resolved_at`).
+        XCTAssertEqual(Set(item.keys), [
+            "id", "kind", "paragraph_id", "body", "status", "created_at",
+            "is_stale", "triage", "review_pass_id",
+        ], "get the encoder and this list back in step before changing either")
 
         await h.documentStore.close()
     }
@@ -237,6 +246,15 @@ final class AnnotationReadToolsTests: XCTestCase {
         let marked = try await fetch(stamped)
         XCTAssertEqual(marked["triage"] as? String, "discuss")
         XCTAssertEqual(marked["review_pass_id"] as? String, "copyedit")
+        // The census, as above — `Result.encode` is hand-written too. The
+        // single-record sibling carries two keys the list has no field for:
+        // `history`, and `prior_text`, which an anchored note takes from the
+        // paragraph it was written against. The `encodeIfPresent` absentees
+        // here are `suggested_text`, `user_response` and `resolved_at`.
+        XCTAssertEqual(Set(marked.keys), [
+            "id", "kind", "paragraph_id", "body", "prior_text", "status",
+            "created_at", "is_stale", "triage", "review_pass_id", "history",
+        ], "get the encoder and this list back in step before changing either")
 
         let bare = try await fetch(legacy)
         XCTAssertTrue(bare.keys.contains("triage"))

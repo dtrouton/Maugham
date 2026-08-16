@@ -137,6 +137,14 @@ extension ProjectToolsTests {
         XCTAssertEqual(states["structural"] as? String, "done")
         XCTAssertEqual(states["line"] as? String, "in_progress")
         XCTAssertEqual(states.count, 2)
+        // **The wire census.** `Node.encode` is hand-written, so a field added
+        // to the struct and forgotten in the encoder vanishes with nothing
+        // red. A DOCUMENT node's schema: every key emitted (null when nil),
+        // and `children` absent, which is how a leaf says it is one.
+        XCTAssertEqual(Set(docNode.keys), [
+            "id", "title", "type", "status", "review_status", "pass_states",
+            "synopsis", "word_count", "word_target", "modified",
+        ], "get the encoder and this list back in step before changing either")
     }
 
     /// Without the ladder a reader cannot ORDER the `pass_states` map, so the
@@ -197,6 +205,12 @@ extension ProjectToolsTests {
         XCTAssertTrue(group["review_status"] is NSNull)
         XCTAssertTrue(group.keys.contains("pass_states"))
         XCTAssertTrue(group["pass_states"] is NSNull)
+        // The census, the other half: a group's schema is the document's plus
+        // `children`. Nothing else may differ between the two node kinds.
+        XCTAssertEqual(Set(group.keys), [
+            "id", "title", "type", "status", "review_status", "pass_states",
+            "synopsis", "word_count", "word_target", "modified", "children",
+        ], "get the encoder and this list back in step before changing either")
     }
 }
 

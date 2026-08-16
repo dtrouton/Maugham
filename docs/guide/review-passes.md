@@ -94,7 +94,9 @@ question gets answered.
 Claude's read tools carry the same facts the board and the queue draw from:
 `get_outline` reports each piece's derived status and its per-pass states —
 a pass with no entry there is untouched, the same reading the Inspector's
-ladder gives an unruled row — plus the project's own pass ladder in order;
+ladder gives an unruled row, and an entry under an id the ladder no longer
+lists is a pass you deleted, kept so the states come back if you add it
+again — plus the project's own pass ladder in order;
 `list_annotations` and `get_annotation` report a note's triage mark and which
 pass it's stamped with. None of it is something Claude can write. Triage,
 Stet, and a piece's pass states are yours alone — the same membrane that

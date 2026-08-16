@@ -3497,6 +3497,50 @@ final class CompilerRunCommandTests: XCTestCase {
                       "…so the whole briefing re-embeds; got \(runner.sends[2].message)")
     }
 
+    /// **A fresh-eyes press with nothing to read costs the writer nothing.**
+    /// `retireSession()` sits BELOW the empty-delta guard on purpose — the
+    /// warm process is the expensive thing in this design, and a keystroke
+    /// that turns out to have no prose behind it must not have killed it on
+    /// the way past. The ordering was asserted in three prose comments
+    /// (`beginRun`'s own, and `Maugham/Compiler/AREA.md`'s lifetime row) and
+    /// pinned by nothing.
+    ///
+    /// Falsification: hoist `if freshEyes { retireSession() }` above the
+    /// `guard !delta.isEmpty` and `shutdowns` reads 1 — the session established
+    /// by the first run is reaped for a press that then reports `nothingNew`.
+    func test_freshEyesWithNothingToReadKeepsTheWarmSession() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        // A real run first, so there IS a warm session to lose. Without it
+        // `runner` is still nil inside the orchestrator and `retireSession`
+        // would be a silent no-op wherever it sat.
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(runner.shutdowns, 0)
+        XCTAssertEqual(harness.spawns, 1)
+
+        // Nothing standing to read. A cold read consults no marker, so this —
+        // not "unchanged prose" — is what an empty delta looks like on the
+        // fresh path (`DeltaBuilder` walks `sequence` when `since` is nil).
+        harness.setReading(CompilerOrchestrator.DocumentReading(
+            ops: [], paragraphs: [:], sequence: []))
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        settle()
+
+        XCTAssertEqual(runner.shutdowns, 0,
+                       "the press had nothing to read, so it must not have cost "
+                       + "the writer their warm session")
+        XCTAssertEqual(harness.spawns, 1, "…and nothing was spawned in its place")
+        XCTAssertEqual(runner.sends.count, 1, "…and no turn was spent")
+        guard case .nothingNew(let stateDocId, _) = harness.orchestrator.runState else {
+            return XCTFail("expected the idle 'nothing new' variant, got "
+                           + "\(harness.orchestrator.runState)")
+        }
+        XCTAssertEqual(stateDocId, docId)
+    }
+
     /// **A cold read is briefed on no prior round, though its lane has one.**
     /// The round section would hand the model the last round's findings and
     /// ask it to compare — which is exactly what fresh eyes exists not to do.
