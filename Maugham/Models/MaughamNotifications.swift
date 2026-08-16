@@ -52,6 +52,14 @@ extension Notification.Name {
     /// against its own document would spend a real API call on prose nobody is
     /// looking at.
     public static let maughamRunCompiler = Notification.Name("maugham.run.compiler")
+    /// Scope: .keyWindow — "Fresh Eyes" (⌘⇧R). The same trigger read cold: the
+    /// warm session is retired and the piece is read whole, rather than the
+    /// delta since the last run's marker. Key-window-scoped for exactly the
+    /// reason ⌘R is, and more so — a cold read is the most expensive thing the
+    /// compiler can be asked for, and a background window spending one on
+    /// prose nobody is looking at is the worst case of the same defect.
+    public static let maughamFreshEyesCompiler =
+        Notification.Name("maugham.run.compiler.fresheyes")
     public static let maughamToggleNoChrome = Notification.Name("maugham.toggleNoChrome")
     public static let maughamToggleReviewMode = Notification.Name("maugham.toggleReviewMode")
     /// Posted by the Translation Review menu command (`.keyWindow`, menu-command

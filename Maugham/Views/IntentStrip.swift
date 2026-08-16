@@ -31,6 +31,20 @@ struct IntentStrip: View {
     /// — see the type doc: the narrow input is the invariant.
     let line: String
 
+    /// Whether to carry the quiet mark: the standing round judged the draft to
+    /// have drifted from an intent the writer has not touched since
+    /// (`IntentDrift.mayTrailDraft`).
+    ///
+    /// **A `Bool`, and that is the whole of ADR 0027 §1 holding here.** The
+    /// mark's words are `Self.mayTrailDraftMark` below — written by this app,
+    /// fixed at compile time, the same for every writer and every draft.
+    /// Nothing the model said can ride this input, because a flag cannot
+    /// carry a sentence; the one sentence the schema asks for beside the
+    /// verdict is dropped where it is read and never plumbed here.
+    /// `IntentStripTests`' stored-input census is what says so, with a planted
+    /// offender to prove it can see one.
+    var mayTrailDraft: Bool = false
+
     /// Roughly a running head's worth. Past this the line is cut on a word
     /// boundary and ellipsised.
     static let maximumLength = 90
@@ -45,6 +59,19 @@ struct IntentStrip: View {
     /// be legible when looked at.
     static let restingOpacity: Double = 0.7
 
+    /// The words the mark says, fixed at compile time.
+    ///
+    /// Lower case and unpunctuated, in the strip's own register: this is an
+    /// aside in the running head, not a warning. It says what is true and
+    /// stops — *may*, because a draft moving away from its declared intent is
+    /// as often the draft finding out what it is as it is a mistake, and the
+    /// only reader who can tell is the one writing.
+    static let mayTrailDraftMark = "intent may trail the draft"
+
+    /// The mark's glyph: a branch, which is what has happened — two things
+    /// that were together have gone different ways.
+    static let mayTrailDraftSymbol = "arrow.triangle.branch"
+
     /// The affordance appears on hover and not before — the strip is something
     /// the writer reads, and a permanently underlined line is a control sitting
     /// over the prose.
@@ -58,23 +85,53 @@ struct IntentStrip: View {
             // that is left alone rather than fixed here.
             MaughamEvent.postDetailSegment(.intent)
         } label: {
-            Text(line)
-                .font(.system(size: Self.fontSize))
-                .foregroundStyle(.secondary)
-                .opacity(Self.restingOpacity)
-                .underline(isHovering)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
-                .padding(.bottom, 2)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .contentShape(Rectangle())
+            HStack(spacing: 5) {
+                Text(line)
+                    // The underline stays on the writer's own words: the mark
+                    // is not a second affordance, it rides this one.
+                    .underline(isHovering)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if mayTrailDraft { mark }
+            }
+            .font(.system(size: Self.fontSize))
+            .foregroundStyle(.secondary)
+            .opacity(Self.restingOpacity)
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .help("Open Intent")
         .accessibilityHint("Opens the Intent pane")
+    }
+
+    /// The mark itself — glyph and fixed words, inside the one affordance.
+    ///
+    /// **Part of the button's label rather than a control of its own**, which
+    /// is both the layout and the answer: a writer who reads that their intent
+    /// may trail the draft wants the intent, and the strip already opens it.
+    /// A second target here would be a second thing to hit over the prose.
+    ///
+    /// The glyph is hidden from accessibility and the words are not: a lean, a
+    /// colour and a symbol are all inaudible, so the mark reaches VoiceOver as
+    /// the button's own label reading the line and then the mark.
+    private var mark: some View {
+        HStack(spacing: 3) {
+            Image(systemName: Self.mayTrailDraftSymbol)
+                .accessibilityHidden(true)
+            Text(Self.mayTrailDraftMark)
+                .lineLimit(1)
+        }
+        // **The LINE yields, never the mark.** Both are flexible text in one
+        // row, and a long intent over a narrow window would otherwise be free
+        // to truncate either — a half-eaten "intent may trail th…" reads as a
+        // rendering bug, while the line already has an ellipsis that says it
+        // continues. Sized to its content, the mark is whole or absent.
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     // MARK: - Whether there is a strip at all

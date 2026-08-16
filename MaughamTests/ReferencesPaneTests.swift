@@ -300,12 +300,14 @@ final class ReferencesPaneTests: XCTestCase {
                       "the empty state's title is not on screen. Found: \(text)")
     }
 
-    // MARK: - Contract: outside Author, a pin is inert, and says why
+    // MARK: - Contract: Review studies too (Denver's 2026-08-14 ruling, spec §9)
 
-    /// **The assistant column is Author-only (2026-08-08 ruling).** `.references`
-    /// stays reachable from Review, so a Review mount must not be a dead click —
-    /// no button reaches the model, and the pane says where studying happens.
-    func test_aReviewMountRendersRowsInertWithAFooterAndNoDeadClick() async throws {
+    /// **The assistant column widens to Review as well as Author.**
+    /// `ReferencesPane.isInteractive` and `AssistantColumn.isPresented` read
+    /// the same predicate (`Persona.studiesPinnedReferences`), so a Review
+    /// mount promotes exactly like Author's — widening one site without the
+    /// other is the defect this predicate exists to make impossible.
+    func test_theShelfDrawsARowPerPinAndAClickPromotesItInReviewToo() async throws {
         let model = AssistantColumnModel()
         let pins = [pin("res-note", .research(itemId: "res-note"), "The falls at night")]
 
@@ -316,20 +318,49 @@ final class ReferencesPaneTests: XCTestCase {
                            assistant: model)
                 .frame(width: 300, height: 500)))
 
-        let text = allStrings(in: window).joined(separator: "\n")
-        XCTAssertTrue(text.contains(ReferencesPane.nonAuthorFooter),
-                      "outside Author the pane must explain where studying a pin "
-                      + "happens. Found: \(text)")
-        XCTAssertTrue(text.contains("The falls at night"),
-                      "the row's title must still be on screen, just not pressable")
+        let button = try findButton(labelled: "The falls at night", in: window)
+        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump()
 
-        do {
-            _ = try findButton(labelled: "The falls at night", in: window)
-            XCTFail("a pin row outside Author must not be a pressable button — "
-                    + "the column it would promote into is Author-only, so a press "
-                    + "here would be a dead click")
-        } catch is XCTSkip {
-            // Expected: no such button was built.
+        XCTAssertEqual(model.studied?.id, "res-note",
+                       "Review studies pins exactly like Author does — same predicate, "
+                       + "same column")
+    }
+
+    // MARK: - Contract: outside Author and Review, a pin is inert, and says why
+
+    /// **Plan and Publish still veto** (`Persona.studiesPinnedReferences` is
+    /// false for both), so a mount in either must not be a dead click — no
+    /// button reaches the model, and the pane says where studying happens now
+    /// that the answer names two personas rather than one.
+    func test_aNonStudyingMountRendersRowsInertWithAFooterAndNoDeadClick() async throws {
+        for persona: Persona in [.plan, .publish] {
+            let model = AssistantColumnModel()
+            let pins = [pin("res-note", .research(itemId: "res-note"), "The falls at night")]
+
+            let window = mount(AnyView(
+                ReferencesPane(rows: ReferencesPane.rows(for: pins, in: index()),
+                               projectRoot: temp.url,
+                               persona: persona,
+                               assistant: model)
+                    .frame(width: 300, height: 500)))
+
+            let text = allStrings(in: window).joined(separator: "\n")
+            XCTAssertTrue(text.contains(ReferencesPane.nonStudyingFooter),
+                          "\(persona) must explain where studying a pin happens. "
+                          + "Found: \(text)")
+            XCTAssertTrue(text.contains("The falls at night"),
+                          "the row's title must still be on screen in \(persona), just "
+                          + "not pressable")
+
+            do {
+                _ = try findButton(labelled: "The falls at night", in: window)
+                XCTFail("a pin row in \(persona) must not be a pressable button — the "
+                        + "column it would promote into does not study there, so a "
+                        + "press here would be a dead click")
+            } catch is XCTSkip {
+                // Expected: no such button was built.
+            }
         }
     }
 

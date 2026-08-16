@@ -60,6 +60,16 @@ final class DiagnosticIngestTests: XCTestCase {
         """
     }
 
+    /// The fifth section (M3-P3 Task 4): the round's verdict on whether the
+    /// draft has drifted from the declared intent, with the one sentence the
+    /// schema asks for when it has.
+    private var intentDriftLine: String {
+        """
+        {"section":"intent_drift","verdict":"drifted",\
+        "note":"The last two scenes reach for a warmth the intent rules out."}
+        """
+    }
+
     private func parseSection(
         _ line: String, live: ((String) -> String?)? = nil
     ) -> DiagnosticIngest.PartialSection? {
@@ -106,6 +116,12 @@ final class DiagnosticIngestTests: XCTestCase {
             DiagnosticIngest.SectionField.silent,
             DiagnosticIngest.SectionField.dreamBreak,
             DiagnosticIngest.SectionField.belief,
+            DiagnosticIngest.SectionField.intentDrift,
+            DiagnosticIngest.SectionField.verdict,
+            DiagnosticIngest.SectionField.drifted,
+            // Read and dropped, but still read — so the name the parser looks
+            // for has to be the name the prompt asks for.
+            DiagnosticIngest.SectionField.driftNote,
         ]
         for name in names {
             XCTAssertTrue(
@@ -644,19 +660,139 @@ final class DiagnosticIngestTests: XCTestCase {
         }
     }
 
-    /// v2 drops `intent_drift` entirely (Stage 3 replaces it with a pattern
-    /// computed from run records), and mints no drift note of its own.
-    func test_v2MintsNoDriftNote() {
-        let text = [conformanceLine, continuityLine, readerLine, factsLine]
+    /// **Deliberately inverted, M3-P3 Task 4.** This was
+    /// `test_v2MintsNoDriftNote`, and its second assertion pinned the ABSENCE
+    /// of `intent_drift` from the schema: v2 dropped v1's drift field, and
+    /// M2's replacement was `DriftDetector`'s clause-strain *pattern* across
+    /// run records — nothing on the wire. P3 asks the question again, as a
+    /// judged per-round verdict rather than v1's anchorless note, so the v2
+    /// pin is retired and replaced by its opposite.
+    ///
+    /// What did NOT change is the half that was always the point: **no
+    /// `Diagnostic` is minted from drift**. The verdict is a projection onto
+    /// the run record, never a note with an id, an anchor and a reply field.
+    func test_p3AsksForAnIntentDriftVerdict() {
+        let text = [conformanceLine, continuityLine, readerLine, factsLine, intentDriftLine]
             .joined(separator: "\n")
         guard let outcome = parseAll(text) else { return XCTFail("expected an outcome") }
 
         XCTAssertTrue(
             outcome.accepted.allSatisfy { $0.kind != nil },
             "every v2 note carries a kind; kind == nil is the mark of a v1 record")
+        XCTAssertTrue(
+            CompilerPrompt.sectionSchemaDescription.contains(
+                DiagnosticIngest.SectionField.intentDrift),
+            "P3's contract asks the drift question as a fifth section")
+
+        // The four note-bearing sections carry four notes and one fact
+        // between them; the drift section adds neither.
+        XCTAssertEqual(outcome.accepted.count, 4)
+        XCTAssertEqual(outcome.facts.count, 1)
+        XCTAssertEqual(outcome.intentDriftVerdict, DiagnosticIngest.SectionField.drifted)
+    }
+
+    // MARK: v2 — the intent-drift verdict (M3-P3 Task 4)
+
+    func test_theDriftSectionYieldsItsVerdictAndNothingElse() {
+        guard let section = parseSection(intentDriftLine) else {
+            return XCTFail("expected an intent_drift section")
+        }
+
+        XCTAssertEqual(section.intentDriftVerdict, "drifted")
+        XCTAssertEqual(section.accepted, [], "a verdict is not a note")
+        XCTAssertEqual(section.facts, [])
+        XCTAssertEqual(section.conformance, [])
+        XCTAssertEqual(
+            section.droppedDangling, 0,
+            "the drift section can lose nothing the writer would have read")
+    }
+
+    func test_holdsIsTheOtherRecognisedVerdict() {
+        let line = "{\"section\":\"intent_drift\",\"verdict\":\"holds\"}"
+        XCTAssertEqual(parseSection(line)?.intentDriftVerdict, "holds")
+    }
+
+    /// The no-unknown-case discipline (tripwire 12's cousin, `TriageMark`'s
+    /// rule): the verdict is a projection this build never re-encodes, so a
+    /// word it does not recognise reads as no verdict at all rather than
+    /// travelling into the sidecar to be drawn under a glyph nothing has.
+    func test_anUnrecognisedVerdictReadsAsNoVerdict() {
+        let unrecognised = [
+            "{\"section\":\"intent_drift\",\"verdict\":\"maybe\"}",
+            "{\"section\":\"intent_drift\",\"verdict\":\"\"}",
+            "{\"section\":\"intent_drift\",\"verdict\":42}",
+            "{\"section\":\"intent_drift\"}",
+        ]
+        for line in unrecognised {
+            guard let section = parseSection(line) else {
+                return XCTFail("the section still parses: \(line)")
+            }
+            XCTAssertNil(section.intentDriftVerdict, line)
+        }
+
+        // Control: the same line with a recognised verdict does yield one, so
+        // the nils above are not an always-nil parser passing vacuously.
+        XCTAssertEqual(
+            parseSection("{\"section\":\"intent_drift\",\"verdict\":\"HOLDS\"}")?
+                .intentDriftVerdict,
+            "holds", "case is the model's business, not the contract's")
+    }
+
+    /// **A four-section v2 answer still ingests whole.** The fifth section is
+    /// additive: an answer from a model that never saw it loses nothing, and
+    /// the verdict is simply absent.
+    func test_aFourSectionAnswerStillIngestsWholeWithNoVerdict() {
+        let text = [conformanceLine, continuityLine, readerLine, factsLine]
+            .joined(separator: "\n")
+        guard let outcome = parseAll(text) else { return XCTFail("expected an outcome") }
+
+        XCTAssertEqual(outcome.accepted.count, 4)
+        XCTAssertEqual(outcome.conformance.count, 3)
+        XCTAssertEqual(outcome.facts.count, 1)
+        XCTAssertNil(outcome.intentDriftVerdict)
+    }
+
+    /// **The fold keeps the latest non-nil verdict**, which is what lets the
+    /// verdict survive a stream: sections arrive one at a time and are folded
+    /// through `combining`, so a drift section that arrives BEFORE the sections
+    /// after it must not be erased by their nils.
+    ///
+    /// Falsification: delete `combining`'s `?? accumulated` and this goes red
+    /// on the first assertion.
+    func test_theFoldKeepsTheLatestNonNilVerdict() throws {
+        let drift = try XCTUnwrap(parseSection(intentDriftLine))
+        let facts = try XCTUnwrap(parseSection(factsLine))
+
+        XCTAssertEqual(
+            DiagnosticIngest.combining(drift, facts).intentDriftVerdict, "drifted",
+            "a section with no verdict must not erase the one already folded in")
+        XCTAssertEqual(
+            DiagnosticIngest.combining(facts, drift).intentDriftVerdict, "drifted")
+
+        // A model that restates the section: the later word wins, the same
+        // way the final result replaces the stream.
+        let holds = try XCTUnwrap(
+            parseSection("{\"section\":\"intent_drift\",\"verdict\":\"holds\"}"))
+        XCTAssertEqual(DiagnosticIngest.combining(drift, holds).intentDriftVerdict, "holds")
+        XCTAssertNil(DiagnosticIngest.combining(.empty, facts).intentDriftVerdict)
+    }
+
+    /// **The model's sentence is read and dropped** (ADR 0027: nothing
+    /// model-produced renders in the editor's chrome). The outcome has nowhere
+    /// to put it, and the strip Task 5 draws is app-authored from the verdict
+    /// alone.
+    func test_theModelsDriftNoteNeverBecomesAnythingTheWriterReads() {
+        let text = [conformanceLine, continuityLine, readerLine, factsLine, intentDriftLine]
+            .joined(separator: "\n")
+        guard let outcome = parseAll(text) else { return XCTFail("expected an outcome") }
+
+        let prose = outcome.accepted.map(\.body)
+            + outcome.accepted.compactMap(\.clauseQuote)
+            + outcome.facts.map(\.fact)
+            + outcome.conformance.map(\.clauseQuote)
         XCTAssertFalse(
-            CompilerPrompt.sectionSchemaDescription.contains("intent_drift"),
-            "the v2 contract has no drift field to parse")
+            prose.contains { $0.contains("warmth the intent rules out") },
+            "the drift note reached the writer through some other field")
     }
 
     func test_everyV2NoteAndFactGetsItsOwnId() {

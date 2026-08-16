@@ -125,10 +125,38 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// enforcement is the cap of three accepted, not a count of the rest.
     var truncatedReader: Int?
 
+    // The round stamps (M3-P3 §6). All four are optional and all four are
+    // written by the run at the keystroke; a run made with no review pass
+    // active carries `passId == nil` and `round == nil`, which is an ordinary
+    // M2 run rather than a degenerate round.
+
+    /// The review pass the writer had active on this piece when the run
+    /// started — the round's **comparison lane** (`RoundComparison`'s decision
+    /// 1). `nil` is the passless lane, which is a lane of its own.
+    var passId: String?
+    /// Which round of that pass this run is, counting from 1. `nil` on a
+    /// passless run: nothing to number, and a number with no lane could not be
+    /// compared against anything.
+    var round: Int?
+    /// Whether this round was read cold — the session retired and the whole
+    /// piece re-read (⌘⇧R) rather than the delta since the marker.
+    var freshEyes: Bool?
+    /// The round's judgement of whether the draft has drifted from the
+    /// declared intent. A `String` rather than an enum for the same reason
+    /// `RoundFingerprint.kind` is: it is a model's verdict on a wire this
+    /// build may outlive, and an unrecognised word must read as unrecognised
+    /// rather than fail the sidecar.
+    ///
+    /// **Distinct from `DriftDetector`** (M2's clause-strain *pattern* across
+    /// runs), which keeps its own meaning and its own pane line. This is the
+    /// per-round judged verdict; never overload the bare word.
+    var intentDriftVerdict: String?
+
     init(id: String, at: Date, model: String, lastOpId: String?,
          deltaSummary: String, intentSnapshot: String?, droppedDangling: Int = 0,
          clauseStatuses: [DiagnosticIngest.ClauseStatus]? = nil,
-         truncatedReader: Int? = nil) {
+         truncatedReader: Int? = nil, passId: String? = nil, round: Int? = nil,
+         freshEyes: Bool? = nil, intentDriftVerdict: String? = nil) {
         self.id = id
         self.at = at
         self.model = model
@@ -138,6 +166,10 @@ struct CompilerRun: Codable, Equatable, Sendable {
         self.droppedDangling = droppedDangling
         self.clauseStatuses = clauseStatuses
         self.truncatedReader = truncatedReader
+        self.passId = passId
+        self.round = round
+        self.freshEyes = freshEyes
+        self.intentDriftVerdict = intentDriftVerdict
     }
 
     /// Hand-written for one field: a sidecar written before `droppedDangling`
@@ -145,10 +177,14 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// synthesised decoder does not fall back to a property's default, and a
     /// throw here reads to the writer as a document that was never checked
     /// (`DiagnosticsStore.load` treats an undecodable file as empty).
-    /// `clauseStatuses` and `truncatedReader` need no such care — they are
-    /// optional, so `decodeIfPresent` is what the synthesised decoder would
-    /// have written anyway; they are spelled out here only because this
-    /// initializer exists.
+    /// `clauseStatuses`, `truncatedReader` and the four round stamps need no
+    /// such care — they are optional, so `decodeIfPresent` is what the
+    /// synthesised decoder would have written anyway; they are spelled out
+    /// here only because this initializer exists. **Every field this struct
+    /// gains needs a line here**: the hand-written decoder does not consult a
+    /// property's default, so a field added to the type and forgotten here
+    /// decodes as an uninitialized-property compile error at best and, when
+    /// it is non-optional, throws on every pre-existing sidecar.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -161,5 +197,10 @@ struct CompilerRun: Codable, Equatable, Sendable {
         clauseStatuses = try c.decodeIfPresent(
             [DiagnosticIngest.ClauseStatus].self, forKey: .clauseStatuses)
         truncatedReader = try c.decodeIfPresent(Int.self, forKey: .truncatedReader)
+        passId = try c.decodeIfPresent(String.self, forKey: .passId)
+        round = try c.decodeIfPresent(Int.self, forKey: .round)
+        freshEyes = try c.decodeIfPresent(Bool.self, forKey: .freshEyes)
+        intentDriftVerdict = try c.decodeIfPresent(
+            String.self, forKey: .intentDriftVerdict)
     }
 }

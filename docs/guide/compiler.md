@@ -107,6 +107,37 @@ record, never a background process. It carries no id, offers no dismissal and
 no reply field: press it and it takes you to Intent, and the pattern breaking
 on a later check is what takes the line away, not a tap.
 
+Every check also answers a quieter, more direct version of the same question:
+does the draft still hold to what you declared? A **drifted** verdict leaves
+a small mark on the intent strip — *"intent may trail the draft"* — that
+stays until a later check comes back holding, or until you edit the
+statement. A check against no declared intent records no verdict; there's
+nothing for the draft to trail.
+
+## Rounds
+
+Check a piece while it has an active review pass — set by clicking a chip on
+the [Review board](review-passes.md#the-board) — and the check becomes a
+numbered **round** in that pass's own count. The report leads with what
+changed since the last one: *"Since round 4: 2 resolved · 1 persisting · 1
+new"*. Round numbers are per pass, but the memory behind them is the
+document's, not any one pass's: Maugham remembers a document's last six
+finished checks, across every pass. Once enough later checks stack up behind
+a round — six, counting the one still standing — it ages out of memory, so a
+Structural round buried under a long run of Line checks is gone, and the next
+check back in Structural starts over at round 1, with nothing behind it to
+compare against. See [Review Passes](review-passes.md#rounds-and-fresh-eyes) for the
+pass side of this.
+
+## Fresh Eyes
+
+**⌘⇧R** — *Fresh Eyes* — asks for a different kind of read: it ends the
+warm session and reads the whole piece cold, briefed on your intent, your
+rulings, and the bible, but deliberately not on anything an earlier round
+found. Its report says so where the since-last-round line would otherwise
+be: *"Fresh eyes"*, or *"Fresh eyes · round 3"* when it's also filed against
+a pass.
+
 ## Reading a piece for the first time
 
 The first time you check a document that has some real prose in it, the pane

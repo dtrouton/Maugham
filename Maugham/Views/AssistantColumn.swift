@@ -132,20 +132,24 @@ struct AssistantColumn: View {
     /// reference column that survived it would be the loudest thing left on
     /// screen.
     ///
-    /// **`persona` is the third veto, and Denver's ruling (2026-08-08): the
-    /// assistant column is Author's only, for now.** In Plan it would take
-    /// 260–620pt from the canvas §8A.3 protects; in Publish it would be a study
-    /// column a registry never offered. `.references` stays reachable from
-    /// Review (the shelf itself is still ● there, §6.3) — clicking a pin outside
-    /// Author does not present a column; see `ReferencesPane.isInteractive`,
-    /// which keeps that a non-event rather than a dead click.
+    /// **`persona` is the third veto, asked through
+    /// `Persona.studiesPinnedReferences`** — Denver's 2026-08-14 ruling (spec
+    /// §9, closing the M2-era held decision that started as Author-only,
+    /// 2026-08-08): a reviewer adjudicating a pin needs the same column a
+    /// drafter does, so the column widens to Review as well. Plan and Publish
+    /// still veto: in Plan it would take 260–620pt from the canvas §8A.3
+    /// protects; in Publish it would be a study column a registry never
+    /// offered. See `ReferencesPane.isInteractive`, the predicate's second
+    /// read site, which keeps a non-studying mount a non-event rather than a
+    /// dead click.
     ///
     /// **A persona input, not dismiss-on-switch** — the recorded clean cut from
-    /// the escape-arbiter fix. Switching away from Author hides the column but
-    /// leaves `studied` alone, so ⌘2 back restores exactly what was up.
+    /// the escape-arbiter fix. Switching to a non-studying persona hides the
+    /// column but leaves `studied` alone, so switching back — to Author or to
+    /// Review — restores exactly what was up.
     static func isPresented(studied: PinnedReference?, persona: Persona,
                             isNoChromeOn: Bool) -> Bool {
-        studied != nil && persona == .author && !isNoChromeOn
+        studied != nil && persona.studiesPinnedReferences && !isNoChromeOn
     }
 
     @State private var subject: Subject?
@@ -281,7 +285,8 @@ final class AssistantColumnEscape {
 
     /// The window's persona, refreshed by every `sync` and read at event time
     /// beside the model and the chrome flag, for the same reason both are: the
-    /// column is Author-only (2026-08-08), and a claim answering from a value
+    /// column presents only where `Persona.studiesPinnedReferences` is true
+    /// (Author and Review, 2026-08-14), and a claim answering from a value
     /// frozen at registration would go on watching for a persona the writer
     /// left minutes ago.
     private var persona: Persona = .default
@@ -396,8 +401,9 @@ struct AssistantColumnModifier: ViewModifier {
     let documentStore: DocumentStore?
     let window: NSWindow?
     let isNoChromeOn: Bool
-    /// The window's persona. **The column is Author's only (2026-08-08)** —
-    /// see `AssistantColumn.isPresented`. Not `dismiss`-on-switch: the studied
+    /// The window's persona. **The column presents for Author and Review**
+    /// (`Persona.studiesPinnedReferences`, 2026-08-14) — see
+    /// `AssistantColumn.isPresented`. Not `dismiss`-on-switch: the studied
     /// pin survives a persona change, and only the presentation reacts.
     let persona: Persona
     /// Clearing on a document change is the honest behaviour: the shelf is

@@ -40,6 +40,10 @@ Everything you've marked **Do** leads the list. Behind it comes everything else,
 
 The toolbar's flag menu filters by mark — **All**, **Do**, **Decline**, **Discuss**, or **Untriaged** — so you can take one band at a time, or find what you haven't looked at yet. It stacks with the kind, author and show-resolved filters beside it.
 
+Alongside those sits a **review pass** menu, once your project uses [passes](review-passes.md). Two rules govern it: choosing a pass shows every note stamped with it, plus every note carrying no stamp at all — a note only carries a pass if one was active when it was written, so the unstamped pile is everything older than passes, everything Claude wrote against a closed piece, and everything made with nothing chosen; hiding that pile the day the filter ships would bury a writer's whole existing queue. Left alone, the menu follows the piece's own remembered active pass — the one a [board](review-passes.md#the-board) chip click just set — so travelling from the board lands you already narrowed to where you came from.
+
+Work a piece through a later pass while an earlier one is still open, and a quiet caption says so above the list — *"Structural still open on this piece"* — without disabling anything. The passes are an order to work through, not a gate the queue enforces.
+
 Triage lives in the pane only. The margin cards in the editor answer one note beside the sentence it's about; there's no pile there to sort.
 
 ### One piece, or the whole project

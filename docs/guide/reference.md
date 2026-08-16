@@ -13,6 +13,7 @@ The ones you'll use most:
 | `⌘S` | Save flash (autosave is automatic) |
 | `⌘⇧S` | Save Checkpoint As… — a named checkpoint you can find again |
 | `⌘R` | Check Writing — ask Claude for notes on what you've written since the last check |
+| `⌘⇧R` | Fresh Eyes — ends the warm session and rereads the whole piece cold |
 | `⌘⇧↩` | Promote… — turn the canvas selection into a durable artifact |
 | `⌘Z` | Undo (text, annotation action, task, checkbox, or History Rewind) |
 | `⌘⇧Z` | Redo |
@@ -32,7 +33,7 @@ The ones you'll use most:
 | `⌘⌥⇧R` | Toggle Review Mode — the annotate-only posture, see [Annotations & Suggestions](annotations-and-suggestions.md#review-mode--reading-your-own-draft-cold) |
 | `⌘⌥I` | Inspector pane |
 | `⌘⌥R` | Open the tree's Research section, scrolled into view (no-op while Find in Project covers the tree) |
-| `⌘⌥O` | Select the project row — corkboard/outline in Author/Review, the board in Plan, the compiled book in Publish once you've made one (corkboard/outline there too, before you have) |
+| `⌘⌥O` | Select the project row — corkboard/outline in Author, the review board (pieces × passes) in Review, the planning canvas in Plan, the compiled book in Publish once you've made one (corkboard/outline there too, before you have) |
 | `⌘⌥H` | History pane |
 | `⌘⌥T` | Tasks pane |
 | `⌘⌥B` | Inbox pane |

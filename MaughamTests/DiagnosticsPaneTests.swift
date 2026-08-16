@@ -68,12 +68,15 @@ final class DiagnosticsPaneTests: XCTestCase {
     private func makeRun(model: String = "sonnet", lastOpId: String? = "op1",
                          droppedDangling: Int = 0,
                          clauseStatuses: [DiagnosticIngest.ClauseStatus]? = nil,
-                         truncatedReader: Int? = nil) -> CompilerRun {
+                         truncatedReader: Int? = nil,
+                         passId: String? = nil, round: Int? = nil,
+                         freshEyes: Bool? = nil) -> CompilerRun {
         let wholeSecond = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         return CompilerRun(id: ULID.generate(), at: wholeSecond, model: model,
                            lastOpId: lastOpId, deltaSummary: "1 new, 0 revised \u{00b6}",
                            intentSnapshot: nil, droppedDangling: droppedDangling,
-                           clauseStatuses: clauseStatuses, truncatedReader: truncatedReader)
+                           clauseStatuses: clauseStatuses, truncatedReader: truncatedReader,
+                           passId: passId, round: round, freshEyes: freshEyes)
     }
 
     private func makeClause(
@@ -1098,6 +1101,237 @@ final class DiagnosticsPaneTests: XCTestCase {
                        "pressing the line must not dismiss it \u{2014} it has nothing to dismiss")
         XCTAssertTrue(textFields(in: window).isEmpty,
                      "and it must not have opened a reply field either")
+    }
+
+    // MARK: - Since last round (M3-P3 Task 3)
+    //
+    // The arithmetic itself belongs to `RoundComparison` (`RoundHistoryTests`);
+    // these pin what the PANE decides — when there is a line at all, which
+    // record it is measured against, and that it never speaks over a fresh-eyes
+    // round.
+
+    private func makeRoundRecord(
+        passId: String? = "line", round: Int? = 1,
+        freshEyes: Bool? = nil, fingerprints: [RoundFingerprint] = []
+    ) -> RoundRecord {
+        RoundRecord(runId: ULID.generate(), at: Date(timeIntervalSince1970: 0),
+                    passId: passId, round: round, freshEyes: freshEyes,
+                    fingerprints: fingerprints)
+    }
+
+    private func fingerprint(
+        _ kind: DiagnosticKind, clause: String? = nil, paragraph: String? = nil
+    ) -> RoundFingerprint {
+        RoundFingerprint(kind: kind.rawValue, clauseQuote: clause, paragraphId: paragraph)
+    }
+
+    func test_sinceLastRoundLine_isNilWithoutARoundNumber() {
+        XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
+            history: [makeRoundRecord()], run: nil, current: []))
+        XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
+            history: [makeRoundRecord()], run: makeRun(), current: []),
+            "a passless run is an ordinary M2 run \u{2014} there is no round to be since")
+    }
+
+    /// **Round 1 has nothing behind it.** The line is about the distance
+    /// travelled, and the first round of a lane has travelled none.
+    func test_sinceLastRoundLine_isNilForTheFirstRoundOfALane() {
+        XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
+            history: [], run: makeRun(passId: "line", round: 1), current: []))
+    }
+
+    func test_sinceLastRoundLine_countsResolvedPersistingAndNew() {
+        let persisting = makeDiagnostic(
+            docId: "doc-1", anchor: .init(paragraphId: "c3d4", anchorText: "It stayed."),
+            kind: .continuity, clauseQuote: "the fog")
+        let fresh = makeDiagnostic(
+            docId: "doc-1", anchor: .init(paragraphId: "e5f6", anchorText: "Then it lifted."),
+            kind: .readerReport)
+        let previous = makeRoundRecord(round: 1, fingerprints: [
+            fingerprint(.conformanceStrain, clause: "Cold, and never wistful.", paragraph: "a1b2"),
+            fingerprint(.continuity, clause: "the fog", paragraph: "c3d4"),
+        ])
+
+        XCTAssertEqual(
+            DiagnosticsPane.sinceLastRoundLine(
+                history: [previous], run: makeRun(passId: "line", round: 2),
+                current: [persisting, fresh]),
+            "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 1 new")
+    }
+
+    /// **It reads only its own lane.** A Proof round filed between two Line
+    /// rounds is newer in the ring and is not what the Line round is measured
+    /// against — the same rule `RoundComparison`'s doc states and the caller
+    /// is made to obey.
+    func test_sinceLastRoundLine_readsOnlyItsOwnLane() {
+        let line = makeRoundRecord(passId: "line", round: 1, fingerprints: [
+            fingerprint(.continuity, clause: "the fog", paragraph: "c3d4"),
+        ])
+        let proof = makeRoundRecord(passId: "proof", round: 1, fingerprints: [
+            fingerprint(.readerReport, paragraph: "z9y8"),
+            fingerprint(.readerReport, paragraph: "x7w6"),
+        ])
+
+        XCTAssertEqual(
+            DiagnosticsPane.sinceLastRoundLine(
+                history: [line, proof], run: makeRun(passId: "line", round: 2), current: []),
+            "Since round 1: 1 resolved \u{00b7} 0 persisting \u{00b7} 0 new",
+            "the Proof round sits newest in the ring and must take no part")
+    }
+
+    /// **A round still streaming has not filed the round it supersedes.**
+    /// Mid-preview the newest same-lane record is N−2, and a line drawn
+    /// against it would name the wrong round and then correct itself when the
+    /// turn ended. The pane simply says nothing until the answer lands.
+    func test_sinceLastRoundLine_isNilWhileTheRoundBeforeItIsStillStanding() {
+        let twoBack = makeRoundRecord(round: 1, fingerprints: [
+            fingerprint(.continuity, clause: "the fog", paragraph: "c3d4"),
+        ])
+        XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
+            history: [twoBack], run: makeRun(passId: "line", round: 3), current: []))
+        XCTAssertNotNil(DiagnosticsPane.sinceLastRoundLine(
+            history: [twoBack], run: makeRun(passId: "line", round: 2), current: []),
+            "control: the record IS round 2's predecessor")
+    }
+
+    /// **A fresh-eyes round is not a comparison.** It was read cold and
+    /// deliberately briefed on no prior findings (spec §6), so measuring it
+    /// against the last round would report a difference the run never made.
+    /// Its header says what it is instead (Task 6).
+    func test_sinceLastRoundLine_isNilForAFreshEyesRound() {
+        let previous = makeRoundRecord(round: 1, fingerprints: [
+            fingerprint(.continuity, clause: "the fog", paragraph: "c3d4"),
+        ])
+        XCTAssertNotNil(DiagnosticsPane.sinceLastRoundLine(
+            history: [previous], run: makeRun(passId: "line", round: 2), current: []),
+            "control: an ordinary round 2 does speak")
+        XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
+            history: [previous],
+            run: makeRun(passId: "line", round: 2, freshEyes: true), current: []))
+    }
+
+    /// **The report leads with it** — above the drift line and above the
+    /// conformance summary, mounted for real.
+    func test_theSinceLastRoundLineLeadsTheReport() throws {
+        let docId = "doc-rounds"
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let quote = "Cold, and never wistful."
+        let note = makeDiagnostic(
+            docId: docId, anchor: .init(paragraphId: "a1b2", anchorText: "The fog came."),
+            body: "The last line reaches for a sigh.", kind: .conformanceStrain,
+            clauseQuote: quote)
+        store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")],
+                                   passId: "line", round: 1),
+                      diagnostics: [note], docId: docId)
+        store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "holds")],
+                                   passId: "line", round: 2),
+                      diagnostics: [], docId: docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
+            currentText: { _ in "The fog came." }, compilerModel: .standard)))
+        pump(0.3)
+
+        let expected = try XCTUnwrap(DiagnosticsPane.sinceLastRoundLine(
+            history: store.roundHistory(docId: docId),
+            run: store.lastRun(docId: docId),
+            current: store.live(docId: docId, currentText: { _ in "The fog came." })))
+        XCTAssertEqual(expected, "Since round 1: 1 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
+
+        let labels = allLabels(in: window)
+        let lineIndex = labels.firstIndex { $0 == expected }
+        let conformanceIndex = labels.firstIndex { $0 == "CONFORMANCE" }
+        XCTAssertNotNil(lineIndex, "got: \(labels)")
+        XCTAssertNotNil(conformanceIndex, "got: \(labels)")
+        XCTAssertTrue((lineIndex ?? .max) < (conformanceIndex ?? -1),
+                      "the since-last-round line leads the report")
+    }
+
+    // MARK: - Fresh eyes (M3-P3 Task 6)
+    //
+    // The cold read's header occupies the slot the since-last-round line would
+    // have taken, and the two are mutually exclusive by construction: a round
+    // that was briefed on no prior findings has no distance to report.
+
+    func test_freshEyesHeader_namesTheRoundWhenThereIsOne() {
+        XCTAssertEqual(
+            DiagnosticsPane.freshEyesHeader(
+                run: makeRun(passId: "line", round: 3, freshEyes: true)),
+            "Fresh eyes \u{00b7} round 3")
+    }
+
+    /// A passless cold read is still a cold read — it just has no number to
+    /// name, the way an ordinary passless ⌘R has none.
+    func test_freshEyesHeader_saysSoWithoutARoundNumber() {
+        XCTAssertEqual(
+            DiagnosticsPane.freshEyesHeader(run: makeRun(freshEyes: true)),
+            "Fresh eyes")
+    }
+
+    func test_freshEyesHeader_isNilForAnOrdinaryRun() {
+        XCTAssertNil(DiagnosticsPane.freshEyesHeader(run: nil))
+        XCTAssertNil(DiagnosticsPane.freshEyesHeader(
+            run: makeRun(passId: "line", round: 2)),
+            "a run that was never stamped is an ordinary round")
+        XCTAssertNil(DiagnosticsPane.freshEyesHeader(
+            run: makeRun(passId: "line", round: 2, freshEyes: false)),
+            "…and so is one stamped false by some earlier build")
+    }
+
+    /// **The two lines never co-render.** Task 3's guard refuses the
+    /// comparison for a fresh-eyes round; this is the same rule read from the
+    /// other end, so a later change to either function cannot quietly put both
+    /// sentences on one report.
+    func test_theRoundHeaderAndTheSinceLastRoundLineAreMutuallyExclusive() {
+        let previous = makeRoundRecord(round: 1, fingerprints: [
+            fingerprint(.continuity, clause: "the fog", paragraph: "c3d4"),
+        ])
+        for run in [makeRun(passId: "line", round: 2),
+                    makeRun(passId: "line", round: 2, freshEyes: true),
+                    makeRun(freshEyes: true),
+                    makeRun()] {
+            let since = DiagnosticsPane.sinceLastRoundLine(
+                history: [previous], run: run, current: [])
+            let fresh = DiagnosticsPane.freshEyesHeader(run: run)
+            XCTAssertFalse(since != nil && fresh != nil,
+                           "both lines spoke for one round: \(String(describing: since)) "
+                           + "/ \(String(describing: fresh))")
+        }
+    }
+
+    /// Mounted: the header leads the report, and the comparison the ordinary
+    /// round would have drawn is nowhere on the pane.
+    func test_theFreshEyesHeaderLeadsTheReportAndTheComparisonIsAbsent() throws {
+        let docId = "doc-fresh"
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let quote = "Cold, and never wistful."
+        let note = makeDiagnostic(
+            docId: docId, anchor: .init(paragraphId: "a1b2", anchorText: "The fog came."),
+            body: "The last line reaches for a sigh.", kind: .conformanceStrain,
+            clauseQuote: quote)
+        store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")],
+                                   passId: "line", round: 1),
+                      diagnostics: [note], docId: docId)
+        store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "holds")],
+                                   passId: "line", round: 2, freshEyes: true),
+                      diagnostics: [], docId: docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
+            currentText: { _ in "The fog came." }, compilerModel: .standard)))
+        pump(0.3)
+
+        let labels = allLabels(in: window)
+        let headerIndex = labels.firstIndex { $0 == "Fresh eyes \u{00b7} round 2" }
+        let conformanceIndex = labels.firstIndex { $0 == "CONFORMANCE" }
+        XCTAssertNotNil(headerIndex, "got: \(labels)")
+        XCTAssertNotNil(conformanceIndex, "got: \(labels)")
+        XCTAssertTrue((headerIndex ?? .max) < (conformanceIndex ?? -1),
+                      "the fresh-eyes header leads the report")
+        XCTAssertTrue(labels.allSatisfy { !$0.hasPrefix("Since round") },
+                      "a cold read reports no distance travelled; got \(labels)")
     }
 
     // MARK: - Click-to-jump (wiring census — see reasoning below)

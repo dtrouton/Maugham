@@ -4,16 +4,25 @@ import MaughamCore
 
 /// Assembles what a compiler run sends to the spawned Claude: the session's
 /// one-time system preamble, and each run's message (delta + diffed-in
-/// context + the standing drift question + the output-shape instruction).
+/// context + what the previous round raised + the output-shape instruction).
 ///
 /// A pure function of its inputs — no I/O, no clock — so the prompt itself is
 /// testable without a subprocess.
 enum CompilerPrompt {
 
-    /// The output contract: four line-delimited JSON objects, one per
-    /// section, in fixed order (conformance, continuity, reader, facts).
-    /// `DiagnosticIngestTests` reference this SAME constant, so prompt and
-    /// parser cannot drift apart in a rewording.
+    /// The output contract: five line-delimited JSON objects, one per
+    /// section, in fixed order (conformance, continuity, reader, facts,
+    /// intent_drift). `DiagnosticIngestTests` reference this SAME constant,
+    /// so prompt and parser cannot drift apart in a rewording.
+    ///
+    /// **`intent_drift` (M3-P3 Task 4) is the odd one and deliberately so.**
+    /// The first four are things found IN the prose and each entry carries a
+    /// `refs` array; the fifth is a verdict on the reading as a whole and
+    /// carries none, because a judgement about the draft anchored to one
+    /// paragraph is a judgement about that paragraph. Its `note` is asked for
+    /// and thrown away at ingest — see `DiagnosticIngest.parseIntentDrift`.
+    /// It shares nothing with M2's `DriftDetector`, which is a clause-strain
+    /// PATTERN across run records and keeps its own meaning.
     ///
     /// No severity field, no suggestion field anywhere in this string —
     /// the register is enforced structurally, not by asking nicely
@@ -22,11 +31,12 @@ enum CompilerPrompt {
     /// (`test_theSchemaForbidsIdsInProse`) — the enforcement with teeth is
     /// Task 2's ingest-side scrub, this is the instruction half.
     static let sectionSchemaDescription: String = """
-        Respond with four lines, each one JSON object, in this exact order \
-        — conformance, then continuity, then reader, then facts. Nothing \
-        else: no prose before, between, or after them, and no line \
-        skipped — a section with nothing to report still gets its line, \
-        with an empty array:
+        Respond with five lines, each one JSON object, in this exact order \
+        — conformance, then continuity, then reader, then facts, then \
+        intent_drift. Nothing else: no prose before, between, or after \
+        them, and no line skipped — a section with nothing to report still \
+        gets its line, with an empty array, and intent_drift always carries \
+        a verdict:
         {"section":"conformance","checks":[{"clause_quote":<string>,"status":\
         "holds"|"strains"|"silent","refs":[<paragraph id>...],"what_pulls":\
         <string or null>}]}
@@ -36,6 +46,15 @@ enum CompilerPrompt {
         [<paragraph id>...],"report":<string>}]}
         {"section":"facts","candidates":[{"subject":<string>,"fact":<string>,\
         "refs":[<paragraph id>...]}]}
+        {"section":"intent_drift","verdict":"holds"|"drifted","note":<one \
+        sentence, only when drifted>}
+        The last line answers one question about this reading as a whole: \
+        has the draft drifted from the declared intent? Weigh the prose in \
+        this run's delta against the intent declared above — holds when \
+        the writing is still going where the writer said it was going, \
+        drifted when it has moved away from what they declared. Judge the \
+        draft, never the writer's decision to change their mind; if there \
+        is no declared intent to measure against, the answer is holds. \
         Every reference to a paragraph travels in that entry's refs array, \
         copied exactly as the paragraph id appears above. Prose — \
         what_pulls, question, report, cites, and fact — never contains a \
@@ -91,9 +110,17 @@ enum CompilerPrompt {
     /// nothing declared at all (no essay, an empty or absent world, no
     /// facts) — an empty declared world is a valid, un-hashed state (spec
     /// §7: the conformance section is simply absent).
+    ///
+    /// `previousRound` is per-run state and is **never** part of that hash —
+    /// see `roundSection`. Defaulted because "there is no previous round" is
+    /// the ordinary answer (round 1 of a lane, a passless ⌘R, a fresh-eyes
+    /// read) and because this function has exactly one production caller,
+    /// `CompilerOrchestrator.beginRun`, which is where the lane rule is
+    /// decided.
     static func runMessageV2(
         delta: CompilerDelta, world: DerivedWorld?, essay: String?,
         bibleFacts: [BibleFact], paletteListing: [String], pinnedListing: [String],
+        previousRound: PriorRound? = nil,
         previousBriefingHash: String?
     ) -> (message: String, briefingHash: String?) {
         var sections: [String] = []
@@ -116,6 +143,15 @@ enum CompilerPrompt {
 
         sections.append(
             contentsOf: listingSections(pinnedListing: pinnedListing, paletteListing: paletteListing))
+
+        // Between the listings and the delta: context about the prose the
+        // delta is about to show, rather than part of the standing briefing
+        // above it or of the thing being checked below it.
+        if let previousRound,
+           let round = roundSection(
+            previousRound: previousRound.record, notes: previousRound.notes) {
+            sections.append(round)
+        }
 
         sections.append(deltaSection(delta))
 
@@ -166,6 +202,119 @@ enum CompilerPrompt {
         }
         parts.append("facts:" + bibleFacts.map { "\($0.subject)|\($0.fact)" }.joined(separator: ";"))
         return parts.joined(separator: "\n")
+    }
+
+    // MARK: - The previous round (M3-P3 §6)
+
+    /// One note the previous round raised, as the next round's briefing sees
+    /// it: what it said, which section said it, and whether the writer has
+    /// been working behind it since.
+    ///
+    /// `kind` is the enum rather than its string, on tripwire 12's reasoning —
+    /// the section a note came from is its whole classification, and a
+    /// stringly-typed one here would be a second vocabulary to keep in step
+    /// with `DiagnosticIngest.SectionField`.
+    struct PriorNote {
+        let body: String
+        let kind: DiagnosticKind
+        /// The paragraph this note was anchored to no longer reads as it did
+        /// — `DiagnosticsStore.live`'s own anchor-text equality, asked at the
+        /// keystroke. An anchorless note is never "since edited": it has
+        /// nothing to track, exactly as it has nothing to go stale against.
+        let sinceEdited: Bool
+    }
+
+    /// The previous round in this run's lane, with what it found.
+    ///
+    /// The record and the notes travel together because the section needs
+    /// both halves and neither is derivable from the other: the round's
+    /// identity lives on the record, and its prose lives only in the standing
+    /// sidecar (`DiagnosticsStore.standingRound`).
+    struct PriorRound {
+        let record: RoundRecord
+        let notes: [PriorNote]
+    }
+
+    /// **The partition the app knows and the model cannot**: the writer has
+    /// rewritten the prose one of these notes was measured against, so the
+    /// note may already be answered by the draft itself.
+    static let sinceEditedHeading = "The writer has since edited the prose behind these:"
+
+    /// Its complement — the prose still reads exactly as it did when the note
+    /// landed, so anything that has changed is the reading, not the draft.
+    static let untouchedHeading = "Untouched since that round:"
+
+    /// **What the last round in this lane raised, so this one confirms rather
+    /// than reconstructs** (spec §6, M3-P3 §6).
+    ///
+    /// `nil` — no section at all — in two cases, neither of them a round the
+    /// model should hear about:
+    ///
+    /// - the record carries no lane, or no round number. The comparison lane
+    ///   is `(document, pass)` and a passless run is an ordinary M2 run; this
+    ///   is the second door on the room `CompilerOrchestrator` guards first.
+    /// - the round raised no notes. There is nothing to confirm, and a
+    ///   sentence saying so is a paragraph of prompt telling the model
+    ///   nothing it can act on. What that round DID is still counted — the
+    ///   pane's line reads the ring, not this.
+    ///
+    /// **It is never folded into `briefingHashInput`, and that is the whole
+    /// reason it is assembled here rather than up there.** This section
+    /// changes every single round by construction, so a hash covering it would
+    /// never match its predecessor and the essay, the declared world and the
+    /// bible slice would re-embed in full on every ⌘R — the diff-in the hash
+    /// exists to make possible, undone by the one thing that can never be
+    /// diffed. `CompilerPromptTests.test_theRoundSectionNeverFoldsIntoTheBriefingHash`
+    /// asserts the hash is byte-identical across two rounds with unchanged
+    /// intent.
+    ///
+    /// **No new answer section comes with it.** The model's confirmation rides
+    /// the note sections it already answers in; what resolved and what
+    /// persists is computed app-side from fingerprints (`RoundComparison`),
+    /// never parsed back out of prose the model wrote.
+    static func roundSection(previousRound: RoundRecord, notes: [PriorNote]) -> String? {
+        guard let passId = previousRound.passId, let round = previousRound.round else {
+            return nil
+        }
+        guard !notes.isEmpty else { return nil }
+
+        var lines: [String] = [
+            "Round \(round) of the \u{201C}\(passId)\u{201D} pass raised these notes."
+        ]
+        // The edited-behind half first: it is the one the model would
+        // otherwise re-raise against prose that has moved under it.
+        for (heading, partition) in [
+            (sinceEditedHeading, notes.filter(\.sinceEdited)),
+            (untouchedHeading, notes.filter { !$0.sinceEdited }),
+        ] where !partition.isEmpty {
+            lines.append("")
+            lines.append(heading)
+            for note in partition {
+                lines.append("- (\(sectionName(of: note.kind))) \(cleaned(note.body))")
+            }
+        }
+
+        lines.append("")
+        lines.append(
+            "Confirm rather than reconstruct. Where one of these still stands "
+            + "against the prose as it reads now, raise it again in its own "
+            + "section, in your own words and from your own reading. Where it "
+            + "no longer stands, let it go and say nothing about it. And raise "
+            + "whatever this round shows you that the last one did not \u{2014} a "
+            + "note is not worth less for being new, or more for having been "
+            + "made before.")
+        return lines.joined(separator: "\n")
+    }
+
+    /// The section a note came out of, in the schema's own vocabulary — read
+    /// off `DiagnosticIngest.SectionField` rather than restated, so the words
+    /// the model is reminded of are the words it was asked to answer in.
+    private static func sectionName(of kind: DiagnosticKind) -> String {
+        switch kind {
+        case .conformanceStrain: return DiagnosticIngest.SectionField.conformance
+        case .continuity: return DiagnosticIngest.SectionField.continuity
+        case .readerReport: return DiagnosticIngest.SectionField.reader
+        }
     }
 
     // MARK: - Listings (pinned / palette)

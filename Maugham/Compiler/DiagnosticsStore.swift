@@ -44,25 +44,37 @@ final class DiagnosticsStore {
         /// written before this field existed decodes with an empty ring
         /// rather than a backfill from the standing run.
         var clauseHistory: [[DiagnosticIngest.ClauseStatus]]
+        /// The round ring: what each of the last `roundHistoryDepth` FINISHED
+        /// rounds found, as fingerprints, oldest→newest. Appended only by
+        /// `replace`, and only from the run it is about to supersede — a
+        /// round's notes are gone the moment the next round replaces them, and
+        /// these are the only thing left to measure the new round against.
+        var rounds: [RoundRecord]
 
         init(
             run: CompilerRun, diagnostics: [Diagnostic],
-            clauseHistory: [[DiagnosticIngest.ClauseStatus]] = []
+            clauseHistory: [[DiagnosticIngest.ClauseStatus]] = [],
+            rounds: [RoundRecord] = []
         ) {
             self.run = run
             self.diagnostics = diagnostics
             self.clauseHistory = clauseHistory
+            self.rounds = rounds
         }
 
-        /// Hand-written so a v1/v2 sidecar (written before this field
+        /// Hand-written so a v1/v2 sidecar (written before these fields
         /// existed) decodes clean instead of failing the whole file — the
-        /// same discipline as `CompilerRun.init(from:)`.
+        /// same discipline as `CompilerRun.init(from:)`, and with the same
+        /// trap: a new field needs its own `decodeIfPresent` line here,
+        /// because the property's default is not what a synthesised decode
+        /// falls back to.
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             run = try c.decode(CompilerRun.self, forKey: .run)
             diagnostics = try c.decode([Diagnostic].self, forKey: .diagnostics)
             clauseHistory = try c.decodeIfPresent(
                 [[DiagnosticIngest.ClauseStatus]].self, forKey: .clauseHistory) ?? []
+            rounds = try c.decodeIfPresent([RoundRecord].self, forKey: .rounds) ?? []
         }
     }
 
@@ -72,6 +84,42 @@ final class DiagnosticsStore {
     /// arriving — rather than a run that finished. Read by `load`, which must
     /// not read the sidecar back over one.
     private var previewing: Set<String> = []
+
+    /// For a document whose in-memory content is a preview: the last content
+    /// that belonged to a run which FINISHED — `replace`'s snapshot source for
+    /// the round ring.
+    ///
+    /// **A preview overwrites the very record the ring is owed.** `replace`
+    /// remembers the run it supersedes, and in production every run streams,
+    /// so by the time the turn ends the standing content is that same run's
+    /// own half-report: snapshotting it would file a round against itself and
+    /// "since last round" would report everything as persisting, forever. So
+    /// the finished content is set aside when the preview begins and consumed
+    /// when the run that superseded it lands.
+    ///
+    /// This is not a preview writing the ring (the global rule): nothing is
+    /// appended anywhere until `replace` runs, and a preview that never
+    /// finishes (`discardPreview`) drops it untouched.
+    private var finishedBeforePreview: [String: FileContent] = [:]
+
+    /// The content of the last run against `docId` that actually FINISHED —
+    /// the standing content, unless a preview has been standing in for it, in
+    /// which case the shadow is the only place a finished run can be.
+    ///
+    /// **Keyed on the previewing FLAG, never on the shadow's nil-ness.** A
+    /// cold document's first preview captures nothing, and assigning nil to a
+    /// Dictionary subscript REMOVES the key, so "captured, and there was
+    /// nothing" reads exactly like "never captured" — a `??` fallthrough would
+    /// then reach for `byDoc`, which is that same run's own preview, and the
+    /// first ⌘R against a new document would file round 1 against itself.
+    ///
+    /// Both readers of "the previous round" come through here — `replace`
+    /// filing it into the ring, and `standingRound` handing it to the briefing
+    /// of the round about to begin — so the two can never disagree about which
+    /// run that is.
+    private func finishedContent(docId: String) -> FileContent? {
+        previewing.contains(docId) ? finishedBeforePreview[docId] : byDoc[docId]
+    }
 
     /// docIds the writer has told the cold-start offer "Not now" to, on THIS
     /// device — spec §4's "never re-asked as a nag" (`DiagnosticsPane`'s
@@ -124,7 +172,7 @@ final class DiagnosticsStore {
         }
         byDoc[docId] = FileContent(
             run: content.run, diagnostics: content.diagnostics.filter { $0.kind != nil },
-            clauseHistory: content.clauseHistory)
+            clauseHistory: content.clauseHistory, rounds: content.rounds)
         version += 1
     }
 
@@ -139,6 +187,13 @@ final class DiagnosticsStore {
     /// appended to the ring, oldest dropped past `clauseHistoryDepth`. The
     /// ring outlives any single run's supersession by design: `DriftDetector`
     /// needs the pattern across runs that `replace` otherwise forgets.
+    ///
+    /// **Neither is the round ring**, and it remembers the opposite end: the
+    /// clause ring takes the INCOMING run's snapshot, while a `RoundRecord` is
+    /// built from the run being superseded, because a round can only be
+    /// compared against once the round after it exists. So the first replace
+    /// against a document contributes nothing, and each one after it files the
+    /// run it replaced.
     func replace(run: CompilerRun, diagnostics: [Diagnostic], docId: String) {
         var history = byDoc[docId]?.clauseHistory ?? []
         if let statuses = run.clauseStatuses {
@@ -147,10 +202,25 @@ final class DiagnosticsStore {
                 history.removeFirst(history.count - Self.clauseHistoryDepth)
             }
         }
+
+        var rounds = byDoc[docId]?.rounds ?? []
+        // The outgoing run is whatever finished last. `previewing.remove` runs
+        // further down, so the flag `finishedContent` reads is still set here.
+        let outgoing = finishedContent(docId: docId)
+        if let outgoing {
+            rounds.append(RoundRecord(
+                run: outgoing.run, diagnostics: outgoing.diagnostics))
+            if rounds.count > Self.roundHistoryDepth {
+                rounds.removeFirst(rounds.count - Self.roundHistoryDepth)
+            }
+        }
+        finishedBeforePreview[docId] = nil
+
         // The run finished: what is in memory is an answer again, and the
         // sidecar below is about to say the same thing.
         previewing.remove(docId)
-        let content = FileContent(run: run, diagnostics: diagnostics, clauseHistory: history)
+        let content = FileContent(run: run, diagnostics: diagnostics,
+                                  clauseHistory: history, rounds: rounds)
         byDoc[docId] = content
         persist(docId: docId, content: content)
         // A run that raised nothing clears the badge rather than leaving the
@@ -170,10 +240,14 @@ final class DiagnosticsStore {
     ///   half-report on disk would be read back as the standing answer by the
     ///   next launch, and the writer would have no way to tell it from a check
     ///   that finished.
-    /// - **It does not touch the drift ring.** `DriftDetector` reads a clause
+    /// - **It does not touch either ring.** `DriftDetector` reads a clause
     ///   straining across *consecutive runs*; a preview appending a snapshot
     ///   per section would let one run contribute four, and the pane would
-    ///   announce a drift the writer's prose never had.
+    ///   announce a drift the writer's prose never had. The round ring is the
+    ///   same rule from the other end: a round is a run that FINISHED, and a
+    ///   half-report filed as one would be compared against the very run still
+    ///   producing it. All this does is set the superseded run aside for
+    ///   `replace` to file (`finishedBeforePreview`).
     /// - **It does not set the unread badge.** Unread counts notes a finished
     ///   run left somewhere the writer wasn't looking. A preview's notes may
     ///   not survive the turn, and a badge for notes that no longer exist is a
@@ -181,10 +255,15 @@ final class DiagnosticsStore {
     ///
     /// Undone by `discardPreview`; superseded by `replace` when the turn ends.
     func preview(run: CompilerRun, diagnostics: [Diagnostic], docId: String) {
+        // The FIRST section of a turn is where the finished run is set aside
+        // (see `finishedBeforePreview`); every section after it is already
+        // standing over a preview and has nothing to keep.
+        if !previewing.contains(docId) { finishedBeforePreview[docId] = byDoc[docId] }
         previewing.insert(docId)
         byDoc[docId] = FileContent(
             run: run, diagnostics: diagnostics,
-            clauseHistory: byDoc[docId]?.clauseHistory ?? [])
+            clauseHistory: byDoc[docId]?.clauseHistory ?? [],
+            rounds: byDoc[docId]?.rounds ?? [])
         version += 1
     }
 
@@ -197,6 +276,9 @@ final class DiagnosticsStore {
     /// is the correct answer for a first check the writer cancelled.
     func discardPreview(docId: String) {
         previewing.remove(docId)
+        // The run that was set aside is about to be read back off disk as the
+        // standing content, so the shadow has nothing left to protect.
+        finishedBeforePreview[docId] = nil
         load(docId: docId)
     }
 
@@ -298,6 +380,57 @@ final class DiagnosticsStore {
     /// `clauseHistoryDepth`. Feeds `DriftDetector.drift` directly.
     func clauseStatusHistory(docId: String) -> [[DiagnosticIngest.ClauseStatus]] {
         byDoc[docId]?.clauseHistory ?? []
+    }
+
+    /// How many finished rounds the ring keeps — `clauseHistoryDepth`'s
+    /// reasoning, one ring over: enough that a writer can look back over a
+    /// pass's recent rounds, small enough that this stays a sidecar.
+    static let roundHistoryDepth = 5
+
+    /// The rounds this document has finished, oldest→newest, capped at
+    /// `roundHistoryDepth`. Every lane's rounds are in one ring; a caller
+    /// comparing rounds filters to its own `passId` (`RoundComparison`).
+    func roundHistory(docId: String) -> [RoundRecord] {
+        byDoc[docId]?.rounds ?? []
+    }
+
+    /// **The round a run beginning now is briefed against**, and the notes it
+    /// raised — the last run that FINISHED against `docId`, whatever lane it
+    /// belonged to (the caller matches the lane; this reader has no opinion).
+    ///
+    /// It is deliberately not the ring: a round's notes are gone the moment
+    /// the next round replaces them, so the standing content is the only
+    /// place a previous round's PROSE still exists. The ring holds
+    /// fingerprints, which is enough to count what changed and not enough to
+    /// tell a model what was said.
+    ///
+    /// **Read at the keystroke, before the run's first section lands.** From
+    /// the first closed line onward the standing content is this run's own
+    /// preview — asked later, it would brief a round against itself.
+    /// `finishedContent` is what makes an answer mid-preview still honest.
+    func standingRound(docId: String) -> (record: RoundRecord, notes: [Diagnostic])? {
+        guard let content = finishedContent(docId: docId) else { return nil }
+        return (RoundRecord(run: content.run, diagnostics: content.diagnostics),
+                content.diagnostics)
+    }
+
+    /// The most recent round number in `passId`'s lane for this document, or
+    /// `nil` when the lane has no prior round — which is what makes the next
+    /// one round 1.
+    ///
+    /// The standing run is asked first, because it is the newest round of all
+    /// and is not in the ring yet (the ring holds runs that have been
+    /// superseded). Then the ring, newest first. A lane is matched exactly:
+    /// the passless lane (`nil`) resolves against passless records only, and
+    /// since a passless run mints no round number this reader answers `nil`
+    /// for it — an ordinary M2 run, not round 1 of nothing.
+    func latestRound(forPass passId: String?, docId: String) -> Int? {
+        guard let content = byDoc[docId] else { return nil }
+        if content.run.passId == passId, let round = content.run.round { return round }
+        for record in content.rounds.reversed() where record.passId == passId {
+            if let round = record.round { return round }
+        }
+        return nil
     }
 
     /// The delta marker: the op-log position the last run checked as of.

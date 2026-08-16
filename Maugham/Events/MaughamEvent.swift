@@ -141,6 +141,19 @@ enum MaughamEvent {
         post(.maughamRunCompiler, to: .keyWindow)
     }
 
+    /// Ask the key window to read its piece **whole**, on a session that has
+    /// read nothing (⌘⇧R).
+    ///
+    /// A second event rather than a payload on the first: the two keystrokes
+    /// are different promises — one costs a delta, the other costs the piece —
+    /// and a receiver that had to read a flag out of a `userInfo` dictionary
+    /// could deliver the expensive one by accident. No payload here either,
+    /// for `postCompilerRun`'s reason: which document is read is the receiving
+    /// window's own answer.
+    static func postCompilerFreshEyes() {
+        post(.maughamFreshEyesCompiler, to: .keyWindow)
+    }
+
     /// Post `name` to the given scope. `object` and `payload` pass through to
     /// NotificationCenter unchanged (payload keys must not shadow the
     /// reserved scope keys).

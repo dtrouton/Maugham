@@ -133,6 +133,14 @@ struct DiagnosticsPane: View {
         return DriftDetector.drift(history: diagnostics.clauseStatusHistory(docId: docId))
     }
 
+    /// The rounds this document has finished, oldest→newest — the ring the
+    /// since-last-round line is measured against, read the same version-gated
+    /// way as everything else here.
+    private var roundHistory: [RoundRecord] {
+        _ = diagnostics.version
+        return diagnostics.roundHistory(docId: docId)
+    }
+
     /// The three note kinds, split into the sections that render them.
     ///
     /// A note whose `kind` is `nil` belongs to none of them — and cannot reach
@@ -479,6 +487,8 @@ struct DiagnosticsPane: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    freshEyesLine
+                    roundLine
                     driftLine
                     conformanceSection
                     continuitySection
@@ -519,6 +529,51 @@ struct DiagnosticsPane: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// **The report leads with the distance travelled** (spec §6): what the
+    /// last round in this lane raised that is gone, what is still here, and
+    /// what is new. Above the drift line and above the conformance summary,
+    /// because it is the sentence a writer in a review pass reads first.
+    ///
+    /// Not a button and not a `Diagnostic`: there is nowhere for it to go —
+    /// the notes it counts are drawn immediately below it — and nothing to
+    /// dismiss. The next round replaces it; a round that cannot be compared
+    /// simply has no line. See `sinceLastRoundLine`.
+    @ViewBuilder
+    private var roundLine: some View {
+        if let line = Self.sinceLastRoundLine(
+            history: roundHistory, run: lastRun, current: rows) {
+            Text(line)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+            Divider()
+        }
+    }
+
+    /// **The cold read names itself**, in `roundLine`'s own register and its
+    /// own slot — the two never render together (`freshEyesHeader`). Drawn
+    /// above the comparison line rather than below it because it is the same
+    /// sentence's place in the report: what this round IS, before what it
+    /// found.
+    @ViewBuilder
+    private var freshEyesLine: some View {
+        if let line = Self.freshEyesHeader(run: lastRun) {
+            Text(line)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+            Divider()
+        }
     }
 
     /// **The drift line — a pattern across runs, not a note about one.**
@@ -672,6 +727,81 @@ struct DiagnosticsPane: View {
             return !quotes.contains(quote)
         }
         return (rows, orphans)
+    }
+
+    // MARK: - Since last round (spec §6; the comparison itself is `RoundComparison`)
+
+    /// **"Since round N−1: X resolved · Y persisting · Z new"**, or `nil` when
+    /// this run is not a round that can be compared.
+    ///
+    /// Pure and static on `driftNote`'s mould, and for the same reason: the
+    /// sentence is the pane's, the arithmetic is not. `RoundComparison.compare`
+    /// is the ONE spelling of what matches what — the model rewords a finding
+    /// every time it raises it, so a comparison written here against note prose
+    /// would report every persisting note as one resolved plus one new, and the
+    /// briefing and the line would then disagree about the same round.
+    ///
+    /// Silent in three cases:
+    ///
+    /// - the run carries no round number. A passless ⌘R is an ordinary M2 run;
+    ///   there is no round for this to be *since*.
+    /// - the newest record in its own lane is not the round immediately
+    ///   before it. Round 1 has nothing behind it; a lane whose earlier rounds
+    ///   have aged out of the ring has nothing left to compare; and — the case
+    ///   this guard is really for — **a run still streaming has not filed the
+    ///   round it supersedes yet**, so the newest same-lane record mid-preview
+    ///   is round N−2. Without the check the pane would say "Since round 1"
+    ///   over round 3's half-arrived report and then correct itself when the
+    ///   turn ended. Within a lane the numbers are consecutive by construction
+    ///   (`latestRound + 1`), so this costs nothing a finished round has.
+    /// - the run was read with fresh eyes (Task 6). It was deliberately
+    ///   briefed on no prior findings, so a difference measured against the
+    ///   last round would be an artifact of the reading rather than of the
+    ///   draft. Its header says what it is instead.
+    ///
+    /// `current` is what the pane is DRAWING (`rows`), not the run's whole
+    /// stored report: a note the writer has edited behind is not on screen,
+    /// and counting it as persisting would name something invisible.
+    ///
+    /// **This line and the run's own briefing can differ, and both are
+    /// honest.** A writer who steps out of a lane and back is briefed on
+    /// nothing (the previous round's prose was superseded two runs ago) while
+    /// this line still counts, because the ring kept that round's fingerprints
+    /// — enough to say what changed, never enough to say what was said.
+    static func sinceLastRoundLine(
+        history: [RoundRecord], run: CompilerRun?, current: [Diagnostic]
+    ) -> String? {
+        guard let run, let round = run.round, run.freshEyes != true else { return nil }
+        guard let previous = history.last(where: {
+            $0.passId == run.passId && $0.round != nil
+        }), let previousNumber = previous.round, previousNumber == round - 1 else { return nil }
+
+        let outcome = RoundComparison.compare(previous: previous, current: current)
+        return "Since round \(previousNumber): \(outcome.resolved) resolved "
+            + "\u{00b7} \(outcome.persisting) persisting \u{00b7} \(outcome.new) new"
+    }
+
+    /// **"Fresh eyes · round N"** — what a cold read (⌘⇧R) says about itself,
+    /// in the slot the since-last-round line would have taken.
+    ///
+    /// The two are mutually exclusive by construction and that is the point:
+    /// a fresh-eyes round was briefed on no prior findings (spec §6), so it
+    /// has no distance to report, and a comparison drawn over it would name a
+    /// difference the run never made. `sinceLastRoundLine` refuses the same
+    /// round from the other end; this is what stands in its place, so a report
+    /// that leads with nothing is never how the writer learns their expensive
+    /// keystroke did something different.
+    ///
+    /// `nil` round is a passless cold read — an ordinary M2 ⌘⇧R — which is
+    /// still worth saying, just with no number to name.
+    ///
+    /// `== true` rather than `?? false`: the stamp is `Bool?` on the wire and
+    /// an ordinary run writes no key at all, so absent and `false` must read
+    /// alike.
+    static func freshEyesHeader(run: CompilerRun?) -> String? {
+        guard let run, run.freshEyes == true else { return nil }
+        guard let round = run.round else { return "Fresh eyes" }
+        return "Fresh eyes \u{00b7} round \(round)"
     }
 
     // MARK: - Drift (spec §4's last bullet; findings computed by `DriftDetector`)

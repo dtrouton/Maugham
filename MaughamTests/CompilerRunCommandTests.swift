@@ -147,6 +147,22 @@ final class CompilerRunCommandTests: XCTestCase {
             sequence: ["a1b2", "c3d4"])
     }
 
+    /// A third paragraph, for the tests that need three runs — a lane that is
+    /// left and then returned to needs one ⌘R per lane change, and every run
+    /// after the first needs prose the marker has not seen.
+    private func readingAfterAThirdParagraph() -> CompilerOrchestrator.DocumentReading {
+        CompilerOrchestrator.DocumentReading(
+            ops: [makeOp(opId: "op1", kind: .bootstrap,
+                         changes: [.init(paragraphId: "a1b2", prior: nil, next: "The fog came.")]),
+                  makeOp(opId: "op2",
+                         changes: [.init(paragraphId: "c3d4", prior: nil, next: "It stayed.")]),
+                  makeOp(opId: "op3",
+                         changes: [.init(paragraphId: "e5f6", prior: nil, next: "Then it lifted.")])],
+            paragraphs: ["a1b2": "The fog came.", "c3d4": "It stayed.",
+                         "e5f6": "Then it lifted."],
+            sequence: ["a1b2", "c3d4", "e5f6"])
+    }
+
     private struct Harness {
         let orchestrator: CompilerOrchestrator
         let diagnostics: DiagnosticsStore
@@ -162,6 +178,10 @@ final class CompilerRunCommandTests: XCTestCase {
         let acknowledgments: () -> [CompilerOrchestrator.Acknowledgment]
         /// What the next run reads off the live document — the writer, typing.
         let setReading: (CompilerOrchestrator.DocumentReading?) -> Void
+        /// The pass the writer has active on the piece — the round's lane.
+        /// Settable because the sharp case is a pass that changes DURING a run
+        /// (`test_thePreviewAndTheFinishedRunAgreeOnTheRound`).
+        let setActivePass: (String?) -> Void
         /// How many times the run reached for a fresh derivation — the lazy
         /// trigger's own counter (`AREA.md`, "the derivation trigger").
         var derivations: Int { derivationCount() }
@@ -172,6 +192,12 @@ final class CompilerRunCommandTests: XCTestCase {
         /// The delta prose the bible slice was asked about.
         var sliceQueries: [String] { slicesAsked() }
         let slicesAsked: () -> [String]
+        /// How many times the orchestrator asked for a NEW session — the only
+        /// thing on this side of the seam that can tell "the warm process
+        /// answered again" from "it was retired and one was spawned in its
+        /// place", since `makeRunner` hands back the same spy either way.
+        var spawns: Int { runnerSpawns() }
+        let runnerSpawns: () -> Int
     }
 
     /// A `prepareForRun` the test can hold open, so the window between the
@@ -211,6 +237,9 @@ final class CompilerRunCommandTests: XCTestCase {
         cachedWorld: DerivedWorld? = nil,
         derivedWorld: DerivedWorld? = nil,
         bibleFacts: [BibleFact] = [],
+        /// The review pass active on the piece when a run starts. `nil` — the
+        /// default, and every pre-P3 test's world — is the passless lane.
+        activePass: String? = nil,
         liveParagraphText: @escaping (String, String) -> String? = { _, _ in "The fog came." },
         pinnedListing: @escaping (String) -> [String] = { _ in [] },
         paletteListing: @escaping () -> [String] = { [] },
@@ -228,6 +257,8 @@ final class CompilerRunCommandTests: XCTestCase {
         let derivations = Box(0)
         let recorded = Box<[BibleFact]>([])
         let slices = Box<[String]>([])
+        let pass = Box(activePass)
+        let spawns = Box(0)
         let orchestrator = CompilerOrchestrator()
         orchestrator.configure(
             environment: CompilerOrchestrator.Environment(
@@ -242,6 +273,7 @@ final class CompilerRunCommandTests: XCTestCase {
                             statementText: $0, scopeKey: "doc-doc-1")
                     }
                 },
+                activePass: { id in id == self.docId ? pass.value : nil },
                 cachedWorld: { _ in cachedWorld },
                 deriveWorld: { _, _ in
                     derivations.value += 1
@@ -259,16 +291,21 @@ final class CompilerRunCommandTests: XCTestCase {
                     try Data("{}".utf8).write(to: configURL, options: .atomic)
                     return configURL
                 },
-                makeRunner: { _, _ in runner },
+                makeRunner: { _, _ in
+                    spawns.value += 1
+                    return runner
+                },
                 onRunAcknowledged: { flashes.value.append($0) }),
             diagnostics: diagnostics)
         return Harness(orchestrator: orchestrator, diagnostics: diagnostics,
                        root: root, configURL: configURL,
                        acknowledgments: { flashes.value },
                        setReading: { live.value = $0 },
+                       setActivePass: { pass.value = $0 },
                        derivationCount: { derivations.value },
                        factsRecorded: { recorded.value },
-                       slicesAsked: { slices.value })
+                       slicesAsked: { slices.value },
+                       runnerSpawns: { spawns.value })
     }
 
     private final class Box<T> {
@@ -2613,6 +2650,66 @@ final class CompilerRunCommandTests: XCTestCase {
                        "one run is one entry in the ring, however many sections streamed")
     }
 
+    /// **A preview is not a round either.** The round ring records rounds that
+    /// FINISHED: one ⌘R is one entry, however many sections streamed under it,
+    /// and the entry is the run the finished one superseded — never the
+    /// half-report the same run put on the pane on its way there.
+    ///
+    /// Two runs, because the ring holds the OUTGOING run: a cold document's
+    /// first replace has nothing to remember. **Both of them stream**, because
+    /// the first ⌘R against a new document is the sharp case — there is no
+    /// finished run to set aside, and a `replace` that could not tell "set
+    /// aside, and there was nothing" from "never set aside" would file round 1
+    /// against its own half-report. Falsification: append to the ring from
+    /// `preview` and this reads two.
+    func test_aPreviewNeverEntersTheRoundRing() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // the first turn streams too
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        runner.release(.resultText(
+            oneQuestion("Should she already know?", about: "a1b2")))
+        settle()
+        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(harness.diagnostics.roundHistory(docId: docId), [],
+                       "a cold document's first run has no prior round to file — "
+                       + "least of all itself")
+
+        // A second run, streamed section by section, then finished.
+        runner.nextEvent = nil
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        let strain = conformanceLine("Cold, and never wistful.", "strains",
+                                     whatPulls: "The last line reaches for a sigh.")
+        runner.stream(strain + "\n")
+        runner.stream(strain + "\n")
+        XCTAssertEqual(harness.diagnostics.roundHistory(docId: docId), [],
+                       "a preview must not touch the ring at all")
+
+        runner.release(.resultText("""
+            \(strain)
+            {"section":"continuity","questions":[]}
+            {"section":"reader","reports":[]}
+            {"section":"facts","candidates":[]}
+            """))
+        settle()
+
+        let history = harness.diagnostics.roundHistory(docId: docId)
+        XCTAssertEqual(history.count, 1,
+                       "one run is one entry in the ring, however many sections streamed")
+        XCTAssertEqual(history.first?.runId, finished.id,
+                       "and the entry is the run that FINISHED before this one — not "
+                       + "this run's own half-report, which would compare a round "
+                       + "against itself")
+        XCTAssertEqual(history.first?.fingerprints.count, 1,
+                       "carrying what run 1 raised")
+    }
+
     /// **A preview is never written to disk.** A half-report in the sidecar
     /// would be read back on the next launch as the standing answer, and
     /// nothing on the pane would distinguish it from a check that finished.
@@ -2675,5 +2772,937 @@ final class CompilerRunCommandTests: XCTestCase {
 
         runner.release(.resultText(Self.fourEmptySections))
         settle()
+    }
+
+    // MARK: - The round stamps (M3-P3 Task 2)
+
+    /// **A ⌘R while a pass is active is a numbered round.** The lane is the
+    /// pass the writer has on the piece; the first run in it is round 1, and
+    /// nothing before the pass existed counts toward it.
+    func test_aRunUnderAnActivePassIsRoundOne() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.passId, "line", "the run records the lane it belongs to")
+        XCTAssertEqual(run.round, 1, "the first round of a lane is round 1")
+    }
+
+    /// The next ⌘R in the same lane is the next round — the counting the
+    /// whole loop is built on.
+    func test_aSecondRunInTheSameLaneIsRoundTwo() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        // The writer keeps writing; a run over unchanged prose is an empty
+        // delta and would spend no round at all.
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.passId, "line")
+        XCTAssertEqual(run.round, 2, "the second ⌘R in a lane is round 2")
+    }
+
+    /// **A lane is a lane of its own, and leaving one does not forget it.**
+    /// The writer moves the piece from Line to Proof: Proof starts at 1, and
+    /// coming back to Line resumes at 2 — which is only possible because the
+    /// count survives in the round ring after the run carrying it has been
+    /// superseded twice over.
+    func test_aLaneChangeStartsAtOneAndTheOldLanesCountSurvives() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1)
+
+        harness.setActivePass("proof")
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+        let proof = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(proof.passId, "proof")
+        XCTAssertEqual(proof.round, 1,
+                       "a new lane starts at 1 — the Line rounds are not its own")
+
+        harness.setActivePass("line")
+        harness.setReading(readingAfterAThirdParagraph())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(3, on: runner)
+        settle()
+        let line = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(line.passId, "line")
+        XCTAssertEqual(line.round, 2,
+                       "returning to a lane resumes its count, which by now lives "
+                       + "only in the round ring")
+    }
+
+    /// **A run with no active pass is an ordinary M2 run**, and says so on
+    /// disk: no lane, no round, and not a `null` for either — decision 1's
+    /// passless lane is an absence rather than a degenerate round 1.
+    ///
+    /// Asserted against the sidecar's own bytes, because the in-memory record
+    /// cannot tell "never stamped" from "stamped nil" and the file is what a
+    /// later launch reads back.
+    func test_aRunWithNoActivePassStampsNoLaneAndNoRound() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertNil(run.passId)
+        XCTAssertNil(run.round)
+
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        let json = try String(contentsOf: sidecar, encoding: .utf8)
+        XCTAssertFalse(json.contains("\"passId\""),
+                       "a passless run writes no lane at all; got \(json)")
+        // `"round":` and not `"round"` — the ring's own key is `"rounds"`.
+        XCTAssertFalse(json.contains("\"round\":"),
+                       "…and no round number; got \(json)")
+    }
+
+    /// **The lane and the round are minted at the KEYSTROKE, and the preview
+    /// and the finished run carry the same pair.**
+    ///
+    /// Two defects in one assertion. A mint at `record(...)` time reads the
+    /// store — which, mid-stream, holds this run's OWN preview — so the final
+    /// record would be round 2 of a lane that has had one run: the run
+    /// counting itself. And a writer who clicks another pass chip while the
+    /// check is in flight would have the answer filed in a lane it was never
+    /// read for.
+    func test_thePreviewAndTheFinishedRunAgreeOnTheRound() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // the turn stays open
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+        streamingRun(runner: runner, harness: harness)
+
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        let preview = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(preview.passId, "line")
+        XCTAssertEqual(preview.round, 1)
+
+        // The writer switches the piece to another pass while the check runs.
+        harness.setActivePass("proof")
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+
+        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(finished.passId, preview.passId,
+                       "the run was read for the lane it started in; a mid-run "
+                       + "switch belongs to the NEXT round")
+        XCTAssertEqual(finished.round, preview.round,
+                       "one ⌘R is one round — a mint at record time would have "
+                       + "counted this run's own preview and filed round 2")
+        XCTAssertEqual(finished.round, 1)
+    }
+
+    // MARK: - The round stamps: production wiring
+
+    /// The compiler's read of the active pass is `validatedActivePass` off
+    /// `uiState` — the same one-line spelling the margin stamp uses, keyed by
+    /// the document (the piece IS the document here).
+    func test_productionActivePassIsTheValidatedReadOffUIState() async throws {
+        let root = try makeListingsProjectRoot()
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        documentStore.updateUIState {
+            $0.activePassMemory.record(piece: "ch-1", passId: "line")
+        }
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        XCTAssertEqual(environment.activePass("ch-1"), "line")
+        XCTAssertNil(environment.activePass("ch-2"),
+                     "a piece the writer never opened a pass on has no lane")
+    }
+
+    /// A stored pass the project no longer offers mints nothing — pinned at
+    /// the compiler's own read rather than only at `ActivePassMemory`, so a
+    /// later "optimize to the raw read" files rounds into a lane that does not
+    /// exist.
+    func test_productionMintsNoLaneForAPassTheProjectRetired() async throws {
+        let root = try makeListingsProjectRoot()
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        documentStore.updateUIState {
+            $0.activePassMemory.record(piece: "ch-1", passId: "retired-pass")
+        }
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        XCTAssertNil(environment.activePass("ch-1"),
+                     "a pass absent from effectiveReviewPasses is no lane at all")
+    }
+
+    /// The weak-capture discipline this file's own doc states, one closure
+    /// further on: a window closed mid-run answers honestly rather than
+    /// crashing on a store that is gone.
+    func test_productionHasNoLaneOnceTheWindowsStoresAreGone() async throws {
+        let root = try makeListingsProjectRoot()
+        var store: ProjectStore? = try await ProjectStore.load(from: root)
+        var documentStore: DocumentStore? = try await DocumentStore.open(url: root)
+        documentStore?.updateUIState {
+            $0.activePassMemory.record(piece: "ch-1", passId: "line")
+        }
+        let environment = makeProductionEnvironment(
+            store: store!, documentStore: documentStore!, root: root)
+        XCTAssertEqual(environment.activePass("ch-1"), "line")
+
+        store = nil
+        documentStore = nil
+
+        XCTAssertNil(environment.activePass("ch-1"))
+    }
+
+    // MARK: - Since last round (M3-P3 Task 3)
+
+    /// **The next round is briefed on what the last one raised.** The whole
+    /// loop in one test: run 1 asks a question, the writer writes on, and run
+    /// 2's message carries that question back with the round it came from — so
+    /// the model confirms rather than re-derives it.
+    func test_theNextRoundIsBriefedOnWhatTheLastOneRaised() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Whose coat is on the chair?", about: "a1b2"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1)
+        XCTAssertFalse(runner.sends[0].message.contains("raised these notes"),
+                       "control: round 1 has no prior round to be briefed on")
+
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        let second = runner.sends[1].message
+        XCTAssertTrue(second.contains("Whose coat is on the chair?"),
+                      "the previous round's note must reach the next round's "
+                      + "message; got \(second)")
+        // The lane in curly quotes, not a bare "line" — the schema description
+        // says "four lines" a paragraph later, and a substring check for the
+        // bare word would pass on a message with no round section at all.
+        XCTAssertTrue(second.contains("Round 1 of the \u{201C}line\u{201D} pass"),
+                      "…named by its round and its lane; got \(second)")
+
+        // **The pane's line is the same comparison, computed** — the previous
+        // round's one finding is gone from this round, and nothing replaced it.
+        XCTAssertEqual(
+            DiagnosticsPane.sinceLastRoundLine(
+                history: harness.diagnostics.roundHistory(docId: docId),
+                run: harness.diagnostics.lastRun(docId: docId),
+                current: harness.diagnostics.live(
+                    docId: docId, currentText: { _ in "The fog came." })),
+            "Since round 1: 1 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
+    }
+
+    /// **The partition the app knows and the model cannot.** A note anchored
+    /// to a paragraph the writer has since rewritten is exactly "they have
+    /// been working behind this one" — `DiagnosticsStore.live`'s own
+    /// anchor-text equality, read at the keystroke.
+    func test_aNoteTheWriterHasEditedBehindIsBriefedAsSuch() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Whose coat is on the chair?", about: "a1b2"))
+        let live = Box("The fog came.")
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line",
+            liveParagraphText: { _, _ in live.value })
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        // The writer rewrites the paragraph the question was about.
+        live.value = "The fog lifted before noon."
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        let second = runner.sends[1].message
+        guard let heading = second.range(of: CompilerPrompt.sinceEditedHeading),
+              let body = second.range(of: "Whose coat is on the chair?")
+        else { return XCTFail("expected the edited-behind partition; got \(second)") }
+        XCTAssertLessThan(heading.lowerBound, body.lowerBound)
+        XCTAssertFalse(second.contains(CompilerPrompt.untouchedHeading),
+                       "the only note there was has moved out of the untouched half")
+    }
+
+    /// **A new lane is briefed on nothing.** The comparison lane is
+    /// `(document, pass)`: the Line pass's findings are not what a Proof round
+    /// is measured against, and briefing them would have the model confirming
+    /// notes from a pass the writer has finished.
+    func test_aRoundThatOpensANewLaneIsBriefedOnNoPriorRound() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Whose coat is on the chair?", about: "a1b2"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        harness.setActivePass("proof")
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1,
+                       "control: the new lane starts at round 1")
+        XCTAssertFalse(runner.sends[1].message.contains("Whose coat is on the chair?"),
+                       "got: \(runner.sends[1].message)")
+        XCTAssertFalse(runner.sends[1].message.contains("raised these notes"))
+    }
+
+    /// A ⌘R with no pass active is an ordinary M2 run: no lane, no round, and
+    /// nothing to be measured against — not even the last round of the pass
+    /// the writer has since stepped out of.
+    func test_aPasslessRunIsBriefedOnNoPriorRound() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Whose coat is on the chair?", about: "a1b2"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        harness.setActivePass(nil)
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.round)
+        XCTAssertFalse(runner.sends[1].message.contains("raised these notes"),
+                       "got: \(runner.sends[1].message)")
+    }
+
+    /// **A failed run consumes no round number.** It records nothing, so the
+    /// standing content is still the round before it — the next ⌘R takes the
+    /// number the failure did not. Verified by reading in Task 2 and pinned
+    /// here, where the lane's arithmetic is the subject.
+    func test_aFailedRunConsumesNoRoundNumber() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .failed(.unusableOutput)
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "control: a failed run records nothing at all")
+
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1,
+                       "the failure spent no round \u{2014} the writer's first "
+                       + "report is round 1")
+    }
+
+    // MARK: - The intent-drift verdict (M3-P3 Task 4)
+
+    /// A turn that answers all five sections, with the drift verdict the test
+    /// asks for and nothing else to report.
+    private static func fiveSections(verdict: String) -> String {
+        fourEmptySections + "\n"
+            + "{\"section\":\"intent_drift\",\"verdict\":\"\(verdict)\","
+            + "\"note\":\"The last scenes reach for a warmth the intent rules out.\"}"
+    }
+
+    /// **The verdict rides the run record all the way to the sidecar's own
+    /// bytes** — the field Task 1 added, written for the first time here.
+    ///
+    /// Against the raw JSON rather than the in-memory record: the pane, the
+    /// strip and the next round all read a decoded file, and a field threaded
+    /// into `record` but missing from the encoder would pass every in-memory
+    /// assertion and lose the verdict on the first relaunch.
+    func test_theDriftVerdictReachesTheSidecar() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "drifted"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted")
+
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        let json = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertTrue(json.contains("\"intentDriftVerdict\":\"drifted\""),
+                      "the verdict never reached disk; got \(json)")
+        // The model's own sentence is dropped at ingest (ADR 0027) and must
+        // not have travelled here by some other route.
+        XCTAssertFalse(json.contains("warmth the intent rules out"),
+                       "the model's drift sentence was persisted; got \(json)")
+    }
+
+    /// A run that answers the four sections it knows records no verdict —
+    /// and writes no key for one, so a later build can tell "never judged"
+    /// from "judged and unrecognised".
+    func test_aFourSectionAnswerRecordsNoVerdict() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict)
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        let json = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertFalse(json.contains("\"intentDriftVerdict\""),
+                       "an unjudged run wrote a verdict key; got \(json)")
+    }
+
+    /// **A cancelled preview leaves the previous verdict standing** — the
+    /// storage half of "a preview persists nothing", asserted on the field
+    /// this task adds.
+    ///
+    /// The verdict is the sharpest case of the preview rule, because it is the
+    /// one field a half-report can carry that reads as a judgement on the whole
+    /// draft: a stream cut off after the drift section would otherwise leave
+    /// "drifted" on the strip, sourced from a check that stopped reading. The
+    /// byte comparison is the one assertion a write that merely round-trips
+    /// cannot satisfy (its neighbour,
+    /// `test_aDismissalCannotReachAPreview_soTheSidecarSurvivesACancelByteIdentical`,
+    /// makes the same argument about `dismiss`).
+    func test_aCancelledPreviewLeavesThePreviousVerdictStanding() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "holds"))
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict,
+                       "holds", "control: the finished run judged the draft")
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        let before = try Data(contentsOf: sidecar) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+
+        // A second run, held open, its drift section already streamed.
+        runner.nextEvent = nil
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        runner.stream("{\"section\":\"intent_drift\",\"verdict\":\"drifted\"}\n")
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted",
+            "control: the preview shows the verdict as it arrives")
+        XCTAssertEqual(
+            try Data(contentsOf: sidecar), before, // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+            "a previewed verdict was persisted")
+
+        harness.orchestrator.cancel()
+        settle()
+
+        XCTAssertEqual(
+            try Data(contentsOf: sidecar), before, // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+            "the cancelled run left its verdict behind")
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "holds",
+            "the last finished run's verdict is the standing one")
+    }
+
+    /// **The verdict survives the stream's fold**, which it can only do if
+    /// `combining` keeps the latest non-nil: the model answers the sections in
+    /// the schema's order, so on a real stream the drift line arrives LAST and
+    /// each preceding section folds a nil over whatever came before it. This
+    /// drives the reverse — the drift line first, four nils after it — because
+    /// that is the ordering a lost verdict would survive.
+    func test_aStreamedVerdictSurvivesTheSectionsAfterIt() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        runner.stream("{\"section\":\"intent_drift\",\"verdict\":\"drifted\"}\n")
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted")
+
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted",
+            "a section with no verdict erased the one already streamed")
+
+        runner.release(.resultText(Self.fiveSections(verdict: "drifted")))
+        settle()
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "drifted")
+    }
+
+    // MARK: - The strip's quiet mark (M3-P3 Task 5)
+
+    /// **A run against no declared intent records NO verdict**, whatever the
+    /// model says — the honesty guard.
+    ///
+    /// The schema instructs `holds` where nothing is declared, which is the
+    /// obliging answer and not a true one: there was no intent to check the
+    /// draft against, so there is nothing the model can have judged. Recording
+    /// it would put a judgement on the run record that no reading produced,
+    /// and the sidecar is where a later build looks to tell "never judged"
+    /// from "judged and held". The key must be absent, not false-ish.
+    ///
+    /// Nothing downstream of this reads `holds` — the mark fires on `drifted`
+    /// alone — so this is about what the record is allowed to CLAIM rather
+    /// than about the strip.
+    func test_aRunWithNoDeclaredIntentRecordsNoVerdict() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "holds"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), statementText: nil)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertNotNil(harness.diagnostics.lastRun(docId: docId),
+                        "control: the run must have finished and filed a record")
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict)
+
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+        let json = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertFalse(
+            json.contains("\"intentDriftVerdict\""),
+            "a run with nothing declared recorded a verdict anyway; got \(json)")
+    }
+
+    /// The same guard's converse, so the fix cannot be "record nothing ever":
+    /// with an intent declared, the verdict rides the record as Task 4 built
+    /// it.
+    func test_aRunWithADeclaredIntentStillRecordsItsVerdict() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "holds"))
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(
+            harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict, "holds")
+    }
+
+    /// **The mark, end to end from the keystroke**: a round answers `drifted`
+    /// and the decision the window asks raises it; the next round answers
+    /// `holds` and it clears, with the writer having touched nothing.
+    ///
+    /// Driven through the orchestrator rather than a hand-built record,
+    /// because the thing under test is the join — the snapshot the run stored
+    /// and the statement text the window resolves have to be the same string
+    /// or the hash comparison never matches and the mark can never appear.
+    func test_theMarkFollowsTheStandingRoundsVerdict() throws {
+        let intent = "Cold, and never wistful."
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "drifted"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), statementText: intent)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertTrue(
+            IntentDrift.mayTrailDraft(
+                lastRun: harness.diagnostics.lastRun(docId: docId),
+                currentStatementText: intent),
+            "the round judged the draft drifted and the intent is untouched")
+
+        // The writer keeps writing; the next round finds the draft back on
+        // its intent.
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "holds"))
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(
+                lastRun: harness.diagnostics.lastRun(docId: docId),
+                currentStatementText: intent),
+            "a later round said the draft holds; the mark must clear with no "
+            + "stored state to un-set")
+    }
+
+    // MARK: - Fresh eyes (M3-P3 Task 6)
+    //
+    // ⌘⇧R is one keystroke with three parts, and each of them is separately
+    // deletable while the other two keep working: the warm process dies, the
+    // read is of the whole piece rather than the delta, and the round is
+    // briefed on no prior round. A test per part, each with the ordinary ⌘R
+    // beside it as its control.
+
+    /// The failure a spawn refused by the AI toggle comes back as, whichever
+    /// key asked for it — pulled out of the state so two runs can be compared
+    /// without their timestamps taking part.
+    private func failure(
+        of state: CompilerOrchestrator.RunState
+    ) -> (docId: String, failure: CompilerRunFailure)? {
+        guard case .failed(let docId, let failure, _) = state else { return nil }
+        return (docId, failure)
+    }
+
+    /// **The wiring census, Fresh Eyes' half.** Same reasoning as ⌘R's: the
+    /// menu item and the modifier's subscription are the two ends no test can
+    /// mount, and deleting either leaves every assertion below green over a
+    /// keystroke that does nothing.
+    func test_theFreshEyesCommandIsWiredFromTheMenuToTheWindow() throws {
+        let app = try source(at: "Maugham/MaughamApp.swift")
+        XCTAssertTrue(app.contains("MaughamEvent.postCompilerFreshEyes()"),
+                      "the menu item must post through the typed wrapper (tripwire 21)")
+        XCTAssertTrue(app.contains(#".keyboardShortcut("r", modifiers: [.command, .shift])"#),
+                      "…and carry ⌘⇧R, which was verified unbound at implementation time")
+
+        let modifier = try source(at: "Maugham/Views/CompilerRunModifier.swift")
+        for token in [".onKeyWindowCommand(.maughamFreshEyesCompiler",
+                      "freshEyes: true"] {
+            XCTAssertTrue(modifier.contains(token),
+                          "CompilerRunModifier is missing \(token) \u{2014} without it "
+                          + "⌘⇧R reaches no orchestrator, or reaches it as an "
+                          + "ordinary ⌘R")
+        }
+        XCTAssertFalse(modifier.contains(".onKeyWindowCommand(.maughamNotARealEvent"),
+                       "the scan reads the file rather than always answering true")
+    }
+
+    /// **The discriminator.** A ⌘R over unchanged prose is an empty delta and
+    /// spends nothing — that is the whole of M2's marker discipline. Fresh
+    /// eyes over the same unchanged prose reads the piece: the marker is not
+    /// consulted, so the paragraph the last run already checked is in this
+    /// message.
+    ///
+    /// Falsification: keep the marker read on the fresh path and this run is
+    /// `nothingNew` with no second send at all.
+    func test_freshEyesReadsTheWholePieceThoughTheMarkerIsCurrent() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[0].message.contains("The fog came."))
+
+        // Control: the ordinary key, over prose the marker has already seen.
+        harness.orchestrator.runRequested(docId: docId)
+        settle()
+        XCTAssertEqual(runner.sends.count, 1,
+                       "control: ⌘R over unchanged prose spends no turn")
+        guard case .nothingNew = harness.orchestrator.runState else {
+            return XCTFail("control: the ordinary key must report nothing new, "
+                           + "got \(harness.orchestrator.runState)")
+        }
+
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertTrue(runner.sends[1].message.contains("The fog came."),
+                      "the cold read must carry the paragraph the marker already "
+                      + "covered; got \(runner.sends[1].message)")
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.deltaSummary,
+                       "1 new, 0 revised \u{00b6}",
+                       "the whole standing manuscript arrives as new")
+    }
+
+    /// **The process dies before the read, and the cold one is told everything
+    /// again.** `sentBriefing` is cleared with the session, so the message
+    /// carries the essay rather than the marker line a warm session gets.
+    func test_freshEyesRetiresTheWarmSessionAndBriefsItWhole() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[0].message.contains("Cold, and never wistful."),
+                      "the first run of a session is briefed whole")
+        XCTAssertEqual(harness.spawns, 1)
+
+        // Control: an ordinary second run rides the same process, and the
+        // briefing is elided because that process has already read it.
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[1].message.contains("unchanged since last run"),
+                      "control: a warm session is told the briefing is unchanged; "
+                      + "got \(runner.sends[1].message)")
+        XCTAssertEqual(runner.shutdowns, 0, "control: ⌘R retires nothing")
+        XCTAssertEqual(harness.spawns, 1, "control: ⌘R spawns nothing")
+
+        harness.setReading(readingAfterAThirdParagraph())
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(3, on: runner)
+        settle()
+
+        XCTAssertEqual(runner.shutdowns, 1,
+                       "the warm process must be shut down, not merely dropped")
+        XCTAssertEqual(harness.spawns, 2,
+                       "…and a new one asked for in its place")
+        XCTAssertFalse(runner.sends[2].message.contains("unchanged since last run"),
+                       "a cold process has read nothing; got \(runner.sends[2].message)")
+        XCTAssertTrue(runner.sends[2].message.contains("Cold, and never wistful."),
+                      "…so the whole briefing re-embeds; got \(runner.sends[2].message)")
+    }
+
+    /// **A fresh-eyes press with nothing to read costs the writer nothing.**
+    /// `retireSession()` sits BELOW the empty-delta guard on purpose — the
+    /// warm process is the expensive thing in this design, and a keystroke
+    /// that turns out to have no prose behind it must not have killed it on
+    /// the way past. The ordering was asserted in three prose comments
+    /// (`beginRun`'s own, and `Maugham/Compiler/AREA.md`'s lifetime row) and
+    /// pinned by nothing.
+    ///
+    /// Falsification: hoist `if freshEyes { retireSession() }` above the
+    /// `guard !delta.isEmpty` and `shutdowns` reads 1 — the session established
+    /// by the first run is reaped for a press that then reports `nothingNew`.
+    func test_freshEyesWithNothingToReadKeepsTheWarmSession() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        // A real run first, so there IS a warm session to lose. Without it
+        // `runner` is still nil inside the orchestrator and `retireSession`
+        // would be a silent no-op wherever it sat.
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(runner.shutdowns, 0)
+        XCTAssertEqual(harness.spawns, 1)
+
+        // Nothing standing to read. A cold read consults no marker, so this —
+        // not "unchanged prose" — is what an empty delta looks like on the
+        // fresh path (`DeltaBuilder` walks `sequence` when `since` is nil).
+        harness.setReading(CompilerOrchestrator.DocumentReading(
+            ops: [], paragraphs: [:], sequence: []))
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        settle()
+
+        XCTAssertEqual(runner.shutdowns, 0,
+                       "the press had nothing to read, so it must not have cost "
+                       + "the writer their warm session")
+        XCTAssertEqual(harness.spawns, 1, "…and nothing was spawned in its place")
+        XCTAssertEqual(runner.sends.count, 1, "…and no turn was spent")
+        guard case .nothingNew(let stateDocId, _) = harness.orchestrator.runState else {
+            return XCTFail("expected the idle 'nothing new' variant, got "
+                           + "\(harness.orchestrator.runState)")
+        }
+        XCTAssertEqual(stateDocId, docId)
+    }
+
+    /// **A cold read is briefed on no prior round, though its lane has one.**
+    /// The round section would hand the model the last round's findings and
+    /// ask it to compare — which is exactly what fresh eyes exists not to do.
+    /// The lane and the number are minted normally: it is round N of the pass,
+    /// and it says so on the record.
+    func test_freshEyesIsBriefedOnNoPriorRoundThoughItsLaneHasOne() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            oneQuestion("Whose coat is on the chair?", about: "a1b2"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1)
+
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(2, on: runner)
+        settle()
+
+        let second = runner.sends[1].message
+        XCTAssertFalse(second.contains("Round 1 of the \u{201C}line\u{201D} pass"),
+                       "the cold read must be briefed on no prior round; got \(second)")
+        XCTAssertFalse(second.contains("Whose coat is on the chair?"),
+                       "…and on none of its findings; got \(second)")
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.passId, "line", "the lane is minted normally")
+        XCTAssertEqual(run.round, 2, "…and so is the number")
+        XCTAssertEqual(run.freshEyes, true, "…and the round says how it was read")
+    }
+
+    /// **The stamp reaches disk**, because the pane's header and every later
+    /// build read a decoded file. An ordinary run writes no key at all, so
+    /// "read cold" stays distinguishable from "never asked".
+    func test_theFreshEyesStampReachesTheSidecar() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+        let sidecar = DiagnosticsStore.sidecarURL(
+            projectRoot: harness.root, docId: docId,
+            device: DeviceSlug.make(from: "test-mac"))
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        let ordinary = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertFalse(ordinary.contains("\"freshEyes\""),
+                       "control: an ordinary run stamps no key; got \(ordinary)")
+
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(2, on: runner)
+        settle()
+
+        let cold = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        XCTAssertTrue(cold.contains("\"freshEyes\":true"),
+                      "the stamp never reached disk; got \(cold)")
+    }
+
+    /// **The next plain ⌘R is warm again and back on the marker.** A fresh
+    /// read advances the marker exactly as any run does, so the keystroke
+    /// after it reads the delta since the cold read — not the piece, and not
+    /// nothing.
+    func test_theRunAfterFreshEyesIsWarmAndBackOnTheMarker() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(harness.spawns, 1)
+
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+
+        let second = runner.sends[1].message
+        XCTAssertTrue(second.contains("It stayed."),
+                      "the run after a cold read is an ordinary delta; got \(second)")
+        XCTAssertFalse(second.contains("The fog came."),
+                       "…measured from the marker the cold read advanced; got \(second)")
+        XCTAssertTrue(second.contains("unchanged since last run"),
+                      "…on the session the cold read spawned, which has read the "
+                      + "briefing; got \(second)")
+        XCTAssertEqual(harness.spawns, 1, "no second session was asked for")
+    }
+
+    /// The capsule says what this keystroke is doing, and it is not what ⌘R
+    /// does — a cold read of the whole piece takes minutes where a delta takes
+    /// seconds, and "Checking…" over it is the wrong promise.
+    func test_freshEyesFlashesThatItIsReadingWhole() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.flashesSaid, [.freshEyes])
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.freshEyes.flashLabel,
+                       "Reading whole\u{2026}")
+    }
+
+    /// **⌘⇧R while a run is in flight refuses exactly as ⌘R does** — and,
+    /// sharper than the ordinary key, it must not reach the session on its way
+    /// to refusing. A retire-first written above the guard would kill the turn
+    /// the writer is waiting on.
+    func test_freshEyesWhileARunIsInFlightRefusesAndTouchesNothing() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        settle()
+
+        XCTAssertEqual(runner.sends.count, 1, "no second turn was started")
+        XCTAssertEqual(runner.shutdowns, 0,
+                       "the run in flight must survive a fresh-eyes press")
+        XCTAssertEqual(harness.spawns, 1)
+        XCTAssertEqual(harness.flashesSaid, [.started, .alreadyChecking],
+                       "the refusal says what ⌘R's says")
+        XCTAssertEqual(harness.orchestrator.runState, runningOnTheStandingReading)
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+    }
+
+    /// **The AI toggle refuses both keys identically.** The toggle is enforced
+    /// at the spawn (`ClaudeCLISession`), so a cold read that retired the warm
+    /// session finds the same closed door — and must surface it the same way,
+    /// rather than as a special failure of its own.
+    func test_freshEyesWithTheToggleOffRefusesExactlyAsTheRunKeyDoes() throws {
+        let ordinaryRunner = SpyRunner()
+        ordinaryRunner.nextEvent = .failed(.disabledByToggle)
+        let ordinary = try makeHarness(runner: ordinaryRunner, reading: standingReading())
+        ordinary.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: ordinaryRunner)
+        settle()
+
+        let coldRunner = SpyRunner()
+        coldRunner.nextEvent = .failed(.disabledByToggle)
+        let cold = try makeHarness(runner: coldRunner, reading: standingReading())
+        cold.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(1, on: coldRunner)
+        settle()
+
+        let expected = try XCTUnwrap(failure(of: ordinary.orchestrator.runState),
+                                     "control: the ordinary key surfaces the toggle")
+        XCTAssertEqual(expected.failure, .disabledByToggle)
+        let got = try XCTUnwrap(failure(of: cold.orchestrator.runState),
+                                "the cold read must surface the same refusal")
+        XCTAssertEqual(got.failure, expected.failure)
+        XCTAssertEqual(got.docId, expected.docId)
+        XCTAssertNil(cold.diagnostics.lastRun(docId: docId),
+                     "a refused run records nothing, cold or warm")
     }
 }

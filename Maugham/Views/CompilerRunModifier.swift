@@ -1,12 +1,16 @@
 import SwiftUI
 import AppKit
 
-/// **⌘R's delivery path, and every way the session has to die.**
+/// **The run keys' delivery path, and every way the session has to die.**
 ///
 /// Extracted from `ProjectWindow.body` for that file's standing reason (the
-/// SwiftUI type-checker ceiling), but the grouping is real: the four things
-/// below are one subject — the run key, and the three moments at which the
-/// `claude` subprocess must stop existing. `ClaudeCLISession` cannot defend
+/// SwiftUI type-checker ceiling), but the grouping is real: the things below
+/// are one subject — the two run keys (⌘R's delta and ⌘⇧R's cold read of the
+/// whole piece), and the three moments at which the `claude` subprocess must
+/// stop existing. Fresh eyes retires the session too, but from the inside:
+/// it is a run rather than a teardown, so the retirement is the
+/// orchestrator's (`runRequested(docId:freshEyes:)`) and not a fourth arm
+/// here. `ClaudeCLISession` cannot defend
 /// itself (its `deinit` is nonisolated and cannot reach its own child), so a
 /// missed teardown here is a live, billing process outliving the window that
 /// started it.
@@ -31,6 +35,13 @@ struct CompilerRunModifier: ViewModifier {
         content
             .onKeyWindowCommand(.maughamRunCompiler, window: window) { _ in
                 orchestrator.runRequested(docId: activeDocId)
+            }
+            // The cold read (⌘⇧R). A second arm rather than a branch inside
+            // the first: the two keystrokes are two promises, and the
+            // orchestrator is the one place that knows what the difference
+            // costs.
+            .onKeyWindowCommand(.maughamFreshEyesCompiler, window: window) { _ in
+                orchestrator.runRequested(docId: activeDocId, freshEyes: true)
             }
             .onGlobalEvent(.maughamAppWillTerminate) { _ in
                 orchestrator.shutdown()

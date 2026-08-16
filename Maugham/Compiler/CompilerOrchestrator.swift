@@ -80,15 +80,22 @@ final class CompilerOrchestrator {
         case started
         /// One was already running, and this press started nothing.
         case alreadyChecking
+        /// A **cold** run just started on this document (⌘⇧R): the warm
+        /// session retired, the piece read whole. Its own case because the two
+        /// presses promise different things — a delta comes back in seconds
+        /// and a whole piece in minutes — and "Checking…" over the second is
+        /// the wrong promise, not merely a duller one.
+        case freshEyes
 
         /// The capsule's word. Kept beside the case rather than in the window
-        /// that draws it, so both sentences are assertable without a mount —
-        /// and so the difference between them cannot be lost in a view's
-        /// `switch`.
+        /// that draws it, so all three sentences are assertable without a
+        /// mount — and so the difference between them cannot be lost in a
+        /// view's `switch`.
         var flashLabel: String {
             switch self {
             case .started: return "Checking\u{2026}"
             case .alreadyChecking: return "Still checking\u{2026}"
+            case .freshEyes: return "Reading whole\u{2026}"
             }
         }
     }
@@ -161,6 +168,19 @@ final class CompilerOrchestrator {
         /// answer and mints nothing (M1A's rule): the run proceeds with nothing
         /// declared, and the conformance section simply has nothing to check.
         var intent: @MainActor (String) -> IntentBriefing?
+        /// **The review pass the writer has active on this piece** — the
+        /// round's comparison lane, asked once per run at the keystroke.
+        ///
+        /// Already validated against the project's live pass list by whoever
+        /// answers: a lane is a pass that exists, and a run filed against a
+        /// retired id would be a round nothing can ever compare. `nil` is the
+        /// passless lane — an ordinary M2 ⌘R, which mints no round number at
+        /// all rather than round 1 of nothing.
+        ///
+        /// Defaulted so that every `Environment` built before rounds existed
+        /// still compiles: the answer it gives is the passless lane, which is
+        /// exactly what those runs were.
+        var activePass: @MainActor (String) -> String? = { _ in nil }
         /// The reading already held for this statement's EXACT text, or `nil`
         /// for a miss. Pure — it never derives and never spawns, which is what
         /// lets the run tell a hit from a miss before deciding to spend a
@@ -277,6 +297,15 @@ final class CompilerOrchestrator {
         let lastOpId: String?
         let deltaSummary: String
         let intentSnapshot: String?
+        /// The round's lane and its number, minted at the keystroke
+        /// (`beginRun`) and carried so the preview cannot describe a different
+        /// round from the answer that supersedes it.
+        let passId: String?
+        let round: Int?
+        /// Whether this round was read cold (⌘⇧R) — carried for the same
+        /// reason the lane is: the preview and the answer must describe one
+        /// round, and the pane draws its header off this stamp.
+        let freshEyes: Bool
         /// Text delivered that has not closed a line yet. A chunk is cut by
         /// the transport, not by the contract — a section's JSON object
         /// routinely arrives in three pieces — so nothing is read until a
@@ -324,7 +353,20 @@ final class CompilerOrchestrator {
     /// The run key. Builds the delta, assembles the prompt, sends it, ingests
     /// the answer — and refuses, quietly, in the two cases where the honest
     /// thing to do is nothing.
-    func runRequested(docId: String) {
+    ///
+    /// **`freshEyes` is the same run read cold** (⌘⇧R, M3-P3 §6): the warm
+    /// session is retired so the process that answers has read nothing, the
+    /// marker is not consulted so the delta is the whole standing manuscript,
+    /// and the round is briefed on no prior round. Everything else is
+    /// identical — the pass and the round number are minted normally, the
+    /// marker advances normally, and the run records what it was
+    /// (`CompilerRun.freshEyes`), so the NEXT plain ⌘R is warm again and back
+    /// on the marker.
+    ///
+    /// Defaulted `false` so the ordinary key and every caller predating it —
+    /// the cold-start offer's Read button among them — say what they always
+    /// said.
+    func runRequested(docId: String, freshEyes: Bool = false) {
         guard let environment, diagnostics != nil else { return }
         // A run already in flight. Nothing is queued — there is one session per
         // window, and a second turn is something the next keystroke can do —
@@ -351,7 +393,14 @@ final class CompilerOrchestrator {
         // Synchronous with the keystroke, and deliberately ahead of the hop
         // below: the flash is ⌘S's muscle-memory acknowledgment, not a progress
         // indicator, and one that waited on a disk write would be neither.
-        environment.onRunAcknowledged(.started)
+        //
+        // **Below the refusals on purpose, both of them.** A fresh-eyes press
+        // that arrives mid-run must be answered "still checking" like any
+        // other, and must not have retired the session on its way past — the
+        // retirement lives in `beginRun`, downstream of everything here, so
+        // the turn the writer is waiting on cannot be killed by the keystroke
+        // that was refused.
+        environment.onRunAcknowledged(freshEyes ? .freshEyes : .started)
 
         // **The burst first, the delta second.** The writer's last sentences
         // are in the `PendingBuffer` until a pause closes the burst, so a
@@ -375,6 +424,7 @@ final class CompilerOrchestrator {
                   let diagnostics = self.diagnostics,
                   let reading = environment.reading(docId) else { return }
             self.beginRun(docId: docId, reading: reading, generation: generation,
+                          freshEyes: freshEyes,
                           environment: environment, diagnostics: diagnostics)
         }
     }
@@ -382,12 +432,18 @@ final class CompilerOrchestrator {
     /// The run proper, from the delta on — everything that was `runRequested`'s
     /// body before the burst-flush hop moved in above it.
     private func beginRun(
-        docId: String, reading: DocumentReading, generation: Int,
+        docId: String, reading: DocumentReading, generation: Int, freshEyes: Bool,
         environment: Environment, diagnostics: DiagnosticsStore
     ) {
         let marker = diagnostics.lastOpId(docId: docId)
+        // **A cold read does not consult the marker** (M3-P3 §6). `since: nil`
+        // is `DeltaBuilder`'s "everything is new", which is what makes ⌘⇧R
+        // over untouched prose a real read where ⌘R is honestly `nothingNew`.
+        // The marker is still READ above and still advances below — a fresh
+        // run leaves the document exactly as any run does, or the ⌘R after it
+        // would re-read the piece a second time.
         let delta = DeltaBuilder.delta(
-            ops: reading.ops, since: marker,
+            ops: reading.ops, since: freshEyes ? nil : marker,
             currentParagraphs: reading.paragraphs, sequence: reading.sequence)
 
         guard !delta.isEmpty else {
@@ -399,6 +455,54 @@ final class CompilerOrchestrator {
             runState = .nothingNew(docId: docId, at: Date())
             return
         }
+
+        // **The lane and the round, minted HERE — at the keystroke, before a
+        // single byte of the answer can arrive** (M3-P3 §6).
+        //
+        // Two reasons it cannot wait for the record:
+        //
+        // - `latestRound` reads the store, and in production every run
+        //   streams, so from the first closed section onward the standing
+        //   content for this document is THIS run's own preview. A mint at
+        //   record time would read its own round back and file the answer as
+        //   the round after itself.
+        // - The writer can click another pass chip while the check runs. The
+        //   run was read for the lane it started in; a switch mid-check
+        //   belongs to the next ⌘R.
+        //
+        // So it is minted once, carried on `StreamingRun`, and threaded
+        // through the one `record(...)` spelling — the preview and the final
+        // answer describe one round or they describe two checks.
+        //
+        // Below the empty-delta guard on purpose: a ⌘R with nothing new is not
+        // a round, and numbering it would leave a gap in the lane the writer
+        // never saw a report for.
+        let passId = environment.activePass(docId)
+        // A passless run mints no number at all rather than round 1 of
+        // nothing (decision 1: the passless lane is a lane, and an ordinary M2
+        // run is what it holds).
+        let round = passId == nil
+            ? nil
+            : (diagnostics.latestRound(forPass: passId, docId: docId) ?? 0) + 1
+
+        // **The previous round, read HERE for the same reason the round number
+        // is minted here** (M3-P3 §6). At this instant the standing sidecar
+        // content IS the previous round — `replace` happens at finish — so
+        // this is the last moment it can be asked for. From the first closed
+        // section onward the standing content is this run's own preview, and
+        // a briefing assembled then would hand the model its own half-report
+        // as "what the last round found".
+        //
+        // **A cold read is briefed on none of it.** The round section hands
+        // the model what the last round raised and asks it to say what became
+        // of each — the opposite of reading the piece as if for the first
+        // time. So fresh eyes skips the gather entirely rather than passing a
+        // flag downward: nothing is asked of the store, and the pane's
+        // since-last-round line refuses the same round from the other end
+        // (`DiagnosticsPane.sinceLastRoundLine`), so the briefing and the
+        // report agree about what this round was measured against — nothing.
+        let previousRound = freshEyes ? nil : Self.previousRound(
+            inLane: passId, docId: docId, diagnostics: diagnostics, environment: environment)
 
         let briefing = environment.intent(docId)
         // The essay half alone (spec §3.2). **This is the atomic switch**: the
@@ -415,6 +519,21 @@ final class CompilerOrchestrator {
         let paletteListing = environment.paletteListing()
         let bibleFacts = environment.bibleSlice(Self.prose(of: delta))
 
+        // **The warm process dies HERE, and the read happens on its
+        // replacement.** Fresh eyes is a cold read in the literal sense: a
+        // session that has already read this piece carries every earlier turn
+        // in its context, so re-sending the whole manuscript to it would be
+        // the same tired reader given the same pages again. `retireSession`
+        // is `shutdown()`'s body minus the surface — the process is signalled
+        // and reaped, the config file goes with it, and `sentBriefing` clears
+        // so the replacement is told the essay, the world and the bible in
+        // full rather than "unchanged since last run".
+        //
+        // Late on purpose: below the in-flight refusal (`runRequested`), below
+        // the burst-flush hop's generation check, and below the empty-delta
+        // guard — a keystroke that is refused, abandoned or has nothing to
+        // read must not have cost the writer their warm session on the way.
+        if freshEyes { retireSession() }
         guard let runner = ensureRunner(model: environment.model) else {
             runState = .failed(
                 docId: docId,
@@ -463,6 +582,7 @@ final class CompilerOrchestrator {
             let (message, briefingHash) = CompilerPrompt.runMessageV2(
                 delta: delta, world: world, essay: essay, bibleFacts: bibleFacts,
                 paletteListing: paletteListing, pinnedListing: pinnedListing,
+                previousRound: previousRound,
                 previousBriefingHash: previousHash)
 
             // **Armed immediately before the send, and never earlier.** A run
@@ -472,7 +592,8 @@ final class CompilerOrchestrator {
             self.streaming = StreamingRun(
                 generation: generation, docId: docId, runId: runId, model: model,
                 lastOpId: lastOpId, deltaSummary: deltaSummary,
-                intentSnapshot: briefing?.statementText)
+                intentSnapshot: briefing?.statementText, passId: passId, round: round,
+                freshEyes: freshEyes)
             runner.setPartialHandler { [weak self] chunk in
                 self?.receivePartial(chunk, generation: generation)
             }
@@ -481,6 +602,7 @@ final class CompilerOrchestrator {
             self.finish(event, docId: docId, runId: runId, lastOpId: lastOpId,
                         deltaSummary: deltaSummary,
                         intentSnapshot: briefing?.statementText,
+                        passId: passId, round: round, freshEyes: freshEyes,
                         briefingHash: briefingHash, model: model)
         }
     }
@@ -536,7 +658,10 @@ final class CompilerOrchestrator {
         diagnostics.preview(
             run: Self.record(id: runId, model: run.model, lastOpId: run.lastOpId,
                              deltaSummary: run.deltaSummary,
-                             intentSnapshot: run.intentSnapshot, outcome: run.outcome),
+                             intentSnapshot: run.intentSnapshot,
+                             passId: run.passId, round: run.round,
+                             freshEyes: run.freshEyes,
+                             outcome: run.outcome),
             diagnostics: run.outcome.accepted, docId: docId)
     }
 
@@ -557,9 +682,16 @@ final class CompilerOrchestrator {
     /// The run record — **one spelling, read by the preview and by the final
     /// answer**, so what the pane says mid-check and what it says afterwards
     /// cannot describe the same check differently.
+    ///
+    /// `passId`/`round`/`freshEyes` are required rather than defaulted: they
+    /// are minted at the keystroke and carried, and a third call site that
+    /// could quietly omit them would file an unnumbered round nothing
+    /// downstream could notice — the preview and the answer would simply
+    /// disagree.
     private static func record(
         id: String, model: String, lastOpId: String?, deltaSummary: String,
-        intentSnapshot: String?, outcome: DiagnosticIngest.SectionedOutcome
+        intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
+        outcome: DiagnosticIngest.SectionedOutcome
     ) -> CompilerRun {
         CompilerRun(
             id: id, at: Date(), model: model, lastOpId: lastOpId,
@@ -573,7 +705,83 @@ final class CompilerOrchestrator {
             clauseStatuses: outcome.conformance,
             // How many reader reports were over the schema's cap of three,
             // stored with the run so the pane can report the truncation.
-            truncatedReader: outcome.truncatedReader)
+            truncatedReader: outcome.truncatedReader,
+            // The lane and its number. Both nil on a passless run, which is an
+            // ordinary M2 run rather than a degenerate round.
+            passId: passId, round: round,
+            // **An ordinary run stamps NOTHING, not `false`** (M3-P3 Task 6).
+            // The field is what the pane's header and the since-last-round
+            // line both read, and both ask `== true`, so `false` and absent
+            // are the same answer to every reader — which makes the absent one
+            // strictly better: a ⌘R's sidecar stays byte-for-byte what it was
+            // before this task existed, and "read cold" stays a thing a record
+            // says rather than a thing every record carries an opinion about.
+            freshEyes: freshEyes ? true : nil,
+            // The round's judgement of the draft against the declared intent
+            // (M3-P3 Task 4). Read straight off the outcome, so the preview
+            // and the finished answer say the same thing about the same turn
+            // — and nil for a turn that answered only the four sections it
+            // knew, which is the additive contract working.
+            //
+            // It reaches DISK only through `DiagnosticsStore.replace`: a
+            // preview carries it in memory, where the strip can draw it as it
+            // arrives, and a cancel puts the last finished run's verdict back
+            // by re-reading the untouched sidecar.
+            //
+            // **A run with nothing declared records NO verdict, whatever the
+            // model answered** (M3-P3 Task 5). The schema instructs `holds`
+            // where there is no intent, which is the obliging answer and not a
+            // true one: nothing was checked against anything, so nothing was
+            // judged. The guard is here rather than at ingest because this is
+            // where the two halves meet — the snapshot is what the round was
+            // briefed on, and a verdict without one is a judgement with no
+            // subject. Downstream is unaffected either way (the strip's mark
+            // fires on `drifted` alone); what this protects is what the RECORD
+            // is allowed to claim, since the sidecar is where a later build
+            // looks to tell "never judged" from "judged and held".
+            intentDriftVerdict: intentSnapshot == nil ? nil : outcome.intentDriftVerdict)
+    }
+
+    /// **What the last round in this run's lane raised**, or `nil` when there
+    /// is nothing this round can honestly be measured against.
+    ///
+    /// The lane rule, in one place (`RoundComparison`'s decision 1): only a
+    /// prior round with the SAME `passId` briefs the next one. A passless ⌘R
+    /// is an ordinary M2 run and is briefed on nothing; a run that opens a new
+    /// lane starts clean, because the Line pass's findings are not what a
+    /// Proof round is measured against.
+    ///
+    /// The standing run is the ONLY candidate, and that is not a shortcut: a
+    /// round's notes are gone the moment the next round replaces them, so a
+    /// round older than the standing one has fingerprints in the ring and no
+    /// prose anywhere. If the standing run belongs to another lane, this
+    /// lane's last round left nothing to say.
+    private static func previousRound(
+        inLane passId: String?, docId: String, diagnostics: DiagnosticsStore,
+        environment: Environment
+    ) -> CompilerPrompt.PriorRound? {
+        guard passId != nil,
+              let standing = diagnostics.standingRound(docId: docId),
+              standing.record.passId == passId,
+              standing.record.round != nil
+        else { return nil }
+
+        let notes = standing.notes.compactMap { note -> CompilerPrompt.PriorNote? in
+            // A note with no section is a v1 record, which has no identity
+            // under this contract — `RoundFingerprint.make` refuses one for
+            // the same reason, so counting it and briefing it stay in step.
+            guard let kind = note.kind else { return nil }
+            return CompilerPrompt.PriorNote(
+                body: note.body, kind: kind,
+                // `DiagnosticsStore.live`'s rule, asked directly: the
+                // paragraph's text now against the text the note was anchored
+                // to. A paragraph that is gone answers `nil`, which is not the
+                // anchor text either — the writer edited it away.
+                sinceEdited: note.anchor.map {
+                    environment.liveParagraphText(docId, $0.paragraphId) != $0.anchorText
+                } ?? false)
+        }
+        return CompilerPrompt.PriorRound(record: standing.record, notes: notes)
     }
 
     /// The declared world for this run: the cached reading if one was made from
@@ -676,7 +884,8 @@ final class CompilerOrchestrator {
 
     private func finish(
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
-        deltaSummary: String, intentSnapshot: String?, briefingHash: String?, model: String
+        deltaSummary: String, intentSnapshot: String?, passId: String?, round: Int?,
+        freshEyes: Bool, briefingHash: String?, model: String
     ) {
         switch event {
         case .started:
@@ -721,6 +930,11 @@ final class CompilerOrchestrator {
             let run = Self.record(
                 id: runId, model: model, lastOpId: lastOpId,
                 deltaSummary: deltaSummary, intentSnapshot: intentSnapshot,
+                // The pair minted at the keystroke, not re-asked here: the
+                // store's own standing content is this run's preview by now,
+                // and the writer may have moved the piece to another pass
+                // while it ran.
+                passId: passId, round: round, freshEyes: freshEyes,
                 outcome: outcome)
             // Dropped rather than discarded: `replace` below supersedes the
             // preview wholesale, so taking it off the pane first would blink

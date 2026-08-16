@@ -151,6 +151,16 @@ struct MaughamApp: App {
                     MaughamEvent.postCompilerRun()
                 }
                 .keyboardShortcut("r", modifiers: .command)
+                // The same trigger read cold (M3-P3 §6): the warm session is
+                // retired and the piece is read whole. Beside Check Writing
+                // because it is the same act asked for differently, and on
+                // ⌘⇧R — verified unbound 2026-08-15, the only other "r"
+                // bindings being ⌘ (above), ⌘⌥⇧ (Toggle Review Mode) and ⌘⌥
+                // (reveal the tree's Research section).
+                Button("Fresh Eyes") {
+                    MaughamEvent.postCompilerFreshEyes()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
                 Divider()
                 FocusedRestoreButton()
                 Divider()

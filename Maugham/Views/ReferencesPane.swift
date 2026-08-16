@@ -50,12 +50,15 @@ struct ReferencesPane: View {
         "Link research to this document, or cluster its cards inside a region on "
         + "the planning canvas."
 
-    /// **Author-only, 2026-08-08.** `.references` stays reachable from Review
-    /// (§6.3 marks it ○ there) but the assistant column it promotes into does
-    /// not (`AssistantColumn.isPresented`). Rather than a dead click — a row
-    /// that looks pressable and silently does nothing — a non-Author mount
-    /// renders every row inert and says where studying happens instead.
-    static let nonAuthorFooter = "Studying a pin opens in Author (⌘2)."
+    /// **Author and Review, as of Denver's 2026-08-14 ruling (spec §9).**
+    /// `.references` stays reachable from every persona, but the assistant
+    /// column it promotes into presents only where
+    /// `Persona.studiesPinnedReferences` is true (`AssistantColumn.isPresented`)
+    /// — Author and Review now, Plan and Publish still not. Rather than a
+    /// dead click — a row that looks pressable and silently does nothing — a
+    /// non-studying mount renders every row inert and says where studying
+    /// happens instead.
+    static let nonStudyingFooter = "Studying a pin opens here in Author or Review."
 
     /// How many pixels a row's thumbnail is decoded at. The drawn box is
     /// `thumbnailSize` points; `CanvasThumbnails.assumedPixelScale` is the
@@ -64,14 +67,15 @@ struct ReferencesPane: View {
 
     let rows: [Row]
     let projectRoot: URL
-    /// **Whether a row's click can reach the assistant column.** The shelf
-    /// itself is ● for Author and ○ for Review (§6.3); the column it promotes
-    /// into is Author-only, so a Review mount draws the same rows inert rather
-    /// than a click that promotes into a column nobody sees.
+    /// **Whether a row's click can reach the assistant column.** The same
+    /// predicate as `AssistantColumn.isPresented`'s persona veto
+    /// (`Persona.studiesPinnedReferences`) — Author and Review now, Plan and
+    /// Publish still not — so a Plan or Publish mount draws the same rows
+    /// inert rather than a click that promotes into a column nobody sees.
     let persona: Persona
     @Bindable var assistant: AssistantColumnModel
 
-    private var isInteractive: Bool { persona == .author }
+    private var isInteractive: Bool { persona.studiesPinnedReferences }
 
     /// Thumbnails decoded for this shelf, by project-relative path.
     ///
@@ -121,12 +125,12 @@ struct ReferencesPane: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            // **Outside Author the rows above are inert** — see
+            // **Outside Author and Review the rows above are inert** — see
             // `isInteractive` — and this line is the whole of what replaces
             // the click: nothing on the shelf is a dead control.
             if !isInteractive {
                 Divider()
-                Text(Self.nonAuthorFooter)
+                Text(Self.nonStudyingFooter)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)

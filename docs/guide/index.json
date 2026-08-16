@@ -8,9 +8,10 @@
   { "slug": "screenplay",          "title": "Screenplays",            "order": 7 },
   { "slug": "claude-desktop",      "title": "Writing with Claude",    "order": 8 },
   { "slug": "compiler",            "title": "Checking Your Writing",  "order": 9 },
-  { "slug": "sense-pass",          "title": "The Sense Pass",         "order": 10 },
-  { "slug": "annotations-and-suggestions", "title": "Annotations & Suggestions", "order": 11 },
-  { "slug": "publishing",          "title": "Publishing to PDF & EPUB","order": 12 },
-  { "slug": "translation-review",  "title": "Translating Your Manuscript", "order": 13 },
-  { "slug": "reference",           "title": "Reference",              "order": 14 }
+  { "slug": "review-passes",       "title": "Review Passes",          "order": 10 },
+  { "slug": "sense-pass",          "title": "The Sense Pass",         "order": 11 },
+  { "slug": "annotations-and-suggestions", "title": "Annotations & Suggestions", "order": 12 },
+  { "slug": "publishing",          "title": "Publishing to PDF & EPUB","order": 13 },
+  { "slug": "translation-review",  "title": "Translating Your Manuscript", "order": 14 },
+  { "slug": "reference",           "title": "Reference",              "order": 15 }
 ]

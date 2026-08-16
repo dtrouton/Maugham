@@ -11,9 +11,11 @@ supersession —
 keeps the run's mechanism unchanged (§5's opening line) but replaces the
 workflow half: notes, fates, the answer flow and the pane's organization.
 
-**The run speaks the v2 contract** (spec §5): four line-delimited sections —
-conformance against the writer's derived clauses, continuity questions, a
-reader's report, and fact-candidates that land silently in the bible.
+**The run speaks the v2 contract** (spec §5), and M3-P3 added a fifth line to
+it: four line-delimited note sections — conformance against the writer's
+derived clauses, continuity questions, a reader's report, and fact-candidates
+that land silently in the bible — plus `intent_drift`, a verdict on the reading
+as a whole rather than a thing found in it.
 `CompilerPrompt.sectionSchemaDescription` is what is asked for and
 `DiagnosticIngest.parseSection`/`parseAll` is what reads it. **The v1 contract
 is gone**: `runMessage`, `CompilerContext` and `DiagnosticIngest.parse` were
@@ -21,10 +23,17 @@ retired in Stage 2's own docs task once the atomic switch (below) proved they
 had no production caller — a grep for `runMessage(` today finds nothing at
 all, not even a test.
 
-Two things v1 had that v2 does not: a free-form category tag (the section a
-note came from is its whole classification), and the drift diagnostic — drift
-becomes a PATTERN computed across run records in Stage 3, and nothing
-replaces it here.
+One thing v1 had that v2 still does not: a free-form category tag (the section
+a note came from is its whole classification).
+
+**The word "drift" now names two separate things, and they must never be
+merged.** `DriftDetector`/`DriftFinding` are M2's clause-strain PATTERN across
+run records — the same clause straining for `consecutiveRunsThreshold` runs,
+surfaced as `DiagnosticsPane.driftNote`. `intent_drift` is M3-P3's per-round
+JUDGEMENT, a `holds`/`drifted` verdict the model returns in the fifth section
+and the run record carries on `CompilerRun.intentDriftVerdict`. They have
+different inputs, different lifetimes and different surfaces; the wire word is
+`intent_drift` and the app word for the pattern is `drift`.
 
 Two sentences hold the whole design:
 
@@ -85,7 +94,7 @@ One run walks left to right. Each arrow is a value, never a shared object.
 
 | File | What it is |
 |---|---|
-| `CompilerRunModifier.swift` (in Views) | ⌘R's delivery path, and three of the four ways the session dies |
+| `CompilerRunModifier.swift` (in Views) | The run keys' delivery path (⌘R's delta, ⌘⇧R's cold read), and three of the four ways the session dies |
 | `CompilerOrchestrator.swift` | **The run.** Owned by `ProjectWindow`; one orchestrator per window, one session per orchestrator |
 | `CompilerEnvironment+Project.swift` | The production wiring — the window's stores, as the closures the orchestrator runs on. Every capture is weak |
 | `DeltaBuilder.swift` | What changed since the last run's marker, in the writer's order (`sequence`, never raw `paragraphs`) |
@@ -97,6 +106,7 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `DeclaredWorldDeriver.swift` | Also the one-shot's pipe discipline: stdout is drained WHILE the process runs. Reading it from `terminationHandler` deadlocked on any answer past ~64 KB — the child blocks on its own write, so it never exits, so the handler never fires. **120s deadline** (Stage 3), four times the spike's measured 30s sonnet cost: an overrunning process is `terminate()`d and the derivation returns its ordinary honest `nil` — ordinarily through the SAME EOF-and-exit resolution every other unreadable answer already goes through, and by force (`OneShotOutput.deadlineExpired`, after a 2s `terminationGrace`) when a group member escapes the group SIGTERM and withholds EOF by holding the inherited pipe: CI run 31595012981 hit exactly that (the killpg/fork race), and a real CLI grandchild that setsids has the same shape. Both doors are the deadline's own; `derive` never hangs on a stranger's file descriptor |
 | `Diagnostic.swift` | `Diagnostic` + `CompilerRun` — the wire and sidecar shapes |
 | `DiagnosticsStore.swift` | The per-device, per-document sidecar, and the staleness rule |
+| `RoundHistory.swift` | `RoundFingerprint` (the one join-key for round-over-round identity — section + clause quote + anchor, never prose) + `RoundRecord` (a finished round's lane, number and fingerprints) + `RoundComparison` (the pure resolved/persisting/new count, on `DriftDetector`'s mould — no store, no I/O) |
 | `DiagnosticPromotion.swift` | What a kept note says once it is an op-logged task |
 | `RulingPerformer.swift` | rule / revoke / edit / restore — the only writes into a statement's `## Rulings` stratum |
 | `StatementEssay.swift` | Where the essay ends and the strata begin — the byte-exact split the Intent pane's editor binds through |
@@ -140,6 +150,7 @@ Spec §3.4, verbatim, with the enforcing site beside it:
 | It dies on window/project close | `ProjectWindow`'s own `.onDisappear` → `detach()`, because that path must also drop the orchestrator's hold on the window's stores |
 | It dies quietly after ~10 min idle | `ClaudeCLISession.idleTimeout` (600 s; `runTimeout` is 120 s) |
 | Death mid-run fails that run once; the next keystroke starts fresh | `CompilerOrchestrator.finish`'s `.failed` arm — the marker and the intent hash are both left where they were |
+| **It dies on ⌘⇧R, and is replaced in the same act** | `CompilerOrchestrator.beginRun`'s `if freshEyes { retireSession() }` — the one teardown that is a *run* rather than an ending, so it is the orchestrator's rather than a fourth arm of `CompilerRunModifier`. Placed below the in-flight refusal, the generation check and the empty-delta guard: a fresh-eyes press that is refused or abandoned must not cost the writer their warm session |
 
 **The shutdown contract is the sharp edge of this area, and the type cannot
 defend itself.** `ClaudeCLISession.deinit` is nonisolated and cannot touch
@@ -208,6 +219,31 @@ is the resumed session id, not the process.
   one per statement scope) and `.maugham/bible.<slug>.json`
   (`BibleStore.sidecarURL`, one per project). `.raw` is interpolated only at
   each of those two call sites.
+- **The round ring is the DOCUMENT's, not any one pass's.** `FileContent.rounds`
+  is one array per `docId`, capped at `roundHistoryDepth` (5) — every pass
+  files into the same ring, so five finished checks in Line push a Structural
+  round out of it exactly as five more Structural checks would. It is written
+  only by `replace`, and only for the run being SUPERSEDED — `RoundRecord(run:
+  diagnostics:)` is built from `finishedContent(docId:)`, which reads the
+  in-memory `byDoc` entry directly except while a preview is standing in for
+  it, when it reads the shadow `finishedBeforePreview` captured the moment the
+  preview began (keyed on the `previewing` Set, never on the shadow's
+  nil-ness — a cold document's first preview captures nothing, and a `??`
+  fallthrough there would read the run's own half-report as the previous
+  round). `latestRound(forPass:docId:)` — the one reader both `beginRun`'s
+  minting and the pane's `sinceLastRoundLine` go through — checks the standing
+  run first (newest of all, and not yet in the ring) and only then walks the
+  ring newest-first for a fingerprint-record matching that `passId`; a lane
+  whose records have all aged out of the shared ring answers `nil`, same as a
+  lane that has never run, so the next check in it mints round 1. **The round
+  number, and which pass it belongs to, are minted in `beginRun`'s synchronous
+  prefix — before the request is sent, before a single byte of preview
+  arrives.** They cannot wait: from the first closed section onward the
+  standing content IS this run's own preview, so a mint at record time would
+  read the run's half-report back and file the answer as the round after
+  itself. Minted once, the pair rides `StreamingRun` and threads through the
+  one `record(...)` spelling, so the preview and the final answer describe one
+  round rather than two checks that happen to disagree.
 - **3 / 6 — the arrival.** Nothing here holds an editor binding or a
   `Document`. What a run needs off the live document arrives as a
   `DocumentReading` value captured at the keystroke, and paragraph text is
@@ -242,15 +278,25 @@ is the resumed session id, not the process.
 
 This is what the milestone exists for, and the two halves are asymmetric:
 
-- **Drift — no longer a note, and now a pattern.** v1 raised it as an
-  anchorless diagnostic from an `intent_drift` field; the v2 contract has no
-  such field and the run carries nothing in its place. Stage 3 reads it back
-  from the run records the sidecar already keeps — a clause straining the same
-  way across `DriftDetector.consecutiveRunsThreshold` (3) consecutive runs
-  (spec §3.4) — and surfaces it as one line above the pane's conformance
-  summary (`DiagnosticsPane.driftNote`), not a `Diagnostic`: no id, no
-  dismissal, no reply field. Pressing it opens Intent; the pattern breaking on
-  the next run is what takes the line away, not a tap.
+- **Drift — never a note again, and now two readings of the same worry.** v1
+  raised it as an anchorless diagnostic from an `intent_drift` field. What
+  replaced that is the PATTERN: read back from the run records the sidecar
+  already keeps — a clause straining the same way across
+  `DriftDetector.consecutiveRunsThreshold` (3) consecutive runs (spec §3.4) —
+  and surfaced as one line above the pane's conformance summary
+  (`DiagnosticsPane.driftNote`), not a `Diagnostic`: no id, no dismissal, no
+  reply field. Pressing it opens Intent; the pattern breaking on the next run
+  is what takes the line away, not a tap. **M3-P3 then asked the question
+  directly again**, as a fifth schema section and a per-round verdict
+  (`DiagnosticIngest.parseIntentDrift` → `SectionedOutcome.intentDriftVerdict`
+  → `CompilerRun.intentDriftVerdict`) — and it is still not a `Diagnostic`, for
+  the same reason: a judgement about the whole reading has nothing to anchor to
+  and nothing to answer. Two rules keep it honest. `holds`/`drifted` and
+  nothing else, with an unrecognised word reading as no verdict rather than an
+  `unknown` case, because the verdict is a projection this build never
+  re-encodes. And the one sentence the schema asks for alongside it is read at
+  ingest and **dropped** (ADR 0027: nothing model-produced renders in the
+  editor's chrome) — the mark the verdict raises is app-authored.
 - **Accretion** — an anchored note offers **Answer**, and the writer's sentence
   becomes a **ruling** on the **piece's** intent statement (never the
   project's), minting it if absent: an itemized, dated line under `## Rulings`
@@ -485,9 +531,9 @@ three of them are about what a half-arrived report may NOT do.
 `DiagnosticsStore.preview` is the storage verb and is deliberately weaker than
 `replace` in three ways, each a defect if a preview did it: **no persistence**
 (a half-report on disk reads back as the standing answer), **no drift ring**
-(`DriftDetector` counts consecutive RUNS — one check's four sections would
-fabricate a pattern), **no unread badge** (a badge for notes the cancel
-removed is a badge nothing can clear). `discardPreview` is a re-read of the
+(`DriftDetector` counts consecutive RUNS — one check's sections, folded in one
+at a time, would fabricate a pattern), **no unread badge** (a badge for notes
+the cancel removed is a badge nothing can clear). `discardPreview` is a re-read of the
 untouched sidecar, which is why a cancelled preview puts the previous *finished*
 run back rather than clearing the document. Every path where a run ends without
 an answer discards: `finish`'s failure arm, the unusable-output arm, `cancel()`
@@ -566,7 +612,11 @@ drifted from them is a defect in this file.
   preamble.
 - `ClaudeCLISessionTests` — the process, its arguments, and every path it has to
   die on.
-- `DiagnosticIngestTests` — live anchoring, and a bad note never failing a run.
+- `DiagnosticIngestTests` — live anchoring, a bad note never failing a run, and
+  the `intent_drift` verdict: its two recognised words, an unrecognised one
+  reading as none, a four-section answer still ingesting whole, the fold
+  keeping the latest non-nil, and the model's sentence reaching nothing the
+  writer reads.
 - `DiagnosticsStoreTests` — the sidecar, the staleness rule, the marker.
 - `DiagnosticsPaneTests` / `DiagnosticPromoteToTaskTests` — the pane's states
   and the promotion, pressed through the real accessibility tree.

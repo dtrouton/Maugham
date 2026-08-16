@@ -1242,7 +1242,7 @@ struct ProjectWindow: View {
                 // the chrome, and the strip is a running head belonging to the
                 // page.
                 if let line = intentStripLine {
-                    IntentStrip(line: line)
+                    IntentStrip(line: line, mayTrailDraft: intentStripMayTrailDraft)
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -1322,6 +1322,32 @@ struct ProjectWindow: View {
         return IntentStrip.line(
             store: store, docId: activeDocId,
             persona: persona, isNoChromeOn: isNoChromeOn)
+    }
+
+    /// Whether the strip carries its quiet mark (M3-P3 §7).
+    ///
+    /// **Read beside the line and only where the line is**: this property is
+    /// asked for inside the `if let line` that mounts the strip, so a persona
+    /// with no strip reads no run record and resolves no statement.
+    ///
+    /// The decision is `IntentDrift.mayTrailDraft` rather than a condition
+    /// written out here, for `intentStripLine`'s reason — it can then be asked
+    /// over the product of its inputs by a test instead of only down the path
+    /// this property takes. What arrives at the view is a `Bool`; the words
+    /// are the view's own constant (ADR 0027 §1).
+    ///
+    /// **The freshness is `DiagnosticsStore`'s observation.** The store is
+    /// `@Observable` and `lastRun(docId:)` reads an observed property, so a
+    /// finished run — or a cancel putting the previous run back — invalidates
+    /// this body with no event and no poll. The statement half inherits
+    /// `intentStripLine`'s boundary exactly (live `Document` while the
+    /// statement is open in a pane; `derivedCache` otherwise), because it is
+    /// the same reader.
+    private var intentStripMayTrailDraft: Bool {
+        guard let store else { return false }
+        return IntentDrift.mayTrailDraft(
+            store: store, docId: activeDocId,
+            lastRun: compiler.diagnostics?.lastRun(docId: activeDocId))
     }
 
     private var shouldShowStatusFooter: Bool {
