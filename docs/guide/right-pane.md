@@ -2,7 +2,7 @@
 
 The right column's modes are Inspector (covered on this page), plus Tasks, Annotations, History, Inbox, Translation, Intent, Visual Language, Diagnostics, and References (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
 
-**Outline, Research, and Palette are not right-column modes.** ⌘⌥O selects the project row, which shows a corkboard or table full-width in the CENTRE column instead of opening anything here — a compiled book instead, in Publish, once you have one — see [Structure & the Binder → The project row](structure-and-binder.md#the-project-row). ⌘⌥R and ⌘⌥P open the tree's own Research and Palette sections and scroll to them — see [Research](research.md) — rather than a pane in this column.
+**Outline, Research, and Palette are not right-column modes.** ⌘⌥O selects the project row, which shows a corkboard or table full-width in the CENTRE column instead of opening anything here — the review board, in Review; a compiled book instead, in Publish, once you have one — see [Structure & the Binder → The project row](structure-and-binder.md#the-project-row). ⌘⌥R and ⌘⌥P open the tree's own Research and Palette sections and scroll to them — see [Research](research.md) — rather than a pane in this column.
 
 ### Panes are grouped by persona
 
