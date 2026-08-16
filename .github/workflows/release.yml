@@ -185,14 +185,46 @@ jobs:
             -configuration Release build \
             DEVELOPMENT_TEAM="${TEAM_ID}"
 
+      - name: Restore the tectonic TeX bundle cache
+        # Mirrors ci.yml's step (see the WHY comment there — run 31874029028).
+        # Release run 31929127366 (v0.29.0, 2026-08-16) hit the identical cold
+        # bundle-fetch failure in PublishingEndToEndTests: CI got the cache,
+        # this workflow never did. Restore/save are SPLIT so a red Test step
+        # still seeds the cache. Keyed on scripts/fetch-tectonic.sh because
+        # that pin chooses the bundle URL/format.
+        id: tectonic-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/Library/Caches/Maugham Dev/tectonic
+            ~/Library/Caches/Maugham/tectonic
+          key: tectonic-bundle-${{ runner.os }}-${{ hashFiles('scripts/fetch-tectonic.sh') }}
+          restore-keys: |
+            tectonic-bundle-${{ runner.os }}-
+
       - name: Test
         # Tests run in Debug — the scheme's Test action only builds the test
         # target in Debug. The Release build step above already verifies the
-        # Release-config code path compiles cleanly.
+        # Release-config code path compiles cleanly. The timeout flags match
+        # ci.yml/test.sh: a parked test fails its 120s allowance instead of
+        # hanging the job (the MCP window-restoration family's residue).
         run: |
           xcodebuild -project Maugham.xcodeproj -scheme Maugham \
             test CODE_SIGNING_ALLOWED=NO \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
             -resultBundlePath TestResults.xcresult
+
+      - name: Save the tectonic TeX bundle cache
+        # `always()` so a red Test step still seeds the cache for the next run.
+        if: always() && steps.tectonic-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/Library/Caches/Maugham Dev/tectonic
+            ~/Library/Caches/Maugham/tectonic
+          key: tectonic-bundle-${{ runner.os }}-${{ hashFiles('scripts/fetch-tectonic.sh') }}
 
       - name: Locate built app
         id: locate
