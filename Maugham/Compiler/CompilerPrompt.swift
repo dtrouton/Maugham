@@ -65,9 +65,29 @@ enum CompilerPrompt {
         continuity entry ends as a question, never a verdict. The reader \
         section holds at most 3 entries — the sharpest three, not every \
         dream-break you noticed.
+        \(formOnItsOwnTermsInstruction)
         \(readerBarInstruction)
         \(crossSectionDedupInstruction)
         \(driftStabilizerInstruction)
+        """
+
+    /// **A form is judged by its own rules** (spec §5.2's second half).
+    ///
+    /// It shipped inside `readerBarInstruction` and did not belong there: a
+    /// reader's report is only one of the four ways an unconventional form is
+    /// mistaken for a mistake. The copyedit register is where it bites hardest
+    /// — Gould's own brief carries the diegetic-error rule — and a continuity
+    /// question about a machine's clipped tense is the same error one section
+    /// over. Scoped to the reader section it read as a licence the other three
+    /// did not have.
+    ///
+    /// First, and deliberately: it governs how everything below it is read.
+    static let formOnItsOwnTermsInstruction = """
+        Judge an unconventional form by the rules it sets for itself, not by \
+        the ones it has chosen not to follow. This governs every section: an \
+        apparent error may be the piece's own — a character's typo, a \
+        machine's clipped register, a narrator who cannot spell — and where \
+        it might be, ask rather than assert.
         """
 
     /// **The bar for a reader entry** (spec §5.2, spike-validated).
@@ -82,9 +102,7 @@ enum CompilerPrompt {
         Most checks report nothing in the reader section, and an empty \
         reports array is the ordinary answer rather than a failure to \
         notice anything: raise an entry only where you can quote the words \
-        that did it and the effect survives a second reading. Judge an \
-        unconventional form by the rules it sets for itself, not by the \
-        ones it has chosen not to follow.
+        that did it and the effect survives a second reading.
         """
 
     /// **One issue gets one entry** (spec §5.3) — the spike's single largest
@@ -334,12 +352,9 @@ enum CompilerPrompt {
     /// and the count says how much was left out rather than pretending the
     /// history is shorter than it is.
     ///
-    /// **Which ones survive is the caller's order, not a sort here.** The
-    /// production gatherer hands over `Document.annotations`, which is
-    /// newest-first, so the twelve briefed are the twelve most recently
-    /// settled — the ones whose prose the writer is likeliest to still be
-    /// working near. Sorting in this function would need a date field that
-    /// nothing else in the value has a use for.
+    /// **Which twelve survive is the caller's order, not a sort here** — and
+    /// the caller that decides it is `CompilerAnnotationDisposition.gather`,
+    /// where the rationale lives. This function renders what it is handed.
     static let settledDispositionLimit = 12
 
     /// How much of a note's body a briefing line carries.
@@ -409,7 +424,11 @@ enum CompilerPrompt {
     private static func line(of disposition: CompilerAnnotationDisposition) -> String {
         let excerpt = shortened(cleaned(disposition.excerpt))
         guard let verdict = disposition.state.verdictWord else { return "- \(excerpt)" }
-        let reason = disposition.reason.map { ": \(cleaned($0))" } ?? ""
+        // **The same treatment as the excerpt, and for the same reason.** A
+        // rejection reason is the writer's own prose in a free-text field —
+        // it can run to a paragraph and it can carry newlines, either of
+        // which breaks a bullet list into what reads as several notes.
+        let reason = disposition.reason.map { ": \(shortened(cleaned($0)))" } ?? ""
         return "- \(excerpt) [\(verdict)\(reason)]"
     }
 
@@ -714,5 +733,50 @@ struct CompilerAnnotationDisposition: Equatable, Sendable {
             // keeps precisely because it is still part of this note's record.
             // A bare triage decline has neither, and says DECLINED alone.
             reason: annotation.userResponse ?? annotation.previousRejectionReason)
+    }
+
+    /// **The gatherer**: a document's annotations as the briefing's
+    /// dispositions, in the order the briefing should spend its budget in.
+    ///
+    /// Pure, and the one place the ORDER is decided — the production closure
+    /// in `CompilerEnvironment+Project` calls this and does nothing else, so
+    /// the rule is testable without a document on disk.
+    ///
+    /// **Settled notes are ordered by when they were SETTLED, newest first,
+    /// and that is not the order they arrive in.** `Document.annotations` is
+    /// sorted by `createdAt` descending — when the model RAISED each finding —
+    /// and the two orders come apart the moment a writer works through a
+    /// backlog: a question raised in round 1 and answered this morning is the
+    /// one whose prose they are still near, and under the cap it is the one
+    /// worth the words. Sorting on arrival order would brief the twelve most
+    /// recently RAISED, which after a catch-up session is close to the twelve
+    /// least recently thought about.
+    ///
+    /// A `.declined` note has no `resolvedAt` — a triage mark is not a
+    /// resolution — so declines sort after every dated verdict, and ties (and
+    /// the undated) fall back on arrival order rather than on nothing:
+    /// `sorted(by:)` is not stable, and an unstable order here would reshuffle
+    /// the briefing between two runs that had nothing change.
+    ///
+    /// **The standing half is not sorted and not capped.** It is what the
+    /// writer is holding, and its order is the deriver's own.
+    static func gather(from annotations: [Annotation]) -> [CompilerAnnotationDisposition] {
+        let projected = annotations.enumerated().compactMap {
+            index, annotation -> (arrival: Int, settledAt: Date?,
+                                  disposition: CompilerAnnotationDisposition)? in
+            Self(annotation: annotation).map { (index, annotation.resolvedAt, $0) }
+        }
+        let standing = projected.filter { $0.disposition.state == .standing }
+        let settled = projected.filter { $0.disposition.state != .standing }
+            .sorted { lhs, rhs in
+                switch (lhs.settledAt, rhs.settledAt) {
+                case let (left?, right?):
+                    return left == right ? lhs.arrival < rhs.arrival : left > right
+                case (_?, nil): return true
+                case (nil, _?): return false
+                case (nil, nil): return lhs.arrival < rhs.arrival
+                }
+            }
+        return (standing + settled).map(\.disposition)
     }
 }

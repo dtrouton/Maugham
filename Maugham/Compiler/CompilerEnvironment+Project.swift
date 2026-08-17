@@ -238,8 +238,15 @@ extension CompilerOrchestrator.Environment {
                 // Line pass is one Gould must not raise either. The lane
                 // decides what a round is FOR; it does not decide what has
                 // already been said about the piece.
-                return document.annotations(filter: AnnotationFilter(statuses: nil))
-                    .compactMap(CompilerAnnotationDisposition.init(annotation:))
+                //
+                // **The projection and the order are `gather`'s**, not this
+                // closure's — including the settled half's `resolvedAt` sort,
+                // which is what makes the briefing's cap spend its words on
+                // the notes the writer settled most recently rather than on
+                // the ones the model raised most recently. Written there so it
+                // is testable without a project on disk.
+                return CompilerAnnotationDisposition.gather(
+                    from: document.annotations(filter: AnnotationFilter(statuses: nil)))
             },
             mintAnnotations: { [weak documentStore] notes, context in
                 // **⌘R requires an open document** (`runRequested`'s
