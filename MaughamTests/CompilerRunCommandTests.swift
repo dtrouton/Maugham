@@ -352,7 +352,8 @@ final class CompilerRunCommandTests: XCTestCase {
         let pass = ReviewPass.presets.first { $0.id == passId }
             ?? ReviewPass(id: passId, name: passId)
         return CompilerOrchestrator.ActivePass(
-            id: pass.id, editorName: pass.effectiveEditorName, brief: pass.effectiveBrief)
+            id: pass.id, name: pass.name, editorName: pass.effectiveEditorName,
+            brief: pass.effectiveBrief)
     }
 
     private final class Box<T> {
@@ -4342,5 +4343,131 @@ final class CompilerRunCommandTests: XCTestCase {
                      "\u{2026}and moved the marker, so the prose it stopped "
                      + "checking is never checked again")
         XCTAssertEqual(harness.orchestrator.runState, .idle)
+    }
+
+    // MARK: - The briefing carries the lane and the writer (M4 P1 Task 4)
+
+    /// **The named editor and their doctrine reach the wire.** The pass is
+    /// resolved once, at the keystroke, and the same value that signs the
+    /// round's notes is what frames the model reading them.
+    func test_thePassesEditorAndBriefReachTheMessage() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "copyedit")
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = runner.sends[0].message
+        XCTAssertTrue(message.contains("You are Gould"),
+                      "the Copyedit lane's editor never framed the round; got \(message)")
+        let brief = try XCTUnwrap(ReviewPass.presets.first { $0.id == "copyedit" }?.brief)
+        XCTAssertTrue(message.contains(brief),
+                      "the pass's brief never reached the model; got \(message)")
+    }
+
+    /// A passless \u{2318}R is M2's all-altitudes check and says so by saying
+    /// nothing: no editor, no register, no brief.
+    func test_aPasslessRunIsFramedByNoEditor() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertFalse(runner.sends[0].message.contains("You are "),
+                       "got \(runner.sends[0].message)")
+    }
+
+    /// A turn carrying all three kinds — a question and a report that mint as
+    /// notes, and a strain that stays in the sidecar so the NEXT round has a
+    /// previous round to be briefed on.
+    private func questionReportAndStrain(about paragraphId: String) -> String {
+        """
+        {"section":"conformance","checks":[{"clause_quote":"Cold, and never wistful.","status":"strains","refs":["\(paragraphId)"],"what_pulls":"The last line reaches for a sigh."}]}
+        {"section":"continuity","questions":[{"cites":"the fog","refs":["\(paragraphId)"],"question":"Has anyone said how long yet?"}]}
+        {"section":"reader","reports":[{"kind":"belief","refs":["\(paragraphId)"],"report":"The reader stopped believing the fog."}]}
+        {"section":"facts","candidates":[]}
+        """
+    }
+
+    /// **The writer's answer reaches the next round** — end to end, through the
+    /// annotation layer rather than through anything the compiler kept.
+    ///
+    /// Run 1 raises a question and a report; the writer rejects the report in
+    /// their own words and leaves the question standing. Run 2 must be told
+    /// both facts, and told them differently: the standing one is live and
+    /// must not be re-raised as news, the settled one is answered and must not
+    /// be raised at all.
+    func test_theWritersDispositionsReachTheNextRoundsBriefing() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        setActivePass("copyedit", on: fx)
+        runner.nextEvent = .resultText(questionReportAndStrain(about: pid))
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(2, on: fx.document)
+
+        let report = try XCTUnwrap(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+                .first { $0.body == Self.mintedReaderBody },
+            "precondition: the reader's report minted")
+        try await fx.document.rejectAnnotation(
+            id: report.id, userResponse: "The fog is deliberately unmeasured.")
+
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(2, on: runner)
+        await settle()
+
+        let second = runner.sends[1].message
+        XCTAssertTrue(second.contains(CompilerPrompt.standingNotesHeading), second)
+        XCTAssertTrue(second.contains("Has anyone said how long yet?"),
+                      "the note still in the writer's queue must be briefed as "
+                      + "standing, or the round raises it again as news; got \(second)")
+        XCTAssertTrue(second.contains(CompilerPrompt.settledNotesHeading), second)
+        XCTAssertTrue(second.contains("REJECTED: The fog is deliberately unmeasured."),
+                      "the writer's own reason is what stops the finding coming "
+                      + "back; got \(second)")
+        XCTAssertTrue(second.contains("The reader stopped believing the fog."),
+                      "\u{2026}and the model needs to know WHICH finding was "
+                      + "answered; got \(second)")
+        XCTAssertTrue(second.contains("raised these notes"),
+                      "control: the round section is here too, so the fresh-eyes "
+                      + "test's absences mean something")
+    }
+
+    /// **Cold means cold.** A fresh-eyes reread is briefed on no prior round
+    /// and no dispositions — the whole point is a reader who has not seen this
+    /// piece before. The editor's own identity survives: Argus is still a
+    /// proofreader, and the dedupe backstop is what stops the duplicates.
+    func test_freshEyesIsBriefedOnNeitherTheRoundNorTheDispositions() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        setActivePass("copyedit", on: fx)
+        runner.nextEvent = .resultText(questionReportAndStrain(about: pid))
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(2, on: fx.document)
+
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        fx.orchestrator.runRequested(docId: "ch-1", freshEyes: true)
+        await awaitSends(2, on: runner)
+        await settle()
+
+        let second = runner.sends[1].message
+        XCTAssertFalse(second.contains(CompilerPrompt.standingNotesHeading), second)
+        XCTAssertFalse(second.contains(CompilerPrompt.settledNotesHeading), second)
+        XCTAssertFalse(second.contains("Has anyone said how long yet?"), second)
+        XCTAssertFalse(second.contains("raised these notes"), second)
+        XCTAssertTrue(second.contains("You are Gould"),
+                      "a cold reader is still this pass's editor; got \(second)")
     }
 }

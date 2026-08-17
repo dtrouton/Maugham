@@ -65,6 +65,55 @@ enum CompilerPrompt {
         continuity entry ends as a question, never a verdict. The reader \
         section holds at most 3 entries — the sharpest three, not every \
         dream-break you noticed.
+        \(readerBarInstruction)
+        \(crossSectionDedupInstruction)
+        \(driftStabilizerInstruction)
+        """
+
+    /// **The bar for a reader entry** (spec §5.2, spike-validated).
+    ///
+    /// The reader's report is the section most easily filled with something
+    /// rather than nothing: every paragraph can be said to have cost a reader
+    /// some belief. Left unstated, the model reads "at most 3" as a quota and
+    /// finds three. What the writer wants is the report of a real break, and
+    /// most checks have none — so the empty array has to be named as the
+    /// ordinary answer rather than merely permitted by the schema.
+    static let readerBarInstruction = """
+        Most checks report nothing in the reader section, and an empty \
+        reports array is the ordinary answer rather than a failure to \
+        notice anything: raise an entry only where you can quote the words \
+        that did it and the effect survives a second reading. Judge an \
+        unconventional form by the rules it sets for itself, not by the \
+        ones it has chosen not to follow.
+        """
+
+    /// **One issue gets one entry** (spec §5.3) — the spike's single largest
+    /// quality lever, because the same trouble is genuinely visible from all
+    /// four sections and a model asked four questions answers all four. It
+    /// collapsed a five-entry fan-out there, and the attention that freed
+    /// found new questions that were really new.
+    static let crossSectionDedupInstruction = """
+        One issue gets one entry, in the section where it cuts sharpest. \
+        Where the same trouble could be filed as a strain, a continuity \
+        question and a reader's report, choose the one place it lands \
+        hardest and say nothing about it in the other two — three views of \
+        one problem read to the writer as three problems, and cost them the \
+        attention a fourth, real finding needed.
+        """
+
+    /// **Drift judges direction, not success** (spec §5.4). Observed in the
+    /// spike: the structural framing alone flipped the verdict, because a
+    /// draft with a straining clause reads as a draft that has gone wrong —
+    /// and going wrong is not the same as going somewhere else. The strain is
+    /// conformance's finding and already has a section to live in; letting it
+    /// move the verdict reports one thing twice and marks the writer's intent
+    /// for a reason that has nothing to do with intent.
+    static let driftStabilizerInstruction = """
+        The drift verdict judges direction, not success. A clause that \
+        strains is the conformance section's finding and must not move this \
+        verdict: prose that is still going where the writer said it was \
+        going holds, however imperfectly it gets there, and only a draft \
+        that has moved away from what was declared has drifted.
         """
 
     /// Sent once, when the warm session is spawned — never repeated per run.
@@ -120,7 +169,9 @@ enum CompilerPrompt {
     static func runMessageV2(
         delta: CompilerDelta, world: DerivedWorld?, essay: String?,
         bibleFacts: [BibleFact], paletteListing: [String], pinnedListing: [String],
+        pass: CompilerOrchestrator.ActivePass? = nil,
         previousRound: PriorRound? = nil,
+        dispositions: [CompilerAnnotationDisposition] = [],
         previousBriefingHash: String?
     ) -> (message: String, briefingHash: String?) {
         var sections: [String] = []
@@ -146,11 +197,24 @@ enum CompilerPrompt {
 
         // Between the listings and the delta: context about the prose the
         // delta is about to show, rather than part of the standing briefing
-        // above it or of the thing being checked below it.
+        // above it or of the thing being checked below it. **None of these
+        // three is ever folded into `briefingHashInput`** — each changes with
+        // the writer rather than with what they declared, and a hash covering
+        // any of them would never match its predecessor, so the essay, the
+        // declared world and the bible slice would re-embed in full on every
+        // ⌘R. Who is reading, what they said last time, and what the writer
+        // has done about it — in that order, because the frame is what the
+        // rest is read through.
+        if let passSection = passSection(pass) {
+            sections.append(passSection)
+        }
         if let previousRound,
            let round = roundSection(
             previousRound: previousRound.record, notes: previousRound.notes) {
             sections.append(round)
+        }
+        if let dispositions = dispositionsSection(dispositions) {
+            sections.append(dispositions)
         }
 
         sections.append(deltaSection(delta))
@@ -202,6 +266,160 @@ enum CompilerPrompt {
         }
         parts.append("facts:" + bibleFacts.map { "\($0.subject)|\($0.fact)" }.joined(separator: ";"))
         return parts.joined(separator: "\n")
+    }
+
+    // MARK: - The pass's editor and brief (M4 P1 §4)
+
+    /// What a pass with no brief of its own is told to read for — the honest
+    /// fallback rather than silence. A custom pass the writer named and never
+    /// wrote doctrine for still has a name, and the name is the only altitude
+    /// anybody has declared.
+    static let brieflessPassFallback =
+        "No brief is recorded for this pass. Attend at the altitude its name "
+        + "suggests, and leave the other altitudes to the passes that own them."
+
+    /// **The role frame** (spec §4): who is reading, and what they read for.
+    ///
+    /// `nil` for a passless ⌘R, which is M2's all-altitudes check and has no
+    /// editor to be — a frame invented for it would be a register the writer
+    /// never chose.
+    ///
+    /// The editor's name and the brief are read off the `ActivePass` resolved
+    /// once at the keystroke, never re-resolved here: the same value signs the
+    /// notes this round mints, and a second resolution site is how the byline
+    /// and the briefing come to describe different passes (`ActivePass`'s own
+    /// doc).
+    ///
+    /// **Never folded into `briefingHashInput`.** It is per-run state for the
+    /// round section's reason — the writer moves the piece from lane to lane,
+    /// and a hash that moved with them would re-embed the whole declared world
+    /// on the round after every switch.
+    static func passSection(_ pass: CompilerOrchestrator.ActivePass?) -> String? {
+        guard let pass else { return nil }
+        // **A brief the writer emptied is a brief they do not have.**
+        // `ReviewPass.effectiveBrief` lets a stored `""` win over the preset's
+        // doctrine, which is right for resolution — the writer deleted it on
+        // purpose — and would put a blank line under the role frame here. The
+        // fallback is what "no doctrine" is supposed to read as.
+        let brief = pass.brief
+            .map(cleaned)
+            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        return """
+            You are \(pass.editorName), this manuscript's \(pass.name) editor.
+            \(brief ?? brieflessPassFallback)
+            """
+    }
+
+    // MARK: - The writer's dispositions (M4 P1 §5.5)
+
+    /// The heading over the notes that are still live.
+    static let standingNotesHeading =
+        "Standing \u{2014} the writer is holding these. Confirm one where the "
+        + "prose still earns it, let it resolve where it does not, and never "
+        + "raise it again as new:"
+
+    /// Its complement: the notes the writer has answered.
+    static let settledNotesHeading =
+        "Settled \u{2014} the writer has answered these. Do not raise them again "
+        + "in any section:"
+
+    /// How many settled notes a briefing lists.
+    ///
+    /// **Capped where the standing list is not**, and the asymmetry is the
+    /// whole point: settled notes accumulate for the life of the piece and
+    /// would eventually be most of the prompt, while the standing ones are
+    /// what the writer is holding right now and are this section's real job.
+    /// Truncating the standing half would mint duplicates; truncating the
+    /// settled half costs at worst a finding raised twice over a long history,
+    /// and the count says how much was left out rather than pretending the
+    /// history is shorter than it is.
+    ///
+    /// **Which ones survive is the caller's order, not a sort here.** The
+    /// production gatherer hands over `Document.annotations`, which is
+    /// newest-first, so the twelve briefed are the twelve most recently
+    /// settled — the ones whose prose the writer is likeliest to still be
+    /// working near. Sorting in this function would need a date field that
+    /// nothing else in the value has a use for.
+    static let settledDispositionLimit = 12
+
+    /// How much of a note's body a briefing line carries.
+    ///
+    /// A body is the model's own prose from an earlier round and can run to a
+    /// paragraph; what this section needs is enough to recognise the finding,
+    /// not enough to re-read it.
+    static let dispositionExcerptLimit = 160
+
+    /// **What the writer has already done about this piece's notes** (spec
+    /// §5.5, spike-validated verbatim: a declined note with a reason was not
+    /// re-raised in any section).
+    ///
+    /// Two partitions saying opposite things. A **standing** note is live — it
+    /// is in the writer's queue as this round begins, so raising it again as
+    /// news gives them two copies of one finding to dispose of. A **settled**
+    /// one is their answer, and raising it at all asks them to answer twice.
+    ///
+    /// `nil` — no section — when the piece has no compiler-authored notes at
+    /// all, which is every first round and every piece the writer has cleared.
+    ///
+    /// **A standing fingerprint silences its settled twin.** The mint's dedupe
+    /// stops two OPEN notes sharing a fingerprint, but nothing stops an open
+    /// note sharing one with a note settled earlier and re-raised since — and
+    /// briefing both would tell the model to confirm and to forget the same
+    /// finding. The live note wins: it is the one the writer is looking at.
+    ///
+    /// Notes with no fingerprint are the anchorless kind (a doc-scoped craft
+    /// note, whose finding has no discriminator to make one from), and they
+    /// are listed individually rather than collapsed — a nil fingerprint is
+    /// the absence of identity, not an identity they share. This section is
+    /// their ONLY duplicate guard on a warm round.
+    static func dispositionsSection(
+        _ dispositions: [CompilerAnnotationDisposition]
+    ) -> String? {
+        let standing = dispositions.filter { $0.state == .standing }
+        let standingFingerprints = Set(standing.compactMap(\.fingerprint))
+        let settled = dispositions.filter {
+            guard $0.state != .standing else { return false }
+            guard let fingerprint = $0.fingerprint else { return true }
+            return !standingFingerprints.contains(fingerprint)
+        }
+        guard !standing.isEmpty || !settled.isEmpty else { return nil }
+
+        var lines: [String] = [
+            "Notes already on this piece from earlier rounds \u{2014} the writer "
+            + "has them in front of them, so none of these is news."
+        ]
+        if !standing.isEmpty {
+            lines.append("")
+            lines.append(standingNotesHeading)
+            lines.append(contentsOf: standing.map(line(of:)))
+        }
+        if !settled.isEmpty {
+            lines.append("")
+            lines.append(settledNotesHeading)
+            lines.append(contentsOf: settled.prefix(settledDispositionLimit).map(line(of:)))
+            let elided = settled.count - settledDispositionLimit
+            if elided > 0 {
+                lines.append(
+                    "- \u{2026}and \(elided) more the writer has already settled.")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func line(of disposition: CompilerAnnotationDisposition) -> String {
+        let excerpt = shortened(cleaned(disposition.excerpt))
+        guard let verdict = disposition.state.verdictWord else { return "- \(excerpt)" }
+        let reason = disposition.reason.map { ": \(cleaned($0))" } ?? ""
+        return "- \(excerpt) [\(verdict)\(reason)]"
+    }
+
+    /// Enough of a note to recognise it by, and a mark saying there was more.
+    private static func shortened(_ text: String) -> String {
+        let collapsed = text.split(whereSeparator: \.isNewline)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        guard collapsed.count > dispositionExcerptLimit else { return collapsed }
+        return collapsed.prefix(dispositionExcerptLimit) + "\u{2026}"
     }
 
     // MARK: - The previous round (M3-P3 §6)
@@ -385,5 +603,116 @@ enum CompilerPrompt {
     private static func sha256Hex(_ text: String) -> String {
         let digest = SHA256.hash(data: Data(text.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// **One compiler-authored note as the next round's briefing sees it** (M4 P1
+/// Task 4, spec §5.5).
+///
+/// The findings that leave the compiler are annotations now (`CompilerNote`),
+/// which means the record of what the writer did about them lives in the
+/// annotation layer and not in anything the compiler kept. This is that record
+/// as a value: gathered at the keystroke from the open document, carried into
+/// the message, and never held across the subprocess turn (tripwires 3, 6 —
+/// the orchestrator holds no `Document`).
+///
+/// Small on purpose. The model needs to recognise the finding and know what
+/// became of it; it does not need the note's id, its kind, its anchor or its
+/// author, and every field here has a reader in `CompilerPrompt`.
+struct CompilerAnnotationDisposition: Equatable, Sendable {
+
+    /// What the writer has done about a note, in the four cases a briefing
+    /// can act on.
+    ///
+    /// A typed enum rather than a string (tripwire 12): adding a fifth
+    /// disposition is adding a case, and every place that renders one is then
+    /// the compiler's problem rather than a reviewer's.
+    ///
+    /// **`.accepted` and `.archived` are deliberately absent** rather than
+    /// forgotten. An accepted note is one the writer ACTED on, so the prose it
+    /// named has moved — the finding either no longer holds (nothing to
+    /// suppress) or holds against different words and is honestly news again.
+    /// An archived note was set aside unread and carries no verdict at all;
+    /// briefing it as settled would put words in the writer's mouth.
+    enum State: Equatable, Sendable {
+        /// Open, and the writer has not said no to it. Live, and in their
+        /// queue as this round begins.
+        case standing
+        /// Open, and marked `decline` in triage: the writer has said what they
+        /// intend to do about it, which is nothing.
+        case declined
+        /// Read, considered, and the words stand.
+        case stetted
+        /// Settled no.
+        case rejected
+
+        /// The word the briefing states the verdict in — `nil` for a standing
+        /// note, which is not a verdict but the absence of one.
+        var verdictWord: String? {
+            switch self {
+            case .standing: return nil
+            case .declined: return "DECLINED"
+            case .stetted: return "STETTED"
+            case .rejected: return "REJECTED"
+            }
+        }
+    }
+
+    /// `Annotation.compilerFingerprint` — the one identity spelling
+    /// (`RoundFingerprint.stringValue`), read back rather than re-derived.
+    /// `nil` for an anchorless finding, which has no discriminator to make one
+    /// from; such a note is briefed on its own rather than pooled with every
+    /// other fingerprintless one.
+    let fingerprint: String?
+    /// The note's body. Shortened at render time rather than here, because how
+    /// many words a briefing can afford is the message's decision and not the
+    /// document's.
+    let excerpt: String
+    let state: State
+    /// The writer's own words about this note, where they wrote any — the
+    /// `userResponse` on the resolution, else the reason of a rejection they
+    /// have since reopened (RULING-31 keeps it as part of the note's record).
+    /// `nil` for a bare triage decline, which carries a mark and no prose.
+    let reason: String?
+
+    init(fingerprint: String?, excerpt: String, state: State, reason: String?) {
+        self.fingerprint = fingerprint
+        self.excerpt = excerpt
+        self.state = state
+        self.reason = reason
+    }
+
+    /// **The one projection** from the annotation layer into the briefing —
+    /// `nil` for a note this section has nothing to say about.
+    ///
+    /// Two refusals, each for its own reason:
+    ///
+    /// - a note the compiler did not write. The writer's own notes, and
+    ///   Claude Desktop's, are theirs; briefing the model on what it must not
+    ///   re-raise only makes sense for findings it raised.
+    /// - a note the writer ACCEPTED or ARCHIVED (`State`'s own doc). Neither
+    ///   is a verdict this section can act on.
+    init?(annotation: Annotation) {
+        guard annotation.isCompilerAuthored else { return nil }
+        let state: State
+        switch annotation.status {
+        // A triage decline is a mark on an OPEN note, not a resolution — the
+        // note is still live and still in the queue. It is briefed as settled
+        // all the same, because what the model must do about it is what it
+        // must do about a rejection: leave it alone. The writer said no.
+        case .open: state = annotation.triage == .decline ? .declined : .standing
+        case .stetted: state = .stetted
+        case .rejected: state = .rejected
+        case .accepted, .archived: return nil
+        }
+        self.init(
+            fingerprint: annotation.compilerFingerprint,
+            excerpt: annotation.body,
+            state: state,
+            // The live resolution's own words first; failing that, the reason
+            // of a rejection the writer has since reopened, which RULING-31
+            // keeps precisely because it is still part of this note's record.
+            // A bare triage decline has neither, and says DECLINED alone.
+            reason: annotation.userResponse ?? annotation.previousRejectionReason)
     }
 }

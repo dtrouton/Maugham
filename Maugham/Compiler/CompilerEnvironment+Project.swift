@@ -171,7 +171,8 @@ extension CompilerOrchestrator.Environment {
                 // `pass.editorName` here would sign a Copyedit round's notes
                 // with nothing at all.
                 return CompilerOrchestrator.ActivePass(
-                    id: pass.id, editorName: pass.effectiveEditorName,
+                    id: pass.id, name: pass.name,
+                    editorName: pass.effectiveEditorName,
                     brief: pass.effectiveBrief)
             },
             cachedWorld: { [weak declaredWorld] briefing in
@@ -216,6 +217,29 @@ extension CompilerOrchestrator.Environment {
                     })
                 guard !subjects.isEmpty else { return [] }
                 return bible.facts(subjects: subjects)
+            },
+            annotationContext: { [weak documentStore] docId in
+                // **⌘R requires an open document**, so this resolves in every
+                // real run; a document that is not open has nothing to read
+                // and briefs nothing rather than reopening it behind the
+                // writer (`mintAnnotations`' rule, one direction earlier).
+                guard let document = documentStore?.document(forDocId: docId) else {
+                    return []
+                }
+                // **Unfiltered** — `statuses: nil` rather than the `[.open]`
+                // default. Half of what this briefing is for is the notes the
+                // writer has SETTLED, and every one of those is invisible to
+                // the default filter (M5-AN-002's documented footgun, and the
+                // reason `stetAnnotation`'s own drift guard spells the same
+                // thing out).
+                //
+                // Every pass's notes, not this run's lane: the writer's answer
+                // is a fact about the note, and a finding they rejected in the
+                // Line pass is one Gould must not raise either. The lane
+                // decides what a round is FOR; it does not decide what has
+                // already been said about the piece.
+                return document.annotations(filter: AnnotationFilter(statuses: nil))
+                    .compactMap(CompilerAnnotationDisposition.init(annotation:))
             },
             mintAnnotations: { [weak documentStore] notes, context in
                 // **⌘R requires an open document** (`runRequested`'s

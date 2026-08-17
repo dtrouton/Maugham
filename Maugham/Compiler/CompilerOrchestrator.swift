@@ -152,6 +152,13 @@ final class CompilerOrchestrator {
     /// signs its notes "Claude".
     struct ActivePass: Equatable, Sendable {
         let id: String
+        /// `ReviewPass.name` — the pass as the writer named it, which is the
+        /// second half of the briefing's role frame ("this manuscript's
+        /// Copyedit editor") and the whole content of the fallback when the
+        /// pass has no brief. Carried with the rest for `editorName`'s reason:
+        /// a rename between the keystroke and the send would otherwise frame
+        /// the round as a pass the round is not.
+        let name: String
         /// `ReviewPass.effectiveEditorName` — never nil, because every pass has
         /// a name to fall back to.
         let editorName: String
@@ -160,8 +167,9 @@ final class CompilerOrchestrator {
         /// place then would be the drift this type exists to prevent.
         let brief: String?
 
-        init(id: String, editorName: String, brief: String?) {
+        init(id: String, name: String, editorName: String, brief: String?) {
             self.id = id
+            self.name = name
             self.editorName = editorName
             self.brief = brief
         }
@@ -236,6 +244,26 @@ final class CompilerOrchestrator {
         /// facts, not the ledger"). The matching rule lives at the production
         /// call site, which is the only thing that knows the ledger.
         var bibleSlice: @MainActor (String) -> [BibleFact]
+        /// **What the annotation layer already holds about this piece** (M4 P1
+        /// Task 4) — the compiler-authored notes on it and what the writer has
+        /// done about each, as the briefing's dispositions section.
+        ///
+        /// Asked once, in `beginRun`'s synchronous prefix, for
+        /// `previousRound`'s reason: this is the last instant at which the
+        /// answer describes the round that is starting rather than the round
+        /// that is under way. A value rather than the `Document` — nothing here
+        /// holds one across a subprocess turn (tripwires 3, 6).
+        ///
+        /// Its counterpart below writes what this run adds. The two are the
+        /// same layer read and written a turn apart, which is what makes the
+        /// dispositions briefing the warm path's duplicate guard and
+        /// `mintAnnotations`' own dedupe the cold one.
+        ///
+        /// Defaulted to nothing so every `Environment` built before the
+        /// briefing existed still compiles and still runs — those runs simply
+        /// brief no dispositions, which is what they did.
+        var annotationContext: @MainActor (String) -> [CompilerAnnotationDisposition]
+            = { _ in [] }
         /// **Where a continuity question and a reader's report actually go**
         /// (M4 P1 Task 3) — the annotation layer, not the sidecar.
         ///
@@ -576,6 +604,25 @@ final class CompilerOrchestrator {
         let previousRound = freshEyes ? nil : Self.previousRound(
             inLane: passId, docId: docId, diagnostics: diagnostics, environment: environment)
 
+        // **What the writer has already done about this piece's notes**, read
+        // at the same instant and omitted on the same terms (M4 P1 §5.5).
+        //
+        // Two reasons it is here rather than beside the send. It is a read of
+        // the live annotation layer, and this run is about to WRITE into that
+        // layer at `finish` — asked later, it would hand the model this round's
+        // own notes as notes it had already seen. And the writer disposes of a
+        // note whenever they like, including while a check runs; the round was
+        // begun against the queue as it stood, and a mid-run answer belongs to
+        // the next ⌘R.
+        //
+        // **A cold read is briefed on none of it, exactly as it is briefed on
+        // no previous round.** Fresh eyes means a reader who has not seen this
+        // piece, and a list of everything they supposedly raised and the
+        // writer answered is the opposite of that. The duplicate guard on that
+        // path is `mintAnnotations`' own fingerprint dedupe, which is why it
+        // is load-bearing rather than a backstop there.
+        let dispositions = freshEyes ? [] : environment.annotationContext(docId)
+
         let briefing = environment.intent(docId)
         // The essay half alone (spec §3.2). **This is the atomic switch**: the
         // strata below the essay reach the run as the derived clauses resolved
@@ -654,7 +701,9 @@ final class CompilerOrchestrator {
             let (message, briefingHash) = CompilerPrompt.runMessageV2(
                 delta: delta, world: world, essay: essay, bibleFacts: bibleFacts,
                 paletteListing: paletteListing, pinnedListing: pinnedListing,
+                pass: activePass,
                 previousRound: previousRound,
+                dispositions: dispositions,
                 previousBriefingHash: previousHash)
 
             // **Armed immediately before the send, and never earlier.** A run
