@@ -38,12 +38,13 @@ final class RoundHistoryTests: XCTestCase {
 
     private func makeDiagnostic(
         kind: DiagnosticKind?, clauseQuote: String? = nil, paragraphId: String? = "a1b2",
-        body: String = "A note", docId: String = "docR", runId: String = "run-1"
+        body: String = "A note", docId: String = "docR", runId: String = "run-1",
+        category: String? = nil
     ) -> Diagnostic {
         Diagnostic(
             id: ULID.generate(), docId: docId,
             anchor: paragraphId.map { Diagnostic.Anchor(paragraphId: $0, anchorText: "steady") },
-            body: body, category: nil, runId: runId, kind: kind,
+            body: body, category: category, runId: runId, kind: kind,
             refs: nil, clauseQuote: clauseQuote)
     }
 
@@ -150,7 +151,8 @@ final class RoundHistoryTests: XCTestCase {
 
     /// The three kinds, each fingerprinting as the identity the plan names:
     /// strains and continuity carry their clause quote plus the anchored
-    /// paragraph; a reader report carries `(kind, paragraphId)` with no quote.
+    /// paragraph; a reader report carries `(kind, category, paragraphId)` with
+    /// no quote.
     func test_theThreeKindsFingerprintByAnchorAndQuote() throws {
         let strain = makeDiagnostic(kind: .conformanceStrain,
                                     clauseQuote: "Cold, and never wistful.",
@@ -171,6 +173,95 @@ final class RoundHistoryTests: XCTestCase {
         XCTAssertEqual(
             RoundFingerprint.make(of: report),
             RoundFingerprint(kind: "readerReport", clauseQuote: nil, paragraphId: "c3d4"))
+    }
+
+    /// **The reader's two kinds are two findings, even on one paragraph**
+    /// (M4 P1 review, Important 3). "The dream broke here" and "I stopped
+    /// believing her" are different things to have noticed; without the
+    /// category in the identity they collapse into one, a round raising both
+    /// counts one, and the mint's dedupe silently discards the second.
+    func test_theReadersTwoKindsAreTwoFindingsOnOneParagraph() {
+        let dream = makeDiagnostic(kind: .readerReport, clauseQuote: nil,
+                                   paragraphId: "a1b2", category: "dream_break")
+        let belief = makeDiagnostic(kind: .readerReport, clauseQuote: nil,
+                                    paragraphId: "a1b2", category: "belief")
+
+        XCTAssertNotEqual(RoundFingerprint.make(of: dream),
+                          RoundFingerprint.make(of: belief),
+                          "two reader kinds on one paragraph collapsed into one finding")
+        XCTAssertNotEqual(RoundFingerprint.make(of: dream)?.stringValue,
+                          RoundFingerprint.make(of: belief)?.stringValue,
+                          "…and the string the mint stamps must separate them too, "
+                          + "because that is what the dedupe compares")
+        XCTAssertEqual(RoundFingerprint.make(of: dream)?.category, "dream_break")
+    }
+
+    /// The category belongs to the READER alone: a strain and a continuity
+    /// question are told apart by the clause they cite, and a stray category
+    /// on either would be a second discriminator nothing sets.
+    func test_onlyAReaderReportCarriesACategoryInItsIdentity() {
+        let strain = makeDiagnostic(kind: .conformanceStrain, clauseQuote: "Cold.",
+                                    category: "belief")
+        XCTAssertNil(RoundFingerprint.make(of: strain)?.category)
+        let question = makeDiagnostic(kind: .continuity, clauseQuote: "the fog",
+                                      category: "belief")
+        XCTAssertNil(RoundFingerprint.make(of: question)?.category)
+    }
+
+    // MARK: - The fingerprint STRING: a persisted, synced wire format
+
+    /// **`stringValue` is a contract, not a convenience** (M4 P1 review,
+    /// Important 4). It is stamped on `Op.Provenance.compilerFingerprint`,
+    /// which is append-only, syncs between devices and is compared by the
+    /// mint's dedupe — so a change to the order, the separator or the field set
+    /// silently redefines "the same finding" for every note already in a
+    /// writer's op log, on every machine. Three assertions, in
+    /// `CompilerProvenanceTests`' round-trip discipline: the exact string, the
+    /// nil-vs-empty rule, and the field order.
+    func test_theFingerprintStringIsExactlyThisFormat() throws {
+        let fingerprint = RoundFingerprint(
+            kind: "readerReport", clauseQuote: "the fog", paragraphId: "a1b2",
+            category: "belief")
+        XCTAssertEqual(
+            fingerprint.stringValue,
+            "readerReport\u{1f}the fog\u{1f}a1b2\u{1f}belief",
+            "the fingerprint format moved \u{2014} every note already stamped in "
+            + "a writer's op log now reads as a different finding")
+    }
+
+    /// `nil` and `""` are deliberately the same string: neither is a
+    /// discriminator, and `make` has already refused a fingerprint for anything
+    /// carrying no discriminator at all.
+    func test_theFingerprintStringTreatsNilAndEmptyAlike() {
+        XCTAssertEqual(
+            RoundFingerprint(kind: "continuity", clauseQuote: nil,
+                             paragraphId: "a1b2").stringValue,
+            RoundFingerprint(kind: "continuity", clauseQuote: "",
+                             paragraphId: "a1b2", category: "").stringValue)
+        XCTAssertEqual(
+            RoundFingerprint(kind: "continuity", clauseQuote: nil,
+                             paragraphId: "a1b2").stringValue,
+            "continuity\u{1f}\u{1f}a1b2\u{1f}",
+            "every field is present even when empty, so a nil cannot shift the "
+            + "positions of the fields after it")
+    }
+
+    /// **The order is load-bearing and the separator is what makes it safe.**
+    /// Two fingerprints whose fields are the same values in different positions
+    /// must not produce the same string — which is exactly what a separator
+    /// that could occur inside a field, or a format that omitted empties, would
+    /// allow.
+    func test_theFingerprintStringCannotRespellOneFieldAsAnother() {
+        let quoted = RoundFingerprint(
+            kind: "continuity", clauseQuote: "a1b2", paragraphId: nil)
+        let anchored = RoundFingerprint(
+            kind: "continuity", clauseQuote: nil, paragraphId: "a1b2")
+        XCTAssertNotEqual(quoted.stringValue, anchored.stringValue,
+                          "the same token in two fields produced one identity")
+        XCTAssertEqual(quoted.stringValue.split(separator: "\u{1f}",
+                                                omittingEmptySubsequences: false).count, 4,
+                       "four fields, always \u{2014} a fifth or a fourth dropped is a "
+                       + "format change")
     }
 
     /// A v1 note has no section, so it has no round-over-round identity —

@@ -7,10 +7,19 @@ import Foundation
 /// comparison that read `body` would report every persisting note as one
 /// resolved plus one new, and "since last round" would say nothing true. What
 /// is stable is the section it came from, the writer's own clause it is
-/// measured against, and the paragraph it is anchored to — a conformance
-/// strain and a continuity question carry a `clauseQuote` (plus their anchor);
-/// a reader report carries `(kind, paragraphId)` with no quote, because a
+/// measured against, the paragraph it is anchored to, and — for a reader
+/// report alone — the reader's own two-valued kind. A conformance strain and a
+/// continuity question carry a `clauseQuote` (plus their anchor); a reader
+/// report carries `(kind, category, paragraphId)` and no quote, because a
 /// reader report is not measured against a clause at all.
+///
+/// **The category is in the identity because without it the reader's two kinds
+/// collapse** (M4 P1). "The dream broke here" and "I stopped believing her" are
+/// two different findings about the same paragraph, and a fingerprint of
+/// `(readerReport, nil, a1b2)` makes them one — so a round raising both would
+/// count as one finding, and the mint's dedupe would silently discard the
+/// second. `category` is the schema's own `dream_break`/`belief`
+/// (`Diagnostic.category`), never a free-form tag.
 ///
 /// Matching is struct equality; nothing here is fuzzy. `Hashable` (which is
 /// how it is `Equatable`) is what lets `RoundComparison` partition two rounds
@@ -23,6 +32,14 @@ struct RoundFingerprint: Codable, Hashable, Sendable {
     let kind: String
     let clauseQuote: String?
     let paragraphId: String?
+    /// The reader section's own kind (`dream_break` / `belief`), and `nil` for
+    /// every other section — a strain and a continuity question have a
+    /// `clauseQuote` doing this work. Optional and appended, so a `RoundRecord`
+    /// written before M4 P1 decodes with it `nil` through the synthesised
+    /// `decodeIfPresent`; the ring holds conformance strains alone from this
+    /// milestone on, and a strain's category was and is `nil`, so no stored
+    /// record's identity moves.
+    var category: String? = nil
 
     /// `nil` for a v1 note (`kind == nil`), which has no section and therefore
     /// no identity this contract can compare. `DiagnosticsStore.load` drops
@@ -43,7 +60,10 @@ struct RoundFingerprint: Codable, Hashable, Sendable {
         return RoundFingerprint(
             kind: kind.rawValue,
             clauseQuote: diagnostic.clauseQuote,
-            paragraphId: diagnostic.anchor?.paragraphId)
+            paragraphId: diagnostic.anchor?.paragraphId,
+            // Only the reader's, and only because the reader's is the one
+            // section whose entries differ in a field that is not the quote.
+            category: kind == .readerReport ? diagnostic.category : nil)
     }
 
     /// **The identity, as one string** — the same three fields, joined so a
@@ -61,12 +81,23 @@ struct RoundFingerprint: Codable, Hashable, Sendable {
     /// string either — it mints unstamped and the dedupe cannot see it, which
     /// is the same abstention `make`'s `nil` already means for the ring.
     ///
-    /// The separator is `US` (U+001F), which cannot occur in a clause quote or
-    /// a paragraph id, so the three fields cannot be re-spelled into each
-    /// other's positions; `nil` and the empty string are deliberately the same
-    /// here, because neither is a discriminator.
+    /// **The format is a persisted, synced contract and is pinned as one**
+    /// (`RoundHistoryTests`' format census): four fields, always all four, in
+    /// this order, joined by `US` (U+001F). Every field is present even when
+    /// empty, so the positions cannot shift under a `nil`; `US` cannot occur in
+    /// a clause quote, a paragraph id or a category, so no field can be
+    /// re-spelled into another's position. `nil` and the empty string are
+    /// deliberately the same string here, because neither is a discriminator —
+    /// and `make` has already refused a fingerprint for anything with no
+    /// discriminator at all.
+    ///
+    /// Changing the order, the separator or the field set changes what "the
+    /// same finding" means for every annotation already stamped in a writer's
+    /// op log. It is safe to have settled it here and now because M4 P1 is the
+    /// first build that writes one.
     var stringValue: String {
-        [kind, clauseQuote ?? "", paragraphId ?? ""].joined(separator: "\u{1f}")
+        [kind, clauseQuote ?? "", paragraphId ?? "", category ?? ""]
+            .joined(separator: "\u{1f}")
     }
 }
 

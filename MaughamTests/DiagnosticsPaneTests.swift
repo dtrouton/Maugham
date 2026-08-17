@@ -74,13 +74,15 @@ final class DiagnosticsPaneTests: XCTestCase {
                          clauseStatuses: [DiagnosticIngest.ClauseStatus]? = nil,
                          truncatedReader: Int? = nil,
                          passId: String? = nil, round: Int? = nil,
-                         freshEyes: Bool? = nil) -> CompilerRun {
+                         freshEyes: Bool? = nil,
+                         mintedNotes: Int? = nil) -> CompilerRun {
         let wholeSecond = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         return CompilerRun(id: ULID.generate(), at: wholeSecond, model: model,
                            lastOpId: lastOpId, deltaSummary: "1 new, 0 revised \u{00b6}",
                            intentSnapshot: nil, droppedDangling: droppedDangling,
                            clauseStatuses: clauseStatuses, truncatedReader: truncatedReader,
-                           passId: passId, round: round, freshEyes: freshEyes)
+                           passId: passId, round: round, freshEyes: freshEyes,
+                           mintedNotes: mintedNotes)
     }
 
     private func makeClause(
@@ -587,6 +589,36 @@ final class DiagnosticsPaneTests: XCTestCase {
         store.replace(run: makeRun(),
                       diagnostics: [makeDiagnostic(docId: docId)], docId: docId)
         store.replace(run: makeRun(), diagnostics: [], docId: docId)
+        XCTAssertEqual(store.unreadCount(docId: docId), 0)
+    }
+
+    /// **A run that queued notes is not a clean run** (M4 P1 review,
+    /// Important 1). Since the slimming this store holds conformance strains
+    /// alone, so a run that raised three continuity questions and no strain
+    /// arrives here with an empty `diagnostics` array — and a badge keyed on
+    /// that alone would clear itself on the one run it exists for.
+    func test_theBadgeCountsWhatTheRunLeft_whereverItLeftIt() {
+        let docId = "doc-unread-minted"
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        store.replace(run: makeRun(),
+                      diagnostics: [makeDiagnostic(docId: docId)], docId: docId)
+        store.markRead(docId: docId)
+        XCTAssertEqual(store.unreadCount(docId: docId), 0, "control: cleared")
+
+        store.replace(run: makeRun(mintedNotes: 3), diagnostics: [], docId: docId)
+        XCTAssertEqual(store.unreadCount(docId: docId), 3,
+                       "a run that put three notes in the writer's queue left the "
+                       + "badge at zero, so nothing anywhere says the check found "
+                       + "anything")
+
+        // And a strain beside them counts once each, not twice.
+        store.replace(run: makeRun(mintedNotes: 2),
+                      diagnostics: [makeDiagnostic(docId: docId)], docId: docId)
+        XCTAssertEqual(store.unreadCount(docId: docId), 3)
+
+        // A genuinely empty run still clears.
+        store.replace(run: makeRun(mintedNotes: 0), diagnostics: [], docId: docId)
         XCTAssertEqual(store.unreadCount(docId: docId), 0)
     }
 
@@ -1539,7 +1571,14 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     /// …and a report made only of the kinds that left is an EMPTY pane, not a
     /// pane claiming a report it draws nothing for.
-    func test_aLegacyReportOfOnlyContinuityAndReaderShowsNoReportAtAll() {
+    ///
+    /// **This is the LEGACY case, and it is the honest one**: a sidecar written
+    /// by an older build, whose run record knows nothing of a mint
+    /// (`mintedNotes == nil`). Nothing happened that this build can show and
+    /// nothing went anywhere else, so the seal is true. Its live counterpart —
+    /// a run that really did queue notes — is the test below, and the two are
+    /// adjacent because the copy must tell them apart.
+    func test_aLegacySidecarOfOnlyContinuityAndReaderShowsNoReportAtAll() {
         let docId = "doc-legacy-only"
         let store = DiagnosticsStore(
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
@@ -1563,6 +1602,81 @@ final class DiagnosticsPaneTests: XCTestCase {
                 && staticTextLabels(in: window, containing: "nothing to raise").isEmpty,
             "a pane with no drawable rows must say so rather than render a "
             + "report with nothing in it")
+    }
+
+    /// **THE PANE NEVER SAYS NOTHING HAPPENED WHEN SOMETHING DID** (M4 P1
+    /// review, Important 1) — mounted, because the falsehood was a rendered
+    /// sentence rather than a wrong value.
+    ///
+    /// A run raising three continuity questions and no conformance strain
+    /// leaves this store empty and the writer's queue three notes fuller. Every
+    /// surface here keyed on "were there diagnostics?" — the header copy, the
+    /// empty state's seal, the badge — and all three answered "clean".
+    func test_aRunThatQueuedNotesNeverClaimsItFoundNothing() {
+        let docId = "doc-minted-clean"
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        store.replace(run: makeRun(mintedNotes: 3), diagnostics: [], docId: docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard)))
+        pump(0.3)
+
+        let labels = allLabels(in: window)
+        XCTAssertTrue(labels.contains { $0.contains("3 notes went to your queue") },
+                      "the pane must say what the run did with its findings; got "
+                      + "\(labels)")
+        XCTAssertFalse(labels.contains { $0.contains("Nothing to flag") },
+                       "the pane told the writer the check found nothing over a "
+                       + "check that raised three notes")
+        XCTAssertFalse(labels.contains { $0.contains("nothing to raise") },
+                       "…and the seal's description said it a second time")
+    }
+
+    /// The same rule at the source, where every sentence is assertable without
+    /// a mount — and the one-note wording, which a mounted test would only
+    /// reach by rendering a second pane.
+    func test_theCleanCopyDefersToWhatWentToTheQueue() {
+        let queued = makeRun(mintedNotes: 1)
+        XCTAssertTrue(
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: queued))
+                .hasPrefix("1 note went to your queue."),
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: queued)))
+        XCTAssertFalse(
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: queued))
+                .contains("Nothing to flag"))
+        XCTAssertEqual(
+            DiagnosticsPane.emptyState(for: .clean(lastRun: queued)).title,
+            "Notes in your queue")
+
+        // Zero and nil both mean "nothing went anywhere", and neither may
+        // invent a sentence claiming a count.
+        for nothing in [makeRun(mintedNotes: 0), makeRun()] {
+            XCTAssertTrue(
+                DiagnosticsPane.headerCopy(for: .clean(lastRun: nothing))
+                    .hasPrefix("Nothing to flag."),
+                "a run that queued nothing must still be allowed to say so")
+            XCTAssertEqual(
+                DiagnosticsPane.emptyState(for: .clean(lastRun: nothing)).symbol,
+                "checkmark.seal")
+        }
+        XCTAssertNil(DiagnosticsPane.queuedNotesSentence(nil))
+        XCTAssertNil(DiagnosticsPane.queuedNotesSentence(0))
+    }
+
+    /// A run can both queue notes AND lose some, and the queued ones are the
+    /// news — the discard is the footnote it has always been.
+    func test_theQueuedSentenceOutranksTheDiscardFootnote() {
+        let both = makeRun(droppedDangling: 2, mintedNotes: 3)
+        let header = DiagnosticsPane.headerCopy(for: .clean(lastRun: both))
+        XCTAssertTrue(header.hasPrefix("3 notes went to your queue."), header)
+        XCTAssertTrue(header.contains("were discarded"), header)
+        XCTAssertEqual(
+            DiagnosticsPane.emptyState(for: .clean(lastRun: both)).title,
+            "Notes in your queue",
+            "the discard arm took the empty state back to a seal over a run "
+            + "that queued three notes")
     }
 
     // MARK: - Excerpt chips (requirement 3)

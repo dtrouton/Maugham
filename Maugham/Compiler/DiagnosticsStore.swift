@@ -225,7 +225,15 @@ final class DiagnosticsStore {
         persist(docId: docId, content: content)
         // A run that raised nothing clears the badge rather than leaving the
         // previous run's count standing over an empty pane.
-        unread[docId] = diagnostics.isEmpty ? nil : diagnostics.count
+        //
+        // **"Nothing" means nothing ANYWHERE** (M4 P1). The badge says a
+        // finished run left the writer something they have not seen, and since
+        // this milestone a run can leave notes in two places — strains here,
+        // continuity questions and reader reports in the queue. A badge that
+        // counted only this store's rows would clear itself on the very run
+        // that queued three questions, which is the one case it exists for.
+        let left = diagnostics.count + (run.mintedNotes ?? 0)
+        unread[docId] = left == 0 ? nil : left
         version += 1
     }
 

@@ -175,8 +175,13 @@ struct DiagnosticsPane: View {
     private var hasReport: Bool { !clauses.isEmpty || !strains.isEmpty }
 
     private var state: HeaderState {
+        // **`strains`, not `rows`** (M4 P1): the header describes the report
+        // the writer is looking at, and since the slimming `rows` can hold
+        // notes this pane does not draw (a sidecar written by an older build).
+        // Counting those made `.idle` reachable over an empty pane, where its
+        // copy says the compiler found nothing to raise.
         Self.headerState(runState: orchestrator.runState, lastRun: lastRun,
-                          noteCount: rows.count, docId: docId)
+                          noteCount: strains.count, docId: docId)
     }
 
     /// Whether the rows on screen may be acted on — read through `state`, which
@@ -403,7 +408,16 @@ struct DiagnosticsPane: View {
         case .failed(let failure, _):
             return failureCopy(failure)
         case .clean(let run):
-            let line = "Nothing to flag. Last checked \(relative(run.at))."
+            // **`.clean` means this PANE has nothing to show, which is not the
+            // same as the run having found nothing** (M4 P1). A run that raised
+            // three continuity questions and no conformance strain leaves this
+            // store empty and the writer's queue three notes fuller; "Nothing
+            // to flag" over it is the surface affirming a falsehood. The
+            // queued sentence therefore REPLACES the seal rather than being
+            // appended to it — the two cannot both be true.
+            let opening = queuedNotesSentence(run.mintedNotes)
+                ?? "Nothing to flag"
+            let line = "\(opening). Last checked \(relative(run.at))."
             // Appended rather than interleaved: the standing sentence is the
             // one the writer reads at a glance, and this is the footnote to it.
             guard let discarded = discardedNotesSentence(run.droppedDangling) else {
@@ -459,6 +473,24 @@ struct DiagnosticsPane: View {
         default: return "\(count) notes arrived against paragraphs that have "
             + "changed and were discarded"
         }
+    }
+
+    /// **What a run put in the queue**, or `nil` when it put nothing there —
+    /// the one spelling, read by the header and by the empty state, on
+    /// `discardedNotesSentence`'s rule that two sentences about the same fact
+    /// are two sentences that can disagree.
+    ///
+    /// `nil` for `nil` as well as for zero: a record written before the field
+    /// existed, and a preview, both know nothing about a mint, and a surface
+    /// must not claim "0 notes went to the queue" on their behalf.
+    ///
+    /// It names the destination rather than the count alone, because the
+    /// writer has to know WHERE to go and this pane is not it.
+    static func queuedNotesSentence(_ count: Int?) -> String? {
+        guard let count, count > 0 else { return nil }
+        return count == 1
+            ? "1 note went to your queue"
+            : "\(count) notes went to your queue"
     }
 
     private static func relative(_ date: Date) -> String {
@@ -925,13 +957,34 @@ struct DiagnosticsPane: View {
         case .failed:
             return ("No notes", "exclamationmark.triangle",
                     "The last check didn't finish, so there are none from it.")
+        case .clean(let run) where queuedNotesSentence(run.mintedNotes) != nil:
+            // **The seal may not stand over a run that queued notes** (M4 P1).
+            // This pane holds conformance strains alone; the questions and the
+            // reader's reports went somewhere the writer has to be told about,
+            // and a checkmark saying "nothing to raise" is the opposite of what
+            // happened. Ordered above the discarded arm because it is the
+            // stronger claim: a run can have queued notes AND lost some, and
+            // the queued ones are the news.
+            let queued = queuedNotesSentence(run.mintedNotes) ?? ""
+            let discarded = discardedNotesSentence(run.droppedDangling)
+            let tail = discarded.map { " (\($0).)" } ?? ""
+            return ("Notes in your queue", "tray.and.arrow.down",
+                    "\(queued). No clause you declared strained in this check."
+                        + tail)
         case .clean(let run) where discardedNotesSentence(run.droppedDangling) != nil:
             return ("Nothing to flag.", "circle.dashed",
                     (discardedNotesSentence(run.droppedDangling) ?? "") + ".")
         case .idle, .nothingNew, .clean:
-            // `.idle` is unreachable here — `headerState` returns `.clean` for
-            // a last run with no live notes — but it is named rather than
-            // defaulted so a new state cannot inherit this copy by omission.
+            // `.idle` cannot reach here, and the reason is a pair rather than
+            // one function: `content` renders this only when `hasReport` is
+            // false, which requires `strains` to be empty, and `headerState` is
+            // handed that same `strains` count — so an empty report and
+            // `.clean` are the same condition read twice. (Before M4 P1 the
+            // count came from `rows`, which since the slimming can hold notes
+            // this pane refuses to draw; a legacy sidecar of continuity rows
+            // reached this arm as `.idle` and called itself clean.) Named
+            // rather than defaulted so a new state cannot inherit this copy by
+            // omission.
             return ("Nothing to flag.", "checkmark.seal",
                     "The compiler found nothing to raise against the last check.")
         }

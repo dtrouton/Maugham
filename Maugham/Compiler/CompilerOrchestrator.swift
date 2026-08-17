@@ -675,7 +675,8 @@ final class CompilerOrchestrator {
                               deltaSummary: deltaSummary,
                               intentSnapshot: briefing?.statementText,
                               activePass: activePass, round: round, freshEyes: freshEyes,
-                              briefingHash: briefingHash, model: model)
+                              briefingHash: briefingHash, model: model,
+                              generation: generation)
         }
     }
 
@@ -733,7 +734,12 @@ final class CompilerOrchestrator {
                              intentSnapshot: run.intentSnapshot,
                              passId: run.passId, round: run.round,
                              freshEyes: run.freshEyes,
-                             outcome: run.outcome),
+                             outcome: run.outcome,
+                             // A preview has minted nothing: the notes it would
+                             // mint are minted at `finish` or not at all, so
+                             // `nil` here is "no mint has happened" rather than
+                             // a claim that this run queued none.
+                             mintedNotes: nil),
             // **A preview shows what the report shows, and nothing else**
             // (M4 P1 Task 3). Continuity and reader sections still accumulate
             // on `run.outcome` — the run's own record reads its counts off it
@@ -765,10 +771,14 @@ final class CompilerOrchestrator {
     /// could quietly omit them would file an unnumbered round nothing
     /// downstream could notice — the preview and the answer would simply
     /// disagree.
+    /// `mintedNotes` is `nil` for a preview — nothing is minted until the turn
+    /// ends — and the finished run's real count otherwise. Undefaulted for
+    /// `passId`/`round`/`freshEyes`'s reason: a third call site that quietly
+    /// omitted it would record a run claiming it queued nothing.
     private static func record(
         id: String, model: String, lastOpId: String?, deltaSummary: String,
         intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
-        outcome: DiagnosticIngest.SectionedOutcome
+        outcome: DiagnosticIngest.SectionedOutcome, mintedNotes: Int?
     ) -> CompilerRun {
         CompilerRun(
             id: id, at: Date(), model: model, lastOpId: lastOpId,
@@ -816,7 +826,12 @@ final class CompilerOrchestrator {
             // fires on `drifted` alone); what this protects is what the RECORD
             // is allowed to claim, since the sidecar is where a later build
             // looks to tell "never judged" from "judged and held".
-            intentDriftVerdict: intentSnapshot == nil ? nil : outcome.intentDriftVerdict)
+            intentDriftVerdict: intentSnapshot == nil ? nil : outcome.intentDriftVerdict,
+            // **What this run put in the queue.** The pane's own report holds
+            // conformance strains alone now, so without this a run that raised
+            // three questions and no strain would be indistinguishable from a
+            // run that found nothing — and the surface would say so.
+            mintedNotes: mintedNotes)
     }
 
     /// **What the last round in this run's lane raised**, or `nil` when there
@@ -965,10 +980,20 @@ final class CompilerOrchestrator {
     /// was finished while its findings were still arriving in the pane beside
     /// it. Nothing else about the arm changed: the mint cannot throw, cannot
     /// fail the run, and is reached only on `.resultText`.
+    ///
+    /// **`generation` is the run's own, and it is re-checked after the mint** —
+    /// the third suspension this class carries a generation across, after the
+    /// burst flush and the derivation, and the only one that resumes with
+    /// writes still to do. A Cancel inside the mint window bumps the
+    /// generation and sets `.idle`; the very next ⌘R is then a live run, and a
+    /// finish resuming afterwards would write `sentBriefing` and `runState`
+    /// over it — telling the new run's session it had already been briefed,
+    /// and calling a check that is still going idle. Everything before the
+    /// mint is synchronous with the turn's own resumption and needs no guard.
     private func finish(
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
         deltaSummary: String, intentSnapshot: String?, activePass: ActivePass?, round: Int?,
-        freshEyes: Bool, briefingHash: String?, model: String
+        freshEyes: Bool, briefingHash: String?, model: String, generation: Int
     ) async {
         let passId = activePass?.id
         switch event {
@@ -1011,36 +1036,29 @@ final class CompilerOrchestrator {
                 return
             }
 
-            let run = Self.record(
-                id: runId, model: model, lastOpId: lastOpId,
-                deltaSummary: deltaSummary, intentSnapshot: intentSnapshot,
-                // The pair minted at the keystroke, not re-asked here: the
-                // store's own standing content is this run's preview by now,
-                // and the writer may have moved the piece to another pass
-                // while it ran.
-                passId: passId, round: round, freshEyes: freshEyes,
-                outcome: outcome)
-            // Dropped rather than discarded: `replace` below supersedes the
-            // preview wholesale, so taking it off the pane first would blink
-            // the report out and back.
-            streaming = nil
             // **The split, and it is the whole point of M4 P1's first plan.**
             // A conformance strain is read beside the clause it strains
             // against, so it stays in the report; a continuity question and a
             // reader's report are about the words and outlive the check, so
-            // they leave for the annotation layer below. One finding, one home
-            // — and the two halves land in the same commit, because a build in
-            // which a note appears in both is a build that asks the writer to
-            // answer it twice.
-            diagnostics?.replace(
-                run: run, diagnostics: outcome.sidecarDiagnostics, docId: docId)
-            // **After `replace`, not before.** The report is what the writer is
-            // waiting on and it is synchronous; the mint is an op-log append
-            // per note. A mint that ran first would hold the pane's answer
-            // behind a disk write for findings the pane does not show.
+            // they leave for the annotation layer. One finding, one home — and
+            // the two halves land in the same commit, because a build in which
+            // a note appears in both is a build that asks the writer to answer
+            // it twice.
+            //
+            // **The mint runs BEFORE the record is built, and the order is
+            // load-bearing.** How many notes went to the queue is not knowable
+            // until the mint has run — the dedupe drops what is already open,
+            // and a note whose paragraph has gone fails its own append — and a
+            // record written without that number leaves the pane free to say
+            // "Nothing to flag" over a run that flagged three things. The
+            // report waits out N op-log appends to be able to say what
+            // happened, which is the right trade: a header that lies is worse
+            // than one that is a few milliseconds late, and the writer is
+            // watching "Checking…" the whole time either way.
             let notes = outcome.mintable
+            var minted = 0
             if !notes.isEmpty, let environment {
-                _ = await environment.mintAnnotations(
+                minted = await environment.mintAnnotations(
                     notes,
                     CompilerMintContext(
                         docId: docId, runId: runId, passId: passId, round: round,
@@ -1050,6 +1068,25 @@ final class CompilerOrchestrator {
                         // gives an author-less note.
                         editorName: activePass?.editorName ?? Self.passlessEditorName))
             }
+            // The one suspension in this method, and the writes below are what
+            // make it worth guarding. See the doc comment.
+            guard runGeneration == generation else { return }
+
+            let run = Self.record(
+                id: runId, model: model, lastOpId: lastOpId,
+                deltaSummary: deltaSummary, intentSnapshot: intentSnapshot,
+                // The pair minted at the keystroke, not re-asked here: the
+                // store's own standing content is this run's preview by now,
+                // and the writer may have moved the piece to another pass
+                // while it ran.
+                passId: passId, round: round, freshEyes: freshEyes,
+                outcome: outcome, mintedNotes: minted)
+            // Dropped rather than discarded: `replace` below supersedes the
+            // preview wholesale, so taking it off the pane first would blink
+            // the report out and back.
+            streaming = nil
+            diagnostics?.replace(
+                run: run, diagnostics: outcome.sidecarDiagnostics, docId: docId)
             // Silently, and never as notes: the bible is a ledger the writer
             // acts on in the Intent pane, not a thing the compiler reports.
             if !outcome.facts.isEmpty {

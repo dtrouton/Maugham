@@ -24,15 +24,24 @@ import MaughamCore
 /// span would mean guessing where in the paragraph the model meant, and a
 /// guessed span is a note pointing at the wrong sentence.
 struct CompilerNote: Equatable, Sendable {
-    /// `.query` for a continuity question, `.comment` for a reader's report.
-    /// The mapping is the register: a question asks the writer something and
-    /// its reply is a decision; a report does not ask anything.
+    /// `.query` for a continuity question, `.comment` for a reader's report,
+    /// and `.craftNote` for either when it named no paragraph at all.
+    ///
+    /// The first two are the register: a question asks the writer something and
+    /// its reply is a decision; a report does not ask anything. The third is
+    /// the SHAPE: `.query` and `.comment` are paragraph-scoped and
+    /// `Document.addAnnotation` refuses one with no id, so an anchorless
+    /// finding minted as either is a finding destroyed on its way out — and a
+    /// whole-piece observation ("the outline promised a scene that never got
+    /// written") is exactly what a doc-scoped craft note is for.
     let kind: AnnotationKind
     /// The paragraph the note is anchored to — the first ref that resolved
-    /// against the live document at ingest. `nil` for a note that named no
-    /// paragraph at all, which the schema permits.
+    /// against the live document at ingest. `nil` only for a `.craftNote`,
+    /// which is doc-scoped and takes none.
     let paragraphId: String?
-    /// The model's own words: the question, or the report.
+    /// The model's own words: the question, or the report — the reader's
+    /// prefixed with its kind, so the two-valued label the pane used to draw
+    /// above the row travels with the note instead of being lost at the seam.
     let body: String
     /// **The one identity spelling** (`RoundFingerprint.stringValue`), stamped
     /// on the op so a later round can recognise the same finding without
@@ -53,25 +62,59 @@ struct CompilerNote: Equatable, Sendable {
         self.fingerprint = fingerprint
     }
 
+    /// The reader's own two-valued kind, as words — and **nothing else**. v2
+    /// mints no free-form category (spec §5: the tag is "removed from the
+    /// shipped design"), so a value from anywhere but the schema gets no label
+    /// rather than putting the old tag in front of the writer through a side
+    /// door.
+    ///
+    /// It lives here rather than on the pane because the label is now part of
+    /// what the note SAYS: the reader's reports leave for the queue, and a
+    /// "Belief" heading rendered on a surface they no longer reach would be a
+    /// label with nothing under it.
+    static func readerKindLabel(_ category: String?) -> String? {
+        switch category {
+        case DiagnosticIngest.SectionField.dreamBreak: return "Dream break"
+        case DiagnosticIngest.SectionField.belief: return "Belief"
+        default: return nil
+        }
+    }
+
     /// The accepted diagnostic this run raised, as the note it is about to
     /// become — or `nil` for a conformance strain, which stays in the sidecar,
     /// and for a v1 record, which has no section at all.
     ///
-    /// A note the schema allowed to name no paragraph is minted anchorless
-    /// only if the annotation layer can hold one; `Document.addAnnotation`
-    /// refuses a paragraph-scoped kind with no id, so such a note fails its own
-    /// mint and is counted rather than silently reshaped into a craft note.
+    /// **An anchorless finding becomes a doc-scoped craft note**, whatever
+    /// section raised it. The schema lets an entry name no paragraph, and both
+    /// `.query` and `.comment` are paragraph-scoped: minting one of those with
+    /// a nil id throws `paragraphNotFound`, so the mint's own failure arm would
+    /// swallow exactly the notes that are about the piece as a whole. A craft
+    /// note is what that observation IS.
+    ///
+    /// **Accepted residual, ledgered rather than fought:** an anchorless
+    /// finding has no fingerprint (`RoundFingerprint.make` refuses one, and for
+    /// its own good reason — a fingerprint with no discriminator is a bucket
+    /// every such note falls into), so the dedupe cannot see it. A warm round
+    /// is protected by the dispositions briefing; a Fresh Eyes reread may
+    /// duplicate one, and the writer disposes of it.
     init?(diagnostic: Diagnostic) {
-        let kind: AnnotationKind
+        let sectionKind: AnnotationKind
         switch diagnostic.kind {
-        case .continuity: kind = .query
-        case .readerReport: kind = .comment
+        case .continuity: sectionKind = .query
+        case .readerReport: sectionKind = .comment
         case .conformanceStrain, .none: return nil
         }
+        let paragraphId = diagnostic.anchor?.paragraphId
+        // **The reader's label travels in the body.** The pane used to draw it
+        // above the row; the row is gone, and a `dream_break` the writer never
+        // sees is a distinction the model was asked to make for nothing.
+        let label = diagnostic.kind == .readerReport
+            ? Self.readerKindLabel(diagnostic.category)
+            : nil
         self.init(
-            kind: kind,
-            paragraphId: diagnostic.anchor?.paragraphId,
-            body: diagnostic.body,
+            kind: paragraphId == nil ? .craftNote : sectionKind,
+            paragraphId: paragraphId,
+            body: label.map { "\($0) \u{2014} \(diagnostic.body)" } ?? diagnostic.body,
             fingerprint: RoundFingerprint.make(of: diagnostic)?.stringValue)
     }
 }

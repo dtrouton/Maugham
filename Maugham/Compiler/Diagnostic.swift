@@ -152,11 +152,32 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// per-round judged verdict; never overload the bare word.
     var intentDriftVerdict: String?
 
+    /// **How many notes this run put in the writer's queue** (M4 P1) — the
+    /// continuity questions and reader reports it minted as annotations, after
+    /// the dedupe dropped what was already open and after any that could not be
+    /// placed failed their own append.
+    ///
+    /// **It exists so the pane cannot affirm a falsehood.** The sidecar now
+    /// keeps conformance strains alone, so a run that raised three questions
+    /// and no strain stores nothing here — and a surface reading only
+    /// "were there diagnostics?" answers "Nothing to flag" over a check that
+    /// flagged three things. `droppedDangling`'s reasoning, one milestone on
+    /// and one direction over: that field says the run spoke and Maugham could
+    /// not place it; this one says the run spoke and Maugham put it somewhere
+    /// else.
+    ///
+    /// `nil` is "no mint has happened" — a preview (which mints nothing until
+    /// its turn ends) and every record written before this field existed. `0`
+    /// is a finished run that had nothing to mint, or whose every note was a
+    /// duplicate of one already open.
+    var mintedNotes: Int?
+
     init(id: String, at: Date, model: String, lastOpId: String?,
          deltaSummary: String, intentSnapshot: String?, droppedDangling: Int = 0,
          clauseStatuses: [DiagnosticIngest.ClauseStatus]? = nil,
          truncatedReader: Int? = nil, passId: String? = nil, round: Int? = nil,
-         freshEyes: Bool? = nil, intentDriftVerdict: String? = nil) {
+         freshEyes: Bool? = nil, intentDriftVerdict: String? = nil,
+         mintedNotes: Int? = nil) {
         self.id = id
         self.at = at
         self.model = model
@@ -170,6 +191,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
         self.round = round
         self.freshEyes = freshEyes
         self.intentDriftVerdict = intentDriftVerdict
+        self.mintedNotes = mintedNotes
     }
 
     /// Hand-written for one field: a sidecar written before `droppedDangling`
@@ -202,5 +224,6 @@ struct CompilerRun: Codable, Equatable, Sendable {
         freshEyes = try c.decodeIfPresent(Bool.self, forKey: .freshEyes)
         intentDriftVerdict = try c.decodeIfPresent(
             String.self, forKey: .intentDriftVerdict)
+        mintedNotes = try c.decodeIfPresent(Int.self, forKey: .mintedNotes)
     }
 }

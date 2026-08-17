@@ -270,7 +270,11 @@ final class CompilerRunCommandTests: XCTestCase {
         prepareForRun: @escaping @MainActor (String) async -> Void = { _ in },
         /// Holds the derivation open, the way `prepareForRun`'s gate holds the
         /// burst — a real window in production, the length of a subprocess.
-        holdDerivation: PrepareGate? = nil
+        holdDerivation: PrepareGate? = nil,
+        /// Holds the MINT open — `finish`'s one suspension, and the only one
+        /// this class resumes from with writes still to do (M4 P1 review,
+        /// Minor 6).
+        holdMint: PrepareGate? = nil
     ) throws -> Harness {
         let root = try makeProjectRoot()
         let diagnostics = DiagnosticsStore(
@@ -311,6 +315,7 @@ final class CompilerRunCommandTests: XCTestCase {
                 },
                 mintAnnotations: { notes, context in
                     mints.value.append((notes, context))
+                    if let holdMint { await holdMint.hold("") }
                     return notes.count
                 },
                 recordFacts: { recorded.value += $0 },
@@ -823,7 +828,7 @@ final class CompilerRunCommandTests: XCTestCase {
                        + "order, now kept by the mint")
         XCTAssertEqual(mint.notes.map(\.body),
                        ["Has anyone said how long yet?",
-                        "The reader believes the fog is a person."])
+                        "Belief \u{2014} The reader believes the fog is a person."])
         XCTAssertEqual(mint.notes.compactMap(\.paragraphId), ["a1b2", "a1b2"],
                        "anchored whole-paragraph at the first resolving ref")
         XCTAssertEqual(mint.context.runId, harness.diagnostics.lastRun(docId: docId)?.id,
@@ -3781,6 +3786,12 @@ final class CompilerRunCommandTests: XCTestCase {
 
     // MARK: - The mint: one finding, one home (M4 P1 Task 3)
 
+    /// The reader's report **as the mint writes it**: its two-valued kind
+    /// travels in the body now that no pane draws a label above the row
+    /// (M4 P1 review, Important 3).
+    private static let mintedReaderBody =
+        "Belief \u{2014} The reader stopped believing the fog."
+
     /// A turn carrying one continuity question and one reader report against
     /// the same live paragraph — the smallest answer that must land in TWO
     /// homes and does not.
@@ -3863,7 +3874,7 @@ final class CompilerRunCommandTests: XCTestCase {
             notes.first { $0.body == "Has anyone said how long yet?" },
             "the continuity question never became a note")
         let report = try XCTUnwrap(
-            notes.first { $0.body == "The reader stopped believing the fog." },
+            notes.first { $0.body == Self.mintedReaderBody },
             "the reader's report never became a note")
         XCTAssertEqual(question.kind, .query,
                        "a question asks the writer something, and its reply is a "
@@ -3895,13 +3906,25 @@ final class CompilerRunCommandTests: XCTestCase {
 
         // The wire, not the projection: a field derived correctly and never
         // serialised syncs to no other device.
+        // **Values, not key presence** — a key carrying the wrong id or an
+        // empty fingerprint would satisfy a presence check and would be exactly
+        // the defect that matters: the dedupe compares the fingerprint, and a
+        // reader joining a note to its run compares the id.
         let raw = try rawOpLog(under: fx.root)
-        XCTAssertTrue(raw.contains("\"compiler_run_id\""),
-                      "the run id never reached the op log")
+        let runId = try XCTUnwrap(fx.diagnostics.lastRun(docId: "ch-1")?.id)
+        XCTAssertTrue(raw.contains("\"compiler_run_id\":\"\(runId)\""),
+                      "the op log must name the run that wrote the note, not "
+                      + "merely carry the field")
         XCTAssertTrue(raw.contains("\"compiler_round\":1"),
                       "the round number never reached the op log")
-        XCTAssertTrue(raw.contains("\"compiler_fingerprint\""),
-                      "the fingerprint never reached the op log")
+        let questionFingerprint = try XCTUnwrap(question.compilerFingerprint)
+        XCTAssertEqual(questionFingerprint, "continuity\u{1f}the fog\u{1f}\(pid)\u{1f}",
+                       "the projected fingerprint is not the one spelling")
+        // JSON-escaped, because U+001F is a control character on the wire.
+        XCTAssertTrue(
+            raw.contains("\"compiler_fingerprint\":\"continuity\\u001fthe fog\\u001f\(pid)\\u001f\""),
+            "the fingerprint reached the op log with a different value than the "
+            + "one the dedupe reads back")
         XCTAssertTrue(raw.contains("\"review_pass_id\":\"copyedit\""),
                       "the lane never reached the op log")
         XCTAssertFalse(raw.contains("\"compiler_fresh_eyes\""),
@@ -4102,7 +4125,7 @@ final class CompilerRunCommandTests: XCTestCase {
         await awaitNothingMinted()
 
         let notes = fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
-        XCTAssertEqual(notes.map(\.body), ["The reader stopped believing the fog."],
+        XCTAssertEqual(notes.map(\.body), [Self.mintedReaderBody],
                        "the note whose paragraph survived must be written and the "
                        + "other dropped \u{2014} got \(notes.map(\.body))")
         XCTAssertEqual(fx.orchestrator.runState, .idle,
@@ -4134,5 +4157,190 @@ final class CompilerRunCommandTests: XCTestCase {
             "a streamed section minted a note before its run finished \u{2014} a "
             + "cancel then leaves the writer notes from a check that stopped "
             + "reading half way through")
+    }
+
+    // MARK: - The mint's edges (M4 P1 review)
+
+    /// Two findings that name no paragraph at all — the schema permits an
+    /// entry with no refs, and both sections can produce one.
+    private func anchorlessFindings() -> String {
+        """
+        {"section":"conformance","checks":[]}
+        {"section":"continuity","questions":[{"refs":[],"question":"The outline promised a scene that never got written."}]}
+        {"section":"reader","reports":[{"refs":[],"report":"The piece ends before it lands."}]}
+        {"section":"facts","candidates":[]}
+        """
+    }
+
+    /// **An anchorless finding is a whole-piece observation, and it survives**
+    /// (M4 P1 review, Important 2).
+    ///
+    /// `.query` and `.comment` are paragraph-scoped and `addAnnotation` refuses
+    /// either with a nil id, so minting them as such put every note ABOUT THE
+    /// PIECE straight into the failure arm — silently, because the arm's whole
+    /// job is not to fail the run. A doc-scoped craft note is what that
+    /// observation is.
+    func test_anAnchorlessFindingMintsAsADocScopedCraftNote() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        setActivePass("copyedit", on: fx)
+        runner.nextEvent = .resultText(anchorlessFindings())
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(2, on: fx.document)
+
+        let notes = fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+        XCTAssertEqual(notes.count, 2,
+                       "an anchorless question and an anchorless report were "
+                       + "destroyed on their way out; got \(notes.map(\.body))")
+        XCTAssertEqual(Set(notes.map(\.kind)), [.craftNote],
+                       "both must be doc-scoped craft notes \u{2014} the only kind "
+                       + "the annotation layer will hold without a paragraph")
+        XCTAssertEqual(notes.compactMap(\.paragraphId), [],
+                       "…and none of them invented an anchor")
+        XCTAssertEqual(
+            Set(notes.map(\.body)),
+            ["The outline promised a scene that never got written.",
+             "The piece ends before it lands."])
+        for note in notes {
+            XCTAssertEqual(note.author?.displayName, "Gould",
+                           "a craft note is still this round's note")
+            XCTAssertEqual(note.reviewPassId, "copyedit")
+            XCTAssertTrue(note.isCompilerAuthored)
+        }
+    }
+
+    /// **The reader's two kinds are two findings on one paragraph** (M4 P1
+    /// review, Important 3) — and the label the pane used to draw above the row
+    /// travels in the body, because no pane draws it now.
+    func test_theReadersTwoKindsBothMintAndCarryTheirLabel() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        setActivePass("copyedit", on: fx)
+        runner.nextEvent = .resultText("""
+            {"section":"conformance","checks":[]}
+            {"section":"continuity","questions":[]}
+            {"section":"reader","reports":[{"kind":"dream_break","refs":["\(pid)"],"report":"The spell breaks at the semicolon."},
+                                           {"kind":"belief","refs":["\(pid)"],"report":"The reader stopped believing the fog."}]}
+            {"section":"facts","candidates":[]}
+            """)
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(2, on: fx.document)
+
+        let notes = fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+        XCTAssertEqual(notes.count, 2,
+                       "two reader kinds on one paragraph collapsed into one "
+                       + "finding, and the dedupe threw the second away; got "
+                       + "\(notes.map(\.body))")
+        XCTAssertEqual(
+            Set(notes.map(\.body)),
+            ["Dream break \u{2014} The spell breaks at the semicolon.",
+             "Belief \u{2014} The reader stopped believing the fog."],
+            "the reader's own kind must reach the writer \u{2014} it is content, "
+            + "and the row that used to render it above the note is gone")
+        XCTAssertEqual(Set(notes.compactMap(\.compilerFingerprint)).count, 2,
+                       "…and the two must be distinguishable to the dedupe")
+    }
+
+    /// A model that raises the SAME reader kind twice on one paragraph is one
+    /// finding, which is the rule the category refines rather than replaces.
+    func test_theSameReaderKindTwiceOnOneParagraphMintsOnce() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        runner.nextEvent = .resultText("""
+            {"section":"conformance","checks":[]}
+            {"section":"continuity","questions":[]}
+            {"section":"reader","reports":[{"kind":"belief","refs":["\(pid)"],"report":"She is not believable here."},
+                                           {"kind":"belief","refs":["\(pid)"],"report":"I did not believe her."}]}
+            {"section":"facts","candidates":[]}
+            """)
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(1, on: fx.document)
+        await awaitNothingMinted()
+
+        XCTAssertEqual(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open])).count, 1,
+            "the model rewording one finding is one finding")
+    }
+
+    /// **A cold reread that finds something NEW mints it, stamped as cold**
+    /// (M4 P1 review, Minor 7). The dedupe protects the writer from duplicates;
+    /// it must not protect them from news.
+    func test_freshEyesMintsANewFindingAndStampsItselfOnTheWire() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        setActivePass("proof", on: fx)
+        runner.nextEvent = .resultText(questionAndReport(about: pid))
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(2, on: fx.document)
+
+        // A cold read, raising a question the warm round never asked: a
+        // different `cites` is a different finding, so nothing dedupes it away.
+        runner.nextEvent = .resultText("""
+            {"section":"conformance","checks":[]}
+            {"section":"continuity","questions":[{"cites":"the coat","refs":["\(pid)"],"question":"Whose coat is on the chair?"}]}
+            {"section":"reader","reports":[]}
+            {"section":"facts","candidates":[]}
+            """)
+        fx.orchestrator.runRequested(docId: "ch-1", freshEyes: true)
+        await awaitSends(2, on: runner)
+        await awaitOpenNotes(3, on: fx.document)
+
+        let notes = fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+        let cold = try XCTUnwrap(notes.first { $0.body == "Whose coat is on the chair?" },
+                                 "the cold read's new question never minted")
+        XCTAssertEqual(cold.author?.displayName, "Argus", "the Proof pass's editor")
+        XCTAssertEqual(cold.compilerRound, 2, "round 2 of the proof lane")
+
+        let raw = try rawOpLog(under: fx.root)
+        XCTAssertTrue(raw.contains("\"compiler_fresh_eyes\":true"),
+                      "a cold round must say so on the wire \u{2014} it is the one "
+                      + "fact about the run that a reader of the note cannot "
+                      + "otherwise recover")
+    }
+
+    /// **A Cancel inside the mint window leaves the stale finish nothing to
+    /// write** (M4 P1 review, Minor 6).
+    ///
+    /// The mint is `finish`'s one suspension and the only one this class
+    /// resumes from with writes still to do. Without the generation re-check,
+    /// a Cancel (which bumps the generation and goes idle) followed by a ⌘R
+    /// would have the abandoned turn stamp `sentBriefing` and `runState` over
+    /// a live run: a new session told it had already been briefed, and a check
+    /// still going called finished.
+    func test_aCancelInsideTheMintWindowAbandonsTheRest() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(oneQuestion("Two beats, not three?", about: "a1b2"))
+        let gate = PrepareGate()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), holdMint: gate)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(gate.entries, 1, "precondition: the run is suspended in its mint")
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "precondition: nothing is recorded until the mint returns")
+
+        harness.orchestrator.cancel()
+        gate.release()
+        settle()
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "the abandoned turn recorded its run anyway")
+        XCTAssertNil(harness.diagnostics.lastOpId(docId: docId),
+                     "\u{2026}and moved the marker, so the prose it stopped "
+                     + "checking is never checked again")
+        XCTAssertEqual(harness.orchestrator.runState, .idle)
     }
 }
