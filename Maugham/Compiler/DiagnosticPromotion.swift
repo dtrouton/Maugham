@@ -10,6 +10,15 @@ import Foundation
 ///
 /// Pure and static so every clause is a direct assertion — the composition is
 /// the interesting part, and it should not need a mounted pane to check.
+///
+/// **Scope, as of M4 P1: a conformance strain, and nothing else.** The other
+/// two kinds no longer reach the pane at all — a continuity question and a
+/// reader's report mint as pass-stamped annotations when the run finishes, so
+/// they are already op-logged, already sync, already durable, and promoting one
+/// would be copying a note into a second home. `sectionLabel` below keeps its
+/// continuity and reader arms anyway: a task promoted before this milestone
+/// still says which section raised it, and a record read months later must not
+/// lose that line because the pane stopped drawing the section.
 enum DiagnosticPromotion {
 
     /// How much of the intent's first line the provenance line carries. Long

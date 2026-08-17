@@ -57,7 +57,11 @@ final class DiagnosticsPaneTests: XCTestCase {
     private func makeDiagnostic(
         docId: String, anchor: Diagnostic.Anchor? = nil,
         body: String = "A diagnostic note", category: String? = nil,
-        kind: DiagnosticKind = .continuity,
+        // **The default is the kind the pane still draws** (M4 P1 Task 3):
+        // continuity and reader findings mint as annotations now and never
+        // reach a sidecar, so a fixture that means "an ordinary row on this
+        // pane" means a conformance strain.
+        kind: DiagnosticKind = .conformanceStrain,
         refs: [Diagnostic.Ref]? = nil, clauseQuote: String? = nil
     ) -> Diagnostic {
         Diagnostic(id: ULID.generate(), docId: docId, anchor: anchor,
@@ -374,7 +378,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                 kind: .conformanceStrain, clauseQuote: "Cold, and never wistful."),
                           makeDiagnostic(
                 docId: docId, anchor: anchor, body: "Should she already know?",
-                kind: .continuity)],
+                kind: .conformanceStrain)],
             docId: docId)
         waitUntil { self.staticTextLabels(in: window, containing: "Should she already").count == 1 }
 
@@ -1486,16 +1490,22 @@ final class DiagnosticsPaneTests: XCTestCase {
             "the empty state must not stand over a report that has clauses in it")
     }
 
-    /// The sections arrive in the report's order: conformance, then continuity,
-    /// then the reader (spec §4/§5). Read off the accessibility tree in
-    /// document order, which is the order a writer's eye — and VoiceOver — takes
-    /// them in.
-    func test_theSectionsRenderInTheReportsOrder() {
-        let docId = "doc-order"
+    /// **The pane draws the conformance report and nothing else** (M4 P1
+    /// Task 3) — the mounted half of the one-home rule.
+    ///
+    /// A continuity question and a reader's report no longer reach a sidecar at
+    /// all; they mint as annotations when the run finishes. This drives the
+    /// harder case on purpose: a store handed all three kinds, as a build one
+    /// version older would have written it. The strain still renders; the other
+    /// two render nowhere, so a legacy sidecar cannot put a second copy of a
+    /// note in front of the writer.
+    func test_onlyTheConformanceStrainRenders_theOtherTwoKindsHaveLeft() {
+        let docId = "doc-one-home"
         let store = DiagnosticsStore(
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
         store.replace(
-            run: makeRun(clauseStatuses: [makeClause("A clause of mine.", "strains")]),
+            run: makeRun(clauseStatuses: [makeClause("A clause of mine.", "strains")],
+                         truncatedReader: 2),
             diagnostics: [
                 makeDiagnostic(docId: docId, body: "The reader stopped believing her.",
                                category: "belief", kind: .readerReport),
@@ -1512,39 +1522,33 @@ final class DiagnosticsPaneTests: XCTestCase {
         pump(0.3)
 
         let labels = allLabels(in: window)
-        let strain = labels.firstIndex { $0.contains("The sentence pulls the other way.") }
-        let question = labels.firstIndex { $0.contains("Was that learned offstage?") }
-        let reader = labels.firstIndex { $0.contains("The reader stopped believing her.") }
-
-        XCTAssertNotNil(strain); XCTAssertNotNil(question); XCTAssertNotNil(reader)
-        XCTAssertTrue((strain ?? 0) < (question ?? 0),
-                      "conformance leads the report \u{2014} it is what the writer declared")
-        XCTAssertTrue((question ?? 0) < (reader ?? 0),
-                      "the reader's report comes last")
+        XCTAssertTrue(labels.contains { $0.contains("The sentence pulls the other way.") },
+                      "control: the strain is still the report, and it renders")
+        XCTAssertFalse(labels.contains { $0.contains("Was that learned offstage?") },
+                       "a continuity question rendered on the pane as well as "
+                       + "minting as a note \u{2014} two homes for one finding")
+        XCTAssertFalse(labels.contains { $0.contains("The reader stopped believing her.") },
+                       "a reader's report rendered on the pane as well as "
+                       + "minting as a note")
+        XCTAssertFalse(labels.contains { $0.contains("Continuity") },
+                       "the Continuity section header outlived its rows")
+        XCTAssertFalse(labels.contains { $0.contains("The reader had more to say.") },
+                       "the reader's truncation sentence belongs beside the "
+                       + "reports it is about, and they are not here")
     }
 
-    /// The reader's own two-valued kind is CONTENT and stays; the free-form
-    /// category tag v1 minted is gone with the contract that minted it (spec
-    /// §5: "removed from the shipped design").
-    func test_onlyTheReadersOwnTwoKindsEverRenderAsALabel() {
-        XCTAssertEqual(DiagnosticsPane.readerKindLabel("dream_break"), "Dream break")
-        XCTAssertEqual(DiagnosticsPane.readerKindLabel("belief"), "Belief")
-        XCTAssertNil(DiagnosticsPane.readerKindLabel("rhythm"),
-                     "a free-form tag must not reach the pane through the reader's field")
-        XCTAssertNil(DiagnosticsPane.readerKindLabel(nil))
-    }
-
-    /// **One dim sentence, and nothing else** — how many reports the model went
-    /// over the cap by is its business, and a count here would read to the
-    /// writer as something they had lost.
-    func test_theReaderSectionSaysWhenThereWasMore() {
-        let docId = "doc-truncated"
+    /// …and a report made only of the kinds that left is an EMPTY pane, not a
+    /// pane claiming a report it draws nothing for.
+    func test_aLegacyReportOfOnlyContinuityAndReaderShowsNoReportAtAll() {
+        let docId = "doc-legacy-only"
         let store = DiagnosticsStore(
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
         store.replace(
-            run: makeRun(truncatedReader: 2),
-            diagnostics: [makeDiagnostic(docId: docId, body: "The dream broke here.",
-                                         category: "dream_break", kind: .readerReport)],
+            run: makeRun(),
+            diagnostics: [
+                makeDiagnostic(docId: docId, body: "Was that learned offstage?",
+                               kind: .continuity),
+            ],
             docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
@@ -1552,27 +1556,13 @@ final class DiagnosticsPaneTests: XCTestCase {
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.3)
 
-        XCTAssertEqual(staticTextLabels(in: window, containing: "The reader had more to say.").count, 1)
-        XCTAssertTrue(staticTextLabels(in: window, containing: "2").isEmpty,
-                      "the count is not the writer's business")
-    }
-
-    func test_theReaderSectionSaysNothingWhenNothingWasTruncated() {
-        let docId = "doc-not-truncated"
-        let store = DiagnosticsStore(
-            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-        store.replace(
-            run: makeRun(truncatedReader: 0),
-            diagnostics: [makeDiagnostic(docId: docId, body: "The dream broke here.",
-                                         category: "dream_break", kind: .readerReport)],
-            docId: docId)
-
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
-            currentText: { _ in nil }, compilerModel: .standard)))
-        pump(0.3)
-
-        XCTAssertTrue(staticTextLabels(in: window, containing: "had more to say").isEmpty)
+        XCTAssertFalse(allLabels(in: window).contains { $0.contains("Was that learned offstage?") },
+                       "the question rendered after all")
+        XCTAssertFalse(
+            staticTextLabels(in: window, containing: "Nothing to flag").isEmpty
+                && staticTextLabels(in: window, containing: "nothing to raise").isEmpty,
+            "a pane with no drawable rows must say so rather than render a "
+            + "report with nothing in it")
     }
 
     // MARK: - Excerpt chips (requirement 3)
@@ -1602,7 +1592,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                     refs: [ref(ids[0], "The fog came in off the water and")],
                     clauseQuote: "Cold, and never wistful."),
                 makeDiagnostic(
-                    docId: docId, body: "Was that learned offstage?", kind: .continuity,
+                    docId: docId, body: "Was that learned offstage?",
                     refs: [ref(ids[1], "She already knew about the letter"),
                            ref(ids[2], "He had not told anyone yet")]),
             ],
@@ -1645,7 +1635,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         store.replace(
             run: makeRun(),
             diagnostics: [makeDiagnostic(
-                docId: docId, body: "Was that learned offstage?", kind: .continuity,
+                docId: docId, body: "Was that learned offstage?",
                 refs: [ref("c3d4", "She already knew about the letter")])],
             docId: docId)
 
@@ -1704,36 +1694,31 @@ final class DiagnosticsPaneTests: XCTestCase {
             makeDiagnostic(docId: "d1", kind: .readerReport)))
     }
 
-    /// …and the affordance obeys it on the mounted pane, where a writer can see
-    /// it: the question's row offers **Answer**, the reader's report does not,
-    /// and both offer Promote (the control that says both rows rendered).
-    func test_theReadersReportHasNoReplyFieldAndTheQuestionDoes() async throws {
+    /// …and the affordance obeys it on the mounted pane, where a writer can
+    /// see it: a conformance strain's row offers **Answer** and **Promote**.
+    ///
+    /// **The reader-report half of this test is gone with the row it was
+    /// about** (M4 P1 Task 3). A reader's report no longer reaches this pane at
+    /// all, so the rule that it offers no reply field is now only assertable
+    /// against the pure predicate above — where it still is, and where
+    /// `offersAnAnswer` still refuses it.
+    func test_theStrainsRowOffersAnswerAndPromote() async throws {
         let (url, store, chapter) = try await loadedNovel(named: "FatesAffordance")
         let diagnostics = DiagnosticsStore(
             projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
         diagnostics.replace(
             run: makeRun(),
             diagnostics: [makeDiagnostic(
-                docId: chapter.id, body: "The dream broke here.",
-                category: "dream_break", kind: .readerReport)],
+                docId: chapter.id, body: "The sentence pulls the other way.")],
             docId: chapter.id)
 
-        let readerOnly = mount(pane(store: store, diagnostics: diagnostics, docId: chapter.id))
+        let window = mount(pane(store: store, diagnostics: diagnostics, docId: chapter.id))
         pump(0.3)
-        XCTAssertNil(findButton(labelled: "Answer", in: readerOnly),
-                     "a reader's report is not a question \u{2014} a reply field under one "
-                     + "invites the writer to argue with a reader")
-        XCTAssertNotNil(findButton(labelled: "Promote to Task", in: readerOnly),
+        XCTAssertNotNil(findButton(labelled: "Answer", in: window),
+                        "a strain asks the writer something, and the reply is a "
+                        + "ruling \u{2014} that is what Answer is for")
+        XCTAssertNotNil(findButton(labelled: "Promote to Task", in: window),
                         "control: the row itself rendered")
-
-        diagnostics.replace(
-            run: makeRun(),
-            diagnostics: [makeDiagnostic(
-                docId: chapter.id, body: "Was that learned offstage?", kind: .continuity)],
-            docId: chapter.id)
-        pump(0.3)
-        XCTAssertNotNil(findButton(labelled: "Answer", in: readerOnly),
-                        "a continuity question is exactly what Answer is for")
     }
 
     /// An answerable note offers Answer, and pressing it puts a text field on
@@ -1748,7 +1733,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics: [makeDiagnostic(
                 docId: chapter.id,
                 anchor: Diagnostic.Anchor(paragraphId: "a1b2", anchorText: "The fog came in."),
-                body: "Was that learned offstage?", kind: .continuity)],
+                body: "Was that learned offstage?")],
             docId: chapter.id)
 
         let window = mount(pane(store: store, diagnostics: diagnostics, docId: chapter.id,
@@ -1777,7 +1762,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics: [makeDiagnostic(
                 docId: chapter.id,
                 anchor: Diagnostic.Anchor(paragraphId: "a1b2", anchorText: "The fog came in."),
-                body: "Was that learned offstage?", kind: .continuity)],
+                body: "Was that learned offstage?")],
             docId: chapter.id)
 
         let window = mount(pane(store: nil, diagnostics: diagnostics, docId: chapter.id,
@@ -2063,7 +2048,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics: [makeDiagnostic(
                 docId: chapter.id,
                 anchor: Diagnostic.Anchor(paragraphId: "a1b2", anchorText: "The fog came."),
-                body: "Was that learned offstage?", kind: .continuity)],
+                body: "Was that learned offstage?")],
             docId: chapter.id)
 
         let window = mount(AnyView(DiagnosticsPane(
@@ -2085,19 +2070,24 @@ final class DiagnosticsPaneTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(200))
     }
 
-    /// The one continuity question this section streams, and the words that
-    /// prove its row reached the pane.
+    /// The one finding this section streams, and the words that prove its row
+    /// reached the pane.
+    ///
+    /// **A conformance strain, since M4 P1 Task 3**: continuity and reader
+    /// sections accumulate during a stream and preview nothing, because they
+    /// are no longer the sidecar's. A strain is what a half-arrived report can
+    /// still put in front of the writer, which is what these tests are about.
     private static let questionBody = "Should she already know?"
 
     private static let streamedQuestion =
-        "{\"section\":\"continuity\",\"questions\":[{\"cites\":\"the fog\","
-        + "\"refs\":[\"a1b2\"],\"question\":\"\(questionBody)\"}]}"
+        "{\"section\":\"conformance\",\"checks\":[{\"clause_quote\":\"Cold, and never wistful.\","
+        + "\"status\":\"strains\",\"refs\":[\"a1b2\"],\"what_pulls\":\"\(questionBody)\"}]}"
 
     /// The turn's own text, carrying the streamed section again — where it
     /// always was. `finish` reconciles from this, not from the stream.
     private static let turnCarryingTheQuestion = """
-        {"section":"conformance","checks":[]}
         \(streamedQuestion)
+        {"section":"continuity","questions":[]}
         {"section":"reader","reports":[]}
         {"section":"facts","candidates":[]}
         """

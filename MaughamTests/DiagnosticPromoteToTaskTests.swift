@@ -56,7 +56,12 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
     private func makeDiagnostic(
         docId: String, paragraphId: String?, anchorText: String = "",
         body: String = "The rhythm flattens across these three sentences.",
-        category: String? = "rhythm", kind: DiagnosticKind = .continuity
+        // **The kind the pane still draws** (M4 P1 Task 3): continuity and
+        // reader findings mint as annotations and never reach a sidecar, so
+        // promotion's subject is a conformance strain. The `sectionLabel`
+        // tests below still name all three, because a task promoted before
+        // this milestone must keep saying which section raised it.
+        category: String? = "rhythm", kind: DiagnosticKind = .conformanceStrain
     ) -> Diagnostic {
         Diagnostic(
             id: ULID.generate(), docId: docId,
@@ -218,7 +223,7 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
             body.hasPrefix("The rhythm flattens across these three sentences."),
             "the note's own words come first: \(body)")
         XCTAssertTrue(
-            body.contains("\u{2014} compiler, 2026-07-24, sonnet, from continuity, "
+            body.contains("\u{2014} compiler, 2026-07-24, sonnet, from conformance, "
                           + "checked against: \u{201C}A ghost story told in weather.\u{201D}"),
             "the provenance line must say who checked, when, in what model, which section "
             + "raised it, and against what: \(body)")

@@ -45,6 +45,29 @@ struct RoundFingerprint: Codable, Hashable, Sendable {
             clauseQuote: diagnostic.clauseQuote,
             paragraphId: diagnostic.anchor?.paragraphId)
     }
+
+    /// **The identity, as one string** — the same three fields, joined so a
+    /// finding can be recognised across a boundary that stores no struct.
+    ///
+    /// M4 P1 needs the identity where `RoundFingerprint` itself cannot go: an
+    /// annotation op's provenance is flat scalars (`Op.Provenance.
+    /// compilerFingerprint`), so the mint stamps this string and the dedupe
+    /// compares it. **One spelling, not two** — a second derivation of "the
+    /// same finding" is how the ring's arithmetic and the mint's dedupe come to
+    /// disagree about whether a question the model re-raised is the one already
+    /// open in front of the writer.
+    ///
+    /// Reached only through `make`, so a note with no discriminator has no
+    /// string either — it mints unstamped and the dedupe cannot see it, which
+    /// is the same abstention `make`'s `nil` already means for the ring.
+    ///
+    /// The separator is `US` (U+001F), which cannot occur in a clause quote or
+    /// a paragraph id, so the three fields cannot be re-spelled into each
+    /// other's positions; `nil` and the empty string are deliberately the same
+    /// here, because neither is a discriminator.
+    var stringValue: String {
+        [kind, clauseQuote ?? "", paragraphId ?? ""].joined(separator: "\u{1f}")
+    }
 }
 
 /// One round that finished: which lane it belonged to, and what it found.

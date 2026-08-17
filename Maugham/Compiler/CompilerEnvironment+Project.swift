@@ -160,9 +160,19 @@ extension CompilerOrchestrator.Environment {
                 // Keyed `forPiece:` with a document id, as both existing
                 // readers are: the piece IS the document here.
                 guard let store, let documentStore else { return nil }
-                return documentStore.uiState.activePassMemory.validatedActivePass(
-                    forPiece: docId,
-                    in: store.manifest.effectiveReviewPasses)
+                let passes = store.manifest.effectiveReviewPasses
+                guard let id = documentStore.uiState.activePassMemory.validatedActivePass(
+                        forPiece: docId, in: passes),
+                      let pass = passes.first(where: { $0.id == id })
+                else { return nil }
+                // **`effectiveEditorName`/`effectiveBrief`, never the raw
+                // fields** (M4 P1 Task 1's rule): a customized manifest can
+                // store a preset-id pass that predates both, and reading
+                // `pass.editorName` here would sign a Copyedit round's notes
+                // with nothing at all.
+                return CompilerOrchestrator.ActivePass(
+                    id: pass.id, editorName: pass.effectiveEditorName,
+                    brief: pass.effectiveBrief)
             },
             cachedWorld: { [weak declaredWorld] briefing in
                 // The hash gate is the whole cache: a reading is served only
@@ -206,6 +216,86 @@ extension CompilerOrchestrator.Environment {
                     })
                 guard !subjects.isEmpty else { return [] }
                 return bible.facts(subjects: subjects)
+            },
+            mintAnnotations: { [weak documentStore] notes, context in
+                // **⌘R requires an open document** (`runRequested`'s
+                // `reading(docId) != nil` guard), so this resolves in every
+                // real run. A document closed between the send and the answer
+                // mints nothing rather than reopening it behind the writer:
+                // the words are still on disk, and the next run over the same
+                // prose raises the same findings.
+                guard let document = documentStore?.document(forDocId: context.docId) else {
+                    compilerLog.error(
+                        "the compiler's notes had nowhere to land: doc \(context.docId, privacy: .public) is no longer open")
+                    return 0
+                }
+                // **The dedupe backstop, and it is THE guard on the fresh-eyes
+                // path.** A warm round is briefed on what the last one raised
+                // and can be asked to leave it alone; ⌘⇧R is briefed on
+                // nothing by design, so it re-raises everything it still finds
+                // true — and without this, every cold reread would mint the
+                // writer a second copy of every question they have not yet
+                // answered.
+                //
+                // Only OPEN notes block. A resolved one is a finding the
+                // writer dealt with, and prose that still reads the same way
+                // afterwards is news again rather than an echo.
+                var taken = Set(
+                    document.annotations(filter: AnnotationFilter(statuses: [.open]))
+                        .compactMap { $0.isCompilerAuthored ? $0.compilerFingerprint : nil })
+                var minted = 0
+                for note in notes {
+                    if let fingerprint = note.fingerprint, taken.contains(fingerprint) {
+                        continue
+                    }
+                    do {
+                        _ = try await document.addAnnotation(
+                            kind: note.kind,
+                            paragraphId: note.paragraphId,
+                            body: note.body,
+                            // **The exact label IS the filter bucket**
+                            // (`AnnotationAuthorFilter.distinctLabels`), which
+                            // is the feature: a Copyedit round's notes gather
+                            // under "Gould" and the writer can read one
+                            // editor at a time. `.claude` keeps `isClaude`
+                            // true, so every existing Claude affordance still
+                            // applies to them.
+                            author: AnnotationAuthor(
+                                sourceKind: .claude, displayName: context.editorName),
+                            reviewPassId: context.passId,
+                            compilerRunId: context.runId,
+                            compilerRound: context.round,
+                            // Absent rather than `false` on a warm round, on
+                            // `CompilerRun.freshEyes`'s own rule: every reader
+                            // asks `== true`, so an ordinary run's op stays
+                            // byte-for-byte what it was.
+                            compilerFreshEyes: context.freshEyes ? true : nil,
+                            compilerFingerprint: note.fingerprint,
+                            // One round is ONE event to every surface counting
+                            // this project's notes, and each of them walks the
+                            // whole project to answer it. Paid back once below.
+                            announcing: false)
+                        minted += 1
+                        // A model that raises the same finding twice in one
+                        // turn mints it once. The ingest dedupes refs, not
+                        // findings, and the writer would have no way to tell
+                        // the copies apart.
+                        if let fingerprint = note.fingerprint { taken.insert(fingerprint) }
+                    } catch {
+                        // **The mint never fails the run.** The commonest
+                        // cause is the writer deleting the paragraph between
+                        // the parse and this append, which
+                        // `addAnnotation` refuses outright — one note lost, the
+                        // rest written, and a check that still says it
+                        // finished.
+                        compilerLog.error(
+                            "a compiler note could not be minted on doc \(context.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+                // Owed exactly once, and only if something really landed —
+                // `sweepOrphanedAnnotations`' rule, for its reason.
+                if minted > 0 { document.announceAnnotationsChanged() }
+                return minted
             },
             recordFacts: { [weak bible] candidates in
                 // `record` dedupes on `(subject, fact)` itself, so a second run

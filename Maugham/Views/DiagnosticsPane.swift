@@ -4,13 +4,22 @@ import MaughamCore
 /// The compiler's report on the open document — Author's own pane, reached by
 /// ⌘⌥D or by leading its picker (`Persona.author.panes`).
 ///
-/// **It reads as a report, in the second draft's order** (spec §5): the
-/// conformance summary first — every clause the writer declared, quoted back in
-/// their own words, each holding or straining or silent — then the continuity
-/// questions, then the reader's report. The summary renders whether or not a
-/// single note came with it, because a run whose clauses all hold is not an
-/// empty pane: it is the good outcome, and a pane that showed nothing for it
-/// would say the check never happened.
+/// **It reads as a report about the writer's own clauses, and nothing else**
+/// (spec §5, narrowed by M4 P1): the conformance summary — every clause the
+/// writer declared, quoted back in their own words, each holding or straining
+/// or silent. The summary renders whether or not a single note came with it,
+/// because a run whose clauses all hold is not an empty pane: it is the good
+/// outcome, and a pane that showed nothing for it would say the check never
+/// happened.
+///
+/// **The continuity questions and the reader's report used to follow it here,
+/// and no longer do.** They are findings about the WORDS: they outlive the run
+/// that raised them, the writer answers them the way they answer every other
+/// note about their prose, and a per-device sidecar the next check wholly
+/// supersedes is the wrong place for either. They now mint as pass-stamped
+/// annotations at the end of a run (`CompilerOrchestrator.finish` →
+/// `Environment.mintAnnotations`). One finding, one home — a pane that still
+/// drew them would ask the writer to answer the same question in two places.
 ///
 /// The register is Maugham's: nothing here bounces, nags, or apologises for
 /// what it found. A clean run says so plainly; a failed one names what went
@@ -141,19 +150,29 @@ struct DiagnosticsPane: View {
         return diagnostics.roundHistory(docId: docId)
     }
 
-    /// The three note kinds, split into the sections that render them.
+    /// **The one note kind this pane draws** (M4 P1 Task 3).
     ///
-    /// A note whose `kind` is `nil` belongs to none of them — and cannot reach
-    /// here: `DiagnosticsStore.load` drops v1 records as superseded, and this
-    /// pane calls `load` in its own `onAppear`.
+    /// A conformance strain is read beside the clause it strains against, so
+    /// the report is where it belongs. The other two kinds left: a continuity
+    /// question and a reader's report are about the WORDS, they outlive the
+    /// check that raised them, and they now mint as annotations — one finding,
+    /// one home. A run no longer puts either in the sidecar; the filter is what
+    /// keeps a sidecar written by an older build from drawing a row this pane
+    /// has no section for.
+    ///
+    /// A note whose `kind` is `nil` is filtered out here too — and cannot reach
+    /// here anyway: `DiagnosticsStore.load` drops v1 records as superseded, and
+    /// this pane calls `load` in its own `onAppear`.
     private var strains: [Diagnostic] { rows.filter { $0.kind == .conformanceStrain } }
-    private var questions: [Diagnostic] { rows.filter { $0.kind == .continuity } }
-    private var readerReports: [Diagnostic] { rows.filter { $0.kind == .readerReport } }
 
     /// Is there a report to draw at all? **Clauses count even with no notes** —
     /// that is the clean conformance report, and it is the outcome the writer
     /// most wants to see.
-    private var hasReport: Bool { !clauses.isEmpty || !rows.isEmpty }
+    ///
+    /// Measured on `strains` rather than `rows`, for the reason above: a legacy
+    /// sidecar holding only continuity notes would otherwise claim a report and
+    /// then draw nothing at all.
+    private var hasReport: Bool { !clauses.isEmpty || !strains.isEmpty }
 
     private var state: HeaderState {
         Self.headerState(runState: orchestrator.runState, lastRun: lastRun,
@@ -491,8 +510,6 @@ struct DiagnosticsPane: View {
                     roundLine
                     driftLine
                     conformanceSection
-                    continuitySection
-                    readerSection
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -543,7 +560,11 @@ struct DiagnosticsPane: View {
     @ViewBuilder
     private var roundLine: some View {
         if let line = Self.sinceLastRoundLine(
-            history: roundHistory, run: lastRun, current: rows) {
+            // `strains`, not `rows`: the ring's fingerprints are the sidecar's
+            // and the sidecar is strains only (M4 P1). Counting a legacy
+            // record's continuity note against a round that can no longer
+            // contain one would report it resolved every time.
+            history: roundHistory, run: lastRun, current: strains) {
             Text(line)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -638,38 +659,14 @@ struct DiagnosticsPane: View {
         }
     }
 
-    @ViewBuilder
-    private var continuitySection: some View {
-        if !questions.isEmpty {
-            PaneSectionHeader(title: "Continuity") { EmptyView() }
-            ForEach(questions) { note in
-                noteRow(note)
-                Divider()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var readerSection: some View {
-        if !readerReports.isEmpty {
-            PaneSectionHeader(title: "The reader") { EmptyView() }
-            ForEach(readerReports) { note in
-                noteRow(note)
-                Divider()
-            }
-            // **One sentence, and nothing else.** The schema caps the reader at
-            // its sharpest three; how many it went over is the model's business,
-            // not the writer's, and a count here would read as something they
-            // had lost.
-            if let truncated = lastRun?.truncatedReader, truncated > 0 {
-                Text("The reader had more to say.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            }
-        }
-    }
+    // **The Continuity and "The reader" sections are gone** (M4 P1 Task 3),
+    // and with them the reader's truncation sentence. Both kinds now mint as
+    // annotations at the end of a run, so the writer answers them where every
+    // other note about their prose lives — in the queue, under the round and
+    // the editor that raised them, surviving the next check. A pane that still
+    // drew them would be the second home this milestone exists to close.
+    // `CompilerRun.truncatedReader` is still recorded; nothing reads it here,
+    // because the sentence belongs beside the reports it is about.
 
     @ViewBuilder
     private func noteRow(_ diagnostic: Diagnostic) -> some View {
@@ -874,18 +871,12 @@ struct DiagnosticsPane: View {
         }
     }
 
-    /// The reader section's own two-valued kind, as words — and **nothing
-    /// else**. v2 mints no free-form category (spec §5: the tag is "removed
-    /// from the shipped design"), so a value from anywhere but the schema
-    /// renders no label at all rather than putting the old tag back on the pane
-    /// through a side door.
-    static func readerKindLabel(_ category: String?) -> String? {
-        switch category {
-        case DiagnosticIngest.SectionField.dreamBreak: return "Dream break"
-        case DiagnosticIngest.SectionField.belief: return "Belief"
-        default: return nil
-        }
-    }
+    // **`readerKindLabel` is gone with the section it labelled** (M4 P1
+    // Task 3). `Diagnostic.category` is set by the ingest for a reader report
+    // and for nothing else, and a reader report no longer reaches this pane —
+    // so the label had no row left to sit above. The reader's two kinds are
+    // still CONTENT and still parsed (`DiagnosticIngest.SectionField
+    // .dreamBreak`/`.belief`); what changed is where the report is read.
 
     /// **Which notes offer to be answered** — the questions, and only them
     /// (spec §5's fates).
@@ -1175,11 +1166,6 @@ private struct DiagnosticRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let label = DiagnosticsPane.readerKindLabel(diagnostic.category) {
-                Text(label.uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
             Text(diagnostic.body)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)

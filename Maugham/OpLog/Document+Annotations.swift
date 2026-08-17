@@ -87,7 +87,32 @@ extension Document {
         /// by the default. Resolution is each caller's: the editor asks the
         /// window, the MCP tools ask `activeReviewPassId`, and both go through
         /// `ActivePassMemory.validatedActivePass`.
-        reviewPassId: String? = nil
+        reviewPassId: String? = nil,
+        /// **Which compiler run authored this note** (M4 P1 Task 3), threaded
+        /// straight onto `Op.Provenance`'s four flat scalars: the run's id, the
+        /// numbered round within its pass, whether that round was read cold,
+        /// and the fingerprint of the finding it came from. Four parameters
+        /// rather than one value type, because the wire shape IS four flat
+        /// scalars (Task 2's own decision) and a struct here would be a second
+        /// spelling of them.
+        ///
+        /// All defaulted nil, so every caller that is not a compiler run — the
+        /// review toolbar, the MCP tools, the phone — writes exactly what it
+        /// wrote before.
+        compilerRunId: String? = nil,
+        compilerRound: Int? = nil,
+        compilerFreshEyes: Bool? = nil,
+        compilerFingerprint: String? = nil,
+        /// **The one seam in the announce contract**, on `appendLifecycleOp`'s
+        /// rule and for exactly its reason: a caller that appends N ops for ONE
+        /// writer-visible event passes `false` and announces ONCE after its
+        /// loop — never to skip announcing altogether. Every receiver of
+        /// `.maughamAnnotationsChanged` walks the whole project, so a round
+        /// minting a dozen notes posting a dozen times is a dozen project walks
+        /// for a single act. Today the batching caller is the compiler's mint
+        /// (`CompilerEnvironment+Project`'s `mintAnnotations`).
+        /// `AnnotationChangeEventTests` polices both halves.
+        announcing: Bool = true
     ) async throws -> String {
         // Owes the caller an annotation id, so it throws rather than
         // fabricating one for an annotation that was never persisted.
@@ -170,13 +195,17 @@ extension Document {
                 spanPrefix: span?.prefix,
                 spanSuffix: span?.suffix,
                 spanPosHint: span?.posHint,
-                reviewPassId: reviewPassId))
+                reviewPassId: reviewPassId,
+                compilerRunId: compilerRunId,
+                compilerRound: compilerRound,
+                compilerFreshEyes: compilerFreshEyes,
+                compilerFingerprint: compilerFingerprint))
         try await opStore.append(op)
         appendToMirror(op)
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         invalidateTasksCache()
-        announceAnnotationsChanged()
+        if announcing { announceAnnotationsChanged() }
         return op.opId
     }
 
