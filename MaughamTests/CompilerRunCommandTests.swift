@@ -2137,6 +2137,71 @@ final class CompilerRunCommandTests: XCTestCase {
                        + "the whole-statement briefing back through a real ruling")
     }
 
+    /// **The enriched provenance survives the real chain too** (M4 P1 Task 6):
+    /// answering a strain through `DiagnosticsPane.commitAnswer` — the real
+    /// pane function, which mints the enriched `«excerpt»` provenance rather
+    /// than the bare legacy string `RulingPerformer.rule` is called with
+    /// directly above — writes a ruling whose text is exactly the writer's
+    /// sentence, and that sentence still reaches run 2's briefing as its
+    /// derived clause, unmangled. If the excerpt's em-dash sanitation ever
+    /// broke, `RulingsSection.parseItem` would split the item on the wrong
+    /// "—" and the deriver would echo a corrupted quote instead of the one
+    /// asserted here.
+    func test_theEnrichedProvenanceReachesTheNextRunsBriefingUnbroken() async throws {
+        let runner = SpyRunner()
+        let deriver = EchoRulingsDeriver()
+        let fx = try await makeLiveDocumentHarness(runner: runner, deriver: deriver)
+        let statement = try await fx.store.createStatement(
+            kind: .intent, scope: .document("ch-1"))
+        try await fx.store.appendToStatement(
+            "Cold, and never wistful.", to: statement, session: "seed")
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await settle()
+        XCTAssertEqual(deriver.calls, 1, "precondition: run 1 derived, on an empty cache")
+
+        // A strain carrying a clause quote — the answerable kind post-Task-3,
+        // and the only one `answeredNoteProvenance` enriches.
+        let note = Diagnostic(
+            id: ULID.generate(), docId: "ch-1", anchor: nil,
+            body: "Does this hold?", category: nil, runId: ULID.generate(),
+            kind: .conformanceStrain, refs: nil,
+            clauseQuote: "the dread stays unnamed")
+        fx.diagnostics.replace(
+            run: CompilerRun(id: "r0", at: Date(), model: "test-model", lastOpId: nil,
+                             deltaSummary: "0 new, 0 revised \u{00b6}", intentSnapshot: nil),
+            diagnostics: [note], docId: "ch-1")
+
+        let ruled = "Kelly heard about the call offstage."
+        let failure = await DiagnosticsPane.commitAnswer(
+            ruled, to: note, docId: "ch-1", store: fx.store, world: fx.declaredWorld,
+            diagnostics: fx.diagnostics)
+        XCTAssertNil(failure, "the commit reported: \(failure ?? "")")
+
+        let parsed = RulingsSection.parse(try fx.store.statementText(of: statement))
+        XCTAssertEqual(parsed.rulings.map(\.text), [ruled],
+                       "the parser survived the enriched, em-dash-bearing provenance")
+        XCTAssertTrue(
+            parsed.rulings.first?.provenance?.contains("the dread stays unnamed") == true,
+            "got: \(parsed.rulings.first?.provenance ?? "nil")")
+
+        // …and keeps writing, so run 2 has a delta of its own to check.
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(2, on: runner)
+        await settle()
+
+        let second = runner.sends[1].message
+        XCTAssertEqual(occurrences(of: ruled, in: second), 1,
+                       "the writer's ruled sentence still reaches the briefing as a "
+                       + "clause, exactly once and unmangled by the enriched "
+                       + "provenance sitting beside it in the same file")
+        XCTAssertEqual(deriver.calls, 2,
+                       "…re-derived off the statement WITH the enriched ruling in it")
+    }
+
     /// A turn that reads one fact off the delta — the same reading every time
     /// it is asked, which is what a manuscript that still establishes the fact
     /// produces. `refs` is empty on purpose: a fact with no anchor is valid

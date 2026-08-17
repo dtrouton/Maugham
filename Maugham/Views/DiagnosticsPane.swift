@@ -1102,7 +1102,12 @@ struct DiagnosticsPane: View {
 
     // MARK: - The answer, which is a ruling
 
-    /// What the ruling's line says about where it came from.
+    /// What the ruling's line says about where it came from — a builder
+    /// rather than a constant (M4 P1 Task 6), because *"answered a compiler
+    /// note"* alone left the reader with no idea which note: a real defect
+    /// this shipped with (Tribute) read "The reader is supposed to read this
+    /// as it covering up" in the Intent pane, the ruling text's own dangling
+    /// *this* with nothing beside it naming what it answered.
     ///
     /// **It names no paragraph, and that is requirement 3 rather than a
     /// shortfall.** The shim this replaced left a note anticipating *"from a run
@@ -1111,7 +1116,25 @@ struct DiagnosticsPane: View {
     /// what v2 took off every surface. The DATE is not restated here either:
     /// `RulingsSection` stamps every line with `ruled <d MMM yyyy>`, so a
     /// provenance carrying one too would print the day twice.
-    static let answeredNoteProvenance = "answered a compiler note"
+    ///
+    /// **The excerpt is the note's own `clauseQuote`** — a conformance strain's
+    /// clause, the only answerable kind post-Task-3 (`offersAnAnswer`) and the
+    /// only one that carries one. Trimmed to `driftQuoteMaxLength` (60,
+    /// `truncatedDriftQuote`'s own budget — the same idiom, restated for the
+    /// same reason it already is here) and with every em-dash collapsed to a
+    /// plain hyphen: `RulingsSection.parseItem` splits an item on its
+    /// RIGHT-MOST "—", so an excerpt that still carried one could shift that
+    /// split point into the quote and cut the writer's own sentence off
+    /// mid-word. A `nil` `clauseQuote` — a v1 sidecar record, or a future note
+    /// kind that answers without one — falls back to the bare legacy line.
+    static func answeredNoteProvenance(for diagnostic: Diagnostic) -> String {
+        guard let quote = diagnostic.clauseQuote, !quote.isEmpty else {
+            return "answered a compiler note"
+        }
+        let sanitized = quote.replacingOccurrences(of: "\u{2014}", with: "-")
+        let excerpt = truncatedDriftQuote(sanitized)
+        return "answered a compiler note: \u{00AB}\(excerpt)\u{00BB}"
+    }
 
     /// **Write the writer's answer into the piece's rulings, and take the note
     /// off the pane once it is there** — the loop this milestone exists for.
@@ -1144,7 +1167,7 @@ struct DiagnosticsPane: View {
     ) async -> String? {
         do {
             try await RulingPerformer.rule(
-                text, provenance: answeredNoteProvenance,
+                text, provenance: answeredNoteProvenance(for: diagnostic),
                 forScope: .document(docId), store: store, world: world)
         } catch {
             return error.localizedDescription

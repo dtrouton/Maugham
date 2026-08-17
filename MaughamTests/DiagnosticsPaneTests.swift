@@ -2139,6 +2139,108 @@ final class DiagnosticsPaneTests: XCTestCase {
                        "the day is stamped once")
     }
 
+    // MARK: - Rulings carry the note they answered (M4 P1 Task 6)
+
+    /// A short clause quote rides through verbatim, inside the guillemets and
+    /// with no ellipsis — nothing to truncate.
+    func test_answeredNoteProvenance_shortQuoteRidesVerbatim() {
+        let note = makeDiagnostic(
+            docId: "d1", kind: .conformanceStrain,
+            clauseQuote: "the dread stays unnamed")
+        XCTAssertEqual(
+            DiagnosticsPane.answeredNoteProvenance(for: note),
+            "answered a compiler note: \u{00AB}the dread stays unnamed\u{00BB}")
+    }
+
+    /// A clause quote past the 60-character budget is cut at a word boundary
+    /// and ellipsised — `truncatedDriftQuote`'s own idiom, restated for the
+    /// same reason the drift line already restates it.
+    func test_answeredNoteProvenance_longQuoteTruncatedWithEllipsis() {
+        let quote = "The fog came in off the water and stayed for three days "
+            + "without once naming what it was hiding."
+        let note = makeDiagnostic(docId: "d1", kind: .conformanceStrain, clauseQuote: quote)
+
+        let provenance = DiagnosticsPane.answeredNoteProvenance(for: note)
+
+        XCTAssertTrue(provenance.contains("\u{2026}"),
+                      "over budget, so the excerpt must be marked as cut")
+        XCTAssertEqual(
+            provenance,
+            "answered a compiler note: \u{00AB}"
+                + DiagnosticsPane.truncatedDriftQuote(quote) + "\u{00BB}",
+            "the same 60-character, word-boundary budget the drift line uses")
+    }
+
+    /// **A clause quote carrying its own em-dash must not be allowed to reach
+    /// the ruling line intact.** `RulingsSection.parseItem` splits an item on
+    /// its RIGHT-MOST "—"; an excerpt with one of its own would move that
+    /// split point into the quote and mangle the writer's ruled sentence on
+    /// the next parse.
+    func test_answeredNoteProvenance_embeddedEmDashIsCollapsed() {
+        let note = makeDiagnostic(
+            docId: "d1", kind: .conformanceStrain,
+            clauseQuote: "the dread \u{2014} unnamed \u{2014} stays")
+
+        let provenance = DiagnosticsPane.answeredNoteProvenance(for: note)
+
+        XCTAssertFalse(provenance.contains("\u{2014}"),
+                       "got: \(provenance) \u{2014} an em-dash here would move "
+                       + "parseItem's right-most split into the excerpt")
+        XCTAssertEqual(
+            provenance,
+            "answered a compiler note: \u{00AB}the dread - unnamed - stays\u{00BB}")
+    }
+
+    /// A note with no `clauseQuote` — a v1 sidecar record, or a future
+    /// answerable kind that never grows one — falls back to the bare legacy
+    /// line rather than printing an empty pair of guillemets.
+    func test_answeredNoteProvenance_nilClauseQuoteFallsBackToTheBareLegacyString() {
+        let note = makeDiagnostic(docId: "d1", kind: .continuity, clauseQuote: nil)
+        XCTAssertEqual(
+            DiagnosticsPane.answeredNoteProvenance(for: note), "answered a compiler note")
+    }
+
+    /// **The round trip, end to end.** A strain carrying a clause quote is
+    /// answered through the real `commitAnswer`, and the ruling it wrote is
+    /// re-parsed off the real statement: the excerpt is in the provenance, and
+    /// — the assertion that matters — the ruling's TEXT is exactly the
+    /// writer's sentence, with no fragment of the enriched provenance bled
+    /// into it. That is only true if `RulingsSection.parseItem` still found
+    /// the right em-dash to split on.
+    func test_answeringAStrainEnrichesTheRulingsProvenanceAndTheParserSurvives() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "AnswerEnrichesProvenance")
+        let statement = try await store.createStatement(
+            kind: .intent, scope: .document(chapter.id))
+        try await store.appendToStatement(
+            "Cold, and never wistful.", to: statement, session: "seed")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        let note = makeDiagnostic(
+            docId: chapter.id, kind: .conformanceStrain,
+            clauseQuote: "the dread stays unnamed")
+        diagnostics.replace(run: makeRun(), diagnostics: [note], docId: chapter.id)
+
+        let answer = "The reader is supposed to feel this as it happening, not "
+            + "as something the prose already knows."
+        let failure = await DiagnosticsPane.commitAnswer(
+            answer, to: note, docId: chapter.id, store: store, world: nil,
+            diagnostics: diagnostics)
+        XCTAssertNil(failure, "the commit reported: \(failure ?? "")")
+
+        let parsed = RulingsSection.parse(try await derivedText(of: statement, in: url))
+        XCTAssertEqual(parsed.rulings.count, 1)
+        let ruling = try XCTUnwrap(parsed.rulings.first)
+        XCTAssertEqual(ruling.text, answer,
+                       "the ruling's TEXT is exactly the writer's sentence — the "
+                       + "parser found the real em-dash and not one inside the excerpt")
+        XCTAssertEqual(
+            ruling.provenance, DiagnosticsPane.answeredNoteProvenance(for: note),
+            "…and the provenance carries the excerpt")
+        XCTAssertTrue(
+            ruling.provenance?.contains("the dread stays unnamed") == true,
+            "got: \(ruling.provenance ?? "nil")")
+    }
+
     /// **A refused answer keeps the note AND reports why.** The writer's words
     /// are still in the field they typed them into; dismissing a note whose
     /// answer went nowhere would lose both.
