@@ -124,7 +124,8 @@ fingerprint is the absence of identity, not an identity shared with anything
 else.
 
 **Fresh Eyes briefs NO dispositions at all**
-(`CompilerOrchestrator.runRequested`: `let dispositions = freshEyes ? [] :
+(`CompilerOrchestrator.beginRun`, the private continuation `runRequested`
+hands off to after the burst-flush hop: `let dispositions = freshEyes ? [] :
 environment.annotationContext(docId)`) — cold means cold, deliberately, so a
 reread is not steered by what a warm round already said. That is what makes
 the ingest-side fingerprint dedupe (`Environment.mintAnnotations`, described
