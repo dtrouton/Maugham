@@ -175,6 +175,30 @@ as written (tripwire 11 — no migration); the fix is for every ruling minted
 from now on. The derivation and briefing read the enriched line as prose,
 as today.
 
+## 7.0 Home is not viewport — Author's wet-ink view (Denver's smoke correction, 2026-08-17)
+
+P1's first smoke found the routing principle correct and its viewport
+consequence wrong: with notes homed in the queue, Author — whose persona IS
+the wet-ink tempo — was left with a count ("3 notes went to your queue")
+and no surface, which regressed the M2 promise. Denver's ruling: **the
+persona is a tempo, not a container of surfaces** — Author must not import
+the queue (a list you manage is the other tempo), and it must get its
+wet-ink feedback back.
+
+The fix: the diagnostics pane's report gains a **"This check" section** —
+a live VIEW of the annotations the latest run minted (fetched by the run's
+id from the annotation layer; no second storage), rendered in the pane's
+own register, each row carrying jump-to-paragraph and one-gesture
+dispositions (**Got it** / **Not this** — the annotation's own
+accept/decline underneath, so Review's ledger and the next round's
+briefing see exactly what the writer did). The view shows only the latest
+check's notes; the next ⌘R replaces it, disposed notes leave it, and
+anything ignored stays in the project's queue for Review-time with Author
+never showing a backlog. The byline in Author stays "Claude" — the named
+editors belong to Review's pass lanes; wet-ink feedback is not a pass.
+Margin cards were considered and declined for this (heavier over prose
+while drafting; Review Mode's machinery).
+
 ## 7. Review's cockpit — trigger, progress, results in place
 
 - **The queue header becomes the round cockpit**: the active pass and its
