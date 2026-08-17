@@ -170,16 +170,21 @@ Column → Intent mode](right-pane.md#intent-mode-n).
 
 ## What you can do with a note
 
-**Answer a question.** A conformance strain and a continuity question both ask
-you something, and either offers **Answer**: type why, press Return, and your
-sentence becomes a **ruling** — a dated, itemized line under that piece's
-intent, minting the statement if you did not have one. The note goes away, and
-the next check reads the ruling you just made, so answering is permanent
-rather than a dismissal you have to repeat. Escape takes the field away
-without writing anything. The reader's report offers no **Answer** — "I
-stopped believing her here" is not a question to rule on. See [The Right
+**Answer a question.** A conformance strain asks you something, and offers
+**Answer**: type why, press Return, and your sentence becomes a **ruling** —
+a dated, itemized line under that piece's intent, minting the statement if
+you did not have one. The note goes away, and the next check reads the ruling
+you just made, so answering is permanent rather than a dismissal you have to
+repeat. Escape takes the field away without writing anything. See [The Right
 Column → Intent mode](right-pane.md#intent-mode-n) for what a
 ruling looks like and how to add one yourself, without a note to answer.
+
+*(A continuity question and the reader's report no longer live in this pane
+at all — they arrive as ordinary notes in your queue, next to everything
+else Claude has said about your prose, with the full set of things you can
+do with a note: accept it, decline it with a reason, discuss it, or leave it
+stetted. This page still describes the pane as it read before that change;
+a full pass is coming.)*
 
 Answers go into the *piece's* intent, never the project's. An explanation of
 what you were going for in this chapter belongs to this chapter; the project's
