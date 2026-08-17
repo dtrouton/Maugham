@@ -1976,14 +1976,18 @@ final class DiagnosticsPaneTests: XCTestCase {
     // driven through the reply path that routes to `RulingPerformer.rule`
     // directly.
 
-    /// **Which notes offer to be answered.** A conformance strain and a
-    /// continuity question each ask the writer something, and the answer is a
-    /// decision — a ruling. A reader report is not a question: "I stopped
-    /// believing her here" has no answer to rule on.
-    func test_onlyQuestionsOfferAnAnswer() {
+    /// **Which notes offer to be answered.** A conformance strain asks the
+    /// writer something, and the answer is a decision — a ruling. A
+    /// continuity question and a reader report are never handed to this
+    /// function through the pane's own rendering (`strains` filters to
+    /// `.conformanceStrain` before either ever calls `offersAnAnswer`), and
+    /// both now mint as annotations instead of a `Diagnostic` row — so
+    /// neither offers an answer here either (M4 P1 Task 3 narrowed the rule
+    /// off the arm that never fires).
+    func test_onlyConformanceStrainsOfferAnAnswer() {
         XCTAssertTrue(DiagnosticsPane.offersAnAnswer(
             makeDiagnostic(docId: "d1", kind: .conformanceStrain)))
-        XCTAssertTrue(DiagnosticsPane.offersAnAnswer(
+        XCTAssertFalse(DiagnosticsPane.offersAnAnswer(
             makeDiagnostic(docId: "d1", kind: .continuity)))
         XCTAssertFalse(DiagnosticsPane.offersAnAnswer(
             makeDiagnostic(docId: "d1", kind: .readerReport)))

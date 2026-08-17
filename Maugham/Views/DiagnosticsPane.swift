@@ -923,8 +923,9 @@ struct DiagnosticsPane: View {
     /// `DriftDetector.drift` reports it (the newest run's own clause order).
     /// With more than one, "and one more" says a second is drifting without
     /// counting how many — two findings and five read identically, the same
-    /// discipline `readerSection`'s "The reader had more to say." keeps: how
-    /// many is forensic detail the writer did not ask for.
+    /// discipline the pane's now-deleted reader section once kept with its
+    /// own "The reader had more to say." line (M4 P1 Task 3): how many is
+    /// forensic detail the writer did not ask for.
     ///
     /// **No count beyond the fixed "three runs" is ever spoken**, either —
     /// not `DriftFinding.runsStraining`'s true streak length, which the
@@ -993,19 +994,24 @@ struct DiagnosticsPane: View {
     // still CONTENT and still parsed (`DiagnosticIngest.SectionField
     // .dreamBreak`/`.belief`); what changed is where the report is read.
 
-    /// **Which notes offer to be answered** — the questions, and only them
-    /// (spec §5's fates).
+    /// **Which notes offer to be answered** — a conformance strain, and only
+    /// it (spec §5's fates, narrowed by M4 P1 Task 3).
     ///
-    /// A conformance strain and a continuity question both ask the writer
-    /// something, and the writer's reply to either is a decision: it lands as a
-    /// ruling. A reader report is not a question — "I stopped believing her
-    /// here" has no answer to rule on — and a reply field under one would invite
-    /// the writer to argue with a reader, which is not a decision that belongs
-    /// in the declared world.
+    /// A conformance strain is read beside the clause it strains against, and
+    /// the writer's reply to it is a decision: it lands as a ruling. A
+    /// continuity question and a reader report are both about the WORDS
+    /// rather than a declared clause — they now mint as pass-stamped
+    /// annotations at the end of a run (`strains`'s own doc) and never reach
+    /// this pane as a `Diagnostic` row, so a `.continuity` arm answering
+    /// `true` here was dead: nothing upstream ever hands this function a
+    /// continuity note. A reader report was never answerable either way —
+    /// "I stopped believing her here" has no answer to rule on, and a reply
+    /// field under one would invite the writer to argue with a reader, which
+    /// is not a decision that belongs in the declared world.
     static func offersAnAnswer(_ diagnostic: Diagnostic) -> Bool {
         switch diagnostic.kind {
-        case .conformanceStrain, .continuity: return true
-        case .readerReport, .none: return false
+        case .conformanceStrain: return true
+        case .continuity, .readerReport, .none: return false
         }
     }
 

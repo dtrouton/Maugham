@@ -55,7 +55,7 @@ final class ClaudeWorldDeriver: WorldDeriver {
     /// truth (spec §3.1) — the run it feeds must not wait indefinitely on a
     /// subprocess that has genuinely hung, so a deadline this generous still
     /// bounds the wait without punishing an ordinary slow answer.
-    static let defaultDeadline: TimeInterval = 120
+    nonisolated static let defaultDeadline: TimeInterval = 120
 
     /// How long the deadline path waits, after `terminate()`, for the
     /// ordinary EOF-and-exit pairing to resolve the run before resolving it

@@ -50,7 +50,7 @@ final class ClaudeCLISession: CompilerRunner {
     /// The default of the above, and the only number here that answers "how
     /// long is a reap allowed to lag?" — generous against a loaded CI VM,
     /// short against the 120 s run timeout it exists to keep a death away from.
-    static let defaultDeathReapGrace: TimeInterval = 2
+    nonisolated static let defaultDeathReapGrace: TimeInterval = 2
 
     // MARK: - Session state
 

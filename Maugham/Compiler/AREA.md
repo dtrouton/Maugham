@@ -121,7 +121,12 @@ fingerprint is also standing. A note with no fingerprint (the anchorless
 kind — a doc-scoped craft note, which has no discriminator to make one from)
 is listed on its own rather than folded into anything, since a nil
 fingerprint is the absence of identity, not an identity shared with anything
-else.
+else. **A sibling residual, same class:** a continuity note's fingerprint
+leans on the model re-quoting `cites` byte-identically (`RoundFingerprint`'s
+"clause quote" for that kind), so a re-punctuated quote on a Fresh Eyes
+reread — same question, one comma moved — can mint a duplicate the dedupe
+can't see. Neither residual gets machinery; the writer disposes the
+duplicate the way they dispose any other settled note.
 
 **Fresh Eyes briefs NO dispositions at all**
 (`CompilerOrchestrator.beginRun`, the private continuation `runRequested`
