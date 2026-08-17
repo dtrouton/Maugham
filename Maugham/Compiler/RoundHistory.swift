@@ -22,9 +22,14 @@ import MaughamCore
 /// second. `category` is the schema's own `dream_break`/`belief`
 /// (`Diagnostic.category`), never a free-form tag.
 ///
-/// Matching is struct equality; nothing here is fuzzy. `Hashable` (which is
-/// how it is `Equatable`) is what lets the mint's dedupe hold a round's
-/// findings in a `Set` rather than walk them quadratically.
+/// Matching is struct equality; nothing here is fuzzy. **`Equatable` is what
+/// is actually used** — `RoundRecord`'s own conformance rests on it, and the
+/// format census compares fingerprints directly. `Hashable` is surplus, kept
+/// rather than dropped because it costs nothing and removing a conformance
+/// from a stored type is churn no reader benefits from. Nothing holds a
+/// `Set<RoundFingerprint>`: since Task 5 the only dedupe left is the mint's,
+/// and it works in `stringValue` space (`Set<String>`), because an annotation
+/// op's provenance carries the string and never the struct.
 struct RoundFingerprint: Codable, Hashable, Sendable {
     /// `DiagnosticKind.rawValue`. A `String` rather than the enum because this
     /// is a stored wire shape whose whole job is to survive contracts the

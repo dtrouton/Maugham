@@ -121,11 +121,11 @@ the [Review board](review-passes.md#the-board) — and the check becomes a
 numbered **round** in that pass's own count. The report leads with what
 changed since the last one: *"Since round 4: 2 resolved · 1 persisting · 1
 new"*. The three counts come off your queue, not off what Claude happened to
-repeat: *resolved* is what you've settled since the last round, *persisting*
+repeat: *resolved* is what you've settled from an earlier round, *persisting*
 is what's still open from an earlier one, and *new* is what this round
 raised. A finding Claude raises again in different words is not a new note —
-it's the one already in your queue. Round numbers are per pass, but the memory behind them is the
-document's, not any one pass's: Maugham remembers a document's last six
+it's the one already in your queue. Round numbers are per pass, but the
+memory behind them is the document's, not any one pass's: Maugham remembers a document's last six
 finished checks, across every pass. Once enough later checks stack up behind
 a round — six, counting the one still standing — it ages out of memory, so a
 Structural round buried under a long run of Line checks is gone, and the next

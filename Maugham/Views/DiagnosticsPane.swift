@@ -160,10 +160,35 @@ struct DiagnosticsPane: View {
     /// next check. Unfiltered by status deliberately: a `[.open]` filter here
     /// would make "resolved" permanently zero.
     ///
+    /// **The `annotationsVersion` line is insurance, and measured as such.**
+    /// Today it is redundant: `Document` is `@Observable` with no
+    /// `@ObservationIgnored` anywhere, so `annotations(filter:)`'s own read of
+    /// `_annotationsCacheValid` already registers the dependency, and deleting
+    /// this line leaves the suite green (M4 P1 Task 5 review, Important 2 —
+    /// measured, not assumed). What it buys is that the pane does not depend on
+    /// a CACHE INTERNAL staying observable: mark those two properties
+    /// `@ObservationIgnored` — a plausible perf change, since the lazy rebuild
+    /// writes observable state during body evaluation — and this line is the
+    /// only thing left holding the seam up. Both halves were run:
+    /// `test_theSinceLastRoundLineFollowsAStetWithoutAnotherCheck` goes red
+    /// with the cache ignored AND this line gone, and green with the cache
+    /// ignored and this line present. Keep it; the test pins the behaviour
+    /// under either mechanism.
+    ///
     /// Empty when there is no document behind the pane — which is a legitimate
     /// reading (three zeroes), not a missing one.
+    ///
+    /// **And empty when the document is not the one this pane is about.**
+    /// `activeDocument` is the window's active document while `docId` is what
+    /// this pane was constructed for; the one production caller passes both
+    /// from the same subject, but nothing in the type says so. Counting
+    /// another document's notes would be a silently WRONG sentence — a number
+    /// the writer cannot account for from anything on their screen — where a
+    /// mismatch caught here is merely no sentence. (`promote()` makes the same
+    /// assumption and is left alone: that is a pre-existing question about
+    /// where a note lands, not about what this line counts.)
     private var queueAnnotations: [Annotation] {
-        guard let document = activeDocument() else { return [] }
+        guard let document = activeDocument(), document.docId == docId else { return [] }
         _ = document.annotationsVersion
         return document.annotations(filter: AnnotationFilter(statuses: nil))
     }
@@ -542,17 +567,45 @@ struct DiagnosticsPane: View {
 
     // MARK: - Content
 
+    /// **The two round lines sit ABOVE the report/no-report fork, not inside
+    /// the report** (M4 P1 Task 5 review, Important 1).
+    ///
+    /// They used to live in the report arm alone, which put them out of reach
+    /// in the one state that needs them most: a round in a pass over a piece
+    /// with no declared intent raises no clauses and no strains, so `hasReport`
+    /// is false — and since Task 3 that round's whole output is in the queue,
+    /// with nothing at all on this pane. The empty state's own copy says only
+    /// how many notes were queued, which is the `new` count and nothing else;
+    /// what became of the last round's findings had no surface. Every one of
+    /// the three counts is about notes the pane does not draw, so there is
+    /// nothing about "having a report" that the sentence depends on.
+    ///
+    /// Both lines are `nil` unless there is a round to speak about, so the
+    /// cold-start and never-run states are untouched.
+    ///
+    /// **Tripwire 15 is why this is a wrapper and not a loosened chain.** The
+    /// `ContentUnavailableView` keeps its own
+    /// `.frame(maxWidth: .infinity, maxHeight: .infinity)` verbatim — it is
+    /// what stops the pane's toolbar floating to window centre, has recurred
+    /// 4+ times, and is grep-enforced — and the `VStack` that now encloses it
+    /// carries the top alignment the tripwire's second half asks for. The
+    /// lines are intrinsically sized; the empty view is what expands.
     @ViewBuilder
     private var content: some View {
         if showsColdStartOffer {
             coldStartOffer
         } else if !hasReport {
-            let empty = Self.emptyState(for: state)
-            ContentUnavailableView(
-                empty.title,
-                systemImage: empty.symbol,
-                description: Text(empty.description))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(alignment: .leading, spacing: 0) {
+                freshEyesLine
+                roundLine
+                let empty = Self.emptyState(for: state)
+                ContentUnavailableView(
+                    empty.title,
+                    systemImage: empty.symbol,
+                    description: Text(empty.description))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -599,14 +652,19 @@ struct DiagnosticsPane: View {
     }
 
     /// **The report leads with the distance travelled** (spec §6): what the
-    /// last round in this lane raised that is gone, what is still here, and
-    /// what is new. Above the drift line and above the conformance summary,
-    /// because it is the sentence a writer in a review pass reads first.
+    /// writer has settled since the last round in this lane, what is still in
+    /// front of them, and what this round raised. Above the drift line and
+    /// above the conformance summary, because it is the sentence a writer in a
+    /// review pass reads first — and above the empty state too, for the same
+    /// reason (`content`).
     ///
-    /// Not a button and not a `Diagnostic`: there is nowhere for it to go —
-    /// the notes it counts are drawn immediately below it — and nothing to
-    /// dismiss. The next round replaces it; a round that cannot be compared
-    /// simply has no line. See `sinceLastRoundLine`.
+    /// Not a button and not a `Diagnostic`: there is nothing to dismiss, and
+    /// nowhere for it to go that would be right. **The notes it counts are not
+    /// on this pane at all** since Task 3 — they are in the queue — so the
+    /// obvious link would be to the Notes pane, and the obvious link is wrong:
+    /// the sentence is about three different sets of notes at once and could
+    /// only travel to one of them. The next round replaces it; a round that
+    /// cannot be compared simply has no line. See `sinceLastRoundLine`.
     @ViewBuilder
     private var roundLine: some View {
         if let line = Self.sinceLastRoundLine(
