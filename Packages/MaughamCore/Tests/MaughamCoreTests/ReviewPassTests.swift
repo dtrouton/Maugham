@@ -153,4 +153,78 @@ final class ReviewPassTests: XCTestCase {
         XCTAssertTrue(resaved.contains(#""id" : "line""#), resaved)
         XCTAssertTrue(resaved.contains(#""name" : "Line""#), resaved)
     }
+
+    // MARK: - Briefs and named editors (M4 P1 Task 1)
+
+    /// Legacy on-disk shape (pre-M4) has neither key. Synthesized decoding
+    /// with `decodeIfPresent` must leave both new fields nil rather than
+    /// throwing `keyNotFound`.
+    func test_legacyJSONWithNoBriefOrEditorNameDecodesToNilFields() throws {
+        let json = Data(#"{"id":"line","name":"Line"}"#.utf8)
+        let pass = try JSONDecoder().decode(ReviewPass.self, from: json)
+        XCTAssertNil(pass.brief)
+        XCTAssertNil(pass.editorName)
+    }
+
+    /// A customized manifest can store a preset-id pass (e.g. renamed but
+    /// never given its own brief/editor) — `effective*` must fall back to
+    /// the preset with the matching id, not to nil/name.
+    func test_customizedPresetIdPassResolvesToThatPresetsBriefAndEditor() {
+        let renamedButNotRebriefed = ReviewPass(id: "line", name: "Line Notes")
+        let preset = ReviewPass.presets.first { $0.id == "line" }!
+
+        XCTAssertEqual(renamedButNotRebriefed.effectiveBrief, preset.brief)
+        XCTAssertEqual(renamedButNotRebriefed.effectiveEditorName, "Lish")
+    }
+
+    /// A pass's own brief/editorName win over the preset-by-id fallback,
+    /// even when the id matches a preset.
+    func test_ownBriefAndEditorNameWinOverThePresetWithTheSameId() {
+        let pass = ReviewPass(id: "line", name: "Line", brief: "Custom brief.", editorName: "Custom Editor")
+        XCTAssertEqual(pass.effectiveBrief, "Custom brief.")
+        XCTAssertEqual(pass.effectiveEditorName, "Custom Editor")
+    }
+
+    /// A fully custom pass (no preset shares its id, no own brief/editor)
+    /// falls all the way through: brief nil, editorName the pass's own name.
+    func test_fullyCustomPassWithNoPresetMatchYieldsNilBriefAndNameAsEditor() {
+        let pass = ReviewPass(id: "beta", name: "Beta Read")
+        XCTAssertNil(pass.effectiveBrief)
+        XCTAssertEqual(pass.effectiveEditorName, "Beta Read")
+    }
+
+    /// All four presets carry a brief and the four named editors.
+    func test_presetsCarryAllFourBriefsAndEditorNames() {
+        XCTAssertEqual(ReviewPass.presets.map(\.editorName), ["Perkins", "Lish", "Gould", "Argus"])
+        for preset in ReviewPass.presets {
+            XCTAssertNotNil(preset.brief)
+            XCTAssertFalse((preset.brief ?? "").isEmpty)
+        }
+    }
+
+    /// Pins the doctrine, not a count: Proof's brief must advise Fresh Eyes.
+    func test_proofsBriefAdvisesFreshEyes() {
+        let proof = ReviewPass.presets.first { $0.id == "proof" }!
+        XCTAssertTrue(proof.brief?.contains("Fresh Eyes") == true, proof.brief ?? "nil")
+        XCTAssertTrue(proof.brief?.contains("⌘⇧R") == true, proof.brief ?? "nil")
+    }
+
+    /// A custom pass with the new fields present round-trips byte-stable,
+    /// mirroring `test_customReviewPassesRoundTripByteStable` above.
+    func test_customReviewPassesWithBriefAndEditorNameRoundTripByteStable() throws {
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(timeIntervalSince1970: 0), modified: Date(timeIntervalSince1970: 0),
+            structure: [], research: [],
+            reviewPasses: [
+                ReviewPass(id: "custom", name: "Custom", brief: "A custom brief.", editorName: "Custom Editor"),
+            ])
+
+        let resaved = try wire(manifest)
+        let back = try ProjectManifest.decodeGuardingSchema(Data(resaved.utf8))
+        XCTAssertEqual(back.reviewPasses, manifest.reviewPasses)
+
+        let resavedAgain = try wire(back)
+        XCTAssertEqual(resavedAgain, resaved)
+    }
 }
