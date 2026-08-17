@@ -1155,6 +1155,20 @@ final class DiagnosticsPaneTests: XCTestCase {
                     fingerprints: [])
     }
 
+    /// A bare `Annotation` value for the pure ordering tests below —
+    /// `inManuscriptOrder` only reads `paragraphId` (for rank) and identity
+    /// (for the stable-tie assertion), so every other field is an arbitrary
+    /// but valid fixture value.
+    private func makeAnnotation(
+        id: String, paragraphId: String?, body: String
+    ) -> Annotation {
+        Annotation(
+            id: id, kind: .query, paragraphId: paragraphId,
+            body: body, suggestedText: nil, priorText: nil,
+            createdAt: Date(timeIntervalSince1970: 0), createdBySession: nil,
+            status: .open, userResponse: nil, resolvedAt: nil, isStale: false)
+    }
+
     /// A compiler-authored note in the queue, in the state the count turns on.
     private func makeCompilerNote(
         lane: String? = "line", round: Int? = 1,
@@ -1369,24 +1383,27 @@ final class DiagnosticsPaneTests: XCTestCase {
 
         // No intent declared, so neither run carries a clause: every finding
         // this pass has ever raised is a queued note.
-        store.replace(run: makeRun(passId: "line", round: 1, mintedNotes: 2),
-                      diagnostics: [], docId: docId)
+        let round1 = makeRun(passId: "line", round: 1, mintedNotes: 2)
+        store.replace(run: round1, diagnostics: [], docId: docId)
         let settled = try await document.addAnnotation(
             kind: .query, paragraphId: paragraphId, body: "Whose coat is this?",
-            reviewPassId: "line", compilerRunId: "run-1", compilerRound: 1,
+            reviewPassId: "line", compilerRunId: round1.id, compilerRound: 1,
             compilerFingerprint: "continuity\u{1f}the coat\u{1f}\(paragraphId)\u{1f}")
         _ = try await document.addAnnotation(
             kind: .comment, paragraphId: paragraphId, body: "The fog stops convincing here.",
-            reviewPassId: "line", compilerRunId: "run-1", compilerRound: 1,
+            reviewPassId: "line", compilerRunId: round1.id, compilerRound: 1,
             compilerFingerprint: "readerReport\u{1f}\u{1f}\(paragraphId)\u{1f}belief")
         try await document.stetAnnotation(id: settled)
-        // Round 2 raises one new question and nothing else.
+        // Round 2 raises one new question and nothing else. Its
+        // `compilerRunId` is the SAME id `store.replace` below hands `lastRun`
+        // — the correlation `thisCheckAnnotations`/`WetInk` key on, and the
+        // one a real run always has (one `CompilerRun` value supplies both).
+        let round2 = makeRun(passId: "line", round: 2, mintedNotes: 1)
         _ = try await document.addAnnotation(
             kind: .query, paragraphId: paragraphId, body: "Is it the same afternoon?",
-            reviewPassId: "line", compilerRunId: "run-2", compilerRound: 2,
+            reviewPassId: "line", compilerRunId: round2.id, compilerRound: 2,
             compilerFingerprint: "continuity\u{1f}the afternoon\u{1f}\(paragraphId)\u{1f}")
-        store.replace(run: makeRun(passId: "line", round: 2, mintedNotes: 1),
-                      diagnostics: [], docId: docId)
+        store.replace(run: round2, diagnostics: [], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
@@ -1400,18 +1417,29 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertNotNil(lineIndex,
                         "a round whose whole output is in the queue is exactly the "
                         + "round with nothing else to say; got \(labels)")
-        // …and it leads, the way it leads a report.
-        let emptyIndex = labels.firstIndex { $0 == "Notes in your queue" }
+        // …and it leads, the way it leads a report: above the wet-ink section
+        // this round's own note now shows in (§7.0), and above the empty
+        // state beneath that.
+        let noteIndex = labels.firstIndex { $0 == "Is it the same afternoon?" }
+        let emptyIndex = labels.firstIndex { $0 == "Nothing else to flag." }
+        XCTAssertNotNil(noteIndex,
+                        "the round's own open note must show in the wet-ink "
+                        + "section; got \(labels)")
         XCTAssertNotNil(emptyIndex,
                         "control: the empty state is what is being drawn; got \(labels)")
-        XCTAssertTrue((lineIndex ?? .max) < (emptyIndex ?? -1),
+        XCTAssertTrue((lineIndex ?? .max) < (noteIndex ?? -1),
                       "the line leads here as it leads a report; got \(labels)")
-        // The copy the writer would otherwise have had to make do with says
-        // only the `new` half, which is the whole reason this is owed.
-        XCTAssertFalse(
-            staticTextLabels(in: window, containing: "1 note went to your queue").isEmpty,
-            "control: the queued-notes sentence is present and says nothing about "
-            + "what was resolved or what persists; got \(labels)")
+        XCTAssertTrue((noteIndex ?? .max) < (emptyIndex ?? -1),
+                      "the note leads the empty state below it; got \(labels)")
+        // The copy the writer would otherwise have had to make do with said
+        // only the `new` half and nothing about what was resolved or what
+        // persists — and now, with the note showing directly above, neither
+        // the header nor the empty state may re-announce it as queued
+        // elsewhere (the CUV copy invariant, review Important 2).
+        XCTAssertTrue(
+            staticTextLabels(in: window, containing: "went to your queue").isEmpty,
+            "the header or the empty state re-announced as waiting the note "
+            + "shown directly above; got \(labels)")
     }
 
     /// **The line moves when the writer does** (M4 P1 Task 5 review,
@@ -2517,24 +2545,66 @@ final class DiagnosticsPaneTests: XCTestCase {
             compilerFingerprint: "continuity\u{1f}\(body)\u{1f}\(paragraphId ?? "")\u{1f}")
     }
 
-    /// Press a real button through the accessibility tree and let the verb it
-    /// starts land — both dispositions hop to a `Task`, so a synchronous pump
-    /// alone would read the pane before the op log has moved.
-    private func press(_ label: String, in window: NSWindow) async throws {
+    /// Press a real button through the accessibility tree and poll until the
+    /// verb it starts has landed — both dispositions hop to a `Task`, so a
+    /// synchronous read would see the pane before the op log has moved.
+    ///
+    /// **Polls rather than sleeps** (review, Important 3): a fixed sleep is a
+    /// bet on how long an op-log append takes, and this suite's tests run in
+    /// parallel worker processes against a machine that may be hosting several
+    /// other gates.
+    ///
+    /// **Genuinely `async`, unlike `waitUntil`** — this file's synchronous
+    /// idiom pumps only the main run loop, which is the right tool for
+    /// catching up to a render that follows an already-applied, synchronous
+    /// state change. What this waits on is different in kind: a real
+    /// asynchronous disposition (`Document.acceptAnnotation`/
+    /// `rejectAnnotation`) that hops off the main actor to append to the op
+    /// log. A tight synchronous pump loop measurably starved that hop — the
+    /// first version of this fix reused `waitUntil` and every disposition
+    /// test timed out at its full budget with the row never moving. Yielding
+    /// with a real `await Task.sleep` between polls, as the fixed-sleep
+    /// version this replaced did by construction, is what actually lets the
+    /// op log's write land.
+    private func press(
+        _ label: String, in window: NSWindow, timeout: TimeInterval = 5,
+        until settled: () -> Bool
+    ) async throws {
         let target = try button(labelled: label, in: window)
         _ = target.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-        try? await Task.sleep(for: .milliseconds(300))
-        pump(0.3)
+        try await waitUntilAsync(timeout: timeout) { settled() }
+    }
+
+    /// `waitUntil`'s async sibling: polls `condition`, yielding with a real
+    /// `await Task.sleep` between attempts rather than only pumping the main
+    /// run loop, so a condition gated on genuine off-main-actor async work
+    /// (an op-log append, not merely a render) gets real chances to progress.
+    private func waitUntilAsync(
+        timeout: TimeInterval = 3, _ condition: () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            pump(0.05)
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    /// The note's status now, or `nil` if it is not in the projection at all —
+    /// non-throwing, because it is also the polling predicate `press` waits on.
+    private func statusIfPresent(
+        of annotationId: String, in document: Document
+    ) -> AnnotationStatus? {
+        document.annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == annotationId }?.status
     }
 
     private func status(
         of annotationId: String, in document: Document
     ) throws -> AnnotationStatus {
         try XCTUnwrap(
-            document.annotations(filter: AnnotationFilter(statuses: nil))
-                .first { $0.id == annotationId },
-            "the note left the document's annotation layer entirely").status
+            statusIfPresent(of: annotationId, in: document),
+            "the note left the document's annotation layer entirely")
     }
 
     /// A pane over a live document, its store already carrying `run`.
@@ -2581,11 +2651,20 @@ final class DiagnosticsPaneTests: XCTestCase {
             labels.contains("The reader stopped believing the fog here."),
             "\u{2026}nor did the reader's report; got \(labels)")
         let sectionIndex = labels.firstIndex { $0 == "THIS CHECK" }
-        let emptyIndex = labels.firstIndex { $0 == "Notes in your queue" }
+        // "Nothing else to flag.", not the pre-§7.0 "Notes in your queue": with
+        // both notes showing right above it, the CUV must not re-announce them
+        // as waiting somewhere else (the CUV copy invariant, review Important 2
+        // / `WetInk.showing`).
+        let emptyIndex = labels.firstIndex { $0 == "Nothing else to flag." }
         XCTAssertNotNil(sectionIndex, "the section names itself; got \(labels)")
-        XCTAssertNotNil(emptyIndex, "control: the empty state is what is drawn here")
+        XCTAssertNotNil(emptyIndex,
+                        "control: the empty state is what is drawn here; got \(labels)")
         XCTAssertTrue((sectionIndex ?? .max) < (emptyIndex ?? -1),
                       "the notes lead the sentence about where they live; got \(labels)")
+        XCTAssertFalse(
+            labels.contains { $0.contains("went to your queue") },
+            "the header or the empty state re-announced as waiting the two "
+            + "notes shown directly above; got \(labels)")
         // Requirement 3 holds on the new rows too: the jump travels as the
         // paragraph's own words.
         XCTAssertFalse(labels.contains { $0.contains(paragraphId) },
@@ -2593,6 +2672,12 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(
             labels.contains { $0.contains("First paragraph, with some words in it.") },
             "the jump chip must carry the paragraph's words; got \(labels)")
+        // **No byline** (spec §7.0): the fixture signs both notes "Gould", the
+        // way the mint signs a pass's round, and Author must not say so — the
+        // named editors belong to Review's pass lanes, and wet-ink feedback is
+        // not a pass.
+        XCTAssertFalse(labels.contains { $0.contains("Gould") },
+                       "Author drew the editor's name; got \(labels)")
     }
 
     /// The same section inside a real report — above the conformance summary,
@@ -2641,7 +2726,9 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(allLabels(in: window).contains("Has anyone said how long yet?"),
                       "control: the row is on screen before the press")
 
-        try await press("Got it", in: window)
+        try await press("Got it", in: window) {
+            self.statusIfPresent(of: noteId, in: document) != .open
+        }
 
         XCTAssertEqual(try status(of: noteId, in: document), .accepted,
                        "Got it must reach the annotation's own accept, not a "
@@ -2671,7 +2758,9 @@ final class DiagnosticsPaneTests: XCTestCase {
         let window = mount(wetInkPane(document: document, store: store))
         pump(0.3)
 
-        try await press("Not this", in: window)
+        try await press("Not this", in: window) {
+            self.statusIfPresent(of: noteId, in: document) != .open
+        }
 
         XCTAssertEqual(try status(of: noteId, in: document), .rejected)
         XCTAssertTrue(textFields(in: window).isEmpty,
@@ -2695,7 +2784,9 @@ final class DiagnosticsPaneTests: XCTestCase {
 
         let window = mount(wetInkPane(document: document, store: store))
         pump(0.3)
-        try await press("Not this", in: window)
+        try await press("Not this", in: window) {
+            self.statusIfPresent(of: noteId, in: document) != .open
+        }
         XCTAssertEqual(try status(of: noteId, in: document), .rejected,
                        "control: the decline landed")
 
@@ -2706,9 +2797,12 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(undoManager.canUndo,
                       "the decline registered no undo action at all")
         undoManager.undo()
-        pump(0.2)
-        try? await Task.sleep(for: .milliseconds(400))
-        pump(0.3)
+        // Polled, not slept, and genuinely async for the same reason `press`
+        // is: the undo handler hops the reopen onto a task off the main
+        // actor, and only a real `await` between polls reliably lets it land.
+        try await waitUntilAsync {
+            self.statusIfPresent(of: noteId, in: document) == .open
+        }
 
         XCTAssertEqual(try status(of: noteId, in: document), .open,
                        "\u{2318}Z after Not this must reopen the note")
@@ -2808,6 +2902,248 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertFalse(allLabels(in: window).contains("Has anyone said how long yet?"),
                        "the row survived a disposition made in the other column; "
                        + "got \(allLabels(in: window))")
+    }
+
+    // MARK: - The order, the room, and what the copy may claim (review fixes)
+
+    /// **A check's notes read down the piece** (review ruling): manuscript
+    /// order, never newest-first. The notes are minted in the model's own
+    /// order, which is not the writer's.
+    func test_theRowsFollowTheProseAndNotTheMintingOrder() {
+        let sequence = ["a1b2", "c3d4", "e5f6"]
+        let third = makeAnnotation(id: "n1", paragraphId: "e5f6", body: "third")
+        let first = makeAnnotation(id: "n2", paragraphId: "a1b2", body: "first")
+        let second = makeAnnotation(id: "n3", paragraphId: "c3d4", body: "second")
+
+        let ordered = DiagnosticsPane.inManuscriptOrder(
+            [third, first, second], sequence: sequence)
+
+        XCTAssertEqual(ordered.map(\.body), ["first", "second", "third"])
+    }
+
+    /// A whole-piece note has no place in the prose, so it follows it — and
+    /// so does a note whose paragraph has left the sequence. Ties inside one
+    /// rank keep the order they were minted in, because two rows that swap
+    /// places between renders of one check are the pane shuffling under a
+    /// writer mid-read.
+    func test_docScopedAndOrphanedNotesFollowTheProse_andTiesAreStable() {
+        let sequence = ["a1b2", "c3d4"]
+        let notes = [
+            makeAnnotation(id: "n1", paragraphId: nil, body: "whole piece"),
+            makeAnnotation(id: "n2", paragraphId: "c3d4", body: "second"),
+            makeAnnotation(id: "n3", paragraphId: "zzzz", body: "orphan"),
+            makeAnnotation(id: "n4", paragraphId: "a1b2", body: "first A"),
+            makeAnnotation(id: "n5", paragraphId: "a1b2", body: "first B"),
+        ]
+
+        XCTAssertEqual(
+            DiagnosticsPane.inManuscriptOrder(notes, sequence: sequence).map(\.body),
+            ["first A", "first B", "second", "whole piece", "orphan"])
+    }
+
+    /// **A tie breaks on mint order even when the ARRAY arrives newest-first**
+    /// — the real shape of a defect this fix round shipped and then found by
+    /// smoke: `queueAnnotations` reads `Document.annotations(filter:)`, and
+    /// `AnnotationDeriver.derive` sorts its result newest-first for the
+    /// queue's own purposes. An earlier version of `inManuscriptOrder` broke
+    /// ties on the incoming array's own position, which silently inherited
+    /// that newest-first order for two same-paragraph notes — exactly the
+    /// "queue-consistent newest-first" the manuscript-order ruling exists to
+    /// not be. Passing `newer` before `older` here, as the real projection
+    /// would, is the falsification: `id` — a ULID, monotonic within the
+    /// process — is the only thing in this fixture that is actually mint
+    /// order, and the older note must lead regardless of array position.
+    func test_tiesBreakOnMintOrder_notOnTheIncomingArraysNewestFirstPosition() {
+        let sequence = ["a1b2"]
+        let older = makeAnnotation(id: "n1", paragraphId: "a1b2", body: "older")
+        let newer = makeAnnotation(id: "n2", paragraphId: "a1b2", body: "newer")
+
+        XCTAssertEqual(
+            DiagnosticsPane.inManuscriptOrder([newer, older], sequence: sequence).map(\.body),
+            ["older", "newer"],
+            "the older note (minted first) must lead even though it arrived "
+            + "second in a newest-first array")
+    }
+
+    /// The same order, mounted: the rows on screen follow the prose.
+    func test_theMountedRowsAreInManuscriptOrder() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let firstParagraph = try XCTUnwrap(document.sequence.first)
+        let secondParagraph = try XCTUnwrap(document.sequence.last)
+        XCTAssertNotEqual(firstParagraph, secondParagraph, "precondition: two paragraphs")
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(mintedNotes: 2)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        // Minted against the LAST paragraph first — the model's order, not the
+        // writer's.
+        try await mintNote(on: document, run: run, body: "About the second paragraph.",
+                           paragraphId: secondParagraph)
+        try await mintNote(on: document, run: run, body: "About the first paragraph.",
+                           paragraphId: firstParagraph)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+
+        let labels = allLabels(in: window)
+        let firstIndex = labels.firstIndex { $0 == "About the first paragraph." }
+        let secondIndex = labels.firstIndex { $0 == "About the second paragraph." }
+        XCTAssertNotNil(firstIndex, "got \(labels)")
+        XCTAssertNotNil(secondIndex, "got \(labels)")
+        XCTAssertTrue((firstIndex ?? .max) < (secondIndex ?? -1),
+                      "the rows must read down the piece, not back up it; got \(labels)")
+    }
+
+    /// **The no-report arm has to scroll** (review, Important 1).
+    ///
+    /// Nothing caps how many notes a round mints — the schema's cap of three
+    /// is the READER section's alone, and continuity questions are unbounded
+    /// through both the ingest and the mint. These rows carry the ONLY
+    /// disposition affordance Author has, so a check that overflows the pane
+    /// used to clip the verbs off the bottom of a `VStack` with no way to
+    /// reach them.
+    ///
+    /// Asserted on the geometry rather than on a synthetic scroll: the content
+    /// is taller than the clip view that holds it, which is the whole of what
+    /// "reachable by scrolling" means, and it is false for the arm as it was.
+    func test_aCheckThatOverflowsThePaneCanBeScrolledToItsLastVerb() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(mintedNotes: 12)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        for index in 1...12 {
+            try await mintNote(
+                on: document, run: run,
+                body: "Continuity question number \(index) about this paragraph.",
+                paragraphId: paragraphId)
+        }
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.4)
+
+        let scrollView = try XCTUnwrap(
+            firstScrollView(in: try XCTUnwrap(window.contentView)),
+            "the no-report arm draws no scroll view at all, so anything past "
+            + "the pane's height is unreachable")
+        XCTAssertGreaterThan(
+            scrollView.documentView?.frame.height ?? 0,
+            scrollView.contentView.bounds.height,
+            "precondition: twelve notes must overflow this 700pt pane, or the "
+            + "test proves nothing about reaching the last one")
+        // …and the last note is really in the content, verbs and all.
+        let labels = allLabels(in: window)
+        XCTAssertTrue(
+            labels.contains("Continuity question number 12 about this paragraph."),
+            "the twelfth note never reached the tree; got \(labels)")
+        XCTAssertGreaterThanOrEqual(
+            labels.filter { $0 == "Got it" }.count, 12,
+            "every row must carry its own verbs; got \(labels)")
+    }
+
+    /// **The copy never announces as waiting what is visible here** (review,
+    /// Important 2). The empty state used to read the run's historical
+    /// `mintedNotes` and say "2 notes went to your queue" directly beneath the
+    /// two notes themselves, with verbs on them.
+    func test_theEmptyStateDropsTheQueuedSentenceWhileTheNotesAreOnScreen() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(mintedNotes: 2)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        try await mintNote(on: document, run: run, body: "The first question.",
+                           paragraphId: paragraphId)
+        try await mintNote(on: document, run: run, body: "The second question.",
+                           paragraphId: paragraphId)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+
+        let labels = allLabels(in: window)
+        XCTAssertTrue(labels.contains("The first question."),
+                      "control: the rows are what the copy must defer to; got \(labels)")
+        XCTAssertFalse(
+            labels.contains { $0.contains("notes went to your queue. No clause") },
+            "the empty state told the writer to go to their queue for the two "
+            + "notes directly above it; got \(labels)")
+        XCTAssertTrue(labels.contains("Nothing else to flag."),
+                      "…and it still says what the report itself found; got \(labels)")
+    }
+
+    /// Its other half: once the writer has settled every row, the copy
+    /// acknowledges that rather than re-announcing the notes they just
+    /// handled.
+    func test_theEmptyStateAcknowledgesACheckTheWriterHasHandled() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(mintedNotes: 2)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        let first = try await mintNote(
+            on: document, run: run, body: "The first question.", paragraphId: paragraphId)
+        let second = try await mintNote(
+            on: document, run: run, body: "The second question.", paragraphId: paragraphId)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+
+        try await press("Got it", in: window) {
+            self.statusIfPresent(of: first, in: document) != .open
+        }
+        try await press("Not this", in: window) {
+            self.statusIfPresent(of: second, in: document) != .open
+        }
+
+        let labels = allLabels(in: window)
+        XCTAssertFalse(labels.contains("THIS CHECK"),
+                       "control: both rows are gone; got \(labels)")
+        XCTAssertFalse(
+            labels.contains { $0.contains("went to your queue") },
+            "the pane re-announced as waiting the two notes it just watched "
+            + "the writer settle; got \(labels)")
+        XCTAssertTrue(
+            labels.contains { $0.contains("You\u{2019}ve handled this check\u{2019}s notes.") },
+            "…and it says so; got \(labels)")
+    }
+
+    /// The standing, pure — including the case that keeps the historical
+    /// sentence honest: a pane with no document behind it cannot see the
+    /// queue, so an empty view means "cannot tell", never "handled".
+    func test_wetInkStanding_readsTheThreeCasesApart() {
+        XCTAssertEqual(
+            DiagnosticsPane.wetInkStanding(mintedNotes: 2, queueVisible: true, openNow: 2),
+            .showing)
+        XCTAssertEqual(
+            DiagnosticsPane.wetInkStanding(mintedNotes: 2, queueVisible: true, openNow: 0),
+            .settled)
+        XCTAssertEqual(
+            DiagnosticsPane.wetInkStanding(mintedNotes: 2, queueVisible: false, openNow: 0),
+            .none,
+            "with no queue to read, the run's own record is the only honest thing "
+            + "to say")
+        XCTAssertEqual(
+            DiagnosticsPane.wetInkStanding(mintedNotes: 0, queueVisible: true, openNow: 0),
+            .none)
+        XCTAssertEqual(
+            DiagnosticsPane.wetInkStanding(mintedNotes: nil, queueVisible: true, openNow: 0),
+            .none,
+            "a preview and a pre-P1 record both know nothing about a mint")
+    }
+
+    /// A refused disposition says so in the row it was pressed in, not only in
+    /// the log (review, Minor 2). The sentence names what did not happen and
+    /// carries the cause.
+    func test_aRefusedDispositionSpeaksInTheRow() {
+        struct Refusal: LocalizedError {
+            var errorDescription: String? { "the op log is read-only" }
+        }
+        XCTAssertEqual(DiagnosticsPane.dispositionRefusal(Refusal()),
+                       "That didn\u{2019}t settle: the op log is read-only")
+        XCTAssertTrue(DiagnosticsPane.anchorLostRefusal.hasPrefix("That didn\u{2019}t settle:"),
+                      "both refusals open the same way, so the row reads one voice")
     }
 
     /// **A preview's rows carry no verbs**, exactly as the report's rows carry
@@ -2964,6 +3300,21 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     private func pump(_ seconds: TimeInterval = 0.2) {
         RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    }
+
+    /// The first `NSScrollView` in `view`'s subtree, depth-first — the
+    /// geometry check for the no-report arm's overflow test needs the real
+    /// `NSScrollView` (its `documentView` and `contentView` bounds), which the
+    /// accessibility tree does not expose the way it does labels and buttons.
+    private func firstScrollView(in view: NSView) -> NSScrollView? {
+        var found: [NSScrollView] = []
+        collect(NSScrollView.self, in: view, into: &found)
+        return found.first
+    }
+
+    private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
+        if let hit = view as? T { out.append(hit) }
+        for sub in view.subviews { collect(type, in: sub, into: &out) }
     }
 
     // MARK: - Accessibility
