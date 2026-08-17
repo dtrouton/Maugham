@@ -2493,6 +2493,365 @@ final class DiagnosticsPaneTests: XCTestCase {
         {"section":"facts","candidates":[]}
         """
 
+    // MARK: - "This check" — Author's wet-ink view (M4 P2 Task 1, spec §7.0)
+    //
+    // P1 homed the compiler's continuity questions and reader reports in the
+    // writer's queue, and Denver's smoke found the consequence: Author — whose
+    // persona IS the wet-ink tempo — was left with a count ("3 notes went to
+    // your queue") and no surface. §7.0's correction is a live VIEW of the
+    // latest run's minted notes, in the pane's own register, with one-gesture
+    // dispositions. Never the queue: a list you manage is the other tempo.
+
+    /// Mint one note the way `mintAnnotations` does — stamped with the run
+    /// that authored it, so the view can find it by that run's id and by
+    /// nothing else.
+    @discardableResult
+    private func mintNote(
+        on document: Document, run: CompilerRun, body: String,
+        paragraphId: String?, kind: AnnotationKind = .query, round: Int? = nil
+    ) async throws -> String {
+        try await document.addAnnotation(
+            kind: kind, paragraphId: paragraphId, body: body,
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Gould"),
+            compilerRunId: run.id, compilerRound: round,
+            compilerFingerprint: "continuity\u{1f}\(body)\u{1f}\(paragraphId ?? "")\u{1f}")
+    }
+
+    /// Press a real button through the accessibility tree and let the verb it
+    /// starts land — both dispositions hop to a `Task`, so a synchronous pump
+    /// alone would read the pane before the op log has moved.
+    private func press(_ label: String, in window: NSWindow) async throws {
+        let target = try button(labelled: label, in: window)
+        _ = target.perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.2)
+        try? await Task.sleep(for: .milliseconds(300))
+        pump(0.3)
+    }
+
+    private func status(
+        of annotationId: String, in document: Document
+    ) throws -> AnnotationStatus {
+        try XCTUnwrap(
+            document.annotations(filter: AnnotationFilter(statuses: nil))
+                .first { $0.id == annotationId },
+            "the note left the document's annotation layer entirely").status
+    }
+
+    /// A pane over a live document, its store already carrying `run`.
+    private func wetInkPane(
+        document: Document, store: DiagnosticsStore, docId: String? = nil,
+        orchestrator: CompilerOrchestrator? = nil
+    ) -> AnyView {
+        AnyView(DiagnosticsPane(
+            orchestrator: orchestrator ?? CompilerOrchestrator(), diagnostics: store,
+            docId: docId ?? document.docId,
+            // The pane's own staleness closure is where the jump chip's words
+            // come from: an annotation carries no excerpt of its own.
+            currentText: { [weak document] pid in document?.paragraphs[pid] },
+            compilerModel: .standard, activeDocument: { document }))
+    }
+
+    /// **The state Denver smoked.** A round in a pass over a piece with no
+    /// declared intent raises no clause and no strain, so the pane draws its
+    /// empty state — and every finding that round made is a queued note. Before
+    /// §7.0 the writer's whole feedback was the sentence "2 notes went to your
+    /// queue"; the notes themselves are now on the pane, above it.
+    func test_thisCheckDrawsTheLatestRunsNotesAboveTheEmptyState() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(mintedNotes: 2)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        try await mintNote(on: document, run: run,
+                           body: "Has anyone said how long the fog has been down?",
+                           paragraphId: paragraphId)
+        try await mintNote(on: document, run: run,
+                           body: "The reader stopped believing the fog here.",
+                           paragraphId: paragraphId, kind: .comment)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+
+        let labels = allLabels(in: window)
+        XCTAssertTrue(
+            labels.contains("Has anyone said how long the fog has been down?"),
+            "the question this check raised never reached Author; got \(labels)")
+        XCTAssertTrue(
+            labels.contains("The reader stopped believing the fog here."),
+            "\u{2026}nor did the reader's report; got \(labels)")
+        let sectionIndex = labels.firstIndex { $0 == "THIS CHECK" }
+        let emptyIndex = labels.firstIndex { $0 == "Notes in your queue" }
+        XCTAssertNotNil(sectionIndex, "the section names itself; got \(labels)")
+        XCTAssertNotNil(emptyIndex, "control: the empty state is what is drawn here")
+        XCTAssertTrue((sectionIndex ?? .max) < (emptyIndex ?? -1),
+                      "the notes lead the sentence about where they live; got \(labels)")
+        // Requirement 3 holds on the new rows too: the jump travels as the
+        // paragraph's own words.
+        XCTAssertFalse(labels.contains { $0.contains(paragraphId) },
+                       "the wet-ink row rendered a paragraph id; got \(labels)")
+        XCTAssertTrue(
+            labels.contains { $0.contains("First paragraph, with some words in it.") },
+            "the jump chip must carry the paragraph's words; got \(labels)")
+    }
+
+    /// The same section inside a real report — above the conformance summary,
+    /// because it is what this check just raised and the summary is the
+    /// standing account of the writer's clauses.
+    func test_thisCheckLeadsTheConformanceSummaryWhenThereIsAReport() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(clauseStatuses: [makeClause("Cold, and never wistful.", "holds")],
+                          mintedNotes: 1)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        try await mintNote(on: document, run: run,
+                           body: "Has anyone said how long yet?", paragraphId: paragraphId)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+
+        let labels = allLabels(in: window)
+        let sectionIndex = labels.firstIndex { $0 == "THIS CHECK" }
+        let conformanceIndex = labels.firstIndex { $0 == "CONFORMANCE" }
+        XCTAssertNotNil(sectionIndex, "got \(labels)")
+        XCTAssertNotNil(conformanceIndex, "control: the report is drawn; got \(labels)")
+        XCTAssertTrue((sectionIndex ?? .max) < (conformanceIndex ?? -1),
+                      "the wet ink leads the standing summary; got \(labels)")
+    }
+
+    /// **Got it settles the note.** One gesture, the annotation layer's own
+    /// accept underneath — so Review's queue and the next round's briefing see
+    /// exactly what the writer did, and the row leaves because the view is a
+    /// filter over open notes rather than a list it has to prune.
+    func test_gotItSettlesTheNoteAndTheRowLeaves() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(mintedNotes: 1)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        let noteId = try await mintNote(
+            on: document, run: run, body: "Has anyone said how long yet?",
+            paragraphId: paragraphId)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+        XCTAssertTrue(allLabels(in: window).contains("Has anyone said how long yet?"),
+                      "control: the row is on screen before the press")
+
+        try await press("Got it", in: window)
+
+        XCTAssertEqual(try status(of: noteId, in: document), .accepted,
+                       "Got it must reach the annotation's own accept, not a "
+                       + "second record of the writer's answer")
+        XCTAssertTrue(
+            document.annotations(filter: AnnotationFilter(statuses: [.open]))
+                .allSatisfy { $0.id != noteId },
+            "\u{2026}and the queue in Review must see it settled")
+        XCTAssertFalse(allLabels(in: window).contains("Has anyone said how long yet?"),
+                       "the row stayed after the writer took the note; got "
+                       + "\(allLabels(in: window))")
+    }
+
+    /// **Not this is one gesture and asks for nothing.** The reason-carrying
+    /// decline belongs to Review's queue; wet ink gets a no.
+    func test_notThisDeclinesInOneGestureWithNoReasonField() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(mintedNotes: 1)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        let noteId = try await mintNote(
+            on: document, run: run, body: "Has anyone said how long yet?",
+            paragraphId: paragraphId)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+
+        try await press("Not this", in: window)
+
+        XCTAssertEqual(try status(of: noteId, in: document), .rejected)
+        XCTAssertTrue(textFields(in: window).isEmpty,
+                      "Not this opened a field \u{2014} the reasons are Review's")
+        XCTAssertFalse(allLabels(in: window).contains("Has anyone said how long yet?"),
+                       "got \(allLabels(in: window))")
+    }
+
+    /// ⌘Z reaches the decline through the pane's own undo manager — the
+    /// annotation layer's existing machinery, wired rather than reimplemented.
+    func test_undoAfterNotThisReopensTheNote() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(mintedNotes: 1)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        let noteId = try await mintNote(
+            on: document, run: run, body: "Has anyone said how long yet?",
+            paragraphId: paragraphId)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+        try await press("Not this", in: window)
+        XCTAssertEqual(try status(of: noteId, in: document), .rejected,
+                       "control: the decline landed")
+
+        let undoManager = try XCTUnwrap(
+            window.undoManager,
+            "the hosted pane has no undo manager, so nothing could have been "
+            + "registered through it")
+        XCTAssertTrue(undoManager.canUndo,
+                      "the decline registered no undo action at all")
+        undoManager.undo()
+        pump(0.2)
+        try? await Task.sleep(for: .milliseconds(400))
+        pump(0.3)
+
+        XCTAssertEqual(try status(of: noteId, in: document), .open,
+                       "\u{2318}Z after Not this must reopen the note")
+    }
+
+    /// A run that minted nothing draws no section — not an empty one with a
+    /// heading over it.
+    func test_theSectionIsAbsentForARunThatMintedNothing() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        store.replace(run: makeRun(mintedNotes: 0), diagnostics: [], docId: document.docId)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+
+        XCTAssertFalse(allLabels(in: window).contains("THIS CHECK"),
+                       "got \(allLabels(in: window))")
+    }
+
+    /// **Only the latest check.** The next ⌘R replaces what this section
+    /// draws, wholesale — a wet-ink view that accumulated earlier rounds
+    /// would be the backlog Author must never show.
+    func test_onlyTheLatestChecksNotesAreDrawn() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let first = makeRun(mintedNotes: 1)
+        store.replace(run: first, diagnostics: [], docId: document.docId)
+        try await mintNote(on: document, run: first,
+                           body: "Round one asked about the coat.", paragraphId: paragraphId)
+        let second = makeRun(mintedNotes: 1)
+        store.replace(run: second, diagnostics: [], docId: document.docId)
+        try await mintNote(on: document, run: second,
+                           body: "Round two asked about the afternoon.",
+                           paragraphId: paragraphId)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+
+        let labels = allLabels(in: window)
+        XCTAssertTrue(labels.contains("Round two asked about the afternoon."),
+                      "got \(labels)")
+        XCTAssertFalse(labels.contains("Round one asked about the coat."),
+                       "a superseded check's notes are the writer's queue, not "
+                       + "this view; got \(labels)")
+    }
+
+    /// The docId guard `queueAnnotations` already carries, read through this
+    /// section: another document's notes are another document's, and a run id
+    /// they happen to share must not put them here.
+    func test_anotherDocumentsNotesNeverReachThisCheck() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(mintedNotes: 1)
+        // The pane is about a different document than the one it is handed.
+        store.replace(run: run, diagnostics: [], docId: "doc-somewhere-else")
+        try await mintNote(on: document, run: run,
+                           body: "Has anyone said how long yet?", paragraphId: paragraphId)
+
+        let window = mount(wetInkPane(
+            document: document, store: store, docId: "doc-somewhere-else"))
+        pump(0.3)
+
+        let labels = allLabels(in: window)
+        XCTAssertFalse(labels.contains("Has anyone said how long yet?"),
+                       "got \(labels)")
+        XCTAssertFalse(labels.contains("THIS CHECK"), "got \(labels)")
+    }
+
+    /// **The live pin** (the T5 observation-seam discipline): the note is
+    /// disposed AFTER the pane is mounted and pumped, from somewhere else
+    /// entirely — the writer stetting it in Review's column. The row must
+    /// leave without another check, or this is a snapshot rather than a view.
+    func test_aNoteSettledElsewhereLeavesTheViewWithoutAnotherCheck() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(mintedNotes: 1)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        let noteId = try await mintNote(
+            on: document, run: run, body: "Has anyone said how long yet?",
+            paragraphId: paragraphId)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+        XCTAssertTrue(allLabels(in: window).contains("Has anyone said how long yet?"),
+                      "control: the row is on screen; got \(allLabels(in: window))")
+
+        try await document.stetAnnotation(id: noteId)
+        pump(0.3)
+
+        XCTAssertFalse(allLabels(in: window).contains("Has anyone said how long yet?"),
+                       "the row survived a disposition made in the other column; "
+                       + "got \(allLabels(in: window))")
+    }
+
+    /// **A preview's rows carry no verbs**, exactly as the report's rows carry
+    /// no fates: a half-arrived run's notes are not the writer's to settle.
+    /// The body still renders — reading is the preview's whole value.
+    func test_aPreviewsWetInkRowsOfferNeitherVerb() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let orchestrator = CompilerOrchestrator()
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        orchestrator.configure(
+            environment: makeEnvironment(docId: document.docId, runner: runner),
+            diagnostics: store)
+        // **No marker on the stored run**, so the next \u{2318}R has a delta to
+        // read: `beginRun` refuses an empty one before the running state is
+        // ever set, and a run refused is a run this test never observes.
+        let run = makeRun(lastOpId: nil, mintedNotes: 1)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        try await mintNote(on: document, run: run,
+                           body: "Has anyone said how long yet?", paragraphId: paragraphId)
+
+        let window = mount(wetInkPane(
+            document: document, store: store, orchestrator: orchestrator))
+        pump(0.3)
+        XCTAssertNotNil(findButton(labelled: "Got it", in: window),
+                        "control: a finished run's note is the writer's to settle")
+
+        orchestrator.runRequested(docId: document.docId)
+        await awaitSends(1, on: runner)
+        pump(0.3)
+
+        XCTAssertTrue(allLabels(in: window).contains("Has anyone said how long yet?"),
+                      "the note must still be readable mid-run; got \(allLabels(in: window))")
+        XCTAssertNil(findButton(labelled: "Got it", in: window),
+                     "a streaming run's half-arrived state must not dispose")
+        XCTAssertNil(findButton(labelled: "Not this", in: window))
+
+        runner.release(.resultText(Self.turnCarryingTheQuestion))
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+
     // MARK: - Fixtures: a fake compiler runner (mirrors CompilerRunCommandTests.SpyRunner)
 
     @MainActor

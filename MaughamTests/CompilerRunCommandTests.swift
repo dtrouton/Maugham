@@ -4582,6 +4582,54 @@ final class CompilerRunCommandTests: XCTestCase {
                       + "test's absences mean something")
     }
 
+    /// **The one-gesture decline reaches the next round's briefing** (M4 P2
+    /// Task 1, spec §7.0).
+    ///
+    /// Author's wet-ink view declines a note with **Not this** and asks for
+    /// nothing — the reason-carrying decline is Review's queue's. So the
+    /// disposition arrives here with a verdict and no words, and the briefing
+    /// has to carry it on the excerpt alone: the model must recognise the
+    /// finding it may not raise again from its own earlier prose, with nothing
+    /// of the writer's beside it.
+    ///
+    /// End to end, through the annotation layer's own reject — the same verb
+    /// `DiagnosticsPane`'s **Not this** presses, with the `userResponse` the
+    /// one-gesture rule leaves nil.
+    func test_aReasonlessDeclineReachesTheNextRoundsBriefingAsSettled() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        setActivePass("copyedit", on: fx)
+        runner.nextEvent = .resultText(questionReportAndStrain(about: pid))
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(2, on: fx.document)
+
+        let report = try XCTUnwrap(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+                .first { $0.body == Self.mintedReaderBody },
+            "precondition: the reader's report minted")
+        // Not this: no reason, no field, nothing asked.
+        try await fx.document.rejectAnnotation(id: report.id)
+
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(2, on: runner)
+        await settle()
+
+        let second = runner.sends[1].message
+        XCTAssertTrue(second.contains(CompilerPrompt.settledNotesHeading), second)
+        XCTAssertTrue(
+            second.contains("\(Self.mintedReaderBody) [REJECTED]"),
+            "a decline with no words must still name the finding it settled and "
+            + "say what became of it; got \(second)")
+        XCTAssertFalse(second.contains("[REJECTED:"),
+                       "\u{2026}and must not invent a reason the writer never "
+                       + "gave; got \(second)")
+    }
+
     /// **Cold means cold.** A fresh-eyes reread is briefed on no prior round
     /// and no dispositions — the whole point is a reader who has not seen this
     /// piece before. The editor's own identity survives: Argus is still a

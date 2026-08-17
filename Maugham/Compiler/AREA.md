@@ -351,7 +351,12 @@ is the resumed session id, not the process.
   swallow them. If a later change moves the round lines back inside the
   report arm — reads as a harmless dedup of two nearly-identical branches —
   a pass round over an intentless piece goes back to showing nothing at all
-  about what the round found.
+  about what the round found. **`DiagnosticsPane.thisCheckSection` (M4 P2
+  Task 1, spec §7.0) is the second resident of both arms and is there for the
+  same case**: Author's live view of the notes the latest run minted, filtered
+  out of the annotation layer by `lastRun.id`, whose whole point is the
+  intentless round whose entire output is queued notes. Anything that dedups
+  the fork has to keep both arms drawing it.
 - **3 / 6 — the arrival.** Nothing here holds an editor binding or a
   `Document`. What a run needs off the live document arrives as a
   `DocumentReading` value captured at the keystroke, and paragraph text is

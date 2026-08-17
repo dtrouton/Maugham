@@ -193,6 +193,35 @@ struct DiagnosticsPane: View {
         return document.annotations(filter: AnnotationFilter(statuses: nil))
     }
 
+    /// **"This check" — what the run the writer just made raised, live**
+    /// (spec §7.0, Denver's smoke correction).
+    ///
+    /// P1 homed the continuity questions and the reader's reports in the
+    /// writer's queue, and the smoke found the consequence: Author — whose
+    /// persona IS the wet-ink tempo — was left with a count ("3 notes went to
+    /// your queue") and no surface at all. This is the surface. It is a VIEW,
+    /// fetched from the annotation layer by the latest run's id: no second
+    /// storage, nothing to keep in step, and **never the queue imported into
+    /// Author**, which is the other tempo (a list you manage).
+    ///
+    /// Three properties fall out of the filter rather than being arranged:
+    ///
+    /// - **only the latest check.** The next ⌘R replaces `lastRun`, and
+    ///   with it everything drawn here — a wet-ink view that accumulated
+    ///   earlier rounds would be the backlog Author must never show.
+    /// - **only what is still open.** Got it and Not this settle the note
+    ///   itself, so the row leaves on the disposition with nothing to prune —
+    ///   and a note settled in the other column leaves this view too.
+    /// - **only this document's.** `queueAnnotations` already refuses a queue
+    ///   that is not this pane's document (its own doc explains why), so a run
+    ///   id shared with another document's notes cannot draw them here.
+    private var thisCheckAnnotations: [Annotation] {
+        guard let runId = lastRun?.id else { return [] }
+        return queueAnnotations.filter {
+            $0.compilerRunId == runId && $0.status == .open
+        }
+    }
+
     /// **The one note kind this pane draws** (M4 P1 Task 3).
     ///
     /// A conformance strain is read beside the clause it strains against, so
@@ -598,6 +627,13 @@ struct DiagnosticsPane: View {
             VStack(alignment: .leading, spacing: 0) {
                 freshEyesLine
                 roundLine
+                // **The state §7.0 exists for.** A round in a pass over a piece
+                // with no declared intent raises no clause and no strain, so
+                // `hasReport` is false — and since P1 that round's whole output
+                // is queued notes. This arm used to be the writer's entire
+                // feedback from an expensive keystroke: one sentence saying how
+                // many notes went somewhere else.
+                thisCheckSection
                 let empty = Self.emptyState(for: state)
                 ContentUnavailableView(
                     empty.title,
@@ -611,6 +647,7 @@ struct DiagnosticsPane: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     freshEyesLine
                     roundLine
+                    thisCheckSection
                     driftLine
                     conformanceSection
                 }
@@ -724,6 +761,110 @@ struct DiagnosticsPane: View {
             .padding(.horizontal, 12)
             .padding(.top, 10)
             Divider()
+        }
+    }
+
+    /// **The wet-ink view** (spec §7.0) — the notes this check just raised,
+    /// drawn in the pane's own register rather than the queue's.
+    ///
+    /// It draws above the drift line and the conformance summary because those
+    /// two are the standing account of the writer's declared world, and this is
+    /// what the keystroke they just pressed came back with. Nothing here says
+    /// who wrote it: the byline in Author stays Claude's, and the named editors
+    /// belong to Review's pass lanes — wet-ink feedback is not a pass.
+    ///
+    /// No section at all when there is nothing to draw, rather than a heading
+    /// over an empty list: this is a view of one run's output, and a run that
+    /// raised nothing has nothing to show for itself here.
+    @ViewBuilder
+    private var thisCheckSection: some View {
+        let notes = thisCheckAnnotations
+        if !notes.isEmpty {
+            PaneSectionHeader(title: "This check") { EmptyView() }
+            ForEach(notes) { note in
+                CompilerNoteRow(
+                    annotation: note,
+                    excerpt: Self.jumpExcerpt(for: note, currentText: currentText),
+                    canDispose: offersDurableActions,
+                    onJump: { jump(toParagraph: $0) },
+                    onGotIt: { gotIt(note) },
+                    onNotThis: { notThis(note) })
+                Divider()
+            }
+        }
+    }
+
+    /// The words a wet-ink row's jump chip carries — **never its paragraph
+    /// id** (requirement 3, `test_noParagraphIdIsEverRendered`).
+    ///
+    /// A `Diagnostic` arrives carrying the excerpt the model quoted; an
+    /// `Annotation` carries no excerpt at all, so the words come from the live
+    /// paragraph through `currentText` — the closure this pane already holds
+    /// for `DiagnosticsStore.live`'s staleness check, rather than a second
+    /// reach for the document.
+    ///
+    /// `nil` in the two cases where a chip would be a button labelled nothing:
+    /// a doc-scoped craft note (the compiler's anchorless finding — no
+    /// paragraph to travel to) and a paragraph this pane cannot read. The row
+    /// itself still jumps on a tap where there is an id.
+    ///
+    /// Trimmed by `truncatedDriftQuote`, whose budget is the right one for the
+    /// same reason it is right there: one line of a narrow pane. `ExcerptChip`
+    /// limits itself to a single line anyway, so the budget only decides where
+    /// the ellipsis falls rather than what is legible.
+    static func jumpExcerpt(
+        for annotation: Annotation, currentText: (String) -> String?
+    ) -> Diagnostic.Ref? {
+        guard let paragraphId = annotation.paragraphId,
+              let text = currentText(paragraphId) else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Diagnostic.Ref(
+            paragraphId: paragraphId, excerpt: truncatedDriftQuote(trimmed))
+    }
+
+    /// **Got it** — the writer took the note, and it settles.
+    ///
+    /// `acceptAnnotation` is the annotation layer's own verb, so Review's
+    /// ledger and the next round's briefing see exactly what happened here;
+    /// nothing about this gesture is a second record of it.
+    ///
+    /// **The catch is by name, never `try?`** — `AnnotationsPane.performAccept`'s
+    /// discipline, and its reason survives the change of caller: a refusal this
+    /// pane swallowed would look precisely like a note that settled. The
+    /// anchor-lost arm is unreachable from here (the compiler mints questions,
+    /// reports and craft notes, and never a suggestion, so there is no span to
+    /// lose) and is written out anyway, because the day something mints one the
+    /// silence is what would ship.
+    private func gotIt(_ annotation: Annotation) {
+        guard let document = activeDocument() else { return }
+        Task {
+            do {
+                try await document.acceptAnnotation(
+                    id: annotation.id, undoManager: undoManager)
+            } catch let error as AnnotationAcceptError where error == .suggestionAnchorLost {
+                documentLog.error("\u{201C}Got it\u{201D} refused for \(annotation.id, privacy: .public): the suggestion's anchor is gone")
+            } catch {
+                documentLog.error("\u{201C}Got it\u{201D} failed for \(annotation.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// **Not this** — one gesture, and it asks for nothing.
+    ///
+    /// No reason field, deliberately: the reason-carrying decline is Review's
+    /// queue's, where a note is a thing you manage. Wet ink gets a no, and the
+    /// briefing carries the finding's own words to say which one was settled
+    /// (`CompilerAnnotationDisposition`, `CompilerPrompt.settledNotesHeading`).
+    private func notThis(_ annotation: Annotation) {
+        guard let document = activeDocument() else { return }
+        Task {
+            do {
+                try await document.rejectAnnotation(
+                    id: annotation.id, undoManager: undoManager)
+            } catch {
+                documentLog.error("\u{201C}Not this\u{201D} failed for \(annotation.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
@@ -1430,6 +1571,79 @@ private struct DiagnosticRow: View {
         isAnswering = false
         fieldFocused = false
         draft = ""
+    }
+}
+
+// MARK: - One note from this check (spec §7.0)
+
+/// **One note the latest run raised** — `DiagnosticRow`'s shape over an
+/// `Annotation` rather than a `Diagnostic`.
+///
+/// A sibling rather than a widening of that row, and the two are not the same
+/// thing wearing two types: a `Diagnostic` is a conformance strain read beside
+/// the clause it pulls against, whose fates are a ruling and a task; this is a
+/// note about the WORDS, whose fates are the annotation layer's own accept and
+/// decline. A row generic over both would be two rows sharing a body with a
+/// branch on every line of it.
+///
+/// **No byline.** The note is signed in the queue by the pass's named editor;
+/// in Author the voice is Claude's and unremarked, because wet-ink feedback is
+/// not a pass (spec §7.0).
+@MainActor
+private struct CompilerNoteRow: View {
+    let annotation: Annotation
+    /// The words the jump chip shows, or `nil` for a note with nowhere to jump
+    /// — `DiagnosticsPane.jumpExcerpt`.
+    let excerpt: Diagnostic.Ref?
+    /// Whether the two verbs are offered at all — false for every row of a
+    /// preview (`DiagnosticsPane.offersDurableActions`), because a run still
+    /// arriving has not raised these notes yet in the only sense that matters:
+    /// `finish` is what mints them, and what is on screen mid-stream is the
+    /// last finished run's.
+    let canDispose: Bool
+    let onJump: (String) -> Void
+    let onGotIt: () -> Void
+    let onNotThis: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                // The kind's own glyph and its own word, from MaughamCore's
+                // single spelling — the queue draws these notes with the same
+                // two, and a second mapping here is how one surface comes to
+                // call a question something the other does not.
+                Image(systemName: annotation.kind.systemImageName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(annotation.kind.displayName)
+                Text(annotation.body)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            if let excerpt {
+                ExcerptChip(ref: excerpt, onJump: onJump)
+            }
+            if canDispose {
+                HStack(spacing: 6) {
+                    Button("Got it", action: onGotIt)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Take the note. It settles here and in your queue.")
+                    Button("Not this", action: onNotThis)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Let it go. Nothing to explain \u{2014} the written "
+                              + "decline belongs to a review pass.")
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard let paragraphId = annotation.paragraphId else { return }
+            onJump(paragraphId)
+        }
     }
 }
 
