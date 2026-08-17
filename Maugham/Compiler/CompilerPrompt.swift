@@ -507,7 +507,7 @@ enum CompilerPrompt {
     ///
     /// **No new answer section comes with it.** The model's confirmation rides
     /// the note sections it already answers in; what resolved and what
-    /// persists is computed app-side from fingerprints (`RoundComparison`),
+    /// persists is computed app-side off the writer's queue (`SinceLastRound`),
     /// never parsed back out of prose the model wrote.
     static func roundSection(previousRound: RoundRecord, notes: [PriorNote]) -> String? {
         guard let passId = previousRound.passId, let round = previousRound.round else {

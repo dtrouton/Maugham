@@ -2770,8 +2770,9 @@ final class CompilerRunCommandTests: XCTestCase {
                        "and the entry is the run that FINISHED before this one — not "
                        + "this run's own half-report, which would compare a round "
                        + "against itself")
-        XCTAssertEqual(history.first?.fingerprints.count, 1,
-                       "carrying what run 1 raised")
+        XCTAssertEqual(history.first?.fingerprints, [],
+                       "the ring records THAT the round happened and when \u{2014} what "
+                       + "it found is counted off the queue (M4 P1 Task 5)")
     }
 
     /// **A preview is never written to disk.** A half-report in the sidecar
@@ -3093,15 +3094,17 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertTrue(second.contains("Round 1 of the \u{201C}line\u{201D} pass"),
                       "…named by its round and its lane; got \(second)")
 
-        // **The pane's line is the same comparison, computed** — the previous
-        // round's one finding is gone from this round, and nothing replaced it.
+        // **The pane's line is drawn over the same two rounds** — and this
+        // harness mints through a spy, so the queue it counts is empty and the
+        // honest reading is three zeroes. What the line counts when notes
+        // really land is `test_theSinceLastRoundLineCountsWhatTheWriterSettled`,
+        // over a live document.
         XCTAssertEqual(
             DiagnosticsPane.sinceLastRoundLine(
                 history: harness.diagnostics.roundHistory(docId: docId),
                 run: harness.diagnostics.lastRun(docId: docId),
-                current: harness.diagnostics.live(
-                    docId: docId, currentText: { _ in "The fog came." })),
-            "Since round 1: 1 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
+                annotations: []),
+            "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
     }
 
     /// **The partition the app knows and the model cannot.** A note anchored
@@ -4308,6 +4311,78 @@ final class CompilerRunCommandTests: XCTestCase {
                       "a cold round must say so on the wire \u{2014} it is the one "
                       + "fact about the run that a reader of the note cannot "
                       + "otherwise recover")
+    }
+
+    // MARK: - Since last round, off the queue (M4 P1 Task 5)
+
+    /// Poll until the standing run for `ch-1` is the round expected, or give up.
+    /// A finish is file I/O off this actor, so a fixed number of main-actor
+    /// turns is a race rather than a wait — `awaitOpenNotes`' reasoning, for a
+    /// run whose whole point is that it mints NOTHING.
+    private func awaitRound(_ round: Int, on fx: LiveDocumentHarness) async {
+        let deadline = Date().addingTimeInterval(5)
+        while fx.diagnostics.lastRun(docId: "ch-1")?.round != round, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    /// **The whole loop, end to end.** Round 1 raises two findings; the writer
+    /// stets one; round 2 re-raises the other in different words and finds
+    /// nothing else. The line the pane draws is the writer's own account of
+    /// that: one settled, one still in front of them, nothing new.
+    ///
+    /// The re-raise is the sharp half. The model rewords a finding every time
+    /// it raises it, so the note is DEDUPED at the mint rather than minted
+    /// again — and a line that counted the model's answer instead of the queue
+    /// would call the same question one resolved plus one new, every round,
+    /// forever.
+    func test_theSinceLastRoundLineCountsWhatTheWriterSettled() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        setActivePass("copyedit", on: fx)
+
+        runner.nextEvent = .resultText(questionAndReport(about: pid))
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(2, on: fx.document)
+        XCTAssertEqual(fx.diagnostics.lastRun(docId: "ch-1")?.round, 1)
+
+        // The writer reads the reader's report and lets the words stand.
+        let report = try XCTUnwrap(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+                .first { $0.body == Self.mintedReaderBody })
+        try await fx.document.stetAnnotation(id: report.id)
+
+        // …and writes on, because a ⌘R with nothing new is not a round at all
+        // (`beginRun`'s empty-delta guard) — the writer's own paragraph, typed
+        // through the burst the run closes for itself.
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+
+        // Round 2 raises the same continuity question in different words, and
+        // nothing else.
+        runner.nextEvent = .resultText("""
+            {"section":"conformance","checks":[]}
+            {"section":"continuity","questions":[{"cites":"the fog","refs":["\(pid)"],"question":"How long has the fog been sitting there?"}]}
+            {"section":"reader","reports":[]}
+            {"section":"facts","candidates":[]}
+            """)
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(2, on: runner)
+        await awaitRound(2, on: fx)
+        await awaitNothingMinted()
+
+        let queue = fx.document.annotations(filter: AnnotationFilter(statuses: nil))
+        XCTAssertEqual(queue.filter(\.isCompilerAuthored).count, 2,
+                       "the reworded re-raise minted a second copy of a question "
+                       + "the writer is already holding; got \(queue.map(\.body))")
+
+        XCTAssertEqual(
+            DiagnosticsPane.sinceLastRoundLine(
+                history: fx.diagnostics.roundHistory(docId: "ch-1"),
+                run: fx.diagnostics.lastRun(docId: "ch-1"),
+                annotations: queue),
+            "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 0 new")
     }
 
     /// **A Cancel inside the mint window leaves the stale finish nothing to

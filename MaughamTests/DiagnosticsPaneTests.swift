@@ -1139,33 +1139,42 @@ final class DiagnosticsPaneTests: XCTestCase {
                      "and it must not have opened a reply field either")
     }
 
-    // MARK: - Since last round (M3-P3 Task 3)
+    // MARK: - Since last round (M3-P3 Task 3, recounted off the queue in M4 P1)
     //
-    // The arithmetic itself belongs to `RoundComparison` (`RoundHistoryTests`);
+    // The arithmetic itself belongs to `SinceLastRound` (`RoundHistoryTests`);
     // these pin what the PANE decides — when there is a line at all, which
     // record it is measured against, and that it never speaks over a fresh-eyes
     // round.
 
     private func makeRoundRecord(
         passId: String? = "line", round: Int? = 1,
-        freshEyes: Bool? = nil, fingerprints: [RoundFingerprint] = []
+        freshEyes: Bool? = nil, at: Date = Date(timeIntervalSince1970: 0)
     ) -> RoundRecord {
-        RoundRecord(runId: ULID.generate(), at: Date(timeIntervalSince1970: 0),
+        RoundRecord(runId: ULID.generate(), at: at,
                     passId: passId, round: round, freshEyes: freshEyes,
-                    fingerprints: fingerprints)
+                    fingerprints: [])
     }
 
-    private func fingerprint(
-        _ kind: DiagnosticKind, clause: String? = nil, paragraph: String? = nil
-    ) -> RoundFingerprint {
-        RoundFingerprint(kind: kind.rawValue, clauseQuote: clause, paragraphId: paragraph)
+    /// A compiler-authored note in the queue, in the state the count turns on.
+    private func makeCompilerNote(
+        lane: String? = "line", round: Int? = 1,
+        status: AnnotationStatus = .open, resolvedAt: Date? = nil
+    ) -> Annotation {
+        Annotation(
+            id: ULID.generate(), kind: .query, paragraphId: "a1b2",
+            body: "Whose coat is on the chair?", suggestedText: nil, priorText: nil,
+            createdAt: Date(timeIntervalSince1970: 10), createdBySession: nil,
+            status: status, userResponse: nil, resolvedAt: resolvedAt,
+            isStale: false, reviewPassId: lane,
+            compilerRunId: "run-1", compilerRound: round,
+            compilerFingerprint: "continuity\u{1f}the fog\u{1f}a1b2\u{1f}")
     }
 
     func test_sinceLastRoundLine_isNilWithoutARoundNumber() {
         XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
-            history: [makeRoundRecord()], run: nil, current: []))
+            history: [makeRoundRecord()], run: nil, annotations: []))
         XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
-            history: [makeRoundRecord()], run: makeRun(), current: []),
+            history: [makeRoundRecord()], run: makeRun(), annotations: []),
             "a passless run is an ordinary M2 run \u{2014} there is no round to be since")
     }
 
@@ -1173,46 +1182,62 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// travelled, and the first round of a lane has travelled none.
     func test_sinceLastRoundLine_isNilForTheFirstRoundOfALane() {
         XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
-            history: [], run: makeRun(passId: "line", round: 1), current: []))
+            history: [], run: makeRun(passId: "line", round: 1), annotations: []))
     }
 
     func test_sinceLastRoundLine_countsResolvedPersistingAndNew() {
-        let persisting = makeDiagnostic(
-            docId: "doc-1", anchor: .init(paragraphId: "c3d4", anchorText: "It stayed."),
-            kind: .continuity, clauseQuote: "the fog")
-        let fresh = makeDiagnostic(
-            docId: "doc-1", anchor: .init(paragraphId: "e5f6", anchorText: "Then it lifted."),
-            kind: .readerReport)
-        let previous = makeRoundRecord(round: 1, fingerprints: [
-            fingerprint(.conformanceStrain, clause: "Cold, and never wistful.", paragraph: "a1b2"),
-            fingerprint(.continuity, clause: "the fog", paragraph: "c3d4"),
-        ])
-
+        let filed = Date(timeIntervalSince1970: 1_000)
         XCTAssertEqual(
             DiagnosticsPane.sinceLastRoundLine(
-                history: [previous], run: makeRun(passId: "line", round: 2),
-                current: [persisting, fresh]),
+                history: [makeRoundRecord(round: 1, at: filed)],
+                run: makeRun(passId: "line", round: 2),
+                annotations: [
+                    makeCompilerNote(round: 2),
+                    makeCompilerNote(round: 1),
+                    makeCompilerNote(round: 1, status: .stetted,
+                                     resolvedAt: filed.addingTimeInterval(60)),
+                ]),
             "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 1 new")
+    }
+
+    /// **The record it measures FROM is the record it counts from.** The
+    /// resolved half is "settled since the last round finished", and the
+    /// instant that means is the ring record's own `at` — read from the wrong
+    /// record and every note the writer ever settled in this pass is counted
+    /// again, every round.
+    func test_sinceLastRoundLine_measuresResolvedFromThatRecordsOwnTime() {
+        let filed = Date(timeIntervalSince1970: 1_000)
+        let settledBefore = makeCompilerNote(
+            round: 1, status: .stetted, resolvedAt: filed.addingTimeInterval(-60))
+        XCTAssertEqual(
+            DiagnosticsPane.sinceLastRoundLine(
+                history: [makeRoundRecord(round: 1, at: filed)],
+                run: makeRun(passId: "line", round: 2),
+                annotations: [settledBefore]),
+            "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
     }
 
     /// **It reads only its own lane.** A Proof round filed between two Line
     /// rounds is newer in the ring and is not what the Line round is measured
-    /// against — the same rule `RoundComparison`'s doc states and the caller
-    /// is made to obey.
+    /// against — and its NOTES take no part either.
     func test_sinceLastRoundLine_readsOnlyItsOwnLane() {
-        let line = makeRoundRecord(passId: "line", round: 1, fingerprints: [
-            fingerprint(.continuity, clause: "the fog", paragraph: "c3d4"),
-        ])
-        let proof = makeRoundRecord(passId: "proof", round: 1, fingerprints: [
-            fingerprint(.readerReport, paragraph: "z9y8"),
-            fingerprint(.readerReport, paragraph: "x7w6"),
-        ])
+        let filed = Date(timeIntervalSince1970: 1_000)
+        let line = makeRoundRecord(passId: "line", round: 1, at: filed)
+        let proof = makeRoundRecord(passId: "proof", round: 1,
+                                    at: filed.addingTimeInterval(30))
 
         XCTAssertEqual(
             DiagnosticsPane.sinceLastRoundLine(
-                history: [line, proof], run: makeRun(passId: "line", round: 2), current: []),
+                history: [line, proof], run: makeRun(passId: "line", round: 2),
+                annotations: [
+                    makeCompilerNote(lane: "proof", round: 2),
+                    makeCompilerNote(lane: "proof", round: 1),
+                    makeCompilerNote(lane: "line", round: 1, status: .stetted,
+                                     resolvedAt: filed.addingTimeInterval(60)),
+                ]),
             "Since round 1: 1 resolved \u{00b7} 0 persisting \u{00b7} 0 new",
-            "the Proof round sits newest in the ring and must take no part")
+            "the Proof round sits newest in the ring and must take no part \u{2014} "
+            + "neither its record nor its notes")
     }
 
     /// **A round still streaming has not filed the round it supersedes.**
@@ -1220,13 +1245,11 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// against it would name the wrong round and then correct itself when the
     /// turn ended. The pane simply says nothing until the answer lands.
     func test_sinceLastRoundLine_isNilWhileTheRoundBeforeItIsStillStanding() {
-        let twoBack = makeRoundRecord(round: 1, fingerprints: [
-            fingerprint(.continuity, clause: "the fog", paragraph: "c3d4"),
-        ])
+        let twoBack = makeRoundRecord(round: 1)
         XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
-            history: [twoBack], run: makeRun(passId: "line", round: 3), current: []))
+            history: [twoBack], run: makeRun(passId: "line", round: 3), annotations: []))
         XCTAssertNotNil(DiagnosticsPane.sinceLastRoundLine(
-            history: [twoBack], run: makeRun(passId: "line", round: 2), current: []),
+            history: [twoBack], run: makeRun(passId: "line", round: 2), annotations: []),
             "control: the record IS round 2's predecessor")
     }
 
@@ -1235,15 +1258,13 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// against the last round would report a difference the run never made.
     /// Its header says what it is instead (Task 6).
     func test_sinceLastRoundLine_isNilForAFreshEyesRound() {
-        let previous = makeRoundRecord(round: 1, fingerprints: [
-            fingerprint(.continuity, clause: "the fog", paragraph: "c3d4"),
-        ])
+        let previous = makeRoundRecord(round: 1)
         XCTAssertNotNil(DiagnosticsPane.sinceLastRoundLine(
-            history: [previous], run: makeRun(passId: "line", round: 2), current: []),
+            history: [previous], run: makeRun(passId: "line", round: 2), annotations: []),
             "control: an ordinary round 2 does speak")
         XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
             history: [previous],
-            run: makeRun(passId: "line", round: 2, freshEyes: true), current: []))
+            run: makeRun(passId: "line", round: 2, freshEyes: true), annotations: []))
     }
 
     /// **The report leads with it** — above the drift line and above the
@@ -1269,11 +1290,14 @@ final class DiagnosticsPaneTests: XCTestCase {
             currentText: { _ in "The fog came." }, compilerModel: .standard)))
         pump(0.3)
 
+        // No document behind this pane, so the queue is empty and the line says
+        // so — three zeroes is a legitimate reading, and what is under test
+        // here is WHERE the sentence sits, not what it counted.
         let expected = try XCTUnwrap(DiagnosticsPane.sinceLastRoundLine(
             history: store.roundHistory(docId: docId),
             run: store.lastRun(docId: docId),
-            current: store.live(docId: docId, currentText: { _ in "The fog came." })))
-        XCTAssertEqual(expected, "Since round 1: 1 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
+            annotations: []))
+        XCTAssertEqual(expected, "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
 
         let labels = allLabels(in: window)
         let lineIndex = labels.firstIndex { $0 == expected }
@@ -1282,6 +1306,48 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertNotNil(conformanceIndex, "got: \(labels)")
         XCTAssertTrue((lineIndex ?? .max) < (conformanceIndex ?? -1),
                       "the since-last-round line leads the report")
+    }
+
+    /// **The wiring, mounted** (M4 P1 Task 5): the sentence on screen counts
+    /// the notes on the OPEN DOCUMENT, not a second account of them kept in
+    /// the sidecar. Two of the three kinds a round raises are annotations now,
+    /// so a pane that still read the sidecar's own record of the last round
+    /// would report zero for a round that queued three questions.
+    func test_theSinceLastRoundLineCountsTheQueueOfTheOpenDocument() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let docId = document.docId
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+
+        store.replace(run: makeRun(passId: "line", round: 1), diagnostics: [], docId: docId)
+        // Round 1's two notes, as the mint writes them.
+        let settled = try await document.addAnnotation(
+            kind: .query, paragraphId: paragraphId, body: "Whose coat is this?",
+            reviewPassId: "line", compilerRunId: "run-1", compilerRound: 1,
+            compilerFingerprint: "continuity\u{1f}the coat\u{1f}\(paragraphId)\u{1f}")
+        _ = try await document.addAnnotation(
+            kind: .comment, paragraphId: paragraphId, body: "The fog stops convincing here.",
+            reviewPassId: "line", compilerRunId: "run-1", compilerRound: 1,
+            compilerFingerprint: "readerReport\u{1f}\u{1f}\(paragraphId)\u{1f}belief")
+        // The writer settles one of them, then round 2 lands raising nothing.
+        try await document.stetAnnotation(id: settled)
+        // A clause that holds: the report renders, and nothing in it is a note
+        // — so the only sentence with a count in it is the one under test.
+        store.replace(run: makeRun(clauseStatuses: [makeClause("Cold.", "holds")],
+                                   passId: "line", round: 2),
+                      diagnostics: [], docId: docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            activeDocument: { document })))
+        pump(0.3)
+
+        let expected = "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 0 new"
+        XCTAssertFalse(
+            staticTextLabels(in: window, containing: expected).isEmpty,
+            "the line must count the document's own queue; got \(allLabels(in: window))")
     }
 
     // MARK: - Fresh eyes (M3-P3 Task 6)
@@ -1320,15 +1386,13 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// other end, so a later change to either function cannot quietly put both
     /// sentences on one report.
     func test_theRoundHeaderAndTheSinceLastRoundLineAreMutuallyExclusive() {
-        let previous = makeRoundRecord(round: 1, fingerprints: [
-            fingerprint(.continuity, clause: "the fog", paragraph: "c3d4"),
-        ])
+        let previous = makeRoundRecord(round: 1)
         for run in [makeRun(passId: "line", round: 2),
                     makeRun(passId: "line", round: 2, freshEyes: true),
                     makeRun(freshEyes: true),
                     makeRun()] {
             let since = DiagnosticsPane.sinceLastRoundLine(
-                history: [previous], run: run, current: [])
+                history: [previous], run: run, annotations: [makeCompilerNote(round: 1)])
             let fresh = DiagnosticsPane.freshEyesHeader(run: run)
             XCTAssertFalse(since != nil && fresh != nil,
                            "both lines spoke for one round: \(String(describing: since)) "

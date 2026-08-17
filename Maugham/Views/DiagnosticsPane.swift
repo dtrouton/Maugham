@@ -150,6 +150,24 @@ struct DiagnosticsPane: View {
         return diagnostics.roundHistory(docId: docId)
     }
 
+    /// **The open document's queue, in every state** — what the
+    /// since-last-round line is counted from (M4 P1 Task 5).
+    ///
+    /// Read through `activeDocument`, which this pane already holds for
+    /// `promote()` and the cold-start offer, and gated on `annotationsVersion`
+    /// on `AnnotationsPane`'s own idiom, so a note the writer stets in the
+    /// other column moves the sentence rather than leaving it stale until the
+    /// next check. Unfiltered by status deliberately: a `[.open]` filter here
+    /// would make "resolved" permanently zero.
+    ///
+    /// Empty when there is no document behind the pane — which is a legitimate
+    /// reading (three zeroes), not a missing one.
+    private var queueAnnotations: [Annotation] {
+        guard let document = activeDocument() else { return [] }
+        _ = document.annotationsVersion
+        return document.annotations(filter: AnnotationFilter(statuses: nil))
+    }
+
     /// **The one note kind this pane draws** (M4 P1 Task 3).
     ///
     /// A conformance strain is read beside the clause it strains against, so
@@ -592,11 +610,7 @@ struct DiagnosticsPane: View {
     @ViewBuilder
     private var roundLine: some View {
         if let line = Self.sinceLastRoundLine(
-            // `strains`, not `rows`: the ring's fingerprints are the sidecar's
-            // and the sidecar is strains only (M4 P1). Counting a legacy
-            // record's continuity note against a round that can no longer
-            // contain one would report it resolved every time.
-            history: roundHistory, run: lastRun, current: strains) {
+            history: roundHistory, run: lastRun, annotations: queueAnnotations) {
             Text(line)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -758,17 +772,23 @@ struct DiagnosticsPane: View {
         return (rows, orphans)
     }
 
-    // MARK: - Since last round (spec §6; the comparison itself is `RoundComparison`)
+    // MARK: - Since last round (spec §6; the arithmetic is `SinceLastRound`)
 
     /// **"Since round N−1: X resolved · Y persisting · Z new"**, or `nil` when
     /// this run is not a round that can be compared.
     ///
     /// Pure and static on `driftNote`'s mould, and for the same reason: the
-    /// sentence is the pane's, the arithmetic is not. `RoundComparison.compare`
-    /// is the ONE spelling of what matches what — the model rewords a finding
-    /// every time it raises it, so a comparison written here against note prose
-    /// would report every persisting note as one resolved plus one new, and the
-    /// briefing and the line would then disagree about the same round.
+    /// sentence is the pane's, the arithmetic is not. `SinceLastRound.compute`
+    /// is the ONE spelling of the three counts.
+    ///
+    /// **What it counts is the writer's QUEUE, not two rounds' reports** (M4
+    /// P1 Task 5). Two of the three kinds a round raises are annotations now,
+    /// so the sidecar no longer holds a round's findings to diff against — and
+    /// diffing them was never right: the model rewords a finding every time it
+    /// raises it, and a finding it simply stopped mentioning is not one the
+    /// writer resolved. What the line says now is what they can check against
+    /// their own screen — one settled since the last round, one still in front
+    /// of them, one raised today.
     ///
     /// Silent in three cases:
     ///
@@ -788,24 +808,29 @@ struct DiagnosticsPane: View {
     ///   last round would be an artifact of the reading rather than of the
     ///   draft. Its header says what it is instead.
     ///
-    /// `current` is what the pane is DRAWING (`rows`), not the run's whole
-    /// stored report: a note the writer has edited behind is not on screen,
-    /// and counting it as persisting would name something invisible.
+    /// `annotations` is the open document's queue in EVERY state — the
+    /// filtering is `SinceLastRound`'s, and a caller that pre-filtered to open
+    /// notes would report zero resolved forever.
     ///
     /// **This line and the run's own briefing can differ, and both are
     /// honest.** A writer who steps out of a lane and back is briefed on
     /// nothing (the previous round's prose was superseded two runs ago) while
-    /// this line still counts, because the ring kept that round's fingerprints
-    /// — enough to say what changed, never enough to say what was said.
+    /// this line still counts, because the notes themselves are still in the
+    /// queue carrying the round that raised them.
     static func sinceLastRoundLine(
-        history: [RoundRecord], run: CompilerRun?, current: [Diagnostic]
+        history: [RoundRecord], run: CompilerRun?, annotations: [Annotation]
     ) -> String? {
         guard let run, let round = run.round, run.freshEyes != true else { return nil }
         guard let previous = history.last(where: {
             $0.passId == run.passId && $0.round != nil
         }), let previousNumber = previous.round, previousNumber == round - 1 else { return nil }
 
-        let outcome = RoundComparison.compare(previous: previous, current: current)
+        // The boundary is the record's own `at` — when the round this line is
+        // "since" was filed. Anything the writer settled before then was
+        // already reported, in the round they settled it in.
+        let outcome = SinceLastRound.compute(
+            annotations: annotations, lane: run.passId, currentRound: round,
+            previousRoundAt: previous.at)
         return "Since round \(previousNumber): \(outcome.resolved) resolved "
             + "\u{00b7} \(outcome.persisting) persisting \u{00b7} \(outcome.new) new"
     }

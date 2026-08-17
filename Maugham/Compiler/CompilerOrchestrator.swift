@@ -886,7 +886,7 @@ final class CompilerOrchestrator {
     /// **What the last round in this run's lane raised**, or `nil` when there
     /// is nothing this round can honestly be measured against.
     ///
-    /// The lane rule, in one place (`RoundComparison`'s decision 1): only a
+    /// The lane rule, in one place (`SinceLastRound`'s decision 1): only a
     /// prior round with the SAME `passId` briefs the next one. A passless ⌘R
     /// is an ordinary M2 run and is briefed on nothing; a run that opens a new
     /// lane starts clean, because the Line pass's findings are not what a

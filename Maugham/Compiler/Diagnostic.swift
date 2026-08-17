@@ -131,7 +131,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
     // M2 run rather than a degenerate round.
 
     /// The review pass the writer had active on this piece when the run
-    /// started — the round's **comparison lane** (`RoundComparison`'s decision
+    /// started — the round's **comparison lane** (`SinceLastRound`'s decision
     /// 1). `nil` is the passless lane, which is a lane of its own.
     var passId: String?
     /// Which round of that pass this run is, counting from 1. `nil` on a

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// A round's identity, as one finding rather than one note.
 ///
@@ -22,8 +23,8 @@ import Foundation
 /// (`Diagnostic.category`), never a free-form tag.
 ///
 /// Matching is struct equality; nothing here is fuzzy. `Hashable` (which is
-/// how it is `Equatable`) is what lets `RoundComparison` partition two rounds
-/// with set arithmetic rather than a quadratic walk.
+/// how it is `Equatable`) is what lets the mint's dedupe hold a round's
+/// findings in a `Set` rather than walk them quadratically.
 struct RoundFingerprint: Codable, Hashable, Sendable {
     /// `DiagnosticKind.rawValue`. A `String` rather than the enum because this
     /// is a stored wire shape whose whole job is to survive contracts the
@@ -36,9 +37,9 @@ struct RoundFingerprint: Codable, Hashable, Sendable {
     /// every other section — a strain and a continuity question have a
     /// `clauseQuote` doing this work. Optional and appended, so a `RoundRecord`
     /// written before M4 P1 decodes with it `nil` through the synthesised
-    /// `decodeIfPresent`; the ring holds conformance strains alone from this
-    /// milestone on, and a strain's category was and is `nil`, so no stored
-    /// record's identity moves.
+    /// `decodeIfPresent` — and a strain's category was and is `nil`, so no
+    /// stored record's identity moves. (Task 5 stopped the ring carrying
+    /// fingerprints at all; the tolerance is what keeps the old ones readable.)
     var category: String? = nil
 
     /// `nil` for a v1 note (`kind == nil`), which has no section and therefore
@@ -73,9 +74,15 @@ struct RoundFingerprint: Codable, Hashable, Sendable {
     /// annotation op's provenance is flat scalars (`Op.Provenance.
     /// compilerFingerprint`), so the mint stamps this string and the dedupe
     /// compares it. **One spelling, not two** — a second derivation of "the
-    /// same finding" is how the ring's arithmetic and the mint's dedupe come to
-    /// disagree about whether a question the model re-raised is the one already
-    /// open in front of the writer.
+    /// same finding" is how two readers come to disagree about whether a
+    /// question the model re-raised is the one already open in front of the
+    /// writer, and that disagreement is what mints them a duplicate.
+    ///
+    /// **The dedupe is now the ONLY reader of this string**, and that is what
+    /// makes the since-last-round count honest (Task 5): a re-raise never
+    /// reaches the queue as a second note, so the queue can be counted as it
+    /// stands rather than diffed against a stored record of what the last
+    /// round said.
     ///
     /// Reached only through `make`, so a note with no discriminator has no
     /// string either — it mints unstamped and the dedupe cannot see it, which
@@ -101,16 +108,23 @@ struct RoundFingerprint: Codable, Hashable, Sendable {
     }
 }
 
-/// One round that finished: which lane it belonged to, and what it found.
+/// One round that finished: which lane it belonged to, and **when**.
 ///
 /// Stored in `DiagnosticsStore`'s round ring, which outlives the supersession
 /// of the run record it came from — the notes of round N are gone the moment
-/// round N+1 replaces them, and their fingerprints are the only thing left to
-/// measure the new round against.
+/// round N+1 replaces them, and this is the only thing left that says the
+/// round happened at all.
 ///
-/// It carries fingerprints and nothing else of the notes: not their prose, not
-/// their ids. A ring that stored notes would be a second, stale copy of the
-/// register, and the comparison does not need one.
+/// **What it does NOT carry, since M4 P1 Task 5, is what the round found.**
+/// Two of the three kinds a round raises are annotations now, and a strain the
+/// writer answered is not "resolved" merely because the next run stopped
+/// saying it — so the distance between two rounds is counted off the queue
+/// (`SinceLastRound`), which is the account the writer can check against their
+/// own screen. A ring that also stored findings would be a second, staler
+/// account of the same thing, free to disagree with the first.
+///
+/// What survives of that is `at`: the instant this round was filed is the
+/// boundary the resolved half is measured from.
 struct RoundRecord: Codable, Equatable, Sendable {
     let runId: String
     let at: Date
@@ -121,6 +135,11 @@ struct RoundRecord: Codable, Equatable, Sendable {
     /// normally but mints no round number.
     let round: Int?
     let freshEyes: Bool?
+    /// **Legacy, and written empty.** Kept as a decoded field rather than
+    /// deleted so a sidecar written before Task 5 — every writer's, on the
+    /// build they are running now — still loads instead of failing whole and
+    /// telling them their document was never checked. Nothing reads it; every
+    /// new write carries `[]`, pinned as raw JSON by `RoundHistoryTests`.
     let fingerprints: [RoundFingerprint]
 
     init(runId: String, at: Date, passId: String?, round: Int?, freshEyes: Bool?,
@@ -139,49 +158,92 @@ struct RoundRecord: Codable, Equatable, Sendable {
     /// `DiagnosticsStore.standingRound` hands the run still standing to the
     /// briefing of the round about to begin. A second spelling is two ways to
     /// describe one round, and the pane's line and the model's briefing are
-    /// exactly the two things that must never disagree about what the last
-    /// round found.
-    init(run: CompilerRun, diagnostics: [Diagnostic]) {
+    /// exactly the two things that must never disagree about which round the
+    /// writer is in.
+    ///
+    /// It takes the run and nothing else. The run's DIAGNOSTICS used to come
+    /// with it, to be fingerprinted into the ring; Task 5 retired that, so a
+    /// caller has nothing left to hand over and cannot accidentally file a
+    /// second account of the round's findings.
+    init(run: CompilerRun) {
         self.init(runId: run.id, at: run.at, passId: run.passId, round: run.round,
-                  freshEyes: run.freshEyes,
-                  fingerprints: diagnostics.compactMap(RoundFingerprint.make(of:)))
+                  freshEyes: run.freshEyes, fingerprints: [])
     }
 }
 
-/// What changed between one round and the next, computed from records.
+/// **What a round changed, counted off the writer's own queue** (M4 P1 Task 5).
 ///
-/// Pure, on `DriftDetector`'s mould — no store, no dates, no I/O — for the
-/// same constitutional reason (spec §7): a pattern across runs is *computed
-/// from records on demand*, never accumulated by a background process.
+/// Pure, on `DriftDetector`'s mould — no store, no I/O, no notion of where
+/// annotations come from — for the same constitutional reason (spec §7): a
+/// pattern across runs is *computed from records on demand*, never accumulated
+/// by a background process.
 ///
-/// **A round's comparison lane is `(document, pass id)`** (decision 1). This
-/// type is handed the previous round to compare against; choosing WHICH record
-/// that is belongs to the caller, and the rule is "the most recent prior
-/// record with the same `passId`", where a passless run is its own lane. The
-/// pane and the briefing both come through here, so the two can never
-/// disagree about what resolved.
-enum RoundComparison {
+/// **This is the ONE spelling**, and the pane's sentence is the only thing on
+/// top of it. What it replaced was a comparison of two rounds' REPORTS, and
+/// that comparison could not survive M4 P1: continuity questions and reader
+/// reports leave the sidecar entirely now, and a finding the model simply
+/// stopped mentioning is not a finding the writer resolved. Counting the queue
+/// says something a writer can check — one settled, one still in front of you,
+/// one raised today — where diffing two reports said only what the model
+/// happened to repeat.
+///
+/// **The lane is `(document, pass id)`** (decision 1): a passless run is a lane
+/// of its own, never a wildcard, so a Proof round's notes take no part in a
+/// Line round's count. `annotations` is the whole document's queue in every
+/// state, and the filtering is here rather than at the caller precisely so the
+/// three counts cannot come from three differently-filtered lists.
+enum SinceLastRound {
     struct Outcome: Equatable {
-        /// In the previous round, gone from this one.
+        /// Raised in an earlier round of this lane, and settled since the
+        /// previous round was filed — stetted, rejected, accepted or archived.
         let resolved: Int
-        /// Raised in both.
+        /// Raised in an earlier round of this lane and still open: what the
+        /// writer is holding.
         let persisting: Int
-        /// Raised in this round only.
+        /// Minted by THIS round. A finding the model re-raised is not among
+        /// them — the mint's fingerprint dedupe refuses a second copy of a
+        /// note already open (`RoundFingerprint.stringValue`), so a re-raise
+        /// stays exactly one note and is counted once, as persisting.
         let new: Int
     }
 
-    /// `current` is this run's accepted diagnostics; notes with no fingerprint
-    /// (a v1 record) take no part.
-    ///
-    /// Both sides are deduped to distinct findings first: the model can name
-    /// one clause from two paragraphs' worth of prose, and counting the echoes
-    /// would report more new findings than the pane draws.
-    static func compare(previous: RoundRecord, current: [Diagnostic]) -> Outcome {
-        let before = Set(previous.fingerprints)
-        let now = Set(current.compactMap(RoundFingerprint.make(of:)))
-        return Outcome(
-            resolved: before.subtracting(now).count,
-            persisting: before.intersection(now).count,
-            new: now.subtracting(before).count)
+    /// - Parameters:
+    ///   - annotations: the document's queue, unfiltered by status. A caller
+    ///     that pre-filtered to `[.open]` would report zero resolved forever.
+    ///   - passId: the lane. `nil` is the passless lane and matches only notes
+    ///     stamped with no pass.
+    ///   - currentRound: the round the standing run minted under.
+    ///   - previousRoundAt: when the round before it was filed. **Resolved is
+    ///     measured from here, not from the beginning of time**: the queue
+    ///     holds every note this pass ever raised, so a count without the
+    ///     boundary would re-report the same settled note in every round for as
+    ///     long as the writer stayed in the pass.
+    static func compute(
+        annotations: [Annotation], lane passId: String?,
+        currentRound: Int, previousRoundAt: Date
+    ) -> Outcome {
+        var resolved = 0
+        var persisting = 0
+        var new = 0
+        for annotation in annotations {
+            // A note a person wrote is not this round's account of itself, and
+            // a compiler note with no round predates the stamps.
+            guard annotation.isCompilerAuthored,
+                  annotation.reviewPassId == passId,
+                  let round = annotation.compilerRound else { continue }
+            if round == currentRound {
+                new += 1
+            } else if round < currentRound {
+                if annotation.status == .open {
+                    // Including a triage-declined one: the mark sorts the
+                    // queue, it settles nothing, and the note is still there.
+                    persisting += 1
+                } else if let settledAt = annotation.resolvedAt,
+                          settledAt > previousRoundAt {
+                    resolved += 1
+                }
+            }
+        }
+        return Outcome(resolved: resolved, persisting: persisting, new: new)
     }
 }

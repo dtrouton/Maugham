@@ -44,11 +44,15 @@ final class DiagnosticsStore {
         /// written before this field existed decodes with an empty ring
         /// rather than a backfill from the standing run.
         var clauseHistory: [[DiagnosticIngest.ClauseStatus]]
-        /// The round ring: what each of the last `roundHistoryDepth` FINISHED
-        /// rounds found, as fingerprints, oldest→newest. Appended only by
-        /// `replace`, and only from the run it is about to supersede — a
-        /// round's notes are gone the moment the next round replaces them, and
-        /// these are the only thing left to measure the new round against.
+        /// The round ring: THAT each of the last `roundHistoryDepth` rounds
+        /// finished, which lane it was in and when, oldest→newest. Appended
+        /// only by `replace`, and only from the run it is about to supersede —
+        /// a round's notes are gone the moment the next round replaces them,
+        /// and this is the only thing left that says the round happened.
+        ///
+        /// **What it does not hold is what the rounds FOUND** (M4 P1 Task 5):
+        /// that is counted off the queue by `SinceLastRound`, whose boundary is
+        /// this record's `at`.
         var rounds: [RoundRecord]
 
         init(
@@ -208,8 +212,7 @@ final class DiagnosticsStore {
         // further down, so the flag `finishedContent` reads is still set here.
         let outgoing = finishedContent(docId: docId)
         if let outgoing {
-            rounds.append(RoundRecord(
-                run: outgoing.run, diagnostics: outgoing.diagnostics))
+            rounds.append(RoundRecord(run: outgoing.run))
             if rounds.count > Self.roundHistoryDepth {
                 rounds.removeFirst(rounds.count - Self.roundHistoryDepth)
             }
@@ -397,7 +400,7 @@ final class DiagnosticsStore {
 
     /// The rounds this document has finished, oldest→newest, capped at
     /// `roundHistoryDepth`. Every lane's rounds are in one ring; a caller
-    /// comparing rounds filters to its own `passId` (`RoundComparison`).
+    /// comparing rounds filters to its own `passId` (`SinceLastRound`).
     func roundHistory(docId: String) -> [RoundRecord] {
         byDoc[docId]?.rounds ?? []
     }
@@ -408,9 +411,9 @@ final class DiagnosticsStore {
     ///
     /// It is deliberately not the ring: a round's notes are gone the moment
     /// the next round replaces them, so the standing content is the only
-    /// place a previous round's PROSE still exists. The ring holds
-    /// fingerprints, which is enough to count what changed and not enough to
-    /// tell a model what was said.
+    /// place a previous round's PROSE still exists. The ring records that a
+    /// round happened and when — enough to date the boundary the pane's count
+    /// is measured from, and nothing about what was said.
     ///
     /// **Read at the keystroke, before the run's first section lands.** From
     /// the first closed line onward the standing content is this run's own
@@ -418,8 +421,7 @@ final class DiagnosticsStore {
     /// `finishedContent` is what makes an answer mid-preview still honest.
     func standingRound(docId: String) -> (record: RoundRecord, notes: [Diagnostic])? {
         guard let content = finishedContent(docId: docId) else { return nil }
-        return (RoundRecord(run: content.run, diagnostics: content.diagnostics),
-                content.diagnostics)
+        return (RoundRecord(run: content.run), content.diagnostics)
     }
 
     /// The most recent round number in `passId`'s lane for this document, or
