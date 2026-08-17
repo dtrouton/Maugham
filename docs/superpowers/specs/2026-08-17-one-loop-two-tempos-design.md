@@ -94,18 +94,34 @@ records this as an amendment to 0028 §3's framing: *the compiler reads and
 never writes — and its report is materialized by the app into the layers
 the writer already governs.*
 
-## 4. Pass briefs — one editorial doctrine, two readers
+## 4. Pass briefs and named editors — one editorial doctrine, two readers
 
-- `ReviewPass` gains `brief: String?` (Core, additive, tolerant decode).
-  Presets ship seeded briefs adapted from the editing-pass skill's
-  registers — Structural (structure, pacing, stakes, POV, whether scenes
-  earn their place; no sentence notes), Line (rhythm, diction, echoes,
-  filtering words, imagery), Copyedit (grammar, punctuation, continuity of
-  name/timeline/fact; **diegetic-error rule**: in an unconventional form,
-  apparent errors may be the piece's own — query, don't correct), Proof
-  (typos, layout artifacts, nothing else). A writer edits a pass's brief in
-  the pass editor; custom passes with no brief get the honest fallback:
-  *attend at the altitude the pass's name suggests*.
+- `ReviewPass` gains `brief: String?` and `editorName: String?` (Core,
+  additive, tolerant decode). Presets ship seeded briefs adapted from the
+  editing-pass skill's registers — Structural (structure, pacing, stakes,
+  POV, whether scenes earn their place; no sentence notes), Line (rhythm,
+  diction, echoes, filtering words, imagery), Copyedit (grammar,
+  punctuation, continuity of name/timeline/fact; **diegetic-error rule**:
+  in an unconventional form, apparent errors may be the piece's own —
+  query, don't correct), Proof (typos, layout artifacts, nothing else; its
+  brief advises running its rounds as **Fresh Eyes** — a reader who
+  remembers the manuscript cannot see its surface). A writer edits a
+  pass's brief in the pass editor; custom passes with no brief get the
+  honest fallback: *attend at the altitude the pass's name suggests*.
+- **Each pass's edits come from a named editor** (Denver's addition,
+  2026-08-17): presets ship as **Perkins** (Structural), **Lish** (Line),
+  **Gould** (Copyedit), and **Argus** (Proof) — homages, all renameable.
+  The name is honest, not paint: a pass's editor genuinely carries their
+  lane's memory (rounds, the writer's dispositions), and Argus on Fresh
+  Eyes is *always* a cold reader, which is exactly what a proofreader is.
+  The name goes three places: the **annotation author** on every note that
+  editor mints (the queue's existing author filter becomes "everything
+  Gould flagged"; margin cards get a byline), the **cockpit copy** ("Run
+  Gould's round 2 — ⌘R"), and the **briefing's role frame** ("You are
+  Gould, this manuscript's copyeditor"). A custom pass with no editor name
+  falls back to the pass name as author. Personality dials (strictness,
+  warmth, verbosity) are deliberately later — structured fields that
+  render into the brief, additive when they come (§10).
 - **The compiler embeds the active pass's brief** in the round briefing
   (spike-validated: attention follows the register; a copyedit round
   queried `AGNETS.MD` instead of correcting it).
@@ -161,9 +177,9 @@ as today.
 
 ## 7. Review's cockpit — trigger, progress, results in place
 
-- **The queue header becomes the round cockpit**: the active pass by name,
-  its round number, and the affordance that teaches the loop — *"Run
-  round N of <pass> (⌘R)"* — plus, while a run is in flight, the same
+- **The queue header becomes the round cockpit**: the active pass and its
+  editor by name, the round number, and the affordance that teaches the
+  loop — *"Run Gould's round N (⌘R)"* — plus, while a run is in flight, the same
   progress the pane shows ("Checking N paragraphs…"), and afterwards the
   report header: since-last-round counts and the drift line. Compact,
   report-natured, above the notes.
@@ -189,6 +205,8 @@ as today.
   a name-based fallback. (accepted with "Go", 2026-08-17)
 - The prompts were to be tested before being baked in — done, six-variant
   spike over Tribute, all five mechanisms validated. (2026-08-17)
+- Passes are personified as named editors, homage defaults
+  (Perkins/Lish/Gould/Argus), personality dials later. (2026-08-17)
 
 ## 9. Constitution check
 
@@ -210,15 +228,19 @@ as today.
 - Any new MCP tool; `review_passes.brief` is a widening of an existing
   read.
 - Model-tier changes (opus default, per-pass models).
+- Editor personality dials (strictness, warmth, verbosity) — later,
+  additive on `ReviewPass`, rendered into the brief.
 - Auto-resolving compiler annotations when a round stops raising them —
   the writer closes notes; the model only stops confirming.
 - Compiler-initiated runs of any kind; inline gutter marks.
 
 ## 11. Sequencing — two plans (rule 11: P1 built before P2 is written)
 
-- **P1 — the wire and the briefing**: `ReviewPass.brief` + preset briefs;
+- **P1 — the wire and the briefing**: `ReviewPass.brief`/`.editorName` +
+  preset briefs and editor names;
   compiler-annotation minting (op provenance: runId/round/freshEyes, pass
-  stamp, one-open-annotation rule) + the pane slimming that must land with
+  stamp, **author = the pass's editor**, one-open-annotation rule) + the
+  pane slimming that must land with
   it (one commit — a finding must never appear in both homes); the five
   briefing additions incl. dispositions/standing notes; ruling context
   (§6); ADR amendment.
