@@ -65,8 +65,9 @@ workflow the app enforces.
 Press **⌘R** — *Check Writing* — while a piece has an active pass, and the
 run is a numbered **round** in that pass's own count. The report leads with
 the distance travelled: *"Since round 4: 2 resolved · 1 persisting · 1 new"*
-— what the last round in this lane raised that's gone, what's still here,
-what's new. Round numbers are per pass, but the memory is the document's, not
+— counted from your own queue: notes from an earlier round of this pass
+that you've settled since the last one, notes from an earlier round still
+open in front of you, and notes this round raised. Round numbers are per pass, but the memory is the document's, not
 any one pass's: Maugham remembers a document's last six finished checks,
 across every pass it's been worked through. Run enough checks in other
 passes and a pass you haven't touched in a while ages out of that memory —

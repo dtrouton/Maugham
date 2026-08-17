@@ -182,7 +182,10 @@ public enum AnnotationDeriver {
                 language: language,
                 previousRejectionReason: previousRejectionReason,
                 triage: triage,
-                reviewPassId: prov?.reviewPassId))
+                reviewPassId: prov?.reviewPassId,
+                compilerRunId: prov?.compilerRunId,
+                compilerRound: prov?.compilerRound,
+                compilerFingerprint: prov?.compilerFingerprint))
         }
         // Newest first by createdAt; tie-break by op_id (descending) for
         // stable ordering of same-instant ops.

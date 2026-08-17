@@ -63,6 +63,19 @@ public struct Annotation: Equatable, Sendable, Identifiable {
     /// stamped on the creation op's provenance. Nil for every note written
     /// before passes existed, and for any written with no active pass.
     public let reviewPassId: String?
+    /// The compiler run that authored this note (M4 P1), stamped on the
+    /// creation op's provenance: which run, which numbered round within its
+    /// pass, and the fingerprint of the text that round judged. All nil for a
+    /// note a person wrote and for every note written before compiler
+    /// authorship existed. The run's Fresh Eyes flag is deliberately NOT
+    /// projected — it is a fact about the run, not about the note.
+    public let compilerRunId: String?
+    public let compilerRound: Int?
+    public let compilerFingerprint: String?
+
+    /// Did a compiler run write this note? The run id is the sole determinant:
+    /// the round and the fingerprint say WHICH run, never WHETHER.
+    public var isCompilerAuthored: Bool { compilerRunId != nil }
 
     public init(
         id: String, kind: AnnotationKind, paragraphId: String?,
@@ -75,7 +88,10 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         language: String? = nil,
         previousRejectionReason: String? = nil,
         triage: TriageMark? = nil,
-        reviewPassId: String? = nil
+        reviewPassId: String? = nil,
+        compilerRunId: String? = nil,
+        compilerRound: Int? = nil,
+        compilerFingerprint: String? = nil
     ) {
         self.id = id; self.kind = kind; self.paragraphId = paragraphId
         self.body = body; self.suggestedText = suggestedText
@@ -89,6 +105,9 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         self.previousRejectionReason = previousRejectionReason
         self.triage = triage
         self.reviewPassId = reviewPassId
+        self.compilerRunId = compilerRunId
+        self.compilerRound = compilerRound
+        self.compilerFingerprint = compilerFingerprint
     }
 }
 

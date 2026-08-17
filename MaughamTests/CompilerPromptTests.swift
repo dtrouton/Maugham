@@ -1,4 +1,5 @@
 // MaughamTests/CompilerPromptTests.swift
+import MaughamCore
 import XCTest
 @testable import Maugham
 
@@ -406,5 +407,548 @@ final class CompilerPromptTests: XCTestCase {
         else { return XCTFail("expected a section") }
         XCTAssertFalse(section.contains("<!--"))
         XCTAssertFalse(section.contains("-->"))
+    }
+
+    // MARK: - The pass's editor and brief (M4 P1 Task 4)
+
+    /// A lane as the run resolves it — through `ReviewPass`'s own
+    /// `effectiveEditorName`/`effectiveBrief`, which is what production does.
+    /// Spelled once here so a test naming "copyedit" gets Gould without
+    /// restating the resolution.
+    private func lane(_ passId: String) -> CompilerOrchestrator.ActivePass {
+        let pass = ReviewPass.presets.first { $0.id == passId }
+            ?? ReviewPass(id: passId, name: passId)
+        return CompilerOrchestrator.ActivePass(
+            id: pass.id, name: pass.name, editorName: pass.effectiveEditorName,
+            brief: pass.effectiveBrief)
+    }
+
+    /// **The role frame and the doctrine, in the model's own second person.**
+    /// A named editor is not paint: the round carries that editor's register,
+    /// and the brief is what says what the register attends to.
+    func test_thePassSectionCarriesTheEditorAndTheBrief() {
+        guard let section = CompilerPrompt.passSection(lane("copyedit"))
+        else { return XCTFail("a briefed lane must produce a section") }
+        XCTAssertTrue(section.contains("You are Gould"), section)
+        XCTAssertTrue(section.contains("Copyedit"), section)
+        let brief = try? XCTUnwrap(ReviewPass.presets.first { $0.id == "copyedit" }?.brief)
+        XCTAssertTrue(section.contains(brief ?? "\u{0}"),
+                      "the pass's own brief must travel verbatim; got \(section)")
+    }
+
+    /// A custom pass nobody has written a brief for gets the honest fallback
+    /// rather than silence: the name is the only doctrine there is, so the
+    /// altitude it suggests is what the round is told to read at.
+    func test_aPassWithNoBriefGetsTheAltitudeFallback() {
+        let custom = CompilerOrchestrator.ActivePass(
+            id: "vibes", name: "Vibes", editorName: "Marta", brief: nil)
+        guard let section = CompilerPrompt.passSection(custom)
+        else { return XCTFail("a briefless lane still frames its editor") }
+        XCTAssertTrue(section.contains("You are Marta"), section)
+        XCTAssertTrue(section.contains(CompilerPrompt.brieflessPassFallback), section)
+        XCTAssertTrue(section.contains("Vibes"),
+                      "the fallback's whole content is the pass's name; got \(section)")
+    }
+
+    /// A brief the writer emptied is a brief they do not have.
+    /// `ReviewPass.effectiveBrief` lets a stored empty string win over the
+    /// preset's doctrine — correct for resolution, and a blank line under the
+    /// role frame here.
+    func test_aBriefTheWriterEmptiedReadsAsNoBriefAtAll() {
+        let emptied = CompilerOrchestrator.ActivePass(
+            id: "copyedit", name: "Copyedit", editorName: "Gould", brief: "   ")
+        guard let section = CompilerPrompt.passSection(emptied)
+        else { return XCTFail("expected a section") }
+        XCTAssertTrue(section.contains(CompilerPrompt.brieflessPassFallback), section)
+        XCTAssertFalse(section.hasSuffix("\n"), section)
+    }
+
+    /// A passless \u{2318}R is an ordinary M2 run: no editor, no register, no
+    /// section. The message must read exactly as it did before passes existed.
+    func test_aPasslessRunHasNoPassSection() {
+        XCTAssertNil(CompilerPrompt.passSection(nil))
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], pass: nil,
+            previousBriefingHash: nil)
+        XCTAssertFalse(message.contains("You are "), message)
+    }
+
+    /// With the round section, between the listings and the delta — context
+    /// about the reading rather than part of the standing briefing above it.
+    func test_thePassSectionSitsBetweenTheListingsAndTheDelta() {
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
+            paletteListing: ["Villain sketch (card-xyz)"], pinnedListing: [],
+            pass: lane("copyedit"), previousBriefingHash: nil)
+        guard let listing = message.range(of: "Villain sketch (card-xyz)"),
+              let frame = message.range(of: "You are Gould"),
+              let delta = message.range(of: "This run's delta:")
+        else { return XCTFail("expected listings, pass frame and delta; got \(message)") }
+        XCTAssertLessThan(listing.lowerBound, frame.lowerBound)
+        XCTAssertLessThan(frame.lowerBound, delta.lowerBound)
+    }
+
+    // MARK: - The writer's dispositions (M4 P1 Task 4)
+
+    private static let standingQuestion = CompilerAnnotationDisposition(
+        fingerprint: "continuity\u{1f}the fog\u{1f}p1\u{1f}",
+        excerpt: "Has anyone said how long yet?", state: .standing, reason: nil)
+    private static let declinedReport = CompilerAnnotationDisposition(
+        fingerprint: "reader\u{1f}\u{1f}p2\u{1f}belief",
+        excerpt: "The reader stopped believing the fog.", state: .declined,
+        reason: "The fog is deliberately unmeasured.")
+
+    /// **The two halves say opposite things and must not be confused.** A
+    /// standing note is live — confirm it or let it resolve, but never raise
+    /// it again as news. A settled one is the writer's answer, and raising it
+    /// in any section is asking them to answer it twice.
+    func test_theDispositionsSectionPartitionsStandingFromSettled() {
+        guard let section = CompilerPrompt.dispositionsSection(
+            [Self.standingQuestion, Self.declinedReport])
+        else { return XCTFail("expected a section") }
+
+        XCTAssertTrue(section.contains(CompilerPrompt.standingNotesHeading), section)
+        XCTAssertTrue(section.contains(CompilerPrompt.settledNotesHeading), section)
+        XCTAssertTrue(section.contains("Has anyone said how long yet?"), section)
+        XCTAssertTrue(section.contains("DECLINED"), section)
+        XCTAssertTrue(section.contains("The fog is deliberately unmeasured."),
+                      "the writer's own reason is the whole point of briefing "
+                      + "the verdict; got \(section)")
+
+        guard let standing = section.range(of: "Has anyone said how long yet?"),
+              let standingHeading = section.range(of: CompilerPrompt.standingNotesHeading),
+              let settledHeading = section.range(of: CompilerPrompt.settledNotesHeading),
+              let settled = section.range(of: "The reader stopped believing the fog.")
+        else { return XCTFail("expected both partitions; got \(section)") }
+        XCTAssertLessThan(standingHeading.lowerBound, standing.lowerBound)
+        XCTAssertLessThan(standing.lowerBound, settledHeading.lowerBound)
+        XCTAssertLessThan(settledHeading.lowerBound, settled.lowerBound)
+    }
+
+    /// Every settled verdict is named, and each carries the writer's words
+    /// when they wrote any.
+    func test_everySettledVerdictHasItsOwnWord() {
+        let settled = [
+            CompilerAnnotationDisposition(
+                fingerprint: nil, excerpt: "A", state: .declined, reason: "no time"),
+            CompilerAnnotationDisposition(
+                fingerprint: nil, excerpt: "B", state: .stetted, reason: nil),
+            CompilerAnnotationDisposition(
+                fingerprint: nil, excerpt: "C", state: .rejected, reason: "wrong reading"),
+        ]
+        guard let section = CompilerPrompt.dispositionsSection(settled)
+        else { return XCTFail("expected a section") }
+        XCTAssertTrue(section.contains("DECLINED: no time"), section)
+        XCTAssertTrue(section.contains("STETTED"), section)
+        XCTAssertTrue(section.contains("REJECTED: wrong reading"), section)
+        XCTAssertFalse(section.contains(CompilerPrompt.standingNotesHeading),
+                       "a partition with nothing in it is a distinction the "
+                       + "model cannot use; got \(section)")
+    }
+
+    /// **A finding cannot be both live and answered.** The mint's dedupe stops
+    /// two OPEN notes sharing a fingerprint, but nothing stops an open note
+    /// sharing one with a settled twin — and briefing both would tell the
+    /// model to confirm and to forget the same thing. The live note wins:
+    /// it is the one in the writer's queue right now.
+    func test_aStandingFingerprintSilencesItsSettledTwin() {
+        let twin = CompilerAnnotationDisposition(
+            fingerprint: Self.standingQuestion.fingerprint,
+            excerpt: "An older wording of the same question.", state: .rejected,
+            reason: "answered in the draft")
+        guard let section = CompilerPrompt.dispositionsSection(
+            [Self.standingQuestion, twin])
+        else { return XCTFail("expected a section") }
+        XCTAssertTrue(section.contains("Has anyone said how long yet?"), section)
+        XCTAssertFalse(section.contains("An older wording of the same question."),
+                       "the settled twin of a standing finding must not be "
+                       + "briefed; got \(section)")
+        XCTAssertFalse(section.contains(CompilerPrompt.settledNotesHeading), section)
+    }
+
+    /// A note with no fingerprint is the anchorless kind — a doc-scoped craft
+    /// note — and this section is its ONLY duplicate guard on a warm round.
+    /// Two of them must both be briefed rather than collapsing into one
+    /// "nil" bucket.
+    func test_fingerprintlessNotesAreBriefedIndividually() {
+        let notes = [
+            CompilerAnnotationDisposition(
+                fingerprint: nil, excerpt: "The outline promised a scene.",
+                state: .standing, reason: nil),
+            CompilerAnnotationDisposition(
+                fingerprint: nil, excerpt: "The ending arrives twice.",
+                state: .standing, reason: nil),
+        ]
+        guard let section = CompilerPrompt.dispositionsSection(notes)
+        else { return XCTFail("expected a section") }
+        XCTAssertTrue(section.contains("The outline promised a scene."), section)
+        XCTAssertTrue(section.contains("The ending arrives twice."), section)
+    }
+
+    func test_aPieceWithNoCompilerNotesGetsNoDispositionsSection() {
+        XCTAssertNil(CompilerPrompt.dispositionsSection([]))
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], dispositions: [],
+            previousBriefingHash: nil)
+        XCTAssertFalse(message.contains(CompilerPrompt.standingNotesHeading), message)
+        XCTAssertFalse(message.contains(CompilerPrompt.settledNotesHeading), message)
+    }
+
+    /// **The settled list is capped and the standing list is not**, and the
+    /// asymmetry is deliberate: settled notes accumulate for the life of the
+    /// piece, while the standing ones are what the writer is holding right now
+    /// and are the duplicate guard the fresh path leans on. A truncated
+    /// standing list mints duplicates.
+    func test_theSettledListIsCappedAndSaysSo() {
+        let many = (0..<(CompilerPrompt.settledDispositionLimit + 3)).map { index in
+            CompilerAnnotationDisposition(
+                fingerprint: "fp-\(index)", excerpt: "Settled note \(index)",
+                state: .stetted, reason: nil)
+        }
+        guard let section = CompilerPrompt.dispositionsSection(many)
+        else { return XCTFail("expected a section") }
+        XCTAssertTrue(section.contains("Settled note 0"),
+                      "the newest settled notes are the ones briefed")
+        XCTAssertFalse(
+            section.contains("Settled note \(CompilerPrompt.settledDispositionLimit + 2)"),
+            "the cap did nothing; got \(section)")
+        XCTAssertTrue(section.contains("3 more"),
+                      "a silent truncation reads as a shorter history than the "
+                      + "writer has; got \(section)")
+    }
+
+    func test_manyStandingNotesAreAllBriefed() {
+        let many = (0..<(CompilerPrompt.settledDispositionLimit + 3)).map { index in
+            CompilerAnnotationDisposition(
+                fingerprint: "fp-\(index)", excerpt: "Standing note \(index)",
+                state: .standing, reason: nil)
+        }
+        guard let section = CompilerPrompt.dispositionsSection(many)
+        else { return XCTFail("expected a section") }
+        for index in 0..<(CompilerPrompt.settledDispositionLimit + 3) {
+            XCTAssertTrue(section.contains("Standing note \(index)"),
+                          "standing note \(index) was dropped; got \(section)")
+        }
+    }
+
+    /// A note's body is the model's own prose from an earlier round, so it can
+    /// be a paragraph long and it can carry an anchor comment if anything ever
+    /// let one through. Neither belongs in a briefing line.
+    func test_dispositionExcerptsAreCleanedAndShortened() {
+        let long = String(repeating: "word ", count: 200)
+        let note = CompilerAnnotationDisposition(
+            fingerprint: nil, excerpt: "<!-- \u{00b6}a1b2 -->\n\n" + long,
+            state: .standing, reason: nil)
+        guard let section = CompilerPrompt.dispositionsSection([note])
+        else { return XCTFail("expected a section") }
+        XCTAssertFalse(section.contains("<!--"), section)
+        XCTAssertFalse(section.contains("-->"), section)
+        XCTAssertLessThan(section.count, long.count,
+                          "the excerpt was embedded whole; got \(section.count) chars")
+        XCTAssertTrue(section.contains("\u{2026}"),
+                      "a shortened excerpt says it was shortened")
+    }
+
+    func test_theDispositionsSectionSitsBetweenTheListingsAndTheDelta() {
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
+            paletteListing: ["Villain sketch (card-xyz)"], pinnedListing: [],
+            dispositions: [Self.standingQuestion], previousBriefingHash: nil)
+        guard let listing = message.range(of: "Villain sketch (card-xyz)"),
+              let standing = message.range(of: CompilerPrompt.standingNotesHeading),
+              let delta = message.range(of: "This run's delta:")
+        else { return XCTFail("expected listings, dispositions and delta; got \(message)") }
+        XCTAssertLessThan(listing.lowerBound, standing.lowerBound)
+        XCTAssertLessThan(standing.lowerBound, delta.lowerBound)
+    }
+
+    /// **Neither new section may fold into the briefing hash**, for the round
+    /// section's own reason: both change with the writer rather than with the
+    /// declared world, so a hash covering either would never match its
+    /// predecessor and the essay, the declared world and the bible slice would
+    /// re-embed in full on every \u{2318}R.
+    func test_neitherThePassNorTheDispositionsFoldIntoTheBriefingHash() {
+        let world = makeWorld(clauses: [.init(quote: "Keep it wry.", check: "tone check")])
+        let facts = [makeFact(subject: "Kelly", fact: "Kelly grew up on the coast.")]
+
+        let (_, firstHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [], pass: nil, dispositions: [],
+            previousBriefingHash: nil)
+        XCTAssertNotNil(firstHash)
+
+        let (secondMessage, secondHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [], pass: lane("copyedit"),
+            dispositions: [Self.standingQuestion, Self.declinedReport],
+            previousBriefingHash: firstHash)
+
+        XCTAssertEqual(secondHash, firstHash,
+                       "the intent did not move; a pass or a disposition that "
+                       + "folded into the hash would re-embed the whole briefing "
+                       + "every round")
+        XCTAssertTrue(secondMessage.lowercased().contains("unchanged"))
+        XCTAssertFalse(secondMessage.contains("Essay text."))
+        XCTAssertTrue(secondMessage.contains("You are Gould"),
+                      "\u{2026}and both new sections still travel")
+        XCTAssertTrue(secondMessage.contains("Has anyone said how long yet?"))
+    }
+
+    // MARK: - The emitter: an Annotation becomes a disposition (M4 P1 Task 4)
+    //
+    // **The 1C-b lesson, one milestone on.** That slice shipped a rule whose
+    // renderer was tested from hand-built values while the EMITTER that made
+    // them had no test at all, so a half of the rule was unreachable and
+    // nothing was red. Every test above this line builds its own
+    // `CompilerAnnotationDisposition`; without the ones below, deleting
+    // `init?(annotation:)`'s authorship guard leaves the whole gate green
+    // while the writer's own notes — and Claude Desktop's — are briefed as
+    // "settled, do not raise again", instructing the model to suppress
+    // findings it never raised.
+
+    private func annotation(
+        id: String = "a-1",
+        body: String = "Has anyone said how long yet?",
+        status: AnnotationStatus,
+        userResponse: String? = nil,
+        resolvedAt: Date? = nil,
+        previousRejectionReason: String? = nil,
+        triage: TriageMark? = nil,
+        createdAt: Date = Date(timeIntervalSince1970: 0),
+        compilerRunId: String? = "run-1",
+        compilerFingerprint: String? = "continuity\u{1f}the fog\u{1f}p1\u{1f}"
+    ) -> Annotation {
+        Annotation(
+            id: id, kind: .query, paragraphId: "p1", body: body,
+            suggestedText: nil, priorText: nil, createdAt: createdAt,
+            createdBySession: nil, status: status, userResponse: userResponse,
+            resolvedAt: resolvedAt, isStale: false,
+            previousRejectionReason: previousRejectionReason, triage: triage,
+            compilerRunId: compilerRunId, compilerFingerprint: compilerFingerprint)
+    }
+
+    /// **Only what the compiler wrote.** The writer's own notes and Claude
+    /// Desktop's are theirs; briefing the model on what it must not re-raise
+    /// makes sense only for findings it raised, and telling it to suppress a
+    /// note it never wrote is telling it to ignore the piece.
+    func test_aNoteTheCompilerDidNotWriteIsNoDisposition() {
+        XCTAssertNil(CompilerAnnotationDisposition(
+            annotation: annotation(status: .open, compilerRunId: nil,
+                                   compilerFingerprint: nil)),
+            "a hand-written note reached the dispositions briefing")
+        XCTAssertNotNil(CompilerAnnotationDisposition(
+            annotation: annotation(status: .open)),
+            "control: the same note with a run id on it IS the compiler's")
+    }
+
+    /// The whole mapping, in one table — every status the projection has an
+    /// opinion about, and both branches of the reason chain.
+    func test_everyAnnotationStateMapsToItsDisposition() {
+        let settled = Date(timeIntervalSince1970: 100)
+        let cases: [(name: String, input: Annotation,
+                     expected: CompilerAnnotationDisposition?)] = [
+            ("open, untriaged",
+             annotation(status: .open),
+             .init(fingerprint: "continuity\u{1f}the fog\u{1f}p1\u{1f}",
+                   excerpt: "Has anyone said how long yet?", state: .standing,
+                   reason: nil)),
+            ("open, marked do \u{2014} still standing",
+             annotation(status: .open, triage: .do),
+             .init(fingerprint: "continuity\u{1f}the fog\u{1f}p1\u{1f}",
+                   excerpt: "Has anyone said how long yet?", state: .standing,
+                   reason: nil)),
+            ("open, marked decline \u{2014} no words anywhere",
+             annotation(status: .open, triage: .decline),
+             .init(fingerprint: "continuity\u{1f}the fog\u{1f}p1\u{1f}",
+                   excerpt: "Has anyone said how long yet?", state: .declined,
+                   reason: nil)),
+            // The second branch of `userResponse ?? previousRejectionReason`:
+            // a note the writer rejected with a reason, reopened, and has now
+            // marked decline. The reason is still part of this note's record
+            // (RULING-31) and is the only prose the decline has.
+            ("open, marked decline, carrying a prior rejection's reason",
+             annotation(status: .open, previousRejectionReason: "The fog is on purpose.",
+                        triage: .decline),
+             .init(fingerprint: "continuity\u{1f}the fog\u{1f}p1\u{1f}",
+                   excerpt: "Has anyone said how long yet?", state: .declined,
+                   reason: "The fog is on purpose.")),
+            ("stetted \u{2014} the words stand",
+             annotation(status: .stetted, userResponse: "It reads right to me.",
+                        resolvedAt: settled),
+             .init(fingerprint: "continuity\u{1f}the fog\u{1f}p1\u{1f}",
+                   excerpt: "Has anyone said how long yet?", state: .stetted,
+                   reason: "It reads right to me.")),
+            ("rejected \u{2014} settled no",
+             annotation(status: .rejected, userResponse: "Wrong reading.",
+                        resolvedAt: settled),
+             .init(fingerprint: "continuity\u{1f}the fog\u{1f}p1\u{1f}",
+                   excerpt: "Has anyone said how long yet?", state: .rejected,
+                   reason: "Wrong reading.")),
+            // A live resolution's own words win over the history.
+            ("rejected with both \u{2014} the live response wins",
+             annotation(status: .rejected, userResponse: "Wrong reading.",
+                        resolvedAt: settled,
+                        previousRejectionReason: "An older no."),
+             .init(fingerprint: "continuity\u{1f}the fog\u{1f}p1\u{1f}",
+                   excerpt: "Has anyone said how long yet?", state: .rejected,
+                   reason: "Wrong reading.")),
+            // The writer ACTED on it: the prose it named has moved, so the
+            // finding is either gone or honestly news again.
+            ("accepted \u{2014} nothing to brief",
+             annotation(status: .accepted, resolvedAt: settled), nil),
+            // Set aside unread, so there is no verdict to state on the
+            // writer's behalf.
+            ("archived \u{2014} nothing to brief",
+             annotation(status: .archived, resolvedAt: settled), nil),
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                CompilerAnnotationDisposition(annotation: testCase.input),
+                testCase.expected, testCase.name)
+        }
+    }
+
+    /// **The cap must spend its words on what the writer settled most
+    /// recently, not on what the model raised most recently.** The two orders
+    /// come apart the moment a writer works through a backlog:
+    /// `Document.annotations` is `createdAt`-descending, and a question raised
+    /// in round 1 and answered this morning is the one whose prose they are
+    /// still near.
+    func test_settledDispositionsAreOrderedByWhenTheyWereSettled() {
+        let raisedLate = annotation(
+            id: "late-raise", body: "Raised yesterday, settled last week.",
+            status: .rejected, userResponse: "no",
+            resolvedAt: Date(timeIntervalSince1970: 100),
+            createdAt: Date(timeIntervalSince1970: 90),
+            compilerFingerprint: "fp-late-raise")
+        let settledLate = annotation(
+            id: "late-settle", body: "Raised long ago, settled this morning.",
+            status: .rejected, userResponse: "no",
+            resolvedAt: Date(timeIntervalSince1970: 900),
+            createdAt: Date(timeIntervalSince1970: 10),
+            compilerFingerprint: "fp-late-settle")
+
+        // Arrival order is `Document.annotations`' own: newest CREATED first.
+        let gathered = CompilerAnnotationDisposition.gather(
+            from: [raisedLate, settledLate])
+        XCTAssertEqual(gathered.map(\.excerpt),
+                       ["Raised long ago, settled this morning.",
+                        "Raised yesterday, settled last week."],
+                       "the settled half must be ordered by resolution, not by "
+                       + "the order it arrived in")
+
+        guard let section = CompilerPrompt.dispositionsSection(gathered),
+              let first = section.range(of: "Raised long ago"),
+              let second = section.range(of: "Raised yesterday")
+        else { return XCTFail("expected both settled notes in the section") }
+        XCTAssertLessThan(first.lowerBound, second.lowerBound,
+                          "…and the section renders what it is handed")
+    }
+
+    /// A triage decline is a mark, not a resolution, so it has no date to sort
+    /// on: it follows every dated verdict, and ties fall back on arrival order
+    /// rather than on nothing — `sorted(by:)` is not stable, and an unstable
+    /// order would reshuffle the briefing between two runs with nothing
+    /// changed.
+    func test_undatedDeclinesSortAfterDatedVerdictsAndKeepArrivalOrder() {
+        let declineA = annotation(
+            id: "d-a", body: "Decline A", status: .open, triage: .decline,
+            compilerFingerprint: "fp-a")
+        let declineB = annotation(
+            id: "d-b", body: "Decline B", status: .open, triage: .decline,
+            compilerFingerprint: "fp-b")
+        let rejected = annotation(
+            id: "r", body: "Rejected", status: .rejected, userResponse: "no",
+            resolvedAt: Date(timeIntervalSince1970: 5),
+            compilerFingerprint: "fp-r")
+
+        XCTAssertEqual(
+            CompilerAnnotationDisposition
+                .gather(from: [declineA, declineB, rejected]).map(\.excerpt),
+            ["Rejected", "Decline A", "Decline B"])
+        XCTAssertEqual(
+            CompilerAnnotationDisposition
+                .gather(from: [declineB, declineA, rejected]).map(\.excerpt),
+            ["Rejected", "Decline B", "Decline A"],
+            "arrival order is the tie-break, and it must be honoured rather "
+            + "than reshuffled")
+    }
+
+    /// The standing half is neither sorted nor capped: it is what the writer
+    /// is holding, its order is the deriver's, and truncating it mints
+    /// duplicates.
+    func test_gatherPutsStandingFirstAndLeavesItsOrderAlone() {
+        let standingA = annotation(id: "s-a", body: "Standing A", status: .open,
+                                   compilerFingerprint: "fp-sa")
+        let standingB = annotation(id: "s-b", body: "Standing B", status: .open,
+                                   compilerFingerprint: "fp-sb")
+        let settled = annotation(id: "x", body: "Settled", status: .stetted,
+                                 resolvedAt: Date(timeIntervalSince1970: 5),
+                                 compilerFingerprint: "fp-x")
+        XCTAssertEqual(
+            CompilerAnnotationDisposition
+                .gather(from: [settled, standingA, standingB]).map(\.excerpt),
+            ["Standing A", "Standing B", "Settled"])
+    }
+
+    /// A long free-text rejection reason is the writer's own prose in a field
+    /// with no length rule, and a newline in it breaks one bullet into what
+    /// reads as several notes.
+    func test_aReasonIsShortenedAndCollapsedLikeAnExcerpt() {
+        let note = CompilerAnnotationDisposition(
+            fingerprint: nil, excerpt: "Short enough.", state: .rejected,
+            reason: "Because\nof\nreasons. " + String(repeating: "word ", count: 200))
+        guard let section = CompilerPrompt.dispositionsSection([note])
+        else { return XCTFail("expected a section") }
+        XCTAssertEqual(section.components(separatedBy: "\n")
+            .filter { $0.hasPrefix("- ") }.count, 1,
+            "the reason's newlines split one note into several; got \(section)")
+        XCTAssertTrue(section.contains("\u{2026}]"),
+                      "a shortened reason says it was shortened; got \(section)")
+    }
+
+    // MARK: - The spike's three disciplines (M4 P1 Task 4)
+
+    /// The three instruction-side additions ride the schema's own surrounding
+    /// prose, so they reach every run — warm, cold, passless alike. Pinned by
+    /// distinctive phrase rather than whole text: the wording is the author's
+    /// to improve, the discipline is not.
+    func test_theSchemaCarriesTheReaderBarTheDedupAndTheDriftStabilizer() {
+        let schema = CompilerPrompt.sectionSchemaDescription
+        for instruction in [CompilerPrompt.formOnItsOwnTermsInstruction,
+                            CompilerPrompt.readerBarInstruction,
+                            CompilerPrompt.crossSectionDedupInstruction,
+                            CompilerPrompt.driftStabilizerInstruction] {
+            XCTAssertTrue(schema.contains(instruction),
+                          "the schema stopped carrying: \(instruction)")
+        }
+        // The disciplines themselves, by the phrase each turns on.
+        XCTAssertTrue(CompilerPrompt.readerBarInstruction.contains("empty"),
+                      "the reader bar's whole job is to make an empty array the "
+                      + "expected answer")
+        // **Not scoped to the reader section** (M4 P1 review, minor 6): an
+        // unconventional form is mistaken for a mistake in all four, and the
+        // copyedit register is where it bites hardest.
+        XCTAssertTrue(CompilerPrompt.formOnItsOwnTermsInstruction
+            .contains("every section"))
+        XCTAssertFalse(CompilerPrompt.readerBarInstruction
+            .contains("unconventional"),
+            "the form rule must not be scoped to the reader section")
+        XCTAssertTrue(CompilerPrompt.crossSectionDedupInstruction
+            .contains("One issue gets one entry"))
+        XCTAssertTrue(CompilerPrompt.driftStabilizerInstruction
+            .lowercased().contains("direction"))
+    }
+
+    /// **The five lines did not move.** The disciplines are instruction text
+    /// around the schema; the contract `DiagnosticIngest` parses is byte-for-
+    /// byte what it was.
+    func test_theDisciplinesAddedNoSixthSection() {
+        let templateLines = CompilerPrompt.sectionSchemaDescription
+            .components(separatedBy: "\n")
+            .filter { $0.contains("\"section\":") }
+        XCTAssertEqual(templateLines.count, 5)
     }
 }

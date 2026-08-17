@@ -4,13 +4,22 @@ import MaughamCore
 /// The compiler's report on the open document — Author's own pane, reached by
 /// ⌘⌥D or by leading its picker (`Persona.author.panes`).
 ///
-/// **It reads as a report, in the second draft's order** (spec §5): the
-/// conformance summary first — every clause the writer declared, quoted back in
-/// their own words, each holding or straining or silent — then the continuity
-/// questions, then the reader's report. The summary renders whether or not a
-/// single note came with it, because a run whose clauses all hold is not an
-/// empty pane: it is the good outcome, and a pane that showed nothing for it
-/// would say the check never happened.
+/// **It reads as a report about the writer's own clauses, and nothing else**
+/// (spec §5, narrowed by M4 P1): the conformance summary — every clause the
+/// writer declared, quoted back in their own words, each holding or straining
+/// or silent. The summary renders whether or not a single note came with it,
+/// because a run whose clauses all hold is not an empty pane: it is the good
+/// outcome, and a pane that showed nothing for it would say the check never
+/// happened.
+///
+/// **The continuity questions and the reader's report used to follow it here,
+/// and no longer do.** They are findings about the WORDS: they outlive the run
+/// that raised them, the writer answers them the way they answer every other
+/// note about their prose, and a per-device sidecar the next check wholly
+/// supersedes is the wrong place for either. They now mint as pass-stamped
+/// annotations at the end of a run (`CompilerOrchestrator.finish` →
+/// `Environment.mintAnnotations`). One finding, one home — a pane that still
+/// drew them would ask the writer to answer the same question in two places.
 ///
 /// The register is Maugham's: nothing here bounces, nags, or apologises for
 /// what it found. A clean run says so plainly; a failed one names what went
@@ -141,23 +150,81 @@ struct DiagnosticsPane: View {
         return diagnostics.roundHistory(docId: docId)
     }
 
-    /// The three note kinds, split into the sections that render them.
+    /// **The open document's queue, in every state** — what the
+    /// since-last-round line is counted from (M4 P1 Task 5).
     ///
-    /// A note whose `kind` is `nil` belongs to none of them — and cannot reach
-    /// here: `DiagnosticsStore.load` drops v1 records as superseded, and this
-    /// pane calls `load` in its own `onAppear`.
+    /// Read through `activeDocument`, which this pane already holds for
+    /// `promote()` and the cold-start offer, and gated on `annotationsVersion`
+    /// on `AnnotationsPane`'s own idiom, so a note the writer stets in the
+    /// other column moves the sentence rather than leaving it stale until the
+    /// next check. Unfiltered by status deliberately: a `[.open]` filter here
+    /// would make "resolved" permanently zero.
+    ///
+    /// **The `annotationsVersion` line is insurance, and measured as such.**
+    /// Today it is redundant: `Document` is `@Observable` with no
+    /// `@ObservationIgnored` anywhere, so `annotations(filter:)`'s own read of
+    /// `_annotationsCacheValid` already registers the dependency, and deleting
+    /// this line leaves the suite green (M4 P1 Task 5 review, Important 2 —
+    /// measured, not assumed). What it buys is that the pane does not depend on
+    /// a CACHE INTERNAL staying observable: mark those two properties
+    /// `@ObservationIgnored` — a plausible perf change, since the lazy rebuild
+    /// writes observable state during body evaluation — and this line is the
+    /// only thing left holding the seam up. Both halves were run:
+    /// `test_theSinceLastRoundLineFollowsAStetWithoutAnotherCheck` goes red
+    /// with the cache ignored AND this line gone, and green with the cache
+    /// ignored and this line present. Keep it; the test pins the behaviour
+    /// under either mechanism.
+    ///
+    /// Empty when there is no document behind the pane — which is a legitimate
+    /// reading (three zeroes), not a missing one.
+    ///
+    /// **And empty when the document is not the one this pane is about.**
+    /// `activeDocument` is the window's active document while `docId` is what
+    /// this pane was constructed for; the one production caller passes both
+    /// from the same subject, but nothing in the type says so. Counting
+    /// another document's notes would be a silently WRONG sentence — a number
+    /// the writer cannot account for from anything on their screen — where a
+    /// mismatch caught here is merely no sentence. (`promote()` makes the same
+    /// assumption and is left alone: that is a pre-existing question about
+    /// where a note lands, not about what this line counts.)
+    private var queueAnnotations: [Annotation] {
+        guard let document = activeDocument(), document.docId == docId else { return [] }
+        _ = document.annotationsVersion
+        return document.annotations(filter: AnnotationFilter(statuses: nil))
+    }
+
+    /// **The one note kind this pane draws** (M4 P1 Task 3).
+    ///
+    /// A conformance strain is read beside the clause it strains against, so
+    /// the report is where it belongs. The other two kinds left: a continuity
+    /// question and a reader's report are about the WORDS, they outlive the
+    /// check that raised them, and they now mint as annotations — one finding,
+    /// one home. A run no longer puts either in the sidecar; the filter is what
+    /// keeps a sidecar written by an older build from drawing a row this pane
+    /// has no section for.
+    ///
+    /// A note whose `kind` is `nil` is filtered out here too — and cannot reach
+    /// here anyway: `DiagnosticsStore.load` drops v1 records as superseded, and
+    /// this pane calls `load` in its own `onAppear`.
     private var strains: [Diagnostic] { rows.filter { $0.kind == .conformanceStrain } }
-    private var questions: [Diagnostic] { rows.filter { $0.kind == .continuity } }
-    private var readerReports: [Diagnostic] { rows.filter { $0.kind == .readerReport } }
 
     /// Is there a report to draw at all? **Clauses count even with no notes** —
     /// that is the clean conformance report, and it is the outcome the writer
     /// most wants to see.
-    private var hasReport: Bool { !clauses.isEmpty || !rows.isEmpty }
+    ///
+    /// Measured on `strains` rather than `rows`, for the reason above: a legacy
+    /// sidecar holding only continuity notes would otherwise claim a report and
+    /// then draw nothing at all.
+    private var hasReport: Bool { !clauses.isEmpty || !strains.isEmpty }
 
     private var state: HeaderState {
+        // **`strains`, not `rows`** (M4 P1): the header describes the report
+        // the writer is looking at, and since the slimming `rows` can hold
+        // notes this pane does not draw (a sidecar written by an older build).
+        // Counting those made `.idle` reachable over an empty pane, where its
+        // copy says the compiler found nothing to raise.
         Self.headerState(runState: orchestrator.runState, lastRun: lastRun,
-                          noteCount: rows.count, docId: docId)
+                          noteCount: strains.count, docId: docId)
     }
 
     /// Whether the rows on screen may be acted on — read through `state`, which
@@ -384,7 +451,16 @@ struct DiagnosticsPane: View {
         case .failed(let failure, _):
             return failureCopy(failure)
         case .clean(let run):
-            let line = "Nothing to flag. Last checked \(relative(run.at))."
+            // **`.clean` means this PANE has nothing to show, which is not the
+            // same as the run having found nothing** (M4 P1). A run that raised
+            // three continuity questions and no conformance strain leaves this
+            // store empty and the writer's queue three notes fuller; "Nothing
+            // to flag" over it is the surface affirming a falsehood. The
+            // queued sentence therefore REPLACES the seal rather than being
+            // appended to it — the two cannot both be true.
+            let opening = queuedNotesSentence(run.mintedNotes)
+                ?? "Nothing to flag"
+            let line = "\(opening). Last checked \(relative(run.at))."
             // Appended rather than interleaved: the standing sentence is the
             // one the writer reads at a glance, and this is the footnote to it.
             guard let discarded = discardedNotesSentence(run.droppedDangling) else {
@@ -442,6 +518,24 @@ struct DiagnosticsPane: View {
         }
     }
 
+    /// **What a run put in the queue**, or `nil` when it put nothing there —
+    /// the one spelling, read by the header and by the empty state, on
+    /// `discardedNotesSentence`'s rule that two sentences about the same fact
+    /// are two sentences that can disagree.
+    ///
+    /// `nil` for `nil` as well as for zero: a record written before the field
+    /// existed, and a preview, both know nothing about a mint, and a surface
+    /// must not claim "0 notes went to the queue" on their behalf.
+    ///
+    /// It names the destination rather than the count alone, because the
+    /// writer has to know WHERE to go and this pane is not it.
+    static func queuedNotesSentence(_ count: Int?) -> String? {
+        guard let count, count > 0 else { return nil }
+        return count == 1
+            ? "1 note went to your queue"
+            : "\(count) notes went to your queue"
+    }
+
     private static func relative(_ date: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
@@ -473,17 +567,45 @@ struct DiagnosticsPane: View {
 
     // MARK: - Content
 
+    /// **The two round lines sit ABOVE the report/no-report fork, not inside
+    /// the report** (M4 P1 Task 5 review, Important 1).
+    ///
+    /// They used to live in the report arm alone, which put them out of reach
+    /// in the one state that needs them most: a round in a pass over a piece
+    /// with no declared intent raises no clauses and no strains, so `hasReport`
+    /// is false — and since Task 3 that round's whole output is in the queue,
+    /// with nothing at all on this pane. The empty state's own copy says only
+    /// how many notes were queued, which is the `new` count and nothing else;
+    /// what became of the last round's findings had no surface. Every one of
+    /// the three counts is about notes the pane does not draw, so there is
+    /// nothing about "having a report" that the sentence depends on.
+    ///
+    /// Both lines are `nil` unless there is a round to speak about, so the
+    /// cold-start and never-run states are untouched.
+    ///
+    /// **Tripwire 15 is why this is a wrapper and not a loosened chain.** The
+    /// `ContentUnavailableView` keeps its own
+    /// `.frame(maxWidth: .infinity, maxHeight: .infinity)` verbatim — it is
+    /// what stops the pane's toolbar floating to window centre, has recurred
+    /// 4+ times, and is grep-enforced — and the `VStack` that now encloses it
+    /// carries the top alignment the tripwire's second half asks for. The
+    /// lines are intrinsically sized; the empty view is what expands.
     @ViewBuilder
     private var content: some View {
         if showsColdStartOffer {
             coldStartOffer
         } else if !hasReport {
-            let empty = Self.emptyState(for: state)
-            ContentUnavailableView(
-                empty.title,
-                systemImage: empty.symbol,
-                description: Text(empty.description))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(alignment: .leading, spacing: 0) {
+                freshEyesLine
+                roundLine
+                let empty = Self.emptyState(for: state)
+                ContentUnavailableView(
+                    empty.title,
+                    systemImage: empty.symbol,
+                    description: Text(empty.description))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -491,8 +613,6 @@ struct DiagnosticsPane: View {
                     roundLine
                     driftLine
                     conformanceSection
-                    continuitySection
-                    readerSection
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -532,18 +652,23 @@ struct DiagnosticsPane: View {
     }
 
     /// **The report leads with the distance travelled** (spec §6): what the
-    /// last round in this lane raised that is gone, what is still here, and
-    /// what is new. Above the drift line and above the conformance summary,
-    /// because it is the sentence a writer in a review pass reads first.
+    /// writer has settled since the last round in this lane, what is still in
+    /// front of them, and what this round raised. Above the drift line and
+    /// above the conformance summary, because it is the sentence a writer in a
+    /// review pass reads first — and above the empty state too, for the same
+    /// reason (`content`).
     ///
-    /// Not a button and not a `Diagnostic`: there is nowhere for it to go —
-    /// the notes it counts are drawn immediately below it — and nothing to
-    /// dismiss. The next round replaces it; a round that cannot be compared
-    /// simply has no line. See `sinceLastRoundLine`.
+    /// Not a button and not a `Diagnostic`: there is nothing to dismiss, and
+    /// nowhere for it to go that would be right. **The notes it counts are not
+    /// on this pane at all** since Task 3 — they are in the queue — so the
+    /// obvious link would be to the Notes pane, and the obvious link is wrong:
+    /// the sentence is about three different sets of notes at once and could
+    /// only travel to one of them. The next round replaces it; a round that
+    /// cannot be compared simply has no line. See `sinceLastRoundLine`.
     @ViewBuilder
     private var roundLine: some View {
         if let line = Self.sinceLastRoundLine(
-            history: roundHistory, run: lastRun, current: rows) {
+            history: roundHistory, run: lastRun, annotations: queueAnnotations) {
             Text(line)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -638,38 +763,14 @@ struct DiagnosticsPane: View {
         }
     }
 
-    @ViewBuilder
-    private var continuitySection: some View {
-        if !questions.isEmpty {
-            PaneSectionHeader(title: "Continuity") { EmptyView() }
-            ForEach(questions) { note in
-                noteRow(note)
-                Divider()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var readerSection: some View {
-        if !readerReports.isEmpty {
-            PaneSectionHeader(title: "The reader") { EmptyView() }
-            ForEach(readerReports) { note in
-                noteRow(note)
-                Divider()
-            }
-            // **One sentence, and nothing else.** The schema caps the reader at
-            // its sharpest three; how many it went over is the model's business,
-            // not the writer's, and a count here would read as something they
-            // had lost.
-            if let truncated = lastRun?.truncatedReader, truncated > 0 {
-                Text("The reader had more to say.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            }
-        }
-    }
+    // **The Continuity and "The reader" sections are gone** (M4 P1 Task 3),
+    // and with them the reader's truncation sentence. Both kinds now mint as
+    // annotations at the end of a run, so the writer answers them where every
+    // other note about their prose lives — in the queue, under the round and
+    // the editor that raised them, surviving the next check. A pane that still
+    // drew them would be the second home this milestone exists to close.
+    // `CompilerRun.truncatedReader` is still recorded; nothing reads it here,
+    // because the sentence belongs beside the reports it is about.
 
     @ViewBuilder
     private func noteRow(_ diagnostic: Diagnostic) -> some View {
@@ -729,17 +830,23 @@ struct DiagnosticsPane: View {
         return (rows, orphans)
     }
 
-    // MARK: - Since last round (spec §6; the comparison itself is `RoundComparison`)
+    // MARK: - Since last round (spec §6; the arithmetic is `SinceLastRound`)
 
     /// **"Since round N−1: X resolved · Y persisting · Z new"**, or `nil` when
     /// this run is not a round that can be compared.
     ///
     /// Pure and static on `driftNote`'s mould, and for the same reason: the
-    /// sentence is the pane's, the arithmetic is not. `RoundComparison.compare`
-    /// is the ONE spelling of what matches what — the model rewords a finding
-    /// every time it raises it, so a comparison written here against note prose
-    /// would report every persisting note as one resolved plus one new, and the
-    /// briefing and the line would then disagree about the same round.
+    /// sentence is the pane's, the arithmetic is not. `SinceLastRound.compute`
+    /// is the ONE spelling of the three counts.
+    ///
+    /// **What it counts is the writer's QUEUE, not two rounds' reports** (M4
+    /// P1 Task 5). Two of the three kinds a round raises are annotations now,
+    /// so the sidecar no longer holds a round's findings to diff against — and
+    /// diffing them was never right: the model rewords a finding every time it
+    /// raises it, and a finding it simply stopped mentioning is not one the
+    /// writer resolved. What the line says now is what they can check against
+    /// their own screen — one settled since the last round, one still in front
+    /// of them, one raised today.
     ///
     /// Silent in three cases:
     ///
@@ -759,24 +866,29 @@ struct DiagnosticsPane: View {
     ///   last round would be an artifact of the reading rather than of the
     ///   draft. Its header says what it is instead.
     ///
-    /// `current` is what the pane is DRAWING (`rows`), not the run's whole
-    /// stored report: a note the writer has edited behind is not on screen,
-    /// and counting it as persisting would name something invisible.
+    /// `annotations` is the open document's queue in EVERY state — the
+    /// filtering is `SinceLastRound`'s, and a caller that pre-filtered to open
+    /// notes would report zero resolved forever.
     ///
     /// **This line and the run's own briefing can differ, and both are
     /// honest.** A writer who steps out of a lane and back is briefed on
     /// nothing (the previous round's prose was superseded two runs ago) while
-    /// this line still counts, because the ring kept that round's fingerprints
-    /// — enough to say what changed, never enough to say what was said.
+    /// this line still counts, because the notes themselves are still in the
+    /// queue carrying the round that raised them.
     static func sinceLastRoundLine(
-        history: [RoundRecord], run: CompilerRun?, current: [Diagnostic]
+        history: [RoundRecord], run: CompilerRun?, annotations: [Annotation]
     ) -> String? {
         guard let run, let round = run.round, run.freshEyes != true else { return nil }
         guard let previous = history.last(where: {
             $0.passId == run.passId && $0.round != nil
         }), let previousNumber = previous.round, previousNumber == round - 1 else { return nil }
 
-        let outcome = RoundComparison.compare(previous: previous, current: current)
+        // The boundary is the record's own `at` — when the round this line is
+        // "since" was filed. Anything the writer settled before then was
+        // already reported, in the round they settled it in.
+        let outcome = SinceLastRound.compute(
+            annotations: annotations, lane: run.passId, currentRound: round,
+            previousRoundAt: previous.at)
         return "Since round \(previousNumber): \(outcome.resolved) resolved "
             + "\u{00b7} \(outcome.persisting) persisting \u{00b7} \(outcome.new) new"
     }
@@ -811,8 +923,9 @@ struct DiagnosticsPane: View {
     /// `DriftDetector.drift` reports it (the newest run's own clause order).
     /// With more than one, "and one more" says a second is drifting without
     /// counting how many — two findings and five read identically, the same
-    /// discipline `readerSection`'s "The reader had more to say." keeps: how
-    /// many is forensic detail the writer did not ask for.
+    /// discipline the pane's now-deleted reader section once kept with its
+    /// own "The reader had more to say." line (M4 P1 Task 3): how many is
+    /// forensic detail the writer did not ask for.
     ///
     /// **No count beyond the fixed "three runs" is ever spoken**, either —
     /// not `DriftFinding.runsStraining`'s true streak length, which the
@@ -874,32 +987,31 @@ struct DiagnosticsPane: View {
         }
     }
 
-    /// The reader section's own two-valued kind, as words — and **nothing
-    /// else**. v2 mints no free-form category (spec §5: the tag is "removed
-    /// from the shipped design"), so a value from anywhere but the schema
-    /// renders no label at all rather than putting the old tag back on the pane
-    /// through a side door.
-    static func readerKindLabel(_ category: String?) -> String? {
-        switch category {
-        case DiagnosticIngest.SectionField.dreamBreak: return "Dream break"
-        case DiagnosticIngest.SectionField.belief: return "Belief"
-        default: return nil
-        }
-    }
+    // **`readerKindLabel` is gone with the section it labelled** (M4 P1
+    // Task 3). `Diagnostic.category` is set by the ingest for a reader report
+    // and for nothing else, and a reader report no longer reaches this pane —
+    // so the label had no row left to sit above. The reader's two kinds are
+    // still CONTENT and still parsed (`DiagnosticIngest.SectionField
+    // .dreamBreak`/`.belief`); what changed is where the report is read.
 
-    /// **Which notes offer to be answered** — the questions, and only them
-    /// (spec §5's fates).
+    /// **Which notes offer to be answered** — a conformance strain, and only
+    /// it (spec §5's fates, narrowed by M4 P1 Task 3).
     ///
-    /// A conformance strain and a continuity question both ask the writer
-    /// something, and the writer's reply to either is a decision: it lands as a
-    /// ruling. A reader report is not a question — "I stopped believing her
-    /// here" has no answer to rule on — and a reply field under one would invite
-    /// the writer to argue with a reader, which is not a decision that belongs
-    /// in the declared world.
+    /// A conformance strain is read beside the clause it strains against, and
+    /// the writer's reply to it is a decision: it lands as a ruling. A
+    /// continuity question and a reader report are both about the WORDS
+    /// rather than a declared clause — they now mint as pass-stamped
+    /// annotations at the end of a run (`strains`'s own doc) and never reach
+    /// this pane as a `Diagnostic` row, so a `.continuity` arm answering
+    /// `true` here was dead: nothing upstream ever hands this function a
+    /// continuity note. A reader report was never answerable either way —
+    /// "I stopped believing her here" has no answer to rule on, and a reply
+    /// field under one would invite the writer to argue with a reader, which
+    /// is not a decision that belongs in the declared world.
     static func offersAnAnswer(_ diagnostic: Diagnostic) -> Bool {
         switch diagnostic.kind {
-        case .conformanceStrain, .continuity: return true
-        case .readerReport, .none: return false
+        case .conformanceStrain: return true
+        case .continuity, .readerReport, .none: return false
         }
     }
 
@@ -934,13 +1046,34 @@ struct DiagnosticsPane: View {
         case .failed:
             return ("No notes", "exclamationmark.triangle",
                     "The last check didn't finish, so there are none from it.")
+        case .clean(let run) where queuedNotesSentence(run.mintedNotes) != nil:
+            // **The seal may not stand over a run that queued notes** (M4 P1).
+            // This pane holds conformance strains alone; the questions and the
+            // reader's reports went somewhere the writer has to be told about,
+            // and a checkmark saying "nothing to raise" is the opposite of what
+            // happened. Ordered above the discarded arm because it is the
+            // stronger claim: a run can have queued notes AND lost some, and
+            // the queued ones are the news.
+            let queued = queuedNotesSentence(run.mintedNotes) ?? ""
+            let discarded = discardedNotesSentence(run.droppedDangling)
+            let tail = discarded.map { " (\($0).)" } ?? ""
+            return ("Notes in your queue", "tray.and.arrow.down",
+                    "\(queued). No clause you declared strained in this check."
+                        + tail)
         case .clean(let run) where discardedNotesSentence(run.droppedDangling) != nil:
             return ("Nothing to flag.", "circle.dashed",
                     (discardedNotesSentence(run.droppedDangling) ?? "") + ".")
         case .idle, .nothingNew, .clean:
-            // `.idle` is unreachable here — `headerState` returns `.clean` for
-            // a last run with no live notes — but it is named rather than
-            // defaulted so a new state cannot inherit this copy by omission.
+            // `.idle` cannot reach here, and the reason is a pair rather than
+            // one function: `content` renders this only when `hasReport` is
+            // false, which requires `strains` to be empty, and `headerState` is
+            // handed that same `strains` count — so an empty report and
+            // `.clean` are the same condition read twice. (Before M4 P1 the
+            // count came from `rows`, which since the slimming can hold notes
+            // this pane refuses to draw; a legacy sidecar of continuity rows
+            // reached this arm as `.idle` and called itself clean.) Named
+            // rather than defaulted so a new state cannot inherit this copy by
+            // omission.
             return ("Nothing to flag.", "checkmark.seal",
                     "The compiler found nothing to raise against the last check.")
         }
@@ -975,7 +1108,12 @@ struct DiagnosticsPane: View {
 
     // MARK: - The answer, which is a ruling
 
-    /// What the ruling's line says about where it came from.
+    /// What the ruling's line says about where it came from — a builder
+    /// rather than a constant (M4 P1 Task 6), because *"answered a compiler
+    /// note"* alone left the reader with no idea which note: a real defect
+    /// this shipped with (Tribute) read "The reader is supposed to read this
+    /// as it covering up" in the Intent pane, the ruling text's own dangling
+    /// *this* with nothing beside it naming what it answered.
     ///
     /// **It names no paragraph, and that is requirement 3 rather than a
     /// shortfall.** The shim this replaced left a note anticipating *"from a run
@@ -984,7 +1122,25 @@ struct DiagnosticsPane: View {
     /// what v2 took off every surface. The DATE is not restated here either:
     /// `RulingsSection` stamps every line with `ruled <d MMM yyyy>`, so a
     /// provenance carrying one too would print the day twice.
-    static let answeredNoteProvenance = "answered a compiler note"
+    ///
+    /// **The excerpt is the note's own `clauseQuote`** — a conformance strain's
+    /// clause, the only answerable kind post-Task-3 (`offersAnAnswer`) and the
+    /// only one that carries one. Trimmed to `driftQuoteMaxLength` (60,
+    /// `truncatedDriftQuote`'s own budget — the same idiom, restated for the
+    /// same reason it already is here) and with every em-dash collapsed to a
+    /// plain hyphen: `RulingsSection.parseItem` splits an item on its
+    /// RIGHT-MOST "—", so an excerpt that still carried one could shift that
+    /// split point into the quote and cut the writer's own sentence off
+    /// mid-word. A `nil` `clauseQuote` — a v1 sidecar record, or a future note
+    /// kind that answers without one — falls back to the bare legacy line.
+    static func answeredNoteProvenance(for diagnostic: Diagnostic) -> String {
+        guard let quote = diagnostic.clauseQuote, !quote.isEmpty else {
+            return "answered a compiler note"
+        }
+        let sanitized = quote.replacingOccurrences(of: "\u{2014}", with: "-")
+        let excerpt = truncatedDriftQuote(sanitized)
+        return "answered a compiler note: \u{00AB}\(excerpt)\u{00BB}"
+    }
 
     /// **Write the writer's answer into the piece's rulings, and take the note
     /// off the pane once it is there** — the loop this milestone exists for.
@@ -1017,7 +1173,7 @@ struct DiagnosticsPane: View {
     ) async -> String? {
         do {
             try await RulingPerformer.rule(
-                text, provenance: answeredNoteProvenance,
+                text, provenance: answeredNoteProvenance(for: diagnostic),
                 forScope: .document(docId), store: store, world: world)
         } catch {
             return error.localizedDescription
@@ -1175,11 +1331,6 @@ private struct DiagnosticRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let label = DiagnosticsPane.readerKindLabel(diagnostic.category) {
-                Text(label.uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
             Text(diagnostic.body)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)

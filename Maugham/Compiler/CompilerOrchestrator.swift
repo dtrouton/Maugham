@@ -136,6 +136,45 @@ final class CompilerOrchestrator {
         }
     }
 
+    /// **The review pass a run belongs to, resolved ONCE** — at the keystroke,
+    /// in `beginRun`'s synchronous prefix, beside the round number it is minted
+    /// with (M4 P1 Task 3).
+    ///
+    /// Three things travel together because they are three readings of one
+    /// answer and a second resolution site is how they come to disagree: the
+    /// lane a round is filed in, the editor whose name its notes are written
+    /// under, and the doctrine the round is briefed on. `ReviewPass`'s own
+    /// `effectiveEditorName`/`effectiveBrief` are the one resolution spelling
+    /// (preset-by-id fallback); nothing downstream re-derives either.
+    ///
+    /// `nil` — no `ActivePass` at all — is the passless lane: an ordinary M2
+    /// ⌘R, which mints no round number, stamps no pass on what it writes, and
+    /// signs its notes "Claude".
+    struct ActivePass: Equatable, Sendable {
+        let id: String
+        /// `ReviewPass.name` — the pass as the writer named it, which is the
+        /// second half of the briefing's role frame ("this manuscript's
+        /// Copyedit editor") and the whole content of the fallback when the
+        /// pass has no brief. Carried with the rest for `editorName`'s reason:
+        /// a rename between the keystroke and the send would otherwise frame
+        /// the round as a pass the round is not.
+        let name: String
+        /// `ReviewPass.effectiveEditorName` — never nil, because every pass has
+        /// a name to fall back to.
+        let editorName: String
+        /// `ReviewPass.effectiveBrief`. **Threaded in Task 3 and read in Task
+        /// 4**: the briefing is the next task's, and resolving it in a second
+        /// place then would be the drift this type exists to prevent.
+        let brief: String?
+
+        init(id: String, name: String, editorName: String, brief: String?) {
+            self.id = id
+            self.name = name
+            self.editorName = editorName
+            self.brief = brief
+        }
+    }
+
     /// Everything the orchestrator needs from the window it belongs to. Closures
     /// rather than stores, so a test drives a run without a project on disk and
     /// so `detach()` can drop the window's whole object graph in one line.
@@ -180,7 +219,12 @@ final class CompilerOrchestrator {
         /// Defaulted so that every `Environment` built before rounds existed
         /// still compiles: the answer it gives is the passless lane, which is
         /// exactly what those runs were.
-        var activePass: @MainActor (String) -> String? = { _ in nil }
+        ///
+        /// **It answers with the whole pass, not its id** (M4 P1 Task 3): the
+        /// lane, the editor's name and the brief are resolved together here and
+        /// nowhere else, so the round's filing, the notes' authorship and the
+        /// briefing cannot describe different passes.
+        var activePass: @MainActor (String) -> ActivePass? = { _ in nil }
         /// The reading already held for this statement's EXACT text, or `nil`
         /// for a miss. Pure — it never derives and never spawns, which is what
         /// lets the run tell a hit from a miss before deciding to spend a
@@ -200,6 +244,46 @@ final class CompilerOrchestrator {
         /// facts, not the ledger"). The matching rule lives at the production
         /// call site, which is the only thing that knows the ledger.
         var bibleSlice: @MainActor (String) -> [BibleFact]
+        /// **What the annotation layer already holds about this piece** (M4 P1
+        /// Task 4) — the compiler-authored notes on it and what the writer has
+        /// done about each, as the briefing's dispositions section.
+        ///
+        /// Asked once, in `beginRun`'s synchronous prefix, for
+        /// `previousRound`'s reason: this is the last instant at which the
+        /// answer describes the round that is starting rather than the round
+        /// that is under way. A value rather than the `Document` — nothing here
+        /// holds one across a subprocess turn (tripwires 3, 6).
+        ///
+        /// Its counterpart below writes what this run adds. The two are the
+        /// same layer read and written a turn apart, which is what makes the
+        /// dispositions briefing the warm path's duplicate guard and
+        /// `mintAnnotations`' own dedupe the cold one.
+        ///
+        /// Defaulted to nothing so every `Environment` built before the
+        /// briefing existed still compiles and still runs — those runs simply
+        /// brief no dispositions, which is what they did.
+        var annotationContext: @MainActor (String) -> [CompilerAnnotationDisposition]
+            = { _ in [] }
+        /// **Where a continuity question and a reader's report actually go**
+        /// (M4 P1 Task 3) — the annotation layer, not the sidecar.
+        ///
+        /// Called once per finished run, after `replace`, with everything the
+        /// run raised that is not a conformance strain. Answers how many notes
+        /// it really minted, which is not the count it was handed: the dedupe
+        /// backstop drops a finding already open on the document, and a note
+        /// whose paragraph the writer deleted between parse and mint fails its
+        /// own append.
+        ///
+        /// **It cannot fail the run**, and its signature says so: no `throws`,
+        /// an `Int` rather than a result. The compiler is a background
+        /// convenience (spec §3.2) and a note that could not be written is not
+        /// a reason to tell the writer their check failed.
+        ///
+        /// Defaulted to a no-op returning 0 so every `Environment` built before
+        /// the mint existed still compiles and still runs — those runs simply
+        /// write no annotations, which is what they did.
+        var mintAnnotations: @MainActor ([CompilerNote], CompilerMintContext) async -> Int
+            = { _, _ in 0 }
         /// What this run established, on its way into the bible. Never a note:
         /// a fact-candidate lands silently and surfaces in the Intent pane's
         /// bible stratum, where the writer's three actions reach it.
@@ -240,6 +324,12 @@ final class CompilerOrchestrator {
     /// did not recompile that file (CLAUDE.md's warning-census caveat, met in
     /// the wild).
     nonisolated static let defaultModel = "sonnet"
+
+    /// Who signs a passless run's notes (M4 P1 Task 3). "Claude" is M2's own
+    /// identity and the label `AnnotationAuthorPresentation` already gives an
+    /// author-less note, so a ⌘R outside every pass writes into the filter
+    /// bucket the writer already has rather than opening a new one.
+    nonisolated static let passlessEditorName = "Claude"
 
     private(set) var runState: RunState = .idle
     private(set) var diagnostics: DiagnosticsStore?
@@ -299,8 +389,12 @@ final class CompilerOrchestrator {
         let intentSnapshot: String?
         /// The round's lane and its number, minted at the keystroke
         /// (`beginRun`) and carried so the preview cannot describe a different
-        /// round from the answer that supersedes it.
-        let passId: String?
+        /// round from the answer that supersedes it. The lane travels WHOLE
+        /// (M4 P1) — the editor's name and the brief are resolved with it and
+        /// never re-asked, because the writer can move the piece to another
+        /// pass while the check runs.
+        let activePass: ActivePass?
+        var passId: String? { activePass?.id }
         let round: Int?
         /// Whether this round was read cold (⌘⇧R) — carried for the same
         /// reason the lane is: the preview and the answer must describe one
@@ -477,7 +571,13 @@ final class CompilerOrchestrator {
         // Below the empty-delta guard on purpose: a ⌘R with nothing new is not
         // a round, and numbering it would leave a gap in the lane the writer
         // never saw a report for.
-        let passId = environment.activePass(docId)
+        //
+        // **The lane is resolved WHOLE, and this is the one site** (M4 P1
+        // Task 3). The pass's editor signs the notes this round mints and its
+        // brief is what the round is briefed on; asking for either again later
+        // would read a project the writer may have moved on since.
+        let activePass = environment.activePass(docId)
+        let passId = activePass?.id
         // A passless run mints no number at all rather than round 1 of
         // nothing (decision 1: the passless lane is a lane, and an ordinary M2
         // run is what it holds).
@@ -503,6 +603,25 @@ final class CompilerOrchestrator {
         // report agree about what this round was measured against — nothing.
         let previousRound = freshEyes ? nil : Self.previousRound(
             inLane: passId, docId: docId, diagnostics: diagnostics, environment: environment)
+
+        // **What the writer has already done about this piece's notes**, read
+        // at the same instant and omitted on the same terms (M4 P1 §5.5).
+        //
+        // Two reasons it is here rather than beside the send. It is a read of
+        // the live annotation layer, and this run is about to WRITE into that
+        // layer at `finish` — asked later, it would hand the model this round's
+        // own notes as notes it had already seen. And the writer disposes of a
+        // note whenever they like, including while a check runs; the round was
+        // begun against the queue as it stood, and a mid-run answer belongs to
+        // the next ⌘R.
+        //
+        // **A cold read is briefed on none of it, exactly as it is briefed on
+        // no previous round.** Fresh eyes means a reader who has not seen this
+        // piece, and a list of everything they supposedly raised and the
+        // writer answered is the opposite of that. The duplicate guard on that
+        // path is `mintAnnotations`' own fingerprint dedupe, which is why it
+        // is load-bearing rather than a backstop there.
+        let dispositions = freshEyes ? [] : environment.annotationContext(docId)
 
         let briefing = environment.intent(docId)
         // The essay half alone (spec §3.2). **This is the atomic switch**: the
@@ -582,7 +701,9 @@ final class CompilerOrchestrator {
             let (message, briefingHash) = CompilerPrompt.runMessageV2(
                 delta: delta, world: world, essay: essay, bibleFacts: bibleFacts,
                 paletteListing: paletteListing, pinnedListing: pinnedListing,
+                pass: activePass,
                 previousRound: previousRound,
+                dispositions: dispositions,
                 previousBriefingHash: previousHash)
 
             // **Armed immediately before the send, and never earlier.** A run
@@ -592,18 +713,19 @@ final class CompilerOrchestrator {
             self.streaming = StreamingRun(
                 generation: generation, docId: docId, runId: runId, model: model,
                 lastOpId: lastOpId, deltaSummary: deltaSummary,
-                intentSnapshot: briefing?.statementText, passId: passId, round: round,
+                intentSnapshot: briefing?.statementText, activePass: activePass, round: round,
                 freshEyes: freshEyes)
             runner.setPartialHandler { [weak self] chunk in
                 self?.receivePartial(chunk, generation: generation)
             }
 
             let event = await runner.send(message: message, systemPreamble: preamble)
-            self.finish(event, docId: docId, runId: runId, lastOpId: lastOpId,
-                        deltaSummary: deltaSummary,
-                        intentSnapshot: briefing?.statementText,
-                        passId: passId, round: round, freshEyes: freshEyes,
-                        briefingHash: briefingHash, model: model)
+            await self.finish(event, docId: docId, runId: runId, lastOpId: lastOpId,
+                              deltaSummary: deltaSummary,
+                              intentSnapshot: briefing?.statementText,
+                              activePass: activePass, round: round, freshEyes: freshEyes,
+                              briefingHash: briefingHash, model: model,
+                              generation: generation)
         }
     }
 
@@ -661,8 +783,18 @@ final class CompilerOrchestrator {
                              intentSnapshot: run.intentSnapshot,
                              passId: run.passId, round: run.round,
                              freshEyes: run.freshEyes,
-                             outcome: run.outcome),
-            diagnostics: run.outcome.accepted, docId: docId)
+                             outcome: run.outcome,
+                             // A preview has minted nothing: the notes it would
+                             // mint are minted at `finish` or not at all, so
+                             // `nil` here is "no mint has happened" rather than
+                             // a claim that this run queued none.
+                             mintedNotes: nil),
+            // **A preview shows what the report shows, and nothing else**
+            // (M4 P1 Task 3). Continuity and reader sections still accumulate
+            // on `run.outcome` — the run's own record reads its counts off it
+            // — but they are no longer the sidecar's, so they must not be
+            // previewed into it either. They mint at `finish` or not at all.
+            diagnostics: run.outcome.sidecarDiagnostics, docId: docId)
     }
 
     /// Throw away whatever the stream put on the pane, and forget the stream.
@@ -688,10 +820,14 @@ final class CompilerOrchestrator {
     /// could quietly omit them would file an unnumbered round nothing
     /// downstream could notice — the preview and the answer would simply
     /// disagree.
+    /// `mintedNotes` is `nil` for a preview — nothing is minted until the turn
+    /// ends — and the finished run's real count otherwise. Undefaulted for
+    /// `passId`/`round`/`freshEyes`'s reason: a third call site that quietly
+    /// omitted it would record a run claiming it queued nothing.
     private static func record(
         id: String, model: String, lastOpId: String?, deltaSummary: String,
         intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
-        outcome: DiagnosticIngest.SectionedOutcome
+        outcome: DiagnosticIngest.SectionedOutcome, mintedNotes: Int?
     ) -> CompilerRun {
         CompilerRun(
             id: id, at: Date(), model: model, lastOpId: lastOpId,
@@ -739,13 +875,18 @@ final class CompilerOrchestrator {
             // fires on `drifted` alone); what this protects is what the RECORD
             // is allowed to claim, since the sidecar is where a later build
             // looks to tell "never judged" from "judged and held".
-            intentDriftVerdict: intentSnapshot == nil ? nil : outcome.intentDriftVerdict)
+            intentDriftVerdict: intentSnapshot == nil ? nil : outcome.intentDriftVerdict,
+            // **What this run put in the queue.** The pane's own report holds
+            // conformance strains alone now, so without this a run that raised
+            // three questions and no strain would be indistinguishable from a
+            // run that found nothing — and the surface would say so.
+            mintedNotes: mintedNotes)
     }
 
     /// **What the last round in this run's lane raised**, or `nil` when there
     /// is nothing this round can honestly be measured against.
     ///
-    /// The lane rule, in one place (`RoundComparison`'s decision 1): only a
+    /// The lane rule, in one place (`SinceLastRound`'s decision 1): only a
     /// prior round with the SAME `passId` briefs the next one. A passless ⌘R
     /// is an ordinary M2 run and is briefed on nothing; a run that opens a new
     /// lane starts clean, because the Line pass's findings are not what a
@@ -882,11 +1023,28 @@ final class CompilerOrchestrator {
 
     // MARK: - The turn coming back
 
+    /// **`async` because the run is not over until its notes are written**
+    /// (M4 P1 Task 3). The mint appends to the op log, and a `runState` that
+    /// went `.idle` before those appends landed would tell the writer the check
+    /// was finished while its findings were still arriving in the pane beside
+    /// it. Nothing else about the arm changed: the mint cannot throw, cannot
+    /// fail the run, and is reached only on `.resultText`.
+    ///
+    /// **`generation` is the run's own, and it is re-checked after the mint** —
+    /// the third suspension this class carries a generation across, after the
+    /// burst flush and the derivation, and the only one that resumes with
+    /// writes still to do. A Cancel inside the mint window bumps the
+    /// generation and sets `.idle`; the very next ⌘R is then a live run, and a
+    /// finish resuming afterwards would write `sentBriefing` and `runState`
+    /// over it — telling the new run's session it had already been briefed,
+    /// and calling a check that is still going idle. Everything before the
+    /// mint is synchronous with the turn's own resumption and needs no guard.
     private func finish(
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
-        deltaSummary: String, intentSnapshot: String?, passId: String?, round: Int?,
-        freshEyes: Bool, briefingHash: String?, model: String
-    ) {
+        deltaSummary: String, intentSnapshot: String?, activePass: ActivePass?, round: Int?,
+        freshEyes: Bool, briefingHash: String?, model: String, generation: Int
+    ) async {
+        let passId = activePass?.id
         switch event {
         case .started:
             // Unreachable through `send`, which resolves with a terminal event
@@ -927,6 +1085,42 @@ final class CompilerOrchestrator {
                 return
             }
 
+            // **The split, and it is the whole point of M4 P1's first plan.**
+            // A conformance strain is read beside the clause it strains
+            // against, so it stays in the report; a continuity question and a
+            // reader's report are about the words and outlive the check, so
+            // they leave for the annotation layer. One finding, one home — and
+            // the two halves land in the same commit, because a build in which
+            // a note appears in both is a build that asks the writer to answer
+            // it twice.
+            //
+            // **The mint runs BEFORE the record is built, and the order is
+            // load-bearing.** How many notes went to the queue is not knowable
+            // until the mint has run — the dedupe drops what is already open,
+            // and a note whose paragraph has gone fails its own append — and a
+            // record written without that number leaves the pane free to say
+            // "Nothing to flag" over a run that flagged three things. The
+            // report waits out N op-log appends to be able to say what
+            // happened, which is the right trade: a header that lies is worse
+            // than one that is a few milliseconds late, and the writer is
+            // watching "Checking…" the whole time either way.
+            let notes = outcome.mintable
+            var minted = 0
+            if !notes.isEmpty, let environment {
+                minted = await environment.mintAnnotations(
+                    notes,
+                    CompilerMintContext(
+                        docId: docId, runId: runId, passId: passId, round: round,
+                        freshEyes: freshEyes,
+                        // A passless run signs "Claude" — M2's identity, and
+                        // the label `AnnotationAuthorPresentation` already
+                        // gives an author-less note.
+                        editorName: activePass?.editorName ?? Self.passlessEditorName))
+            }
+            // The one suspension in this method, and the writes below are what
+            // make it worth guarding. See the doc comment.
+            guard runGeneration == generation else { return }
+
             let run = Self.record(
                 id: runId, model: model, lastOpId: lastOpId,
                 deltaSummary: deltaSummary, intentSnapshot: intentSnapshot,
@@ -935,15 +1129,13 @@ final class CompilerOrchestrator {
                 // and the writer may have moved the piece to another pass
                 // while it ran.
                 passId: passId, round: round, freshEyes: freshEyes,
-                outcome: outcome)
+                outcome: outcome, mintedNotes: minted)
             // Dropped rather than discarded: `replace` below supersedes the
             // preview wholesale, so taking it off the pane first would blink
             // the report out and back.
             streaming = nil
-            // The notes stay in the order the sections arrived — conformance,
-            // continuity, reader — because a store the pane has to re-sort is
-            // two places that can disagree about the order.
-            diagnostics?.replace(run: run, diagnostics: outcome.accepted, docId: docId)
+            diagnostics?.replace(
+                run: run, diagnostics: outcome.sidecarDiagnostics, docId: docId)
             // Silently, and never as notes: the bible is a ledger the writer
             // acts on in the Intent pane, not a thing the compiler reports.
             if !outcome.facts.isEmpty {

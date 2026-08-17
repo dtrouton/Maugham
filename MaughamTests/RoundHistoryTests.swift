@@ -38,12 +38,13 @@ final class RoundHistoryTests: XCTestCase {
 
     private func makeDiagnostic(
         kind: DiagnosticKind?, clauseQuote: String? = nil, paragraphId: String? = "a1b2",
-        body: String = "A note", docId: String = "docR", runId: String = "run-1"
+        body: String = "A note", docId: String = "docR", runId: String = "run-1",
+        category: String? = nil
     ) -> Diagnostic {
         Diagnostic(
             id: ULID.generate(), docId: docId,
             anchor: paragraphId.map { Diagnostic.Anchor(paragraphId: $0, anchorText: "steady") },
-            body: body, category: nil, runId: runId, kind: kind,
+            body: body, category: category, runId: runId, kind: kind,
             refs: nil, clauseQuote: clauseQuote)
     }
 
@@ -146,11 +147,42 @@ final class RoundHistoryTests: XCTestCase {
                        "the standing run is the newest round in its lane")
     }
 
+    /// **The field is legacy on the way in and empty on the way out** (M4 P1
+    /// Task 5). The decode above is what keeps a sidecar written before this
+    /// milestone readable; this is the other direction, read as raw JSON rather
+    /// than through the type — a `RoundRecord` that still SNAPSHOTTED
+    /// fingerprints would satisfy every projection assertion in this file and
+    /// leave the app carrying a second, staler account of what a round found.
+    func test_aNewSidecarWritesTheRingWithNoFingerprints() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docEmptyPrints"
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+
+        let run1 = makeRun(id: "run-1", passId: "pass-line", round: 1)
+        store.replace(
+            run: run1,
+            diagnostics: [makeDiagnostic(kind: .conformanceStrain,
+                                         clauseQuote: "Cold.", runId: run1.id)],
+            docId: docId)
+        store.replace(run: makeRun(id: "run-2", passId: "pass-line", round: 2),
+                      diagnostics: [], docId: docId)
+
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        // adr-0018-ok: the sidecar is derived state and its own source of truth
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(raw.contains("\"fingerprints\":[]"),
+                      "a filed round must carry the key and no findings; got \(raw)")
+        XCTAssertFalse(raw.contains("\"clauseQuote\""),
+                       "a finding's identity reached the ring; got \(raw)")
+    }
+
     // MARK: - The fingerprint
 
     /// The three kinds, each fingerprinting as the identity the plan names:
     /// strains and continuity carry their clause quote plus the anchored
-    /// paragraph; a reader report carries `(kind, paragraphId)` with no quote.
+    /// paragraph; a reader report carries `(kind, category, paragraphId)` with
+    /// no quote.
     func test_theThreeKindsFingerprintByAnchorAndQuote() throws {
         let strain = makeDiagnostic(kind: .conformanceStrain,
                                     clauseQuote: "Cold, and never wistful.",
@@ -171,6 +203,95 @@ final class RoundHistoryTests: XCTestCase {
         XCTAssertEqual(
             RoundFingerprint.make(of: report),
             RoundFingerprint(kind: "readerReport", clauseQuote: nil, paragraphId: "c3d4"))
+    }
+
+    /// **The reader's two kinds are two findings, even on one paragraph**
+    /// (M4 P1 review, Important 3). "The dream broke here" and "I stopped
+    /// believing her" are different things to have noticed; without the
+    /// category in the identity they collapse into one, a round raising both
+    /// counts one, and the mint's dedupe silently discards the second.
+    func test_theReadersTwoKindsAreTwoFindingsOnOneParagraph() {
+        let dream = makeDiagnostic(kind: .readerReport, clauseQuote: nil,
+                                   paragraphId: "a1b2", category: "dream_break")
+        let belief = makeDiagnostic(kind: .readerReport, clauseQuote: nil,
+                                    paragraphId: "a1b2", category: "belief")
+
+        XCTAssertNotEqual(RoundFingerprint.make(of: dream),
+                          RoundFingerprint.make(of: belief),
+                          "two reader kinds on one paragraph collapsed into one finding")
+        XCTAssertNotEqual(RoundFingerprint.make(of: dream)?.stringValue,
+                          RoundFingerprint.make(of: belief)?.stringValue,
+                          "…and the string the mint stamps must separate them too, "
+                          + "because that is what the dedupe compares")
+        XCTAssertEqual(RoundFingerprint.make(of: dream)?.category, "dream_break")
+    }
+
+    /// The category belongs to the READER alone: a strain and a continuity
+    /// question are told apart by the clause they cite, and a stray category
+    /// on either would be a second discriminator nothing sets.
+    func test_onlyAReaderReportCarriesACategoryInItsIdentity() {
+        let strain = makeDiagnostic(kind: .conformanceStrain, clauseQuote: "Cold.",
+                                    category: "belief")
+        XCTAssertNil(RoundFingerprint.make(of: strain)?.category)
+        let question = makeDiagnostic(kind: .continuity, clauseQuote: "the fog",
+                                      category: "belief")
+        XCTAssertNil(RoundFingerprint.make(of: question)?.category)
+    }
+
+    // MARK: - The fingerprint STRING: a persisted, synced wire format
+
+    /// **`stringValue` is a contract, not a convenience** (M4 P1 review,
+    /// Important 4). It is stamped on `Op.Provenance.compilerFingerprint`,
+    /// which is append-only, syncs between devices and is compared by the
+    /// mint's dedupe — so a change to the order, the separator or the field set
+    /// silently redefines "the same finding" for every note already in a
+    /// writer's op log, on every machine. Three assertions, in
+    /// `CompilerProvenanceTests`' round-trip discipline: the exact string, the
+    /// nil-vs-empty rule, and the field order.
+    func test_theFingerprintStringIsExactlyThisFormat() throws {
+        let fingerprint = RoundFingerprint(
+            kind: "readerReport", clauseQuote: "the fog", paragraphId: "a1b2",
+            category: "belief")
+        XCTAssertEqual(
+            fingerprint.stringValue,
+            "readerReport\u{1f}the fog\u{1f}a1b2\u{1f}belief",
+            "the fingerprint format moved \u{2014} every note already stamped in "
+            + "a writer's op log now reads as a different finding")
+    }
+
+    /// `nil` and `""` are deliberately the same string: neither is a
+    /// discriminator, and `make` has already refused a fingerprint for anything
+    /// carrying no discriminator at all.
+    func test_theFingerprintStringTreatsNilAndEmptyAlike() {
+        XCTAssertEqual(
+            RoundFingerprint(kind: "continuity", clauseQuote: nil,
+                             paragraphId: "a1b2").stringValue,
+            RoundFingerprint(kind: "continuity", clauseQuote: "",
+                             paragraphId: "a1b2", category: "").stringValue)
+        XCTAssertEqual(
+            RoundFingerprint(kind: "continuity", clauseQuote: nil,
+                             paragraphId: "a1b2").stringValue,
+            "continuity\u{1f}\u{1f}a1b2\u{1f}",
+            "every field is present even when empty, so a nil cannot shift the "
+            + "positions of the fields after it")
+    }
+
+    /// **The order is load-bearing and the separator is what makes it safe.**
+    /// Two fingerprints whose fields are the same values in different positions
+    /// must not produce the same string — which is exactly what a separator
+    /// that could occur inside a field, or a format that omitted empties, would
+    /// allow.
+    func test_theFingerprintStringCannotRespellOneFieldAsAnother() {
+        let quoted = RoundFingerprint(
+            kind: "continuity", clauseQuote: "a1b2", paragraphId: nil)
+        let anchored = RoundFingerprint(
+            kind: "continuity", clauseQuote: nil, paragraphId: "a1b2")
+        XCTAssertNotEqual(quoted.stringValue, anchored.stringValue,
+                          "the same token in two fields produced one identity")
+        XCTAssertEqual(quoted.stringValue.split(separator: "\u{1f}",
+                                                omittingEmptySubsequences: false).count, 4,
+                       "four fields, always \u{2014} a fifth or a fourth dropped is a "
+                       + "format change")
     }
 
     /// A v1 note has no section, so it has no round-over-round identity —
@@ -210,76 +331,159 @@ final class RoundHistoryTests: XCTestCase {
             "…from either side")
     }
 
-    /// Two such notes in one run are not silently one finding: they are no
-    /// findings at all, which is the honest answer rather than an arithmetic
-    /// that quietly under-reports.
-    func test_compare_ignoresNotesWithNothingToIdentifyThem() {
-        let outcome = RoundComparison.compare(
-            previous: record([]),
-            current: [makeDiagnostic(kind: .readerReport, clauseQuote: nil, paragraphId: nil),
-                      makeDiagnostic(kind: .readerReport, clauseQuote: nil, paragraphId: nil),
-                      note("A")])
-        XCTAssertEqual(outcome, RoundComparison.Outcome(resolved: 0, persisting: 0, new: 1))
-    }
-
     func test_aDifferentClauseIsADifferentFinding() {
         let first = makeDiagnostic(kind: .conformanceStrain, clauseQuote: "Cold.")
         let second = makeDiagnostic(kind: .conformanceStrain, clauseQuote: "Never wistful.")
         XCTAssertNotEqual(RoundFingerprint.make(of: first), RoundFingerprint.make(of: second))
     }
 
-    // MARK: - The comparison
+    // MARK: - Since last round: the count comes off the QUEUE (M4 P1 Task 5)
+    //
+    // The fingerprint comparison between two rounds' sidecar reports is gone
+    // with the reports themselves: two of the three kinds a round raises are
+    // annotations now, and a strain the writer answered is not "resolved"
+    // merely because the next run stopped saying it. What the line counts is
+    // what the writer can see in the queue and act on, which is the only
+    // account of a round that a writer can check against their own screen.
 
-    private func fingerprint(_ quote: String) -> RoundFingerprint {
-        RoundFingerprint(kind: "conformanceStrain", clauseQuote: quote, paragraphId: "a1b2")
+    /// A compiler-authored note in the queue, as `SinceLastRound` reads one.
+    /// Every field the arithmetic turns on is a parameter; nothing else here is
+    /// load-bearing.
+    private func makeAnnotation(
+        lane: String? = "pass-line",
+        round: Int? = 1,
+        status: AnnotationStatus = .open,
+        resolvedAt: Date? = nil,
+        runId: String? = "run-1"
+    ) -> Annotation {
+        Annotation(
+            id: ULID.generate(), kind: .query, paragraphId: "a1b2",
+            body: "Whose coat is on the chair?", suggestedText: nil, priorText: nil,
+            createdAt: Date(timeIntervalSince1970: 100), createdBySession: nil,
+            status: status, userResponse: nil, resolvedAt: resolvedAt,
+            isStale: false, reviewPassId: lane,
+            compilerRunId: runId, compilerRound: round,
+            compilerFingerprint: "continuity\u{1f}the fog\u{1f}a1b2\u{1f}")
     }
 
-    private func note(_ quote: String, body: String = "A note") -> Diagnostic {
-        makeDiagnostic(kind: .conformanceStrain, clauseQuote: quote, body: body)
+    /// When round 1 of this lane finished. Everything the writer settled after
+    /// it is this round's news; everything before it was already reported.
+    private let previousRoundAt = Date(timeIntervalSince1970: 1_000)
+
+    private func compute(_ annotations: [Annotation],
+                         lane: String? = "pass-line",
+                         currentRound: Int = 2) -> SinceLastRound.Outcome {
+        SinceLastRound.compute(annotations: annotations, lane: lane,
+                               currentRound: currentRound,
+                               previousRoundAt: previousRoundAt)
     }
 
-    private func record(_ fingerprints: [RoundFingerprint],
-                        passId: String? = "pass-line", round: Int? = 1) -> RoundRecord {
-        RoundRecord(runId: "01JOLD", at: Date(timeIntervalSince1970: 0), passId: passId,
-                    round: round, freshEyes: nil, fingerprints: fingerprints)
+    /// The three states, in one queue: a note this round minted, one from an
+    /// earlier round the writer is still holding, and one they settled since
+    /// the last round finished.
+    func test_theThreeStatesAreCountedOffTheQueue() {
+        let outcome = compute([
+            makeAnnotation(round: 2),
+            makeAnnotation(round: 1),
+            makeAnnotation(round: 1, status: .stetted,
+                           resolvedAt: previousRoundAt.addingTimeInterval(60)),
+        ])
+        XCTAssertEqual(outcome, SinceLastRound.Outcome(resolved: 1, persisting: 1, new: 1))
     }
 
-    func test_compare_partitionsResolvedPersistingAndNew() {
-        let previous = record([fingerprint("A"), fingerprint("B"), fingerprint("C")])
-        let outcome = RoundComparison.compare(
-            previous: previous, current: [note("B"), note("C"), note("D")])
-        XCTAssertEqual(outcome,
-                       RoundComparison.Outcome(resolved: 1, persisting: 2, new: 1))
+    /// **A settled note is settled however the writer settled it.** Stet,
+    /// reject, accept and archive are four verdicts and one fact: the note is
+    /// no longer in front of them.
+    func test_everyWayOutOfOpenCountsAsResolved() {
+        for status in [AnnotationStatus.stetted, .rejected, .accepted, .archived] {
+            XCTAssertEqual(
+                compute([makeAnnotation(
+                    round: 1, status: status,
+                    resolvedAt: previousRoundAt.addingTimeInterval(60))]),
+                SinceLastRound.Outcome(resolved: 1, persisting: 0, new: 0),
+                "\(status) is a note the writer dealt with")
+        }
     }
 
-    func test_compare_anEmptyPreviousRoundMakesEverythingNew() {
-        let outcome = RoundComparison.compare(
-            previous: record([]), current: [note("A"), note("B")])
-        XCTAssertEqual(outcome, RoundComparison.Outcome(resolved: 0, persisting: 0, new: 2))
+    /// **A declined note is still open, and still persisting.** The triage mark
+    /// sorts the queue; it does not settle anything, and a line that counted it
+    /// resolved would tell the writer they had finished with something still
+    /// sitting in front of them.
+    func test_aTriagedNoteIsStillPersisting() {
+        XCTAssertEqual(compute([makeAnnotation(round: 1, status: .open)]),
+                       SinceLastRound.Outcome(resolved: 0, persisting: 1, new: 0))
     }
 
-    func test_compare_anEmptyCurrentRunResolvesEverything() {
-        let outcome = RoundComparison.compare(
-            previous: record([fingerprint("A"), fingerprint("B")]), current: [])
-        XCTAssertEqual(outcome, RoundComparison.Outcome(resolved: 2, persisting: 0, new: 0))
+    /// **The lane is the comparison** (decision 1). A Proof round's notes take
+    /// no part in a Line round's count, and the passless lane is a lane of its
+    /// own rather than a wildcard that swallows every other.
+    func test_itCountsOnlyItsOwnLane() {
+        let mixed = [
+            makeAnnotation(lane: "pass-line", round: 2),
+            makeAnnotation(lane: "pass-proof", round: 2),
+            makeAnnotation(lane: nil, round: 2),
+            makeAnnotation(lane: "pass-proof", round: 1),
+            makeAnnotation(lane: "pass-proof", round: 1, status: .stetted,
+                           resolvedAt: previousRoundAt.addingTimeInterval(60)),
+        ]
+        XCTAssertEqual(compute(mixed, lane: "pass-line"),
+                       SinceLastRound.Outcome(resolved: 0, persisting: 0, new: 1),
+                       "another pass's notes bled into this lane's count")
+        XCTAssertEqual(compute(mixed, lane: nil),
+                       SinceLastRound.Outcome(resolved: 0, persisting: 0, new: 1),
+                       "the passless lane must count its own note and nobody else's")
+        XCTAssertEqual(compute(mixed, lane: "pass-proof"),
+                       SinceLastRound.Outcome(resolved: 1, persisting: 1, new: 1),
+                       "control: the same queue, read from the other lane")
     }
 
-    /// One finding raised twice in a run is one finding. The model can name the
-    /// same clause from two paragraphs' worth of prose, and counting the echoes
-    /// would report more new notes than the pane draws.
-    func test_compare_countsADuplicateFindingOnce() {
-        let outcome = RoundComparison.compare(
-            previous: record([fingerprint("A")]),
-            current: [note("A"), note("A", body: "again"), note("B"), note("B")])
-        XCTAssertEqual(outcome, RoundComparison.Outcome(resolved: 0, persisting: 1, new: 1))
+    /// **Resolved means resolved SINCE the last round** — not resolved ever.
+    /// The queue holds every note this pass ever raised, so a count without the
+    /// boundary would re-report the same settled note in every round for as
+    /// long as the writer stayed in the pass, and the line would climb forever
+    /// while nothing was happening.
+    func test_onlyWhatWasSettledSinceThePreviousRoundIsResolved() {
+        let long = makeAnnotation(round: 1, status: .stetted,
+                                  resolvedAt: previousRoundAt.addingTimeInterval(-60))
+        let fresh = makeAnnotation(round: 1, status: .stetted,
+                                   resolvedAt: previousRoundAt.addingTimeInterval(60))
+        XCTAssertEqual(compute([long]),
+                       SinceLastRound.Outcome(resolved: 0, persisting: 0, new: 0),
+                       "a note settled before the last round even ran was already "
+                       + "counted, in the round it was settled in")
+        XCTAssertEqual(compute([long, fresh]),
+                       SinceLastRound.Outcome(resolved: 1, persisting: 0, new: 0),
+                       "control: the one settled since does count")
     }
 
-    /// A v1 note in the current run is not a finding this contract can compare,
-    /// so it is neither new nor persisting — the same silence `make` returns.
-    func test_compare_ignoresANoteWithNoFingerprint() {
-        let outcome = RoundComparison.compare(
-            previous: record([]), current: [makeDiagnostic(kind: nil)])
-        XCTAssertEqual(outcome, RoundComparison.Outcome(resolved: 0, persisting: 0, new: 0))
+    /// The boundary itself is exclusive: a note settled at the very instant the
+    /// previous round was filed belongs to that round's account.
+    func test_theResolvedBoundaryIsExclusive() {
+        XCTAssertEqual(
+            compute([makeAnnotation(round: 1, status: .stetted, resolvedAt: previousRoundAt)]),
+            SinceLastRound.Outcome(resolved: 0, persisting: 0, new: 0))
+    }
+
+    /// **The writer's own notes, and Claude Desktop's, are not this round's
+    /// account of itself.** Only a note a compiler run authored can be new,
+    /// persisting or resolved in the sense this line means.
+    func test_aNoteTheCompilerDidNotWriteTakesNoPart() {
+        let human = makeAnnotation(round: nil, runId: nil)
+        XCTAssertEqual(compute([human]),
+                       SinceLastRound.Outcome(resolved: 0, persisting: 0, new: 0))
+        XCTAssertEqual(
+            compute([makeAnnotation(round: nil, status: .stetted,
+                                    resolvedAt: previousRoundAt.addingTimeInterval(60),
+                                    runId: nil)]),
+            SinceLastRound.Outcome(resolved: 0, persisting: 0, new: 0),
+            "…including when they settle it in the window this line reports on")
+    }
+
+    /// An empty queue is a legitimate answer, not a missing one: a round that
+    /// found nothing over a pass whose earlier notes are all dealt with reads
+    /// three zeroes, and that is the good outcome said plainly.
+    func test_anEmptyQueueCountsThreeZeroes() {
+        XCTAssertEqual(compute([]), SinceLastRound.Outcome(resolved: 0, persisting: 0, new: 0))
     }
 
     // MARK: - The ring
@@ -308,8 +512,10 @@ final class RoundHistoryTests: XCTestCase {
         XCTAssertEqual(history.first?.runId, "run-1")
         XCTAssertEqual(history.first?.passId, "pass-line")
         XCTAssertEqual(history.first?.round, 1)
-        XCTAssertEqual(history.first?.fingerprints,
-                       [try XCTUnwrap(RoundFingerprint.make(of: strain))])
+        XCTAssertEqual(history.first?.fingerprints, [],
+                       "the ring stopped carrying fingerprints in M4 P1 \u{2014} what "
+                       + "changed between two rounds is counted off the queue, and a "
+                       + "second account of it here would be one that can disagree")
 
         // …and it survives the relaunch, or "since last round" forgets the
         // round it is measured against every time the writer reopens.

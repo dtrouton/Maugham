@@ -301,28 +301,33 @@ final class AnnotationChangeEventTests: XCTestCase {
         }
     }
 
-    /// **The one exemption from the census above, named.** `appendLifecycleOp`
-    /// announces by default; `announcing: false` exists for a caller that
-    /// appends N ops for ONE writer-visible event and takes the announce on
-    /// itself. Today that caller is the deletion sweep and only the sweep.
+    /// **The exemptions from the census above, named.** Both funnels announce
+    /// by default; `announcing: false` exists for a caller that appends N ops
+    /// for ONE writer-visible event and takes the announce on itself. Today
+    /// there are two such callers and they are the same shape: the deletion
+    /// sweep (a burst of paragraph deletions orphaning a dozen notes) and the
+    /// compiler's mint (M4 P1 — one finished round writing a whole report's
+    /// worth of questions and reports at once).
     ///
     /// The census would otherwise be satisfied by a funnel that CAN be silenced
     /// from anywhere: `if announcing { announce… }` still contains the literal
-    /// the loop above looks for, so a seventh caller could quietly pass `false`
-    /// and post nothing at all. This pins the exemption to its one site and
-    /// checks that the site really does pay the announce back.
-    func test_theOnlySiteThatSuppressesTheAnnounceIsTheSweepWhichBatchesIt() throws {
+    /// the loop above looks for, so a further caller could quietly pass `false`
+    /// and post nothing at all. This pins the exemptions to their sites and
+    /// checks that each one really does pay the announce back.
+    func test_theOnlySitesThatSuppressTheAnnounceBatchItInstead() throws {
         let source = try Self.source(of: "OpLog/Document+Annotations.swift")
-        let funnel = try XCTUnwrap(
-            Self.declaration(named: "internal func appendLifecycleOp(", in: source),
-            "the lifecycle funnel is gone or renamed — this census is stale")
-        XCTAssertTrue(funnel.contains("announcing: Bool = true"),
-                      "the suppression must DEFAULT to announcing — a funnel "
-                      + "whose quiet form is the default announces nothing the "
-                      + "day a caller forgets the argument")
-        XCTAssertTrue(funnel.contains("if announcing { announceAnnotationsChanged() }"),
-                      "the funnel's announce is no longer the guarded form this "
-                      + "census is about")
+        for header in ["internal func appendLifecycleOp(", "public func addAnnotation("] {
+            let funnel = try XCTUnwrap(
+                Self.declaration(named: header, in: source),
+                "\(header) is gone or renamed — this census is stale")
+            XCTAssertTrue(funnel.contains("announcing: Bool = true"),
+                          "\(header): the suppression must DEFAULT to announcing "
+                          + "— a funnel whose quiet form is the default announces "
+                          + "nothing the day a caller forgets the argument")
+            XCTAssertTrue(funnel.contains("if announcing { announceAnnotationsChanged() }"),
+                          "\(header): the announce is no longer the guarded form "
+                          + "this census is about")
+        }
 
         let sweep = try XCTUnwrap(
             Self.declaration(named: "internal func sweepOrphanedAnnotations(", in: source),
@@ -338,16 +343,28 @@ final class AnnotationChangeEventTests: XCTestCase {
                       + "it back, so a burst of deletions archives notes that "
                       + "no count outside this document hears about")
 
-        // Whole-tree: nobody else silences the funnel. A new batching caller is
-        // welcome — it just has to arrive here, next to the reason.
+        // The second batching caller, on the same two halves.
+        let mint = try Self.source(of: "Compiler/CompilerEnvironment+Project.swift")
+        XCTAssertTrue(mint.contains("announcing: false)"),
+                      "premise: the compiler's mint is the second batching "
+                      + "caller — one round is one event")
+        XCTAssertTrue(mint.contains("document.announceAnnotationsChanged()"),
+                      "the mint suppresses the per-note announce and never pays "
+                      + "it back, so a whole round of findings lands with no "
+                      + "count outside this document hearing about it")
+
+        // Whole-tree: nobody else silences the funnels. A new batching caller
+        // is welcome — it just has to arrive here, next to the reason.
         let tree = try Self.swiftSources(under: "Maugham")
         var suppressors: [String] = []
         for (path, text) in tree where text.contains("announcing: false") {
             suppressors.append(path)
         }
-        XCTAssertEqual(suppressors, ["OpLog/Document+Annotations.swift"],
-                       "a production site outside the sweep suppresses the "
-                       + "annotation announce: \(suppressors)")
+        XCTAssertEqual(suppressors,
+                       ["Compiler/CompilerEnvironment+Project.swift",
+                        "OpLog/Document+Annotations.swift"],
+                       "a production site outside the sweep and the compiler's "
+                       + "mint suppresses the annotation announce: \(suppressors)")
     }
 
     /// …and the behaviour the census stands in front of: **one deletion burst,

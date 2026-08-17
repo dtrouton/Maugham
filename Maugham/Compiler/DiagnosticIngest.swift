@@ -167,6 +167,28 @@ extension DiagnosticIngest {
         static let empty = SectionedOutcome(
             accepted: [], facts: [], conformance: [], droppedDangling: 0, truncatedReader: 0,
             intentDriftVerdict: nil)
+
+        /// **What stays in the sidecar: conformance strains, and only them**
+        /// (M4 P1 Task 3).
+        ///
+        /// A strain is measured against a clause the writer declared, and it is
+        /// read next to that clause's own row — it is part of the report, not a
+        /// finding about the prose that outlives the run. Continuity questions
+        /// and the reader's reports are the opposite: they are about the words,
+        /// they survive the next check, and the writer answers them where every
+        /// other note about their prose lives. So they leave here for the
+        /// annotation layer (`mintable`), and **one finding has one home**.
+        var sidecarDiagnostics: [Diagnostic] {
+            accepted.filter { $0.kind == .conformanceStrain }
+        }
+
+        /// The other half of the same split: what the run mints as annotations.
+        /// Built from the accepted diagnostics rather than parsed a second
+        /// time, so the anchor, the register scrub and the dangling-ref
+        /// disposal are all the ones the ingest already applied.
+        var mintable: [CompilerNote] {
+            accepted.compactMap(CompilerNote.init(diagnostic:))
+        }
     }
 
     /// One section's contribution has exactly the shape of a whole turn's —

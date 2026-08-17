@@ -1,15 +1,22 @@
 # Compiler — Area guide
 
-Maugham's **author compiler** (M2): the writer presses ⌘R, a warm `claude -p`
-session reads what has changed since the last run, and its notes land in the
-Diagnostics pane as ¶-anchored diagnostics. Read this before editing in
-`Maugham/Compiler/`. Also read the project root `CLAUDE.md` for cross-cutting
-invariants, the design of record —
-`docs/superpowers/specs/2026-08-04-m2-author-compiler-design.md` — and its
+Maugham's **author compiler** (M2, rewired to the review queue in M4 P1): the
+writer presses ⌘R, a warm `claude -p` session reads what has changed since the
+last run, and each finding lands where its NATURE says it belongs (ADR 0029;
+spec `2026-08-17-one-loop-two-tempos-design.md` §2) — a conformance strain
+stays report-side as a ¶-anchored diagnostic in the Diagnostics pane; a
+continuity question or a reader's report mints as a pass-stamped annotation
+instead, a margin card in Author and a queue row in Review, with the full
+disposition vocabulary every other note already has. Read this before editing
+in `Maugham/Compiler/`. Also read the project root `CLAUDE.md` for
+cross-cutting invariants, the design of record —
+`docs/superpowers/specs/2026-08-04-m2-author-compiler-design.md` — its
 supersession —
 `docs/superpowers/specs/2026-08-07-compiler-second-draft-design.md`, which
 keeps the run's mechanism unchanged (§5's opening line) but replaces the
-workflow half: notes, fates, the answer flow and the pane's organization.
+workflow half: notes, fates, the answer flow and the pane's organization — and
+`docs/superpowers/specs/2026-08-17-one-loop-two-tempos-design.md`, which routes
+findings by nature and personifies each pass as a named editor.
 
 **The run speaks the v2 contract** (spec §5), and M3-P3 added a fifth line to
 it: four line-delimited note sections — conformance against the writer's
@@ -41,14 +48,99 @@ Two sentences hold the whole design:
   on every pause is the background linter the constitution excludes (must-not
   #2), and every timer in this area exists to end a session, never to start one.
 - **The compiler reads and never writes.** It reads the manuscript through an
-  enumerated read-only MCP allowlist and answers with a structured message. The
-  one thing that puts words anywhere is `RulingPerformer`, and its input is a
-  sentence the writer typed. (The M2 answer shim that routed into it,
-  `IntentAppendPerformer`, is gone: the pane's reply field calls the verb.)
+  enumerated read-only MCP allowlist and answers with a structured message; the
+  spawned model never calls a tool that mutates anything. **What puts words
+  anywhere is Maugham itself, after the turn is over, materializing the parsed
+  report into the layers the writer already governs** ([ADR
+  0029](../../docs/adr/0029-the-compilers-report-is-materialized.md), amending
+  [ADR 0028](../../docs/adr/0028-maugham-goes-outbound.md) §3's framing): a
+  continuity question or a reader's report becomes a pass-stamped annotation
+  (`Environment.mintAnnotations`, M4 P1 Task 3), a fact-candidate a bible entry,
+  and a kept conformance strain a promoted task. The one route into a
+  *statement* — the yardstick the compiler is judged against — is still only
+  `RulingPerformer`, and its input is still a sentence the writer typed. (The M2
+  answer shim that routed into it, `IntentAppendPerformer`, is gone: the pane's
+  reply field calls the verb.)
+
+**Each pass is a named editor, and the resolution has one spelling** (M4 P1
+Task 1, `ReviewPass.swift`). The four presets ship as **Perkins** (Structural),
+**Lish** (Line), **Gould** (Copyedit) and **Argus** (Proof), each carrying a
+seeded `brief` — what its rounds attend to, and as sharply what they leave
+alone — and an `editorName`. A pass's own `brief`/`editorName` field wins when
+set; a customized manifest can store a preset-id pass that predates both
+fields, so every reader resolves through `ReviewPass.effectiveBrief`/
+`.effectiveEditorName` rather than the raw fields — `CompilerEnvironment
++Project.swift`'s `activePass` closure is the one production call site, and its
+own comment names why reading `pass.editorName` directly would sign a Copyedit
+round's notes with nothing at all. The resolved name goes three places: the
+**annotation author** on every note that pass mints (`CompilerMintContext.
+editorName`, so the queue's author filter becomes "everything Gould flagged"
+and a passless run signs "Claude" — M2's identity, unchanged), the round
+briefing's **role frame** (`CompilerPrompt`, "You are Gould, this manuscript's
+copyeditor"), and the pass's own brief, embedded in the same briefing so
+attention follows the register the writer chose. A custom pass with no brief
+of its own and no matching preset gets the honest fallback: attend at the
+altitude the pass's name suggests.
+
+**The dispositions section is the warm path's duplicate guard, and its two
+halves are asymmetric on purpose** (`CompilerPrompt.dispositionsSection`,
+`CompilerAnnotationDisposition.gather`, M4 P1 Task 4). It briefs the model on
+what the writer has already done about this piece's compiler-authored notes,
+split into two headed lists:
+
+- **Standing** — notes still open, in the writer's queue as the round begins.
+  **Uncapped and unsorted, by design**: truncating this half is what would
+  mint duplicates, since a standing note left out of the budget is a finding
+  the model has no way to know is already raised. Its order is
+  `gather`'s own — the deriver's order, not a sort applied here.
+- **Settled** — the writer's answer (accepted, rejected with a reason,
+  stetted). **Capped at `settledDispositionLimit` (12)**, with the elided
+  count spelled out ("…and N more the writer has already settled") rather
+  than pretending the history is shorter than it is — settled notes
+  accumulate for the life of the piece and would eventually dominate the
+  prompt, while what is actually this section's job is telling the model
+  about the writer's *live* queue. **Sorted by `resolvedAt` DESCENDING**, not
+  by when the model originally raised the finding (`Document.annotations`'
+  own order, `createdAt` descending) — a question raised in round 1 and
+  answered this morning is the one the writer is still near, and under the
+  cap it is the one worth the words; sorting on arrival order would brief the
+  twelve most recently RAISED, which after a catch-up session is close to the
+  twelve LEAST recently thought about. **Ties, and the undated, fall back to
+  arrival order** (`gather`'s `enumerated()` index) rather than to nothing —
+  `sorted(by:)` is not stable, and an unstable order here would reshuffle the
+  briefing between two runs where nothing changed. A `.declined` note has no
+  `resolvedAt` (a triage mark is not a resolution), so declines sort after
+  every dated verdict.
+
+**A standing fingerprint silences its settled twin.** The mint's own dedupe
+stops two OPEN notes sharing a fingerprint, but nothing stops an open note
+sharing one with a note settled earlier and since re-raised — briefing both
+would tell the model to confirm a finding in one line and forget it two lines
+later. The live note wins: `dispositionsSection` drops a settled entry whose
+fingerprint is also standing. A note with no fingerprint (the anchorless
+kind — a doc-scoped craft note, which has no discriminator to make one from)
+is listed on its own rather than folded into anything, since a nil
+fingerprint is the absence of identity, not an identity shared with anything
+else. **A sibling residual, same class:** a continuity note's fingerprint
+leans on the model re-quoting `cites` byte-identically (`RoundFingerprint`'s
+"clause quote" for that kind), so a re-punctuated quote on a Fresh Eyes
+reread — same question, one comma moved — can mint a duplicate the dedupe
+can't see. Neither residual gets machinery; the writer disposes the
+duplicate the way they dispose any other settled note.
+
+**Fresh Eyes briefs NO dispositions at all**
+(`CompilerOrchestrator.beginRun`, the private continuation `runRequested`
+hands off to after the burst-flush hop: `let dispositions = freshEyes ? [] :
+environment.annotationContext(docId)`) — cold means cold, deliberately, so a
+reread is not steered by what a warm round already said. That is what makes
+the ingest-side fingerprint dedupe (`Environment.mintAnnotations`, described
+above) the cold path's ONLY guard against re-minting an open finding: on a
+warm round this section is the primary defence and the dedupe is a backstop;
+on ⌘⇧R the dedupe is the whole of it.
 
 ## What this area owns
 
-- The run: delta → prompt → session → parse → store (`CompilerOrchestrator`).
+- The run: delta → prompt → session → parse → mint → store (`CompilerOrchestrator`) — the mint (M4 P1 Task 3) writes note-natured findings into the annotation layer between the parse and the sidecar write, and `finish` waits on it (see "The turn coming back" doc comment on `CompilerOrchestrator.finish`).
 - The subprocess and its lifetime (`ClaudeCLISession`, behind `CompilerRunner`).
 - What the compiler may reach (`CompilerAllowlist`).
 - The diagnostics themselves: shape, per-device sidecar, staleness
@@ -98,15 +190,16 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `CompilerOrchestrator.swift` | **The run.** Owned by `ProjectWindow`; one orchestrator per window, one session per orchestrator |
 | `CompilerEnvironment+Project.swift` | The production wiring — the window's stores, as the closures the orchestrator runs on. Every capture is weak |
 | `DeltaBuilder.swift` | What changed since the last run's marker, in the writer's order (`sequence`, never raw `paragraphs`) |
-| `CompilerPrompt.swift` | The message. Asks different questions of new and revised prose; v2 carries the essay + derived clauses + the bible slice + the delta, diffed in as ONE unit (`briefingHash`) |
+| `CompilerPrompt.swift` | The message. Asks different questions of new and revised prose; v2 carries the essay + derived clauses + the bible slice + the delta, diffed in as ONE unit (`briefingHash`). M4 P1 adds two more sections between the listings and the delta, neither folded into `briefingHash` (each changes with the writer, not with what they declared): the active pass's **role frame + brief** (`passSection`, "You are Gould, this manuscript's copyeditor") and the **dispositions** section (`dispositionsSection`/`CompilerAnnotationDisposition.gather` — standing notes uncapped, settled notes capped at 12 and sorted by `resolvedAt` descending; see the dispositions paragraph above) |
 | `CompilerAllowlist.swift` | The enumerated read-only MCP tool list, as `--allowedTools` |
 | `CompilerRunner.swift` | The seam: `send(message:systemPreamble:) -> CompilerRunEvent`, plus every way a run can fail |
 | `ClaudeCLISession.swift` | The warm subprocess behind that seam |
-| `DiagnosticIngest.swift` | The structured message → notes, clause statuses and fact-candidates, anchored against the LIVE document. One section is one unit, so arrival can become incremental without the fold changing |
+| `DiagnosticIngest.swift` | The structured message → notes, clause statuses and fact-candidates, anchored against the LIVE document. One section is one unit, so arrival can become incremental without the fold changing. `SectionedOutcome.sidecarDiagnostics` keeps conformance strains only; `.mintable` is the other half, built from the same accepted diagnostics rather than re-parsed |
+| `CompilerNote.swift` | **The value that crosses from parse to mint** (M4 P1 Task 3) — what `Environment.mintAnnotations` writes as a pass-stamped `Annotation`. Neither a `Diagnostic` (no run id, no staleness anchor, no sidecar identity) nor an `Annotation` (derived from ops, not caller-constructed); `CompilerMintContext` is what one mint needs off the run that produced it (lane, round, editor name, cold-or-warm), minted once at the keystroke and carried rather than re-asked at mint time |
 | `DeclaredWorldDeriver.swift` | Also the one-shot's pipe discipline: stdout is drained WHILE the process runs. Reading it from `terminationHandler` deadlocked on any answer past ~64 KB — the child blocks on its own write, so it never exits, so the handler never fires. **120s deadline** (Stage 3), four times the spike's measured 30s sonnet cost: an overrunning process is `terminate()`d and the derivation returns its ordinary honest `nil` — ordinarily through the SAME EOF-and-exit resolution every other unreadable answer already goes through, and by force (`OneShotOutput.deadlineExpired`, after a 2s `terminationGrace`) when a group member escapes the group SIGTERM and withholds EOF by holding the inherited pipe: CI run 31595012981 hit exactly that (the killpg/fork race), and a real CLI grandchild that setsids has the same shape. Both doors are the deadline's own; `derive` never hangs on a stranger's file descriptor |
 | `Diagnostic.swift` | `Diagnostic` + `CompilerRun` — the wire and sidecar shapes |
 | `DiagnosticsStore.swift` | The per-device, per-document sidecar, and the staleness rule |
-| `RoundHistory.swift` | `RoundFingerprint` (the one join-key for round-over-round identity — section + clause quote + anchor, never prose) + `RoundRecord` (a finished round's lane, number and fingerprints) + `RoundComparison` (the pure resolved/persisting/new count, on `DriftDetector`'s mould — no store, no I/O) |
+| `RoundHistory.swift` | `RoundFingerprint` (the one join-key for round-over-round identity — section + clause quote + anchor + the reader's category, never prose; its `stringValue` is the mint's dedupe key, a persisted synced format) + `RoundRecord` (that a round finished: its lane, its number and **when** — `fingerprints` is legacy and written empty since M4 P1 Task 5) + `SinceLastRound` (the pure resolved/persisting/new count, taken off the writer's QUEUE, on `DriftDetector`'s mould — no store, no I/O) |
 | `DiagnosticPromotion.swift` | What a kept note says once it is an op-logged task |
 | `RulingPerformer.swift` | rule / revoke / edit / restore — the only writes into a statement's `## Rulings` stratum |
 | `StatementEssay.swift` | Where the essay ends and the strata begin — the byte-exact split the Intent pane's editor binds through |
@@ -223,8 +316,8 @@ is the resumed session id, not the process.
   is one array per `docId`, capped at `roundHistoryDepth` (5) — every pass
   files into the same ring, so five finished checks in Line push a Structural
   round out of it exactly as five more Structural checks would. It is written
-  only by `replace`, and only for the run being SUPERSEDED — `RoundRecord(run:
-  diagnostics:)` is built from `finishedContent(docId:)`, which reads the
+  only by `replace`, and only for the run being SUPERSEDED — `RoundRecord(run:)`
+  is built from `finishedContent(docId:)`, which reads the
   in-memory `byDoc` entry directly except while a preview is standing in for
   it, when it reads the shadow `finishedBeforePreview` captured the moment the
   preview began (keyed on the `previewing` Set, never on the shadow's
@@ -233,7 +326,7 @@ is the resumed session id, not the process.
   round). `latestRound(forPass:docId:)` — the one reader both `beginRun`'s
   minting and the pane's `sinceLastRoundLine` go through — checks the standing
   run first (newest of all, and not yet in the ring) and only then walks the
-  ring newest-first for a fingerprint-record matching that `passId`; a lane
+  ring newest-first for a record matching that `passId`; a lane
   whose records have all aged out of the shared ring answers `nil`, same as a
   lane that has never run, so the next check in it mints round 1. **The round
   number, and which pass it belongs to, are minted in `beginRun`'s synchronous
@@ -244,6 +337,21 @@ is the resumed session id, not the process.
   itself. Minted once, the pair rides `StreamingRun` and threads through the
   one `record(...)` spelling, so the preview and the final answer describe one
   round rather than two checks that happen to disagree.
+- **The round line's PLACEMENT in the pane is hoisted above the
+  report/no-report fork, and a future `content` refactor could silently undo
+  it** (M4 P1 Task 5 review, Important). It used to render only inside the
+  report arm, which put it out of reach in the state that needs it most: a
+  round in a pass over a piece with no declared intent raises no clauses and
+  no strains, so `DiagnosticsPane.hasReport` is `false` — and since Task 3
+  that round's WHOLE output is in the writer's queue, with nothing at all on
+  this pane. `DiagnosticsPane.content` now renders `freshEyesLine`/`roundLine`
+  in a `VStack` that wraps the empty state rather than living inside the
+  `else` branch that only fires when there IS a report, so the since-last-round
+  sentence (and the Fresh Eyes label) survive exactly the case that used to
+  swallow them. If a later change moves the round lines back inside the
+  report arm — reads as a harmless dedup of two nearly-identical branches —
+  a pass round over an intentless piece goes back to showing nothing at all
+  about what the round found.
 - **3 / 6 — the arrival.** Nothing here holds an editor binding or a
   `Document`. What a run needs off the live document arrives as a
   `DocumentReading` value captured at the keystroke, and paragraph text is
@@ -477,21 +585,51 @@ guard: the fact returns to the register and to the pane, and run 3's message
 carries the same declaration twice, once as a bible fact and once as the
 ruling's derived clause.
 
-## The four fates of a note
+## The four fates of a note — narrowed to the sidecar's own kind, M4 P1
 
-A diagnostic ends one of four ways, and only one of them is a button:
+**As of M4 P1, a `Diagnostic` in the sidecar is a conformance strain, and
+nothing else** (`SectionedOutcome.sidecarDiagnostics` filters to
+`.conformanceStrain`; the paragraph below the numbered list is where a
+continuity question and a reader's report actually go instead — they never
+reach this section's four fates at all). What follows described every kind of
+finding through M3-P3; it now
+describes a strain's own lifecycle, and a strain ends one of four ways, only
+one of which is a button:
 
 1. **Superseded** — the next run's diagnostics wholly replace the previous
    run's for that document, and its `clauseStatuses` replace the previous
-   summary in the same act. Un-promoted notes are dropped, not merged.
+   summary in the same act. Un-promoted strains are dropped, not merged.
 2. **Stale** — its paragraph's text no longer matches the text it was anchored
-   to, so `DiagnosticsStore.live` stops returning it. A note that names no
+   to, so `DiagnosticsStore.live` stops returning it. A strain that names no
    paragraph at all never goes stale this way; it has nothing to track. A v2
-   note's anchor is its FIRST resolving ref, so the one staleness rule serves
-   all three kinds and `refs` stay display-only.
+   note's anchor is its FIRST resolving ref, so the staleness rule needs no
+   per-kind variant and `refs` stay display-only.
 3. **Promoted** — kept as an op-logged task, which syncs and survives
-   (`DiagnosticPromotion`).
-4. **Answered** — became a ruling on the piece's intent (`RulingPerformer`).
+   (`DiagnosticPromotion`, whose doc comment now names its own narrowed
+   scope: a strain, never a continuity question or a reader's report, which
+   are already op-logged the moment they mint and would gain nothing from a
+   second copy in the task list. The promotion function's `sectionLabel` still
+   answers "continuity"/"the reader" for a task promoted *before* this
+   milestone — an old record's provenance line must not lose its section
+   just because the pane stopped drawing it).
+4. **Answered** — became a ruling on the piece's intent (`RulingPerformer`),
+   and (M4 P1 Task 6) the ruling now carries the answered strain's own
+   `clauseQuote`, sanitized and trimmed to `driftQuoteMaxLength` (60,
+   `DiagnosticsPane.answeredNoteProvenance`), so a later reader of the Intent
+   pane sees what was ruled *on* rather than a bare "answered a compiler
+   note" with nothing beside it.
+
+**A continuity question and a reader's report have no fates here at all —
+they leave the sidecar for the annotation layer the instant a run finishes**
+(`Environment.mintAnnotations`, described in the seam map's `CompilerNote.swift`
+row above). From that moment they are ordinary
+`Annotation`s and follow that layer's own lifecycle: open in the queue and the
+margin, then accept/reject/stet/discussed/promoted-to-a-task through the same
+verbs and the same undo conventions (ADR 0023) as any note Claude Desktop
+wrote by hand. `RulingPerformer` never sees one — a continuity question is
+disposed of in the queue, not answered into a ruling, which is the one place
+this milestone actually narrowed what `RulingPerformer` reaches rather than
+widening it.
 
 The sidecar is derived state: a missing or corrupt file reads as empty rather
 than throwing, and losing it costs nothing because the next run repopulates it.
@@ -574,6 +712,49 @@ drop the precondition and the byte-identical sidecar test does
 (`test_aDismissalCannotReachAPreview_soTheSidecarSurvivesACancelByteIdentical`,
 which asserts the file did not change *at all* — the only assertion a write
 that merely round-trips cannot satisfy).
+
+**`CompilerRun.mintedNotes: Int?` exists so the pane can never claim a clean
+check over a run that queued notes** (M4 P1 Task 3 review, Important). A run
+raising three continuity questions and no conformance strain leaves the
+sidecar empty — before this field, every surface keyed on "were there
+diagnostics?" answered yes to "nothing to flag," including the header, the
+empty state's seal, and the unread badge, which cleared itself on the one run
+it exists to announce. `finish` mints BEFORE it records
+(`CompilerOrchestrator.record`'s `mintedNotes:` parameter), so the count
+exists to be written down. `DiagnosticsPane.headerCopy`'s `.clean` arm opens
+with `queuedNotesSentence(run.mintedNotes)` and only falls back to "Nothing to
+flag" when that is `nil`; `emptyState` gets its own **"Notes in your
+queue"** arm, ordered ABOVE the discarded-notes arm because it is the
+stronger claim — a run can both queue notes and lose some, and the queued
+ones are the news the writer needs first. **The legacy trap, named so the
+next empty-state simplifier does not re-open it:** before this fix the pane's
+note count came from `rows.count`; since the M4 P1 slimming, `rows` can hold
+notes this pane refuses to draw (a sidecar written by an older build, still
+carrying continuity/reader-kind `Diagnostic`s), so a legacy sidecar of stale
+continuity rows reached the `.idle` header state and called itself clean —
+the header cannot be simplified back to counting `rows` without resurrecting
+that false "Nothing to flag." `headerState` is fed `strains.count` instead,
+which is what makes `.idle` genuinely unreachable from `emptyState` rather
+than merely re-commented as such.
+
+**A Cancel mid-mint can leave notes stamped with a run id the diagnostics store
+never records, and that is honest rather than a bug** (M4 P1 Task 3). `finish`
+awaits `mintAnnotations` before checking `runGeneration == generation`
+(`CompilerOrchestrator`'s own doc comment on `finish` names the ordering); a
+Cancel arriving inside that await bumps the generation and returns early,
+so `Self.record(...)`/`diagnostics?.replace(...)` never run for this `runId` —
+the sidecar simply has no `CompilerRun` by that id. The op-log appends
+`mintAnnotations` already made are not rolled back (the mint cannot throw and
+was never asked to be transactional — spec §3.2 calls the compiler a
+background convenience, not a source of truth to keep consistent at the cost
+of the writer's words), so a handful of annotations can carry a
+`compilerRunId` the pane can never look up. The dedupe backstop is unaffected
+either way — it keys on `compilerFingerprint`, not on whether the run that
+minted a note is still resolvable — and the writer sees the notes in their
+queue regardless of which side of the race the cancel landed on. Nothing
+reads a minted annotation's `compilerRunId` back against the sidecar today, so
+the gap is inert; it is recorded here because the type cannot defend itself
+and a future reader that DOES join the two should know the join can miss.
 
 ## The cold-start offer — refusable once, per document, forever
 
