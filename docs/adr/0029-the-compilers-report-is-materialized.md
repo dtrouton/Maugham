@@ -4,13 +4,17 @@
 
 ## Context
 
-[ADR 0028](0028-maugham-goes-outbound.md) §3 recorded, correctly, that the compiler's
-spawned `claude -p` "cannot write anything" — no tool in its allowlist mutates a
-manuscript, and no statement-writing tool exists in the allowlist or the catalogue at
-all. Through M2 and M3-P3 that sentence and *"nothing the compiler produces is
-durable"* were the same fact, because every finding a run raised was a `Diagnostic`
-in a per-device sidecar the next run wholly superseded. "Reads and never writes" read
-naturally as "produces nothing that outlives the check."
+[ADR 0028](0028-maugham-goes-outbound.md) §3 recorded, correctly, that the MCP
+membrane's write tools (`add_note`, `add_canvas_scraps`, `promote_inbox_entry`,
+`move_research_item`, `write_translation`, the publish writes) are ones "the
+compiler's Claude gets none of," and that "no statement-writing tool exists in the
+allowlist or the catalogue" at all. Neither sentence said anything about how long a
+FINDING lives, and through M2 and M3-P3 it didn't need to: every finding a run raised
+was a `Diagnostic` in a per-device sidecar the next run wholly superseded, so "the
+compiler cannot write" and "nothing the compiler produces outlives the check" were,
+in practice, one fact wearing two sentences. Reading "the compiler reads and never
+writes" as "produces nothing durable" was a safe shortcut for as long as that
+coincidence held.
 
 `docs/superpowers/specs/2026-08-17-one-loop-two-tempos-design.md` (§2–§3), written
 after Denver's first real smoke on *Playlist* under M3, breaks that identity on
@@ -85,10 +89,13 @@ passless run), and it carries run provenance (`compilerRunId`, `compilerRound`,
 `compilerFreshEyes`, `compilerFingerprint`) so a later round can recognise it without
 re-reading its prose. It is otherwise an ordinary annotation from the moment it
 lands: the writer accepts it, rejects it, stets it, discusses it, or bulk-disposes it
-exactly as they would a note Claude Desktop wrote through `add_comment` — because
-that tool call, not the compiler, is the annotation layer's designated inbound
-channel, and materializing a compiler finding into the same layer is reusing that
-channel rather than opening a second one.
+exactly as they would a note Claude Desktop wrote through `add_comment`. **The mint
+does not call `add_comment` or any other MCP tool** — `Environment.mintAnnotations`
+calls `Document.addAnnotation` directly, the same Swift entry point `add_comment`'s
+handler itself calls one hop further down — so what is reused is the annotation
+layer itself, the one data model and lifecycle every note lives in regardless of
+which door it came through, not the tool-call channel Desktop's writer uses to reach
+it.
 
 **What still admits only a writer-typed sentence, unchanged.** The one route from a
 finding into a *statement* — the yardstick the compiler is judged against — is

@@ -135,6 +135,9 @@ input is still a `String` the writer typed.\]*
 `preview_compile` was removed from the allowlist during implementation (`7be99c98`) for
 the same class of reason: it is nominally a read, and it spawns tectonic.
 
+*[Amended 2026-08-17: the report's note-natured findings are now materialized into
+the annotation layer by the app — see [ADR 0029](0029-the-compilers-report-is-materialized.md).]*
+
 ### 4. A warm session, with `--resume` pre-authorized and not built.
 
 **Decision: one long-lived `claude -p` process per orchestrator, spawned lazily on the
@@ -184,6 +187,12 @@ infrastructure Maugham controls"*):
   app they installed and an account they hold.
 - **Nothing rests anywhere.** A run is a request and a response. Diagnostics land in a
   per-device sidecar on the writer's own disk, and losing that file costs nothing durable.
+  *[Correction, 2026-08-17: no longer the whole picture — see
+  [ADR 0029](0029-the-compilers-report-is-materialized.md). A continuity question or a
+  reader's report now materializes as an op-logged, synced `Annotation`, so half of a
+  run's output DOES rest somewhere durable and would cost the writer something real to
+  lose. The sidecar half — conformance strains, bible fact-candidates — is unchanged:
+  per-device, derived, costs nothing to lose.]*
 - **Maugham controls no infrastructure**, so there is nothing for manuscript content to
   rest *on*.
 
