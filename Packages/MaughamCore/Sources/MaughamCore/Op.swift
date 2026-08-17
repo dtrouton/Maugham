@@ -89,6 +89,24 @@ public struct Op: Codable, Equatable, Sendable {
         // annotation field a reader has to JSON-decode a string to reach.
         public let reviewPassId: String?
 
+        // Compiler-run provenance (M4 P1) — populated only on annotation ops a
+        // compiler run authored: which run wrote the note, which numbered round
+        // within its pass, whether that round was a Fresh Eyes reread, and the
+        // fingerprint of the text the run judged. Four flat optional scalars for
+        // `reviewPassId`'s reason above — never smuggled through `toolArgs`.
+        // `compilerFreshEyes` rides the wire but is NOT projected onto
+        // `Annotation`: it is a fact about the run, not about the note.
+        // Additive: legacy op logs decode with all nil — and NO schema bump,
+        // because `OpKind`'s SCHEMA CONTRACT scopes the bump to new op-kind
+        // CASES (this task adds none), and additive all-optional provenance
+        // fields cannot be silently dropped by an older build the way a
+        // re-saved manifest can: the op log is append-only, so ops are never
+        // rewritten (`ProjectManifest.currentSchemaVersion`'s 6 → 7 note).
+        public let compilerRunId: String?
+        public let compilerRound: Int?
+        public let compilerFreshEyes: Bool?
+        public let compilerFingerprint: String?
+
         enum CodingKeys: String, CodingKey {
             case sessionId = "session_id"
             case prompt
@@ -116,6 +134,10 @@ public struct Op: Codable, Equatable, Sendable {
             case spanPosHint = "span_pos_hint"
             case triageMark = "triage_mark"
             case reviewPassId = "review_pass_id"
+            case compilerRunId = "compiler_run_id"
+            case compilerRound = "compiler_round"
+            case compilerFreshEyes = "compiler_fresh_eyes"
+            case compilerFingerprint = "compiler_fingerprint"
         }
 
         public init(
@@ -132,7 +154,9 @@ public struct Op: Codable, Equatable, Sendable {
             authorCollaboratorId: String? = nil,
             spanQuote: String? = nil, spanPrefix: String? = nil,
             spanSuffix: String? = nil, spanPosHint: Int? = nil,
-            triageMark: String? = nil, reviewPassId: String? = nil
+            triageMark: String? = nil, reviewPassId: String? = nil,
+            compilerRunId: String? = nil, compilerRound: Int? = nil,
+            compilerFreshEyes: Bool? = nil, compilerFingerprint: String? = nil
         ) {
             self.sessionId = sessionId
             self.prompt = prompt
@@ -160,6 +184,10 @@ public struct Op: Codable, Equatable, Sendable {
             self.spanPosHint = spanPosHint
             self.triageMark = triageMark
             self.reviewPassId = reviewPassId
+            self.compilerRunId = compilerRunId
+            self.compilerRound = compilerRound
+            self.compilerFreshEyes = compilerFreshEyes
+            self.compilerFingerprint = compilerFingerprint
         }
     }
 
