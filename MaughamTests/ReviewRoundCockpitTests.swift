@@ -14,9 +14,10 @@ import MaughamCore
 ///
 /// Three kinds of test, on this suite's house rules:
 ///
-/// - **Pure**, for every decision the strip makes — the lane line, the
-///   docId-scoped run phase, the report line's mutual exclusion, the empty
-///   queue's teaching. None of them needs a window.
+/// - **Pure**, for every decision the strip makes — the lane line, the lane
+///   picker's label and its checkmark truth table, the docId-scoped run phase,
+///   the report line's mutual exclusion, the empty queue's teaching. None of
+///   them needs a window.
 /// - **Mounted**, for what a reviewer actually sees and presses.
 ///   `accessibilityPerformPress` is the delivery path here, as it is in
 ///   `DiagnosticsPaneTests` — the same action a click runs, without the
@@ -225,20 +226,97 @@ final class ReviewRoundCockpitTests: XCTestCase {
                         "\u{2026}and the cold read beside it")
     }
 
-    /// The picker appears **exactly** when no pass is active — it is the one
-    /// affordance that turns a piece nobody has assigned a pass into one the
-    /// loop can run on, and it must not sit beside a lane line that already
-    /// answers the same question.
-    func test_thePickerAppearsExactlyWhenNoPassIsActive() throws {
-        let unassigned = allLabels(in: mountCockpit(activePassId: nil, round: nil))
-        XCTAssertTrue(unassigned.contains { $0.contains(ReviewRoundCockpit.setAPassTitle) },
-                      "a piece with no active pass must be offered one \u{2014} "
-                      + "got \(unassigned)")
+    /// **The lane row is the picker in BOTH states** (Denver's 2026-08-18
+    /// smoke). It used to be a picker only when no pass was active, so a piece
+    /// already in a lane could be moved to another one only by going back to
+    /// the board and clicking a different chip — the undiscoverability the
+    /// cockpit was built to end, one step further in.
+    ///
+    /// The two states differ in what the control SAYS, never in whether it is
+    /// one: the invitation before a pass is chosen, the lane line after.
+    func test_theLaneRowIsThePickerInBothStates() throws {
+        let unassigned = mountCockpit(activePassId: nil, round: nil)
+        XCTAssertTrue(
+            allLabels(in: unassigned).contains {
+                $0.contains(ReviewRoundCockpit.setAPassTitle)
+            },
+            "a piece with no active pass must be offered one \u{2014} "
+            + "got \(allLabels(in: unassigned))")
+        XCTAssertNotNil(
+            pressableLanePicker(
+                labelled: ReviewRoundCockpit.setAPassTitle, in: unassigned),
+            "\u{2026}and the invitation must be the pressable control, not a "
+            + "caption. Pressable elements: \(pressableLabels(in: unassigned))")
 
-        let assigned = allLabels(in: mountCockpit(activePassId: "copyedit", round: 1))
-        XCTAssertFalse(assigned.contains { $0.contains(ReviewRoundCockpit.setAPassTitle) },
-                       "a piece already in a pass must not carry the picker too "
-                       + "\u{2014} got \(assigned)")
+        let assigned = mountCockpit(activePassId: "copyedit", round: 1)
+        XCTAssertFalse(
+            allLabels(in: assigned).contains {
+                $0.contains(ReviewRoundCockpit.setAPassTitle)
+            },
+            "a piece already in a lane is not being asked to set one \u{2014} "
+            + "its label is the lane. Got \(allLabels(in: assigned))")
+        let lane = ReviewRoundCockpit.laneLine(pass: Self.copyedit, round: 1)
+        XCTAssertTrue(allLabels(in: assigned).contains(lane),
+                      "premise: the lane line reached the tree at all \u{2014} "
+                      + "got \(allLabels(in: assigned))")
+        XCTAssertNotNil(
+            pressableLanePicker(labelled: lane, in: assigned),
+            "the lane line itself must be pressable once a pass is active "
+            + "\u{2014} otherwise the only lane-switcher left is another board "
+            + "chip click. Pressable elements: \(pressableLabels(in: assigned))")
+    }
+
+    /// The label the picker carries in each state, without a window — the two
+    /// arms `laneLabel` chooses between.
+    func test_theLaneLabelIsTheLaneLineOrTheInvitation() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLabel(pass: Self.copyedit, round: 3),
+            ReviewRoundCockpit.laneLine(pass: Self.copyedit, round: 3),
+            "with a pass active the picker's label IS the lane line \u{2014} a "
+            + "second spelling here is a strip that can name one lane and "
+            + "change another")
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLabel(pass: nil, round: nil),
+            ReviewRoundCockpit.setAPassTitle,
+            "and before any pass it is the invitation")
+    }
+
+    // MARK: - Pure: the picker's checkmark truth table
+
+    /// **Exactly one item is checked, and it is the active lane.** The drawn
+    /// menu is headless-unreachable (`InspectorPassLadderTests`), so this is
+    /// where the rule is asserted; the census above is what keeps the drawn
+    /// menu equal to it.
+    func test_theActiveLaneIsTheCheckedItem() {
+        let items = ReviewRoundCockpit.lanePickerItems(
+            passes: [Self.line, Self.copyedit, Self.betaRead], current: "copyedit")
+
+        XCTAssertEqual(items.map(\.pass.id), ["line", "copyedit", "beta"],
+                       "the picker offers the ladder in the project's own order")
+        XCTAssertEqual(items.filter(\.isCurrent).map(\.id), ["copyedit"],
+                       "exactly the active lane is checked \u{2014} got "
+                       + "\(items.map { ($0.id, $0.isCurrent) })")
+    }
+
+    func test_noLaneIsCheckedBeforeAPassIsChosen() {
+        let items = ReviewRoundCockpit.lanePickerItems(
+            passes: [Self.line, Self.copyedit], current: nil)
+
+        XCTAssertEqual(items.count, 2, "every pass is still offered")
+        XCTAssertTrue(items.allSatisfy { !$0.isCurrent },
+                      "a piece in no lane must not have one ticked")
+    }
+
+    /// A recorded id the manifest no longer names leaves NOTHING checked
+    /// rather than ticking some other lane — the same honesty
+    /// `chipMenuItems` keeps about an `.unknown` state.
+    func test_aPassTheProjectNoLongerNamesChecksNothing() {
+        let items = ReviewRoundCockpit.lanePickerItems(
+            passes: [Self.line, Self.copyedit], current: "structural")
+
+        XCTAssertTrue(items.allSatisfy { !$0.isCurrent },
+                      "an id the ladder does not contain is not evidence that "
+                      + "the piece is in any of the lanes it does")
     }
 
     /// **The picker's choice records through the window's ONE writer.**
@@ -571,29 +649,44 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// when the writer opens it and the item itself is unreachable from a
     /// hosted view (measured in `InspectorPassLadderTests`). That substitution
     /// is honest only while the item actually calls `setPass` — and nothing
-    /// mounted can see whether it does. Rewiring `passPicker`'s button to a
+    /// mounted can see whether it does. Rewiring `lanePicker`'s button to a
     /// local `@State`, or to `onSetActivePass` under a second spelling, leaves
     /// every other test in this file green over a picker that no longer
     /// records anything.
     ///
     /// So the link is a census over the picker's own declaration. It is the
-    /// weakest seam in this task and it is the one the review found.
+    /// weakest seam in this task and it is the one the review found. **It moved
+    /// with the picker** (2026-08-18): `passPicker` — the passless arm — became
+    /// `lanePicker`, the whole lane row in both states, and the census follows
+    /// it by name.
+    ///
+    /// Its second half is new and answers a defect this unification could
+    /// introduce: `lanePickerItems` is the checkmark truth table, and the tests
+    /// below drive it directly. A drawn menu built off its own `ForEach(passes)`
+    /// would leave those green over a picker that ticks nothing.
     func test_thePickersItemCallsTheVerbTheTestsDriveItThrough() throws {
         let source = try Self.source(of: "Views/Review/ReviewRoundCockpit.swift")
         let picker = try XCTUnwrap(
-            Self.declaration(named: "private var passPicker:", in: source),
+            Self.declaration(named: "private var lanePicker:", in: source),
             "the picker must still be a readable declaration for this census "
             + "to have a subject")
 
-        XCTAssertTrue(picker.contains("setPass(pass.id)"),
-                      "the picker's menu item must call `setPass(pass.id)` — "
-                      + "the verb `test_thePickersChoiceRecordsThroughThe"
+        XCTAssertTrue(picker.contains("setPass(item.pass.id)"),
+                      "the picker's menu item must call `setPass(item.pass.id)` "
+                      + "\u{2014} the verb `test_thePickersChoiceRecordsThroughThe"
                       + "WindowsOneWriter` drives in its place. Anything else "
                       + "here and that test proves nothing about this control. "
                       + "Got:\n\(picker)")
-        XCTAssertTrue(picker.contains("ForEach(passes)"),
-                      "\u{2026}once per pass the project names, so a project "
-                      + "that renamed its ladder offers its own passes")
+        XCTAssertTrue(
+            picker.contains("Self.lanePickerItems(")
+                && picker.contains("current: activePassId"),
+            "\u{2026}once per item of `lanePickerItems(passes:current:)`, asked "
+            + "about the piece's OWN active pass \u{2014} a second list built "
+            + "here is a checkmark rule the truth-table tests below cannot see. "
+            + "Got:\n\(picker)")
+        XCTAssertTrue(picker.contains("item.isCurrent"),
+                      "\u{2026}and the drawn item must read the truth table's "
+                      + "verdict rather than recomputing one")
     }
 
     /// **The strip is not in the toolbar.** `AnnotationsQueueToolbar`'s one
@@ -750,6 +843,54 @@ final class ReviewRoundCockpitTests: XCTestCase {
         return tree
             .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
             .first { (axAttribute($0, "accessibilityLabel") as? String) == label } as? NSObject
+    }
+
+    /// **The roles a hosted SwiftUI `Menu` can arrive under.**
+    ///
+    /// A borderless-button `Menu` is **not** an `AXButton` — measured
+    /// 2026-08-18 on macOS 26.6.1, both cockpit states report `AXMenuButton`
+    /// ("AXMenuButton: Copyedit · Gould · round 1" and "AXMenuButton: Set a
+    /// pass", beside the run row's two real `AXButton`s) — which is why this
+    /// suite's `findButton` cannot see the lane picker and it needs a reader of
+    /// its own. The set is deliberately wider than the one role observed: the
+    /// claim is "this is a control, not a caption", and a future macOS spelling
+    /// it `AXPopUpButton` should not turn that claim into a false red.
+    private static let menuRoles: Set<String> = [
+        "AXMenuButton", "AXPopUpButton", "AXButton",
+    ]
+
+    /// The lane picker, found by the EXACT label it draws in whichever state
+    /// the cockpit is in. `nil` means the row reached the tree as a caption —
+    /// the defect this fix is about.
+    ///
+    /// **Exact, and the equality is what makes it discriminating.** A
+    /// `contains` reader here matched the run row's own "Run round" button
+    /// against the lane's "round" and passed over a planted plain-`Text` lane
+    /// (falsified 2026-08-18 — the plant went green until this became `==`).
+    private func pressableLanePicker(
+        labelled label: String, in window: NSWindow
+    ) -> AnyObject? {
+        guard let tree = try? axTree(in: window) else { return nil }
+        return tree.first { element in
+            guard let role = axAttribute(element, "accessibilityRole") as? String,
+                  Self.menuRoles.contains(role) else { return false }
+            let drawn = (axAttribute(element, "accessibilityLabel") as? String)
+                ?? (axAttribute(element, "accessibilityValue") as? String) ?? ""
+            return drawn == label
+        }
+    }
+
+    /// Every pressable element's role and label — the failure message for the
+    /// reader above, so a red test says what the tree actually held.
+    private func pressableLabels(in window: NSWindow) -> [String] {
+        guard let tree = try? axTree(in: window) else { return [] }
+        return tree.compactMap { element in
+            guard let role = axAttribute(element, "accessibilityRole") as? String,
+                  Self.menuRoles.contains(role) else { return nil }
+            let label = (axAttribute(element, "accessibilityLabel") as? String)
+                ?? (axAttribute(element, "accessibilityValue") as? String) ?? "nil"
+            return "\(role): \(label)"
+        }
     }
 
     private func allLabels(in window: NSWindow) -> [String] {

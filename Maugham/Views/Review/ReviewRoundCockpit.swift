@@ -41,7 +41,7 @@ struct ReviewRoundCockpit: View {
     // load-bearing is `phase(runState:docId:)`, which takes it as an argument.
 
     /// Every pass the project names (`ProjectManifest.effectiveReviewPasses`) —
-    /// the picker's contents when no pass is active.
+    /// the lane picker's contents, in every state.
     let passes: [ReviewPass]
     /// The piece's **recorded** active pass id, already validated against
     /// `passes` (`ActivePassMemory.validatedActivePass`).
@@ -116,6 +116,52 @@ struct ReviewRoundCockpit: View {
         return "\(pass.name) \u{00b7} \(editor) \u{00b7} round \(number)"
     }
 
+    /// **What the lane picker's own label says** — the lane line once a pass is
+    /// active, and the invitation before one is.
+    ///
+    /// One function rather than two call sites choosing between two strings,
+    /// because the control is now ONE control: the row that says where the
+    /// reviewer is *is* the row that changes it (Denver's 2026-08-18 smoke).
+    /// Before that the lane was a plain `Text` and the picker existed only in
+    /// the passless arm, so a piece already in a pass could only be moved to
+    /// another lane by going back to the board and clicking a different chip —
+    /// the exact undiscoverability the strip was built to end.
+    static func laneLabel(pass: ReviewPass?, round: Int?) -> String {
+        guard let pass else { return setAPassTitle }
+        return laneLine(pass: pass, round: round)
+    }
+
+    /// One row of the lane picker: a pass the project names, and whether it is
+    /// the lane this piece is being read through.
+    struct LanePickerItem: Identifiable {
+        let pass: ReviewPass
+        /// Whether this is the piece's active pass. Exactly one item carries
+        /// it, or none — see `lanePickerItems`.
+        let isCurrent: Bool
+
+        var id: String { pass.id }
+    }
+
+    /// **The picker's whole truth table** — the ladder in the project's own
+    /// order, with the active lane checked.
+    ///
+    /// Exposed and pure for `ReviewBoardChipVerbs.chipMenuItems`' reason: a
+    /// SwiftUI `Menu` builds its items only when the writer opens it, so a
+    /// hosted test can neither see them nor press one (measured in
+    /// `InspectorPassLadderTests`). A checkmark rule asserted nowhere is how a
+    /// picker that ticks the wrong lane — or every lane — ships green.
+    ///
+    /// **`current` naming a pass this project does not have leaves NOTHING
+    /// checked, and that is the honest reading.** The value reaching this view
+    /// is already `ActivePassMemory.validatedActivePass`, so the case is a
+    /// manifest edited out from under a recorded id; ticking some other lane
+    /// would claim the piece is being read through a pass nobody chose.
+    static func lanePickerItems(
+        passes: [ReviewPass], current: String?
+    ) -> [LanePickerItem] {
+        passes.map { LanePickerItem(pass: $0, isCurrent: $0.id == current) }
+    }
+
     /// **One line after a round, and the two candidates are mutually exclusive
     /// by construction.** A cold read was briefed on no prior findings, so a
     /// comparison drawn over it would name a difference the run never made —
@@ -186,6 +232,9 @@ struct ReviewRoundCockpit: View {
         "Read the whole piece cold (\u{2318}\u{21e7}R) \u{2014} the warm session is "
         + "retired and this round is briefed on no prior findings."
 
+    /// One tooltip for both states, because it asks the question the control
+    /// answers in both: it reads as an invitation over "Set a pass" and as an
+    /// offer to change lanes over a lane line.
     static let setAPassHelp =
         "Which pass is this piece being read through? The round is filed in "
         + "that lane, and its editor signs the notes."
@@ -199,13 +248,15 @@ struct ReviewRoundCockpit: View {
     // path, minus AppKit's menu.
     //
     // **That substitution is only honest while the item actually calls it**,
-    // and nothing a mounted test can reach says so — rewiring `passPicker`'s
+    // and nothing a mounted test can reach says so — rewiring `lanePicker`'s
     // button to anything else leaves every drive-through-`setPass` test green
     // over a picker that no longer does what they claim. So the link is a
     // census: `ReviewRoundCockpitTests.
     // test_thePickersItemCallsTheVerbTheTestsDriveItThrough` reads
-    // `passPicker`'s own declaration and requires `setPass(pass.id)` in it.
-    // Renaming this verb means moving that census with it.
+    // `lanePicker`'s own declaration and requires `setPass(item.pass.id)` in
+    // it, and that it iterates `lanePickerItems` rather than a second list of
+    // its own. Renaming this verb — or the picker — means moving that census
+    // with it.
 
     func setPass(_ passId: String) { onSetActivePass(passId) }
 
@@ -235,7 +286,7 @@ struct ReviewRoundCockpit: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            laneRow
+            lanePicker
             if let statusLine {
                 Text(statusLine)
                     .font(.caption)
@@ -249,41 +300,61 @@ struct ReviewRoundCockpit: View {
         .padding(.horizontal, 12).padding(.vertical, 8)
     }
 
-    /// Where the reviewer is — or, when nobody has said, the one control that
-    /// answers it.
-    @ViewBuilder
-    private var laneRow: some View {
-        if let activePass {
-            Text(Self.laneLine(pass: activePass, round: round))
-                .font(.callout.weight(.medium))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            passPicker
-        }
-    }
-
-    /// **The picker, shown exactly when no pass is active.** A menu rather
-    /// than a segmented row for `AnnotationsQueueToolbar`'s reason: a project
-    /// may name any number of passes and the column's floor is 240pt.
+    /// **Where the reviewer is, and the one control that moves them** — the
+    /// same control, in both states (Denver's 2026-08-18 smoke).
+    ///
+    /// The lane row used to be a plain `Text` once a pass was active and a
+    /// picker only before one was, which meant the strip could say *Structural
+    /// · Perkins · round 2* and offer no way to read the piece through any
+    /// other lane. The only lane-switcher left was another chip click on the
+    /// board — the undiscoverability the cockpit exists to end, reappearing one
+    /// step further in. So the line IS the button: its label is `laneLabel`
+    /// (the lane line, or the invitation), and `.menuStyle(.borderlessButton)`
+    /// is what draws the chevron that says so.
+    ///
+    /// A menu rather than a segmented row for `AnnotationsQueueToolbar`'s
+    /// reason: a project may name any number of passes and the column's floor
+    /// is 240pt. **No `.fixedSize()`** — the passless label was two short words
+    /// and could afford one; a lane line carries a writer's own pass name and
+    /// must stay compressible, which is what `AnnotationsQueueToolbarWidthTests`
+    /// measures. The `Spacer` is what keeps it left rather than a `maxWidth`
+    /// frame, so the pressable area is the line and its chevron and not the
+    /// whole width of the column.
     ///
     /// It writes nothing itself. The pass memory has one writer
     /// (`ProjectWindow.recordActivePass`) and this reaches it through the
     /// mount — the queue advises about passes; it never rules on one.
     @ViewBuilder
-    private var passPicker: some View {
-        Menu {
-            ForEach(passes) { pass in
-                Button(pass.name) { setPass(pass.id) }
+    private var lanePicker: some View {
+        HStack(spacing: 0) {
+            Menu {
+                ForEach(Self.lanePickerItems(
+                    passes: passes, current: activePassId)
+                ) { item in
+                    Button {
+                        setPass(item.pass.id)
+                    } label: {
+                        // The active lane is checkmarked — the board chip
+                        // menu's idiom, and a `Label` rather than a `Toggle`
+                        // for its reason: these are a choice among lanes, and
+                        // a menu of toggles reads as N independent switches.
+                        if item.isCurrent {
+                            Label(item.pass.name, systemImage: "checkmark")
+                        } else {
+                            Text(item.pass.name)
+                        }
+                    }
+                }
+            } label: {
+                Text(Self.laneLabel(pass: activePass, round: round))
+                    .font(activePass == nil ? .callout : .callout.weight(.medium))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-        } label: {
-            Text(Self.setAPassTitle)
-                .font(.callout)
+            .menuStyle(.borderlessButton)
+            .help(Self.setAPassHelp)
+            Spacer(minLength: 0)
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help(Self.setAPassHelp)
     }
 
     /// The two ways to ask. **No `keyboardShortcut` on either** — see the type

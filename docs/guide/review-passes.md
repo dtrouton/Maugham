@@ -73,8 +73,11 @@ document scope, and it's the second place you meet a round: the piece's lane
 — *Copyedit · Gould · round 2* — what changed since the last one once one
 exists, and two buttons doing exactly what ⌘R and ⌘⇧R do, **Run round** and
 **Fresh Eyes**, so asking for the next round never means leaving the queue to
-find ⌘R's other home. No pass active on this piece yet? The strip is a pass
-picker instead — choose one and the lane appears. An empty queue teaches the
+find ⌘R's other home. **The lane line is itself the pass picker** — click it
+to read the piece through a different pass, with the one it's in checked, so
+changing lanes never means going back to the board to click another chip. No
+pass active on this piece yet? The same control says *Set a pass* instead —
+choose one and the lane appears. An empty queue teaches the
 same loop rather than describing an absence: *"Claude proposes; you dispose.
 Run Gould's round (⌘R), or ask Claude in Claude Desktop."*
 
