@@ -431,7 +431,7 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
     /// **The picker + running arms — unmeasured until this fixture** (M4 P2
     /// Task 8 whole-branch review, Minor). `cockpit()` above fixes the lane
     /// line and the report line; a piece with no active pass draws
-    /// `passPicker` instead of the lane, and a run in flight draws
+    /// `lanePicker`'s invitation label instead of the lane, and a run in flight draws
     /// `RoundNarrative.checkingCopy` instead of `reportLine` — different
     /// views entirely, and neither one's width was in this suite before a
     /// future control added to either would have escaped it silently.
