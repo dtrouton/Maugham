@@ -1,10 +1,41 @@
 # The tree scrolls on a pass swap — investigation, 2026-08-18
 
-**Status: REPRODUCED AND FIXED (fourth session).** The displacing view is
-`AnnotationsPane`'s advisory nudge (`passOrderNudge`), and the fix is
-`Maugham/Views/WindowFloorFree.swift`. Read the fourth session at the bottom for
-the measurement and the fix; the three sessions above it are the narrowing, and
-their falsified hypotheses still stand — do not re-derive them.
+**Status: STILL OPEN. The fourth session shipped HARDENING, not the fix for
+Denver's bug.**
+
+What the fourth session established, and what it did not:
+
+- **Demonstrated and pinned**: the displacement MECHANISM. A layout minimum that
+  exceeds the window makes SwiftUI centre rather than compress, and the tree's
+  scroll view leaves through the top with a negative origin. Driven end to end in
+  a probe, at −26.5pt.
+- **Fixed, as hardening**: `AnnotationsPane`'s advisory nudge
+  (`passOrderNudge`) raised that pane's own minimum height by 26pt on the pass
+  write. Real, measured, now impossible (`Maugham/Views/WindowFloorFree.swift`).
+- **FALSIFIED**: that this was Denver's bug. Planted-offender measurement
+  against the real `ProjectWindow` shows a column's minimum height **does not
+  reach this window at all** — a 700pt demand on the annotations pane, on the
+  sidebar column, on the centre column, or on the detail column's own root each
+  left `contentMinSize` at 540, while the same offender outside the split view
+  turned it 700. No pane can set this window's floor by any amount, so the 26pt
+  was never on the production path.
+- **NOT explained**: session 3's 596–636 band, where the split view laid out
+  shorter than the window after the write. That band was read off
+  `fittingSize` going 592 → 637, and `WindowFloorFreeLayout` deliberately still
+  answers the content's IDEAL to an unspecified proposal — which is what
+  `fittingSize` asks. **So 592 → 637 stands, unchanged, after the fix.** Whatever
+  produces it is not the nudge's minimum, and it is not fixed.
+
+**The band's cause is unknown and is the live question.** The next discriminator
+is unchanged from the third session: Denver's hand smoke in the real app with the
+extended probe, which now writes `settled +1s/+3s/+8s` lines carrying `fits`,
+`fittingH` and `windowH`, and captures frame changes on the scroll view **and
+every ancestor** with a stack. A `settled` line with `fits=false`, or a `frame`
+line with a stack, names it in one shot.
+
+Read the fourth session at the bottom for the measurement, the fix and its
+limits; the three sessions above it are the narrowing, and their falsified
+hypotheses still stand — do not re-derive them.
 
 ## The report (Denver's smoke, with a screenshot)
 
@@ -315,18 +346,26 @@ stack, names it in one shot.
 
 ---
 
-## Fourth session, 2026-08-18 — the 45pt bisected to one view, and the fix
+## Fourth session, 2026-08-18 — a minimum-height leak found and closed, and why it is not the bug
+
+**Read the header first.** This session found a real defect, fixed it, and did
+NOT close the report. What follows is worth having on its own terms; the
+"therefore Denver's bug is fixed" step is the one it cannot take, and the reason
+is stated at the end of each part.
 
 ### The view: `AnnotationsPane.passOrderNudge`
 
 The third session's latched finding — *the pass write raises the layout's
 minimum height and it stays* — was narrowed to a single view by measuring the
-minimum height of each candidate in isolation. The measurement that matters is
-**`window.contentMinSize` on an `NSHostingView` whose `sizingOptions` are
-`[.minSize]`**: that is literally the production quantity, the stamp a window
-measures its own legal sizes against. (`fittingSize` is NOT it — with
-`[.minSize]` it reads `(0, 0)` in every state, and without any sizing option it
-answers the IDEAL. Two sessions' numbers were ideals.)
+minimum height of each candidate in isolation.
+
+**Two different numbers wear the name "the layout's minimum", and the whole
+session turns on the difference.** `window.contentMinSize` on an
+`NSHostingView` whose `sizingOptions` are `[.minSize]` is the MINIMUM: the stamp
+a window measures its own legal sizes against. `fittingSize` with no sizing
+option is the IDEAL. The third session's 592 → 637 is the second one; everything
+below measures the first. They are not the same quantity and the fix moves only
+one of them — see "What this does not explain".
 
 `AnnotationsPane` alone, one chapter, width 320, no cockpit:
 
@@ -356,11 +395,13 @@ demands its full height as a MINIMUM, the `VStack` sums them, and SwiftUI
 propagates that all the way out to `NSHostingView`. The queue below them
 compresses; the chrome does not.
 
-The 45pt the third session measured on Playlist is this 26pt plus a
-width-dependent second line (Playlist's own pass names are longer than the
-presets'); the mechanism is the same and does not depend on the exact number.
+A tempting inference to NOT draw: that the third session's 45pt is this 26pt
+plus a width-dependent second line. It might be, and Playlist's own pass names
+are longer than the presets'. But the 45pt was measured on `fittingSize`, an
+IDEAL, and the 26pt is a MINIMUM — so the arithmetic compares two different
+quantities, and no measurement here connects them. The 45pt remains unattributed.
 
-### Why 26pt displaces a tree
+### How a raised minimum displaces a tree — and why this one cannot
 
 `window.contentMinSize` is stamped **once, at mount**. A pane whose minimum
 rises afterwards cannot push the window back out, so the writer's window keeps a
@@ -374,6 +415,40 @@ moved. That is the third session's control test, and it is Denver's screenshot.
 Reproduced end to end in `test_aPassSwapCannotPushTheTreeOutOfAWindowThatAlreadyFitsIt`
 with the fix reverted: host 315pt, band 301.5–327.5, tree scroll view at
 **y = −26.5**.
+
+**And in the real window it cannot happen — measured, not argued.** That probe
+composition deliberately has no `ProjectWindow.frame(minHeight: 540)` in front of
+it, because with the floor there the column's whole demand — 76pt at its largest
+— is 7× short of binding it. The third session's own stamp says the same from the
+other end: `contentMinSize` on Playlist was **980×592**, and 592 is the floor,
+not the column.
+
+Then the census (below) settled it outright, with planted offenders against the
+real `ProjectWindow`, each a `.frame(minHeight: 700)`:
+
+| offender planted on | `window.contentMinSize.height` |
+|---|---|
+| `AnnotationsPane` (outside its own modifier) | **540** — absorbed |
+| the sidebar column | **540** — absorbed |
+| the centre column | **540** — absorbed |
+| the detail column's own root | **540** — absorbed |
+| `ProjectWindow.body`, outside the split view | **700** — red in every state |
+
+**In this window's composition, a column's minimum height does not reach the
+window.** So no pane can set the floor by any amount, the 26pt leak was never on
+the production path, and `.doesNotRaiseTheWindowFloor()` does no work in the
+shipped app. It is kept as defence in depth, pinned by tests, and its doc says
+so.
+
+**Where the demand is absorbed was NOT isolated, and the obvious guess is
+wrong.** The same 700pt offender in a MINIMAL three-column `NavigationSplitView`
+probe propagates to the window intact — so this is something about
+`ProjectWindow`'s own split-view chrome (its overlays, `navigationTitle`,
+toolbar, sheets) and **not** a general property of `NavigationSplitView`. A
+probe test asserting the general claim was written, measured, found false, and
+deleted rather than weakened; the finding lives here and in the census's doc as
+a measurement. Isolating the absorber is open work and is plausibly the same
+question as the 596–636 band.
 
 ### The fix — `WindowFloorFreeLayout`
 
@@ -405,19 +480,37 @@ own bottom rather than another column losing its top.
   the test keeps straddling the band across fixtures, fonts and OS versions. Red
   without the fix (tree at y = −26.5).
 - `test_aPassSwapLeavesTheTreeInsideItsWindow` — the real-window sweep, extended
-  with the 636→596 band the third session measured, and each point now also
-  asserts the split view FILLS its window (`assertSplitViewFillsItsWindow`),
-  which is the same defect one level up.
+  with the 636→596 band, and each point now also asserts the split view FILLS
+  its window. **Read `assertSplitViewFillsItsWindow`'s doc before trusting that
+  band**: `NSHostingView` stamps `contentMinSize` and the window clamps every
+  `setContentSize` back up, so this sweep cannot actually place a window below
+  its content's minimum — the band is walked, not reproduced, and the assertion
+  guards a FUTURE pane pushing the layout minimum past 540, which is the only
+  way this composition can go short.
+- `test_theWindowsMinimumHeightIsProjectWindowsOwnFloor` — the durable guard
+  (see below).
 
-**A caveat worth keeping.** On a 40-chapter novel fixture the real
-`ProjectWindow`'s minimum is `ProjectWindow`'s own explicit 540 and the
-annotations column asks for far less, so the column's rise is masked there: the
-sweep cannot fail on this defect, and the two tests above are the ones that can.
-That masking is also why the window-level sweep was green through three
-sessions.
+**The guard is the census, not the modifier.** A per-pane modifier protects the
+pane it is on and nothing else, and this bug's shape is *some pane's chrome
+quietly exceeds the window's floor*. So the load-bearing test is the census:
+across every persona × pane state, the window's RESOLVED minimum height must
+equal `ProjectWindow`'s own explicit floor and never a pane's demand. Any future
+pane whose chrome exceeds 540 goes red **by name**, whether or not anyone
+thought to give it a modifier.
+
+### What this does not explain
+
+Session 3's 596–636 band. That was `fittingSize` reading 592 → 637, and
+`WindowFloorFreeLayout` answers an unspecified proposal — the one `fittingSize`
+makes — with the content's ideal, unchanged and on purpose. **592 → 637 stands
+after the fix.** Whatever raises the IDEAL by 45pt and holds it there is still
+unidentified, and it is the live question. See the header for the next
+discriminator.
 
 ### Open
 
-Every other non-scrolling column pane has the same shape and could do the same
-thing the day a strip is added to it. Only `AnnotationsPane` is measured to do
-it today, and only it carries the modifier.
+- The band above. Unknown cause; Denver's hand smoke with the extended probe is
+  the next step.
+- Every other non-scrolling column pane has the same shape. They are covered by
+  the census rather than by modifiers of their own — a modifier per pane is a
+  list someone has to remember to add to, and the census is not.

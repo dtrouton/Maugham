@@ -31,6 +31,13 @@ import SwiftUI
 /// already has. What is needed is a container that answers the minimum-height
 /// question with the space it was offered — including zero — while still
 /// drawing its content at the content's own ideal height when there is room.
+/// **It measures and places the FIRST subview only.** It is reached through
+/// `View.doesNotRaiseTheWindowFloor()`, which always hands it exactly one, so
+/// the restriction costs nothing there — but written as a `Layout` it is
+/// spellable with a multi-view builder, and everything after the first would be
+/// silently unmeasured and unplaced. Wrap a stack, not a list.
+///
+/// Its four proposal answers are pinned in `WindowFloorFreeLayoutTests`.
 struct WindowFloorFreeLayout: Layout {
 
     func sizeThatFits(

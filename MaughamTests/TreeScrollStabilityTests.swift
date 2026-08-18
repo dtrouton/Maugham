@@ -182,13 +182,22 @@ final class TreeScrollStabilityTests: XCTestCase {
             registry.lookup(id: ProjectIdentifier.id(for: url))?.store)
         let liveDocumentStore = try XCTUnwrap(liveStore.documentStore)
 
-        // 20pt steps, not 100: the perturbation this is about is a 45pt band
-        // (`ProjectWindow`'s minimum layout height rises by that much on the
-        // write, measured on the real project), and a coarse sweep steps over
-        // its own subject. The second, finer sweep walks the band the third
-        // session measured directly — 596–636, where the split view laid out
-        // SHORTER than the window after the write.
-        let coarse = Array(stride(from: 880.0, through: 520.0, by: -20.0))
+        // 20pt steps, not 100: the report is explicitly "at some window sizes",
+        // and a coarse sweep steps over its own subject. The second, finer
+        // sweep WALKS the band the third session measured — 596–636, where the
+        // split view was seen laid out shorter than the window after the write.
+        //
+        // **Walks, not reproduces.** `NSHostingView` stamps the window's
+        // `contentMinSize` (980×540 on this fixture) and the window clamps every
+        // `setContentSize` back up, so no step here can put the window below its
+        // content's minimum — which is the only state that produces the defect.
+        // The band steps are honest coverage of those heights and nothing
+        // stronger.
+        //
+        // The sweep stops at the floor for the same reason: asking for 520 got
+        // 540 and measured a height the sweep did not choose. A step that
+        // silently becomes another step is not a step.
+        let coarse = Array(stride(from: 880.0, through: 540.0, by: -20.0))
         let band = Array(stride(from: 636.0, through: 596.0, by: -8.0))
         for height in coarse + band {
             window.setContentSize(NSSize(width: 1000, height: height))
@@ -214,8 +223,147 @@ final class TreeScrollStabilityTests: XCTestCase {
         }
     }
 
+    /// **The window's floor is `ProjectWindow`'s own declared number, in every
+    /// state the window can be in.**
+    ///
+    /// With the hosting view answering the minimum question
+    /// (`sizingOptions = [.minSize]`), `window.contentMinSize.height` must be
+    /// `ProjectWindow.windowHeightFloor` exactly — the number `body` declares.
+    /// Equality rather than "at most": a resolved minimum BELOW the declared
+    /// floor means `body`'s `.frame(minHeight:)` has stopped applying, which is
+    /// its own defect and should be as red as an overrun.
+    ///
+    /// The states are persona × that persona's own `panes` × the two subject
+    /// shapes (a chapter, which centres the editor; the project row, which
+    /// centres the altitude view) — the registry's own product, so a pane added
+    /// to `DetailSegment` is swept the day it joins a persona, with no list in
+    /// this file to update. A failure names the state it happened in.
+    ///
+    /// **What no pane can currently do to it, measured 2026-08-18 with planted
+    /// offenders against this very window.** A `.frame(minHeight: 700)` planted
+    /// on `AnnotationsPane` (outside its own `doesNotRaiseTheWindowFloor()`, so
+    /// nothing absorbed it there), on the sidebar column, on the centre column,
+    /// and on the detail column's own root each left this assertion **green at
+    /// 540**. The same offender on `ProjectWindow`'s `body`, outside the split
+    /// view, turned it **red at 700** in every state.
+    ///
+    /// So in this window's composition a column's minimum height does not reach
+    /// the window. **Where exactly it is absorbed was NOT isolated, and the
+    /// obvious guess is wrong**: the same offender in a minimal three-column
+    /// `NavigationSplitView` probe propagates to 700, so this is something about
+    /// `ProjectWindow`'s own split-view chrome and not a general property of
+    /// `NavigationSplitView`. Recorded as a measurement rather than pinned as a
+    /// test, because a test asserting it would be pinning behaviour nobody has
+    /// explained.
+    ///
+    /// **That limit does not weaken this census, and it is worth being clear
+    /// why.** The dangerous state is a surface that both exceeds the floor AND
+    /// reaches the window — and that is exactly what is asserted here, whatever
+    /// the surface and whatever the route. Today's panes fail the second half,
+    /// so none of them can go red; the day one does, only a demand above 540
+    /// matters, and this is what catches it.
+    ///
+    /// It is also why the 2026-08-18 nudge finding is HARDENING and not the fix
+    /// for Denver's report: the leak it closes never reached the window. See the
+    /// note.
+    func test_theWindowsMinimumHeightIsProjectWindowsOwnFloor() async throws {
+        try await sweepTheWindowsMinimumHeight()
+    }
+
+    private func sweepTheWindowsMinimumHeight() async throws {
+        let store = try await novel(chapters: 3)
+        let chapters = store.manifest.structure
+        let url = store.url
+        let documentStore = try XCTUnwrap(store.documentStore)
+        // A pass recorded on the chapter, so every state below is swept with
+        // the queue's advisory nudge live rather than in its quiet state — the
+        // one measured to have raised this number.
+        documentStore.updateUIState {
+            $0.persona = .review
+            $0.selectedSubject = .item(chapters[0].id)
+            $0.activePassMemory.record(piece: chapters[0].id, passId: "line")
+        }
+        await waitOut(1.2)
+
+        let registry = ProjectRegistry()
+        let frame = CGRect(x: 0, y: 0, width: 1200, height: 800)
+        let hosting = NSHostingView(rootView: AnyView(
+            ProjectWindow(url: url)
+                .environment(UserPreferences())
+                .environment(registry)
+                .environment(BackupCoordinator())))
+        hosting.sizingOptions = [.minSize]
+        hosting.frame = frame
+        let window = SilentTestWindow(contentRect: frame,
+                                      styleMask: [.titled, .resizable],
+                                      backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.orderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        windows.append(window)
+        _ = await pumpUntil(deadline: 20) {
+            (self.firstTableView(in: window)?.numberOfRows ?? 0) > 2
+        }
+        pump(0.6)
+
+        let liveStore = try XCTUnwrap(
+            registry.lookup(id: ProjectIdentifier.id(for: url))?.store)
+        let liveDocumentStore = try XCTUnwrap(liveStore.documentStore)
+
+        let subjects: [(String, BinderSubject)] = [
+            ("a chapter", .item(chapters[0].id)),
+            ("the project row", .project),
+        ]
+        var swept = 0
+        for persona in Persona.allCases {
+            for pane in persona.panes {
+                for (subjectName, subject) in subjects {
+                    liveDocumentStore.updateUIState {
+                        $0.persona = persona
+                        $0.detailSegment = pane
+                        $0.selectedSubject = subject
+                    }
+                    pump(0.25)
+                    swept += 1
+                    XCTAssertEqual(
+                        window.contentMinSize.height,
+                        ProjectWindow.windowHeightFloor, accuracy: 0.5,
+                        "the window's minimum height is "
+                        + "\(window.contentMinSize.height) in "
+                        + "\(persona.rawValue)/\(pane.rawValue) on "
+                        + "\(subjectName) — `ProjectWindow.windowHeightFloor` "
+                        + "(\(ProjectWindow.windowHeightFloor)) is the only "
+                        + "thing entitled to set it. Something outside the "
+                        + "split view's columns is demanding height: a floor "
+                        + "that rises AFTER `contentMinSize` is stamped leaves "
+                        + "the window at a size it still believes legal while "
+                        + "the content has decided otherwise, and SwiftUI "
+                        + "CENTRES what it cannot compress — which takes the "
+                        + "top of the binder tree off screen. (Measured "
+                        + "2026-08-18: a COLUMN's demand does not reach this "
+                        + "window at all, so look outside the split view "
+                        + "first — see this test's doc.)")
+                }
+            }
+        }
+        XCTAssertGreaterThan(
+            swept, 10,
+            "premise: the registry must have yielded a real product of states — "
+            + "an empty sweep asserts nothing at all")
+    }
+
     /// **The column's minimum height is not the pass's business** — the cause,
     /// pinned where it is measurable without a window at all.
+    ///
+    /// **Weaker than it looks on its own, and deliberately kept anyway.** Its
+    /// premise is a nil-check (`PassOrderAdvice.advice` became non-nil), which
+    /// says the nudge's CONDITION turned true, not that the nudge cost the
+    /// column any height. The measured-band premise in
+    /// `test_aPassSwapCannotPushTheTreeOutOfAWindowThatAlreadyFitsIt` is the
+    /// strong one — it asserts the pane's ideal actually GREW across the write
+    /// and fails loudly if it did not — and the two are read together: this one
+    /// says the minimum did not move, that one says there was something there
+    /// to move it.
     ///
     /// A pass write makes `AnnotationsPane`'s advisory nudge appear, and the
     /// pane's stack is non-scrolling: every strip in it demands its full height
@@ -485,6 +633,17 @@ final class TreeScrollStabilityTests: XCTestCase {
     /// out shorter than the window (596 → 585) and stayed that way. That is the
     /// same centring seen one level up, and it is what shortens every column —
     /// so it is asserted directly rather than inferred from the tree.
+    ///
+    /// **What it can and cannot catch.** It cannot catch the third session's
+    /// band from inside this suite: `NSHostingView` stamps `contentMinSize` and
+    /// the window clamps every `setContentSize` back up, so the sweep can never
+    /// place the window below its content's minimum and this assertion is
+    /// unfalsifiable for those heights. What it DOES guard is the state that
+    /// makes such a window reachable at all — a pane whose chrome pushes the
+    /// layout's minimum past `ProjectWindow`'s own 540pt floor, after the stamp
+    /// has been taken. `test_theWindowsMinimumHeightIsProjectWindowsOwnFloor`
+    /// is the census that catches that by name; this is the same condition
+    /// caught by its consequence, over the whole real composition.
     private func assertSplitViewFillsItsWindow(
         _ window: NSWindow, _ moment: String,
         file: StaticString = #filePath, line: UInt = #line

@@ -320,7 +320,8 @@ struct ProjectWindow: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: ProjectWindow.windowFloor, minHeight: 540)
+        .frame(minWidth: ProjectWindow.windowFloor,
+               minHeight: ProjectWindow.windowHeightFloor)
         .modifier(ContainerWidthReporter(onWidth: noteContainerWidth))
         .modifier(TopChromeModifier(
             projectURL: url,
@@ -2079,6 +2080,23 @@ struct ProjectWindow: View {
     /// The window's own declared minimum (`body`'s `.frame(minWidth:)`), and the
     /// container width assumed before anything has been measured.
     static let windowFloor: CGFloat = 980
+
+    /// **The window's declared minimum HEIGHT, and the only thing entitled to
+    /// set it.** `body`'s `.frame(minHeight:)`.
+    ///
+    /// A pane's content growing is a reason to compress or scroll that pane,
+    /// never a reason to move this number: `NSHostingView` stamps
+    /// `window.contentMinSize` and the window then measures its own legal sizes
+    /// against the stamp, so a layout minimum that rises past this floor after
+    /// the stamp is taken leaves the window at a height it still believes is
+    /// legal while the content has decided otherwise — and SwiftUI CENTRES what
+    /// it cannot compress, which pushes the binder tree out of the top of its
+    /// own column (`TreeScrollStabilityTests`).
+    ///
+    /// Named rather than written inline so the census that guards it can cite
+    /// the floor instead of repeating the number
+    /// (`test_theWindowsMinimumHeightIsProjectWindowsOwnFloor`).
+    static let windowHeightFloor: CGFloat = 540
 
     /// Records the measured container width, but **only when it changes what
     /// the window can afford**. A window drag-resize is 60 frames a second and
