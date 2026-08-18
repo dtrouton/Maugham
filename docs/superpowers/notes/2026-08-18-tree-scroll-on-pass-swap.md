@@ -1,13 +1,10 @@
 # The tree scrolls on a pass swap — investigation, 2026-08-18
 
-**Status: NOT REPRODUCED. No fix shipped.** What landed is a mounted regression
-suite with a positive control (`MaughamTests/TreeScrollStabilityTests.swift`) and
-this record, so the next session does not re-derive eight falsified hypotheses.
-
-> **Read the third session first** (bottom of this file). It falsifies the
-> reading of the probe's `installed` line that the second session's evidence
-> rested on, adds the FRAME half the first two sessions never measured, and
-> demonstrates the mechanism that produces the reported picture.
+**Status: REPRODUCED AND FIXED (fourth session).** The displacing view is
+`AnnotationsPane`'s advisory nudge (`passOrderNudge`), and the fix is
+`Maugham/Views/WindowFloorFree.swift`. Read the fourth session at the bottom for
+the measurement and the fix; the three sessions above it are the narrowing, and
+their falsified hypotheses still stand — do not re-derive them.
 
 ## The report (Denver's smoke, with a screenshot)
 
@@ -315,3 +312,112 @@ probe (frame changes on the scroll view *and every ancestor*, `fits`/`fittingH`/
 control. Next reproduction should be driven **in the real app** with the
 extended probe: a `settled` line with `fits=false`, or a `frame` line with a
 stack, names it in one shot.
+
+---
+
+## Fourth session, 2026-08-18 — the 45pt bisected to one view, and the fix
+
+### The view: `AnnotationsPane.passOrderNudge`
+
+The third session's latched finding — *the pass write raises the layout's
+minimum height and it stays* — was narrowed to a single view by measuring the
+minimum height of each candidate in isolation. The measurement that matters is
+**`window.contentMinSize` on an `NSHostingView` whose `sizingOptions` are
+`[.minSize]`**: that is literally the production quantity, the stamp a window
+measures its own legal sizes against. (`fittingSize` is NOT it — with
+`[.minSize]` it reads `(0, 0)` in every state, and without any sizing option it
+answers the IDEAL. Two sessions' numbers were ideals.)
+
+`AnnotationsPane` alone, one chapter, width 320, no cockpit:
+
+| moment | `window.contentMinSize` |
+|---|---|
+| before the pass write | (320, **50**) |
+| after `record(piece:passId: "line")` | (320, **76**) |
+
+**+26pt, and 26pt is exactly the nudge.** Measured standalone at several widths:
+
+| view | 200 | 240 | 260 | 280 | 320 | 380 |
+|---|---|---|---|---|---|---|
+| `ReviewRoundCockpit(activePassId: nil)` | 56 | 56 | 56 | 56 | 56 | 56 |
+| `ReviewRoundCockpit(activePassId: "line")` | 56 | 56 | 56 | 56 | 56 | 56 |
+| the nudge + its `Divider` | **39** | **26** | 26 | 26 | 26 | 26 |
+
+So the cockpit's height does not move with the pass at all — the strip is there
+in both states and the lane label fits on one line at every column width this
+app allows. The nudge is the whole delta: `PassOrderAdvice.advice` answers nil
+before the write (no pass recorded) and non-nil after (the LINE pass is being
+worked while STRUCTURAL, which precedes it, is still open), so a caption plus a
+divider appears — 26pt at one wrapped line, 39pt at two.
+
+**Why it is a minimum and not merely a height.** `AnnotationsPane`'s body is a
+non-scrolling `VStack`: toolbar, cockpit, nudge, then the queue. Each strip
+demands its full height as a MINIMUM, the `VStack` sums them, and SwiftUI
+propagates that all the way out to `NSHostingView`. The queue below them
+compresses; the chrome does not.
+
+The 45pt the third session measured on Playlist is this 26pt plus a
+width-dependent second line (Playlist's own pass names are longer than the
+presets'); the mechanism is the same and does not depend on the exact number.
+
+### Why 26pt displaces a tree
+
+`window.contentMinSize` is stamped **once, at mount**. A pane whose minimum
+rises afterwards cannot push the window back out, so the writer's window keeps a
+height the window still considers legal while the layout has decided it needs
+more — and SwiftUI **centres what it cannot compress**. The whole
+`NavigationSplitView` is then laid out shorter than the window and pushed up,
+the sidebar's scroll view acquires a negative frame origin, and the top of the
+binder tree ends up above the window's top edge with its scroller never having
+moved. That is the third session's control test, and it is Denver's screenshot.
+
+Reproduced end to end in `test_aPassSwapCannotPushTheTreeOutOfAWindowThatAlreadyFitsIt`
+with the fix reverted: host 315pt, band 301.5–327.5, tree scroll view at
+**y = −26.5**.
+
+### The fix — `WindowFloorFreeLayout`
+
+`Maugham/Views/WindowFloorFree.swift`, applied as `.doesNotRaiseTheWindowFloor()`
+at the end of `AnnotationsPane.body`. The rule it expresses: **a pane's content
+growing is a reason to compress or scroll that pane, never a reason to move the
+window's floor.** The floor is `ProjectWindow`'s own `.frame(minHeight: 540)`
+and nothing else's business.
+
+It is a `Layout` because neither of the obvious levers can LOWER a reported
+minimum: `frame(minHeight: 0)` returns `max(0, childMinimum)`, and
+`layoutPriority` only redistributes space a stack already has. The container
+answers a definite height proposal — the minimum query included — with the space
+it was offered, and an unspecified or infinite one with the content's ideal. The
+WIDTH answer is passed through unchanged, deliberately: this column has a floor
+its toolbar is measured against (`AnnotationsQueueToolbarWidthTests`). The clip
+is part of the contract — below the height its chrome wants, the pane loses its
+own bottom rather than another column losing its top.
+
+### The tests
+
+- `test_aPassSwapDoesNotRaiseTheAnnotationColumnsMinimumHeight` — the cause,
+  measured as `window.contentMinSize`. Red without the fix: **50 → 76**.
+- `test_aPassSwapCannotPushTheTreeOutOfAWindowThatAlreadyFitsIt` — the
+  mechanism, in a three-column probe with the REAL tree and the REAL queue and
+  no `ProjectWindow.frame(minHeight:)` in front of them. The container height is
+  **measured, not hardcoded**: the pane's ideal height either side of the write
+  brackets the band the defect opens, and the host is sized halfway between, so
+  the test keeps straddling the band across fixtures, fonts and OS versions. Red
+  without the fix (tree at y = −26.5).
+- `test_aPassSwapLeavesTheTreeInsideItsWindow` — the real-window sweep, extended
+  with the 636→596 band the third session measured, and each point now also
+  asserts the split view FILLS its window (`assertSplitViewFillsItsWindow`),
+  which is the same defect one level up.
+
+**A caveat worth keeping.** On a 40-chapter novel fixture the real
+`ProjectWindow`'s minimum is `ProjectWindow`'s own explicit 540 and the
+annotations column asks for far less, so the column's rise is masked there: the
+sweep cannot fail on this defect, and the two tests above are the ones that can.
+That masking is also why the window-level sweep was green through three
+sessions.
+
+### Open
+
+Every other non-scrolling column pane has the same shape and could do the same
+thing the day a strip is added to it. Only `AnnotationsPane` is measured to do
+it today, and only it carries the modifier.
