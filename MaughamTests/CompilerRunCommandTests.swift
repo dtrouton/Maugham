@@ -3165,7 +3165,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // really land is `test_theSinceLastRoundLineCountsWhatTheWriterSettled`,
         // over a live document.
         XCTAssertEqual(
-            DiagnosticsPane.sinceLastRoundLine(
+            RoundNarrative.sinceLastRoundLine(
                 history: harness.diagnostics.roundHistory(docId: docId),
                 run: harness.diagnostics.lastRun(docId: docId),
                 annotations: []),
@@ -4443,7 +4443,7 @@ final class CompilerRunCommandTests: XCTestCase {
                        + "the writer is already holding; got \(queue.map(\.body))")
 
         XCTAssertEqual(
-            DiagnosticsPane.sinceLastRoundLine(
+            RoundNarrative.sinceLastRoundLine(
                 history: fx.diagnostics.roundHistory(docId: "ch-1"),
                 run: fx.diagnostics.lastRun(docId: "ch-1"),
                 annotations: queue),

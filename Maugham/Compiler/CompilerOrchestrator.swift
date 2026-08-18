@@ -51,7 +51,7 @@ final class CompilerOrchestrator {
     /// orchestrator by a pane that would have no way to know when they arrived.
     ///
     /// Counts rather than the sentence: the copy is the pane's
-    /// (`DiagnosticsPane.checkingCopy`), the way every other line it says is.
+    /// (`RoundNarrative.checkingCopy`), the way every other line it says is.
     struct DeltaCounts: Equatable, Sendable {
         let new: Int
         let revised: Int
@@ -599,7 +599,7 @@ final class CompilerOrchestrator {
         // time. So fresh eyes skips the gather entirely rather than passing a
         // flag downward: nothing is asked of the store, and the pane's
         // since-last-round line refuses the same round from the other end
-        // (`DiagnosticsPane.sinceLastRoundLine`), so the briefing and the
+        // (`RoundNarrative.sinceLastRoundLine`), so the briefing and the
         // report agree about what this round was measured against — nothing.
         let previousRound = freshEyes ? nil : Self.previousRound(
             inLane: passId, docId: docId, diagnostics: diagnostics, environment: environment)

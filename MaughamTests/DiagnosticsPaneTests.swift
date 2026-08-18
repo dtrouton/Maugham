@@ -190,7 +190,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(
             DiagnosticsPane.headerCopy(for: .running(checking: counts(new: 0, revised: 0))),
             "Checking\u{2026}")
-        XCTAssertNil(DiagnosticsPane.paragraphPhrase(counts(new: 0, revised: 0)))
+        XCTAssertNil(RoundNarrative.paragraphPhrase(counts(new: 0, revised: 0)))
     }
 
     /// And the empty pane says the same thing, off the same spelling — two
@@ -1185,9 +1185,9 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     func test_sinceLastRoundLine_isNilWithoutARoundNumber() {
-        XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
+        XCTAssertNil(RoundNarrative.sinceLastRoundLine(
             history: [makeRoundRecord()], run: nil, annotations: []))
-        XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
+        XCTAssertNil(RoundNarrative.sinceLastRoundLine(
             history: [makeRoundRecord()], run: makeRun(), annotations: []),
             "a passless run is an ordinary M2 run \u{2014} there is no round to be since")
     }
@@ -1195,14 +1195,14 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// **Round 1 has nothing behind it.** The line is about the distance
     /// travelled, and the first round of a lane has travelled none.
     func test_sinceLastRoundLine_isNilForTheFirstRoundOfALane() {
-        XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
+        XCTAssertNil(RoundNarrative.sinceLastRoundLine(
             history: [], run: makeRun(passId: "line", round: 1), annotations: []))
     }
 
     func test_sinceLastRoundLine_countsResolvedPersistingAndNew() {
         let filed = Date(timeIntervalSince1970: 1_000)
         XCTAssertEqual(
-            DiagnosticsPane.sinceLastRoundLine(
+            RoundNarrative.sinceLastRoundLine(
                 history: [makeRoundRecord(round: 1, at: filed)],
                 run: makeRun(passId: "line", round: 2),
                 annotations: [
@@ -1224,7 +1224,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         let settledBefore = makeCompilerNote(
             round: 1, status: .stetted, resolvedAt: filed.addingTimeInterval(-60))
         XCTAssertEqual(
-            DiagnosticsPane.sinceLastRoundLine(
+            RoundNarrative.sinceLastRoundLine(
                 history: [makeRoundRecord(round: 1, at: filed)],
                 run: makeRun(passId: "line", round: 2),
                 annotations: [settledBefore]),
@@ -1241,7 +1241,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                                     at: filed.addingTimeInterval(30))
 
         XCTAssertEqual(
-            DiagnosticsPane.sinceLastRoundLine(
+            RoundNarrative.sinceLastRoundLine(
                 history: [line, proof], run: makeRun(passId: "line", round: 2),
                 annotations: [
                     makeCompilerNote(lane: "proof", round: 2),
@@ -1260,9 +1260,9 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// turn ended. The pane simply says nothing until the answer lands.
     func test_sinceLastRoundLine_isNilWhileTheRoundBeforeItIsStillStanding() {
         let twoBack = makeRoundRecord(round: 1)
-        XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
+        XCTAssertNil(RoundNarrative.sinceLastRoundLine(
             history: [twoBack], run: makeRun(passId: "line", round: 3), annotations: []))
-        XCTAssertNotNil(DiagnosticsPane.sinceLastRoundLine(
+        XCTAssertNotNil(RoundNarrative.sinceLastRoundLine(
             history: [twoBack], run: makeRun(passId: "line", round: 2), annotations: []),
             "control: the record IS round 2's predecessor")
     }
@@ -1273,10 +1273,10 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// Its header says what it is instead (Task 6).
     func test_sinceLastRoundLine_isNilForAFreshEyesRound() {
         let previous = makeRoundRecord(round: 1)
-        XCTAssertNotNil(DiagnosticsPane.sinceLastRoundLine(
+        XCTAssertNotNil(RoundNarrative.sinceLastRoundLine(
             history: [previous], run: makeRun(passId: "line", round: 2), annotations: []),
             "control: an ordinary round 2 does speak")
-        XCTAssertNil(DiagnosticsPane.sinceLastRoundLine(
+        XCTAssertNil(RoundNarrative.sinceLastRoundLine(
             history: [previous],
             run: makeRun(passId: "line", round: 2, freshEyes: true), annotations: []))
     }
@@ -1307,7 +1307,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         // No document behind this pane, so the queue is empty and the line says
         // so — three zeroes is a legitimate reading, and what is under test
         // here is WHERE the sentence sits, not what it counted.
-        let expected = try XCTUnwrap(DiagnosticsPane.sinceLastRoundLine(
+        let expected = try XCTUnwrap(RoundNarrative.sinceLastRoundLine(
             history: store.roundHistory(docId: docId),
             run: store.lastRun(docId: docId),
             annotations: []))
@@ -1503,7 +1503,7 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     func test_freshEyesHeader_namesTheRoundWhenThereIsOne() {
         XCTAssertEqual(
-            DiagnosticsPane.freshEyesHeader(
+            RoundNarrative.freshEyesHeader(
                 run: makeRun(passId: "line", round: 3, freshEyes: true)),
             "Fresh eyes \u{00b7} round 3")
     }
@@ -1512,16 +1512,16 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// name, the way an ordinary passless ⌘R has none.
     func test_freshEyesHeader_saysSoWithoutARoundNumber() {
         XCTAssertEqual(
-            DiagnosticsPane.freshEyesHeader(run: makeRun(freshEyes: true)),
+            RoundNarrative.freshEyesHeader(run: makeRun(freshEyes: true)),
             "Fresh eyes")
     }
 
     func test_freshEyesHeader_isNilForAnOrdinaryRun() {
-        XCTAssertNil(DiagnosticsPane.freshEyesHeader(run: nil))
-        XCTAssertNil(DiagnosticsPane.freshEyesHeader(
+        XCTAssertNil(RoundNarrative.freshEyesHeader(run: nil))
+        XCTAssertNil(RoundNarrative.freshEyesHeader(
             run: makeRun(passId: "line", round: 2)),
             "a run that was never stamped is an ordinary round")
-        XCTAssertNil(DiagnosticsPane.freshEyesHeader(
+        XCTAssertNil(RoundNarrative.freshEyesHeader(
             run: makeRun(passId: "line", round: 2, freshEyes: false)),
             "…and so is one stamped false by some earlier build")
     }
@@ -1536,9 +1536,9 @@ final class DiagnosticsPaneTests: XCTestCase {
                     makeRun(passId: "line", round: 2, freshEyes: true),
                     makeRun(freshEyes: true),
                     makeRun()] {
-            let since = DiagnosticsPane.sinceLastRoundLine(
+            let since = RoundNarrative.sinceLastRoundLine(
                 history: [previous], run: run, annotations: [makeCompilerNote(round: 1)])
-            let fresh = DiagnosticsPane.freshEyesHeader(run: run)
+            let fresh = RoundNarrative.freshEyesHeader(run: run)
             XCTAssertFalse(since != nil && fresh != nil,
                            "both lines spoke for one round: \(String(describing: since)) "
                            + "/ \(String(describing: fresh))")
