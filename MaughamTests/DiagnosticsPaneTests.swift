@@ -3042,6 +3042,60 @@ final class DiagnosticsPaneTests: XCTestCase {
             "every row must carry its own verbs; got \(labels)")
     }
 
+    /// **The near-empty case must fill the pane, not sit top-anchored with
+    /// dead space below it** (fix round 2 review, Important).
+    ///
+    /// The `ScrollView` wrap that fixed the overflow case above reintroduced
+    /// tripwire 15's defect one layer in: a `ScrollView` proposes an
+    /// UNBOUNDED height to its content, so `.frame(maxHeight: .infinity)`
+    /// inside one resolves to the content's own intrinsic height rather than
+    /// the pane's — invisible to the source-grep tripwire test, since the
+    /// `ContentUnavailableView`'s own chain is still byte-identical. Two
+    /// geometry checks, both on `DiagnosticsPaneColumnHeightTests`' style of
+    /// measuring the rendered tree rather than trusting the source:
+    ///
+    /// 1. The scrolled content's height must fill the pane's visible height
+    ///    (not stop short at its own intrinsic size, which is what "dead
+    ///    space below it" IS, geometrically).
+    /// 2. The empty state's own title must sit near the pane's vertical
+    ///    center — the `ContentUnavailableView` centers within whatever frame
+    ///    it is given, so a title sitting near the TOP is what "top-anchored"
+    ///    looks like measured.
+    func test_aNearEmptyCheckFillsThePaneRatherThanSittingTopAnchored() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        store.replace(run: makeRun(mintedNotes: 0), diagnostics: [], docId: document.docId)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+
+        let contentView = try XCTUnwrap(window.contentView)
+        let scrollView = try XCTUnwrap(
+            firstScrollView(in: contentView),
+            "the no-report arm draws no scroll view at all")
+        let documentHeight = scrollView.documentView?.frame.height ?? 0
+        let visibleHeight = scrollView.contentView.bounds.height
+        XCTAssertEqual(
+            documentHeight, visibleHeight, accuracy: 2,
+            "a near-empty check's content must fill the pane's visible height "
+            + "via the minHeight floor rather than sitting at its own short "
+            + "intrinsic height with dead space below it (tripwire 15, one "
+            + "layer in) — documentView \(documentHeight) vs visible "
+            + "\(visibleHeight)")
+
+        let title = try element(labelled: "Nothing to flag.", in: window)
+        let titleFrame = try XCTUnwrap(
+            axFrame(title),
+            "the empty state's title carries no accessibility frame")
+        let containerFrame = window.convertToScreen(contentView.frame)
+        XCTAssertEqual(
+            titleFrame.midY, containerFrame.midY, accuracy: 80,
+            "the empty state must center in the pane rather than sit "
+            + "top-anchored; title midY \(titleFrame.midY) vs container "
+            + "midY \(containerFrame.midY)")
+    }
+
     /// **The copy never announces as waiting what is visible here** (review,
     /// Important 2). The empty state used to read the run's historical
     /// `mintedNotes` and say "2 notes went to your queue" directly beneath the
@@ -3379,6 +3433,27 @@ final class DiagnosticsPaneTests: XCTestCase {
         return tree
             .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
             .first { (axAttribute($0, "accessibilityLabel") as? String) == label } as? NSObject
+    }
+
+    /// Any AX element (not role-restricted, unlike `button(labelled:in:)`)
+    /// whose value or label matches `text` exactly — for reading a frame off
+    /// a static text element, which carries no `AXButton` role.
+    private func element(labelled text: String, in window: NSWindow) throws -> AnyObject {
+        try XCTUnwrap(
+            (try axTree(in: window)).first {
+                (axAttribute($0, "accessibilityValue") as? String) == text
+                || (axAttribute($0, "accessibilityLabel") as? String) == text
+            },
+            "no element labelled \u{201C}\(text)\u{201D} reached the hosted pane; got "
+            + "\(allLabels(in: window))")
+    }
+
+    /// `element`'s on-screen frame, read via `accessibilityFrame` — screen
+    /// coordinates, the same space `NSWindow.frame`/`convertToScreen(_:)`
+    /// report in, so a frame read this way is directly comparable to one read
+    /// off the window with no flip or origin correction needed.
+    private func axFrame(_ element: AnyObject) -> NSRect? {
+        (axAttribute(element, "accessibilityFrame") as? NSValue)?.rectValue
     }
 
     private func staticTextLabels(in window: NSWindow, containing substring: String) -> [String] {

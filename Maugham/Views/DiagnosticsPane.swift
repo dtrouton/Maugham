@@ -769,30 +769,51 @@ struct DiagnosticsPane: View {
     /// inside it, and a scroll view proposes rather than demands, so the
     /// column-height failure this pane has hit twice cannot come back through
     /// it.
+    ///
+    /// **The `GeometryReader` + `minHeight` wrap is load-bearing, not
+    /// decorative** (fix round 2 review, Important). A `ScrollView` proposes
+    /// an UNBOUNDED height along its scroll axis to its content, so
+    /// `.frame(maxHeight: .infinity)` inside one resolves to the content's
+    /// INTRINSIC height rather than the pane's — the same tripwire-15 defect
+    /// class, reintroduced one layer in and invisible to the source-grep test
+    /// (the chain is still byte-identical; it just no longer does anything in
+    /// this position). In the common near-empty case (0–2 notes) that put the
+    /// `ContentUnavailableView` top-anchored with dead space below it instead
+    /// of centered in the pane. `GeometryReader` reads the ACTUAL space this
+    /// arm has (the outer `.frame(maxHeight: .infinity)` in `body` is what
+    /// gives it one), and `minHeight: proxy.size.height` hands that down as a
+    /// FLOOR on the scrolled content: a short arm fills it — restoring the
+    /// centering exactly as before the `ScrollView` wrap — and an overflowing
+    /// one (Important 1's own case) grows past it and scrolls, unchanged.
+    /// Chosen over a conditional arm (plain frame when short, `ScrollView`
+    /// when long) specifically to avoid the identity churn a state-dependent
+    /// view structure would cost the section's rows on every disposition.
     @ViewBuilder
     private var content: some View {
         if showsColdStartOffer {
             coldStartOffer
         } else if !hasReport {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    freshEyesLine
-                    roundLine
-                    // **The state §7.0 exists for.** A round in a pass over a
-                    // piece with no declared intent raises no clause and no
-                    // strain, so `hasReport` is false — and since P1 that
-                    // round's whole output is queued notes. This arm used to be
-                    // the writer's entire feedback from an expensive keystroke:
-                    // one sentence saying how many notes went somewhere else.
-                    thisCheckSection
-                    let empty = Self.emptyState(for: state, wetInk: wetInk)
-                    ContentUnavailableView(
-                        empty.title,
-                        systemImage: empty.symbol,
-                        description: Text(empty.description))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        freshEyesLine
+                        roundLine
+                        // **The state §7.0 exists for.** A round in a pass over a
+                        // piece with no declared intent raises no clause and no
+                        // strain, so `hasReport` is false — and since P1 that
+                        // round's whole output is queued notes. This arm used to be
+                        // the writer's entire feedback from an expensive keystroke:
+                        // one sentence saying how many notes went somewhere else.
+                        thisCheckSection
+                        let empty = Self.emptyState(for: state, wetInk: wetInk)
+                        ContentUnavailableView(
+                            empty.title,
+                            systemImage: empty.symbol,
+                            description: Text(empty.description))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         } else {
             ScrollView {
