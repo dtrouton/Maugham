@@ -47,8 +47,11 @@ final class ClaudeWorldDeriver: WorldDeriver {
     /// SUCCESS is worth remembering.
     private var resolvedCLI: URL?
 
-    /// **The derivation deadline: 120s, matching `ClaudeCLISession`'s own
-    /// `runTimeout`.** Four times headroom over the spike's measured cost —
+    /// **The derivation deadline: 120s.** It matched `ClaudeCLISession`'s own
+    /// `runTimeout` when both were 120, and deliberately did not follow it to
+    /// 300 on 2026-08-18: that raise was for a session reading a WHOLE
+    /// manuscript cold, and this is a one-shot over an intent essay whose
+    /// measured cost is below. Four times headroom over the spike's own —
     /// a real derivation against Denver's Tribute intent finished in **30s**
     /// on sonnet (`docs/superpowers/notes/2026-08-07-second-draft-spike.md`,
     /// "Cost $0.09 / 30 s"). A derivation is disposable convenience, never

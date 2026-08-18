@@ -241,7 +241,7 @@ Spec §3.4, verbatim, with the enforcing site beside it:
 | It dies on the AI toggle going off | `CompilerRunModifier`'s `.onChange(of: mcpEnabled)` — **and** `ClaudeCLISession` re-reads the toggle before every spawn, so a session already warm cannot answer one more run |
 | It dies on app quit | `CompilerRunModifier`'s `.maughamAppWillTerminate` |
 | It dies on window/project close | `ProjectWindow`'s own `.onDisappear` → `detach()`, because that path must also drop the orchestrator's hold on the window's stores |
-| It dies quietly after ~10 min idle | `ClaudeCLISession.idleTimeout` (600 s; `runTimeout` is 120 s) |
+| It dies quietly after ~10 min idle | `ClaudeCLISession.idleTimeout` (600 s; the per-turn budget is `ClaudeCLISession.defaultRunTimeout` — **300 s since 2026-08-18**, raised from 120 by Denver's ruling after two whole-piece first rounds died at the old one, read the number off the constant) |
 | Death mid-run fails that run once; the next keystroke starts fresh | `CompilerOrchestrator.finish`'s `.failed` arm — the marker and the intent hash are both left where they were |
 | **It dies on ⌘⇧R, and is replaced in the same act** | `CompilerOrchestrator.beginRun`'s `if freshEyes { retireSession() }` — the one teardown that is a *run* rather than an ending, so it is the orchestrator's rather than a fourth arm of `CompilerRunModifier`. Placed below the in-flight refusal, the generation check and the empty-delta guard: a fresh-eyes press that is refused or abandoned must not cost the writer their warm session |
 
