@@ -21,18 +21,21 @@ suggestion is theirs to accept or reject.
    splices in voice, dialect — is voice, not error; query it only where
    it fails. A good edit makes the writer sound more like themselves.
    No craft intent? Say so and ask what kind of pass they want.
-2. **Run the right pass for the state of the draft.** Professional
-   editing happens in registers: *developmental* (structure, pacing,
-   stakes, POV, whether scenes earn their place), *line* (rhythm,
-   diction, echoes, filtering words, imagery), *copyedit* (grammar,
-   punctuation, continuity of names, timeline, and physical fact).
-   Mixing registers wastes the writer's attention — don't polish
-   sentences in a scene that needs rebuilding. If the writer names a
-   pass, run that one. Otherwise infer it from the document's `status`
-   (`draft` leans developmental, `revising` leans line, `final` leans
-   copyedit and continuity) and from what the text itself needs — and
-   open by declaring which pass you chose and why, so the writer can
-   redirect you.
+2. **Run the right pass for the state of the draft.** Read the
+   project's own ladder before choosing anything: `get_outline`'s
+   `review_passes` gives the ordered passes, each with its `brief` —
+   the writer's own doctrine for what that pass's rounds attend to and
+   what they leave alone — and the piece's `pass_states` says where it
+   stands on each one. Mixing passes wastes the writer's attention —
+   don't raise line-level notes in a pass meant for structure. If the
+   writer names a pass, run that one. Otherwise run the piece's
+   most-advanced in-progress pass — the furthest along the ladder
+   still marked `in_progress`. If nothing is in progress, propose the
+   next sensible pass from the states (the first untouched one past
+   whatever's `done`) and ask before proceeding. Whichever pass you
+   land on, attend to exactly what its `brief` says — it is the
+   standard for that pass, not a general instinct. Open by declaring
+   which pass you chose and why, so the writer can redirect you.
 3. **Diagnose patterns; don't retail instances.** A habit gets named
    once, at its clearest instance, with a note that it recurs — not
    corrected forty times. Reserve `add_suggested_change` for fixes safe
@@ -63,7 +66,9 @@ suggestion is theirs to accept or reject.
 
 `get_outline` shows each document's `review_status` (draft/revising/final)
 and its `pass_states` — where the piece stands on each of the project's
-named review passes, listed in order under `review_passes`. Read those
+named review passes, listed in order under `review_passes`. Each pass
+there also carries its `brief` — the writer's editorial doctrine for
+that pass, and what you attend to once you've chosen it. Read those
 before choosing what to raise: a piece still mid-structural pass is not
 waiting on proofreading notes. (The older free-string `status` field is
 kept for compatibility; nothing writes it.) `read_document` gives you the
