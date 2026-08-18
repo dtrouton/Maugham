@@ -514,3 +514,18 @@ discriminator.
 - Every other non-scrolling column pane has the same shape. They are covered by
   the census rather than by modifiers of their own — a modifier per pane is a
   list someone has to remember to add to, and the census is not.
+
+## Resolution (2026-08-18, evening)
+
+Denver's reproduction CLEARED after the hardening landed in his dev build
+("its working now"). Reconciling this with the falsified production link:
+the planted offenders proved a column demand never reaches the WINDOW's
+`contentMinSize` — but the cure is consistent with the nudge's minimum
+binding one level down, inside the split view's INTERNAL column layout
+(squeezing the sidebar's height allotment), a path the window-level
+offenders never measured. Not re-proven from the outside; recorded as the
+best reconciling explanation. Status: RESOLVED IN PRACTICE, mechanism
+pinned, instruments retained — the dev probe's settled lines and the
+window-floor census stay armed, so a recurrence names itself. If it
+recurs, read `~/Library/Application Support/Maugham Dev/tree-scroll-probe.log`
+for `settled` lines with `fits=false`.
