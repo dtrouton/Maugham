@@ -630,7 +630,7 @@
   "claim_id": "M5-AN-040",
   "scope": "AnnotationInverse.reopenOp",
   "kind": "INVARIANT",
-  "statement": "exactly three (undone kind, current status) pairs mint an op — reject/rejected, archive/archived, withdraw/absent. Accept declines .noInverse because its inverse is claudeAcceptRevert, which also restores text; every other status mismatch declines .stateDrifted",
+  "statement": "four (undone kind, current status) pairs mint an op unconditionally — reject/rejected, archive/archived, stet/stetted, withdraw/absent — and a fifth, accept/accepted, mints only when the caller passes acceptSplicedManuscriptText: false. Left to its default the accept arm declines .noInverse, because a suggestion's inverse is claudeAcceptRevert, which also restores the prose the accept rewrote; a comment, query or craft note accept moved no text, so a reopen IS its whole inverse and Document.reopenAcceptedTextlessAnnotation is the one caller that says so. Every other status mismatch declines .stateDrifted",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theReopenFactorysDecisionMatrix"
@@ -916,5 +916,22 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M5-AN-059",
+  "scope": "Document.acceptAnnotation (the non-suggestion arm)",
+  "kind": "POSTCONDITION",
+  "statement": "accepting a comment, query or craft note REGISTERS a ⌘Z pair, named 'Accept Note'. Undo re-checks the live status, declines out loud to the writer on drift, and otherwise appends a compensating annotationReopen through Document.reopenAcceptedTextlessAnnotation — AnnotationInverse.reopenOp's gated accept arm, never reopenAnnotation(id:), which stays exactly as narrow as M5-AN-034 says. Redo re-accepts forwarding the original userResponse and the LIVE undo manager, so the cycle re-arms. It registered NOTHING until 2026-08-18: the top of the writer's undo stack after 'Got it' was still their own previous action under a menu item naming this one, so one ⌘Z aimed at the note took a sentence instead. An accepted SUGGESTION is unchanged — its undo is still the text-restoring claudeAcceptRevert",
+  "source": {
+   "type": "CHARACTERIZATION",
+   "ref": "AnnotationsCharacterization.test_acceptingANonSuggestionIsUndoable"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (Denver, 2026-08-18)",
+  "reachability": "LIVE — the annotations queue's 'Got it' / 'Reply…', the editor's margin card, Author's This check section, and the bulk bar's Accept",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Carried as a known shape in docs/superpowers/notes/2026-08-15-m3-handoff.md ('Two PRE-EXISTING shapes'), surfaced three times, ruled and fixed 2026-08-18 on fix/m4-denver-rulings-2026-08-18. Production tests: MaughamTests/AnnotationAcceptNoteUndoTests.swift (the verb, all three textless kinds, the redo cycle, the loud drift decline, the shielded prior action, the suggestion control) + DiagnosticsPaneTests.test_undoAfterGotItReopensTheNoteAndTheRowReturns (the mounted delivery path)"
  }
 ]

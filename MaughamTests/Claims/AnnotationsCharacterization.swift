@@ -981,31 +981,96 @@ final class AnnotationsCharacterization: XCTestCase {
         XCTAssertEqual(one(h.doc, id)?.status, .open)
     }
 
-    /// M5-AN-040 — `AnnotationInverse.reopenOp`'s full decision matrix: exactly
-    /// three (undone kind, current status) pairs mint an op; accept declines
-    /// with `.noInverse`; every other status mismatch declines `.stateDrifted`.
+    /// M5-AN-059 (fixed under RULING-22, 2026-08-18) — accepting a comment, a
+    /// query or a craft note REGISTERS a ⌘Z pair. It registered nothing until
+    /// this ruling, so the top of the writer's undo stack after "Got it" was
+    /// still their own previous action under a menu item naming this one, and
+    /// one ⌘Z took a sentence instead of the note. Undo appends a compensating
+    /// `annotationReopen` (ADR 0023) and redo re-accepts, forwarding the
+    /// reply. Accepting a SUGGESTION keeps its own revert-undo, which restores
+    /// prose a bare reopen never could.
+    func test_acceptingANonSuggestionIsUndoable() async throws {
+        let h = try await makeHarness("Alpha.")
+        let cid = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "c")
+        let um = UndoManager()
+
+        try await h.doc.acceptAnnotation(id: cid, userResponse: "ok", undoManager: um)
+        XCTAssertEqual(status(h.doc, cid), .accepted)
+        XCTAssertTrue(um.canUndo)
+        XCTAssertEqual(um.undoActionName, "Accept Note")
+        let before = opCount(h.doc)
+
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+        XCTAssertEqual(status(h.doc, cid), .open)
+        XCTAssertEqual(opCount(h.doc) - before, 1, "one compensating op, nothing removed")
+        XCTAssertEqual(h.doc.opLogSnapshot.last?.kind, .annotationReopen)
+        XCTAssertEqual(h.doc.paragraphs[h.pid], "Alpha.", "no text moved either way")
+
+        um.redo()
+        await h.doc.awaitPendingUndoWork()
+        XCTAssertEqual(status(h.doc, cid), .accepted)
+        XCTAssertEqual(one(h.doc, cid)?.userResponse, "ok",
+                       "the redo forwards the writer's recorded reply")
+
+        // The suggestion arm is untouched: its undo is still the text-restoring
+        // revert, not a reopen.
+        let h2 = try await makeHarness("Alpha.")
+        let sid = try await h2.doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: h2.pid, body: "s",
+            suggestedText: "Beta.")
+        let um2 = UndoManager()
+        try await h2.doc.acceptAnnotation(id: sid, undoManager: um2)
+        XCTAssertEqual(um2.undoActionName, "Accept Suggestion")
+        um2.undo()
+        await h2.doc.awaitPendingUndoWork()
+        XCTAssertEqual(h2.doc.paragraphs[h2.pid], "Alpha.")
+        XCTAssertEqual(h2.doc.opLogSnapshot.last?.kind, .claudeAcceptRevert)
+    }
+
+    /// M5-AN-040 — `AnnotationInverse.reopenOp`'s full decision matrix. Four
+    /// (undone kind, current status) pairs mint an op unconditionally —
+    /// reject/rejected, archive/archived, stet/stetted, withdraw/absent — and a
+    /// fifth, accept/accepted, mints only when the caller says the accept
+    /// spliced no manuscript text (Denver's 2026-08-18 ruling). Left to its
+    /// default the accept arm still declines `.noInverse`, because a
+    /// suggestion's inverse has to restore the prose it rewrote; every other
+    /// status mismatch declines `.stateDrifted`.
     func test_theReopenFactorysDecisionMatrix() {
-        func outcome(_ k: OpKind, _ s: AnnotationStatus?) -> String {
+        func outcome(_ k: OpKind, _ s: AnnotationStatus?,
+                     spliced: Bool = true) -> String {
             switch AnnotationInverse.reopenOp(
                 undoing: k, annotationId: "x", currentStatus: s,
+                acceptSplicedManuscriptText: spliced,
                 docId: "d", device: "dev", session: "s") {
             case .op(let o): return "op(\(o.kind.rawValue))"
             case .declined(let d): return "declined(\(d))"
             }
         }
-        let statuses: [AnnotationStatus?] = [nil, .open, .accepted, .rejected, .archived]
+        let statuses: [AnnotationStatus?] = [
+            nil, .open, .accepted, .rejected, .archived, .stetted]
         for s in statuses {
             XCTAssertEqual(outcome(.claudeReject, s),
                            s == .rejected ? "op(annotation_reopen)" : "declined(stateDrifted)")
             XCTAssertEqual(outcome(.claudeArchive, s),
                            s == .archived ? "op(annotation_reopen)" : "declined(stateDrifted)")
+            XCTAssertEqual(outcome(.annotationStet, s),
+                           s == .stetted ? "op(annotation_reopen)" : "declined(stateDrifted)")
             XCTAssertEqual(outcome(.annotationWithdraw, s),
                            s == nil ? "op(annotation_reopen)" : "declined(stateDrifted)")
             XCTAssertEqual(outcome(.claudeAccept, s),
                            "declined(noInverse(MaughamCore.OpKind.claudeAccept))",
-                           "accept's inverse is claudeAcceptRevert, which also restores text")
+                           "left to the default, accept still has no reopen inverse — "
+                           + "a suggestion's is claudeAcceptRevert, which also restores text")
+            XCTAssertEqual(outcome(.claudeAccept, s, spliced: false),
+                           s == .accepted ? "op(annotation_reopen)" : "declined(stateDrifted)",
+                           "a textless accept reopens, and only from .accepted")
             XCTAssertEqual(outcome(.claudeComment, s),
                            "declined(noInverse(MaughamCore.OpKind.claudeComment))")
+            XCTAssertEqual(outcome(.claudeComment, s, spliced: false),
+                           "declined(noInverse(MaughamCore.OpKind.claudeComment))",
+                           "the flag is the accept arm's alone — it opens no other door")
         }
     }
 

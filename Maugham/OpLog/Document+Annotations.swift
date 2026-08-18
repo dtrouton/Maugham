@@ -587,6 +587,44 @@ extension Document {
             recomputeDisplayText()
         }
 
+        // ⌘Z for the OTHER kinds — a comment, a query, a craft note (Denver's
+        // 2026-08-18 ruling). Accepting one moves no manuscript text, so this
+        // is reject's and stet's shape exactly rather than accept's: a
+        // compensating reopen through `OpUndoRegistrar` (ADR 0023 — append,
+        // never truncate), a fire-time re-check with a LOUD decline
+        // (RULING-22), and a redo forwarding the LIVE undo manager so ⌘Z/⇧⌘Z
+        // cycles indefinitely. None of the suggestion path's text choreography
+        // applies (`removeAllActions`, `_undoCoherentApplyPending`): there is
+        // no buffer replace here to make the native stack unsound.
+        //
+        // **What this fixes.** Until now these kinds registered NOTHING, so
+        // after "Got it" the top of the writer's undo stack was still whatever
+        // they had typed before pressing it — one ⌘Z aimed at the note took a
+        // sentence instead, silently. Carried from the M3 handoff and surfaced
+        // three times before it was ruled.
+        if kind != .suggestedChange {
+            OpUndoRegistrar.register(
+                undoManager, actionName: "Accept Note", target: self,
+                workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+                undo: { doc in
+                    // Unfiltered query — an `.accepted` note is invisible to
+                    // the default `[.open]` filter (M5-AN-002).
+                    let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
+                        .first { $0.id == id }
+                    guard live?.status == .accepted else {
+                        documentLog.error("acceptAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.status), privacy: .public)) — ignoring")
+                        doc.notifyWriter(
+                            "Couldn't undo accepting the note — it changed on another device.")
+                        return
+                    }
+                    try? await doc.reopenAcceptedTextlessAnnotation(id: id)
+                },
+                redo: { [weak undoManager] doc in
+                    try? await doc.acceptAnnotation(
+                        id: id, userResponse: userResponse, undoManager: undoManager)
+                })
+        }
+
         invalidateAnnotationsCache()
         invalidateTasksCache()   // accept may have changed paragraph text → inline tasks
         announceAnnotationsChanged()
@@ -948,6 +986,38 @@ extension Document {
             undoing: undoneKind, annotationId: id, currentStatus: current?.status,
             docId: docId, device: device, session: session) else {
             documentLog.error("reopenAnnotation: factory declined for \(id, privacy: .public) — ignoring")
+            return
+        }
+        try await appendAnnotationOpInternal(op)
+    }
+
+    /// The compensating reopen for an *accepted* annotation that moved no
+    /// manuscript text — a comment, a query, a craft note (Denver's 2026-08-18
+    /// ruling). ⌘Z's alone: `acceptAnnotation`'s registration is the only
+    /// caller, and it has already re-checked the live status by the time it
+    /// gets here.
+    ///
+    /// **Deliberately NOT folded into `reopenAnnotation(id:)`.** That verb is
+    /// the annotations pane's Reopen and the phone's as well as ⌘Z's, and
+    /// widening its status switch to `.accepted` would offer Reopen on an
+    /// accepted *suggestion*, whose inverse must also restore the spliced
+    /// prose (`revertAcceptedAnnotation`). This caller knows it is holding a
+    /// textless kind; that verb's callers do not — so M5-AN-034 ("reopen acts
+    /// only from .rejected, .archived and withdrawn") stays exactly as true as
+    /// it was.
+    ///
+    /// Loud no-op rather than a throw on every refusal, `reopenAnnotation`'s
+    /// contract: an undo action can outlive the state it captured.
+    internal func reopenAcceptedTextlessAnnotation(id: String) async throws {
+        // The husk decline, atomically — `reopenAnnotation`'s sibling guard.
+        if rejectMutationIfNotWritable("reopenAcceptedTextlessAnnotation") { return }
+        let current = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
+        guard case .op(let op) = AnnotationInverse.reopenOp(
+            undoing: .claudeAccept, annotationId: id, currentStatus: current?.status,
+            acceptSplicedManuscriptText: false,
+            docId: docId, device: device, session: session) else {
+            documentLog.error("reopenAcceptedTextlessAnnotation: factory declined for \(id, privacy: .public) (status \(String(describing: current?.status), privacy: .public)) — ignoring")
             return
         }
         try await appendAnnotationOpInternal(op)

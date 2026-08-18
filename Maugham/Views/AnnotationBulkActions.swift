@@ -36,10 +36,12 @@ import MaughamCore
 ///   all — `AnnotationRow.dispositions`' `.query` case offers *Reply…*, which
 ///   opens a sheet and calls `acceptAnnotation(id:userResponse:)` with the
 ///   writer's own words. Bulk accept would call it with `userResponse: nil`:
-///   the question leaves the open queue answered with **silence**, and it does
-///   so quietly, because accept registers no undo for a non-suggestion kind and
-///   `.accepted` has no Reopen arm. Reply is the verb, a reply is text, and text
-///   is the one thing a batch cannot supply.
+///   the question leaves the open queue answered with **silence**, and the
+///   answer it records is the empty one. (Since Denver's 2026-08-18 ruling a
+///   textless accept IS undoable, so ⌘Z is a way back where there used to be
+///   none — but a ⌘Z the writer has to notice they need is not a reason to
+///   offer the batch. `.accepted` still has no Reopen arm.) Reply is the verb,
+///   a reply is text, and text is the one thing a batch cannot supply.
 /// - **Stet** — a resolution like the others: open notes only. "Skips the
 ///   already-stetted" is that rule's special case, not a clause of its own.
 ///   Staleness gates nothing here; a stet moves no text.

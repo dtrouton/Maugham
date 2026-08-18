@@ -84,10 +84,19 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
         // MARK: - Accept / revert (bespoke choreography, predates OpUndoRegistrar's generalization — see TaskInverse.swift doc comment on OpUndoRegistrar)
 
         case .claudeAccept:
+            // Two inverses, split on whether the accept moved manuscript text.
+            // A SUGGESTION accept:
             // Document+Annotations.swift revertAcceptedAnnotation(...) appends
             // the compensating claudeAcceptRevert op (restores pre-accept
             // text via `changes`, returns the annotation to .open).
-            return .inverseCovered(mechanism: "Document.revertAcceptedAnnotation (appends claudeAcceptRevert)")
+            // A comment / query / craft note accept moved no text, so its
+            // whole inverse is a reopen (Denver's 2026-08-18 ruling):
+            // acceptAnnotation registers an OpUndoRegistrar pair whose undo
+            // calls Document.reopenAcceptedTextlessAnnotation(id:), which
+            // builds its op via AnnotationInverse.reopenOp with
+            // acceptSplicedManuscriptText: false — the gated arm the factory
+            // grew for exactly this caller.
+            return .inverseCovered(mechanism: "Document.revertAcceptedAnnotation (appends claudeAcceptRevert) for a suggestion; Document.reopenAcceptedTextlessAnnotation via AnnotationInverse.reopenOp for a textless kind")
 
         case .claudeAcceptRevert:
             // revertAcceptedAnnotation's own undo registration re-invokes

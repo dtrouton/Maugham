@@ -86,12 +86,12 @@ final class AnnotationBulkActionsTests: XCTestCase {
     /// at all — `AnnotationRow.dispositions`' `.query` case offers *Reply…*,
     /// which opens a sheet and calls `acceptAnnotation(id:userResponse:)` with
     /// the writer's own words. Bulk accept would call it with
-    /// `userResponse: nil`, and the failure is quiet in three directions at
-    /// once: the question leaves the default `[.open]` queue, accept registers
-    /// no undo for a non-suggestion kind, and `.accepted` has no Reopen arm.
-    /// The writer's outstanding question, answered with silence and no way
-    /// back. Reply is the verb; a reply is text; text is what a batch cannot
-    /// supply.
+    /// `userResponse: nil`: the question leaves the default `[.open]` queue
+    /// with the empty answer recorded against it, and `.accepted` has no
+    /// Reopen arm. (Denver's 2026-08-18 ruling made a textless accept
+    /// undoable, so ⌘Z is now a way back — but only for a writer who notices
+    /// in the same breath, which is not what a batch of forty affords.) Reply
+    /// is the verb; a reply is text; text is what a batch cannot supply.
     func test_aQueryIsNeverInAnAcceptPlan() {
         let notes = [
             note(id: "aaaa", kind: .query),

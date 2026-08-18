@@ -488,13 +488,23 @@
   "violation_or_enhancement": "neither"
  },
  {
+  "claim_id": "M5-AN-059",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "⌘Z is a control whose label states its subject, and after a non-suggestion accept it named that accept while reversing the writer's typing — the outcome differing from what the writer understood, which is R22's whole scope. Denver ruled it a fix rather than a blessing on 2026-08-18. The drifted undo's decline is R22's other half (the M5-AN-019/029/031/036 shape): it says why rather than doing nothing quietly.",
+  "intent_expressed_when": "contemporaneous — Denver's 2026-08-18 ruling on the M3 handoff's carried shape",
+  "call_path": "AnnotationsPane / EditorHost margin card / DiagnosticsPane 'Got it' → Document.acceptAnnotation(id:userResponse:undoManager:) → OpUndoRegistrar.register → Document.reopenAcceptedTextlessAnnotation",
+  "violation_or_enhancement": "enhancement — the fix of a filed shape"
+ },
+ {
   "_summary": {
-   "reached": 20,
-   "complies": 20,
+   "reached": 21,
+   "complies": 21,
    "violates": 0,
    "no_ruling": 37,
-   "total": 57,
-   "coverage": "35%",
+   "total": 58,
+   "coverage": "36%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
@@ -503,7 +513,8 @@
      "M5-AN-019",
      "M5-AN-029",
      "M5-AN-031",
-     "M5-AN-036"
+     "M5-AN-036",
+     "M5-AN-059"
     ],
     "RULING-24": [
      "M5-AN-021"
@@ -545,8 +556,8 @@
     "M5-AN-021"
    ],
    "specificity_current_ruling_set": "14/15 = 93%",
-   "distinct_defects": "9 violations over 7 distinct defects — M5-AN-049 and M5-AN-050 are two faces of the lost-anchor accept (applied at all; applied with no warning) and are counted once; M5-AN-046/047 are mechanism and consequence of the unsorted mirror and are counted once, the mechanism filed NO_RULING_REACHES. None fixed.",
-   "pinned_by": "MaughamTests/Claims/AnnotationsCharacterization.swift (41 test methods, all passing at HEAD ea4f4662)"
+   "distinct_defects": "9 violations over 7 distinct defects — M5-AN-049 and M5-AN-050 are two faces of the lost-anchor accept (applied at all; applied with no warning) and are counted once; M5-AN-046/047 are mechanism and consequence of the unsorted mirror and are counted once, the mechanism filed NO_RULING_REACHES. One fixed: M5-AN-059 (a non-suggestion accept registering no undo) was ruled and fixed 2026-08-18, and is filed COMPLIES as an enhancement rather than a violation — it entered the ledger already fixed.",
+   "pinned_by": "MaughamTests/Claims/AnnotationsCharacterization.swift (42 test methods, all passing at HEAD 5018b03e + fix/m4-denver-rulings-2026-08-18)"
   }
  }
 ]
