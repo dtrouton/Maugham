@@ -145,6 +145,10 @@ struct ReviewRoundCockpit: View {
     /// the board chip's menu verb carries (M4 P2 Task 4), so the two places a
     /// reviewer meets the round in the same minute name it the same way.
     static func emptyQueueTeaching(editorName: String?) -> String {
+        // `nil` here means no pass is active yet — there is no editor for
+        // `RoundNarrative.runRoundTitle(editorName:)` to name (its parameter
+        // is non-optional on purpose), so this arm is its own hand-written
+        // sentence rather than a call through it with a placeholder editor.
         let round = editorName
             .map { "\(RoundNarrative.runRoundTitle(editorName: $0)) (\u{2318}R)" }
             ?? "Run a round (\u{2318}R)"

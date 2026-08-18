@@ -292,14 +292,28 @@ struct AnnotationsPane: View {
     }
 
     /// **Whether the document-scope empty state means "nothing here" or
-    /// "narrowed to nothing"** (M4 P2 Task 8, T3 carry; widened in review).
+    /// "narrowed to nothing"** (M4 P2 Task 8, T3 carry; widened in review,
+    /// corrected in whole-branch review — see below).
     ///
-    /// Pure so both readings are assertable without a mount — `pool` is the
-    /// document's RAW annotation set (every kind, every status, no filter of
-    /// any of the pane's four applied), `visibleRows` is fully filtered
-    /// (`visibleAnnotations`), and the two can only disagree when a filter —
-    /// kind, status, author, triage or pass — not the queue itself, is what's
-    /// showing nothing.
+    /// Pure so both readings are assertable without a mount — `pool` is every
+    /// OPEN annotation on the document regardless of kind, author, triage or
+    /// pass (`AnnotationFilter(statuses: [.open])`), `visibleRows` is fully
+    /// filtered (`visibleAnnotations`), and the two can only disagree when
+    /// one of those four — not the queue itself, and not resolved status —
+    /// is what's showing nothing.
+    ///
+    /// **`pool` must stay pinned to `.open` and never widen to every status.**
+    /// A writer who settles every note (the loop's own success state) has
+    /// zero open notes and some number of resolved ones; if `pool` counted
+    /// the resolved notes too, this predicate would read "narrowed to
+    /// nothing" and the pane would claim Kind/Author/Triage/the pass filter
+    /// was hiding notes that no such filter can reveal — only **Show
+    /// Resolved** can, and that control isn't named in the copy this
+    /// function's answer feeds. A cleared queue is the ordinary empty case,
+    /// not a filtered one, and it's also the moment `emptyState`'s own
+    /// `.settled` arm ("You've handled this check's notes.") is telling the
+    /// SAME writer the SAME thing on the sibling pane — the two must not
+    /// disagree about whether the queue is empty.
     static func documentQueueIsGenuinelyEmpty(
         pool: [Annotation], visibleRows: [Annotation]
     ) -> Bool {
@@ -661,18 +675,28 @@ struct AnnotationsPane: View {
         let deletedNotes = showResolved ? document.withdrawnAnnotations() : []
         if rows.isEmpty && deletedNotes.isEmpty {
             // **Two different empty states, and only one of them is empty**
-            // (M4 P2 Task 8, T3 carry; widened in review). `rows` is the pool
-            // after EVERY filter — kind, status, author, triage and pass — has
-            // narrowed it; a writer whose queue is merely filtered down to
-            // nothing was being told to go ask for a round that had, in fact,
-            // already answered. The pool this checks against is the raw
-            // per-status read (`AnnotationFilter(statuses: nil)`), never
-            // `kindStatusAnnotations`: that pre-filters by kind, so a writer
-            // narrowed to Suggestions on a document holding only comments
-            // would have read `pool.isEmpty` too and drawn the round-teaching
-            // "No annotations" over notes the KIND filter alone was hiding.
+            // (M4 P2 Task 8, T3 carry; widened, then corrected, in review).
+            // `rows` is the pool after EVERY filter — kind, status, author,
+            // triage and pass — has narrowed it; a writer whose queue is
+            // merely filtered down to nothing was being told to go ask for a
+            // round that had, in fact, already answered.
+            //
+            // **The pool this checks against is `.open`, never every
+            // status.** A writer who has settled every note (the loop's own
+            // success state) has zero open notes and, typically, some
+            // resolved ones — counting those as "still there" would claim
+            // Kind/Author/Triage/the pass filter was hiding notes that ONLY
+            // Show Resolved can reveal, over a queue that is genuinely and
+            // correctly empty (`documentQueueIsGenuinelyEmpty`'s own doc
+            // comment carries the fuller account, incl. why this cannot
+            // disagree with `emptyState`'s `.settled` arm on the sibling
+            // pane). Never `kindStatusAnnotations` either: that pre-filters
+            // by KIND, so a writer narrowed to Suggestions on a document
+            // holding only open comments would have read `pool.isEmpty` too
+            // and drawn the round-teaching "No annotations" over notes the
+            // KIND filter alone was hiding.
             if !Self.documentQueueIsGenuinelyEmpty(
-                pool: document.annotations(filter: AnnotationFilter(statuses: nil)),
+                pool: document.annotations(filter: AnnotationFilter(statuses: [.open])),
                 visibleRows: rows) {
                 ContentUnavailableView(
                     "No notes match your filters",

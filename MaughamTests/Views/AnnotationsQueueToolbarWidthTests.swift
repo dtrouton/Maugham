@@ -428,6 +428,38 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             onSetActivePass: { _ in })
     }
 
+    /// **The picker + running arms — unmeasured until this fixture** (M4 P2
+    /// Task 8 whole-branch review, Minor). `cockpit()` above fixes the lane
+    /// line and the report line; a piece with no active pass draws
+    /// `passPicker` instead of the lane, and a run in flight draws
+    /// `RoundNarrative.checkingCopy` instead of `reportLine` — different
+    /// views entirely, and neither one's width was in this suite before a
+    /// future control added to either would have escaped it silently.
+    /// Worst-case delta text: both `new` and `revised` nonzero reaches
+    /// `paragraphPhrase`'s longest branch, "N new and M revised paragraphs".
+    private static func cockpitNoPassRunning() -> some View {
+        ReviewRoundCockpit(
+            passes: [ReviewPass(id: "structural", name: "Structural")],
+            activePassId: nil,
+            round: nil,
+            phase: .running(CompilerOrchestrator.DeltaCounts(new: 999, revised: 999)),
+            reportLine: nil,
+            onRun: { _ in },
+            onSetActivePass: { _ in })
+    }
+
+    func test_theRoundCockpitFitsTheColumnWithNoPassAndARunInFlight() {
+        for width in Self.columnWidths {
+            let measured = Self.width(of: Self.cockpitNoPassRunning(), proposing: width)
+            XCTAssertLessThanOrEqual(
+                measured, width + Self.slack,
+                "the round cockpit's picker+running arm wants \(measured)pt "
+                + "in a \(width)pt column \u{2014} `cockpit()`'s lane+report "
+                + "fixture never exercises the picker or the checking-copy "
+                + "status line, so a control added to either escapes it.")
+        }
+    }
+
     /// And the diff card inside it, which is what Denver saw running off the
     /// right edge. Its `Text`s were always compressible — this pins that they
     /// stay so, independently of what the toolbar above them does.

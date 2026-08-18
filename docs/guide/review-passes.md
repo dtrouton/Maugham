@@ -59,6 +59,11 @@ so clicking through from the board lands you already narrowed to the pass you
 came from. Narrow that filter — or Kind, Author, or Triage — down to nothing
 and the queue says so plainly, *"No notes match your filters,"* rather than
 offering the empty queue's round-teaching as if nothing had ever been raised.
+**Settle every open note instead and the teaching returns**, because that's
+the ordinary empty queue, not a filtered one — none of those four filters is
+what's standing between you and a note you've already resolved. That one
+comes back through the show-resolved filter (the tray icon), not by widening
+Kind, Author, Triage, or the pass.
 
 **The round cockpit** sits between the queue's toolbar and its notes, in
 document scope, and it's the second place you meet a round: the piece's lane

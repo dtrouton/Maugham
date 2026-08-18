@@ -464,6 +464,37 @@ final class ReviewRoundCockpitTests: XCTestCase {
         XCTAssertFalse(labels.contains { $0.contains("No annotations") })
     }
 
+    /// **The Critical the whole-branch review found: a queue where every
+    /// note is settled must NOT read as filtered** (M4 P2 Task 8 whole-branch
+    /// review). Before this, `pool` counted every status — a writer who
+    /// resolved their last open note had zero open rows and one resolved
+    /// note still sitting in `pool`, so the pane claimed Kind/Author/Triage/
+    /// the pass filter was hiding a note that only the show-resolved toggle
+    /// can reveal, over a queue that was genuinely, correctly empty. This is
+    /// the loop's own SUCCESS state — the same moment Author's Diagnostics
+    /// pane says "You've handled this check's notes." — and it must draw the
+    /// round teaching, never the filter copy.
+    func test_aQueueWhereEveryNoteIsSettledDrawsTheRoundTeachingNotTheFilterCopy() async throws {
+        let fx = try await makeHarness()
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        let noteId = try await fx.document.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "A note the writer settles.")
+        try await fx.document.archiveAnnotation(id: noteId)
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        let labels = allLabels(in: window)
+
+        XCTAssertTrue(
+            labels.contains { $0.contains("No annotations") },
+            "a fully-settled queue is the ordinary empty case, not a "
+            + "filtered one \u{2014} got \(labels)")
+        XCTAssertFalse(
+            labels.contains { $0.contains("No notes match your filters") },
+            "no named filter (Kind/Author/Triage/the pass) can reveal a "
+            + "resolved note \u{2014} only show-resolved can, and it is not "
+            + "one of the four this copy names")
+    }
+
     // MARK: - Pure: the filtered-empty predicate
 
     /// **`documentQueueIsGenuinelyEmpty` pinned directly, both cases** (M4 P2
