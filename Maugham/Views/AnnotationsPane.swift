@@ -508,6 +508,19 @@ struct AnnotationsPane: View {
         .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { _ in
             noteChanged()
         }
+        // **This column's chrome may not move the WINDOW's floor.** The stack
+        // above is non-scrolling: the toolbar, the round cockpit and the
+        // advisory nudge each demand their full height as a MINIMUM, and that
+        // minimum propagates out to `NSHostingView`. `window.contentMinSize` is
+        // stamped once at mount, so a strip that appears later (the nudge, on a
+        // pass swap) raises the layout's minimum above a window size the window
+        // still considers legal — and SwiftUI CENTRES what it cannot compress,
+        // which puts the binder tree's scroll view partly above the window's
+        // top edge with its scroller never having moved. Measured 2026-08-18:
+        // the pass write raised this pane's minimum height by exactly the
+        // nudge's 26pt. See `WindowFloorFreeLayout` and
+        // `TreeScrollStabilityTests`.
+        .doesNotRaiseTheWindowFloor()
     }
 
     // MARK: - The round cockpit (M4 P2 Task 3)
