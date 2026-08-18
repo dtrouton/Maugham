@@ -975,8 +975,9 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// can run past the threshold
     /// (`DriftDetectorTests.test_aStreakLongerThanTheThresholdReportsItsFullLength`).
     /// Saying "seven runs running" would be exactly the forensic detail the
-    /// register refuses elsewhere on this pane (`readerSection`'s truncation
-    /// sentence is the same discipline: "The reader had more to say.", no count).
+    /// register refuses elsewhere on this pane (the pane's now-deleted reader
+    /// section once kept the same discipline with its own "The reader had
+    /// more to say." line, M4 P1 Task 3 — no count).
     func test_driftNote_neverSpeaksTheTrueStreakLength() {
         let finding = DriftFinding(clauseQuote: "Cold, and never wistful.", runsStraining: 7)
         guard let line = DiagnosticsPane.driftNote([finding]) else {
