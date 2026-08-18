@@ -23,6 +23,27 @@ import os
 /// (AppKit/SwiftUI moved the offset on its own — selection reveal, focus
 /// restoration, relayout), and those two answers want fixes in different files.
 ///
+/// **It watches the FRAME as well, because a tree can move without scrolling.**
+/// Denver's 2026-08-18 reproduction logged not one clip-bounds move, so on the
+/// scrolling half's evidence alone nothing happened — while the column he was
+/// looking at had lost its top rows. A scroll view laid out somewhere the
+/// window cannot show displaces every row on screen and moves no offset at all,
+/// and no instrument here had ever measured that. Now every frame change on the
+/// scroll view **or any ancestor up to the window's content view** is reported
+/// with the same stack treatment, and every line carries `fits` (is the scroll
+/// view inside its window?) beside `fittingH` and `windowH` — the pair that
+/// names the condition that produces an escape: SwiftUI resolving a content
+/// minimum taller than the window it has been given. Measured on this codebase
+/// 2026-08-18: squeeze `ProjectWindow` below its minimum and the scroll view's
+/// frame origin goes negative — the top of the tree above the window's top
+/// edge, no scroller movement, which is the reported picture exactly.
+///
+/// **And an `installed` line is not evidence of a settled layout.** The retry
+/// ladder can fire 150ms after the anchor lands, inside a window restore, where
+/// the column has not been given its final height yet — one such line was read
+/// as a standing pathology and cost a session. Hence the `settled +1s/+3s/+8s`
+/// lines: they are the ones to believe.
+///
 /// **What it is NOT.** It never reads, writes or touches the scene: no gesture,
 /// no hit-testing (`hitTest` returns `nil`, `TreeTravelTargetView`'s argument),
 /// no state, and nothing downstream of it. Removing this file and its four call
@@ -138,9 +159,19 @@ final class TreeScrollProbe {
 
     private struct Watch {
         weak var clip: NSClipView?
+        /// The scroll view whose FRAME the second half of this probe is about.
+        /// Held weakly for the clip's reason — a tree remount must not keep a
+        /// dead view alive, and a dead view must not be reported on.
+        weak var scroll: NSScrollView?
         var lastOffset: CGPoint
         var lastLoggedAt: Date
         var suppressed: Int
+        /// The frame half's own throttle, kept separate from the scroll half's:
+        /// a live resize drag and a scroll are different bursts, and sharing
+        /// one timestamp would let either hide the other's first stack.
+        var lastFrame: CGRect
+        var lastFrameLoggedAt: Date
+        var framesSuppressed: Int
     }
 
     private let log = Logger(
@@ -149,6 +180,7 @@ final class TreeScrollProbe {
 
     private var watches: [ObjectIdentifier: Watch] = [:]
     private var tokens: [ObjectIdentifier: NSObjectProtocol] = [:]
+    private var frameTokens: [ObjectIdentifier: [NSObjectProtocol]] = [:]
 
     private init() {}
 
@@ -163,24 +195,126 @@ final class TreeScrollProbe {
 
         clip.postsBoundsChangedNotifications = true
         watches[key] = Watch(clip: clip,
+                             scroll: scrollView,
                              lastOffset: clip.bounds.origin,
                              lastLoggedAt: .distantPast,
-                             suppressed: 0)
+                             suppressed: 0,
+                             lastFrame: scrollView.convert(scrollView.bounds, to: nil),
+                             lastFrameLoggedAt: .distantPast,
+                             framesSuppressed: 0)
         tokens[key] = NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
             object: clip, queue: nil
         ) { _ in
             MainActor.assumeIsolated { TreeScrollProbe.shared.boundsChanged(key: key) }
         }
+        installFrameWatch(on: scrollView, key: key)
 
-        let frame = scrollView.convert(scrollView.bounds, to: nil)
-        let docHeight = scrollView.documentView?.frame.height ?? 0
         write("TREESCROLL installed clip=\(key.debugDescription) "
-              + "scrollFrameInWindow=\(Self.rect(frame)) "
-              + "viewportH=\(Self.n(clip.bounds.height)) contentH=\(Self.n(docHeight)) "
-              + "docView=\(String(describing: type(of: scrollView.documentView))) "
-              + "window=\(scrollView.window?.title ?? "—")")
+              + geometry(of: scrollView)
+              + " docView=\(String(describing: type(of: scrollView.documentView)))")
+        // **An install line is not evidence of a settled layout, and reading
+        // one as such cost a session.** The anchor lands in the window during
+        // SwiftUI's own update pass and the retry ladder fires as little as
+        // 150ms later — well inside a window restore, where the column has not
+        // been given its final height yet. So the probe reports again once the
+        // dust is down; a `settled` line disagreeing with its `installed` line
+        // is the transient, and a `settled` line that still shows the scroll
+        // view outside its window is the real thing.
+        for delay in [1.0, 3.0, 8.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak scrollView] in
+                MainActor.assumeIsolated {
+                    guard let scrollView, scrollView.window != nil else { return }
+                    TreeScrollProbe.shared.write(
+                        "TREESCROLL settled +\(Int(delay))s "
+                        + TreeScrollProbe.shared.geometry(of: scrollView))
+                }
+            }
+        }
         return true
+    }
+
+    /// The one line every report shares: where the tree's scroll view is, how
+    /// big it is, whether it is INSIDE the window it belongs to, and what the
+    /// window's own height is against what SwiftUI wants.
+    ///
+    /// **`fits` is the question the clip-bounds half cannot ask.** A tree that
+    /// looks scrolled with its scroller pinned at the top has not scrolled: its
+    /// scroll view has been laid out somewhere the window cannot show, and only
+    /// a frame reads that. `fitting` beside `windowH` names the condition that
+    /// produces it — SwiftUI resolving a content minimum taller than the window
+    /// it is in.
+    fileprivate func geometry(of scrollView: NSScrollView) -> String {
+        let clip = scrollView.contentView
+        let frame = scrollView.convert(scrollView.bounds, to: nil)
+        let window = scrollView.window
+        let root = window?.contentView
+        let inRoot = root.map { $0.convert(scrollView.bounds, from: scrollView) }
+        let fits = (root?.bounds.insetBy(dx: -0.5, dy: -0.5))
+            .flatMap { box in inRoot.map(box.contains) }
+        let fitting = (root as? NSView).map { $0.fittingSize.height }
+        return "scrollFrameInWindow=\(Self.rect(frame)) "
+            + "inRoot=\(inRoot.map(Self.rect) ?? "—") "
+            + "fits=\(fits.map(String.init(describing:)) ?? "—") "
+            + "windowH=\(Self.n(root?.bounds.height ?? 0)) "
+            + "fittingH=\(Self.n(fitting ?? 0)) "
+            + "clipY=\(Self.n(clip.bounds.origin.y)) "
+            + "viewportH=\(Self.n(clip.bounds.height)) "
+            + "contentH=\(Self.n(scrollView.documentView?.frame.height ?? 0)) "
+            + "window=\(window?.title ?? "—")"
+    }
+
+    /// Watch the scroll view's own frame **and every ancestor's up to the
+    /// window's content view**, because a column laid out too tall moves the
+    /// tree without any one view of it resizing: the frame that changes may be
+    /// the split view's, the column host's, or the scroll view's, and which one
+    /// it is *is* the diagnosis.
+    private func installFrameWatch(on scrollView: NSScrollView,
+                                   key: ObjectIdentifier) {
+        var observers: [NSObjectProtocol] = []
+        var view: NSView? = scrollView
+        let root = scrollView.window?.contentView
+        while let current = view {
+            current.postsFrameChangedNotifications = true
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: current, queue: nil
+            ) { _ in
+                MainActor.assumeIsolated {
+                    TreeScrollProbe.shared.frameChanged(key: key)
+                }
+            })
+            if current === root { break }
+            view = current.superview
+        }
+        frameTokens[key] = observers
+    }
+
+    private func frameChanged(key: ObjectIdentifier) {
+        guard var watch = watches[key], let scrollView = watch.scroll,
+              scrollView.window != nil else { return }
+        let new = scrollView.convert(scrollView.bounds, to: nil)
+        let old = watch.lastFrame
+        guard abs(new.origin.y - old.origin.y) > 0.5
+                || abs(new.height - old.height) > 0.5 else { return }
+
+        let now = Date()
+        guard now.timeIntervalSince(watch.lastFrameLoggedAt) >= Self.burstGap else {
+            watch.framesSuppressed += 1
+            watch.lastFrame = new
+            watches[key] = watch
+            return
+        }
+        let suppressed = watch.framesSuppressed
+        watch.framesSuppressed = 0
+        watch.lastFrameLoggedAt = now
+        watch.lastFrame = new
+        watches[key] = watch
+
+        write("TREESCROLL frame \(Self.rect(old)) -> \(Self.rect(new)) "
+              + geometry(of: scrollView)
+              + " priorBurstSuppressed=\(suppressed)")
+        writeStack()
     }
 
     private func boundsChanged(key: ObjectIdentifier) {
@@ -213,9 +347,8 @@ final class TreeScrollProbe {
         let responder = window?.firstResponder
         write("TREESCROLL move y \(Self.n(old.y)) -> \(Self.n(new.y)) "
               + "(delta \(Self.n(new.y - old.y))) "
-              + "viewportH=\(Self.n(clip.bounds.height)) "
-              + "contentH=\(Self.n(clip.documentView?.frame.height ?? 0)) "
-              + "appActive=\(NSApp?.isActive == true) "
+              + (watch.scroll.map { geometry(of: $0) } ?? "")
+              + " appActive=\(NSApp?.isActive == true) "
               + "keyWindow=\(window?.isKeyWindow == true) "
               + "firstResponder=\(responder.map { String(describing: type(of: $0)) } ?? "—") "
               + "priorBurstSuppressed=\(suppressed)")
