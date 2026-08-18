@@ -21,9 +21,14 @@ import MaughamCore
 ///   `accessibilityPerformPress` is the delivery path here, as it is in
 ///   `DiagnosticsPaneTests` — the same action a click runs, without the
 ///   active-app premise a synthetic `mouseDown` needs.
-/// - **Census**, for the two things a mount cannot see: that the pane feeds
-///   the strip the *unfiltered* queue, and that the picker's write is the
-///   window's one writer rather than a second spelling of it.
+/// - **Census**, for what a mount cannot see: that the pane feeds the strip
+///   the *unfiltered* queue; that the picker's write is the window's one
+///   writer rather than a second spelling of it; that the picker's own menu
+///   item calls the verb the mounted tests drive in its place; and that the
+///   strip is mounted below the toolbar rather than inside it.
+///
+/// The strip's WIDTH is measured where the column's other width claims live —
+/// `AnnotationsQueueToolbarWidthTests`, which owns the instrument.
 @MainActor
 final class ReviewRoundCockpitTests: XCTestCase {
 
@@ -291,7 +296,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
         }
         fx.runner.nextEvent = .resultText(Self.questionAndReport(about: pid))
 
-        let window = mountPane(fx, scope: .document)
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
         let run = try button(labelled: ReviewRoundCockpit.runTitle, in: window)
         _ = run.perform(NSSelectorFromString("accessibilityPerformPress"))
 
@@ -318,13 +323,40 @@ final class ReviewRoundCockpitTests: XCTestCase {
             $0.activePassMemory.record(piece: "ch-1", passId: "copyedit")
         }
 
-        let window = mountPane(fx, scope: .project(focusPiece: nil))
+        let window = mountPane(fx, scope: .project(focusPiece: nil),
+                               orchestrator: fx.orchestrator)
 
         XCTAssertNil(findButton(labelled: ReviewRoundCockpit.runTitle, in: window),
                      "the cockpit is a piece's, and project scope has no piece")
         XCTAssertFalse(allLabels(in: window).contains {
             $0.contains("Copyedit \u{00b7} Gould")
         }, "\u{2026}and no lane line either")
+    }
+
+    /// **A host with no compiler behind it draws no strip.** The pane is
+    /// registered in Review and reachable by ⌘⌥A in every persona, and the
+    /// probe mounts pass neither store — a Run button over a `nil`
+    /// orchestrator would be a control with nothing to call, which is a crash
+    /// at best and RULING-35's dead control at worst.
+    ///
+    /// Asserted against the SAME fixture that draws the strip in
+    /// `test_theRunButtonDrivesARealRoundWhoseNotesTheEditorSigns`, so the one
+    /// difference between the two is the store.
+    func test_aHostWithNoCompilerDrawsNoStrip() async throws {
+        let fx = try await makeHarness()
+        fx.documentStore.updateUIState {
+            $0.activePassMemory.record(piece: "ch-1", passId: "copyedit")
+        }
+
+        let window = mountPane(fx, scope: .document, orchestrator: nil)
+
+        XCTAssertNil(findButton(labelled: ReviewRoundCockpit.runTitle, in: window),
+                     "a nil orchestrator must draw no Run button \u{2014} there "
+                     + "is nothing for it to call")
+        XCTAssertNil(findButton(labelled: ReviewRoundCockpit.freshEyesTitle, in: window))
+        XCTAssertFalse(allLabels(in: window).contains {
+            $0.contains("Copyedit \u{00b7} Gould")
+        }, "\u{2026}and no lane line, however much the pass memory knows")
     }
 
     // MARK: - Census: the seams a mount cannot see
@@ -375,6 +407,38 @@ final class ReviewRoundCockpitTests: XCTestCase {
                        + "\u{2014} the write belongs to the window")
     }
 
+    /// **The link the mounted tests borrow, pinned.**
+    ///
+    /// `test_thePickersChoiceRecordsThroughTheWindowsOneWriter` drives
+    /// `setPass(_:)` directly, because a SwiftUI `Menu` builds its items only
+    /// when the writer opens it and the item itself is unreachable from a
+    /// hosted view (measured in `InspectorPassLadderTests`). That substitution
+    /// is honest only while the item actually calls `setPass` — and nothing
+    /// mounted can see whether it does. Rewiring `passPicker`'s button to a
+    /// local `@State`, or to `onSetActivePass` under a second spelling, leaves
+    /// every other test in this file green over a picker that no longer
+    /// records anything.
+    ///
+    /// So the link is a census over the picker's own declaration. It is the
+    /// weakest seam in this task and it is the one the review found.
+    func test_thePickersItemCallsTheVerbTheTestsDriveItThrough() throws {
+        let source = try Self.source(of: "Views/Review/ReviewRoundCockpit.swift")
+        let picker = try XCTUnwrap(
+            Self.declaration(named: "private var passPicker:", in: source),
+            "the picker must still be a readable declaration for this census "
+            + "to have a subject")
+
+        XCTAssertTrue(picker.contains("setPass(pass.id)"),
+                      "the picker's menu item must call `setPass(pass.id)` — "
+                      + "the verb `test_thePickersChoiceRecordsThroughThe"
+                      + "WindowsOneWriter` drives in its place. Anything else "
+                      + "here and that test proves nothing about this control. "
+                      + "Got:\n\(picker)")
+        XCTAssertTrue(picker.contains("ForEach(passes)"),
+                      "\u{2026}once per pass the project names, so a project "
+                      + "that renamed its ladder offers its own passes")
+    }
+
     /// **The strip is not in the toolbar.** `AnnotationsQueueToolbar`'s one
     /// job is fitting a 240pt column, and its width census
     /// (`AnnotationsQueueToolbarWidthTests`) measures the row as declared —
@@ -413,14 +477,21 @@ final class ReviewRoundCockpitTests: XCTestCase {
             onSetActivePass: { _ in })))
     }
 
-    private func mountPane(_ fx: Harness, scope: AnnotationScope) -> NSWindow {
+    /// `orchestrator` is explicit and **undefaulted** so the no-compiler host
+    /// can be mounted off the same fixture with the store as the ONLY
+    /// difference — and so a default could never quietly turn the run-button
+    /// test into a test of a strip that was never drawn.
+    private func mountPane(
+        _ fx: Harness, scope: AnnotationScope,
+        orchestrator: CompilerOrchestrator?
+    ) -> NSWindow {
         mount(AnyView(AnnotationsPane(
             document: fx.document,
             store: fx.store,
             documentStore: fx.documentStore,
             scope: .constant(scope),
             onTravel: { _ in },
-            orchestrator: fx.orchestrator,
+            orchestrator: orchestrator,
             diagnostics: fx.diagnostics,
             onSetActivePass: { _, _ in })
             .environment(UserPreferences(

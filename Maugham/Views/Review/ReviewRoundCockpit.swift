@@ -177,8 +177,17 @@ struct ReviewRoundCockpit: View {
     // Named rather than inlined into the controls so a test can drive the one
     // the mounted menu cannot: a SwiftUI `Menu` builds its items when the
     // writer opens it, so the picker's item is unreachable from a hosted view
-    // (measured in `InspectorPassLadderTests`). This is the identical code
+    // (measured in `InspectorPassLadderTests`). `setPass` is the identical code
     // path, minus AppKit's menu.
+    //
+    // **That substitution is only honest while the item actually calls it**,
+    // and nothing a mounted test can reach says so — rewiring `passPicker`'s
+    // button to anything else leaves every drive-through-`setPass` test green
+    // over a picker that no longer does what they claim. So the link is a
+    // census: `ReviewRoundCockpitTests.
+    // test_thePickersItemCallsTheVerbTheTestsDriveItThrough` reads
+    // `passPicker`'s own declaration and requires `setPass(pass.id)` in it.
+    // Renaming this verb means moving that census with it.
 
     func setPass(_ passId: String) { onSetActivePass(passId) }
 

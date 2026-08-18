@@ -351,6 +351,83 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
     /// defect; small enough that it is a margin rather than a redesign.
     private static let headroom: CGFloat = 16
 
+    // MARK: - The strip above it (M4 P2 Task 3)
+
+    /// **The round cockpit at the column's floor** — the third thing in this
+    /// pane whose width is not the pane's to give.
+    ///
+    /// It is measured HERE rather than in `ReviewRoundCockpitTests` because
+    /// the instrument is here: `sizeThatFits` against a proposal, plus the
+    /// `headroom` rule the two fallbacks already answer to. A width claim
+    /// written beside the strip would be a second instrument for the one
+    /// question this suite exists to ask.
+    ///
+    /// **The hardest honest case is a writer's own long pass name.** The
+    /// preset ladder's names are short and its editors are one word; nothing
+    /// bounds what a writer types into `ReviewPass.name`, and the lane line
+    /// draws it. The buttons underneath are the incompressible part — the lane
+    /// `Text` wraps to two lines and then truncates, which is a legible
+    /// degrade rather than an overflow.
+    func test_theRoundCockpitFitsTheColumn() {
+        for width in Self.columnWidths {
+            let measured = Self.width(of: Self.cockpit(), proposing: width)
+            XCTAssertLessThanOrEqual(
+                measured, width + Self.slack,
+                "the round cockpit wants \(measured)pt in a \(width)pt column. "
+                + "Its lane line wraps and truncates; if this is red something "
+                + "in the strip is incompressible \u{2014} and the pane's layout "
+                + "width inflates around it exactly as it did for the toolbar.")
+        }
+    }
+
+    /// And the same headroom rule the two fallbacks answer to: the strip's own
+    /// floor — what it comes back with offered nothing at all, which is what
+    /// its buttons cannot be drawn narrower than — must sit clear of the
+    /// narrowest column a writer can drag to.
+    ///
+    /// A third button, or the next macOS's control metrics, is what this is
+    /// watching for. Measured 2026-08-17 with the long-named pass below: a
+    /// floor of 56pt against a 240pt column, 184pt of slack — the strip's
+    /// controls are `.controlSize(.small)` bordered buttons whose labels
+    /// truncate, and its one `Text` wraps. The margin is generous because the
+    /// strip is two short rows; what makes the number worth pinning is that an
+    /// incompressible control added to it takes the margin all at once
+    /// (falsified 2026-08-17 by planting a `.fixedSize()` worded button on the
+    /// run row: both cockpit measurements went red, the fit one at every
+    /// column width).
+    func test_theRoundCockpitHasRoomToSpareBelowTheColumnFloor() {
+        let columnFloor = CGFloat(UIState.detailColumnWidthRange.lowerBound)
+        let stripFloor = Self.width(of: Self.cockpit(), proposing: 1)
+        XCTAssertLessThanOrEqual(
+            stripFloor + Self.headroom, columnFloor,
+            "the cockpit cannot be drawn narrower than \(stripFloor)pt, which "
+            + "leaves \(columnFloor - stripFloor)pt in the narrowest column a "
+            + "writer can drag to \u{2014} under the \(Self.headroom)pt this "
+            + "suite asks for. A third button on that row wants a wider pane "
+            + "rather than a second line.")
+    }
+
+    /// The strip's hardest honest case: a pass the writer named at length,
+    /// with an editor name of its own so the lane line draws BOTH (a pass
+    /// whose editor falls back to its name collapses to one, which is
+    /// narrower), a two-digit round, and the longest of the two status lines.
+    private static func cockpit() -> some View {
+        let pass = ReviewPass(
+            id: "structural",
+            name: "Late structural read before the Melbourne submission",
+            brief: "b",
+            editorName: "Perkins")
+        return ReviewRoundCockpit(
+            passes: [pass],
+            activePassId: pass.id,
+            round: 12,
+            phase: .idle,
+            reportLine: "Since round 11: 14 resolved \u{00b7} 9 persisting "
+                + "\u{00b7} 21 new",
+            onRun: { _ in },
+            onSetActivePass: { _ in })
+    }
+
     /// And the diff card inside it, which is what Denver saw running off the
     /// right edge. Its `Text`s were always compressible — this pins that they
     /// stay so, independently of what the toolbar above them does.
