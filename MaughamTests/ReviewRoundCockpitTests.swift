@@ -410,7 +410,8 @@ final class ReviewRoundCockpitTests: XCTestCase {
                 fx.documentStore.updateUIState {
                     $0.activePassMemory.record(piece: "ch-1", passId: passId)
                 }
-            })
+            },
+            onCancel: {})
 
         cockpit.setPass("copyedit")
 
@@ -450,6 +451,91 @@ final class ReviewRoundCockpitTests: XCTestCase {
             let button = try XCTUnwrap(findButton(labelled: title, in: window))
             XCTAssertEqual(axEnabled(button), true,
                            "premise: \(title) is live when no run is in flight")
+        }
+    }
+
+    /// **The tracked follow-up from the failure-visibility review, absence
+    /// half.** Cancel only means anything while a run is in flight, so it must
+    /// not be drawn in the two states that have nothing to cancel — idle (no
+    /// run) and failed (the run is already over; the remedy is another round,
+    /// not cancelling the one that already ended).
+    func test_theCancelButtonIsAbsentWhenIdleAndWhenFailed() {
+        let idle = mountCockpit(activePassId: "copyedit", round: 2)
+        XCTAssertNil(findButton(labelled: ReviewRoundCockpit.cancelTitle, in: idle),
+                     "idle has no run to cancel")
+
+        let failed = mountCockpit(
+            activePassId: "copyedit", round: 2,
+            phase: .failed(.timedOut, at: Date()))
+        XCTAssertNil(findButton(labelled: ReviewRoundCockpit.cancelTitle, in: failed),
+                     "a failed round has already ended \u{2014} the remedy is "
+                     + "another round, not cancelling the one that is over")
+    }
+
+    /// The presence half, pure and mounted: the strip draws Cancel exactly
+    /// where it draws the busy Run/Fresh Eyes pair.
+    func test_theCancelButtonIsPresentWhileRunning() throws {
+        let counts = CompilerOrchestrator.DeltaCounts(new: 3, revised: 1)
+        let window = mountCockpit(
+            activePassId: "copyedit", round: 2, phase: .running(counts))
+        XCTAssertNotNil(findButton(labelled: ReviewRoundCockpit.cancelTitle, in: window),
+                        "a run in flight must offer a way out")
+    }
+
+    /// **The end-to-end pin, driven for real.** The real `AnnotationsPane`,
+    /// the real strip, a run that genuinely hangs mid-turn (`nextEvent = nil`
+    /// makes `SpyRunner.send` await a continuation, so `orchestrator.runState`
+    /// is a live `.running` rather than a value set by hand), a Cancel press
+    /// through the same `accessibilityPerformPress` path a click takes, and
+    /// then the assertion this task is about: the strip returns to idle, Run
+    /// is pressable again, and — because `cancel()` routes through
+    /// `.sessionDied(detail: .cancelled)` and `isTheWritersOwnDoing` — NO
+    /// failure line is drawn. Asserting `orchestrator.runState == .idle`
+    /// directly would prove the orchestrator's own mapping, which
+    /// `test_theWritersOwnActionsAreFilteredOutBeforeTheStripEverSeesThem`
+    /// already pins; this proves the button reaches it.
+    func test_pressingCancelReturnsTheStripToIdleWithNoFailureLine() async throws {
+        let fx = try await makeHarness()
+        fx.documentStore.updateUIState {
+            $0.activePassMemory.record(piece: "ch-1", passId: "copyedit")
+        }
+        fx.runner.nextEvent = nil
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        let run = try button(labelled: ReviewRoundCockpit.runTitle, in: window)
+        _ = run.perform(NSSelectorFromString("accessibilityPerformPress"))
+
+        await awaitRunning(on: fx.orchestrator)
+        pump(0.3)
+
+        let cancel = try button(labelled: ReviewRoundCockpit.cancelTitle, in: window)
+        _ = cancel.perform(NSSelectorFromString("accessibilityPerformPress"))
+
+        await awaitIdleRun(on: fx.orchestrator)
+        pump(0.3)
+
+        XCTAssertEqual(fx.orchestrator.runState, .idle,
+                       "cancel's writer-caused mapping must land the strip back "
+                       + "at idle \u{2014} the same state any other finished run "
+                       + "leaves it in")
+
+        let again = try button(labelled: ReviewRoundCockpit.runTitle, in: window)
+        XCTAssertEqual(axEnabled(again), true,
+                       "Run must be pressable again once cancel has landed")
+        let fresh = try button(labelled: ReviewRoundCockpit.freshEyesTitle, in: window)
+        XCTAssertEqual(axEnabled(fresh), true)
+
+        XCTAssertNil(findButton(labelled: ReviewRoundCockpit.cancelTitle, in: window),
+                     "\u{2026}and Cancel itself must be gone \u{2014} nothing is "
+                     + "running any more")
+        let labels = allLabels(in: window)
+        for failure: CompilerRunFailure in [
+            .timedOut, .unusableOutput, .cliNotFound, .disabledByToggle,
+        ] {
+            XCTAssertFalse(
+                labels.contains(RoundNarrative.failureCopy(failure)),
+                "a cancel the writer pressed themselves must never read as a "
+                + "failure \u{2014} got \(labels)")
         }
     }
 
@@ -887,7 +973,8 @@ final class ReviewRoundCockpitTests: XCTestCase {
         activePassId: String?,
         round: Int?,
         phase: ReviewRoundCockpit.RunPhase = .idle,
-        reportLine: String? = nil
+        reportLine: String? = nil,
+        onCancel: @escaping () -> Void = {}
     ) -> NSWindow {
         mount(AnyView(ReviewRoundCockpit(
             passes: [Self.line, Self.copyedit],
@@ -896,7 +983,8 @@ final class ReviewRoundCockpitTests: XCTestCase {
             phase: phase,
             reportLine: reportLine,
             onRun: { _ in },
-            onSetActivePass: { _ in })))
+            onSetActivePass: { _ in },
+            onCancel: onCancel)))
     }
 
     /// `orchestrator` is explicit and **undefaulted** so the no-compiler host
@@ -1112,6 +1200,28 @@ final class ReviewRoundCockpitTests: XCTestCase {
         let deadline = Date().addingTimeInterval(8)
         while Date() < deadline {
             if case .failed = orchestrator.runState { return }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    /// Wait for the orchestrator to reach `.running` — used with
+    /// `SpyRunner.nextEvent = nil`, which hangs `send` on a live continuation
+    /// rather than answering synchronously, so the cancel test presses a real
+    /// in-flight run and not a value set by hand.
+    private func awaitRunning(on orchestrator: CompilerOrchestrator) async {
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline {
+            if case .running = orchestrator.runState { return }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    /// Wait for the orchestrator to return to `.idle` — cancel's writer-caused
+    /// mapping resolves off the runner's continuation, on a later tick.
+    private func awaitIdleRun(on orchestrator: CompilerOrchestrator) async {
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline {
+            if orchestrator.runState == .idle { return }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
     }

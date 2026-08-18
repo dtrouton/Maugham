@@ -560,7 +560,8 @@ struct AnnotationsPane: View {
                 },
                 onSetActivePass: { passId in
                     onSetActivePass(document.docId, passId)
-                })
+                },
+                onCancel: { orchestrator.cancel() })
             Divider()
         }
     }

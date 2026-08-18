@@ -81,7 +81,11 @@ choose one and the lane appears. **A check that fails says so right there**,
 in red, in place of the usual line — *"The check took too long and was
 stopped"* — rather than leaving the strip looking like a round that simply
 came back with nothing, and both buttons stay live, because another round is
-the answer to a failed one. An empty queue teaches the
+the answer to a failed one. **A run in flight can be cancelled right there** —
+a Cancel button sits beside the checking line for as long as the round is
+running, the same control Diagnostics offers, and pressing it lands you back
+at Run round with nothing held against you: it's the same as a round you
+simply hadn't asked for. An empty queue teaches the
 same loop rather than describing an absence: *"Claude proposes; you dispose.
 Run Gould's round (⌘R), or ask Claude in Claude Desktop."*
 
