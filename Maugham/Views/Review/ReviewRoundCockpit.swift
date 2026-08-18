@@ -70,15 +70,32 @@ struct ReviewRoundCockpit: View {
     /// again here or in the pane.
     let onSetActivePass: (_ passId: String) -> Void
 
-    /// **Whether a run is in flight on THIS document.**
+    /// **What the last thing the run key did means for THIS document.**
     ///
     /// A separate type from `CompilerOrchestrator.RunState` because that state
-    /// is per WINDOW and this strip is per DOCUMENT: `.nothingNew` and
-    /// `.failed` describe runs that are over, and a run on another chapter is
-    /// nothing this strip has anything to say about.
+    /// is per WINDOW and this strip is per DOCUMENT: a run on another chapter
+    /// is nothing this strip has anything to say about, in any of its states.
+    ///
+    /// **`.failed` is a case here, and it was not until Denver's 2026-08-18
+    /// smoke.** This enum used to hold `idle` and `running` alone, on the
+    /// argument that ".failed describes a run that is over" — true, and beside
+    /// the point: a run that is over having produced NOTHING renders the strip
+    /// exactly like a clean idle, so a round that died at the session budget is
+    /// indistinguishable from one that came back with no notes. Denver read two
+    /// timed-out rounds (Structural, then Line) as "returned nothing" and only
+    /// found the failure in Author's Diagnostics pane, a persona away from the
+    /// button he pressed. A failure must surface where the run was launched.
+    ///
+    /// `.nothingNew` stays folded into `.idle`: it is a run that worked and had
+    /// nothing to read, which is what the report line under it already says.
     enum RunPhase: Equatable {
         case idle
         case running(CompilerOrchestrator.DeltaCounts)
+        /// A run on THIS document that ended without an answer. `at` is the
+        /// moment it did — carried for the same reason the pane's header state
+        /// carries it, so a later surface can age the line rather than needing
+        /// a second read of the orchestrator.
+        case failed(CompilerRunFailure, at: Date)
     }
 
     // MARK: - The decisions, pure
@@ -88,14 +105,30 @@ struct ReviewRoundCockpit: View {
     ///
     /// Drop the scope and a run on chapter 2 makes chapter 1's strip claim it
     /// is being checked and refuse its own Run button — the same defect the
-    /// header's `where` clauses exist to prevent, in a second surface.
+    /// header's `where` clauses exist to prevent, in a second surface. The
+    /// failure arm needs it for the sharper half of the same reason: a red line
+    /// over chapter 1 about a death in chapter 2 is a lie the strip would keep
+    /// telling until the next run, and one the writer would answer by pressing
+    /// Run on a document that never failed.
+    ///
+    /// **Only a genuine failure reaches `.failed`**, and this reads the run
+    /// state rather than re-filtering it: `CompilerOrchestrator.finish` already
+    /// routes anything `CompilerRunFailure.isTheWritersOwnDoing` — cancel, the
+    /// AI toggle, project close, a second run arriving mid-flight — to `.idle`
+    /// before the state is ever set, so a second filter here would be a copy of
+    /// that rule with nothing keeping the two in step (`CompilerRunCommandTests`
+    /// pins the orchestrator's half).
     static func phase(
         runState: CompilerOrchestrator.RunState, docId: String
     ) -> RunPhase {
-        if case .running(let runDocId, let checking) = runState, runDocId == docId {
+        switch runState {
+        case .running(let runDocId, let checking) where runDocId == docId:
             return .running(checking)
+        case .failed(let runDocId, let failure, let at) where runDocId == docId:
+            return .failed(failure, at: at)
+        default:
+            return .idle
         }
-        return .idle
     }
 
     /// **"<Pass> · <Editor> · round N"**, or "round —" before the lane has one.
@@ -273,13 +306,30 @@ struct ReviewRoundCockpit: View {
         return false
     }
 
+    private var isFailure: Bool {
+        if case .failed = phase { return true }
+        return false
+    }
+
     /// The one line under the lane: what is being read while a round is in
-    /// flight, and what the last one found once it is not. The same mutual
-    /// exclusion the Diagnostics pane keeps between its own two lines, in one
-    /// slot because the column is narrow.
+    /// flight, why the last one did not answer if it failed, and what it found
+    /// otherwise. The same mutual exclusion the Diagnostics pane keeps between
+    /// its own lines, in one slot because the column is narrow.
+    ///
+    /// **The failure REPLACES the report line rather than sitting beside it.**
+    /// The since-last-round comparison and the fresh-eyes header both describe
+    /// the last round that finished, which is an older run than the one that
+    /// just died; drawn under a failure they would read as that failure's own
+    /// result and tell the writer a dead round found three things.
+    ///
+    /// The copy is `RoundNarrative.failureCopy` — the sentence Author's
+    /// Diagnostics pane says about the same death, in one spelling, so a writer
+    /// who checks the other pane to understand this one finds the same account
+    /// of it (`ReviewRoundCockpitTests`' one-spelling census).
     private var statusLine: String? {
         switch phase {
         case .running(let counts): return RoundNarrative.checkingCopy(counts)
+        case .failed(let failure, _): return RoundNarrative.failureCopy(failure)
         case .idle: return reportLine
         }
     }
@@ -290,7 +340,10 @@ struct ReviewRoundCockpit: View {
             if let statusLine {
                 Text(statusLine)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    // Red only for a failure, on `DiagnosticsPane.header`'s
+                    // rule: the strip's ordinary lines are secondary, and a
+                    // colour that never changes is a colour that says nothing.
+                    .foregroundStyle(isFailure ? Color.red : Color.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -360,6 +413,13 @@ struct ReviewRoundCockpit: View {
     /// The two ways to ask. **No `keyboardShortcut` on either** — see the type
     /// doc: these are second delivery sites for `MaughamApp`'s ⌘R / ⌘⇧R, not
     /// second bindings of them.
+    ///
+    /// **Only `.running` refuses, and `.failed` deliberately does not.** The
+    /// remedy for a round that timed out, or for a session that died, is
+    /// another round — a strip that reports a failure and then withholds the
+    /// button that answers it is RULING-35's dead control with a red line over
+    /// it. `isRunning` is therefore the whole predicate; a `!isFailure` added
+    /// here would be the defect.
     @ViewBuilder
     private var runRow: some View {
         HStack(spacing: 6) {

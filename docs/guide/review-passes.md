@@ -77,7 +77,11 @@ find ⌘R's other home. **The lane line is itself the pass picker** — click it
 to read the piece through a different pass, with the one it's in checked, so
 changing lanes never means going back to the board to click another chip. No
 pass active on this piece yet? The same control says *Set a pass* instead —
-choose one and the lane appears. An empty queue teaches the
+choose one and the lane appears. **A check that fails says so right there**,
+in red, in place of the usual line — *"The check took too long and was
+stopped"* — rather than leaving the strip looking like a round that simply
+came back with nothing, and both buttons stay live, because another round is
+the answer to a failed one. An empty queue teaches the
 same loop rather than describing an absence: *"Claude proposes; you dispose.
 Run Gould's round (⌘R), or ask Claude in Claude Desktop."*
 

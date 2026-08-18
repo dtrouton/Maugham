@@ -245,6 +245,11 @@ final class DiagnosticsPaneTests: XCTestCase {
             "a failure belongs to the document it was raised on")
     }
 
+    /// The sentences moved to `RoundNarrative` on 2026-08-18 — Review's cockpit
+    /// now says the same one about the same death, in one spelling, and this
+    /// pane is a caller rather than the owner. What is asserted here is
+    /// unchanged; only where it is asked. `ReviewRoundCockpitTests`' census is
+    /// what keeps a second copy from reappearing in either file.
     func test_headerState_failedWithHonestCopy() {
         let at = Date()
         let state = DiagnosticsPane.headerState(
@@ -252,17 +257,17 @@ final class DiagnosticsPaneTests: XCTestCase {
             lastRun: nil, noteCount: 0, docId: "d1")
         XCTAssertEqual(state, .failed(.cliNotFound, at: at))
 
-        XCTAssertTrue(DiagnosticsPane.failureCopy(.cliNotFound).contains("Claude Code isn't installed"))
-        XCTAssertTrue(DiagnosticsPane.failureCopy(.cliNotFound).contains("Settings"))
-        XCTAssertTrue(DiagnosticsPane.failureCopy(.disabledByToggle).contains("Claude access is off in Settings"))
-        XCTAssertTrue(DiagnosticsPane.failureCopy(.disabledByToggle)
+        XCTAssertTrue(RoundNarrative.failureCopy(.cliNotFound).contains("Claude Code isn't installed"))
+        XCTAssertTrue(RoundNarrative.failureCopy(.cliNotFound).contains("Settings"))
+        XCTAssertTrue(RoundNarrative.failureCopy(.disabledByToggle).contains("Claude access is off in Settings"))
+        XCTAssertTrue(RoundNarrative.failureCopy(.disabledByToggle)
             .contains("Allow Claude to connect (MCP)"),
             "the copy must name the exact Settings toggle (General \u{2192} Claude integration), "
             + "not a paraphrase a writer cannot find")
-        XCTAssertFalse(DiagnosticsPane.failureCopy(.timedOut).isEmpty)
-        XCTAssertTrue(DiagnosticsPane.failureCopy(.sessionDied(detail: "the CLI exited"))
+        XCTAssertFalse(RoundNarrative.failureCopy(.timedOut).isEmpty)
+        XCTAssertTrue(RoundNarrative.failureCopy(.sessionDied(detail: "the CLI exited"))
             .contains("the CLI exited"))
-        XCTAssertFalse(DiagnosticsPane.failureCopy(.unusableOutput).isEmpty)
+        XCTAssertFalse(RoundNarrative.failureCopy(.unusableOutput).isEmpty)
     }
 
     func test_headerState_cleanRun() {

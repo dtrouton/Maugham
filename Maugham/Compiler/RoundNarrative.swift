@@ -124,6 +124,44 @@ enum RoundNarrative {
         return "Fresh eyes \u{00b7} round \(round)"
     }
 
+    // MARK: - When a run does not answer
+
+    /// **One honest sentence per failure** — no apology, no chirp. `cliNotFound`
+    /// and `disabledByToggle` each name the surface that fixes them;
+    /// `sessionDied` only ever reaches here for a death that was NOT the
+    /// writer's own doing (`CompilerOrchestrator.finish` already routes the
+    /// other three details to `.idle` through
+    /// `CompilerRunFailure.isTheWritersOwnDoing`), so its detail is worth
+    /// showing rather than translating away.
+    ///
+    /// **Hoisted out of `DiagnosticsPane` (2026-08-18, Denver's smoke) for the
+    /// reason the rest of this file was hoisted: a second surface now says it.**
+    /// Review's cockpit collapsed `.failed` into `.idle` and drew a timed-out
+    /// round exactly like a clean one, so two Structural and Line rounds that
+    /// died at the 120s budget read as "returned nothing" — the failure was
+    /// legible only in Author's Diagnostics pane, which is not where the run was
+    /// launched. A failure must surface where the button was pressed, and both
+    /// surfaces must say it in the same words: a writer who checks the other
+    /// pane to understand the first must not find a differently-worded account
+    /// of the same death. `ReviewRoundCockpitTests`' one-spelling census reads
+    /// both files and goes red on a restatement.
+    static func failureCopy(_ failure: CompilerRunFailure) -> String {
+        switch failure {
+        case .cliNotFound:
+            return "Claude Code isn't installed. Set it up, then check "
+                + "Settings \u{2192} General \u{2192} Claude integration."
+        case .disabledByToggle:
+            return "Claude access is off in Settings \u{2014} turn on "
+                + "\u{201C}Allow Claude to connect (MCP)\u{201D} to check your writing."
+        case .timedOut:
+            return "The check took too long and was stopped."
+        case .sessionDied(let detail):
+            return "The compiler's session ended before it could answer: \(detail)."
+        case .unusableOutput:
+            return "Claude's answer couldn't be read as notes."
+        }
+    }
+
     // MARK: - Asking for one
 
     /// **"Run Gould's round"** — the offer, by the name of the editor who

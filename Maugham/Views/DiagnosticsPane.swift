@@ -509,29 +509,6 @@ struct DiagnosticsPane: View {
     static let coldStartOfferSentence =
         "I haven\u{2019}t read this piece. Read it whole and take notes?"
 
-    /// One honest sentence per failure — no apology, no chirp. `cliNotFound`
-    /// and `disabledByToggle` each name the surface that fixes them;
-    /// `sessionDied` only ever reaches here for a death that was NOT the
-    /// writer's own doing (`CompilerOrchestrator.finish` already routes the
-    /// other three details to `.idle`), so its detail is worth showing rather
-    /// than translating away.
-    static func failureCopy(_ failure: CompilerRunFailure) -> String {
-        switch failure {
-        case .cliNotFound:
-            return "Claude Code isn't installed. Set it up, then check "
-                + "Settings \u{2192} General \u{2192} Claude integration."
-        case .disabledByToggle:
-            return "Claude access is off in Settings \u{2014} turn on "
-                + "\u{201C}Allow Claude to connect (MCP)\u{201D} to check your writing."
-        case .timedOut:
-            return "The check took too long and was stopped."
-        case .sessionDied(let detail):
-            return "The compiler's session ended before it could answer: \(detail)."
-        case .unusableOutput:
-            return "Claude's answer couldn't be read as notes."
-        }
-    }
-
     // MARK: - Header
 
     @ViewBuilder
@@ -602,7 +579,11 @@ struct DiagnosticsPane: View {
         case .nothingNew:
             return "Nothing new since the last check."
         case .failed(let failure, _):
-            return failureCopy(failure)
+            // `RoundNarrative`'s, since 2026-08-18 — Review's cockpit says the
+            // same sentence over the same death, and this pane is one caller
+            // among two rather than the owner (the hoist `checkingCopy` and the
+            // round lines already made).
+            return RoundNarrative.failureCopy(failure)
         case .clean(let run):
             // **`.clean` means this PANE has nothing to show, which is not the
             // same as the run having found nothing** (M4 P1). A run that raised
