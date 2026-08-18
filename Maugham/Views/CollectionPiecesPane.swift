@@ -104,6 +104,8 @@ struct CollectionPiecesPane: View {
             .binderTreeSections(store: store, state: treeState,
                                 selectedSubject: $selectedSubject)
             .consumingTreeScrollRequests(proxy, state: treeState)
+            // Dev-only diagnostic, inert everywhere else — `TreeScrollProbe.swift`.
+            .treeScrollProbe()
         }
     }
 

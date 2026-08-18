@@ -119,6 +119,10 @@ struct BinderView: View {
                 Text("Existing files will be moved to fix gaps in numbering. This change is visible to other apps that read this folder.")
             }
             .consumingTreeScrollRequests(proxy, state: treeState)
+            // Dev builds only, and inert in every test host — see
+            // `TreeScrollProbe.swift`. It watches this tree's own clip view and
+            // writes the stack that moves it; it touches nothing.
+            .treeScrollProbe()
         }
     }
 
