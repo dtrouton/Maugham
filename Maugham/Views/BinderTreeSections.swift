@@ -594,6 +594,25 @@ struct BinderTreeSections: View {
     }
 }
 
+/// The subset of `NSOpenPanel`'s configuration the Add File verb cares about,
+/// as a plain value. Exists so a test can assert what the panel is configured
+/// to do without allocating a real `NSOpenPanel` — doing that in a unit test
+/// stalls on the window server's XPC service under parallel-worker contention
+/// (~64s, six sightings 2026-08-16..19 pinned as
+/// `BinderTreeDropRoutingTests.test_theTreesAddFilePanelTakesFoldersAsWellAsFiles`).
+struct AddFilePanelConfiguration: Equatable {
+    let canChooseFiles: Bool
+    let canChooseDirectories: Bool
+    let allowsMultipleSelection: Bool
+
+    func apply(to panel: NSOpenPanel) {
+        panel.canChooseFiles = canChooseFiles
+        panel.canChooseDirectories = canChooseDirectories
+        panel.allowsMultipleSelection = allowsMultipleSelection
+    }
+}
+
+
 // MARK: - The verbs
 
 /// **The binder trees' research verbs, as a value.**
@@ -619,24 +638,6 @@ struct BinderTreeSections: View {
 /// exactly what `createResearchNote(scope: .shared)` routes to, so the two
 /// surfaces cannot disagree. `BinderPieceFold` re-routes the one verb for which
 /// that default is wrong — see its `actions`.
-/// The subset of `NSOpenPanel`'s configuration the Add File verb cares about,
-/// as a plain value. Exists so a test can assert what the panel is configured
-/// to do without allocating a real `NSOpenPanel` — doing that in a unit test
-/// stalls on the window server's XPC service under parallel-worker contention
-/// (~64s, six sightings 2026-08-16..19 pinned as
-/// `BinderTreeDropRoutingTests.test_theTreesAddFilePanelTakesFoldersAsWellAsFiles`).
-struct AddFilePanelConfiguration: Equatable {
-    let canChooseFiles: Bool
-    let canChooseDirectories: Bool
-    let allowsMultipleSelection: Bool
-
-    func apply(to panel: NSOpenPanel) {
-        panel.canChooseFiles = canChooseFiles
-        panel.canChooseDirectories = canChooseDirectories
-        panel.allowsMultipleSelection = allowsMultipleSelection
-    }
-}
-
 @MainActor
 struct BinderTreeVerbs {
     let store: ProjectStore
