@@ -14,6 +14,8 @@ pass a writer would normally reach for next, never which one they're allowed
 to touch. Working Copyedit before Structural is a legitimate thing to do, and
 Maugham never refuses it — see "A quiet nudge, not a gate" below.
 
+Each of the four starting passes carries a **named editor voice** — Structural is **Perkins**, Line is **Lish**, Copyedit is **Gould**, Proof is **Argus** — and a **brief**: doctrine for what that pass's rounds attend to, and what they deliberately leave alone (Perkins reads for shape and never touches a sentence; Argus reads the surface only, and advises its rounds be run as Fresh Eyes). A round's notes carry that pass's editor as their author, so a queue spanning several passes still tells you who's speaking. Renaming a pass in **Project Settings…** doesn't move its editor or its brief — both are tied to the pass's identity, not what you call it. A pass you add yourself starts with neither: its rounds are signed with the pass's own name instead of an editor's, and there's no brief behind them — nothing here yet lets you write one in, so a custom pass runs on general editorial judgment until that changes.
+
 Where you actually *rule* on a pass is the piece's own **Inspector** (⌘⌥I).
 Each pass gets a row there — **Untouched**, **In Progress**, **Done**, or
 **Skip** — and above the rows, a read-only **Status** dot shows the one
@@ -32,8 +34,9 @@ intersection saying where that piece stands.
 
 - **Click a chip** to open that piece through that pass — it becomes the
   piece's active pass, which is what the queue and the compiler read next.
-- **Right-click a chip** for the four states directly, without opening
-  the piece at all.
+- **Right-click a chip** to ask that pass's editor for a round right
+  there — *Run \<Editor\>'s round* — or set one of the four states
+  directly, without opening the piece at all.
 - A trailing **Open** column counts each piece's unresolved notes; click
   the number to jump straight into the queue, scoped to that piece.
 
@@ -53,7 +56,24 @@ covers everything older than passes, everything Claude wrote against a closed
 piece, and everything made with nothing chosen. Left alone, the filter
 follows the piece's own active pass — the one a board chip click just set —
 so clicking through from the board lands you already narrowed to the pass you
-came from.
+came from. Narrow that filter — or Kind, Author, or Triage — down to nothing
+and the queue says so plainly, *"No notes match your filters,"* rather than
+offering the empty queue's round-teaching as if nothing had ever been raised.
+**Settle every open note instead and the teaching returns**, because that's
+the ordinary empty queue, not a filtered one — none of those four filters is
+what's standing between you and a note you've already resolved. That one
+comes back through the show-resolved filter (the tray icon), not by widening
+Kind, Author, Triage, or the pass.
+
+**The round cockpit** sits between the queue's toolbar and its notes, in
+document scope, and it's the second place you meet a round: the piece's lane
+— *Copyedit · Gould · round 2* — what changed since the last one once one
+exists, and two buttons doing exactly what ⌘R and ⌘⇧R do, **Run round** and
+**Fresh Eyes**, so asking for the next round never means leaving the queue to
+find ⌘R's other home. No pass active on this piece yet? The strip is a pass
+picker instead — choose one and the lane appears. An empty queue teaches the
+same loop rather than describing an absence: *"Claude proposes; you dispose.
+Run Gould's round (⌘R), or ask Claude in Claude Desktop."*
 
 **A quiet nudge, not a gate.** Work a piece through a later pass while an
 earlier one is still open, and a caption says so — *"Structural still open on
@@ -97,7 +117,9 @@ Claude's read tools carry the same facts the board and the queue draw from:
 a pass with no entry there is untouched, the same reading the Inspector's
 ladder gives an unruled row, and an entry under an id the ladder no longer
 lists is a pass you deleted, kept so the states come back if you add it
-again — plus the project's own pass ladder in order;
+again — plus the project's own pass ladder in order, each pass carrying its
+**brief** (`null` for a custom pass with none of its own — see above), the
+same doctrine a round is signed against;
 `list_annotations` and `get_annotation` report a note's triage mark and which
 pass it's stamped with. None of it is something Claude can write. Triage,
 Stet, and a piece's pass states are yours alone — the same membrane that

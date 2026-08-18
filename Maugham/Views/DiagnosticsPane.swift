@@ -105,11 +105,21 @@ struct DiagnosticsPane: View {
 
     @Environment(\.undoManager) private var undoManager
 
-    /// Per note: an answer in flight, and the sentence the last one refused
+    /// Per note: an action in flight, and the sentence the last one refused
     /// with. Both live on the pane rather than in `DiagnosticRow` because the
     /// commit is asynchronous and the row that started it is gone on success —
     /// a row owning its own in-flight flag could only clear it by outliving
     /// the thing that clears it.
+    ///
+    /// **`answerFailures` carries the wet-ink dispositions' refusals too**
+    /// (M4 P2 Task 1 review, Minor 2), keyed by the annotation's id rather
+    /// than a diagnostic's. One idiom rather than two: a Got it that the op
+    /// log refused used to reach the log alone, which is a row that looks
+    /// pressed and a note that did not move — the same silence
+    /// `AnnotationsPane.performAccept`'s named catch exists to prevent, one
+    /// layer further out. The two id spaces cannot collide (a diagnostic's is
+    /// minted by the ingest, an annotation's is its creation op's) and no row
+    /// of either kind reads the other's key.
     @State private var answering: Set<String> = []
     @State private var answerFailures: [String: String] = [:]
 
@@ -188,9 +198,142 @@ struct DiagnosticsPane: View {
     /// assumption and is left alone: that is a pre-existing question about
     /// where a note lands, not about what this line counts.)
     private var queueAnnotations: [Annotation] {
-        guard let document = activeDocument(), document.docId == docId else { return [] }
+        guard let document = paneDocument else { return [] }
         _ = document.annotationsVersion
         return document.annotations(filter: AnnotationFilter(statuses: nil))
+    }
+
+    /// **The open document, when it is the one this pane is about** — the
+    /// single spelling of the guard the paragraph above explains at length,
+    /// extracted so the wet-ink view's row order and its copy read the same
+    /// question rather than each asking it again. `nil` means this pane cannot
+    /// see a queue at all, which is a legitimate reading everywhere it is
+    /// consumed: no notes to draw, no order to impose, and no claim to make
+    /// about what the writer has already handled.
+    private var paneDocument: Document? {
+        guard let document = activeDocument(), document.docId == docId else { return nil }
+        return document
+    }
+
+    /// **"This check" — what the run the writer just made raised, live**
+    /// (spec §7.0, Denver's smoke correction).
+    ///
+    /// P1 homed the continuity questions and the reader's reports in the
+    /// writer's queue, and the smoke found the consequence: Author — whose
+    /// persona IS the wet-ink tempo — was left with a count ("3 notes went to
+    /// your queue") and no surface at all. This is the surface. It is a VIEW,
+    /// fetched from the annotation layer by the latest run's id: no second
+    /// storage, nothing to keep in step, and **never the queue imported into
+    /// Author**, which is the other tempo (a list you manage).
+    ///
+    /// Three properties fall out of the filter rather than being arranged:
+    ///
+    /// - **only the latest check.** The next ⌘R replaces `lastRun`, and
+    ///   with it everything drawn here — a wet-ink view that accumulated
+    ///   earlier rounds would be the backlog Author must never show.
+    /// - **only what is still open.** Got it and Not this settle the note
+    ///   itself, so the row leaves on the disposition with nothing to prune —
+    ///   and a note settled in the other column leaves this view too.
+    /// - **only this document's.** `queueAnnotations` already refuses a queue
+    ///   that is not this pane's document (its own doc explains why), so a run
+    ///   id shared with another document's notes cannot draw them here.
+    /// **Ordered down the piece** (M4 P2 Task 1 review, ruling): a check's
+    /// notes are read in manuscript order — the order the writer would meet
+    /// them re-reading their own chapter — never newest-first. A queue sorts
+    /// by what to do next; a report follows the prose.
+    private var thisCheckAnnotations: [Annotation] {
+        guard let runId = lastRun?.id else { return [] }
+        let open = queueAnnotations.filter {
+            $0.compilerRunId == runId && $0.status == .open
+        }
+        return Self.inManuscriptOrder(open, sequence: paneDocument?.sequence ?? [])
+    }
+
+    /// `notes` in the order their paragraphs appear in the document, with the
+    /// ones that name no live paragraph after them.
+    ///
+    /// Pure and static so the order is a direct assertion without a mount, and
+    /// **stable within a rank**: `sorted(by:)` is not, and the tie is common —
+    /// a round often raises two findings against one paragraph, and rows that
+    /// swapped places between two renders of the same check would be the pane
+    /// shuffling under a writer mid-read. Ties break on the annotation's own
+    /// id — a ULID, monotonic within the process (`ULID.swift`) — which is
+    /// mint order.
+    ///
+    /// **Deliberately NOT the incoming array's own order.** An earlier version
+    /// broke ties on `notes`' position, reasoning that array order already
+    /// WAS mint order — false: `queueAnnotations` reads
+    /// `Document.annotations(filter:)`, and `AnnotationDeriver.derive` sorts
+    /// its result **newest-first** for the queue's own purposes. Inheriting
+    /// that array's order for a tie silently put the newest of two
+    /// same-paragraph notes first — exactly the "queue-consistent
+    /// newest-first" the manuscript-order ruling exists to NOT be. Caught by
+    /// `test_theEmptyStateAcknowledgesACheckTheWriterHasHandled` failing with
+    /// the wrong row surviving after two same-paragraph dispositions pressed
+    /// in mint order.
+    ///
+    /// The trailing bucket is two cases with one honest answer: a doc-scoped
+    /// craft note (the compiler's whole-piece observation, anchored to no
+    /// paragraph by design) and a note whose paragraph has since left the
+    /// sequence. Neither has a place in the prose, so both follow it.
+    static func inManuscriptOrder(
+        _ notes: [Annotation], sequence: [String]
+    ) -> [Annotation] {
+        var position: [String: Int] = [:]
+        for (index, paragraphId) in sequence.enumerated() { position[paragraphId] = index }
+        return notes.sorted { lhs, rhs in
+            let left = lhs.paragraphId.flatMap { position[$0] } ?? Int.max
+            let right = rhs.paragraphId.flatMap { position[$0] } ?? Int.max
+            if left != right { return left < right }
+            return lhs.id < rhs.id
+        }
+    }
+
+    /// **What the wet-ink view has to say about this check, as far as the
+    /// empty state's copy is concerned** (M4 P2 Task 1 review, Important 2).
+    ///
+    /// The invariant this type exists to keep: **the copy never announces as
+    /// waiting what is visible or settled here.** Before it, the empty state
+    /// read `CompilerRun.mintedNotes` — the historical record of what the run
+    /// put in the queue — and said "2 notes went to your queue" over the two
+    /// notes sitting directly above it with verbs on them, and went on saying
+    /// it after the writer had settled both. A surface telling the writer to
+    /// go elsewhere for what is in front of them is worse than one that says
+    /// nothing.
+    enum WetInk: Equatable {
+        /// Nothing this check queued is accounted for here — either it queued
+        /// nothing, or this pane cannot see the document's queue at all. The
+        /// historical sentence is the honest one: those notes exist and the
+        /// writer has to be told where.
+        case none
+        /// Rows are on screen. The section IS the news, so the copy beneath it
+        /// says nothing about a queue.
+        case showing
+        /// This check queued notes and the writer has settled every one of
+        /// them. Re-announcing them would be the pane forgetting what it just
+        /// watched them do.
+        case settled
+    }
+
+    /// Pure, on `headerCopy`'s rule — every sentence this pane can say is
+    /// assertable without mounting anything.
+    ///
+    /// `queueVisible` is the honest half: with no document behind the pane
+    /// there is no queue to read, so an empty `openNow` means "cannot see"
+    /// rather than "handled", and the answer is `.none`.
+    static func wetInkStanding(
+        mintedNotes: Int?, queueVisible: Bool, openNow: Int
+    ) -> WetInk {
+        if openNow > 0 { return .showing }
+        guard queueVisible, let mintedNotes, mintedNotes > 0 else { return .none }
+        return .settled
+    }
+
+    private var wetInk: WetInk {
+        Self.wetInkStanding(
+            mintedNotes: lastRun?.mintedNotes,
+            queueVisible: paneDocument != nil,
+            openNow: thisCheckAnnotations.count)
     }
 
     /// **The one note kind this pane draws** (M4 P1 Task 3).
@@ -433,19 +576,29 @@ struct DiagnosticsPane: View {
         return false
     }
 
-    private var headerLine: String { Self.headerCopy(for: state) }
+    private var headerLine: String { Self.headerCopy(for: state, wetInk: wetInk) }
 
     /// The header's one line, per state. Static and exhaustive for
     /// `emptyState`'s reason: every sentence the pane can say is then assertable
     /// without mounting anything.
-    static func headerCopy(for state: HeaderState) -> String {
+    ///
+    /// **Also carries `WetInk`, on the same rule as `emptyState`** — found by
+    /// smoke, after the fix round that introduced `WetInk` only reached
+    /// `emptyState`'s `ContentUnavailableView`. This header line renders
+    /// unconditionally, ABOVE `content` and its own empty state (`body`'s
+    /// `VStack(header, Divider, content)`), so a `.clean` run with mintedNotes
+    /// still said "N notes went to your queue" here even after `emptyState`
+    /// below it stopped saying it — the same defect, one call site over.
+    static func headerCopy(
+        for state: HeaderState, wetInk: WetInk = .none
+    ) -> String {
         switch state {
         case .neverRun:
             return "Not checked yet \u{2014} press \u{2318}R to check your writing."
         case .idle(let run):
             return "Last checked \(relative(run.at)) \u{00b7} \(run.deltaSummary)"
         case .running(let checking):
-            return checkingCopy(checking)
+            return RoundNarrative.checkingCopy(checking)
         case .nothingNew:
             return "Nothing new since the last check."
         case .failed(let failure, _):
@@ -458,8 +611,20 @@ struct DiagnosticsPane: View {
             // to flag" over it is the surface affirming a falsehood. The
             // queued sentence therefore REPLACES the seal rather than being
             // appended to it — the two cannot both be true.
-            let opening = queuedNotesSentence(run.mintedNotes)
-                ?? "Nothing to flag"
+            //
+            // Unless `wetInk` says those notes are RIGHT HERE, below this
+            // header, on this same pane — showing with their own verbs, or
+            // already settled. Then "N notes went to your queue" would point
+            // the writer somewhere else for what is (or was) directly beneath
+            // this line, so it drops to the same "Nothing to flag" the header
+            // has always said when a run truly minted nothing.
+            let opening: String
+            switch wetInk {
+            case .none:
+                opening = queuedNotesSentence(run.mintedNotes) ?? "Nothing to flag"
+            case .showing, .settled:
+                opening = "Nothing to flag"
+            }
             let line = "\(opening). Last checked \(relative(run.at))."
             // Appended rather than interleaved: the standing sentence is the
             // one the writer reads at a glance, and this is the footnote to it.
@@ -467,36 +632,6 @@ struct DiagnosticsPane: View {
                 return line
             }
             return "\(line) (\(discarded))"
-        }
-    }
-
-    /// **The legible wait** (requirement 5). "Checking 14 new paragraphs…",
-    /// never a bare participle: a cold first run over a long delta takes about
-    /// two minutes, and a writer watching an unqualified "Checking…" for that
-    /// long cannot tell a working compiler from a hung one.
-    ///
-    /// Total over counts a delta cannot have — `beginRun` refuses an empty one
-    /// before the running state is ever set — because a function that has to be
-    /// reasoned about before it can be called is one a later caller gets wrong.
-    static func checkingCopy(_ counts: CompilerOrchestrator.DeltaCounts) -> String {
-        guard let phrase = paragraphPhrase(counts) else { return "Checking\u{2026}" }
-        return "Checking \(phrase)\u{2026}"
-    }
-
-    /// What a delta is, in the writer's English — the ONE spelling, read by the
-    /// header and by the empty state, because two sentences about the same two
-    /// numbers are two things that can disagree.
-    static func paragraphPhrase(_ counts: CompilerOrchestrator.DeltaCounts) -> String? {
-        switch (counts.new, counts.revised) {
-        case (0, 0):
-            return nil
-        case (let new, 0):
-            return "\(new) new \(new == 1 ? "paragraph" : "paragraphs")"
-        case (0, let revised):
-            return "\(revised) revised \(revised == 1 ? "paragraph" : "paragraphs")"
-        case (let new, let revised):
-            // Always plural: the sum is at least two to reach this arm.
-            return "\(new) new and \(revised) revised paragraphs"
         }
     }
 
@@ -590,27 +725,72 @@ struct DiagnosticsPane: View {
     /// 4+ times, and is grep-enforced — and the `VStack` that now encloses it
     /// carries the top alignment the tripwire's second half asks for. The
     /// lines are intrinsically sized; the empty view is what expands.
+    ///
+    /// **And the no-report arm scrolls** (M4 P2 Task 1 review, Important 1).
+    /// It carries the wet-ink rows now, and those rows carry the ONLY
+    /// disposition affordance Author has — so a check whose notes overflow the
+    /// pane would clip the verbs off the bottom with nothing to reach them
+    /// with. Nothing caps how many notes a round can mint: the schema's cap of
+    /// three is the READER section's alone, continuity questions are unbounded
+    /// through the ingest and the mint, and a fresh-eyes reread of a long piece
+    /// is exactly the run that raises many at once. The `ScrollView` is a
+    /// wrapper for tripwire 15's reason again — the `ContentUnavailableView`'s
+    /// full-frame chain and the `VStack`'s top alignment are byte-identical
+    /// inside it, and a scroll view proposes rather than demands, so the
+    /// column-height failure this pane has hit twice cannot come back through
+    /// it.
+    ///
+    /// **The `GeometryReader` + `minHeight` wrap is load-bearing, not
+    /// decorative** (fix round 2 review, Important). A `ScrollView` proposes
+    /// an UNBOUNDED height along its scroll axis to its content, so
+    /// `.frame(maxHeight: .infinity)` inside one resolves to the content's
+    /// INTRINSIC height rather than the pane's — the same tripwire-15 defect
+    /// class, reintroduced one layer in and invisible to the source-grep test
+    /// (the chain is still byte-identical; it just no longer does anything in
+    /// this position). In the common near-empty case (0–2 notes) that put the
+    /// `ContentUnavailableView` top-anchored with dead space below it instead
+    /// of centered in the pane. `GeometryReader` reads the ACTUAL space this
+    /// arm has (the outer `.frame(maxHeight: .infinity)` in `body` is what
+    /// gives it one), and `minHeight: proxy.size.height` hands that down as a
+    /// FLOOR on the scrolled content: a short arm fills it — restoring the
+    /// centering exactly as before the `ScrollView` wrap — and an overflowing
+    /// one (Important 1's own case) grows past it and scrolls, unchanged.
+    /// Chosen over a conditional arm (plain frame when short, `ScrollView`
+    /// when long) specifically to avoid the identity churn a state-dependent
+    /// view structure would cost the section's rows on every disposition.
     @ViewBuilder
     private var content: some View {
         if showsColdStartOffer {
             coldStartOffer
         } else if !hasReport {
-            VStack(alignment: .leading, spacing: 0) {
-                freshEyesLine
-                roundLine
-                let empty = Self.emptyState(for: state)
-                ContentUnavailableView(
-                    empty.title,
-                    systemImage: empty.symbol,
-                    description: Text(empty.description))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        freshEyesLine
+                        roundLine
+                        // **The state §7.0 exists for.** A round in a pass over a
+                        // piece with no declared intent raises no clause and no
+                        // strain, so `hasReport` is false — and since P1 that
+                        // round's whole output is queued notes. This arm used to be
+                        // the writer's entire feedback from an expensive keystroke:
+                        // one sentence saying how many notes went somewhere else.
+                        thisCheckSection
+                        let empty = Self.emptyState(for: state, wetInk: wetInk)
+                        ContentUnavailableView(
+                            empty.title,
+                            systemImage: empty.symbol,
+                            description: Text(empty.description))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     freshEyesLine
                     roundLine
+                    thisCheckSection
                     driftLine
                     conformanceSection
                 }
@@ -664,10 +844,10 @@ struct DiagnosticsPane: View {
     /// obvious link would be to the Notes pane, and the obvious link is wrong:
     /// the sentence is about three different sets of notes at once and could
     /// only travel to one of them. The next round replaces it; a round that
-    /// cannot be compared simply has no line. See `sinceLastRoundLine`.
+    /// cannot be compared simply has no line. See `RoundNarrative.sinceLastRoundLine`.
     @ViewBuilder
     private var roundLine: some View {
-        if let line = Self.sinceLastRoundLine(
+        if let line = RoundNarrative.sinceLastRoundLine(
             history: roundHistory, run: lastRun, annotations: queueAnnotations) {
             Text(line)
                 .font(.callout)
@@ -682,13 +862,13 @@ struct DiagnosticsPane: View {
     }
 
     /// **The cold read names itself**, in `roundLine`'s own register and its
-    /// own slot — the two never render together (`freshEyesHeader`). Drawn
+    /// own slot — the two never render together (`RoundNarrative.freshEyesHeader`). Drawn
     /// above the comparison line rather than below it because it is the same
     /// sentence's place in the report: what this round IS, before what it
     /// found.
     @ViewBuilder
     private var freshEyesLine: some View {
-        if let line = Self.freshEyesHeader(run: lastRun) {
+        if let line = RoundNarrative.freshEyesHeader(run: lastRun) {
             Text(line)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -724,6 +904,137 @@ struct DiagnosticsPane: View {
             .padding(.horizontal, 12)
             .padding(.top, 10)
             Divider()
+        }
+    }
+
+    /// **The wet-ink view** (spec §7.0) — the notes this check just raised,
+    /// drawn in the pane's own register rather than the queue's.
+    ///
+    /// It draws above the drift line and the conformance summary because those
+    /// two are the standing account of the writer's declared world, and this is
+    /// what the keystroke they just pressed came back with. Nothing here says
+    /// who wrote it: the byline in Author stays Claude's, and the named editors
+    /// belong to Review's pass lanes — wet-ink feedback is not a pass.
+    ///
+    /// No section at all when there is nothing to draw, rather than a heading
+    /// over an empty list: this is a view of one run's output, and a run that
+    /// raised nothing has nothing to show for itself here.
+    @ViewBuilder
+    private var thisCheckSection: some View {
+        let notes = thisCheckAnnotations
+        if !notes.isEmpty {
+            PaneSectionHeader(title: "This check") { EmptyView() }
+            ForEach(notes) { note in
+                CompilerNoteRow(
+                    annotation: note,
+                    excerpt: Self.jumpExcerpt(for: note, currentText: currentText),
+                    canDispose: offersDurableActions,
+                    failure: answerFailures[note.id],
+                    onJump: { jump(toParagraph: $0) },
+                    onGotIt: { gotIt(note) },
+                    onNotThis: { notThis(note) })
+                Divider()
+            }
+        }
+    }
+
+    /// The words a wet-ink row's jump chip carries — **never its paragraph
+    /// id** (requirement 3, `test_noParagraphIdIsEverRendered`).
+    ///
+    /// A `Diagnostic` arrives carrying the excerpt the model quoted; an
+    /// `Annotation` carries no excerpt at all, so the words come from the live
+    /// paragraph through `currentText` — the closure this pane already holds
+    /// for `DiagnosticsStore.live`'s staleness check, rather than a second
+    /// reach for the document.
+    ///
+    /// `nil` in the two cases where a chip would be a button labelled nothing:
+    /// a doc-scoped craft note (the compiler's anchorless finding — no
+    /// paragraph to travel to) and a paragraph this pane cannot read. The row
+    /// itself still jumps on a tap where there is an id.
+    ///
+    /// Trimmed by `truncatedDriftQuote`, whose budget is the right one for the
+    /// same reason it is right there: one line of a narrow pane. `ExcerptChip`
+    /// limits itself to a single line anyway, so the budget only decides where
+    /// the ellipsis falls rather than what is legible.
+    static func jumpExcerpt(
+        for annotation: Annotation, currentText: (String) -> String?
+    ) -> Diagnostic.Ref? {
+        guard let paragraphId = annotation.paragraphId,
+              let text = currentText(paragraphId) else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Diagnostic.Ref(
+            paragraphId: paragraphId, excerpt: truncatedDriftQuote(trimmed))
+    }
+
+    /// **Got it** — the writer took the note, and it settles.
+    ///
+    /// `acceptAnnotation` is the annotation layer's own verb, so Review's
+    /// ledger and the next round's briefing see exactly what happened here;
+    /// nothing about this gesture is a second record of it.
+    ///
+    /// **The catch is by name, never `try?`** — `AnnotationsPane.performAccept`'s
+    /// discipline, and its reason survives the change of caller: a refusal this
+    /// pane swallowed would look precisely like a note that settled. The
+    /// anchor-lost arm is unreachable from here (the compiler mints questions,
+    /// reports and craft notes, and never a suggestion, so there is no span to
+    /// lose) and is written out anyway, because the day something mints one the
+    /// silence is what would ship.
+    private func gotIt(_ annotation: Annotation) {
+        guard let document = activeDocument() else { return }
+        answerFailures[annotation.id] = nil
+        Task {
+            do {
+                try await document.acceptAnnotation(
+                    id: annotation.id, undoManager: undoManager)
+            } catch let error as AnnotationAcceptError where error == .suggestionAnchorLost {
+                documentLog.error("\u{201C}Got it\u{201D} refused for \(annotation.id, privacy: .public): the suggestion's anchor is gone")
+                answerFailures[annotation.id] = Self.anchorLostRefusal
+            } catch {
+                documentLog.error("\u{201C}Got it\u{201D} failed for \(annotation.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                answerFailures[annotation.id] = Self.dispositionRefusal(error)
+            }
+        }
+    }
+
+    /// **What a refused disposition says in the row it was pressed in** (M4 P2
+    /// Task 1 review, Minor 2).
+    ///
+    /// The log is not a surface. A Got it that the op log refused leaves the
+    /// row exactly where it was — which is correct, the note did not settle —
+    /// and without a sentence beside it that reads as a button that did
+    /// nothing, so the writer presses it again. It names what did not happen
+    /// rather than the mechanism, and carries the error's own words after it
+    /// because a refusal with no detail cannot be acted on.
+    static func dispositionRefusal(_ error: Error) -> String {
+        "That didn\u{2019}t settle: \(error.localizedDescription)"
+    }
+
+    /// The one refusal with a cause worth naming in the writer's terms rather
+    /// than the error's — unreachable from this pane today (`gotIt`'s own
+    /// doc), and spelled out so it cannot arrive as a raw `Error` string the
+    /// day something mints a suggestion.
+    static let anchorLostRefusal =
+        "That didn\u{2019}t settle: the passage it points at has changed since "
+        + "the note was written."
+
+    /// **Not this** — one gesture, and it asks for nothing.
+    ///
+    /// No reason field, deliberately: the reason-carrying decline is Review's
+    /// queue's, where a note is a thing you manage. Wet ink gets a no, and the
+    /// briefing carries the finding's own words to say which one was settled
+    /// (`CompilerAnnotationDisposition`, `CompilerPrompt.settledNotesHeading`).
+    private func notThis(_ annotation: Annotation) {
+        guard let document = activeDocument() else { return }
+        answerFailures[annotation.id] = nil
+        Task {
+            do {
+                try await document.rejectAnnotation(
+                    id: annotation.id, undoManager: undoManager)
+            } catch {
+                documentLog.error("\u{201C}Not this\u{201D} failed for \(annotation.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                answerFailures[annotation.id] = Self.dispositionRefusal(error)
+            }
         }
     }
 
@@ -828,92 +1139,6 @@ struct DiagnosticsPane: View {
             return !quotes.contains(quote)
         }
         return (rows, orphans)
-    }
-
-    // MARK: - Since last round (spec §6; the arithmetic is `SinceLastRound`)
-
-    /// **"Since round N−1: X resolved · Y persisting · Z new"**, or `nil` when
-    /// this run is not a round that can be compared.
-    ///
-    /// Pure and static on `driftNote`'s mould, and for the same reason: the
-    /// sentence is the pane's, the arithmetic is not. `SinceLastRound.compute`
-    /// is the ONE spelling of the three counts.
-    ///
-    /// **What it counts is the writer's QUEUE, not two rounds' reports** (M4
-    /// P1 Task 5). Two of the three kinds a round raises are annotations now,
-    /// so the sidecar no longer holds a round's findings to diff against — and
-    /// diffing them was never right: the model rewords a finding every time it
-    /// raises it, and a finding it simply stopped mentioning is not one the
-    /// writer resolved. What the line says now is what they can check against
-    /// their own screen — one settled since the last round, one still in front
-    /// of them, one raised today.
-    ///
-    /// Silent in three cases:
-    ///
-    /// - the run carries no round number. A passless ⌘R is an ordinary M2 run;
-    ///   there is no round for this to be *since*.
-    /// - the newest record in its own lane is not the round immediately
-    ///   before it. Round 1 has nothing behind it; a lane whose earlier rounds
-    ///   have aged out of the ring has nothing left to compare; and — the case
-    ///   this guard is really for — **a run still streaming has not filed the
-    ///   round it supersedes yet**, so the newest same-lane record mid-preview
-    ///   is round N−2. Without the check the pane would say "Since round 1"
-    ///   over round 3's half-arrived report and then correct itself when the
-    ///   turn ended. Within a lane the numbers are consecutive by construction
-    ///   (`latestRound + 1`), so this costs nothing a finished round has.
-    /// - the run was read with fresh eyes (Task 6). It was deliberately
-    ///   briefed on no prior findings, so a difference measured against the
-    ///   last round would be an artifact of the reading rather than of the
-    ///   draft. Its header says what it is instead.
-    ///
-    /// `annotations` is the open document's queue in EVERY state — the
-    /// filtering is `SinceLastRound`'s, and a caller that pre-filtered to open
-    /// notes would report zero resolved forever.
-    ///
-    /// **This line and the run's own briefing can differ, and both are
-    /// honest.** A writer who steps out of a lane and back is briefed on
-    /// nothing (the previous round's prose was superseded two runs ago) while
-    /// this line still counts, because the notes themselves are still in the
-    /// queue carrying the round that raised them.
-    static func sinceLastRoundLine(
-        history: [RoundRecord], run: CompilerRun?, annotations: [Annotation]
-    ) -> String? {
-        guard let run, let round = run.round, run.freshEyes != true else { return nil }
-        guard let previous = history.last(where: {
-            $0.passId == run.passId && $0.round != nil
-        }), let previousNumber = previous.round, previousNumber == round - 1 else { return nil }
-
-        // The boundary is the record's own `at` — when the round this line is
-        // "since" was filed. Anything the writer settled before then was
-        // already reported, in the round they settled it in.
-        let outcome = SinceLastRound.compute(
-            annotations: annotations, lane: run.passId, currentRound: round,
-            previousRoundAt: previous.at)
-        return "Since round \(previousNumber): \(outcome.resolved) resolved "
-            + "\u{00b7} \(outcome.persisting) persisting \u{00b7} \(outcome.new) new"
-    }
-
-    /// **"Fresh eyes · round N"** — what a cold read (⌘⇧R) says about itself,
-    /// in the slot the since-last-round line would have taken.
-    ///
-    /// The two are mutually exclusive by construction and that is the point:
-    /// a fresh-eyes round was briefed on no prior findings (spec §6), so it
-    /// has no distance to report, and a comparison drawn over it would name a
-    /// difference the run never made. `sinceLastRoundLine` refuses the same
-    /// round from the other end; this is what stands in its place, so a report
-    /// that leads with nothing is never how the writer learns their expensive
-    /// keystroke did something different.
-    ///
-    /// `nil` round is a passless cold read — an ordinary M2 ⌘⇧R — which is
-    /// still worth saying, just with no number to name.
-    ///
-    /// `== true` rather than `?? false`: the stamp is `Bool?` on the wire and
-    /// an ordinary run writes no key at all, so absent and `false` must read
-    /// alike.
-    static func freshEyesHeader(run: CompilerRun?) -> String? {
-        guard let run, run.freshEyes == true else { return nil }
-        guard let round = run.round else { return "Fresh eyes" }
-        return "Fresh eyes \u{00b7} round \(round)"
     }
 
     // MARK: - Drift (spec §4's last bullet; findings computed by `DriftDetector`)
@@ -1030,15 +1255,36 @@ struct DiagnosticsPane: View {
     /// not place what it said. The seal is for a run that came back with
     /// nothing to say — 0 raised and 0 discarded — so a discard takes the
     /// checkmark off without borrowing the failure's warning triangle.
+    ///
+    /// **And it never announces as waiting what the pane is already showing**
+    /// (M4 P2 Task 1 review, Important 2 — see `WetInk`). `wetInk` defaults to
+    /// `.none`, which is the pre-§7.0 world and what every state that has no
+    /// notes of its own passes; the two other answers replace the queued
+    /// sentence rather than joining it, on `queuedNotesSentence`'s own rule
+    /// that two sentences about one fact are two sentences that can disagree.
     static func emptyState(
-        for state: HeaderState
+        for state: HeaderState, wetInk: WetInk = .none
     ) -> (title: String, symbol: String, description: String) {
+        // **Ordered above every arm below**, including the failure and
+        // never-run ones, is deliberate only in appearance: `wetInk` is
+        // `.none` in both — a run that never happened queued nothing, and a
+        // failed one minted nothing — so this branch cannot capture them.
+        switch wetInk {
+        case .none:
+            break
+        case .showing:
+            return ("Nothing else to flag.", "checkmark.seal",
+                    clauseSentence(for: state))
+        case .settled:
+            return ("You\u{2019}ve handled this check\u{2019}s notes.", "checkmark.seal",
+                    clauseSentence(for: state))
+        }
         switch state {
         case .neverRun:
             return ("Not checked yet", "checkmark.seal",
                     "Press \u{2318}R to ask Claude for notes on what you've written.")
         case .running(let checking):
-            guard let phrase = paragraphPhrase(checking) else {
+            guard let phrase = RoundNarrative.paragraphPhrase(checking) else {
                 return ("Checking\u{2026}", "hourglass",
                         "Claude is reading what you've written since the last check.")
             }
@@ -1055,11 +1301,8 @@ struct DiagnosticsPane: View {
             // stronger claim: a run can have queued notes AND lost some, and
             // the queued ones are the news.
             let queued = queuedNotesSentence(run.mintedNotes) ?? ""
-            let discarded = discardedNotesSentence(run.droppedDangling)
-            let tail = discarded.map { " (\($0).)" } ?? ""
             return ("Notes in your queue", "tray.and.arrow.down",
-                    "\(queued). No clause you declared strained in this check."
-                        + tail)
+                    "\(queued). " + clauseSentence(for: state))
         case .clean(let run) where discardedNotesSentence(run.droppedDangling) != nil:
             return ("Nothing to flag.", "circle.dashed",
                     (discardedNotesSentence(run.droppedDangling) ?? "") + ".")
@@ -1077,6 +1320,22 @@ struct DiagnosticsPane: View {
             return ("Nothing to flag.", "checkmark.seal",
                     "The compiler found nothing to raise against the last check.")
         }
+    }
+
+    /// **What the check found against the writer's own clauses, plus what it
+    /// lost** — the sentence under every empty state that describes a run
+    /// rather than the absence of one.
+    ///
+    /// One spelling, read by the queued arm and by both wet-ink arms, on
+    /// `discardedNotesSentence`'s rule: three copies of a sentence about the
+    /// same two facts are three things that can drift apart. The discard
+    /// footnote is appended rather than interleaved, exactly as it was, and is
+    /// absent for any state that carries no run to have lost anything.
+    static func clauseSentence(for state: HeaderState) -> String {
+        let base = "No clause you declared strained in this check."
+        guard case .clean(let run) = state,
+              let discarded = discardedNotesSentence(run.droppedDangling) else { return base }
+        return base + " (\(discarded).)"
     }
 
     /// The paragraph a click on `diagnostic` should jump to, or `nil` for a note
@@ -1430,6 +1689,90 @@ private struct DiagnosticRow: View {
         isAnswering = false
         fieldFocused = false
         draft = ""
+    }
+}
+
+// MARK: - One note from this check (spec §7.0)
+
+/// **One note the latest run raised** — `DiagnosticRow`'s shape over an
+/// `Annotation` rather than a `Diagnostic`.
+///
+/// A sibling rather than a widening of that row, and the two are not the same
+/// thing wearing two types: a `Diagnostic` is a conformance strain read beside
+/// the clause it pulls against, whose fates are a ruling and a task; this is a
+/// note about the WORDS, whose fates are the annotation layer's own accept and
+/// decline. A row generic over both would be two rows sharing a body with a
+/// branch on every line of it.
+///
+/// **No byline.** The note is signed in the queue by the pass's named editor;
+/// in Author the voice is Claude's and unremarked, because wet-ink feedback is
+/// not a pass (spec §7.0).
+@MainActor
+private struct CompilerNoteRow: View {
+    let annotation: Annotation
+    /// The words the jump chip shows, or `nil` for a note with nowhere to jump
+    /// — `DiagnosticsPane.jumpExcerpt`.
+    let excerpt: Diagnostic.Ref?
+    /// Whether the two verbs are offered at all — false for every row of a
+    /// preview (`DiagnosticsPane.offersDurableActions`), because a run still
+    /// arriving has not raised these notes yet in the only sense that matters:
+    /// `finish` is what mints them, and what is on screen mid-stream is the
+    /// last finished run's.
+    let canDispose: Bool
+    /// What the last disposition of this note refused with, or `nil` — the
+    /// pane's `answerFailures` idiom, keyed by the annotation's own id. A
+    /// refusal that reached only the log would leave a row that looks pressed
+    /// and a note that did not move.
+    let failure: String?
+    let onJump: (String) -> Void
+    let onGotIt: () -> Void
+    let onNotThis: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                // The kind's own glyph and its own word, from MaughamCore's
+                // single spelling — the queue draws these notes with the same
+                // two, and a second mapping here is how one surface comes to
+                // call a question something the other does not.
+                Image(systemName: annotation.kind.systemImageName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(annotation.kind.displayName)
+                Text(annotation.body)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            if let excerpt {
+                ExcerptChip(ref: excerpt, onJump: onJump)
+            }
+            if canDispose {
+                HStack(spacing: 6) {
+                    Button("Got it", action: onGotIt)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Take the note. It settles here and in your queue.")
+                    Button("Not this", action: onNotThis)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Let it go. Nothing to explain \u{2014} the written "
+                              + "decline belongs to a review pass.")
+                }
+            }
+            if let failure {
+                Text(failure)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard let paragraphId = annotation.paragraphId else { return }
+            onJump(paragraphId)
+        }
     }
 }
 

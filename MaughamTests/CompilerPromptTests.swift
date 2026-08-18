@@ -951,4 +951,49 @@ final class CompilerPromptTests: XCTestCase {
             .filter { $0.contains("\"section\":") }
         XCTAssertEqual(templateLines.count, 5)
     }
+
+    // MARK: - What the disciplines cost (M4 P2 Task 7)
+
+    /// **The standing per-run instruction text has a word budget, so its
+    /// cost is a conscious edit rather than folklore.** Every one of these
+    /// additions rides `sectionSchemaDescription` (or, for the pass brief,
+    /// the run message alongside it) and reaches every run — warm, cold,
+    /// passless alike (see the disciplines tests above) — so their combined
+    /// length is standing overhead on every single Claude call this feature
+    /// makes, not a one-time cost.
+    ///
+    /// Measured at write time: the three disciplines
+    /// (`readerBarInstruction`/`crossSectionDedupInstruction`/
+    /// `driftStabilizerInstruction`) plus `formOnItsOwnTermsInstruction` plus
+    /// one representative preset pass brief (`ReviewPass.presets`' own
+    /// "structural") totalled 301 words. The 450-word ceiling below leaves
+    /// ~150 words of headroom for a wording pass that grows a sentence or
+    /// two without becoming a silent regression — a failure here means the
+    /// budget was actually spent and asks the editor to look, not raise the
+    /// number by reflex.
+    func test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget() {
+        let disciplines = [
+            CompilerPrompt.readerBarInstruction,
+            CompilerPrompt.crossSectionDedupInstruction,
+            CompilerPrompt.driftStabilizerInstruction,
+        ]
+        guard let structuralBrief = ReviewPass.presets
+            .first(where: { $0.id == "structural" })?.brief else {
+            return XCTFail("the structural preset lost its brief")
+        }
+        let additions = disciplines
+            + [CompilerPrompt.formOnItsOwnTermsInstruction, structuralBrief]
+        let wordCount = additions.reduce(0) {
+            $0 + $1.split(whereSeparator: { $0.isWhitespace }).count
+        }
+        let budget = 450
+        XCTAssertLessThan(wordCount, budget,
+            "The three disciplines (reader bar, cross-section dedup, drift "
+            + "stabilizer) plus the form-on-its-own-terms instruction plus one "
+            + "representative preset pass brief (Structural) now measure "
+            + "\(wordCount) words of standing per-run instruction text — over "
+            + "the \(budget)-word budget. This total rides every single "
+            + "compiler run, warm or cold; if it grew here, that is a "
+            + "conscious cost, so look at what grew before raising the ceiling.")
+    }
 }

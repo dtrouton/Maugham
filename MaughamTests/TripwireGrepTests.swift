@@ -4473,4 +4473,97 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: both the call site and the private func declaration should "
             + "fire. Got:\n" + offenders.joined(separator: "\n"))
     }
+
+    // MARK: - Fingerprint join-spelling census (seam (a), M4 P2 Task 7)
+
+    /// Matches any hex spelling of U+001F (Unit Separator) inside a Swift
+    /// string-literal escape — `\u{1f}`, `\u{1F}`, `\u{001f}`, `\u{001F}`, and
+    /// so on (one to three leading zeros, either case for the hex digit).
+    /// A CENSUS, not an allow/deny grep: the character itself is not
+    /// forbidden, only a SECOND site that joins fields with it is.
+    private static func isUnitSeparatorJoinSpelling(_ line: String) -> Bool {
+        line.range(of: #"\\u\{0{0,2}1[fF]\}"#, options: .regularExpression) != nil
+    }
+
+    /// Recurrence-tripper: `RoundFingerprint.stringValue` (RoundHistory.swift)
+    /// is **the one identity spelling** for "the same finding across a round"
+    /// (CompilerNote.swift's own doc comment) — kind, clause quote, paragraph
+    /// id and category, joined by U+001F. A second production site that joins
+    /// fingerprint-shaped fields with the same separator is a second identity
+    /// spelling, and two spellings is how the dedupe silently forks: two
+    /// readers of "the same finding" that can disagree about whether a
+    /// re-raised question is the one already open in front of the writer —
+    /// exactly the failure `stringValue`'s doc comment describes minting as a
+    /// duplicate. Unlike the other tripwires here this is a CENSUS: the one
+    /// legitimate join must be present exactly once, in RoundHistory.swift,
+    /// and a second site elsewhere is the defect even though the escape
+    /// itself is not a forbidden token in isolation.
+    func test_onlyOneProductionSiteJoinsFingerprintFieldsWithTheUnitSeparator() throws {
+        let coreDir = repoRoot
+            .appendingPathComponent("Packages/MaughamCore/Sources", isDirectory: true)
+        var joinSites = try grepSwift(
+            in: sourceDir,
+            patterns: [],
+            extraOffender: Self.isUnitSeparatorJoinSpelling
+        )
+        joinSites += try grepSwift(
+            in: coreDir,
+            patterns: [],
+            extraOffender: Self.isUnitSeparatorJoinSpelling
+        )
+        XCTAssertEqual(joinSites.count, 1,
+            "Expected exactly ONE production site joining fields with U+001F — "
+            + "RoundFingerprint.stringValue in RoundHistory.swift, the sanctioned "
+            + "identity spelling for \"the same finding across a round\". A second "
+            + "join site is a second identity spelling, which is how the dedupe "
+            + "silently forks (CompilerNote.swift's fingerprint doc comment). Found:\n"
+            + joinSites.joined(separator: "\n"))
+        XCTAssertTrue(joinSites.first?.contains("RoundHistory.swift") == true,
+            "The one join site should be in RoundHistory.swift. Got:\n"
+            + joinSites.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the census FIRES when a second join site is planted
+    /// — the real defect this test guards against — an allow/deny grep for a
+    /// forbidden token wouldn't catch a second occurrence of a REQUIRED one).
+    func test_theFingerprintJoinCensusFiresOnAPlantedSecondSite() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-fingerprintjoin-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct RoundFingerprint {
+            var stringValue: String {
+                [kind, clauseQuote ?? "", paragraphId ?? "", category ?? ""]
+                    .joined(separator: "\\u{1f}")
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("RoundHistory.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct SomeNewDedupe {
+            // A second, forbidden join site — planted offender. A different
+            // hex spelling of the same separator still fires.
+            var key: String {
+                [sectionKind, quote, anchor].joined(separator: "\\u{001F}")
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SomeNewDedupe.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let joinSites = try grepSwift(
+            in: tmp,
+            patterns: [],
+            extraOffender: Self.isUnitSeparatorJoinSpelling
+        )
+        XCTAssertEqual(joinSites.count, 2,
+            "Self-check expected two join sites (RoundHistory + planted "
+            + "SomeNewDedupe) — including the uppercase-and-zero-padded spelling. "
+            + "Got:\n" + joinSites.joined(separator: "\n"))
+        XCTAssertTrue(joinSites.contains { $0.contains("SomeNewDedupe.swift") },
+            "Self-check: the planted second join site in SomeNewDedupe.swift "
+            + "should fire.")
+    }
 }

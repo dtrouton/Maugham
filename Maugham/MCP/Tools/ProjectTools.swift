@@ -105,9 +105,27 @@ public enum GetOutlineTool: MCPTool {
     public struct PassInfo: Codable, Equatable {
         public let id: String
         public let name: String
-        public init(id: String, name: String) {
+        /// This pass's editorial brief — what its rounds attend to, and what
+        /// they leave alone — resolved via `ReviewPass.effectiveBrief` (the
+        /// ONE spelling: a stored preset-id pass with no brief of its own
+        /// falls back to the matching preset's, never `$0.brief` raw).
+        /// Nil only for a briefless custom pass; emitted as JSON `null`
+        /// rather than an omitted key (uniform schema, same house rule as
+        /// `Node`'s hand-written encoder).
+        public let brief: String?
+        public init(id: String, name: String, brief: String? = nil) {
             self.id = id
             self.name = name
+            self.brief = brief
+        }
+
+        enum CodingKeys: String, CodingKey { case id, name, brief }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(id, forKey: .id)
+            try c.encode(name, forKey: .name)
+            try c.encode(brief, forKey: .brief)
         }
     }
     public struct Node: Codable, Equatable {
@@ -199,7 +217,12 @@ public enum GetOutlineTool: MCPTool {
         "each named review pass, keyed by the ids in the top-level " +
         "`review_passes` ladder (an absent key means untouched; a key NOT in " +
         "the ladder is residue of a pass the writer deleted — states outlive " +
-        "their pass by design, and nothing derives from them). The legacy " +
+        "their pass by design, and nothing derives from them). Each pass in " +
+        "`review_passes` also carries its editorial `brief` — preset-seeded " +
+        "doctrine for what that pass's rounds should attend to, and what " +
+        "they should leave alone; a project may carry its own, though there " +
+        "is no in-app editor for it yet — null when a custom pass has none " +
+        "at all. The legacy " +
         "`status` string is kept for compatibility only — nothing writes it."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#
@@ -217,7 +240,7 @@ public enum GetOutlineTool: MCPTool {
         encoder.dateEncodingStrategy = .iso8601
         return try encoder.encode(Outline(
             nodes: nodes,
-            review_passes: passes.map { PassInfo(id: $0.id, name: $0.name) }))
+            review_passes: passes.map { PassInfo(id: $0.id, name: $0.name, brief: $0.effectiveBrief) }))
     }
 
     @MainActor

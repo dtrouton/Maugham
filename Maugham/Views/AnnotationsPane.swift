@@ -27,6 +27,17 @@ struct AnnotationsPane: View {
     /// Review's centre shows documents, so this navigation never moves the
     /// persona (the ejection trap — `ManuscriptNavigation`).
     let onTravel: (String) -> Void
+    /// **The window's compiler and its sidecar — the round cockpit's two
+    /// stores** (M4 P2 Task 3). Optional because this pane serves hosts that
+    /// surface no compiler at all (the probe mounts, and any caller predating
+    /// the strip): a `nil` here draws no cockpit and never crashes.
+    var orchestrator: CompilerOrchestrator?
+    var diagnostics: DiagnosticsStore?
+    /// Record which pass a piece is being reviewed through — `(docId, passId)`.
+    /// The write itself is `ProjectWindow.recordActivePass`, the ONE writer of
+    /// `UIState.activePassMemory`; this pane only ever asks for it. Defaulted
+    /// to a no-op so a host with no window behind it still compiles.
+    var onSetActivePass: (String, String) -> Void = { _, _ in }
     @Environment(UserPreferences.self) private var userPreferences
     /// The window's undo manager — passed into every accept so the Document
     /// registers its undo action against the manager ⌘Z reaches (and clears
@@ -280,6 +291,35 @@ struct AnnotationsPane: View {
         return AnnotationQueueOrder.sorted(rows, sequence: document.sequence)
     }
 
+    /// **Whether the document-scope empty state means "nothing here" or
+    /// "narrowed to nothing"** (M4 P2 Task 8, T3 carry; widened in review,
+    /// corrected in whole-branch review — see below).
+    ///
+    /// Pure so both readings are assertable without a mount — `pool` is every
+    /// OPEN annotation on the document regardless of kind, author, triage or
+    /// pass (`AnnotationFilter(statuses: [.open])`), `visibleRows` is fully
+    /// filtered (`visibleAnnotations`), and the two can only disagree when
+    /// one of those four — not the queue itself, and not resolved status —
+    /// is what's showing nothing.
+    ///
+    /// **`pool` must stay pinned to `.open` and never widen to every status.**
+    /// A writer who settles every note (the loop's own success state) has
+    /// zero open notes and some number of resolved ones; if `pool` counted
+    /// the resolved notes too, this predicate would read "narrowed to
+    /// nothing" and the pane would claim Kind/Author/Triage/the pass filter
+    /// was hiding notes that no such filter can reveal — only **Show
+    /// Resolved** can, and that control isn't named in the copy this
+    /// function's answer feeds. A cleared queue is the ordinary empty case,
+    /// not a filtered one, and it's also the moment `emptyState`'s own
+    /// `.settled` arm ("You've handled this check's notes.") is telling the
+    /// SAME writer the SAME thing on the sibling pane — the two must not
+    /// disagree about whether the queue is empty.
+    static func documentQueueIsGenuinelyEmpty(
+        pool: [Annotation], visibleRows: [Annotation]
+    ) -> Bool {
+        visibleRows.isEmpty && pool.isEmpty
+    }
+
     private var authorLabels: [String] {
         AnnotationAuthorFilter.distinctLabels(in: kindStatusPool)
     }
@@ -344,6 +384,7 @@ struct AnnotationsPane: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
+            roundCockpit
             passOrderNudge
             switch scope {
             case .document:
@@ -359,7 +400,15 @@ struct AnnotationsPane: View {
         // and, worse, silently hide notes on a piece they have just arrived at.
         .onChange(of: document?.docId) { _, _ in
             passSelection = .followActivePass
+            loadDiagnostics()
         }
+        // The cockpit reads the diagnostics sidecar, and nothing else in this
+        // column loads it — a writer who never opened the Diagnostics pane for
+        // this piece would otherwise see "round —" over a lane with four
+        // rounds on disk. `load` is `DiagnosticsPane`'s own idiom (`onAppear`
+        // + the docId change), refuses while a run is previewing, and is never
+        // called from `body`.
+        .onAppear { loadDiagnostics() }
         .sheet(item: $rejectSheet) { target in
             RejectReasoningSheet(annotation: target.annotation) { reason in
                 reject(target.document, target.annotation, reason: reason)
@@ -461,6 +510,110 @@ struct AnnotationsPane: View {
         }
     }
 
+    // MARK: - The round cockpit (M4 P2 Task 3)
+
+    /// **The strip that says where the reviewer is and offers the next round**
+    /// — `ReviewRoundCockpit`, mounted below the toolbar's divider and above
+    /// the nudge (spec §7).
+    ///
+    /// **Not in the toolbar, and that is structural rather than aesthetic.**
+    /// `AnnotationsQueueToolbar`'s one job is fitting a column whose floor is
+    /// 240pt, and `AnnotationsQueueToolbarWidthTests` measures the row as
+    /// declared; a control added there would inflate the pane's layout width
+    /// and centre every annotation body against a width the column does not
+    /// have — the exact defect that suite was written for.
+    ///
+    /// **Document scope only.** The strip is a statement about ONE piece's
+    /// pass, round and next run; in project scope every section is a different
+    /// piece with different answers, and a single strip there could only be
+    /// wrong (`passOrderNudge` refuses the same way for the same reason).
+    ///
+    /// A `nil` orchestrator or store draws nothing: this pane serves hosts
+    /// with no compiler behind them.
+    @ViewBuilder
+    private var roundCockpit: some View {
+        if !scope.isProject, let document, let orchestrator, let diagnostics {
+            let pass = cockpitActivePass
+            ReviewRoundCockpit(
+                passes: reviewPasses,
+                activePassId: pass?.id,
+                round: cockpitRound(diagnostics, docId: document.docId, passId: pass?.id),
+                phase: ReviewRoundCockpit.phase(
+                    runState: orchestrator.runState, docId: document.docId),
+                reportLine: cockpitReportLine(diagnostics, docId: document.docId),
+                onRun: { freshEyes in
+                    orchestrator.runRequested(
+                        docId: document.docId, freshEyes: freshEyes)
+                },
+                onSetActivePass: { passId in
+                    onSetActivePass(document.docId, passId)
+                })
+            Divider()
+        }
+    }
+
+    /// **The piece's RECORDED active pass** — `validatedActivePass`, the one
+    /// spelling of the read rule, and deliberately not `resolvedPassId`.
+    ///
+    /// `resolvedPassId` is the queue's FILTER: a lens the writer may have
+    /// widened to "All Passes" to see every note. What a round is filed under
+    /// is this value (`CompilerEnvironment+Project`'s `activePass` closure
+    /// reads exactly it), so a strip keyed on the filter would name one lane
+    /// and run another. `passOrderNudge` refuses the same substitution.
+    private var cockpitActivePass: ReviewPass? {
+        guard let docId = document?.docId,
+              let id = activePassMemory.validatedActivePass(
+                forPiece: docId, in: reviewPasses)
+        else { return nil }
+        return reviewPasses.first { $0.id == id }
+    }
+
+    /// The lane's newest round number. `latestRound` consults the standing run
+    /// before the ring — the ONE spelling of "which round is this lane on",
+    /// shared with the round mint, so the strip and the run cannot disagree.
+    private func cockpitRound(
+        _ diagnostics: DiagnosticsStore, docId: String, passId: String?
+    ) -> Int? {
+        _ = diagnostics.version
+        return diagnostics.latestRound(forPass: passId, docId: docId)
+    }
+
+    private func cockpitReportLine(
+        _ diagnostics: DiagnosticsStore, docId: String
+    ) -> String? {
+        _ = diagnostics.version
+        return ReviewRoundCockpit.reportLine(
+            history: diagnostics.roundHistory(docId: docId),
+            run: diagnostics.lastRun(docId: docId),
+            annotations: cockpitAnnotations)
+    }
+
+    /// **The document's queue in EVERY state** — what the since-last-round
+    /// line is counted from, and never the pane's visible rows.
+    ///
+    /// The rows on screen are filtered by kind, status, author, triage and
+    /// pass. Counting those would make "resolved" permanently zero under the
+    /// default `[.open]` filter and would skew all three numbers under any
+    /// other — a number the writer is trusting, quietly wrong. The status
+    /// filtering the line needs is `SinceLastRound`'s own.
+    ///
+    /// Gated on `annotationsVersion` on this pane's own idiom, so a note the
+    /// writer stets in the queue moves the sentence rather than leaving it
+    /// stale until the next round.
+    private var cockpitAnnotations: [Annotation] {
+        guard let document else { return [] }
+        _ = document.annotationsVersion
+        return document.annotations(filter: AnnotationFilter(statuses: nil))
+    }
+
+    /// Pull this document's sidecar into the store so the strip's round and
+    /// report line are the ones on disk. Never called from `body` — `load`
+    /// bumps `version`, which is what the reads above observe.
+    private func loadDiagnostics() {
+        guard let diagnostics, let docId = document?.docId else { return }
+        diagnostics.load(docId: docId)
+    }
+
     // MARK: - The advisory nudge (M3 P2 Task 8)
 
     /// One quiet line when the piece is being worked through a pass while an
@@ -521,11 +674,51 @@ struct AnnotationsPane: View {
         let rows = visibleAnnotations(of: document)
         let deletedNotes = showResolved ? document.withdrawnAnnotations() : []
         if rows.isEmpty && deletedNotes.isEmpty {
-            ContentUnavailableView(
-                "No annotations",
-                systemImage: "bubble.left.and.bubble.right",
-                description: Text("Claude proposes; you dispose. Ask Claude for editorial feedback to see annotations here."))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // **Two different empty states, and only one of them is empty**
+            // (M4 P2 Task 8, T3 carry; widened, then corrected, in review).
+            // `rows` is the pool after EVERY filter — kind, status, author,
+            // triage and pass — has narrowed it; a writer whose queue is
+            // merely filtered down to nothing was being told to go ask for a
+            // round that had, in fact, already answered.
+            //
+            // **The pool this checks against is `.open`, never every
+            // status.** A writer who has settled every note (the loop's own
+            // success state) has zero open notes and, typically, some
+            // resolved ones — counting those as "still there" would claim
+            // Kind/Author/Triage/the pass filter was hiding notes that ONLY
+            // Show Resolved can reveal, over a queue that is genuinely and
+            // correctly empty (`documentQueueIsGenuinelyEmpty`'s own doc
+            // comment carries the fuller account, incl. why this cannot
+            // disagree with `emptyState`'s `.settled` arm on the sibling
+            // pane). Never `kindStatusAnnotations` either: that pre-filters
+            // by KIND, so a writer narrowed to Suggestions on a document
+            // holding only open comments would have read `pool.isEmpty` too
+            // and drawn the round-teaching "No annotations" over notes the
+            // KIND filter alone was hiding.
+            if !Self.documentQueueIsGenuinelyEmpty(
+                pool: document.annotations(filter: AnnotationFilter(statuses: [.open])),
+                visibleRows: rows) {
+                ContentUnavailableView(
+                    "No notes match your filters",
+                    systemImage: "line.3.horizontal.decrease.circle",
+                    description: Text("Your queue isn\u{2019}t empty \u{2014} these "
+                        + "notes are just hidden by Kind, Author, Triage, or "
+                        + "the pass filter. Widen one to see them."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // **The empty state teaches the loop** (M4 P2 Task 3). It used
+                // to name one of the two ways this queue fills — "ask Claude
+                // for editorial feedback" — and that is no longer the one
+                // Review is built around. Both are named now, the round first
+                // and by the editor who reads it
+                // (`ReviewRoundCockpit.emptyQueueTeaching`).
+                ContentUnavailableView(
+                    "No annotations",
+                    systemImage: "bubble.left.and.bubble.right",
+                    description: Text(ReviewRoundCockpit.emptyQueueTeaching(
+                        editorName: cockpitActivePass?.effectiveEditorName)))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         } else {
             ScrollView {
                 let livePids = Set(document.sequence)

@@ -656,9 +656,13 @@ final class ReviewBoardRoutingTests: XCTestCase {
         XCTAssertTrue(before.contains(untouched),
                       "premise: the cell starts untouched. Published: \(before.sorted())")
 
-        let verbs = ReviewBoardChipVerbs(onSetState: { piece, passId, state in
-            Task { try? await store.setPassState(id: piece, passId: passId, state) }
-        })
+        let verbs = ReviewBoardChipVerbs(
+            onSetState: { piece, passId, state in
+                Task { try? await store.setPassState(id: piece, passId: passId, state) }
+            },
+            // This test is about a RULING redrawing its chip; a round is the
+            // other half of the menu and belongs to the window (M4 P2 Task 4).
+            onRunRound: { _, _ in XCTFail("a ruling must not ask for a round") })
         let doneVerb = try XCTUnwrap(
             verbs.chipMenuItems(for: chapter.id, passId: pass.id, current: nil)
                 .first { $0.state == .done })
@@ -1361,6 +1365,16 @@ struct ReviewCentreProbeView: View {
             },
             onSetState: { pieceId, passId, state in
                 Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
+            },
+            // The probe models the mount's SHAPE, not its stores: the real
+            // closure records the lane, moves the subject and defers a run
+            // until the piece is open (M4 P2 Task 4). Here the subject write
+            // is the part this suite is about.
+            onRunRound: { pieceId, passId in
+                box.subject = .item(pieceId)
+                documentStore.updateUIState {
+                    $0.activePassMemory.record(piece: pieceId, passId: passId)
+                }
             })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))

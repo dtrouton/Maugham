@@ -76,25 +76,34 @@ is briefed on when you press ⌘R — nothing more, nothing hidden. Full mechani
 
 The pane reads as a report, in this order:
 
-**Conformance**, first — every clause you've declared, quoted back in your own
+**This check**, first, and only when the run just raised something — the
+notes it minted, in the order they fall down your manuscript rather than
+newest first, each with **Got it** and **Not this** and a jump chip to the
+words it's about. This is where a continuity question and a reader's report
+land: a continuity question ends as a question rather than a verdict —
+"Is the dock standing again by this scene?" rather than "Contradiction: the
+dock burned" — and a check can raise as many as it finds. A reader's report
+says where the dream broke or what a reader believes at this point,
+**capped at the sharpest three** — most checks raise none at all, and the
+cap belongs to the reader's report alone, not to continuity. Both mint as
+ordinary annotations the moment the run that
+raised them finishes, so this section is a live view of the newest run's own
+rather than a second queue: settle a row and it's simply gone, nothing to
+import anywhere because it never lived anywhere else. Leave one alone and it
+doesn't vanish either — it's still open in your full queue, Review's
+Annotations pane (⌘⌥A), the next time you look; Author itself never shows you
+a backlog, only the check you just ran.
+
+**Conformance**, next — every clause you've declared, quoted back in your own
 words, each marked *holds*, *strains*, or nothing in this draft touched it
 yet. A straining clause names what pulled against it, in one sentence, and
 never a fix. **Open Intent**, in the section's own header, takes you straight
 to the statement the clauses were read from.
 
-**Continuity**, next — questions raised against the facts and rules already
-established, each citing what it's checking against and ending as a question
-rather than a verdict: "Is the dock standing again by this scene?" rather than
-"Contradiction: the dock burned."
-
-**The reader**, last — what happened in the reading itself: where the dream
-broke, what a reader believes at this point. Capped at the sharpest three;
-when there were more to say, one line says so without counting them.
-
 **Nothing here ever shows you a paragraph id.** Every reference — a strain's
-what-pulls, a question's citation, a beat in the reader's report — carries the
-words that paragraph said, as a chip you click to jump there. You always read
-your own prose back, never a four-character token.
+what-pulls, a wet-ink note's jump chip — carries the words that paragraph
+said, as a chip you click to jump there. You always read your own prose back,
+never a four-character token.
 
 A clean run says so plainly — *"Nothing to flag."* — even when every clause
 held: that is the good outcome the check exists to report, not an empty pane.
@@ -179,13 +188,6 @@ repeat. Escape takes the field away without writing anything. See [The Right
 Column → Intent mode](right-pane.md#intent-mode-n) for what a
 ruling looks like and how to add one yourself, without a note to answer.
 
-*(A continuity question and the reader's report no longer live in this pane
-at all — they arrive as ordinary notes in your queue, next to everything
-else Claude has said about your prose, with the full set of things you can
-do with a note: accept it, decline it with a reason, discuss it, or leave it
-stetted. This page still describes the pane as it read before that change;
-a full pass is coming.)*
-
 Answers go into the *piece's* intent, never the project's. An explanation of
 what you were going for in this chapter belongs to this chapter; the project's
 statement stays something you write deliberately, in the Intent pane.
@@ -199,13 +201,20 @@ what they were checked against then, not what you have now. Tasks sync and
 survive; the notes do not. ⌘Z takes the task back.
 
 **Leave it.** A note you neither answer nor keep disappears at the next check.
-If it still stands, the next check raises it again.
+If it still stands, the next check raises it again. That's the conformance
+strain's own fate — a **This check** row works differently, because it's an
+ordinary annotation underneath: **Got it** and **Not this** are its whole pair
+of verbs, quicker than a ruling because the thing it's about isn't one, and a
+row you leave untouched doesn't disappear at all. It's just no longer on this
+screen — the next check replaces **This check** with its own findings, and
+the note you didn't settle waits in your full queue instead.
 
 **While a check is still running, you can read but not act.** The report
 arrives section by section, so your conformance summary is on screen long
 before the reader's report is written — that is what the streaming is for. The
 notes under it carry no **Answer** and no **Promote to Task** until the check
-finishes, because a check that has not finished has not decided: cancel it and
+finishes, and **This check**'s own rows carry no **Got it** or **Not this**
+either, because a check that has not finished has not decided: cancel it and
 those notes were never raised, let it run and it may say something different by
 the end. The actions appear the moment the check is done, on the report it
 actually settled on.

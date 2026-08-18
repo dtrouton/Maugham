@@ -174,6 +174,65 @@ extension ProjectToolsTests {
                        ReviewPass.presets.map(\.id))
     }
 
+    /// The preset ladder (never customized) serves each preset's own brief —
+    /// four non-null briefs, in ladder order.
+    func test_getOutline_presetLadderServesFourNonNullBriefs() async throws {
+        let (url, store) = try await makeReviewProject(
+            passStates: nil, legacyStatus: nil)
+        let root = try await outlineJSON(url, store)
+        let passes = try XCTUnwrap(root["review_passes"] as? [[String: Any]])
+        XCTAssertEqual(passes.count, ReviewPass.presets.count)
+        for (pass, preset) in zip(passes, ReviewPass.presets) {
+            let brief = try XCTUnwrap(pass["brief"] as? String,
+                                       "preset \(preset.id) must serve a non-null brief")
+            XCTAssertEqual(brief, preset.brief)
+        }
+        // The wire census. `PassInfo.encode` is hand-written, so a field
+        // added to the struct and forgotten in the encoder vanishes with
+        // nothing red — the same hazard `Node`'s census guards.
+        XCTAssertEqual(Set(passes[0].keys), ["id", "name", "brief"],
+                       "get the encoder and this list back in step before changing either")
+    }
+
+    /// A customized pass carrying its own brief serves that brief, not any
+    /// preset's.
+    func test_getOutline_customizedPassWithOwnBriefServesIt() async throws {
+        let custom = [ReviewPass(id: "beta", name: "Beta Read", brief: "Read as a reader would.")]
+        let (url, store) = try await makeReviewProject(
+            passStates: nil, legacyStatus: nil, reviewPasses: custom)
+        let root = try await outlineJSON(url, store)
+        let passes = try XCTUnwrap(root["review_passes"] as? [[String: Any]])
+        XCTAssertEqual(passes[0]["brief"] as? String, "Read as a reader would.")
+    }
+
+    /// A briefless custom pass — id matches no preset — serves the JSON `null`
+    /// literal with the KEY present. Falsification: switching the emission to
+    /// `encodeIfPresent` drops the key entirely and this goes red.
+    func test_getOutline_brieflessCustomPassServesNullBriefKeyPresent() async throws {
+        let custom = [ReviewPass(id: "beta", name: "Beta Read")]
+        let (url, store) = try await makeReviewProject(
+            passStates: nil, legacyStatus: nil, reviewPasses: custom)
+        let root = try await outlineJSON(url, store)
+        let passes = try XCTUnwrap(root["review_passes"] as? [[String: Any]])
+        XCTAssertTrue(passes[0].keys.contains("brief"),
+                      "brief must be emitted as null, not omitted")
+        XCTAssertTrue(passes[0]["brief"] is NSNull)
+    }
+
+    /// A stored preset-id pass with no brief of its own (renamed/reordered,
+    /// predates the field) falls back to the matching preset's brief — the
+    /// `effectiveBrief` discriminator, never `$0.brief` raw.
+    func test_getOutline_storedPresetIdPassWithoutBriefServesThePresetsBrief() async throws {
+        let renamed = [ReviewPass(id: "structural", name: "Big Picture")]
+        let (url, store) = try await makeReviewProject(
+            passStates: nil, legacyStatus: nil, reviewPasses: renamed)
+        let root = try await outlineJSON(url, store)
+        let passes = try XCTUnwrap(root["review_passes"] as? [[String: Any]])
+        XCTAssertEqual(passes[0]["name"] as? String, "Big Picture")
+        XCTAssertEqual(passes[0]["brief"] as? String,
+                       ReviewPass.presets.first { $0.id == "structural" }?.brief)
+    }
+
     /// A pre-M3 piece: no pass states, a legacy `"final"` string. The derived
     /// status falls back to the legacy string, and `pass_states` is an emitted
     /// JSON `null` rather than a missing key.

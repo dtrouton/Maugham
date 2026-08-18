@@ -1901,6 +1901,24 @@ struct ProjectWindow: View {
                     // `PassLadder` (`PersonaPaneRegistryTests`' census).
                     onSetState: { pieceId, passId, state in
                         Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
+                    },
+                    // **A chip's round is three acts, and the third one waits**
+                    // (M4 P2 Task 4). The lane is recorded through the window's
+                    // ONE `ActivePassMemory` writer — the same private method
+                    // the chip click and the cockpit's picker use, because the
+                    // run reads that value to sign and file its notes — then
+                    // the subject travels to the piece, exactly as `onNavigate`
+                    // above does.
+                    //
+                    // And then it WAITS. `runRequested` refuses in silence
+                    // while the document is not open, and the open is async: a
+                    // run fired on this turn would do nothing at all, with no
+                    // error anywhere (`RunWhenDocumentOpens`' doc, and the
+                    // falsification test it names).
+                    onRunRound: { pieceId, passId in
+                        recordActivePass(forPiece: pieceId, passId: passId)
+                        selectedSubject = .item(pieceId)
+                        runRoundWhenPieceOpens(pieceId: pieceId)
                     })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(nsColor: .windowBackgroundColor))
@@ -2631,7 +2649,15 @@ struct ProjectWindow: View {
                 documentStore.updateUIState { $0.compilerModel = newValue }
             },
             assistant: assistant,
-            annotationScope: $annotationScopeRequest
+            annotationScope: $annotationScopeRequest,
+            // The round cockpit's pass picker (M4 P2 Task 3) lands on the ONE
+            // writer of `UIState.activePassMemory` — the same private method
+            // the board's chip click uses. A queue that wrote the memory
+            // itself would be a second spelling of the value the RUN reads to
+            // mint its lane.
+            onSetActivePass: { piece, passId in
+                recordActivePass(forPiece: piece, passId: passId)
+            }
         ) {
             researchOrSubject(store: store)
         }
@@ -3048,6 +3074,30 @@ struct ProjectWindow: View {
     /// P2 deleted it. A future reader wanting this memory reads the store.
     private func recordActivePass(forPiece piece: String, passId: String) {
         documentStore?.updateUIState { $0.activePassMemory.record(piece: piece, passId: passId) }
+    }
+
+    /// Ask for `piece`'s round as soon as the editor has it open (M4 P2 Task
+    /// 4) — the far side of `runRequested`'s silent refusal.
+    ///
+    /// **Not a second delivery site for ⌘R so much as a deferred one.** The
+    /// call at the end is the identical one the key, the cockpit's Run button
+    /// and the cold-start offer make; what this adds is the wait, because the
+    /// board is a project-level surface and the piece a chip names has usually
+    /// never been on screen. `RunWhenDocumentOpens` owns the bound and what
+    /// happens at its expiry (the round is dropped with a log line); this is
+    /// the one place that says what "open" means here and what a run is.
+    ///
+    /// The task is deliberately discarded. A window that goes away takes the
+    /// reason for the round with it, and the wait expires on its own; nothing
+    /// downstream of here holds the writer's words.
+    private func runRoundWhenPieceOpens(pieceId: String) {
+        guard let documentStore else { return }
+        RunWhenDocumentOpens.start(
+            docId: pieceId,
+            isOpen: { [weak documentStore] docId in
+                documentStore?.document(forDocId: docId) != nil
+            },
+            run: { [compiler] docId in compiler.runRequested(docId: docId) })
     }
 
     /// Whether the window's subject still names something, and what it becomes
