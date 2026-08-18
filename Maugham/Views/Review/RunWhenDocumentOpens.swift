@@ -27,9 +27,17 @@ private let runDeferralLog = Logger(
 /// observation whose completion depended on a redraw would be a second thing
 /// that can fail to arrive. So it asks, waits `pollInterval`, and asks again,
 /// for at most `deadline`. A piece that never opens — a load failure, a file
-/// deleted under the manifest, a subject the tree refused — **drops the round
-/// with a log line**: never a crash, never a hang, and never a run fired at a
+/// deleted under the manifest, a subject the tree refused — **drops the round,
+/// and says so**: never a crash, never a hang, and never a run fired at a
 /// document that is not there.
+///
+/// **The drop is a flash as well as a log line** (Denver's 2026-08-18 ruling).
+/// It was the log alone until then, which made an expired chip press
+/// indistinguishable from a control that does nothing: the writer travelled to
+/// the piece, waited, and no round ever arrived with nothing anywhere saying
+/// why. `onTimedOut` is a closure for `isOpen`/`run`'s reason — this file
+/// names no window and no orchestrator, so the sentence is the caller's and
+/// the expiry is ours.
 ///
 /// **It is a value-shaped seam on purpose.** It names no store and no
 /// orchestrator: the two closures are supplied by `ProjectWindow`'s mount,
@@ -79,7 +87,8 @@ enum RunWhenDocumentOpens {
         within deadline: Duration = Self.deadline,
         polling pollInterval: Duration = Self.pollInterval,
         isOpen: @escaping @MainActor (String) -> Bool,
-        run: @escaping @MainActor (String) -> Void
+        run: @escaping @MainActor (String) -> Void,
+        onTimedOut: @escaping @MainActor () -> Void = {}
     ) -> Task<Outcome, Never> {
         Task { @MainActor in
             let clock = ContinuousClock()
@@ -94,6 +103,11 @@ enum RunWhenDocumentOpens {
                 guard clock.now < expiry else {
                     runDeferralLog.error(
                         "a round asked for from the review board was dropped: doc \(docId, privacy: .public) did not open within \(deadline.components.seconds, privacy: .public)s")
+                    // The log is not a surface. Told BEFORE the outcome is
+                    // returned, so a caller that only awaits `.timedOut` and a
+                    // production mount that discards the task alike get the
+                    // sentence.
+                    onTimedOut()
                     return .timedOut
                 }
                 try? await Task.sleep(for: pollInterval)

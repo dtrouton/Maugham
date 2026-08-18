@@ -3090,6 +3090,13 @@ struct ProjectWindow: View {
     /// The task is deliberately discarded. A window that goes away takes the
     /// reason for the round with it, and the wait expires on its own; nothing
     /// downstream of here holds the writer's words.
+    ///
+    /// **The expiry flashes** (Denver's 2026-08-18 ruling). The drop was a log
+    /// line and nothing else, so a chip press whose piece never opened looked
+    /// exactly like a chip that does nothing — the writer travelled, waited,
+    /// and no round arrived. It goes through `showCompilerFlash`, the same
+    /// capsule ⌘R already acknowledges itself in, because this is the same
+    /// keystroke's answer arriving late and negative.
     private func runRoundWhenPieceOpens(pieceId: String) {
         guard let documentStore else { return }
         RunWhenDocumentOpens.start(
@@ -3097,7 +3104,8 @@ struct ProjectWindow: View {
             isOpen: { [weak documentStore] docId in
                 documentStore?.document(forDocId: docId) != nil
             },
-            run: { [compiler] docId in compiler.runRequested(docId: docId) })
+            run: { [compiler] docId in compiler.runRequested(docId: docId) },
+            onTimedOut: { showCompilerFlash(.pieceWouldNotOpen) })
     }
 
     /// Whether the window's subject still names something, and what it becomes
