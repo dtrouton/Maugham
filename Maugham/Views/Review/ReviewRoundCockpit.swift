@@ -163,10 +163,19 @@ struct ReviewRoundCockpit: View {
     static let busyReason =
         "This piece is being checked. The next round is the next keystroke."
 
+    /// The tooltip names the round the press would actually produce — the
+    /// offer, plus its NUMBER, which is the one thing the empty state's copy
+    /// and the board chip's verb do not carry.
+    ///
+    /// The offer itself is `RoundNarrative.runRoundTitle`, like the other two
+    /// (M4 P2 Task 4's review): three hand-built spellings of "Run X's round"
+    /// in two files is how the personification comes to be worded three ways.
     static func runHelp(pass: ReviewPass?, round: Int?) -> String {
         let next = (round ?? 0) + 1
         guard let pass else { return "Check this piece now (\u{2318}R)" }
-        return "Run \(pass.effectiveEditorName)\u{2019}s round \(next) (\u{2318}R)"
+        let offer = RoundNarrative.runRoundTitle(
+            editorName: pass.effectiveEditorName)
+        return "\(offer) \(next) (\u{2318}R)"
     }
 
     static let freshEyesHelp =

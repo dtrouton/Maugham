@@ -3158,6 +3158,28 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(ran, 0, "and nothing is run on a piece that never opened")
     }
 
+    /// **A cancelled wait says so, and says it promptly.** `Task.sleep` throws
+    /// on cancellation and the loop swallows that with `try?`, so without the
+    /// `Task.isCancelled` check at the loop head a cancelled wait would spin at
+    /// full speed to the deadline and then report a timeout it never reached.
+    /// The generous `within:` here is the assertion: reaching `.cancelled` at
+    /// all means the check fired rather than the clock.
+    func test_aCancelledWaitSaysSoRatherThanReportingATimeout() async {
+        var ran = 0
+        let waiting = RunWhenDocumentOpens.start(
+            docId: "ch-1", within: .seconds(30), polling: .milliseconds(5),
+            isOpen: { _ in false },
+            run: { _ in ran += 1 })
+
+        waiting.cancel()
+
+        let outcome = await waiting.value
+        XCTAssertEqual(outcome, .cancelled,
+                       "a wait cancelled 30 seconds short of its deadline must "
+                       + "report the cancellation, not the expiry")
+        XCTAssertEqual(ran, 0)
+    }
+
     /// The bound is a real few seconds, not a token one: opening a document
     /// reads an op log off disk, and a deadline tight enough to expire on a
     /// cold cache would turn a working chip into an intermittent one.

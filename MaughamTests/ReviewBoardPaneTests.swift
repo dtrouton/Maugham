@@ -884,6 +884,26 @@ final class ReviewBoardPaneTests: XCTestCase {
                        "the chip must NOT call the orchestrator straight from "
                        + "this closure: the document is not open yet and the "
                        + "refusal is silent \u{2014} got: \(after)")
+
+        // **One hop further, because a name is not a behaviour.** The four
+        // assertions above are satisfied by a `runRoundWhenPieceOpens` whose
+        // body is a bare `runRequested` — the "surely it is open by now"
+        // simplification, which is exactly the defect the deferral exists to
+        // prevent and which no other test in the suite can see. So the census
+        // reads the helper too.
+        let helper = try XCTUnwrap(
+            Self.declaration(named: "private func runRoundWhenPieceOpens(", in: window),
+            "the deferral's one production caller must still be a readable "
+            + "declaration for this census to have a subject")
+        XCTAssertTrue(helper.contains("RunWhenDocumentOpens.start("),
+                      "the helper must go through the bounded wait rather than "
+                      + "run outright. Got:\n\(helper)")
+        XCTAssertTrue(helper.contains("document(forDocId:"),
+                      "\u{2026}and what it waits ON is the piece being OPEN \u{2014} "
+                      + "a wait on anything else is a sleep with a nicer name. "
+                      + "Got:\n\(helper)")
+        // Deliberately no `runRequested`-absence assertion here: this helper's
+        // whole job is to end at that call, inside `start`'s `run:` closure.
     }
 
     /// The one production mount hands the pane values off `manifest` — the

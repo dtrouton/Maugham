@@ -186,6 +186,31 @@ final class ReviewRoundCockpitTests: XCTestCase {
         XCTAssertTrue(withoutPass.contains("Claude Desktop"))
     }
 
+    /// **The Run button's tooltip names the round the press would produce** —
+    /// the shared offer plus its number, which is the one thing the empty
+    /// state's copy and the board chip's verb do not carry.
+    ///
+    /// Pinned when `runHelp` was recomposed onto `RoundNarrative.runRoundTitle`
+    /// (M4 P2 Task 4's review): three hand-built spellings of "Run X's round"
+    /// across two files is how one act comes to be worded three ways, and
+    /// nothing asserted this string at all before the consolidation.
+    func test_theRunTooltipNamesTheOfferAndTheRoundItWouldProduce() {
+        XCTAssertEqual(ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: 2),
+                       "Run Gould\u{2019}s round 3 (\u{2318}R)")
+        XCTAssertTrue(
+            ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: 2)
+                .hasPrefix(RoundNarrative.runRoundTitle(editorName: "Gould")),
+            "\u{2026}through the one spelling the empty state and the board "
+            + "chip's verb read")
+        XCTAssertEqual(ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: nil),
+                       "Run Gould\u{2019}s round 1 (\u{2318}R)",
+                       "the first round is 1, not 0")
+        XCTAssertEqual(ReviewRoundCockpit.runHelp(pass: nil, round: nil),
+                       "Check this piece now (\u{2318}R)",
+                       "with no pass there is no lane to number and no editor "
+                       + "to name")
+    }
+
     // MARK: - Mounted: what a reviewer sees
 
     func test_theCockpitShowsThePassItsEditorAndTheRound() throws {
