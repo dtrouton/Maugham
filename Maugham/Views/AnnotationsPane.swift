@@ -292,12 +292,14 @@ struct AnnotationsPane: View {
     }
 
     /// **Whether the document-scope empty state means "nothing here" or
-    /// "narrowed to nothing"** (M4 P2 Task 8, T3 carry).
+    /// "narrowed to nothing"** (M4 P2 Task 8, T3 carry; widened in review).
     ///
-    /// Pure so both readings are assertable without a mount — `pool` is
-    /// pre-author/triage/pass (`kindStatusAnnotations`), `visibleRows` is
-    /// post- (`visibleAnnotations`), and the two can only disagree when a
-    /// filter, not the queue itself, is what's showing nothing.
+    /// Pure so both readings are assertable without a mount — `pool` is the
+    /// document's RAW annotation set (every kind, every status, no filter of
+    /// any of the pane's four applied), `visibleRows` is fully filtered
+    /// (`visibleAnnotations`), and the two can only disagree when a filter —
+    /// kind, status, author, triage or pass — not the queue itself, is what's
+    /// showing nothing.
     static func documentQueueIsGenuinelyEmpty(
         pool: [Annotation], visibleRows: [Annotation]
     ) -> Bool {
@@ -659,22 +661,25 @@ struct AnnotationsPane: View {
         let deletedNotes = showResolved ? document.withdrawnAnnotations() : []
         if rows.isEmpty && deletedNotes.isEmpty {
             // **Two different empty states, and only one of them is empty**
-            // (M4 P2 Task 8, T3 carry). `rows` is the pool AFTER author,
-            // triage and pass narrow it; a writer whose queue is merely
-            // filtered down to nothing was being told to go ask for a round
-            // that had, in fact, already answered — its notes were sitting
-            // one filter away the whole time. `kindStatusAnnotations` is the
-            // same pool `cockpitAnnotations`/`kindStatusPool` already compute
-            // (before author/triage/pass), so asking it here is the pane's
-            // existing question, not a new one.
+            // (M4 P2 Task 8, T3 carry; widened in review). `rows` is the pool
+            // after EVERY filter — kind, status, author, triage and pass — has
+            // narrowed it; a writer whose queue is merely filtered down to
+            // nothing was being told to go ask for a round that had, in fact,
+            // already answered. The pool this checks against is the raw
+            // per-status read (`AnnotationFilter(statuses: nil)`), never
+            // `kindStatusAnnotations`: that pre-filters by kind, so a writer
+            // narrowed to Suggestions on a document holding only comments
+            // would have read `pool.isEmpty` too and drawn the round-teaching
+            // "No annotations" over notes the KIND filter alone was hiding.
             if !Self.documentQueueIsGenuinelyEmpty(
-                pool: kindStatusAnnotations(of: document), visibleRows: rows) {
+                pool: document.annotations(filter: AnnotationFilter(statuses: nil)),
+                visibleRows: rows) {
                 ContentUnavailableView(
                     "No notes match your filters",
                     systemImage: "line.3.horizontal.decrease.circle",
                     description: Text("Your queue isn\u{2019}t empty \u{2014} these "
-                        + "notes are just hidden by Author, Triage, or the pass "
-                        + "filter. Widen one to see them."))
+                        + "notes are just hidden by Kind, Author, Triage, or "
+                        + "the pass filter. Widen one to see them."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // **The empty state teaches the loop** (M4 P2 Task 3). It used

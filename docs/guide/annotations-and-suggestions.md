@@ -44,6 +44,8 @@ Alongside those sits a **review pass** menu, once your project uses [passes](rev
 
 Work a piece through a later pass while an earlier one is still open, and a quiet caption says so above the list — *"Structural still open on this piece"* — without disabling anything. The passes are an order to work through, not a gate the queue enforces.
 
+**Narrow Kind, Author, Triage, or the pass filter down to nothing and the pane says so plainly** — *"No notes match your filters."* — rather than teaching you to run a round you don't need; widen whichever filter is doing it and the notes that were there the whole time come back.
+
 **Below the toolbar, in This Piece scope, a strip shows where the round stands** — the pass, its editor, and the round number (*Copyedit · Gould · round 2*), what changed since the last one once one's run, and two buttons doing exactly what ⌘R and ⌘⇧R do: **Run round** and **Fresh Eyes**. No pass active on this piece yet? The strip is a picker instead. An empty queue teaches the same loop rather than describing an absence — *"Claude proposes; you dispose. Run Gould's round (⌘R), or ask Claude in Claude Desktop."* A round's notes carry that pass's editor as their author, so a queue spanning several passes still says who's speaking. Full mechanics: [Review Passes → The queue](review-passes.md#the-queue).
 
 Triage lives in the pane only. The margin cards in the editor answer one note beside the sentence it's about; there's no pile there to sort.

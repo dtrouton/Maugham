@@ -727,11 +727,18 @@ empty state's seal, and the unread badge, which cleared itself on the one run
 it exists to announce. `finish` mints BEFORE it records
 (`CompilerOrchestrator.record`'s `mintedNotes:` parameter), so the count
 exists to be written down. `DiagnosticsPane.headerCopy`'s `.clean` arm opens
-with `queuedNotesSentence(run.mintedNotes)` and only falls back to "Nothing to
-flag" when that is `nil`; `emptyState` gets its own **"Notes in your
-queue"** arm, ordered ABOVE the discarded-notes arm because it is the
-stronger claim — a run can both queue notes and lose some, and the queued
-ones are the news the writer needs first. **The legacy trap, named so the
+with `queuedNotesSentence(run.mintedNotes)`, falling back to "Nothing to
+flag" when that is `nil` — **as it stood before M4 P2's Task 1 added
+`WetInk`**. Now that opening is gated on `wetInk == .none`: when `wetInk` is
+`.showing` or `.settled`, This check is drawing those same notes directly
+below this line, so the header says "Nothing to flag" regardless of
+`mintedNotes` rather than pointing the writer at a queue the notes are
+already visible under — `wetInk`'s own doc comment on `headerCopy` carries
+the current rule. `emptyState` gets its own **"Notes in your
+queue"** arm (reached only when `wetInk == .none` too), ordered ABOVE the
+discarded-notes arm because it is the stronger claim — a run can both queue
+notes and lose some, and the queued ones are the news the writer needs
+first. **The legacy trap, named so the
 next empty-state simplifier does not re-open it:** before this fix the pane's
 note count came from `rows.count`; since the M4 P1 slimming, `rows` can hold
 notes this pane refuses to draw (a sidecar written by an older build, still

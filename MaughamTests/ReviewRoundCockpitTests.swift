@@ -414,6 +414,77 @@ final class ReviewRoundCockpitTests: XCTestCase {
             "the genuinely-empty title must not also draw over a filtered pool")
     }
 
+    /// **Control: a genuinely empty document still teaches the round**
+    /// (M4 P2 Task 8 review, Minor 2) — the filtered-empty arm reads a wider
+    /// pool than before (every kind, every status), and a wider pool is
+    /// exactly the kind of change that can quietly swallow the ordinary case.
+    /// Nothing added to this document at all, so both the pool and the rows
+    /// are empty and `documentQueueIsGenuinelyEmpty` must say so.
+    func test_aGenuinelyEmptyDocumentStillDrawsTheRoundTeaching() async throws {
+        let fx = try await makeHarness()
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        let labels = allLabels(in: window)
+
+        XCTAssertTrue(
+            labels.contains { $0.contains("No annotations") },
+            "an empty document must still read as empty \u{2014} got \(labels)")
+        XCTAssertFalse(
+            labels.contains { $0.contains("No notes match your filters") },
+            "\u{2026}and never claim a filter is hiding something that was "
+            + "never there")
+    }
+
+    /// **The widened pool also catches a KIND mismatch** (M4 P2 Task 8
+    /// review, Minor 1). Before the widening, the filtered-empty check read
+    /// `kindStatusAnnotations` — already narrowed by the kind filter — so
+    /// narrowing Kind to a kind the document holds none of made a filter
+    /// look like an empty document. The pool is now the document's raw,
+    /// unfiltered read (`AnnotationFilter(statuses: nil)`), so this drives
+    /// the REAL kind-filter control (not the data-only trick the pass-filter
+    /// test above uses, since kind starts at `.all` and needs an actual
+    /// press to narrow) and checks the same distinction survives it.
+    func test_theFilteredEmptyStateAlsoCatchesAKindMismatch() async throws {
+        let fx = try await makeHarness()
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        _ = try await fx.document.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "Only a comment here.")
+
+        let window = mountPane(
+            fx, scope: .document, orchestrator: fx.orchestrator, width: 900)
+        let suggestionsFilter = try button(labelled: "Suggestions", in: window)
+        _ = suggestionsFilter.perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.2)
+
+        let labels = allLabels(in: window)
+        XCTAssertTrue(
+            labels.contains { $0.contains("No notes match your filters") },
+            "the Kind filter hid the document's only note \u{2014} that must "
+            + "read as hidden, not absent; got \(labels)")
+        XCTAssertFalse(labels.contains { $0.contains("No annotations") })
+    }
+
+    // MARK: - Pure: the filtered-empty predicate
+
+    /// **`documentQueueIsGenuinelyEmpty` pinned directly, both cases** (M4 P2
+    /// Task 8 review, Minor 2). The mounted tests above exercise it
+    /// end-to-end but assert nothing about the function itself — a change
+    /// that broke the predicate while leaving both mounted scenarios'
+    /// numbers accidentally aligned would still pass every mounted test.
+    func test_documentQueueIsGenuinelyEmpty_bothPoolAndRowsEmpty_isTrue() {
+        XCTAssertTrue(
+            AnnotationsPane.documentQueueIsGenuinelyEmpty(pool: [], visibleRows: []),
+            "no notes anywhere on the document is the genuinely-empty case")
+    }
+
+    func test_documentQueueIsGenuinelyEmpty_poolNonEmptyRowsEmpty_isFalse() {
+        XCTAssertFalse(
+            AnnotationsPane.documentQueueIsGenuinelyEmpty(
+                pool: [Self.fixtureAnnotation()], visibleRows: []),
+            "a non-empty pool with nothing visible is a FILTER hiding notes, "
+            + "not an empty document")
+    }
+
     // MARK: - Census: the seams a mount cannot see
 
     /// **Whole-branch seam (a).** `sinceLastRoundLine` counts the writer's
@@ -538,7 +609,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// test into a test of a strip that was never drawn.
     private func mountPane(
         _ fx: Harness, scope: AnnotationScope,
-        orchestrator: CompilerOrchestrator?
+        orchestrator: CompilerOrchestrator?, width: CGFloat = 320
     ) -> NSWindow {
         mount(AnyView(AnnotationsPane(
             document: fx.document,
@@ -550,11 +621,18 @@ final class ReviewRoundCockpitTests: XCTestCase {
             diagnostics: fx.diagnostics,
             onSetActivePass: { _, _ in })
             .environment(UserPreferences(
-                defaults: UserDefaults(suiteName: "Cockpit-\(UUID())")!))))
+                defaults: UserDefaults(suiteName: "Cockpit-\(UUID())")!))),
+            width: width)
     }
 
-    private func mount(_ view: AnyView) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 700)
+    /// `width` is 320 by default (this suite's usual column) and overridable —
+    /// the kind-filter mismatch test widens it to 900pt so the toolbar's own
+    /// `ViewThatFits` lands on the one-row TEXT variant
+    /// (`AnnotationsQueueToolbarWidthTests`'s "roomy" measurement), because the
+    /// icon fallback's `Image(systemName:)` labels are not asserted anywhere to
+    /// read as their filter's word and a test built on that would be fragile.
+    private func mount(_ view: AnyView, width: CGFloat = 320) -> NSWindow {
+        let frame = CGRect(x: 0, y: 0, width: width, height: 700)
         let hosting = NSHostingView(rootView: view)
         hosting.frame = frame
         let window = NSWindow(contentRect: frame, styleMask: [.titled],
@@ -652,6 +730,16 @@ final class ReviewRoundCockpitTests: XCTestCase {
     }
 
     // MARK: - Fixtures
+
+    /// A minimal, otherwise-irrelevant annotation — the pure predicate test
+    /// only cares that the pool array is non-empty.
+    private static func fixtureAnnotation() -> Annotation {
+        Annotation(
+            id: "note-1", kind: .comment, paragraphId: "a1b2",
+            body: "A note.", suggestedText: nil, priorText: nil,
+            createdAt: Date(timeIntervalSince1970: 0), createdBySession: nil,
+            status: .open, userResponse: nil, resolvedAt: nil, isStale: false)
+    }
 
     private func makeRun(round: Int?, passId: String?, freshEyes: Bool?) -> CompilerRun {
         CompilerRun(id: "r-\(round ?? 0)", at: Date(), model: "test-model",

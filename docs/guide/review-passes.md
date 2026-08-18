@@ -56,7 +56,9 @@ covers everything older than passes, everything Claude wrote against a closed
 piece, and everything made with nothing chosen. Left alone, the filter
 follows the piece's own active pass — the one a board chip click just set —
 so clicking through from the board lands you already narrowed to the pass you
-came from.
+came from. Narrow that filter — or Kind, Author, or Triage — down to nothing
+and the queue says so plainly, *"No notes match your filters,"* rather than
+offering the empty queue's round-teaching as if nothing had ever been raised.
 
 **The round cockpit** sits between the queue's toolbar and its notes, in
 document scope, and it's the second place you meet a round: the piece's lane

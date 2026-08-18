@@ -218,10 +218,11 @@ public enum GetOutlineTool: MCPTool {
         "`review_passes` ladder (an absent key means untouched; a key NOT in " +
         "the ladder is residue of a pass the writer deleted — states outlive " +
         "their pass by design, and nothing derives from them). Each pass in " +
-        "`review_passes` also carries its editorial `brief` — writer-editable " +
+        "`review_passes` also carries its editorial `brief` — preset-seeded " +
         "doctrine for what that pass's rounds should attend to, and what " +
-        "they should leave alone — null when a customized pass has none of " +
-        "its own. The legacy " +
+        "they should leave alone; a project may carry its own, though there " +
+        "is no in-app editor for it yet — null when a custom pass has none " +
+        "at all. The legacy " +
         "`status` string is kept for compatibility only — nothing writes it."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#

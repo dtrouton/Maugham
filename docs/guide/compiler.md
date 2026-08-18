@@ -80,10 +80,13 @@ The pane reads as a report, in this order:
 notes it minted, in the order they fall down your manuscript rather than
 newest first, each with **Got it** and **Not this** and a jump chip to the
 words it's about. This is where a continuity question and a reader's report
-land: "Is the dock standing again by this scene?" rather than "Contradiction:
-the dock burned" for the one, where the dream broke or what a reader believes
-at this point for the other — capped at the sharpest three, and most checks
-raise none at all. Both mint as ordinary annotations the moment the run that
+land: a continuity question ends as a question rather than a verdict —
+"Is the dock standing again by this scene?" rather than "Contradiction: the
+dock burned" — and a check can raise as many as it finds. A reader's report
+says where the dream broke or what a reader believes at this point,
+**capped at the sharpest three** — most checks raise none at all, and the
+cap belongs to the reader's report alone, not to continuity. Both mint as
+ordinary annotations the moment the run that
 raised them finishes, so this section is a live view of the newest run's own
 rather than a second queue: settle a row and it's simply gone, nothing to
 import anywhere because it never lived anywhere else. Leave one alone and it
