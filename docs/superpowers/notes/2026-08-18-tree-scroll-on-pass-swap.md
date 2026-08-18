@@ -4,6 +4,11 @@
 suite with a positive control (`MaughamTests/TreeScrollStabilityTests.swift`) and
 this record, so the next session does not re-derive eight falsified hypotheses.
 
+> **Read the third session first** (bottom of this file). It falsifies the
+> reading of the probe's `installed` line that the second session's evidence
+> rested on, adds the FRAME half the first two sessions never measured, and
+> demonstrates the mechanism that produces the reported picture.
+
 ## The report (Denver's smoke, with a screenshot)
 
 In Review, **at some window sizes**, swapping the review pass from the round
@@ -209,3 +214,104 @@ the stack. One stack per burst (400ms), so a drag logs once.
 go to the five writers with a breakpoint. Its absence ⇒ AppKit/SwiftUI, and the
 `firstResponder` field plus whether the trace runs through `NSTableView`
 selection machinery says which.
+
+---
+
+## Third session, 2026-08-18 — the frame, and why the install line is not evidence
+
+Denver reproduced with the probe installed and it logged **zero** clip-bounds
+moves. The probe's own install line was then read as showing the pathology
+already standing:
+
+```
+TREESCROLL installed … scrollFrameInWindow=(8.0,-121.0 200.0x705.0) viewportH=705.0 contentH=746.0 window=Playlist
+```
+
+### The mechanism the numbers describe is real, and is now demonstrated
+
+A tree can be displaced **without scrolling**: a scroll view laid out somewhere
+the window cannot show moves every row on screen and moves no offset at all.
+That is what a clip-bounds instrument cannot see, and it is exactly the reported
+picture — top rows gone, scroller untouched.
+
+`TreeScrollStabilityTests.test_control_aWindowShorterThanItsMinimumPutsTheTreeOutsideIt`
+now proves it happens in this app: squeeze `ProjectWindow`'s hosting view below
+the height its own layout needs and SwiftUI does **not** compress — it keeps the
+minimum size and CENTRES it, driving the tree's scroll view out of the window
+**with its frame origin negative**, i.e. the top of the tree above the window's
+top edge. Measured: host 300pt ⇒ scroll view 462pt at y **−42**.
+
+The squeeze must go through a container view. `NSHostingView` stamps the
+window's `contentMinSize`, and the window then clamps every `setContentSize`
+back up — a harness that resizes the window silently measures a legal size and
+passes.
+
+### Not reproduced — the pass write does not do it
+
+Frame containment was asserted against the REAL `ProjectWindow` mounted on a
+**clone of Denver's own Playlist project**, driving production's own
+`updateUIState { $0.activePassMemory.record(…) }`:
+
+| sweep | result |
+|---|---|
+| 7 fresh mounts, 900/700/640/617/592/560/540 | inside, before and after |
+| 31 window heights 900→300 in 20pt steps, resize then write | inside, every one |
+| 40 `Persona` × `DetailSegment` states at the minimum height, each with the write and its converse | inside, all 80 measurements |
+| with a toolbar + `.fullSizeContentView` (the real window's chrome) and without | inside, both |
+| 12 consecutive pass swaps | inside, every one |
+
+### The install line is a pre-layout snapshot, and here is the proof
+
+1. **A second install line exists**, from another window 17 minutes later:
+   `scrollFrameInWindow=(0.0,0.0 699.0x462.0)`. `x=0` and a 699pt-wide sidebar
+   are not a settled layout of this app — the tree's scroll view is at `x=8` and
+   never wider than its column.
+2. **Arithmetic.** For Playlist's composition a settled sidebar list is
+   `windowContentHeight − 250` tall (measured across every sweep above). 705
+   would need a window content height of 955. The tallest content height any
+   window can have on that Mac is **811** (measured: ask for 900, get 811 —
+   screen 1470×956 less the menu bar, titlebar and Dock). 705 is not a settled
+   height for any window on that display.
+
+So the retry ladder (150ms after the anchor lands, well inside a window restore)
+caught the column before it had its final height. **The probe now writes
+`settled +1s/+3s/+8s` lines for exactly this reason** — believe those, not
+`installed`.
+
+### What the pass write DOES do — a real, latched finding
+
+`window.contentMinSize` is stamped once at mount (980×592 for Playlist) but
+SwiftUI's own `fittingSize.height` for the same window **rises 592 → 637 on the
+pass write and stays there** — it is a property of the pass, not a transient
+(five samples over a second; the converse write puts it back). 20 unrelated
+`uiState` writes (`detailColumnWidth`) move it by nothing, so this is the pass
+write's and not any write's.
+
+At window heights inside that band the whole `NavigationSplitView` is then laid
+out **shorter than the window**, permanently:
+
+| window content height | split view after the write |
+|---|---|
+| 596 | 585 |
+| 610 | 596.5 |
+| 620 | 611.5 |
+| 630 | 626.5 |
+| 636 | 635.5 |
+| 640 | 640 (no change — 637 fits) |
+
+The left column's list shrinks with it (306 → 299pt at 592). The tree loses rows
+off the **bottom**, not the top, and 11pt is not 121 — so this is not the
+reported bug, but it is the only thing the pass write is measured to do to that
+column, and it is where a fix would start. The 45pt is almost certainly a
+right-column surface that appears when a pass is active (the round cockpit's
+order nudge is the shape); it was NOT narrowed to a view this session.
+
+### Status
+
+**Still not reproduced. No fix shipped.** What landed: the frame half of the
+probe (frame changes on the scroll view *and every ancestor*, `fits`/`fittingH`/
+`windowH` on every line, and the settled snapshots), plus two tests —
+`test_aPassSwapLeavesTheTreeInsideItsWindow` (the sweep) and its positive
+control. Next reproduction should be driven **in the real app** with the
+extended probe: a `settled` line with `fits=false`, or a `frame` line with a
+stack, names it in one shot.

@@ -135,6 +135,152 @@ final class TreeScrollStabilityTests: XCTestCase {
                        + "of a column")
     }
 
+    // MARK: - The frame
+
+    /// **A tree can be displaced without scrolling, and only a FRAME reads
+    /// that.** Denver's second reproduction (2026-08-18) logged not one
+    /// clip-bounds move while the column he was looking at had lost its top
+    /// rows — so the two assertions above, and every instrument the first two
+    /// sessions built, were watching the wrong number. A scroll view laid out
+    /// somewhere the window cannot show moves every row on screen and moves no
+    /// offset at all.
+    ///
+    /// So: the tree's scroll view must be INSIDE the window, before and after
+    /// the pass write, at every height a writer's window can have — swept
+    /// rather than sampled, because the report is explicitly "at some window
+    /// sizes", and because the one thing measured to perturb this column is the
+    /// window's own height (`ProjectWindow`'s minimum layout height rises by
+    /// 45pt on a pass write, so windows in that band are the suspects).
+    ///
+    /// Green on unmodified code — see `test_control_…OutsideIt` below for the
+    /// proof that this assertion can fail at all.
+    func test_aPassSwapLeavesTheTreeInsideItsWindow() async throws {
+        let store = try await novel(chapters: 40)
+        let chapters = store.manifest.structure
+        let url = store.url
+        try XCTUnwrap(store.documentStore).updateUIState {
+            $0.persona = .review
+            $0.selectedSubject = .item(chapters[25].id)
+            $0.detailSegment = .annotations
+        }
+        await waitOut(1.2)
+
+        let registry = ProjectRegistry()
+        let window = try await mountProjectWindow(url: url, registry: registry)
+        let liveStore = try XCTUnwrap(
+            registry.lookup(id: ProjectIdentifier.id(for: url))?.store)
+        let liveDocumentStore = try XCTUnwrap(liveStore.documentStore)
+
+        // 20pt steps, not 100: the perturbation this is about is a 45pt band
+        // (`ProjectWindow`'s minimum layout height rises by that much on the
+        // write, measured on the real project), and a coarse sweep steps over
+        // its own subject.
+        for height in stride(from: 880.0, through: 520.0, by: -20.0) {
+            window.setContentSize(NSSize(width: 1000, height: height))
+            pump(0.25)
+            try assertTreeIsInsideItsWindow(window, "asked for \(Int(height)), before")
+
+            liveDocumentStore.updateUIState {
+                $0.activePassMemory.record(piece: chapters[25].id,
+                                           passId: "line")
+            }
+            pump(0.3)
+            try assertTreeIsInsideItsWindow(window, "asked for \(Int(height)), after")
+
+            liveDocumentStore.updateUIState {
+                $0.activePassMemory.record(piece: chapters[25].id,
+                                           passId: "structural")
+            }
+            pump(0.3)
+            try assertTreeIsInsideItsWindow(window, "asked for \(Int(height)), back")
+        }
+    }
+
+    /// **The frame assertion's positive control.** Squeeze `ProjectWindow`
+    /// below the height its own layout needs and SwiftUI does not compress —
+    /// it keeps the minimum size and CENTRES it, which drives the tree's scroll
+    /// view partly out of the window with its origin NEGATIVE: the top rows
+    /// above the window's top edge, the scroller untouched. That is the
+    /// reported picture exactly, and it is why the frame is worth asserting.
+    ///
+    /// The squeeze goes through a container view rather than the window's own
+    /// `setContentSize`, because `NSHostingView` stamps the window's
+    /// `contentMinSize` and the window then clamps every request back up — the
+    /// harness would silently measure a legal size and pass.
+    func test_control_aWindowShorterThanItsMinimumPutsTheTreeOutsideIt() async throws {
+        let store = try await novel(chapters: 40)
+        let chapters = store.manifest.structure
+        // A chapter subject, so the centre column is the editor and the first
+        // table in the tree is the TREE — the altitude view a project subject
+        // would put there brings a table of its own.
+        try XCTUnwrap(store.documentStore).updateUIState {
+            $0.persona = .review
+            $0.selectedSubject = .item(chapters[25].id)
+        }
+        await waitOut(1.2)
+
+        let frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let registry = ProjectRegistry()
+        let hosting = NSHostingView(rootView: AnyView(
+            ProjectWindow(url: store.url)
+                .environment(UserPreferences())
+                .environment(registry)
+                .environment(BackupCoordinator())))
+        hosting.frame = frame
+        let container = NSView(frame: frame)
+        container.addSubview(hosting)
+        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
+                                      backing: .buffered, defer: false)
+        window.contentView = container
+        window.orderFront(nil)
+        container.layoutSubtreeIfNeeded()
+        windows.append(window)
+        _ = await pumpUntil(deadline: 20) {
+            (self.firstTableView(in: window)?.numberOfRows ?? 0) > 5
+        }
+        pump(0.5)
+
+        hosting.frame = CGRect(x: 0, y: 0, width: 1000, height: 300)
+        hosting.layoutSubtreeIfNeeded()
+        pump(0.5)
+
+        let table = try XCTUnwrap(firstTableView(in: window))
+        let scrollView = try XCTUnwrap(table.enclosingScrollView)
+        let rect = hosting.convert(scrollView.bounds, from: scrollView)
+        XCTAssertFalse(
+            hosting.bounds.insetBy(dx: -0.5, dy: -0.5).contains(rect),
+            "a window shorter than its content's minimum must put the tree "
+            + "outside it — without that, the containment assertions above are "
+            + "watching a number that could never have gone wrong")
+        XCTAssertLessThan(
+            rect.origin.y, 0,
+            "…and it must go out of the TOP: SwiftUI centres what it cannot "
+            + "compress, which is what takes the project row off the top of a "
+            + "column whose scroller never moved")
+    }
+
+    /// Both halves of the frame contract in one place, so the sweep above reads
+    /// as a sweep. `scrollView.convert(bounds, to: nil)` is the probe's own
+    /// spelling; the containment question is asked in the content view's
+    /// coordinates, where "inside the window" is a rectangle comparison rather
+    /// than an argument about which way y points.
+    private func assertTreeIsInsideItsWindow(
+        _ window: NSWindow, _ moment: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let root = try XCTUnwrap(window.contentView, file: file, line: line)
+        let table = try XCTUnwrap(firstTableView(in: window), file: file, line: line)
+        let scrollView = try XCTUnwrap(table.enclosingScrollView,
+                                       file: file, line: line)
+        let rect = root.convert(scrollView.bounds, from: scrollView)
+        XCTAssertTrue(
+            root.bounds.insetBy(dx: -0.5, dy: -0.5).contains(rect),
+            "the tree's scroll view left its window (\(moment)): frame \(rect) "
+            + "in a window of \(root.bounds) — the rows on screen are displaced "
+            + "and no scroll offset says so",
+            file: file, line: line)
+    }
+
     // MARK: - The control
 
     /// **The harness can see a scroll when there is one.** This fires the tree's
@@ -219,7 +365,8 @@ final class TreeScrollStabilityTests: XCTestCase {
                 .environment(registry)
                 .environment(BackupCoordinator())))
         hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
+        let window = SilentTestWindow(contentRect: frame,
+                                      styleMask: [.titled, .resizable],
                                       backing: .buffered, defer: false)
         window.contentView = hosting
         window.orderFront(nil)
