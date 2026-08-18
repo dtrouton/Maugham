@@ -187,6 +187,11 @@ extension ProjectToolsTests {
                                        "preset \(preset.id) must serve a non-null brief")
             XCTAssertEqual(brief, preset.brief)
         }
+        // The wire census. `PassInfo.encode` is hand-written, so a field
+        // added to the struct and forgotten in the encoder vanishes with
+        // nothing red — the same hazard `Node`'s census guards.
+        XCTAssertEqual(Set(passes[0].keys), ["id", "name", "brief"],
+                       "get the encoder and this list back in step before changing either")
     }
 
     /// A customized pass carrying its own brief serves that brief, not any
