@@ -425,7 +425,8 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             reportLine: "Since round 11: 14 resolved \u{00b7} 9 persisting "
                 + "\u{00b7} 21 new",
             onRun: { _ in },
-            onSetActivePass: { _ in })
+            onSetActivePass: { _ in },
+            onCancel: {})
     }
 
     /// **The picker + running arms — unmeasured until this fixture** (M4 P2
@@ -437,6 +438,13 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
     /// future control added to either would have escaped it silently.
     /// Worst-case delta text: both `new` and `revised` nonzero reaches
     /// `paragraphPhrase`'s longest branch, "N new and M revised paragraphs".
+    ///
+    /// **The running arm also draws Cancel now** (the cockpit-cancel
+    /// follow-up) — a third `.bordered` control on the run row, and exactly
+    /// the case `test_theRoundCockpitHasRoomToSpareBelowTheColumnFloor`'s own
+    /// history warns about: "an incompressible control added to it takes the
+    /// margin all at once." This fixture is what makes that button's own
+    /// margin measured rather than assumed.
     private static func cockpitNoPassRunning() -> some View {
         ReviewRoundCockpit(
             passes: [ReviewPass(id: "structural", name: "Structural")],
@@ -445,7 +453,8 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             phase: .running(CompilerOrchestrator.DeltaCounts(new: 999, revised: 999)),
             reportLine: nil,
             onRun: { _ in },
-            onSetActivePass: { _ in })
+            onSetActivePass: { _ in },
+            onCancel: {})
     }
 
     func test_theRoundCockpitFitsTheColumnWithNoPassAndARunInFlight() {
@@ -487,7 +496,8 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             reportLine: "Since round 11: 14 resolved \u{00b7} 9 persisting "
                 + "\u{00b7} 21 new",
             onRun: { _ in },
-            onSetActivePass: { _ in })
+            onSetActivePass: { _ in },
+            onCancel: {})
     }
 
     func test_theRoundCockpitFitsTheColumnWithAFailedRound() {

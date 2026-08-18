@@ -69,6 +69,18 @@ struct ReviewRoundCockpit: View {
     /// `UIState.activePassMemory` — reached through the mount, never spelled
     /// again here or in the pane.
     let onSetActivePass: (_ passId: String) -> Void
+    /// End the run in flight — `CompilerOrchestrator.cancel()`, the exact
+    /// verb `DiagnosticsPane`'s own Cancel button calls. Cancel's semantics
+    /// come free: it ends the turn through `.sessionDied(detail: .cancelled)`,
+    /// which `CompilerRunFailure.isTheWritersOwnDoing` already routes to
+    /// `.idle` before `runState` is ever set (`finish`'s failure arm) — so
+    /// this strip needs no cancelled-specific copy of its own, and pressing
+    /// it returns the strip to idle with the Run button pressable again, the
+    /// same as any other run that finished.
+    ///
+    /// Only reachable from `.running` — the arm this strip has anything to
+    /// cancel from.
+    let onCancel: () -> Void
 
     /// **What the last thing the run key did means for THIS document.**
     ///
@@ -239,6 +251,7 @@ struct ReviewRoundCockpit: View {
     static let runTitle = "Run round"
     static let freshEyesTitle = "Fresh Eyes"
     static let setAPassTitle = "Set a pass"
+    static let cancelTitle = "Cancel"
 
     /// Why both buttons refuse mid-run. RULING-35's other half: a disabled
     /// control says why. Nothing is queued — there is one session per window,
@@ -410,9 +423,10 @@ struct ReviewRoundCockpit: View {
         }
     }
 
-    /// The two ways to ask. **No `keyboardShortcut` on either** — see the type
-    /// doc: these are second delivery sites for `MaughamApp`'s ⌘R / ⌘⇧R, not
-    /// second bindings of them.
+    /// The two ways to ask, plus — while running — the one way out. **No
+    /// `keyboardShortcut` on Run or Fresh Eyes** — see the type doc: these
+    /// are second delivery sites for `MaughamApp`'s ⌘R / ⌘⇧R, not second
+    /// bindings of them.
     ///
     /// **Only `.running` refuses, and `.failed` deliberately does not.** The
     /// remedy for a round that timed out, or for a session that died, is
@@ -420,6 +434,15 @@ struct ReviewRoundCockpit: View {
     /// button that answers it is RULING-35's dead control with a red line over
     /// it. `isRunning` is therefore the whole predicate; a `!isFailure` added
     /// here would be the defect.
+    ///
+    /// **Cancel is `.running`-only** — the tracked follow-up from the
+    /// failure-visibility review. At the 300s timeout the strip can say
+    /// "Checking N paragraphs…" for up to five minutes with nothing to press;
+    /// `DiagnosticsPane`'s header carries the identical control
+    /// (`.bordered`, `.controlSize(.small)`) for the same run, and this is the
+    /// strip that launched it. It calls `onCancel` and nothing else — the
+    /// writer-caused mapping that returns the strip to idle is the
+    /// orchestrator's, not a rule this button restates.
     @ViewBuilder
     private var runRow: some View {
         HStack(spacing: 6) {
@@ -432,6 +455,10 @@ struct ReviewRoundCockpit: View {
                 .buttonStyle(.bordered)
                 .disabled(isRunning)
                 .help(isRunning ? Self.busyReason : Self.freshEyesHelp)
+            if isRunning {
+                Button(Self.cancelTitle) { onCancel() }
+                    .buttonStyle(.bordered)
+            }
             Spacer(minLength: 0)
         }
         .controlSize(.small)

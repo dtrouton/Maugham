@@ -491,13 +491,20 @@ final class BinderTreeDropRoutingTests: XCTestCase {
     /// under it — and stage 2a's tree narrowed it to files without saying so.
     /// The pane is about to be deleted, so the narrowing would have shipped as
     /// a lost capability.
+    ///
+    /// Asserts the CONFIGURATION as a value rather than allocating a real
+    /// `NSOpenPanel` — the panel used to be constructed here, and under
+    /// parallel-worker/window-server contention its XPC service could stall
+    /// ~64s and blow the test's allowance (six sightings 2026-08-16..19,
+    /// isolation-clean). `AddFilePanelConfiguration` is what production
+    /// applies to the real panel; nothing in this suite touches AppKit.
     func test_theTreesAddFilePanelTakesFoldersAsWellAsFiles() {
-        let panel = BinderTreeVerbs.makeAddFilePanel()
-        XCTAssertTrue(panel.canChooseDirectories,
+        let configuration = BinderTreeVerbs.addFilePanelConfiguration
+        XCTAssertTrue(configuration.canChooseDirectories,
                       "a folder imports as a group of its contents — the tree "
                       + "is the only surface left that can ask for one")
-        XCTAssertTrue(panel.canChooseFiles)
-        XCTAssertTrue(panel.allowsMultipleSelection)
+        XCTAssertTrue(configuration.canChooseFiles)
+        XCTAssertTrue(configuration.allowsMultipleSelection)
     }
 
     // MARK: - The subject survives its own rescope
