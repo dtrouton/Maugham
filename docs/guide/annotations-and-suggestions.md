@@ -65,6 +65,7 @@ If a piece's history can't be read, the queue says so in a line at the foot nami
 Reject, archive, and the other non-text-mutating annotation actions are undoable the same way as anywhere else in Maugham: **⌘Z** reverses the most recent one, and each ⌘Z you press walks one step further back, exactly like undoing typed edits. **⌘⇧Z** redoes forward again, and redoing re-arms the action so you can keep cycling ⌘Z ⟷ ⌘⇧Z.
 
 - **Edit → Undo Reject Annotation** — reopens a rejected suggestion.
+- **Edit → Undo Accept Note** — reopens a comment, query, or craft note you accepted (the **Got it** button, or **Reply…** with your answer). Nothing was applied to your words, so nothing has to be put back — the note simply returns to **Open**. Accepting a *suggestion* is the different case, with its own **Undo Accept Suggestion**, above.
 - **Edit → Undo Stet Annotation** — reopens a note you let stand.
 - **Edit → Undo Triage Annotation** — puts back the mark the note carried *before* the one you just applied, rather than clearing it. Marking a note **Do**, changing your mind to **Discuss** and pressing ⌘Z leaves **Do** standing.
 - **Edit → Undo Archive Annotation** — reopens an archived comment, query, craft note, or suggestion.

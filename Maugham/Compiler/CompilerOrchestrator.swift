@@ -86,9 +86,17 @@ final class CompilerOrchestrator {
         /// and a whole piece in minutes — and "Checking…" over the second is
         /// the wrong promise, not merely a duller one.
         case freshEyes
+        /// A round asked for from the review board never started, because the
+        /// piece its chip names did not open inside `RunWhenDocumentOpens`'
+        /// bound. Denver's 2026-08-18 ruling: the drop used to be a log line
+        /// and nothing else, so a chip press produced no round, no error and
+        /// no word — indistinguishable from a control that does nothing. The
+        /// only acknowledgment here that reports a FAILURE rather than a
+        /// start, which is why it says what to do next.
+        case pieceWouldNotOpen
 
         /// The capsule's word. Kept beside the case rather than in the window
-        /// that draws it, so all three sentences are assertable without a
+        /// that draws it, so all four sentences are assertable without a
         /// mount — and so the difference between them cannot be lost in a
         /// view's `switch`.
         var flashLabel: String {
@@ -96,6 +104,7 @@ final class CompilerOrchestrator {
             case .started: return "Checking\u{2026}"
             case .alreadyChecking: return "Still checking\u{2026}"
             case .freshEyes: return "Reading whole\u{2026}"
+            case .pieceWouldNotOpen: return "Couldn\u{2019}t open the piece \u{2014} try again."
             }
         }
     }

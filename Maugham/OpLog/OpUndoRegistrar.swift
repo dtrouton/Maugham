@@ -3,11 +3,29 @@ import AppKit
 /// One home for the NSUndoManager registration dance every op-log undo uses.
 ///
 /// The pattern is v0.17.0's accept-undo (`Document+Annotations.swift`,
-/// `acceptAnnotation`), which is deliberately NOT refactored onto this helper —
-/// accept carries extra manuscript-text-apply choreography (`removeAllActions`,
-/// `_undoCoherentApplyPending`) and is regression-scarred. New registrations for
-/// resolutions that DON'T touch manuscript text (reject / archive / withdraw /
-/// edit) use this; accept keeps its own.
+/// `acceptAnnotation`). Registrations for resolutions that DON'T touch
+/// manuscript text (reject / archive / stet / withdraw / edit / triage) use
+/// this helper.
+///
+/// **Accept is SPLIT between the two, and the split is the text** (Denver's
+/// 2026-08-18 ruling). `acceptAnnotation` has two arms:
+///
+/// - The **suggestion** arm keeps its own hand-rolled registration, and is
+///   deliberately NOT refactored onto this helper: it carries the
+///   manuscript-text-apply choreography (`removeAllActions`,
+///   `_undoCoherentApplyPending`), its undo is a text-restoring
+///   `claudeAcceptRevert` rather than a compensating reopen, and it is
+///   regression-scarred.
+/// - The **textless** arm — a comment, a query, a craft note — registers
+///   HERE, exactly like reject and stet, because nothing was spliced: the
+///   undo is a compensating `annotationReopen` and none of that choreography
+///   applies. It registered nothing at all until that ruling, which left the
+///   writer's own previous action at the top of the stack under a menu item
+///   naming the accept.
+///
+/// So "accept keeps its own" is true of the arm that moves prose and false of
+/// the arm that does not; `Document.reopenAcceptedTextlessAnnotation` is where
+/// the second arm's undo lands, and it refuses a suggestion in its own right.
 ///
 /// The trick this encodes: the nested redo registration runs SYNCHRONOUSLY
 /// inside the undo closure, so NSUndoManager routes it onto the REDO stack. The

@@ -7,29 +7,44 @@ import Foundation
 /// decision (cross-surface contract, tripwire 19).
 public enum AnnotationInverse {
     public enum Decline: Equatable, Sendable {
-        case noInverse(OpKind)          // e.g. .claudeAccept — use claudeAcceptRevert instead
+        case noInverse(OpKind)          // e.g. an accept that spliced text — use claudeAcceptRevert
         case stateDrifted               // current status no longer matches what's being undone
     }
     public enum Outcome { case op(Op), declined(Decline) }
 
     /// Compensating reopen for undoing a resolution. `currentStatus == nil`
     /// means the annotation is currently withdrawn (absent from projection).
+    ///
+    /// **`acceptSplicedManuscriptText` is read by the `.claudeAccept` arm and
+    /// by nothing else, and its default is the dangerous answer on purpose**
+    /// — a caller that has not thought about the distinction declines, exactly
+    /// as every caller did before this parameter existed. Accepting a
+    /// *suggestion* rewrites the paragraph, and its inverse has to restore
+    /// that prose (`claudeAcceptRevert`, v0.17.0); a bare reopen there would
+    /// leave the manuscript rewritten with the note open again, which is the
+    /// reason accept was excluded outright until 2026-08-18. Accepting a
+    /// comment, a query or a craft note moves no text at all — the accept op
+    /// carries no `changes` — so the reopen IS the whole inverse. Only the
+    /// caller can see which kind it is holding, so the caller says.
     public static func reopenOp(
         undoing kind: OpKind,
         annotationId: String,
         currentStatus: AnnotationStatus?,
+        acceptSplicedManuscriptText: Bool = true,
         docId: String, device: String, session: String,
         appVersion: String? = nil, osVersion: String? = nil
     ) -> Outcome {
         // Which resolutions have a reopen inverse, and what current status
-        // each expects. Accept is deliberately excluded: its inverse is
-        // claudeAcceptRevert (v0.17.0), which also restores text.
+        // each expects.
         let expected: AnnotationStatus?
         switch kind {
         case .claudeReject:       expected = .rejected
         case .claudeArchive:      expected = .archived
         case .annotationStet:     expected = .stetted
         case .annotationWithdraw: expected = nil   // withdrawn = absent from projection
+        case .claudeAccept:
+            guard !acceptSplicedManuscriptText else { return .declined(.noInverse(kind)) }
+            expected = .accepted
         default:                  return .declined(.noInverse(kind))
         }
         guard currentStatus == expected else { return .declined(.stateDrifted) }

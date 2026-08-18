@@ -3138,17 +3138,22 @@ final class CompilerRunCommandTests: XCTestCase {
         await awaitSends(1, on: runner)
     }
 
-    /// **A piece that never opens drops the round.** A load failure, a deleted
-    /// file, a subject the tree refused — the writer gets no round and no hang,
-    /// and the reason goes to the log. The bound is
+    /// **A piece that never opens drops the round — and says so.** A load
+    /// failure, a deleted file, a subject the tree refused: the writer gets no
+    /// round and no hang, the reason goes to the log, and (Denver's 2026-08-18
+    /// ruling) the expiry FLASHES. The log alone made a dropped chip press
+    /// indistinguishable from a chip that does nothing — the writer travelled
+    /// to the piece, waited, and no round ever arrived. The bound is
     /// `RunWhenDocumentOpens.deadline`; the test shortens it because what is
     /// under test is the expiry, not the number.
     func test_aPieceThatNeverOpensDropsTheRoundRatherThanHanging() async {
         var ran = 0
+        var flashed = 0
         let waiting = RunWhenDocumentOpens.start(
             docId: "ch-1", within: .milliseconds(120), polling: .milliseconds(5),
             isOpen: { _ in false },
-            run: { _ in ran += 1 })
+            run: { _ in ran += 1 },
+            onTimedOut: { flashed += 1 })
 
         let outcome = await waiting.value
         XCTAssertEqual(outcome, .timedOut,
@@ -3156,6 +3161,72 @@ final class CompilerRunCommandTests: XCTestCase {
                        + "arrives must not leave a task polling for the life of "
                        + "the window")
         XCTAssertEqual(ran, 0, "and nothing is run on a piece that never opened")
+        XCTAssertEqual(flashed, 1,
+                       "the drop must reach the writer, not only the log")
+        XCTAssertEqual(
+            CompilerOrchestrator.Acknowledgment.pieceWouldNotOpen.flashLabel,
+            "Couldn\u{2019}t open the piece \u{2014} try again.",
+            "the sentence the window shows, kept beside its case")
+    }
+
+    /// The two controls for the flash, so it cannot become an unconditional
+    /// one: a wait that RUNS says nothing, and a wait that is CANCELLED says
+    /// nothing either. A cancelled deferral is a window going away, and a
+    /// capsule about a round the writer already left is worse than silence.
+    func test_onlyTheExpiryFlashes() async {
+        var flashed = 0
+        let ran = RunWhenDocumentOpens.start(
+            docId: "ch-1", polling: .milliseconds(5),
+            isOpen: { _ in true }, run: { _ in },
+            onTimedOut: { flashed += 1 })
+        let ranOutcome = await ran.value
+        XCTAssertEqual(ranOutcome, .ran)
+        XCTAssertEqual(flashed, 0, "a round that started needs no apology")
+
+        let cancelled = RunWhenDocumentOpens.start(
+            docId: "ch-1", within: .seconds(30), polling: .milliseconds(5),
+            isOpen: { _ in false }, run: { _ in },
+            onTimedOut: { flashed += 1 })
+        cancelled.cancel()
+        let cancelledOutcome = await cancelled.value
+        XCTAssertEqual(cancelledOutcome, .cancelled)
+        XCTAssertEqual(flashed, 0, "a cancelled wait is not a failed one")
+    }
+
+    /// The production mount is what turns the closure into a capsule. The
+    /// helper's own census (`ReviewBoardPaneTests`) reads its wait; this reads
+    /// the sentence, because a deferral that expires into an empty closure
+    /// would satisfy every other assertion in this file.
+    func test_theProductionMountFlashesTheDroppedRound() throws {
+        let window = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()      // MaughamTests/
+                .deletingLastPathComponent()      // repo root
+                .appendingPathComponent("Maugham/Views/ProjectWindow.swift"),
+            encoding: .utf8)
+        let helper = try XCTUnwrap(
+            window.range(of: "private func runRoundWhenPieceOpens("),
+            "the deferral's one production caller must still be readable here")
+        // Generous, and deliberately so: the window has to cover the whole
+        // `start(…)` call INCLUDING its comments, and a prefix sized to
+        // today's body silently stops asserting the moment someone explains
+        // themselves at length above the line under test. (It did exactly
+        // that once, in this branch's own fix wave.)
+        let body = String(window[helper.upperBound...].prefix(1_600))
+        XCTAssertTrue(body.contains("onTimedOut:"),
+                      "the mount must supply the expiry's sentence. Got:\n\(body)")
+        XCTAssertTrue(body.contains(".show(.pieceWouldNotOpen)"),
+                      "\u{2026}and it goes through the window's one flash path "
+                      + "with the acknowledgment's own case. Got:\n\(body)")
+        // Minor 6 (2026-08-18 review): the closure outlives the turn by the
+        // deferral's whole 5s bound, so it captures the flash rather than the
+        // window — beside two capture lists written for exactly that reason.
+        // Asserted here because a later hand simplifying it back to a bare
+        // `showCompilerFlash(…)` would still satisfy everything above while
+        // holding `store`, `documentStore` and `compiler` for those 5s.
+        XCTAssertTrue(body.contains("[flash = compilerFlash]"),
+                      "the expiry closure must capture the flash sink, not "
+                      + "`self`. Got:\n\(body)")
     }
 
     /// **A cancelled wait says so, and says it promptly.** `Task.sleep` throws

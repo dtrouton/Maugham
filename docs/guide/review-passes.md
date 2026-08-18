@@ -36,7 +36,10 @@ intersection saying where that piece stands.
   piece's active pass, which is what the queue and the compiler read next.
 - **Right-click a chip** to ask that pass's editor for a round right
   there — *Run \<Editor\>'s round* — or set one of the four states
-  directly, without opening the piece at all.
+  directly, without opening the piece at all. Asking for a round takes you
+  to the piece and starts the check once it's open; if it won't open, a
+  capsule says **Couldn't open the piece — try again.** rather than leaving
+  you waiting for a round that isn't coming.
 - A trailing **Open** column counts each piece's unresolved notes; click
   the number to jump straight into the queue, scoped to that piece.
 

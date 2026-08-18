@@ -36,10 +36,12 @@ import MaughamCore
 ///   all — `AnnotationRow.dispositions`' `.query` case offers *Reply…*, which
 ///   opens a sheet and calls `acceptAnnotation(id:userResponse:)` with the
 ///   writer's own words. Bulk accept would call it with `userResponse: nil`:
-///   the question leaves the open queue answered with **silence**, and it does
-///   so quietly, because accept registers no undo for a non-suggestion kind and
-///   `.accepted` has no Reopen arm. Reply is the verb, a reply is text, and text
-///   is the one thing a batch cannot supply.
+///   the question leaves the open queue answered with **silence**, and the
+///   answer it records is the empty one. (Since Denver's 2026-08-18 ruling a
+///   textless accept IS undoable, so ⌘Z is a way back where there used to be
+///   none — but a ⌘Z the writer has to notice they need is not a reason to
+///   offer the batch. `.accepted` still has no Reopen arm.) Reply is the verb,
+///   a reply is text, and text is the one thing a batch cannot supply.
 /// - **Stet** — a resolution like the others: open notes only. "Skips the
 ///   already-stetted" is that rule's special case, not a clause of its own.
 ///   Staleness gates nothing here; a stet moves no text.
@@ -77,6 +79,14 @@ import MaughamCore
 /// batch of three leaves exactly one undoable step — the last. The recourse for
 /// the rest is the row's own **Revert**, which reaches any accepted suggestion
 /// at any time, and the bar's Accept button says so in its tooltip.
+///
+/// **What IS this file's doing is the order, and it is what keeps that tooltip
+/// honest for a MIXED batch** (2026-08-18 review). A textless accept now
+/// registers an undo of its own (Denver's ruling), and an accepted comment has
+/// neither a **Revert** arm nor a Reopen one — so a suggestion accepted after
+/// it, wiping its registration, would leave it reachable by nothing. `plan`
+/// therefore sorts suggestions to the FRONT of an accept plan; see its own
+/// doc. Nothing else about the batch is reordered.
 enum AnnotationBulkActions {
 
     /// The verbs the bulk bar offers. `triage(nil)` is Clear.
@@ -110,9 +120,37 @@ enum AnnotationBulkActions {
     // MARK: - The plan
 
     /// Which of these notes the verb honestly applies to, in the order given
-    /// (which is the queue's own order — see `AnnotationQueueOrder`).
+    /// (which is the queue's own order — see `AnnotationQueueOrder`), with ONE
+    /// exception.
+    ///
+    /// **An accept plan puts every suggestion FIRST, and that ordering is what
+    /// makes the Accept tooltip true** (2026-08-18 review, Important 4).
+    /// `Document.acceptAnnotation`'s suggestion arm calls `removeAllActions`
+    /// from inside itself (ADR 0023's D1 — an external buffer replace makes
+    /// every native typing-undo action unsound), so in a MIXED batch every
+    /// suggestion wipes the registrations of everything accepted before it. In
+    /// queue order that meant a `[comment, suggestion]` batch left the comment
+    /// reachable by nothing at all: ⌘Z had been wiped, an accepted comment has
+    /// no **Revert** on its row (that arm is the suggestion's) and `.accepted`
+    /// has no Reopen arm either. The tooltip promised "⌘Z reverses the batch —
+    /// except for accepted suggestions, where it reaches only the last; use a
+    /// row's Revert for the others", and for those comments both halves were
+    /// false.
+    ///
+    /// Sorting the suggestions to the front makes the sentence literally
+    /// accurate: the wipes all happen before any textless accept registers, so
+    /// what survives is the LAST suggestion's revert plus EVERY textless
+    /// accept, and the only notes ⌘Z cannot reach are non-last suggestions —
+    /// which are exactly the ones a row's Revert does reach, at any time.
+    ///
+    /// A stable partition rather than a `sorted(by:)`, deliberately: `sorted`
+    /// is not stable, and each group must keep the queue's own order or the
+    /// batch stops matching the list the writer was looking at.
     static func plan(_ annotations: [Annotation], verb: BulkVerb) -> [String] {
-        annotations.filter { applies(verb, to: $0) }.map(\.id)
+        let applicable = annotations.filter { applies(verb, to: $0) }
+        guard verb == .accept else { return applicable.map(\.id) }
+        return (applicable.filter { $0.kind == .suggestedChange }
+                + applicable.filter { $0.kind != .suggestedChange }).map(\.id)
     }
 
     /// The per-note arm of the rule in this file's doc comment. Separate from

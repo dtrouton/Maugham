@@ -2743,6 +2743,55 @@ final class DiagnosticsPaneTests: XCTestCase {
                        + "\(allLabels(in: window))")
     }
 
+    /// **⌘Z after Got it reopens the note, and the row comes back.** This
+    /// check's Got it inherits the accept's undo the way Not this inherits the
+    /// decline's — through the pane's own undo manager, wired rather than
+    /// reimplemented (Denver's 2026-08-18 ruling). Until that ruling accepting
+    /// a comment registered nothing at all, so this ⌘Z reached whatever the
+    /// writer had done before pressing the button.
+    func test_undoAfterGotItReopensTheNoteAndTheRowReturns() async throws {
+        let document = try await makeMultiParagraphDocument()
+        let paragraphId = try XCTUnwrap(document.sequence.first)
+        let store = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let run = makeRun(mintedNotes: 1)
+        store.replace(run: run, diagnostics: [], docId: document.docId)
+        let noteId = try await mintNote(
+            on: document, run: run, body: "Has anyone said how long yet?",
+            paragraphId: paragraphId)
+
+        let window = mount(wetInkPane(document: document, store: store))
+        pump(0.3)
+        try await press("Got it", in: window) {
+            self.statusIfPresent(of: noteId, in: document) != .open
+        }
+        XCTAssertEqual(try status(of: noteId, in: document), .accepted,
+                       "control: the note settled")
+
+        let undoManager = try XCTUnwrap(
+            window.undoManager,
+            "the hosted pane has no undo manager, so nothing could have been "
+            + "registered through it")
+        XCTAssertTrue(undoManager.canUndo,
+                      "Got it registered no undo action at all \u{2014} which is "
+                      + "what put the writer's own last action under a menu "
+                      + "item naming this one")
+        XCTAssertEqual(undoManager.undoActionName, "Accept Note",
+                       "…and the Edit menu must name the note")
+        undoManager.undo()
+        // Polled, not slept, for `test_undoAfterNotThisReopensTheNote`'s reason.
+        try await waitUntilAsync {
+            self.statusIfPresent(of: noteId, in: document) == .open
+        }
+
+        XCTAssertEqual(try status(of: noteId, in: document), .open,
+                       "\u{2318}Z after Got it must reopen the note")
+        pump(0.3)
+        XCTAssertTrue(allLabels(in: window).contains("Has anyone said how long yet?"),
+                      "…and the row returns, because the view is a filter over "
+                      + "open notes; got \(allLabels(in: window))")
+    }
+
     /// **Not this is one gesture and asks for nothing.** The reason-carrying
     /// decline belongs to Review's queue; wet ink gets a no.
     func test_notThisDeclinesInOneGestureWithNoReasonField() async throws {

@@ -84,18 +84,28 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
         // MARK: - Accept / revert (bespoke choreography, predates OpUndoRegistrar's generalization — see TaskInverse.swift doc comment on OpUndoRegistrar)
 
         case .claudeAccept:
+            // Two inverses, split on whether the accept moved manuscript text.
+            // A SUGGESTION accept:
             // Document+Annotations.swift revertAcceptedAnnotation(...) appends
             // the compensating claudeAcceptRevert op (restores pre-accept
             // text via `changes`, returns the annotation to .open).
-            return .inverseCovered(mechanism: "Document.revertAcceptedAnnotation (appends claudeAcceptRevert)")
+            // A comment / query / craft note accept moved no text, so its
+            // whole inverse is a reopen (Denver's 2026-08-18 ruling):
+            // acceptAnnotation registers an OpUndoRegistrar pair whose undo
+            // calls Document.reopenAcceptedTextlessAnnotation(id:), which
+            // builds its op via AnnotationInverse.reopenOp with
+            // acceptSplicedManuscriptText: false — the gated arm the factory
+            // grew for exactly this caller.
+            return .inverseCovered(mechanism: "Document.revertAcceptedAnnotation (appends claudeAcceptRevert) for a suggestion; Document.reopenAcceptedTextlessAnnotation via AnnotationInverse.reopenOp for a textless kind")
 
         case .claudeAcceptRevert:
             // revertAcceptedAnnotation's own undo registration re-invokes
             // Document.acceptAnnotation directly (registerUndo block,
             // Document+Annotations.swift ~544-561) — not via a shared
             // factory; deliberately not refactored onto OpUndoRegistrar per
-            // that file's doc comment (accept carries extra manuscript-text
-            // choreography).
+            // that file's doc comment (accept's SUGGESTION arm carries extra
+            // manuscript-text choreography — its textless arm does use the
+            // registrar, which is the split that doc comment now spells out).
             return .inverseCovered(mechanism: "Document.acceptAnnotation re-invoked by revertAcceptedAnnotation's undo registration")
 
         // MARK: - Task lifecycle (TaskInverse, Mac-only — task types have no phone surface)
