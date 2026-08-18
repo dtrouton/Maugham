@@ -2631,7 +2631,15 @@ struct ProjectWindow: View {
                 documentStore.updateUIState { $0.compilerModel = newValue }
             },
             assistant: assistant,
-            annotationScope: $annotationScopeRequest
+            annotationScope: $annotationScopeRequest,
+            // The round cockpit's pass picker (M4 P2 Task 3) lands on the ONE
+            // writer of `UIState.activePassMemory` — the same private method
+            // the board's chip click uses. A queue that wrote the memory
+            // itself would be a second spelling of the value the RUN reads to
+            // mint its lane.
+            onSetActivePass: { piece, passId in
+                recordActivePass(forPiece: piece, passId: passId)
+            }
         ) {
             researchOrSubject(store: store)
         }

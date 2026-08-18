@@ -57,6 +57,14 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// centre column; `.constant(.document)` for the probe callers that mount
     /// this view without a window behind it.
     @Binding var annotationScope: AnnotationScope
+    /// Record which pass a piece is being reviewed through — the round
+    /// cockpit's pass picker (M4 P2 Task 3), `(pieceId, passId)`.
+    ///
+    /// A closure rather than a store write here: `UIState.activePassMemory`
+    /// has ONE writer, `ProjectWindow.recordActivePass`, and the board's chip
+    /// click already goes through it. A second `updateUIState` in this file
+    /// would be two spellings of one rule, and the RUN reads only one of them.
+    var onSetActivePass: (String, String) -> Void = { _, _ in }
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
@@ -90,6 +98,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
         annotationScope: Binding<AnnotationScope> = .constant(.document),
+        onSetActivePass: @escaping (String, String) -> Void = { _, _ in },
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -113,6 +122,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
         self._annotationScope = annotationScope
+        self.onSetActivePass = onSetActivePass
         self.inspectorContent = inspectorContent
     }
 
@@ -559,7 +569,13 @@ struct DetailPaneToggle<Inspector: View>: View {
                     // beside them (`ManuscriptNavigation`'s ruling, and
                     // `AnnotationScopeTests`' census over this closure).
                     selectedSubject = .item(docId)
-                })
+                },
+                // The round cockpit's two stores (M4 P2 Task 3) — the same
+                // pair the Diagnostics arm takes, and `nil` in a host that
+                // surfaces no compiler, which draws no strip.
+                orchestrator: compilerOrchestrator,
+                diagnostics: diagnosticsStore,
+                onSetActivePass: onSetActivePass)
         } else {
             ContentUnavailableView(
                 "Open a project",
