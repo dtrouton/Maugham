@@ -3050,6 +3050,195 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(finished.round, 1)
     }
 
+    // MARK: - The board chip's round waits for the piece to open (M4 P2 Task 4)
+
+    /// The path the editor mounts a chapter at, for the tests below that need
+    /// to close and reopen it by hand.
+    private static let liveDocPath = "manuscript/ch1.md"
+
+    /// **The hazard, live.** `runRequested` refuses — silently, with no
+    /// acknowledgment and no failure — while the document is not open
+    /// (`environment.reading(docId) != nil`). A board chip navigates first and
+    /// the open is asynchronous, so a run fired on the same turn as the
+    /// navigation arrives before there is anything to read and simply does not
+    /// happen: no error, no flash, no notes, nothing in the log.
+    ///
+    /// This is the falsification the deferral exists for, kept as a permanent
+    /// test rather than a note: the day `runRequested` learns to open a
+    /// document itself, this goes red and the deferral can go.
+    func test_falsification_aRunOnAPieceThatIsNotOpenYetIsRefusedInSilence() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        setActivePass("copyedit", on: fx)
+        fx.documentStore.unregister(path: Self.liveDocPath)
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+
+        // Asserted synchronously because the refusal IS synchronous: the guard
+        // sits above the burst hop, so a run that was going to happen has
+        // already set `isPreparingRun` by now.
+        XCTAssertFalse(fx.orchestrator.isRunning,
+                       "a run on a closed piece must not even begin to prepare")
+        await awaitNothingMinted()
+        XCTAssertTrue(runner.sends.isEmpty,
+                      "the refusal is total and it is silent \u{2014} which is "
+                      + "exactly why the chip cannot run on the navigation turn")
+    }
+
+    /// **The deferral: the run lands once the editor has the piece open.**
+    /// Nothing before that, one run after it.
+    func test_theChipsRoundWaitsForThePieceToOpenAndThenRuns() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        setActivePass("copyedit", on: fx)
+        fx.documentStore.unregister(path: Self.liveDocPath)
+
+        let waiting = RunWhenDocumentOpens.start(
+            docId: "ch-1", within: .seconds(5), polling: .milliseconds(5),
+            isOpen: { [documentStore = fx.documentStore] id in
+                documentStore.document(forDocId: id) != nil
+            },
+            run: { [orchestrator = fx.orchestrator] id in
+                orchestrator.runRequested(docId: id)
+            })
+
+        XCTAssertTrue(runner.sends.isEmpty,
+                      "premise: nothing runs while the piece is closed")
+
+        // The editor mounts the chapter the navigation asked for.
+        fx.documentStore.register(document: fx.document, for: Self.liveDocPath)
+
+        let outcome = await waiting.value
+        XCTAssertEqual(outcome, .ran,
+                       "the deferral must resolve into a run, not expire behind "
+                       + "a document that did open")
+        await awaitSends(1, on: runner)
+        XCTAssertEqual(runner.sends.count, 1, "exactly one round, once")
+    }
+
+    /// The control for the wait: a piece already open runs without waiting for
+    /// anything. Without this a deferral that never fired at all would pass the
+    /// test above's sibling by never being asked.
+    func test_aPieceAlreadyOpenRunsStraightAway() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        setActivePass("copyedit", on: fx)
+
+        let waiting = RunWhenDocumentOpens.start(
+            docId: "ch-1", polling: .milliseconds(5),
+            isOpen: { [documentStore = fx.documentStore] id in
+                documentStore.document(forDocId: id) != nil
+            },
+            run: { [orchestrator = fx.orchestrator] id in
+                orchestrator.runRequested(docId: id)
+            })
+
+        let outcome = await waiting.value
+        XCTAssertEqual(outcome, .ran)
+        await awaitSends(1, on: runner)
+    }
+
+    /// **A piece that never opens drops the round.** A load failure, a deleted
+    /// file, a subject the tree refused — the writer gets no round and no hang,
+    /// and the reason goes to the log. The bound is
+    /// `RunWhenDocumentOpens.deadline`; the test shortens it because what is
+    /// under test is the expiry, not the number.
+    func test_aPieceThatNeverOpensDropsTheRoundRatherThanHanging() async {
+        var ran = 0
+        let waiting = RunWhenDocumentOpens.start(
+            docId: "ch-1", within: .milliseconds(120), polling: .milliseconds(5),
+            isOpen: { _ in false },
+            run: { _ in ran += 1 })
+
+        let outcome = await waiting.value
+        XCTAssertEqual(outcome, .timedOut,
+                       "the wait is bounded \u{2014} a document that never "
+                       + "arrives must not leave a task polling for the life of "
+                       + "the window")
+        XCTAssertEqual(ran, 0, "and nothing is run on a piece that never opened")
+    }
+
+    /// The bound is a real few seconds, not a token one: opening a document
+    /// reads an op log off disk, and a deadline tight enough to expire on a
+    /// cold cache would turn a working chip into an intermittent one.
+    func test_theWaitsDefaultBoundIsGenerousEnoughForARealOpen() {
+        XCTAssertGreaterThanOrEqual(
+            RunWhenDocumentOpens.deadline, .seconds(3),
+            "a document open is disk work \u{2014} the bound must survive one")
+        XCTAssertLessThanOrEqual(
+            RunWhenDocumentOpens.deadline, .seconds(30),
+            "\u{2026}and must still be a bound a writer would notice ending")
+    }
+
+    /// **The task end to end, through the verb the board actually draws.**
+    ///
+    /// The chip's menu item is performed, the window's three acts happen in
+    /// order — the lane is recorded, the subject moves, the run waits — the
+    /// editor opens the piece, and what lands on the document is a note signed
+    /// by that pass's own editor, stamped with that pass.
+    func test_theBoardChipsRoundLandsANoteSignedByThatPassesEditor() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        runner.nextEvent = .resultText(oneQuestion("Has anyone said how long yet?",
+                                                   about: pid))
+        // The piece is not open: the reviewer is looking at the board, which is
+        // a project-level surface, and the chapter they right-clicked has never
+        // been on screen.
+        fx.documentStore.unregister(path: Self.liveDocPath)
+
+        var subject: BinderSubject?
+        var waiting: Task<RunWhenDocumentOpens.Outcome, Never>?
+        let verbs = ReviewBoardChipVerbs(
+            onSetState: { _, _, _ in
+                XCTFail("a round is not a ruling")
+            },
+            // The window's own closure, transcribed — the census in
+            // `ReviewBoardPaneTests` is what keeps the production mount equal
+            // to it.
+            onRunRound: { [documentStore = fx.documentStore,
+                           orchestrator = fx.orchestrator] pieceId, passId in
+                documentStore.updateUIState {
+                    $0.activePassMemory.record(piece: pieceId, passId: passId)
+                }
+                subject = .item(pieceId)
+                waiting = RunWhenDocumentOpens.start(
+                    docId: pieceId, polling: .milliseconds(5),
+                    isOpen: { documentStore.document(forDocId: $0) != nil },
+                    run: { orchestrator.runRequested(docId: $0) })
+            })
+
+        let menu = verbs.chipMenu(
+            for: "ch-1", pass: ReviewPass(id: "copyedit", name: "Copyedit"),
+            current: nil)
+        XCTAssertEqual(menu.run.title, "Run Gould\u{2019}s round",
+                       "premise: this is the verb a reviewer would press")
+        menu.run.perform()
+
+        XCTAssertEqual(
+            fx.documentStore.uiState.activePassMemory.activePass(forPiece: "ch-1"),
+            "copyedit",
+            "the chip's round records the lane it is asking for \u{2014} the "
+            + "value the run reads to sign and file its notes")
+        XCTAssertEqual(subject, .item("ch-1"),
+                       "\u{2026}and takes the reviewer to the piece being checked")
+        XCTAssertTrue(runner.sends.isEmpty,
+                      "\u{2026}and does not run yet: the piece is still closed")
+
+        fx.documentStore.register(document: fx.document, for: Self.liveDocPath)
+        let deferred = try XCTUnwrap(waiting, "the verb must have started a wait")
+        let outcome = await deferred.value
+        XCTAssertEqual(outcome, .ran)
+        await awaitOpenNotes(1, on: fx.document)
+
+        let notes = fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+        XCTAssertEqual(notes.count, 1, "got \(notes.map(\.body))")
+        XCTAssertEqual(notes.first?.author?.displayName, "Gould",
+                       "the Copyedit pass's editor signs the round the chip asked for")
+        XCTAssertEqual(notes.first?.reviewPassId, "copyedit",
+                       "\u{2026}and the lane the chip named stamps what it wrote")
+    }
+
     // MARK: - The round stamps: production wiring
 
     /// The compiler's read of the active pass is `validatedActivePass` off

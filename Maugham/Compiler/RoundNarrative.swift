@@ -123,4 +123,24 @@ enum RoundNarrative {
         guard let round = run.round else { return "Fresh eyes" }
         return "Fresh eyes \u{00b7} round \(round)"
     }
+
+    // MARK: - Asking for one
+
+    /// **"Run Gould's round"** — the offer, by the name of the editor who
+    /// reads it (M4 P2 Task 4).
+    ///
+    /// One spelling because it is now said in two places a reviewer sees in
+    /// the same minute: the empty queue's teaching in Review's cockpit, and
+    /// the verb on every chip of the board. The personification is the whole
+    /// point — a writer asks Gould for a copyedit, not "the compiler" for a
+    /// "pass" — so the two must not drift into naming the same act two ways.
+    ///
+    /// The caller resolves the name through `ReviewPass.effectiveEditorName`,
+    /// never the raw field: a customized manifest can store a preset-id pass
+    /// that predates the editor field, and a pass a writer named themselves
+    /// falls back to its own name ("Run Beta Read's round"), which reads as
+    /// intended rather than naming a person who does not exist.
+    static func runRoundTitle(editorName: String) -> String {
+        "Run \(editorName)\u{2019}s round"
+    }
 }

@@ -140,8 +140,13 @@ struct ReviewRoundCockpit: View {
     /// around. Both are named, the round first and by its editor's name, so
     /// the empty state teaches the loop instead of describing the absence of
     /// one (spec §7).
+    ///
+    /// The offer itself is `RoundNarrative.runRoundTitle` — the same spelling
+    /// the board chip's menu verb carries (M4 P2 Task 4), so the two places a
+    /// reviewer meets the round in the same minute name it the same way.
     static func emptyQueueTeaching(editorName: String?) -> String {
-        let round = editorName.map { "Run \($0)\u{2019}s round (\u{2318}R)" }
+        let round = editorName
+            .map { "\(RoundNarrative.runRoundTitle(editorName: $0)) (\u{2318}R)" }
             ?? "Run a round (\u{2318}R)"
         return "Claude proposes; you dispose. \(round), or ask Claude in Claude Desktop."
     }

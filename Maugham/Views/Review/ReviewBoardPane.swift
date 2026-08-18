@@ -26,6 +26,15 @@ import MaughamCore
 /// selection state. A right-click offers the four states
 /// (`ReviewBoardChipVerbs`), and choosing one calls `onSetState`.
 ///
+/// **And as of M4 P2 Task 4 that menu leads with the round itself** — "Run
+/// Gould's round", `onRunRound`. The board is where a reviewer decides what to
+/// work on next, and until this the only thing it could do about that answer
+/// was carry them to the piece; the check they came for was three surfaces
+/// away. The window's closure is what makes it one act: it records the lane,
+/// takes the subject to the piece, and waits for that piece to be OPEN before
+/// asking the orchestrator, because `runRequested` refuses in silence until it
+/// is (`RunWhenDocumentOpens`).
+///
 /// **Both are closures, and neither of them decides anything.** The pane still
 /// holds no store (tripwire 4, and `ReviewBoardPaneTests`' census): what a
 /// navigation MEANS — which subject the window takes, which pass it remembers —
@@ -90,12 +99,21 @@ struct ReviewBoardPane: View {
     /// untouched — the store verb removes the key rather than storing a fourth
     /// state, exactly as `PassLadder.onSet` does.
     let onSetState: (String, String, PassState?) -> Void
+    /// A chip's menu asked for that pass's round on that piece: `(pieceId,
+    /// passId)` — the cell's own identity again (M4 P2 Task 4).
+    ///
+    /// Like every other closure here it decides nothing. What a round MEANS —
+    /// recording the lane, taking the writer to the piece, and waiting for it
+    /// to be open before the orchestrator is asked — belongs to the mount in
+    /// `ProjectWindow.manuscriptEditor`, which is the only place that holds a
+    /// `DocumentStore` and a `CompilerOrchestrator`.
+    let onRunRound: (String, String) -> Void
 
-    /// The menu behind every chip, over this pane's own `onSetState`. Built per
-    /// access like `BinderView.treeVerbs`: it is one closure in a wrapper and
+    /// The menu behind every chip, over this pane's own closures. Built per
+    /// access like `BinderView.treeVerbs`: it is closures in a wrapper and
     /// nothing in it is state.
     private var verbs: ReviewBoardChipVerbs {
-        ReviewBoardChipVerbs(onSetState: onSetState)
+        ReviewBoardChipVerbs(onSetState: onSetState, onRunRound: onRunRound)
     }
 
     // MARK: - Metrics
@@ -332,7 +350,17 @@ struct ReviewBoardPane: View {
         .help(ReviewBoardChip.label(piece: item.title, pass: pass, state: state))
         .accessibilityLabel(ReviewBoardChip.label(piece: item.title, pass: pass, state: state))
         .contextMenu {
-            ForEach(verbs.chipMenuItems(for: item.id, passId: pass.id, current: state)) { verb in
+            // **One menu value, drawn in two halves.** The round is what the
+            // reviewer came to the cell to DO; the four rulings are what they
+            // came to say about it. Both are `chipMenu`'s, asked about this
+            // cell, so nothing drawn here can be about another one — and the
+            // census in `ReviewBoardPaneTests` is what keeps the drawn menu
+            // equal to the truth table its tests drive (see the type doc
+            // below: `.contextMenu` itself is headless-unreachable).
+            let menu = verbs.chipMenu(for: item.id, pass: pass, current: state)
+            Button(menu.run.title) { menu.run.perform() }
+            Divider()
+            ForEach(menu.states) { verb in
                 Button {
                     verb.perform()
                 } label: {
@@ -364,11 +392,22 @@ struct ReviewBoardPane: View {
 /// The verbs are the ladder's four — `PassLadder`'s own titles, read rather than
 /// restated, so the writer sets a state by one name in the Inspector and the
 /// board's menu calls it the same thing.
+///
+/// **M4 P2 Task 4 put a fifth thing above them, and it is not a ruling.**
+/// "Run Gould's round" starts the check the cell stands for. Until it, the
+/// board said where every piece stood and offered no way to move any of it:
+/// the reviewer read the grid, clicked a chip, landed in the piece, found the
+/// cockpit and pressed Run. `chipMenu` is the whole menu as one value — the
+/// round, then the four rulings — so the two halves can be asserted together
+/// and neither can quietly stop being drawn.
 struct ReviewBoardChipVerbs {
     /// `(pieceId, passId, state)` — the pane's own closure, forwarded. Nothing
     /// here calls a store: which channel a write goes through is the mount's
     /// decision (tripwire 4).
     let onSetState: (String, String, PassState?) -> Void
+    /// `(pieceId, passId)` — ask for that pass's round on that piece. Same
+    /// rule: this file knows the cell, the mount knows what a round costs.
+    let onRunRound: (String, String) -> Void
 
     /// One menu item: what it says, whether it is where the piece stands now,
     /// and what pressing it does.
@@ -385,10 +424,49 @@ struct ReviewBoardChipVerbs {
         var id: String { title }
     }
 
+    /// **The verb that starts a round.** Deliberately NOT a `ChipVerb`: that
+    /// type's whole payload is a `PassState` and an `isCurrent`, and a run has
+    /// neither. Giving it `state: nil` would make it indistinguishable from
+    /// "Untouched" to anything reading the list.
+    struct RunVerb: Identifiable {
+        let title: String
+        let perform: () -> Void
+
+        var id: String { title }
+    }
+
+    /// **One cell's whole menu**: the round it can start, and the four things
+    /// the reviewer can say about it.
+    struct ChipMenu {
+        let run: RunVerb
+        let states: [ChipVerb]
+    }
+
     /// The states a writer can choose, in the ladder's order — untouched first,
     /// because clearing a pass is a real ruling and burying it under the three
     /// positive ones makes it look like an absence.
     static let offeredStates: [PassState?] = [nil, .inProgress, .done, .skipped]
+
+    /// The menu for the cell `(piece, pass)`, currently standing at `current`.
+    ///
+    /// **The round is offered whatever the cell stands at**, including `.done`
+    /// and `.skipped`: a finished pass is exactly where a reviewer wants one
+    /// more look, and a skip is a ruling they are free to revisit. A verb that
+    /// vanished on two of the five states would be a control that disappears
+    /// when it is wanted.
+    ///
+    /// It is named for the EDITOR rather than the pass — `effectiveEditorName`,
+    /// never the raw field — through `RoundNarrative.runRoundTitle`, the one
+    /// spelling Review's empty queue also reads.
+    func chipMenu(for piece: String, pass: ReviewPass,
+                  current: PassState?) -> ChipMenu {
+        ChipMenu(
+            run: RunVerb(
+                title: RoundNarrative.runRoundTitle(
+                    editorName: pass.effectiveEditorName),
+                perform: { onRunRound(piece, pass.id) }),
+            states: chipMenuItems(for: piece, passId: pass.id, current: current))
+    }
 
     /// The menu for the cell `(piece, passId)`, currently standing at `current`.
     ///

@@ -62,9 +62,13 @@ final class ReviewBoardPaneTests: XCTestCase {
 
     /// The verb factory under test, recording into this test's own `calls`.
     private var verbs: ReviewBoardChipVerbs {
-        ReviewBoardChipVerbs(onSetState: { [calls] piece, pass, state in
-            calls.writes.append(BoardWrite(piece: piece, pass: pass, state: state))
-        })
+        ReviewBoardChipVerbs(
+            onSetState: { [calls] piece, pass, state in
+                calls.writes.append(BoardWrite(piece: piece, pass: pass, state: state))
+            },
+            onRunRound: { [calls] piece, pass in
+                calls.runs.append(BoardClick(piece: piece, pass: pass))
+            })
     }
 
     override func tearDown() async throws {
@@ -243,6 +247,91 @@ final class ReviewBoardPaneTests: XCTestCase {
         XCTAssertTrue(calls.navigations.isEmpty,
                       "a ruling is not a navigation — the reviewer stays on the "
                       + "board")
+        XCTAssertTrue(calls.runs.isEmpty,
+                      "…and a ruling is not a round either: `Done` must not "
+                      + "spawn a check on its way past")
+    }
+
+    // MARK: - The chip's menu: the round (M4 P2 Task 4)
+
+    /// **The board's cell can start the round it stands for.** Until this the
+    /// board said where every piece stood and offered no way to move any of it:
+    /// the reviewer read the grid, clicked a chip, landed in the piece, found
+    /// the cockpit and pressed Run. The menu's first item is that whole path.
+    ///
+    /// It is named for the EDITOR, not the pass — "Run Gould's round", the same
+    /// spelling the empty queue teaches (`RoundNarrative.runRoundTitle`) — so
+    /// the grid and the queue name one act one way.
+    func test_theMenuLeadsWithTheRoundNamedForThePassesEditor() {
+        // A preset-id pass carrying no editor of its own, which is what a
+        // customized manifest stores: the title must still say "Gould", which
+        // it can only do through `effectiveEditorName`.
+        let stored = ReviewPass(id: "copyedit", name: "Copyedit")
+        let menu = verbs.chipMenu(for: "ch1", pass: stored, current: nil)
+
+        XCTAssertEqual(menu.run.title, "Run Gould\u{2019}s round",
+                       "the round is offered by the name of the editor who "
+                       + "reads it \u{2014} `effectiveEditorName`, never the "
+                       + "raw stored field")
+        XCTAssertEqual(menu.run.title,
+                       RoundNarrative.runRoundTitle(editorName: "Gould"),
+                       "\u{2026}and through the ONE spelling the cockpit's "
+                       + "empty state reads, so the two surfaces cannot drift")
+    }
+
+    /// A pass a writer named themselves and never gave an editor falls back to
+    /// its own name (`ReviewPass.effectiveEditorName`) — so the verb reads
+    /// "Run Beta Read's round" rather than naming a person who does not exist.
+    func test_theRoundVerbNamesAWriterOwnPassByItsOwnName() {
+        let menu = verbs.chipMenu(
+            for: "ch1", pass: ReviewPass(id: "beta", name: "Beta Read"), current: nil)
+        XCTAssertEqual(menu.run.title, "Run Beta Read\u{2019}s round")
+    }
+
+    /// **The round verb carries its own cell's two ids**, exactly as the four
+    /// state verbs do — asked about the second piece's non-first pass so
+    /// neither id could be the first of anything.
+    func test_theRoundVerbCarriesItsOwnCell() {
+        let menu = verbs.chipMenu(
+            for: "ch2", pass: ReviewPass(id: "line", name: "Line"), current: .inProgress)
+        menu.run.perform()
+
+        XCTAssertEqual(calls.runs, [BoardClick(piece: "ch2", pass: "line")],
+                       "the round runs on the cell it was drawn in")
+        XCTAssertTrue(calls.writes.isEmpty,
+                      "a round is not a ruling \u{2014} asking for a check must "
+                      + "not also mark the pass in progress")
+    }
+
+    /// **Every cell offers its round, whatever it stands at.** A finished pass
+    /// is exactly where a reviewer wants one more look, and a skipped one is a
+    /// ruling the writer can revisit; a menu that withheld the verb on two of
+    /// the five states would be a control that vanishes when you need it.
+    func test_everyStateStillOffersItsRound() {
+        for current in ReviewBoardChipVerbs.offeredStates + [.unknown("hyphenated")] {
+            let menu = verbs.chipMenu(
+                for: "ch1", pass: ReviewPass(id: "line", name: "Line"), current: current)
+            XCTAssertEqual(menu.run.title, "Run Lish\u{2019}s round",
+                           "\(String(describing: current)) must still offer its "
+                           + "round")
+        }
+    }
+
+    /// **The four rulings are untouched by the widening.** The menu is the run
+    /// verb *and* `chipMenuItems`' own list — the same values, in the same
+    /// order, checkmarked the same way — rather than a second list that could
+    /// disagree with the one every other test in this section drives.
+    func test_theRulingsBesideTheRoundAreTheSameFourVerbsAsEver() {
+        let pass = ReviewPass(id: "line", name: "Line")
+        let menu = verbs.chipMenu(for: "ch1", pass: pass, current: .done)
+        let items = verbs.chipMenuItems(for: "ch1", passId: pass.id, current: .done)
+
+        XCTAssertEqual(menu.states.map(\.title), items.map(\.title))
+        XCTAssertEqual(menu.states.map(\.state), items.map(\.state))
+        XCTAssertEqual(menu.states.map(\.isCurrent), items.map(\.isCurrent))
+        XCTAssertEqual(menu.states.filter(\.isCurrent).map(\.state), [.done],
+                       "premise: the cell's own state is still the checkmarked "
+                       + "one beside the round")
     }
 
     // MARK: - Mounted: the click
@@ -732,6 +821,71 @@ final class ReviewBoardPaneTests: XCTestCase {
                        + "`ReviewBoardRoutingTests.boardScroller`")
     }
 
+    /// **The link every menu test in this file borrows, pinned** (M4 P2 Task
+    /// 4, and `ReviewRoundCockpitTests`' picker census before it).
+    ///
+    /// `.contextMenu` builds its `NSMenu` on the right-click itself and is
+    /// unreachable headless — which is the whole reason the truth table lives
+    /// in `chipMenuItems`/`chipMenu`. That substitution is honest only while
+    /// the menu actually calls them: rewiring the chip's menu to a second
+    /// spelling, or dropping the run verb from the drawn menu entirely, leaves
+    /// every truth-table test above green over a menu nobody can reach.
+    ///
+    /// So the link is a census over the chip's own declaration. It is the
+    /// weakest seam in this task and it is the one worth guarding.
+    func test_theChipsMenuDrawsTheVerbsItsTestsDriveInItsPlace() throws {
+        let source = try Self.source(of: "Views/Review/ReviewBoardPane.swift")
+        let chip = try XCTUnwrap(
+            Self.declaration(named: "private func chip(item:", in: source),
+            "the chip must still be a readable declaration for this census to "
+            + "have a subject")
+
+        XCTAssertTrue(chip.contains("chipMenu(for: item.id, pass: pass, current: state)"),
+                      "the drawn menu must come from the factory the tests "
+                      + "drive, asked about THIS cell. Got:\n\(chip)")
+        XCTAssertTrue(chip.contains("menu.run.perform()"),
+                      "\u{2026}and the first item must perform the run verb, or "
+                      + "`test_theRoundVerbCarriesItsOwnCell` proves nothing "
+                      + "about this control")
+        XCTAssertTrue(chip.contains("ForEach(menu.states)"),
+                      "\u{2026}and the four rulings must be drawn from the same "
+                      + "menu value, not from a second call that could disagree")
+        XCTAssertTrue(chip.contains("Divider()"),
+                      "a round and a ruling are different acts \u{2014} the menu "
+                      + "separates them")
+    }
+
+    /// **The window's run-from-chip closure, which no mount can see** (M4 P2
+    /// Task 4). Three things have to happen in it and the third is the one that
+    /// is easy to leave out: the pass is recorded through the window's ONE
+    /// writer, the subject moves to the piece, and the run WAITS for that piece
+    /// to be open.
+    ///
+    /// `CompilerOrchestrator.runRequested` refuses silently while
+    /// `environment.reading(docId)` is `nil`, and opening a document is async —
+    /// so a mount that called it straight from this closure would do nothing at
+    /// all, with no error anywhere. That refusal is pinned as a live hazard in
+    /// `CompilerRunCommandTests`; this is what keeps the mount on the far side
+    /// of it.
+    func test_theProductionMountDefersTheChipsRunUntilThePieceIsOpen() throws {
+        let window = try Self.source(of: "Views/ProjectWindow.swift")
+        let arm = try XCTUnwrap(window.range(of: "onRunRound:"),
+                                "the mount must supply the chip's run closure")
+        let after = String(window[arm.upperBound...].prefix(600))
+
+        XCTAssertTrue(after.contains("recordActivePass(forPiece:"),
+                      "the round's lane is recorded through the window's one "
+                      + "`ActivePassMemory` writer \u{2014} got: \(after)")
+        XCTAssertTrue(after.contains("selectedSubject = .item(pieceId)"),
+                      "\u{2026}and the writer travels to the piece being checked")
+        XCTAssertTrue(after.contains("runRoundWhenPieceOpens("),
+                      "\u{2026}and the run goes through the bounded deferral")
+        XCTAssertFalse(after.contains("runRequested("),
+                       "the chip must NOT call the orchestrator straight from "
+                       + "this closure: the document is not open yet and the "
+                       + "refusal is silent \u{2014} got: \(after)")
+    }
+
     /// The one production mount hands the pane values off `manifest` — the
     /// other half of the tripwire-4 census, since the pane's own file cannot
     /// see what is passed to it.
@@ -766,6 +920,9 @@ final class ReviewBoardPaneTests: XCTestCase {
                             onSetState: { piece, pass, state in
                                 calls.writes.append(
                                     BoardWrite(piece: piece, pass: pass, state: state))
+                            },
+                            onRunRound: { piece, pass in
+                                calls.runs.append(BoardClick(piece: piece, pass: pass))
                             })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)))
         hosting.frame = frame
@@ -941,6 +1098,34 @@ final class ReviewBoardPaneTests: XCTestCase {
         let url = appSourceDir.appendingPathComponent(relativePath)
         return SourceScan.codeLines(of: try String(contentsOf: url, encoding: .utf8))
     }
+
+    /// The whole file, comments included — the censuses that read a single
+    /// declaration need its braces intact, which `codeLines` does not promise.
+    private static func source(of relativePath: String) throws -> String {
+        try String(contentsOf: appSourceDir.appendingPathComponent(relativePath),
+                   encoding: .utf8)
+    }
+
+    /// The text from `name` to the end of its brace-balanced body
+    /// (`ReviewRoundCockpitTests`' reader, which this file's censuses share).
+    private static func declaration(named name: String, in source: String) -> String? {
+        guard let start = source.range(of: name) else { return nil }
+        var depth = 0
+        var index = start.lowerBound
+        var seenOpen = false
+        while index < source.endIndex {
+            let character = source[index]
+            if character == "{" { depth += 1; seenOpen = true }
+            if character == "}" {
+                depth -= 1
+                if seenOpen && depth == 0 {
+                    return String(source[start.lowerBound...index])
+                }
+            }
+            index = source.index(after: index)
+        }
+        return nil
+    }
 }
 
 // MARK: - Recording what the board asked its host to do
@@ -962,4 +1147,9 @@ final class BoardCalls: @unchecked Sendable {
     var writes: [BoardWrite] = []
     /// Pieces whose open-notes count was clicked (M3 P2 Task 9).
     var opened: [String] = []
+    /// Cells whose menu asked for a round (M4 P2 Task 4). Same payload shape as
+    /// a navigation and deliberately a DIFFERENT list: a run travels *and*
+    /// checks, so a recorder that merged the two could not tell the chip's
+    /// click from its round.
+    var runs: [BoardClick] = []
 }
