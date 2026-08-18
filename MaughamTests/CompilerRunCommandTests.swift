@@ -3207,12 +3207,26 @@ final class CompilerRunCommandTests: XCTestCase {
         let helper = try XCTUnwrap(
             window.range(of: "private func runRoundWhenPieceOpens("),
             "the deferral's one production caller must still be readable here")
-        let body = String(window[helper.upperBound...].prefix(600))
+        // Generous, and deliberately so: the window has to cover the whole
+        // `start(…)` call INCLUDING its comments, and a prefix sized to
+        // today's body silently stops asserting the moment someone explains
+        // themselves at length above the line under test. (It did exactly
+        // that once, in this branch's own fix wave.)
+        let body = String(window[helper.upperBound...].prefix(1_600))
         XCTAssertTrue(body.contains("onTimedOut:"),
                       "the mount must supply the expiry's sentence. Got:\n\(body)")
-        XCTAssertTrue(body.contains("showCompilerFlash(.pieceWouldNotOpen)"),
+        XCTAssertTrue(body.contains(".show(.pieceWouldNotOpen)"),
                       "\u{2026}and it goes through the window's one flash path "
                       + "with the acknowledgment's own case. Got:\n\(body)")
+        // Minor 6 (2026-08-18 review): the closure outlives the turn by the
+        // deferral's whole 5s bound, so it captures the flash rather than the
+        // window — beside two capture lists written for exactly that reason.
+        // Asserted here because a later hand simplifying it back to a bare
+        // `showCompilerFlash(…)` would still satisfy everything above while
+        // holding `store`, `documentStore` and `compiler` for those 5s.
+        XCTAssertTrue(body.contains("[flash = compilerFlash]"),
+                      "the expiry closure must capture the flash sink, not "
+                      + "`self`. Got:\n\(body)")
     }
 
     /// **A cancelled wait says so, and says it promptly.** `Task.sleep` throws

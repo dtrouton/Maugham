@@ -1098,10 +1098,14 @@ struct AnnotationsPane: View {
     /// `removeAllActions` from inside itself. Each note registers its own undo
     /// action instead; `NSUndoManager`'s event grouping then coalesces the
     /// batch, so one ⌘Z reverses it — which is what one deliberate click should
-    /// cost. The accepted consequence is accept's own: each accept wipes the
-    /// previous one's registration, so after a bulk accept only the LAST
+    /// cost. The accepted consequence is accept's own: each SUGGESTION accept
+    /// wipes the previous registrations, so after a bulk accept only the LAST
     /// suggestion is reachable by ⌘Z and the rest need a row's Revert. The
     /// Accept button's tooltip says so; `AnnotationBulkActionsTests` pins it.
+    /// It stays true of a mixed batch because `AnnotationBulkActions.plan`
+    /// sorts suggestions ahead of textless notes, so the wipes land before any
+    /// comment registers — see that function's doc for why the alternative left
+    /// an accepted comment reachable by nothing at all.
     private func runBulk(
         _ verb: AnnotationBulkActions.BulkVerb, on ids: [String],
         in document: Document

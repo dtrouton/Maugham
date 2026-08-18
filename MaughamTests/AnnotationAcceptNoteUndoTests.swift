@@ -275,6 +275,40 @@ final class AnnotationAcceptNoteUndoTests: XCTestCase {
                        "…and it is still the revert op, not a reopen")
     }
 
+    /// **The textless door checks the KIND itself** (2026-08-18 review,
+    /// Important 2). `reopenAcceptedTextlessAnnotation` is the one verb built
+    /// to pass `acceptSplicedManuscriptText: false`, so it is the one place
+    /// the factory's default refusal cannot protect. Its name says what it is
+    /// for and today's single caller honours that, but a second caller handed
+    /// an accepted suggestion would leave the manuscript rewritten with the
+    /// note open again. It refuses on its own account instead — before the
+    /// factory is asked, and appending nothing.
+    func test_theTextlessDoorRefusesAnAcceptedSuggestionOnItsOwnAccount() async throws {
+        let h = try await makeHarness(prefix: "AcceptNote-KindGate")
+        let sid = try await h.doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: h.pid, body: "tighter",
+            suggestedText: "One paragraph.")
+        try await h.doc.acceptAnnotation(id: sid)
+        XCTAssertEqual(annotation(h.doc, sid)?.status, .accepted)
+        XCTAssertEqual(h.doc.paragraphs[h.pid], "One paragraph.",
+                       "premise: the splice is in the manuscript")
+        let opsBefore = h.doc._opLogMirror.count
+
+        // Called directly, as a future second caller would.
+        try await h.doc.reopenAcceptedTextlessAnnotation(id: sid)
+
+        XCTAssertEqual(h.doc._opLogMirror.count, opsBefore,
+                       "a suggestion must not get a bare reopen — nothing appended")
+        XCTAssertEqual(annotation(h.doc, sid)?.status, .accepted,
+                       "…so the note does not reopen over prose that stayed spliced")
+        XCTAssertEqual(h.doc.paragraphs[h.pid], "One paragraph.")
+
+        // The same door on an id that is not an annotation creation op at all.
+        try await h.doc.reopenAcceptedTextlessAnnotation(id: "not-an-op")
+        XCTAssertEqual(h.doc._opLogMirror.count, opsBefore,
+                       "an unknown id appends nothing either")
+    }
+
     /// The other half of the same boundary, at the factory: the door the
     /// textless undo opens stays shut for a suggestion, because only the
     /// caller can tell the two apart and the default is the refusal.

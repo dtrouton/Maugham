@@ -3105,7 +3105,11 @@ struct ProjectWindow: View {
                 documentStore?.document(forDocId: docId) != nil
             },
             run: { [compiler] docId in compiler.runRequested(docId: docId) },
-            onTimedOut: { showCompilerFlash(.pieceWouldNotOpen) })
+            // `[flash]`, not a bare `showCompilerFlash(…)`: this closure is
+            // held for the deferral's whole 5s bound, and capturing `self`
+            // would hold the window's stores with it — the thing the two
+            // capture lists above exist to avoid. See `compilerFlash`.
+            onTimedOut: { [flash = compilerFlash] in flash.show(.pieceWouldNotOpen) })
     }
 
     /// Whether the window's subject still names something, and what it becomes
@@ -3280,17 +3284,27 @@ struct ProjectWindow: View {
     /// to a flash the writer has already stopped reading.
     @MainActor
     private func showCompilerFlash(_ acknowledgment: CompilerOrchestrator.Acknowledgment) {
-        compilerFlashLabel = acknowledgment.flashLabel
-        compilerFlashGeneration &+= 1
-        let generation = compilerFlashGeneration
-        showingCompilerFlash = true
-        Task {
-            try? await Task.sleep(for: .milliseconds(700))
-            await MainActor.run {
-                guard compilerFlashGeneration == generation else { return }
-                showingCompilerFlash = false
-            }
-        }
+        compilerFlash.show(acknowledgment)
+    }
+
+    /// **The flash's own capture surface**, so a caller that has to hold the
+    /// flash across a suspension holds THREE bindings rather than the window
+    /// (2026-08-18 review, Minor 6). `runRoundWhenPieceOpens` keeps its expiry
+    /// closure alive for the deferral's whole 5s bound, next to two capture
+    /// lists written precisely to avoid holding things that long — a bare
+    /// `{ showCompilerFlash(…) }` captures `self`, and a `ProjectWindow` copy
+    /// carries `store`, `documentStore`, `compiler` and every other reference
+    /// the window has with it.
+    ///
+    /// `@State` boxes are owned by SwiftUI's graph and outlive any closure, so
+    /// holding three of them costs nothing and keeps the flash ONE spelling —
+    /// which is the point of the sink existing rather than the closure
+    /// re-implementing the generation dance.
+    private var compilerFlash: CompilerFlashSink {
+        CompilerFlashSink(
+            label: $compilerFlashLabel,
+            generation: $compilerFlashGeneration,
+            showing: $showingCompilerFlash)
     }
 
     /// **Show**, on the banner that says Claude added a research note.
@@ -4386,6 +4400,42 @@ struct CanvasPromotionModifier: ViewModifier {
             } catch {
                 failure = error.localizedDescription
             }
+        }
+    }
+}
+
+/// **⌘R's acknowledgment capsule, as a value the window can hand out**
+/// (2026-08-18 review, Minor 6).
+///
+/// Three `@State` bindings and the generation dance that keeps a double-press
+/// honest — extracted from `ProjectWindow.showCompilerFlash` so a caller
+/// holding the flash across a suspension holds these rather than a whole
+/// `ProjectWindow` (and, transitively, its stores). The one production caller
+/// that needs it is `runRoundWhenPieceOpens`, whose expiry closure lives for
+/// the deferral's 5s bound.
+///
+/// It stays ONE spelling of the flash: `showCompilerFlash` delegates here
+/// rather than the closure re-implementing the generation check, which is the
+/// whole reason this is a type and not a capture list at the call site.
+@MainActor
+struct CompilerFlashSink {
+    let label: Binding<String>
+    let generation: Binding<Int>
+    let showing: Binding<Bool>
+
+    /// The generation is what keeps a double-press honest: the first press's
+    /// hide is still pending when the second arrives, and without it the
+    /// second capsule would be taken off screen by a timer belonging to a
+    /// flash the writer has already stopped reading.
+    func show(_ acknowledgment: CompilerOrchestrator.Acknowledgment) {
+        label.wrappedValue = acknowledgment.flashLabel
+        generation.wrappedValue &+= 1
+        let mine = generation.wrappedValue
+        showing.wrappedValue = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard generation.wrappedValue == mine else { return }
+            showing.wrappedValue = false
         }
     }
 }

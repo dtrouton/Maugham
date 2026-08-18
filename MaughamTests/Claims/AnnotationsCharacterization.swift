@@ -744,10 +744,19 @@ final class AnnotationsCharacterization: XCTestCase {
 
     // MARK: - Reopening
 
-    /// M5-AN-034 — `reopenAnnotation` acts only from `.rejected`, `.archived`
-    /// and withdrawn. `.open` and `.accepted` are logged no-ops — which is why
-    /// `AnnotationInverse`'s `.noInverse` decline is unreachable from here.
-    func test_reopenActsOnlyFromRejectedArchivedOrWithdrawn() async throws {
+    /// M5-AN-034 — `reopenAnnotation` acts from `.rejected`, `.archived`,
+    /// `.stetted` and withdrawn. `.open` and `.accepted` are logged no-ops —
+    /// which is why `AnnotationInverse`'s `.noInverse` decline is unreachable
+    /// from here.
+    ///
+    /// **`.stetted` was missing from both the claim and this sweep** until the
+    /// 2026-08-18 review, though `reopenAnnotation`'s switch has carried it
+    /// since M3 P2 Task 1 and `AnnotationStetTests.
+    /// test_reopenOnAStettedNoteReturnsItToOpen` has pinned it separately the
+    /// whole time. The old name (`…FromRejectedArchivedOrWithdrawn`) asserted
+    /// the drift out loud, which is why the rename travels with the case: a
+    /// census whose NAME is a claim has to lose the name when the claim moves.
+    func test_reopenActsFromEveryResolutionExceptAccept() async throws {
         let h = try await makeHarness("Alpha.")
         let openId = try await h.doc.addAnnotation(kind: .comment, paragraphId: h.pid, body: "o")
         var before = opCount(h.doc)
@@ -762,15 +771,31 @@ final class AnnotationsCharacterization: XCTestCase {
         XCTAssertEqual(opCount(h.doc), before, "accepted has no reopen inverse")
         XCTAssertEqual(status(h.doc, accId), .accepted)
 
-        for kind in ["reject", "archive"] {
+        // …and an accepted TEXTLESS note is no exception at THIS verb either.
+        // Its ⌘Z goes through `reopenAcceptedTextlessAnnotation`, a door of its
+        // own — the whole reason this claim did not have to move when that one
+        // shipped (2026-08-18).
+        let textlessAccId = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "got it")
+        try await h.doc.acceptAnnotation(id: textlessAccId)
+        before = opCount(h.doc)
+        try await h.doc.reopenAnnotation(id: textlessAccId)
+        XCTAssertEqual(opCount(h.doc), before,
+                       "the pane's Reopen still refuses an accepted note")
+        XCTAssertEqual(status(h.doc, textlessAccId), .accepted)
+
+        for kind in ["reject", "archive", "stet"] {
             let id = try await h.doc.addAnnotation(
                 kind: .comment, paragraphId: h.pid, body: kind)
-            if kind == "reject" { try await h.doc.rejectAnnotation(id: id) }
-            else { try await h.doc.archiveAnnotation(id: id) }
+            switch kind {
+            case "reject":  try await h.doc.rejectAnnotation(id: id)
+            case "archive": try await h.doc.archiveAnnotation(id: id)
+            default:        try await h.doc.stetAnnotation(id: id)
+            }
             before = opCount(h.doc)
             try await h.doc.reopenAnnotation(id: id)
-            XCTAssertEqual(opCount(h.doc) - before, 1)
-            XCTAssertEqual(status(h.doc, id), .open)
+            XCTAssertEqual(opCount(h.doc) - before, 1, "\(kind) has a reopen inverse")
+            XCTAssertEqual(status(h.doc, id), .open, "\(kind) did not reopen")
         }
     }
 

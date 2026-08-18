@@ -533,17 +533,18 @@
   "claim_id": "M5-AN-034",
   "scope": "Document.reopenAnnotation",
   "kind": "GUARD",
-  "statement": "reopen acts only from .rejected, .archived and withdrawn. .open and .accepted are logged no-ops, which is why AnnotationInverse's .noInverse decline is UNREACHABLE from this caller — the status switch returns first",
+  "statement": "reopen acts from .rejected, .archived, .stetted and withdrawn. .open and .accepted are logged no-ops, which is why AnnotationInverse's .noInverse decline is UNREACHABLE from this caller — the status switch returns first. An accepted TEXTLESS note is no exception here either: its ⌘Z goes through Document.reopenAcceptedTextlessAnnotation, a door of its own, which is why this claim did not have to move when that verb shipped (2026-08-18)",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "AnnotationsCharacterization.test_reopenActsOnlyFromRejectedArchivedOrWithdrawn"
+   "ref": "AnnotationsCharacterization.test_reopenActsFromEveryResolutionExceptAccept"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
   "reachability": "UNTRACED today — reopen has no non-undo caller (M5-AN-039)",
   "evidence": {
    "property_test": null
-  }
+  },
+  "fix_history": "Statement corrected 2026-08-18: `.stetted` had been in `reopenAnnotation`'s switch since M3 P2 Task 1 and pinned separately by `AnnotationStetTests.test_reopenOnAStettedNoteReturnsItToOpen`, but neither this claim nor its characterization swept it — the same drift found in M5-AN-040 the same day. The test's NAME asserted the stale claim, so it was renamed with the case it gained. Behaviour unchanged; this is a claim catching up to code."
  },
  {
   "claim_id": "M5-AN-035",

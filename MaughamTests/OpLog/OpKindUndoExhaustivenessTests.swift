@@ -103,8 +103,9 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // Document.acceptAnnotation directly (registerUndo block,
             // Document+Annotations.swift ~544-561) — not via a shared
             // factory; deliberately not refactored onto OpUndoRegistrar per
-            // that file's doc comment (accept carries extra manuscript-text
-            // choreography).
+            // that file's doc comment (accept's SUGGESTION arm carries extra
+            // manuscript-text choreography — its textless arm does use the
+            // registrar, which is the split that doc comment now spells out).
             return .inverseCovered(mechanism: "Document.acceptAnnotation re-invoked by revertAcceptedAnnotation's undo registration")
 
         // MARK: - Task lifecycle (TaskInverse, Mac-only — task types have no phone surface)

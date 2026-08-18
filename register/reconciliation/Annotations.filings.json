@@ -556,8 +556,8 @@
     "M5-AN-021"
    ],
    "specificity_current_ruling_set": "14/15 = 93%",
-   "distinct_defects": "9 violations over 7 distinct defects — M5-AN-049 and M5-AN-050 are two faces of the lost-anchor accept (applied at all; applied with no warning) and are counted once; M5-AN-046/047 are mechanism and consequence of the unsorted mirror and are counted once, the mechanism filed NO_RULING_REACHES. One fixed: M5-AN-059 (a non-suggestion accept registering no undo) was ruled and fixed 2026-08-18, and is filed COMPLIES as an enhancement rather than a violation — it entered the ledger already fixed.",
-   "pinned_by": "MaughamTests/Claims/AnnotationsCharacterization.swift (42 test methods, all passing at HEAD 5018b03e + fix/m4-denver-rulings-2026-08-18)"
+   "distinct_defects": "As ORIGINALLY FILED: 9 violations over 7 distinct defects — M5-AN-049 and M5-AN-050 are two faces of the lost-anchor accept (applied at all; applied with no warning) and are counted once; M5-AN-046/047 are mechanism and consequence of the unsorted mirror and are counted once, the mechanism filed NO_RULING_REACHES. TODAY: all of them are fixed and every filing is COMPLIES, which is why `violates` reads 0 — the rows still carry `violation_or_enhancement: violation` because that field records what the claim was WHEN FILED, not what it is now. Corrected 2026-08-18: this line ended 'None fixed.' against `violates: 0`, pre-existing drift left behind as each defect was fixed and flipped through 2026-08-09. M5-AN-059 is the one row that entered already fixed, filed `enhancement` rather than `violation` for that reason.",
+   "pinned_by": "MaughamTests/Claims/AnnotationsCharacterization.swift (48 `func test_` methods, all passing on fix/m4-denver-rulings-2026-08-18). Corrected 2026-08-18: this line read '41 test methods' and was a pre-existing undercount — grep said 47 before this branch added one. Count it, do not carry it."
   }
  }
 ]

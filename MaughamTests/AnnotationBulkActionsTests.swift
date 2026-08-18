@@ -344,6 +344,102 @@ final class AnnotationBulkActionsTests: XCTestCase {
                        "NSUndoManager coalesced the batch into one event group")
     }
 
+    // MARK: - Integration: bulk accept over textless notes
+
+    /// **Minor 7 (2026-08-18 review) — the stet test's shape, for accept.**
+    /// Accepting three comments registers three undo actions where it used to
+    /// register none, and `NSUndoManager` coalesces them the way it coalesces
+    /// three stets: ONE ⌘Z puts all three back open, three compensating
+    /// `annotationReopen` ops appended, nothing truncated. No `removeAllActions`
+    /// runs on this path — that is the suggestion arm's — so nothing wipes
+    /// anything and the batch is whole.
+    func test_bulkAcceptOverTextlessNotesCoalescesToOneUndo() async throws {
+        let h = try await makeHarness(prefix: "Bulk-AcceptNotes")
+        let ids = try await threeComments(h)
+        let um = UndoManager()
+
+        let outcome = await AnnotationBulkActions.perform(
+            .accept, on: ids, in: h.doc, undoManager: um)
+
+        XCTAssertEqual(outcome.succeeded, ids)
+        XCTAssertNil(outcome.notice, "a clean run is quiet")
+        for id in ids { XCTAssertEqual(status(h.doc, id), .accepted) }
+        XCTAssertEqual(h.doc.annotations().count, 0,
+                       "all three have left the open queue")
+
+        XCTAssertTrue(um.canUndo,
+                      "a batch of textless accepts registered nothing at all "
+                      + "before Denver's 2026-08-18 ruling")
+        um.undo()
+        await settle(h.doc)
+
+        XCTAssertEqual(h.doc.annotations().count, 3, "all three are back")
+        for id in ids { XCTAssertEqual(status(h.doc, id), .open) }
+        XCTAssertEqual(
+            h.doc._opLogMirror.filter { $0.kind == .annotationReopen }.count, 3,
+            "one compensating op per note — three registrations ran, not one")
+        XCTAssertEqual(
+            h.doc._opLogMirror.filter { $0.kind == .claudeAccept }.count, 3,
+            "the accepts themselves survive their own undo")
+        XCTAssertFalse(um.canUndo,
+                       "NSUndoManager coalesced the batch into one event group")
+    }
+
+    /// **Important 4 (2026-08-18 review) — the mixed batch, and why `plan`
+    /// reorders it.** The Accept tooltip promises "⌘Z reverses the batch —
+    /// except for accepted suggestions, where it reaches only the last; use a
+    /// row's Revert for the others." In queue order a `[comment, suggestion]`
+    /// batch broke both halves of that for the comment: the suggestion's
+    /// `removeAllActions` wiped the comment's fresh registration, and an
+    /// accepted comment has no **Revert** arm on its row (that arm belongs to
+    /// the suggestion) and no Reopen arm either — reachable by nothing.
+    ///
+    /// `plan` sorts suggestions to the FRONT, so every wipe lands before any
+    /// textless accept registers. Driven through `plan` rather than a
+    /// hand-ordered array, because the ordering IS the fix and a test that
+    /// supplied its own order would pass with the fix reverted.
+    func test_aMixedAcceptBatchLeavesTheTrailingCommentUndoable() async throws {
+        let h = try await makeHarness(prefix: "Bulk-AcceptMixed")
+        // Queue order: the comment FIRST, the suggestion second — the order
+        // that used to strand the comment.
+        let commentId = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pids[0], body: "got it")
+        let suggestionId = try await h.doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: h.pids[1], body: "tighter",
+            suggestedText: "Two, revised.")
+        let asTheQueueHasThem = h.doc.annotations().sorted {
+            ($0.id == commentId ? 0 : 1) < ($1.id == commentId ? 0 : 1)
+        }
+        XCTAssertEqual(asTheQueueHasThem.map(\.id), [commentId, suggestionId],
+                       "premise: the comment comes first in the list the writer sees")
+
+        let planned = AnnotationBulkActions.plan(asTheQueueHasThem, verb: .accept)
+        XCTAssertEqual(planned, [suggestionId, commentId],
+                       "the plan puts the suggestion first so its "
+                       + "removeAllActions cannot reach the comment's undo")
+
+        let um = UndoManager()
+        let outcome = await AnnotationBulkActions.perform(
+            .accept, on: planned, in: h.doc, undoManager: um)
+        XCTAssertEqual(Set(outcome.succeeded), Set(planned))
+        XCTAssertEqual(status(h.doc, commentId), .accepted)
+        XCTAssertEqual(status(h.doc, suggestionId), .accepted)
+        XCTAssertEqual(h.doc.paragraphs[h.pids[1]], "Two, revised.")
+
+        XCTAssertTrue(um.canUndo,
+                      "the comment's registration must have survived the "
+                      + "suggestion's removeAllActions")
+        um.undo()
+        await settle(h.doc)
+
+        XCTAssertEqual(status(h.doc, commentId), .open,
+                       "\u{2318}Z must reach the comment \u{2014} it has no Revert "
+                       + "arm and no Reopen arm, so this is its only way back")
+        XCTAssertEqual(h.doc.paragraphs[h.pids[1]], "Two.",
+                       "…and the one suggestion in the batch is the last one, "
+                       + "which the tooltip says ⌘Z does reach")
+    }
+
     // MARK: - Integration: bulk accept with a lost anchor
 
     /// The brief's second integration claim, staged exactly as production

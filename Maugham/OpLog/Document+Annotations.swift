@@ -1003,14 +1003,37 @@ extension Document {
     /// accepted *suggestion*, whose inverse must also restore the spliced
     /// prose (`revertAcceptedAnnotation`). This caller knows it is holding a
     /// textless kind; that verb's callers do not — so M5-AN-034 ("reopen acts
-    /// only from .rejected, .archived and withdrawn") stays exactly as true as
-    /// it was.
+    /// only from .rejected, .archived, .stetted and withdrawn") stays exactly
+    /// as true as it was.
+    ///
+    /// **The textlessness is verified here, not trusted from the caller.** The
+    /// name says what this verb is for and today's one caller honours it, but a
+    /// second caller handed an accepted SUGGESTION would leave the manuscript
+    /// rewritten with the note open again — the exact defect
+    /// `AnnotationInverse.reopenOp`'s default refusal exists to prevent,
+    /// arriving through the one door built to bypass it. So the kind is read
+    /// off the creation op (`acceptAnnotation`'s own three lines) and a
+    /// suggestion is refused before the factory is asked. A guard the type
+    /// cannot enforce belongs in the function, not in its name.
     ///
     /// Loud no-op rather than a throw on every refusal, `reopenAnnotation`'s
     /// contract: an undo action can outlive the state it captured.
     internal func reopenAcceptedTextlessAnnotation(id: String) async throws {
         // The husk decline, atomically — `reopenAnnotation`'s sibling guard.
         if rejectMutationIfNotWritable("reopenAcceptedTextlessAnnotation") { return }
+        // The kind gate, ahead of everything: an unknown id, a non-annotation
+        // op, or a suggestion all stop here. `acceptAnnotation` resolves the
+        // kind exactly this way, from the CREATION op rather than from the
+        // projection, because that is where the kind lives.
+        guard let creation = _opLogMirror.first(where: { $0.opId == id }),
+              let kind = AnnotationKind.fromOpKind(creation.kind) else {
+            documentLog.error("reopenAcceptedTextlessAnnotation: \(id, privacy: .public) is not an annotation creation op — ignoring")
+            return
+        }
+        guard kind != .suggestedChange else {
+            documentLog.error("reopenAcceptedTextlessAnnotation: \(id, privacy: .public) is a suggestion — a bare reopen would leave the splice in the manuscript; revertAcceptedAnnotation is its inverse")
+            return
+        }
         let current = annotations(filter: AnnotationFilter(statuses: nil))
             .first { $0.id == id }
         guard case .op(let op) = AnnotationInverse.reopenOp(
