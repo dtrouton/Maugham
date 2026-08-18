@@ -291,6 +291,19 @@ struct AnnotationsPane: View {
         return AnnotationQueueOrder.sorted(rows, sequence: document.sequence)
     }
 
+    /// **Whether the document-scope empty state means "nothing here" or
+    /// "narrowed to nothing"** (M4 P2 Task 8, T3 carry).
+    ///
+    /// Pure so both readings are assertable without a mount — `pool` is
+    /// pre-author/triage/pass (`kindStatusAnnotations`), `visibleRows` is
+    /// post- (`visibleAnnotations`), and the two can only disagree when a
+    /// filter, not the queue itself, is what's showing nothing.
+    static func documentQueueIsGenuinelyEmpty(
+        pool: [Annotation], visibleRows: [Annotation]
+    ) -> Bool {
+        visibleRows.isEmpty && pool.isEmpty
+    }
+
     private var authorLabels: [String] {
         AnnotationAuthorFilter.distinctLabels(in: kindStatusPool)
     }
@@ -645,17 +658,38 @@ struct AnnotationsPane: View {
         let rows = visibleAnnotations(of: document)
         let deletedNotes = showResolved ? document.withdrawnAnnotations() : []
         if rows.isEmpty && deletedNotes.isEmpty {
-            // **The empty state teaches the loop** (M4 P2 Task 3). It used to
-            // name one of the two ways this queue fills — "ask Claude for
-            // editorial feedback" — and that is no longer the one Review is
-            // built around. Both are named now, the round first and by the
-            // editor who reads it (`ReviewRoundCockpit.emptyQueueTeaching`).
-            ContentUnavailableView(
-                "No annotations",
-                systemImage: "bubble.left.and.bubble.right",
-                description: Text(ReviewRoundCockpit.emptyQueueTeaching(
-                    editorName: cockpitActivePass?.effectiveEditorName)))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // **Two different empty states, and only one of them is empty**
+            // (M4 P2 Task 8, T3 carry). `rows` is the pool AFTER author,
+            // triage and pass narrow it; a writer whose queue is merely
+            // filtered down to nothing was being told to go ask for a round
+            // that had, in fact, already answered — its notes were sitting
+            // one filter away the whole time. `kindStatusAnnotations` is the
+            // same pool `cockpitAnnotations`/`kindStatusPool` already compute
+            // (before author/triage/pass), so asking it here is the pane's
+            // existing question, not a new one.
+            if !Self.documentQueueIsGenuinelyEmpty(
+                pool: kindStatusAnnotations(of: document), visibleRows: rows) {
+                ContentUnavailableView(
+                    "No notes match your filters",
+                    systemImage: "line.3.horizontal.decrease.circle",
+                    description: Text("Your queue isn\u{2019}t empty \u{2014} these "
+                        + "notes are just hidden by Author, Triage, or the pass "
+                        + "filter. Widen one to see them."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // **The empty state teaches the loop** (M4 P2 Task 3). It used
+                // to name one of the two ways this queue fills — "ask Claude
+                // for editorial feedback" — and that is no longer the one
+                // Review is built around. Both are named now, the round first
+                // and by the editor who reads it
+                // (`ReviewRoundCockpit.emptyQueueTeaching`).
+                ContentUnavailableView(
+                    "No annotations",
+                    systemImage: "bubble.left.and.bubble.right",
+                    description: Text(ReviewRoundCockpit.emptyQueueTeaching(
+                        editorName: cockpitActivePass?.effectiveEditorName)))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         } else {
             ScrollView {
                 let livePids = Set(document.sequence)

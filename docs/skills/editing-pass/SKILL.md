@@ -32,10 +32,17 @@ suggestion is theirs to accept or reject.
    most-advanced in-progress pass — the furthest along the ladder
    still marked `in_progress`. If nothing is in progress, propose the
    next sensible pass from the states (the first untouched one past
-   whatever's `done`) and ask before proceeding. Whichever pass you
+   whatever's `done`) and ask before proceeding — and if every pass
+   already reads `done` or `skipped`, say so and ask what they want
+   next (another look through one of them, or something outside the
+   ladder) rather than picking on their behalf. Whichever pass you
    land on, attend to exactly what its `brief` says — it is the
-   standard for that pass, not a general instinct. Open by declaring
-   which pass you chose and why, so the writer can redirect you.
+   standard for that pass, not a general instinct; a pass with no
+   brief of its own (a custom one the writer added) has no such
+   standard to read, so say so and ask, or fall back to general
+   editorial judgment for what that pass usually covers. Open by
+   declaring which pass you chose and why, so the writer can redirect
+   you.
 3. **Diagnose patterns; don't retail instances.** A habit gets named
    once, at its clearest instance, with a note that it recurs — not
    corrected forty times. Reserve `add_suggested_change` for fixes safe

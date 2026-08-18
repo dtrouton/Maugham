@@ -384,6 +384,36 @@ final class ReviewRoundCockpitTests: XCTestCase {
         }, "\u{2026}and no lane line, however much the pass memory knows")
     }
 
+    /// **The filtered-empty state names the filter, not a missing round**
+    /// (M4 P2 Task 8, T3 carry). Before this the pane's document-scope empty
+    /// state taught the round-running loop even when a note WAS there —
+    /// stamped for a pass this piece is not currently being reviewed
+    /// through, so the pass filter hides it while the kind/status pool still
+    /// holds it — telling the writer to ask for a round that had, in truth,
+    /// already answered.
+    func test_theFilteredEmptyStateNamesTheFilterRatherThanTeachingARound() async throws {
+        let fx = try await makeHarness()
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        // In the pool (kind/status pass it) but not in the rows (the pass
+        // filter below excludes it): stamped "structural", read through "line".
+        _ = try await fx.document.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "A structural note.",
+            reviewPassId: "structural")
+        fx.documentStore.updateUIState {
+            $0.activePassMemory.record(piece: "ch-1", passId: "line")
+        }
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        let labels = allLabels(in: window)
+
+        XCTAssertTrue(
+            labels.contains { $0.contains("No notes match your filters") },
+            "a hidden note must be named as hidden, not as absent \u{2014} got \(labels)")
+        XCTAssertFalse(
+            labels.contains { $0.contains("No annotations") },
+            "the genuinely-empty title must not also draw over a filtered pool")
+    }
+
     // MARK: - Census: the seams a mount cannot see
 
     /// **Whole-branch seam (a).** `sinceLastRoundLine` counts the writer's
