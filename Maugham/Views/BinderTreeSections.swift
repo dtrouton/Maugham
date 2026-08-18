@@ -619,6 +619,24 @@ struct BinderTreeSections: View {
 /// exactly what `createResearchNote(scope: .shared)` routes to, so the two
 /// surfaces cannot disagree. `BinderPieceFold` re-routes the one verb for which
 /// that default is wrong — see its `actions`.
+/// The subset of `NSOpenPanel`'s configuration the Add File verb cares about,
+/// as a plain value. Exists so a test can assert what the panel is configured
+/// to do without allocating a real `NSOpenPanel` — doing that in a unit test
+/// stalls on the window server's XPC service under parallel-worker contention
+/// (~64s, six sightings 2026-08-16..19 pinned as
+/// `BinderTreeDropRoutingTests.test_theTreesAddFilePanelTakesFoldersAsWellAsFiles`).
+struct AddFilePanelConfiguration: Equatable {
+    let canChooseFiles: Bool
+    let canChooseDirectories: Bool
+    let allowsMultipleSelection: Bool
+
+    func apply(to panel: NSOpenPanel) {
+        panel.canChooseFiles = canChooseFiles
+        panel.canChooseDirectories = canChooseDirectories
+        panel.allowsMultipleSelection = allowsMultipleSelection
+    }
+}
+
 @MainActor
 struct BinderTreeVerbs {
     let store: ProjectStore
@@ -713,13 +731,15 @@ struct BinderTreeVerbs {
     }
 
     private func addFile(parentId: String?) {
-        let panel = Self.makeAddFilePanel()
+        let panel = NSOpenPanel()
+        Self.addFilePanelConfiguration.apply(to: panel)
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls
         perform { _ = try await store.importResearchFiles(urls, toParentId: parentId) }
     }
 
-    /// **The Add File panel, and it takes folders** (stage-2b Task 4).
+    /// **The Add File panel's configuration, and it takes folders**
+    /// (stage-2b Task 4).
     ///
     /// `importResearchFiles` has always imported a folder as a group with its
     /// contents recursively under it, and `ResearchView`'s panel has always
@@ -729,16 +749,15 @@ struct BinderTreeVerbs {
     /// that pane, so the narrowing would have shipped as a capability the app
     /// simply lost.
     ///
-    /// A factory rather than four lines inside `addFile` because `runModal()`
-    /// is not drivable from a test: the panel's configuration is assertable,
-    /// the modal it runs is not.
-    static func makeAddFilePanel() -> NSOpenPanel {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        return panel
-    }
+    /// A pure value rather than a factory returning a live `NSOpenPanel`:
+    /// allocating a real panel in a unit test stalls on the window server's
+    /// XPC service under parallel-worker contention (~64s, six sightings
+    /// 2026-08-16..19) — the configuration is assertable, the panel it's
+    /// applied to is not.
+    static let addFilePanelConfiguration = AddFilePanelConfiguration(
+        canChooseFiles: true,
+        canChooseDirectories: true,
+        allowsMultipleSelection: true)
 
     /// Runs a store mutation, surfacing any failure in the alert the host
     /// attaches. Nothing here repairs the subject on a delete — the window's own
