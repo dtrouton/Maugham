@@ -49,8 +49,32 @@ final class ClaudeCLISession: CompilerRunner {
 
     /// The default of the above, and the only number here that answers "how
     /// long is a reap allowed to lag?" — generous against a loaded CI VM,
-    /// short against the 120 s run timeout it exists to keep a death away from.
+    /// short against the run timeout it exists to keep a death away from.
     nonisolated static let defaultDeathReapGrace: TimeInterval = 2
+
+    /// **How long one turn may take before the session is torn down and the
+    /// run reported as `.timedOut`.**
+    ///
+    /// **300 s since 2026-08-18 (Denver's ruling), raised from 120.** The old
+    /// budget was set against the ordinary case this loop was built for — a
+    /// delta of a few changed paragraphs, which comes back in seconds — and it
+    /// is not the case that hurts. A pass's FIRST round on a piece, and every
+    /// Fresh Eyes read (⌘⇧R), send the whole manuscript to a cold session; two
+    /// of Denver's own — Structural, then Line — hit 120 s on legitimate whole-
+    /// piece reads and died with nothing to show for the wait, which is the
+    /// worst possible failure for an expensive keystroke. A budget that kills
+    /// the reads it was never measured against is a budget measured on the
+    /// wrong run.
+    ///
+    /// Still bounded, and still below `idleTimeout` (600 s): the point of the
+    /// deadline is that a genuinely hung subprocess cannot bill indefinitely or
+    /// leave the strip saying "Checking…" forever, and five minutes buys the
+    /// long reads without weakening that.
+    ///
+    /// A named default rather than a literal in the init because two surfaces
+    /// now quote it in prose (`AREA.md`, `DeclaredWorldDeriver.defaultDeadline`'s
+    /// comparison) and a number with no home is a number that goes stale.
+    nonisolated static let defaultRunTimeout: TimeInterval = 300
 
     // MARK: - Session state
 
@@ -130,7 +154,7 @@ final class ClaudeCLISession: CompilerRunner {
          cliOverride: URL?,
          isEnabled: @escaping () -> Bool,
          idleTimeout: TimeInterval = 600,
-         runTimeout: TimeInterval = 120,
+         runTimeout: TimeInterval = ClaudeCLISession.defaultRunTimeout,
          deathReapGrace: TimeInterval = ClaudeCLISession.defaultDeathReapGrace,
          locator: @escaping @Sendable () -> URL? = { ClaudeCLISession.locateCLI() }) {
         self.model = model

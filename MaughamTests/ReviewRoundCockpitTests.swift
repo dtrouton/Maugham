@@ -118,18 +118,87 @@ final class ReviewRoundCockpitTests: XCTestCase {
             .running(counts))
     }
 
-    /// Every state that is not a run in flight on this document reads idle —
-    /// `.nothingNew` and `.failed` describe runs that are OVER, and the strip
-    /// must offer its buttons again the moment one ends.
-    func test_everyFinishedStateReadsIdle() {
+    /// A run that worked and had nothing to read is idle here: `.nothingNew`
+    /// says the key worked, which is what the report line under it already
+    /// carries, and the strip must offer its buttons again the moment it lands.
+    func test_aRunThatFoundNothingNewReadsIdle() {
         for state: CompilerOrchestrator.RunState in [
             .idle,
             .nothingNew(docId: "ch-1", at: Date()),
-            .failed(docId: "ch-1", failure: .unusableOutput, at: Date()),
         ] {
             XCTAssertEqual(ReviewRoundCockpit.phase(runState: state, docId: "ch-1"), .idle,
-                           "\(state) is not a run in flight")
+                           "\(state) is not a run in flight and not a failure")
         }
+    }
+
+    /// **The blind spot Denver's 2026-08-18 smoke cost three misread rounds.**
+    ///
+    /// `.failed` used to collapse into `.idle` here, on the argument that a
+    /// failure describes a run that is over — true, and it made a round that
+    /// died at the session budget render EXACTLY like a clean idle. Two of
+    /// Denver's rounds (Structural, then Line) timed out and he read both as
+    /// "returned nothing"; the failure was legible only in Author's Diagnostics
+    /// pane, a persona away from the button he pressed.
+    ///
+    /// Every failure kind, because the strip must not be honest about some of
+    /// them: a `sessionDied` that was NOT the writer's own doing is exactly as
+    /// invisible as a timeout was.
+    func test_aFailedRunOnThisDocumentIsItsOwnPhase() {
+        let at = Date(timeIntervalSince1970: 1_750_000_000)
+        for failure: CompilerRunFailure in [
+            .timedOut, .unusableOutput, .cliNotFound, .disabledByToggle,
+            .sessionDied(detail: "the CLI exited"),
+        ] {
+            XCTAssertEqual(
+                ReviewRoundCockpit.phase(
+                    runState: .failed(docId: "ch-1", failure: failure, at: at),
+                    docId: "ch-1"),
+                .failed(failure, at: at),
+                "a run that ended without an answer must reach the strip as a "
+                + "failure \u{2014} \(failure) collapsed into `.idle` is a "
+                + "cockpit that looks clean over a round that died")
+        }
+    }
+
+    /// **The falsification for the failure arm's scope.** The run state is per
+    /// WINDOW; the strip is per DOCUMENT. Drop the `runDocId == docId` clause
+    /// from the `.failed` case and chapter 1 wears a red line about a death in
+    /// chapter 2 — indefinitely, since the state only moves on the next run —
+    /// and the writer answers it by pressing Run on a document that never
+    /// failed.
+    func test_anotherDocumentsFailureLeavesThisCockpitIdle() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.phase(
+                runState: .failed(docId: "ch-2", failure: .timedOut, at: Date()),
+                docId: "ch-1"),
+            .idle,
+            "a failure on ANOTHER document must leave this cockpit idle")
+    }
+
+    /// **The writer's own doing never reaches this strip, and the filter is
+    /// upstream rather than here.** Cancel, the AI toggle, project close and a
+    /// second run arriving mid-flight all end a turn through `.sessionDied`,
+    /// and `CompilerOrchestrator.finish` routes every one of them to `.idle`
+    /// before the run state is ever set (`CompilerRunFailure.isTheWritersOwnDoing`).
+    ///
+    /// So this test pins the PREMISE the cockpit relies on rather than a second
+    /// filter inside it: a copy of that rule here would be a rule with nothing
+    /// keeping the two spellings in step. If this goes red the orchestrator
+    /// changed, and the strip's honesty about Cancel changed with it.
+    func test_theWritersOwnActionsAreFilteredOutBeforeTheStripEverSeesThem() {
+        for detail in [CompilerRunFailure.Detail.cancelled,
+                       CompilerRunFailure.Detail.sessionShutDown,
+                       CompilerRunFailure.Detail.runInFlight] {
+            XCTAssertTrue(
+                CompilerRunFailure.sessionDied(detail: detail).isTheWritersOwnDoing,
+                "\u{201C}\(detail)\u{201D} is the writer's own action coming "
+                + "back at them \u{2014} the orchestrator must keep it out of "
+                + "`.failed`, so the cockpit never paints a red line over a "
+                + "Cancel the writer pressed themselves")
+        }
+        XCTAssertFalse(
+            CompilerRunFailure.timedOut.isTheWritersOwnDoing,
+            "\u{2026}and a timeout is not, which is why it reaches the strip")
     }
 
     // MARK: - The report line
@@ -416,6 +485,74 @@ final class ReviewRoundCockpitTests: XCTestCase {
         }
     }
 
+    /// **The fix, on the delivery path: a round that dies says so in the strip
+    /// that launched it, and the Run button stays pressable.**
+    ///
+    /// The real `AnnotationsPane`, the real strip, the real
+    /// `CompilerOrchestrator.runRequested`, and a runner that answers
+    /// `.failed(.timedOut)` — the exact death Denver's Structural and Line
+    /// rounds hit at the session budget. Before this the strip drew the same
+    /// thing it draws for a clean idle and the only account of the failure was
+    /// in Author's Diagnostics pane.
+    ///
+    /// **Both halves matter.** The words, because a red strip that says nothing
+    /// is the same blind spot with a colour; and the button, because the remedy
+    /// for a timed-out round is another round — a strip that reports a failure
+    /// and then withholds the control that answers it is RULING-35's dead
+    /// control with a red line over it.
+    func test_aFailedRoundSaysSoInTheStripAndTheRunButtonStaysPressable() async throws {
+        let fx = try await makeHarness()
+        fx.documentStore.updateUIState {
+            $0.activePassMemory.record(piece: "ch-1", passId: "copyedit")
+        }
+        fx.runner.nextEvent = .failed(.timedOut)
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        let run = try button(labelled: ReviewRoundCockpit.runTitle, in: window)
+        _ = run.perform(NSSelectorFromString("accessibilityPerformPress"))
+
+        await awaitFailedRun(on: fx.orchestrator)
+        // The state is set off the run's own task; the strip redraws on the
+        // next pass of the hosted view.
+        pump(0.3)
+
+        let expected = RoundNarrative.failureCopy(.timedOut)
+        XCTAssertTrue(
+            allLabels(in: window).contains(expected),
+            "a round that died must say so where it was launched \u{2014} "
+            + "expected \u{201C}\(expected)\u{201D}, got \(allLabels(in: window))")
+
+        let again = try button(labelled: ReviewRoundCockpit.runTitle, in: window)
+        XCTAssertEqual(
+            axEnabled(again), true,
+            "\u{2026}and Run must stay pressable, because another round is the "
+            + "remedy for a failed one")
+        let fresh = try button(labelled: ReviewRoundCockpit.freshEyesTitle, in: window)
+        XCTAssertEqual(axEnabled(fresh), true,
+                       "\u{2026}as must Fresh Eyes")
+    }
+
+    /// **The failure REPLACES the report line rather than sitting beside it.**
+    ///
+    /// Both describe a round, and the report line describes an OLDER one — the
+    /// last that finished. Drawn together, the comparison reads as the dead
+    /// round's own result and tells the writer a run that produced nothing
+    /// resolved two things.
+    func test_theFailureLineStandsAloneAndTheReportLineDoesNotCoRender() throws {
+        let report = "Since round 1: 2 resolved \u{00b7} 1 persisting \u{00b7} 3 new"
+        let window = mountCockpit(
+            activePassId: "copyedit", round: 2,
+            phase: .failed(.timedOut, at: Date()), reportLine: report)
+
+        let labels = allLabels(in: window)
+        XCTAssertTrue(labels.contains(RoundNarrative.failureCopy(.timedOut)),
+                      "premise: the failure is drawn \u{2014} got \(labels)")
+        XCTAssertFalse(
+            labels.contains(report),
+            "the last finished round's comparison must not be drawn under a "
+            + "failure \u{2014} it would read as the dead round's own result")
+    }
+
     /// **Project scope renders no cockpit.** The strip is a statement about
     /// ONE piece's pass, round and next run; across the project every section
     /// is a different piece with a different answer, and a single strip there
@@ -689,6 +826,41 @@ final class ReviewRoundCockpitTests: XCTestCase {
                       + "verdict rather than recomputing one")
     }
 
+    /// **ONE spelling of a failure, read by both surfaces.**
+    ///
+    /// Author's Diagnostics pane and Review's cockpit now say something about
+    /// the same death, and a writer who checks the other pane to understand the
+    /// first must not find a differently-worded account of it. The sentence
+    /// lives in `RoundNarrative` — where `checkingCopy` and the round lines
+    /// already went, and for the same reason — and both surfaces call it.
+    ///
+    /// A census rather than a value comparison because the defect this guards
+    /// is a RESTATEMENT: a second `switch failure` in either file would keep
+    /// every equality test green on the day it was written and drift the first
+    /// time one arm is reworded. `failureCopy` was `DiagnosticsPane`'s own
+    /// static until 2026-08-18; a reviewer reinstating it there would be
+    /// reopening exactly that.
+    func test_bothSurfacesReadTheOneFailureSpelling() throws {
+        XCTAssertFalse(
+            RoundNarrative.failureCopy(.timedOut).isEmpty,
+            "premise: the shared spelling exists and answers")
+
+        for path in ["Views/DiagnosticsPane.swift", "Views/Review/ReviewRoundCockpit.swift"] {
+            let source = try Self.source(of: path)
+            XCTAssertTrue(
+                source.contains("RoundNarrative.failureCopy("),
+                "\(path) must read the shared failure spelling")
+            XCTAssertFalse(
+                source.contains("static func failureCopy("),
+                "\u{2026}and must not carry a second copy of it \u{2014} the "
+                + "sentence is `RoundNarrative`'s, and two switches over "
+                + "`CompilerRunFailure` are two accounts of one death")
+            XCTAssertFalse(
+                source.contains("case .cliNotFound:"),
+                "\u{2026}nor an arm of one under another name (\(path))")
+        }
+    }
+
     /// **The strip is not in the toolbar.** `AnnotationsQueueToolbar`'s one
     /// job is fitting a 240pt column, and its width census
     /// (`AnnotationsQueueToolbarWidthTests`) measures the row as declared —
@@ -931,6 +1103,17 @@ final class ReviewRoundCockpitTests: XCTestCase {
         {"section":"reader","reports":[{"kind":"belief","refs":["\(paragraphId)"],"report":"The reader stopped believing the fog."}]}
         {"section":"facts","candidates":[]}
         """
+    }
+
+    /// Wait for the orchestrator to record a failure. Bounded on
+    /// `awaitOpenNotes`' idiom — the run resolves off its own task, so a
+    /// straight-line read after the press would race it.
+    private func awaitFailedRun(on orchestrator: CompilerOrchestrator) async {
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline {
+            if case .failed = orchestrator.runState { return }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
     }
 
     private func awaitOpenNotes(_ count: Int, on document: Document) async {

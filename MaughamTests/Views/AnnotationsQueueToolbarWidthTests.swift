@@ -460,6 +460,58 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
         }
     }
 
+    /// **The failed arm — the strip's third status line, and its longest**
+    /// (2026-08-18). `RunPhase` gained `.failed` so a round that dies says so
+    /// where it was launched, and `RoundNarrative.failureCopy`'s longest
+    /// sentence is `cliNotFound`'s two clauses with a Settings path in them —
+    /// materially longer than either the lane line or the checking copy the two
+    /// fixtures above measure, and the very sentence that
+    /// `DiagnosticsPaneColumnHeightTests` records coming back ~400pt tall in the
+    /// other pane when it was made unbreakable. A `.fixedSize(horizontal:)` or a
+    /// `.lineLimit(1)` reached for to keep the red line on one line is exactly
+    /// what this catches.
+    private static func cockpitFailed() -> some View {
+        let pass = ReviewPass(
+            id: "structural",
+            name: "Late structural read before the Melbourne submission",
+            brief: "b",
+            editorName: "Perkins")
+        return ReviewRoundCockpit(
+            passes: [pass],
+            activePassId: pass.id,
+            round: 12,
+            phase: .failed(.cliNotFound, at: Date(timeIntervalSince1970: 1_750_000_000)),
+            // Non-nil on purpose: the failure REPLACES it, so a strip that drew
+            // both would be measured here as well as caught by
+            // `ReviewRoundCockpitTests`' co-render test.
+            reportLine: "Since round 11: 14 resolved \u{00b7} 9 persisting "
+                + "\u{00b7} 21 new",
+            onRun: { _ in },
+            onSetActivePass: { _ in })
+    }
+
+    func test_theRoundCockpitFitsTheColumnWithAFailedRound() {
+        for width in Self.columnWidths {
+            let measured = Self.width(of: Self.cockpitFailed(), proposing: width)
+            XCTAssertLessThanOrEqual(
+                measured, width + Self.slack,
+                "the round cockpit's failed arm wants \(measured)pt in a "
+                + "\(width)pt column \u{2014} the failure sentence must wrap "
+                + "like every other line in the strip, not set its width")
+        }
+    }
+
+    func test_theRoundCockpitsFailedArmHasRoomToSpareBelowTheColumnFloor() {
+        let columnFloor = CGFloat(UIState.detailColumnWidthRange.lowerBound)
+        let stripFloor = Self.width(of: Self.cockpitFailed(), proposing: 1)
+        XCTAssertLessThanOrEqual(
+            stripFloor + Self.headroom, columnFloor,
+            "the failed strip cannot be drawn narrower than \(stripFloor)pt "
+            + "against a \(columnFloor)pt column \u{2014} under the "
+            + "\(Self.headroom)pt this suite asks for. An incompressible "
+            + "failure line takes the margin all at once.")
+    }
+
     /// And the diff card inside it, which is what Denver saw running off the
     /// right edge. Its `Text`s were always compressible — this pins that they
     /// stay so, independently of what the toolbar above them does.
