@@ -178,6 +178,23 @@ final class EditionBriefToolTests: XCTestCase {
         XCTAssertEqual(Set(schema["required"] as? [String] ?? []), ["project_id", "language"])
     }
 
+    /// **Same refusal as the sibling translation tools** (`WriteTranslationTool`,
+    /// `ReadTranslationTool`): a language tag is part of an edition brief's
+    /// identity (`.editionBrief(tag)`), so an uppercase tag must be refused
+    /// loudly rather than silently missing a lowercase-tagged brief.
+    func test_readEditionBrief_invalidLanguageTag() async throws {
+        let (_, _, ds, reg) = try await makeRegisteredNovel()
+
+        do {
+            _ = try await read(reg, projectURL: ds.projectURL, language: "ES")
+            XCTFail("expected invalidArgument for bad language tag")
+        } catch let MCPError.invalidArgument(msg) {
+            XCTAssertTrue(msg.contains("invalid language tag"), "got: \(msg)")
+        }
+
+        await ds.close()
+    }
+
     func test_unknownProject_throwsToolError() async throws {
         let reg = ProjectRegistry()
         do {

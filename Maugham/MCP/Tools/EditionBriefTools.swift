@@ -51,6 +51,13 @@ public enum ReadEditionBriefTool: MCPTool {
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let params = try decodeParams(Params.self, from: paramsJSON)
+        // Same refusal as the sibling translation tools (`TranslationTools.swift`):
+        // a language tag is part of a statement's identity (`.editionBrief(tag)`),
+        // and an uppercase or malformed tag would silently miss the brief a
+        // lowercase-tagged write session already created.
+        guard TranslationRecord.isValidLanguageTag(params.language) else {
+            throw MCPError.invalidArgument("invalid language tag: \(params.language)")
+        }
         let entry = try resolveProject(params.project_id, in: registry)
         guard let statement = entry.store.statement(
             kind: .editionBrief(params.language), scope: .project

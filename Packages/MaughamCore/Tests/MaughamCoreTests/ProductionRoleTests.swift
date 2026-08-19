@@ -111,6 +111,16 @@ final class ProductionRoleTests: XCTestCase {
         XCTAssertNil(ProductionRole.defaultTranslatorName(language: ""))
     }
 
+    /// **The lookup is case-insensitive on the tag** — `defaultTranslatorName`
+    /// lowercases before consulting `presetTranslatorNames`, but nothing pinned
+    /// that until now. Matters because `translatorRole(for:)`'s mint matches
+    /// case-insensitively too (`storedTranslator(for:)`), so a caller spelling
+    /// the tag either way must land the same preset name.
+    func test_thePresetLookupIsCaseInsensitiveOnTheTag() {
+        XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "ES"), "Cortázar")
+        XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "Es"), "Cortázar")
+    }
+
     func test_thePresetDesignerIsTschichold() {
         XCTAssertEqual(ProductionRole.presetDesigner.role, .designer)
         XCTAssertEqual(ProductionRole.presetDesigner.name, "Tschichold")
