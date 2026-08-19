@@ -38,6 +38,17 @@ struct AnnotationsPane: View {
     /// `UIState.activePassMemory`; this pane only ever asks for it. Defaulted
     /// to a no-op so a host with no window behind it still compiles.
     var onSetActivePass: (String, String) -> Void = { _, _ in }
+    /// **The nudge's own verbs** (pass-order nudge gains its verbs) —
+    /// `(docId, passId, state)`. The store's per-piece pass write is a closed
+    /// three-file census (`PersonaPaneRegistryTests.passStateWritingFiles`:
+    /// InspectorView, PieceInspector, ProjectWindow) and this pane is
+    /// deliberately not a fourth: the closure is threaded from the SAME
+    /// `ProjectWindow` site that already writes the board's chip verb, so a
+    /// writer who presses "Mark done" or "Skip" in the queue reaches the one
+    /// store channel every other ruling surface reaches, with no direct call
+    /// to that store verb anywhere in this file.
+    /// Defaulted to a no-op so a host with no window behind it still compiles.
+    var onSetPassState: (String, String, PassState?) -> Void = { _, _, _ in }
     @Environment(UserPreferences.self) private var userPreferences
     /// The window's undo manager — passed into every accept so the Document
     /// registers its undo action against the manager ⌘Z reaches (and clears
@@ -208,10 +219,13 @@ struct AnnotationsPane: View {
     // stores are `@Observable`, so an inspector ruling on a pass, or a board
     // chip recording one, re-renders the queue.
     //
-    // Reading pass states is all this pane ever does with them. Writing one is
-    // a closed census of three files (`PersonaPaneRegistryTests.
-    // passStateWritingFiles`) and the queue is deliberately not among them:
-    // it advises about passes, it never rules on them.
+    // Reading pass states is all this pane's OWN code ever does with them.
+    // Writing one is a closed census of three files (`PersonaPaneRegistryTests.
+    // passStateWritingFiles`) and this file is deliberately not a fourth: the
+    // nudge's Mark done / Skip buttons call `onSetPassState`, a closure the
+    // host supplies, rather than the store's write verb directly — so a writer
+    // CAN rule on a pass from here, but only through the one channel every
+    // other ruling surface already writes through.
 
     /// The project's named passes — the filter menu's contents, and the order
     /// the advisory nudge reads "earlier" off.
@@ -645,21 +659,24 @@ struct AnnotationsPane: View {
     /// Document scope only: it is a statement about ONE piece's pass states,
     /// and in project scope every section is a different piece with different
     /// ones — a single caption there could only be wrong.
+    ///
+    /// **Gains its own verbs** (pass-order nudge gains its verbs): Mark done
+    /// and Skip, so the writer can close the earlier pass at the moment the
+    /// question arises rather than leaving to the Inspector's ladder or the
+    /// board's chip menu. Still advisory — the row draws no confirmation and
+    /// disables nothing; pressing a button is the writer's own act, exactly as
+    /// choosing a state in the ladder always was.
     @ViewBuilder
     private var passOrderNudge: some View {
         if !scope.isProject,
+           let docId = document?.docId,
            let earlier = PassOrderAdvice.advice(
-                forPiece: document?.docId, memory: activePassMemory,
+                forPiece: docId, memory: activePassMemory,
                 passes: reviewPasses, passStates: piecePassStates) {
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "info.circle").font(.caption2)
-                Text(PassOrderAdvice.caption(for: earlier))
-                    .font(.caption2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12).padding(.vertical, 6)
+            PassOrderNudgeRow(
+                pass: earlier,
+                onMarkDone: { onSetPassState(docId, earlier.id, .done) },
+                onSkip: { onSetPassState(docId, earlier.id, .skipped) })
             Divider()
         }
     }
@@ -1376,6 +1393,44 @@ private struct RowDisabledReason: ViewModifier {
 @MainActor
 /// Row-level control policy — pure, so RULING-35's no-dead-controls rule is
 /// testable without mounting the pane.
+/// **The advisory nudge's row** (pass-order nudge gains its verbs) — extracted
+/// as its own view, the way `AnnotationRow` and `AnnotationsQueueToolbar` are,
+/// so its width is measurable the same way theirs is
+/// (`AnnotationsQueueToolbarWidthTests`). `AnnotationsPane.passOrderNudge` is a
+/// thin wrapper supplying the pass and the two closures; this struct owns no
+/// store and calls neither closure itself — pressing a button is the
+/// writer's, not the row's.
+///
+/// The two buttons say only "Mark done" / "Skip" rather than repeating the
+/// pass's name: the caption beside them already names it (`PassOrderAdvice.
+/// caption(for:)`), and there is only ever one earlier open pass to act on,
+/// so a second naming of it would be the row arguing with itself about which
+/// word is load-bearing.
+struct PassOrderNudgeRow: View {
+    let pass: ReviewPass
+    let onMarkDone: () -> Void
+    let onSkip: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "info.circle").font(.caption2)
+            Text(PassOrderAdvice.caption(for: pass))
+                .font(.caption2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            Button("Mark done", action: onMarkDone)
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            Button("Skip", action: onSkip)
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12).padding(.vertical, 6)
+    }
+}
+
 enum AnnotationRowPolicy {
     /// Revert makes sense only for an accepted suggestion whose anchor
     /// paragraph still exists — an enabled Revert that silently does nothing

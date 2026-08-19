@@ -2675,6 +2675,15 @@ struct ProjectWindow: View {
             // mint its lane.
             onSetActivePass: { piece, passId in
                 recordActivePass(forPiece: piece, passId: passId)
+            },
+            // The pass-order nudge's Mark done / Skip buttons (pass-order
+            // nudge gains its verbs) — the same write, at the same host, as
+            // the board's chip verb a few lines above: `PersonaPaneRegistryTests
+            // .passStateWritingFiles`' census is file-scoped, so a second call
+            // site in THIS file costs the census nothing, while a call in
+            // `AnnotationsPane.swift` would have made it a fourth writer.
+            onSetPassState: { pieceId, passId, state in
+                Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
             }
         ) {
             researchOrSubject(store: store)
