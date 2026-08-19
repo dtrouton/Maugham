@@ -65,6 +65,14 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// click already goes through it. A second `updateUIState` in this file
     /// would be two spellings of one rule, and the RUN reads only one of them.
     var onSetActivePass: (String, String) -> Void = { _, _ in }
+    /// The queue's pass-order nudge's own verbs (pass-order nudge gains its
+    /// verbs) — `(docId, passId, state)`. Threaded rather than written here
+    /// for the same reason as `onSetActivePass`: `setPassState` is a closed
+    /// three-file census (`PersonaPaneRegistryTests.passStateWritingFiles`)
+    /// and a write in THIS file would be a fourth. `ProjectWindow` supplies
+    /// the same `store.setPassState` the board's chip menu and the two
+    /// Inspector arms already call.
+    var onSetPassState: (String, String, PassState?) -> Void = { _, _, _ in }
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
@@ -99,6 +107,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         assistant: AssistantColumnModel? = nil,
         annotationScope: Binding<AnnotationScope> = .constant(.document),
         onSetActivePass: @escaping (String, String) -> Void = { _, _ in },
+        onSetPassState: @escaping (String, String, PassState?) -> Void = { _, _, _ in },
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -123,6 +132,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.assistant = assistant
         self._annotationScope = annotationScope
         self.onSetActivePass = onSetActivePass
+        self.onSetPassState = onSetPassState
         self.inspectorContent = inspectorContent
     }
 
@@ -575,7 +585,8 @@ struct DetailPaneToggle<Inspector: View>: View {
                 // surfaces no compiler, which draws no strip.
                 orchestrator: compilerOrchestrator,
                 diagnostics: diagnosticsStore,
-                onSetActivePass: onSetActivePass)
+                onSetActivePass: onSetActivePass,
+                onSetPassState: onSetPassState)
         } else {
             ContentUnavailableView(
                 "Open a project",

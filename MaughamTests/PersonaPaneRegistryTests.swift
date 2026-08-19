@@ -433,6 +433,15 @@ final class PersonaPaneRegistryTests: XCTestCase {
             + "which is why `ProjectWindow.swift` — and not this file — is the "
             + "census's third member. If the pane has been handed a store, that "
             + "is the change to argue about, not this expectation.")
+        XCTAssertFalse(census.contains("AnnotationsPane.swift"),
+            "The queue's pass-order nudge (2026-08-19) grew Mark done / Skip "
+            + "buttons, but the write stays at the host exactly like the "
+            + "board's and the ladder's: `AnnotationsPane.onSetPassState` is a "
+            + "closure threaded in from `DetailPaneToggle`/`ProjectWindow`, "
+            + "never a direct `store.setPassState` call in this file. If it "
+            + "appears here the pane has started writing directly and the "
+            + "closure-threading argument in `AnnotationsPane.swift`'s own "
+            + "doc comment no longer holds.")
 
         // The one excluded file must still be the DECLARATION. Without this the
         // exclusion is a hole: move the declaration and `passStateWriteDefiner`

@@ -522,6 +522,108 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             + "failure line takes the margin all at once.")
     }
 
+    // MARK: - The nudge (pass-order nudge gains its verbs, 2026-08-19)
+
+    /// **The nudge's hardest honest case**: a pass the writer named at
+    /// length, drawn beside its two new buttons. `PassOrderNudgeRow`'s `Text`
+    /// wraps (`.fixedSize(horizontal: false, vertical: true)`), so this is
+    /// really asking whether Mark done + Skip + the icon are compressible
+    /// enough to leave the wrapping `Text` room in the narrowest column a
+    /// writer can drag to.
+    private static func nudgeRow(passName: String = "Structural") -> some View {
+        PassOrderNudgeRow(
+            pass: ReviewPass(id: "structural", name: passName),
+            onMarkDone: {}, onSkip: {})
+    }
+
+    func test_theNudgeRowFitsTheColumn() {
+        for width in Self.columnWidths {
+            let measured = Self.width(of: Self.nudgeRow(), proposing: width)
+            XCTAssertLessThanOrEqual(
+                measured, width + Self.slack,
+                "the pass-order nudge wants \(measured)pt in a \(width)pt "
+                + "column \u{2014} its two buttons are `.controlSize(.mini)` "
+                + "and the caption wraps, so an overflow here means one of "
+                + "them stopped being compressible")
+        }
+    }
+
+    /// The same headroom rule every other strip in this pane answers to.
+    func test_theNudgeRowHasRoomToSpareBelowTheColumnFloor() {
+        let columnFloor = CGFloat(UIState.detailColumnWidthRange.lowerBound)
+        let rowFloor = Self.width(of: Self.nudgeRow(), proposing: 1)
+        XCTAssertLessThanOrEqual(
+            rowFloor + Self.headroom, columnFloor,
+            "the nudge cannot be drawn narrower than \(rowFloor)pt, which "
+            + "leaves \(columnFloor - rowFloor)pt of slack in the narrowest "
+            + "column a writer can drag to \u{2014} under the "
+            + "\(Self.headroom)pt this suite asks for. A third button on "
+            + "this row wants a wider pane rather than a second line.")
+    }
+
+    /// A writer's own pass name is unbounded (`ReviewPassEditorLogic` puts no
+    /// ceiling on it) and the row's `Text` is what has to absorb that, not
+    /// the two buttons beside it.
+    func test_aWriterNamedPassDoesNotWidenTheNudgeRow() {
+        let long = "Second pass \u{2014} continuity, timeline and the dog"
+        for width in Self.columnWidths {
+            let measured = Self.width(
+                of: Self.nudgeRow(passName: long), proposing: width)
+            XCTAssertLessThanOrEqual(
+                measured, width + Self.slack,
+                "a \(long.count)-character pass name took the nudge to "
+                + "\(measured)pt in a \(width)pt column \u{2014} the caption "
+                + "must wrap, not set the row's width")
+        }
+    }
+
+    /// **Without this, the two assertions above could be measuring nothing.**
+    /// The instrument's own control, this suite's established idiom
+    /// (`test_theInstrumentSeesAnIncompressibleRow`): plant an incompressible
+    /// row shaped like the nudge (a `.fixedSize()` worded label beside two
+    /// `.fixedSize()` buttons) and require it to overflow, so a silently
+    /// no-op measurement cannot pass by never seeing the defect it claims to
+    /// rule out.
+    func test_theInstrumentSeesAnIncompressibleNudgeRow() {
+        for width in Self.columnWidths {
+            let planted = Self.width(of: FixedSizeNudgeRow(), proposing: width)
+            XCTAssertGreaterThan(
+                planted, width * 1.2,
+                "the planted offender \u{2014} a `.fixedSize()` caption "
+                + "beside two `.fixedSize()` buttons \u{2014} must overflow a "
+                + "\(width)pt column, or this suite's instrument cannot see "
+                + "the bug it is asserting the absence of")
+        }
+    }
+
+    /// **What the measurements above cannot see.** Mounts
+    /// `PassOrderNudgeRow` directly, so they would stay green the day
+    /// `AnnotationsPane.passOrderNudge` went back to composing its own row —
+    /// the toolbar's own established idiom
+    /// (`test_theQueuesToolbarIsTheViewThisSuiteMeasures`).
+    func test_theNudgeIsTheViewThisSuiteMeasures() throws {
+        let code = try Self.codeLines(of: "Views/AnnotationsPane.swift")
+        XCTAssertEqual(
+            code.filter { $0.contains("PassOrderNudgeRow(") }.count, 1,
+            "the pane must render its advisory nudge through the extracted "
+            + "row, once — an inline composition here is a second row with "
+            + "no width measurement on it")
+    }
+
+    /// The offender's mechanism, not a byte copy of the shipped row.
+    private struct FixedSizeNudgeRow: View {
+        var body: some View {
+            HStack(spacing: 6) {
+                Text("Structural still open on this piece, a caption long "
+                    + "enough that wrapping is the only honest way to fit it")
+                    .fixedSize()
+                Button("Mark done") {}.fixedSize()
+                Button("Skip") {}.fixedSize()
+            }
+            .padding(.horizontal, 12)
+        }
+    }
+
     /// And the diff card inside it, which is what Denver saw running off the
     /// right edge. Its `Text`s were always compressible — this pins that they
     /// stay so, independently of what the toolbar above them does.

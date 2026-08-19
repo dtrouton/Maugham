@@ -447,11 +447,26 @@ final class AnnotationPassStampTests: XCTestCase {
     }
 
     /// Reading pass states is fine; WRITING them is a closed set
-    /// (`PersonaPaneRegistryTests.passStateWritingFiles`). The nudge reads.
-    func test_theNudgeReadsPassStatesAndWritesNone() throws {
+    /// (`PersonaPaneRegistryTests.passStateWritingFiles`), and this file must
+    /// never become a fourth member of it.
+    ///
+    /// **The nudge gained verbs (2026-08-19) without gaining the write.**
+    /// Mark done / Skip route through `onSetPassState`, a closure the host
+    /// supplies — so this pane calls THAT, never `store.setPassState`
+    /// directly. The negative half (no literal `setPassState` call) is what
+    /// keeps the file out of the census; the positive half (the closure IS
+    /// wired into the nudge) is what keeps the verbs from being dead code.
+    func test_theNudgeRoutesItsVerbsThroughTheClosureAndNeverCallsSetPassStateDirectly() throws {
         let pane = try source("Maugham/Views/AnnotationsPane.swift")
         XCTAssertFalse(pane.contains("setPassState"),
-                       "the queue advises about passes; it never rules on them")
+                       "the queue may let the writer rule on a pass, but only "
+                       + "through the host's closure — a direct call here "
+                       + "would make this file a fourth member of "
+                       + "PersonaPaneRegistryTests.passStateWritingFiles")
+        XCTAssertTrue(pane.contains("onSetPassState("),
+                      "the nudge's Mark done / Skip buttons must call the "
+                      + "threaded closure — without this the verbs compile "
+                      + "but do nothing")
         let advice = try source("Maugham/Views/PassOrderAdvice.swift")
         XCTAssertFalse(advice.contains("setPassState"))
     }

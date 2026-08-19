@@ -91,8 +91,11 @@ Run Gould's round (⌘R), or ask Claude in Claude Desktop."*
 
 **A quiet nudge, not a gate.** Work a piece through a later pass while an
 earlier one is still open, and a caption says so — *"Structural still open on
-this piece"* — without disabling anything. The passes are an order, not a
-workflow the app enforces.
+this piece"* — without disabling anything. Two small buttons sit beside the
+caption, **Mark done** and **Skip**, so you can close the earlier pass right
+there instead of leaving the queue for the Inspector's ladder or the board's
+chip menu — and the nudge disappears the moment you do. The passes are an
+order, not a workflow the app enforces.
 
 ## Rounds and Fresh Eyes
 
