@@ -154,11 +154,20 @@ final class CompilerProvenanceTests: XCTestCase {
 
     // MARK: - No schema bump
 
-    /// This task adds no `OpKind` case, and `OpKind`'s SCHEMA CONTRACT scopes
-    /// the bump to exactly that. Additive all-optional `Provenance` fields
-    /// cannot be silently dropped by an older build, because the op log is
-    /// append-only — ops are never re-saved.
-    func test_theSchemaVersionDidNotMoveForThisTask() {
-        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 7)
+    /// The compiler-provenance fields needed no bump of their own: they add no
+    /// `OpKind` case, and `OpKind`'s SCHEMA CONTRACT scopes the bump to exactly
+    /// that. Additive all-optional `Provenance` fields cannot be silently
+    /// dropped by an older build, because the op log is append-only — ops are
+    /// never re-saved.
+    ///
+    /// Version-relative, asserting the floor these fields landed at rather than
+    /// the exact number (the `AcceptRevertOpTests` / `AnnotationReopenOpTests`
+    /// shape): "did not move" was a claim about one afternoon, and written as an
+    /// equality it failed on the next unrelated bump — schema 8, the publish
+    /// department's `productionRoles` section, which has nothing to do with
+    /// provenance. A test that must be edited at every bump is a test that will
+    /// one day be edited wrongly.
+    func test_theSchemaVersionNeededNoBumpForTheseProvenanceFields() {
+        XCTAssertGreaterThanOrEqual(ProjectManifest.currentSchemaVersion, 7)
     }
 }

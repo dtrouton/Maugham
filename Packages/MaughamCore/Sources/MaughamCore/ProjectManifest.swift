@@ -60,7 +60,39 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// still OPEN there, so the writer is shown a queue they already cleared
     /// and can resolve the same note twice. Refusing the project outright is
     /// the honest answer, and it makes M3 a paired Mac + phone release.
-    public static let currentSchemaVersion = 7
+    ///
+    /// 7 → 8 (the publish department, P1): **two causes, either of which would
+    /// have earned the bump on its own.**
+    ///
+    /// First, the `productionRoles` section on the manifest — the project's
+    /// named translators and its designer. Additive and absent-tolerant, so a
+    /// schema-7 manifest with no such key opens fine; the bump is load-bearing
+    /// for the reason 3 → 4 and 5 → 6 were. An older build would read the
+    /// project happily and then re-save the manifest **without the section**,
+    /// silently discarding every translator the writer named and every brief
+    /// they wrote — and worse than losing the names, the identities those names
+    /// stand for: annotations already signed by a translator would be left
+    /// pointing at a person the manifest no longer knows. Nothing in the
+    /// additive shape protects against that; `decodeGuardingSchema` does, by
+    /// refusing the file outright.
+    ///
+    /// Second, `Statement.Kind.editionBrief(String)` — the third statement kind
+    /// (raw `edition_brief:<lang>`), under ADR 0015's unconditional "adding a
+    /// case to any tolerant enum ⇒ bump this number". `Kind`'s `.unknown` is
+    /// lossless, so the re-encode degradation that makes most such bumps urgent
+    /// does not apply here: an old build preserves the raw string verbatim. The
+    /// bump is still right, and the contract is deliberately not case-by-case.
+    /// What an old build cannot do is *route* the kind — the Spanish edition's
+    /// register, idiom policy and typographic conventions become a statement it
+    /// retains and ignores, so a translation run made there is briefed on
+    /// doctrine the writer wrote and this build cannot see. Refusing the project
+    /// is the honest answer; presenting a book whose edition has rules nobody is
+    /// reading is not.
+    ///
+    /// As with M1A and M3, this makes the milestone a **paired Mac + phone
+    /// release**: shipped phone builds refuse a v8 manifest via
+    /// `decodeGuardingSchema` until they are updated together.
+    public static let currentSchemaVersion = 8
 
     /// The filename used by every Maugham project for its manifest.
     /// Both the Mac app and the iOS companion look for this name in a
@@ -146,6 +178,37 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         reviewPasses.isEmpty ? ReviewPass.presets : reviewPasses
     }
 
+    /// The project's publish department (schema 8) — its named translators and
+    /// its designer. Non-optional, defaulting to `[]` in both the memberwise
+    /// init and `init(from:)`, so a schema-7 manifest (which has no such key)
+    /// still opens — the `reviewPasses` shape (`:138`).
+    ///
+    /// An empty or absent stored list is not "no designer": read
+    /// `effectiveProductionRoles`, never this property, when what's wanted is
+    /// "who works on this book". This property exists so a minted translator and
+    /// a renamed designer round-trip, and so "nothing customized yet" is
+    /// representable without a migration (tripwire 11).
+    public var productionRoles: [ProductionRole]
+
+    /// The department a reader should actually use: the stored roles, with
+    /// `ProductionRole.presetDesigner` prepended when none of them is a
+    /// designer. Never writes the preset back to `productionRoles`.
+    ///
+    /// **This is where it differs from `effectiveReviewPasses` above** — that
+    /// one *replaces* an empty list with the presets, which is right when the
+    /// presets are the whole set. Here they are not: a translator is minted into
+    /// the stored list the first time a language edition exists, and the
+    /// designer must survive beside it. So the preset **merges** rather than
+    /// replaces. Copying the `isEmpty ? presets : stored` shape here would make
+    /// the designer vanish the moment the first translator was minted.
+    public var effectiveProductionRoles: [ProductionRole] {
+        let hasDesigner = productionRoles.contains { role in
+            if case .designer = role.role { return true }
+            return false
+        }
+        return hasDesigner ? productionRoles : [ProductionRole.presetDesigner] + productionRoles
+    }
+
     public var targets: ProjectTargets?
 
     /// Per-project typography override. When non-nil, takes precedence over
@@ -206,6 +269,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         research: [ResearchItem],
         statements: [Statement] = [],
         reviewPasses: [ReviewPass] = [],
+        productionRoles: [ProductionRole] = [],
         targets: ProjectTargets? = nil,
         typography: TypographySettings? = nil,
         showElementGutter: Bool? = nil
@@ -221,6 +285,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.research = research
         self.statements = statements
         self.reviewPasses = reviewPasses
+        self.productionRoles = productionRoles
         self.targets = targets
         self.typography = typography
         self.showElementGutter = showElementGutter
@@ -251,6 +316,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.research = try c.decode([ResearchItem].self, forKey: .research)
         self.statements = try c.decodeIfPresent([Statement].self, forKey: .statements) ?? []
         self.reviewPasses = try c.decodeIfPresent([ReviewPass].self, forKey: .reviewPasses) ?? []
+        self.productionRoles = try c.decodeIfPresent(
+            [ProductionRole].self, forKey: .productionRoles) ?? []
         self.targets = try c.decodeIfPresent(ProjectTargets.self, forKey: .targets)
         self.typography = try c.decodeIfPresent(TypographySettings.self, forKey: .typography)
         self.showElementGutter = try c.decodeIfPresent(Bool.self, forKey: .showElementGutter)

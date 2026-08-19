@@ -88,7 +88,7 @@ final class ProjectManifestTests: XCTestCase {
         XCTAssertNoThrow(try makeISODecoder().decode(ProjectManifest.self, from: json))
     }
 
-    func test_schemaVersion7_isCurrent() {
+    func test_schemaVersion8_isCurrent() {
         // claudeAcceptRevert (2026-07-08) bumped the schema 1 -> 2; annotationReopen
         // (2026-07-09, ADR 0015 contract) bumped 2 -> 3; the `statements` section
         // (M1A, 2026-07-31) bumped 3 -> 4 — see ProjectManifest.statements for why
@@ -103,8 +103,18 @@ final class ProjectManifestTests: XCTestCase {
         // M3 P2 (2026-08-15) bumped 6 -> 7: the `annotationStet` and
         // `annotationTriage` op kinds, under `OpKind`'s "adding a case ⇒ bump
         // this" contract — an older build derives a stetted note as still
-        // OPEN, so the writer is shown a queue they already cleared.
-        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 7)
+        // OPEN, so the writer is shown a queue they already cleared. The
+        // publish department (2026-08-19) bumped 7 -> 8 for two causes: the
+        // `productionRoles` section (an older build's re-save drops the
+        // writer's named translators and designer, orphaning the annotations
+        // they signed) and the new `Statement.Kind.editionBrief` case, which an
+        // older build retains losslessly but cannot route — an edition's own
+        // doctrine would sit on disk unread.
+        //
+        // Deliberately a literal, unlike the gate tests: this is the ledger's
+        // assertion, and its whole job is to make a bump a conscious act that
+        // sends the next person to `currentSchemaVersion`'s doc comment.
+        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 8)
     }
 
     func test_codable_roundTrips_withTypographyOverride() throws {
