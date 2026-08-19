@@ -417,6 +417,7 @@ struct ArtifactIndex: Equatable {
         switch kind {
         case .intent: return intentTitle
         case .visualLanguage: return visualLanguageTitle
+        case .editionBrief(let lang): return "Edition Brief · \(lang)"
         case .unknown(let raw): return raw
         }
     }

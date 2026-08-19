@@ -165,4 +165,44 @@ final class StatementTests: XCTestCase {
         XCTAssertEqual(String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self),
                        #""document:""#)
     }
+
+    // MARK: - The editionBrief kind
+
+    /// A localized edition's own brief round-trips through its language tag,
+    /// same split-on-first-colon shape as `Scope.document`.
+    func test_editionBriefEncodesAndRoundTrips() throws {
+        let kind = Statement.Kind.editionBrief("es")
+        let encoded = String(decoding: try JSONEncoder().encode(kind), as: UTF8.self)
+        XCTAssertEqual(encoded, #""edition_brief:es""#)
+        XCTAssertEqual(try JSONDecoder().decode(Statement.Kind.self, from: Data(encoded.utf8)), kind)
+    }
+
+    /// `"edition_brief:"` carries no language tag. Minting an empty-tag
+    /// edition brief would match nothing while looking valid; preserve it
+    /// verbatim instead (same reasoning as `Scope`'s `"document:"`).
+    func test_editionBriefWithNoLanguageIsPreservedAsUnknown() throws {
+        let decoded = try JSONDecoder().decode(Statement.Kind.self, from: Data(#""edition_brief:""#.utf8))
+        XCTAssertEqual(decoded, .unknown("edition_brief:"))
+        XCTAssertEqual(String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self),
+                       #""edition_brief:""#)
+    }
+
+    /// A language tag containing a hyphen (`pt-br`) survives whole, and —
+    /// separately — a raw carrying a SECOND colon splits on the first only.
+    func test_editionBriefRoundTripsAHyphenatedTagAndSplitsOnFirstColonOnly() throws {
+        let kind = Statement.Kind.editionBrief("pt-br")
+        let encoded = String(decoding: try JSONEncoder().encode(kind), as: UTF8.self)
+        XCTAssertEqual(encoded, #""edition_brief:pt-br""#)
+        XCTAssertEqual(try JSONDecoder().decode(Statement.Kind.self, from: Data(encoded.utf8)), kind)
+
+        let decoded = try JSONDecoder().decode(
+            Statement.Kind.self, from: Data(#""edition_brief:es:extra""#.utf8))
+        XCTAssertEqual(decoded, .editionBrief("es:extra"))
+    }
+
+    /// An old-style unrecognised kind is untouched by the new prefix check.
+    func test_anUnrelatedUnknownKindIsStillUntouched() throws {
+        let decoded = try JSONDecoder().decode(Statement.Kind.self, from: Data(#""manifesto""#.utf8))
+        XCTAssertEqual(decoded, .unknown("manifesto"))
+    }
 }

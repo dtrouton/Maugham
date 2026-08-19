@@ -3002,6 +3002,8 @@ struct ProjectWindow: View {
         switch statement.kind {
         case .intent: return .intent
         case .visualLanguage: return .visualLanguage
+        // Neither has a pane here — same as `.unknown` below.
+        case .editionBrief: return nil
         // A kind a newer build wrote, retained and ignored everywhere else
         // (`Statement.Kind`). There is no pane for it here either.
         case .unknown: return nil

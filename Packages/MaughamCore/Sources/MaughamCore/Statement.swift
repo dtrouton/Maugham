@@ -33,12 +33,14 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
     public enum Kind: Codable, Equatable, Sendable {
         case intent
         case visualLanguage
+        case editionBrief(String)   // language tag, e.g. "es"
         /// A kind written by a newer build. Carries the original raw string so
         /// re-encode is lossless (see type doc).
         case unknown(String)
 
         private static let intentRaw = "intent"
         private static let visualLanguageRaw = "visual_language"
+        private static let editionBriefPrefix = "edition_brief:"
 
         /// The stable on-disk string. Known cases emit their canonical value;
         /// an `.unknown` emits the preserved original raw.
@@ -46,6 +48,7 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
             switch self {
             case .intent: return Self.intentRaw
             case .visualLanguage: return Self.visualLanguageRaw
+            case .editionBrief(let lang): return Self.editionBriefPrefix + lang
             case .unknown(let raw): return raw
             }
         }
@@ -55,7 +58,13 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
             switch raw {
             case Self.intentRaw: self = .intent
             case Self.visualLanguageRaw: self = .visualLanguage
-            default: self = .unknown(raw)
+            default:
+                if raw.hasPrefix(Self.editionBriefPrefix) {
+                    let lang = String(raw.dropFirst(Self.editionBriefPrefix.count))
+                    self = lang.isEmpty ? .unknown(raw) : .editionBrief(lang)
+                } else {
+                    self = .unknown(raw)
+                }
             }
         }
 
