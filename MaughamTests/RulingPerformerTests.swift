@@ -785,6 +785,34 @@ final class RulingPerformerTests: XCTestCase {
             ["Keep the vous."])
     }
 
+    /// **The live consequence of `StatementEssay.carriesRulings` answering
+    /// honestly for a brief** (fix round 1). A ruling puts a `## Rulings`
+    /// section in the file; prose appended afterwards must land at the end of
+    /// the ESSAY, above that list — not below it, where `RulingsSection.parse`
+    /// does not read it and no essay reader can show it. The words would be safe
+    /// on disk and invisible in the surface that owns them.
+    func test_proseAppendedToABriefWithRulingsLandsInTheEssayNotBelowTheList() async throws {
+        let (url, store, _) = try await loadedNovel(named: "BriefAppendAboveRulings")
+        let kind = Statement.Kind.editionBrief("es")
+
+        try await RulingPerformer.rule(
+            "October's doctor is female.", provenance: "ruled at the desk",
+            kind: kind, forScope: .project, store: store, world: nil)
+        let brief = try XCTUnwrap(store.statement(kind: kind, scope: .project))
+        try await store.appendToStatement(
+            "The Spanish edition keeps the fog.", to: brief, session: "seed")
+
+        let rendered = try renderedFile(of: brief, in: url)
+        let parsed = RulingsSection.parse(rendered)
+        XCTAssertTrue(
+            parsed.essay.contains("The Spanish edition keeps the fog."),
+            "the appended prose must be in the ESSAY half, not stranded under the "
+            + "rulings list: \(rendered)")
+        XCTAssertEqual(
+            parsed.rulings.map(\.text), ["October's doctor is female."],
+            "and the ruling is untouched, still a ruling: \(rendered)")
+    }
+
     // MARK: - The membrane (spec §3.4)
 
     /// **Nothing derived can write itself.** Every verb here takes the writer's

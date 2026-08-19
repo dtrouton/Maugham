@@ -243,14 +243,23 @@ final class StatementPaneStrataTests: XCTestCase {
 
     // MARK: - Which statements have the stratum at all
 
-    /// Visual language has no rulings (`RulingPerformer`'s kind is always
-    /// `.intent`), so its editor binds its whole text — otherwise a writer who
-    /// typed `## Rulings` as an ordinary heading in their visual language would
-    /// watch the rest of the document leave the editor, with rows underneath
-    /// whose Revoke button refuses (`RulingFailure.noStatement`, because the
-    /// performer would look for an INTENT statement).
-    func test_onlyIntentCarriesTheRulingsStratum() {
+    /// The stratum belongs to the kinds a verb writes one into — intent, and
+    /// (publish department, Task 6) an edition brief, `RulingPerformer`'s two
+    /// destinations.
+    ///
+    /// Visual language has no rulings and no verb that writes one, so its editor
+    /// binds its whole text — otherwise a writer who typed `## Rulings` as an
+    /// ordinary heading in their visual language would watch the rest of the
+    /// document leave the editor, with rows underneath whose Revoke button
+    /// refuses (`RulingFailure.noStatement`, because the performer would look
+    /// for an INTENT statement).
+    func test_theRulingDestinationsCarryTheStratumAndNothingElseDoes() {
         XCTAssertTrue(StatementEssay.carriesRulings(.intent))
+        XCTAssertTrue(
+            StatementEssay.carriesRulings(.editionBrief("es")),
+            "a brief carries rulings by construction \u{2014} answering no would not stop "
+            + "the section existing, only stop everything downstream from seeing where "
+            + "the essay ends")
         XCTAssertFalse(StatementEssay.carriesRulings(.visualLanguage))
         XCTAssertFalse(StatementEssay.carriesRulings(.unknown("newer-build")))
     }
