@@ -139,11 +139,20 @@ extension ProjectStore {
     /// Write a new department to the manifest, **restoring the old one if the
     /// save fails**.
     ///
-    /// The rollback is not ceremony. Every verb here is find-or-create or
-    /// idempotent, so a role left standing in memory after a failed save is
-    /// never re-attempted: the next call finds it, returns it, and the row that
-    /// every surface is showing is one that does not exist on disk — silent
-    /// until the project is reopened and the translator is gone.
+    /// **This is where it departs from `setReviewPasses`, which mutates and lets
+    /// the throw propagate — and the difference is idempotency, not taste.**
+    /// That verb writes the whole list from an explicit Save the writer pressed;
+    /// a throw reaches an alert and the writer presses it again, against the
+    /// same list. `translatorRole(for:)` is find-or-create, so nobody presses
+    /// anything a second time: a role left standing in memory after a failed
+    /// save is never re-attempted, because the *next* call finds it and returns
+    /// it. The caller gets a translator whose id signs an annotation and which
+    /// no reload will ever produce — silent until the project is reopened and
+    /// the translator is gone.
+    ///
+    /// `ProductionRoleStoreTests.test_aFailedSaveLeavesNoPhantomTranslatorBehind`
+    /// holds the consequence rather than the mechanism: after a refused write,
+    /// the next ask MINTS again and that role reaches disk.
     private func commitProductionRoles(_ roles: [ProductionRole]) async throws {
         let previousRoles = manifest.productionRoles
         let previouslyModified = manifest.modified

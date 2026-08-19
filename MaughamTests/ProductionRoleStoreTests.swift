@@ -265,6 +265,86 @@ final class ProductionRoleStoreTests: XCTestCase {
         XCTAssertTrue(store.manifest.productionRoles.isEmpty)
     }
 
+    // MARK: - A refused write leaves nothing standing
+
+    /// **The rollback in `commitProductionRoles`, held by its consequence.**
+    ///
+    /// This is where the seam departs from `setReviewPasses`, which mutates and
+    /// lets a failed save propagate. That verb writes the whole list from an
+    /// explicit Save; a throw reaches an alert and the writer presses it again.
+    /// `translatorRole(for:)` is find-or-create, so nobody presses anything a
+    /// second time — the next call FINDS the in-memory role and returns it. Drop
+    /// the rollback and the second ask below hands back a translator whose id
+    /// signs annotations and which no reload will ever produce.
+    ///
+    /// The save is made to fail for real — the project directory is made
+    /// unwritable, so `saveManifest`'s tmp file cannot be created — rather than
+    /// through an injected seam: this store has none, and the failure under test
+    /// is the disk's own.
+    func test_aFailedSaveLeavesNoPhantomTranslatorBehind() async throws {
+        let (url, store) = try await loadedNovel(named: "FailedSave")
+        let fm = FileManager.default
+        let original = try XCTUnwrap(
+            fm.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)
+        let modifiedBefore = store.manifest.modified
+
+        try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: url.path)
+        defer { try? fm.setAttributes([.posixPermissions: original], ofItemAtPath: url.path) }
+
+        do {
+            _ = try await store.translatorRole(for: "es")
+            XCTFail("expected the manifest write to be refused")
+        } catch let error as ProjectStoreError {
+            guard case .manifestUnwritable = error else {
+                return XCTFail("expected .manifestUnwritable, got \(error)")
+            }
+        }
+
+        XCTAssertTrue(store.manifest.productionRoles.isEmpty,
+                      "a role that never reached disk must not stand in memory")
+        // Compared as intervals, not as `Date`s: two `Date`s differing only
+        // sub-second print identically, so a failure here would read as
+        // "X is not equal to X".
+        XCTAssertEqual(store.manifest.modified.timeIntervalSince1970,
+                       modifiedBefore.timeIntervalSince1970,
+                       "the stamp goes back with the row it was made for")
+
+        // The consequence: with the disk writable again the next ask MINTS,
+        // rather than finding the phantom and returning it with no save at all.
+        try fm.setAttributes([.posixPermissions: original], ofItemAtPath: url.path)
+        let minted = try await store.translatorRole(for: "es")
+
+        let reloaded = try await ProjectStore.load(from: url)
+        await reloaded.wordCountPopulationTask?.value
+        XCTAssertEqual(reloaded.manifest.productionRoles.map(\.id), [minted.id],
+                       "the role the caller was handed must be the one on disk")
+    }
+
+    /// The rename arm of the same rollback: a refused write leaves the standing
+    /// name alone, so the surface and the disk cannot disagree about who this is.
+    func test_aFailedSaveLeavesTheStandingNameAlone() async throws {
+        let (url, store) = try await loadedNovel(named: "FailedRename")
+        let role = try await store.translatorRole(for: "es")
+        let fm = FileManager.default
+        let original = try XCTUnwrap(
+            fm.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)
+
+        try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: url.path)
+        defer { try? fm.setAttributes([.posixPermissions: original], ofItemAtPath: url.path) }
+
+        do {
+            try await store.renameProductionRole(id: role.id, to: "Borges")
+            XCTFail("expected the manifest write to be refused")
+        } catch let error as ProjectStoreError {
+            guard case .manifestUnwritable = error else {
+                return XCTFail("expected .manifestUnwritable, got \(error)")
+            }
+        }
+
+        XCTAssertEqual(store.manifest.productionRoles.first?.name, "Cortázar",
+                       "a refused rename must not show a name the disk does not have")
+    }
+
     /// The preset designer's id is reachable by rename exactly ONCE as a
     /// materialization: once a row exists, the ordinary stored path takes it.
     func test_renamingTheDesignerTwiceKeepsOneRow() async throws {
