@@ -9,6 +9,7 @@ import Foundation
 /// | `intent.md` | project intent |
 /// | `intent/<slug>.md` | one per manuscript document |
 /// | `visual-language.md` | project visual language |
+/// | `editions/<lang>.md` | one per edition brief language |
 ///
 /// Shared rather than Mac-local (tripwire 19): the Mac mints these paths and the
 /// phone reads statements, and a table with two spellings is a table that drifts.
@@ -20,6 +21,8 @@ public enum StatementConvention {
     public static let documentIntentFolder = "intent"
     /// Project visual language.
     public static let visualLanguagePath = "visual-language.md"
+    /// The folder edition brief files live in.
+    public static let editionsFolder = "editions"
 
     /// The project-relative path a NEW statement of this `kind` and `scope`
     /// takes, or **nil when the pair has no row in the table**.
@@ -46,6 +49,9 @@ public enum StatementConvention {
             return "\(documentIntentFolder)/\(documentSlug).md"
         case (.visualLanguage, .project):
             return visualLanguagePath
+        case (.editionBrief(let lang), .project):
+            guard !lang.isEmpty else { return nil }
+            return "\(editionsFolder)/\(lang).md"
         default:
             return nil
         }

@@ -364,9 +364,10 @@ extension ProjectStore {
     ///
     /// Byte-identical for every statement without a rulings section
     /// (`StatementEssay.recomposed` is the identity there), and for visual
-    /// language always — `carriesRulings` says intent alone has strata, so a
-    /// `## Rulings` heading a writer typed in their visual language is ordinary
-    /// prose and stays that way.
+    /// language always — `carriesRulings` says intent and the edition brief
+    /// have strata and visual language does not, so a `## Rulings` heading a
+    /// writer typed in their visual language is ordinary prose and stays that
+    /// way.
     ///
     /// (Merge 2026-08-09: origin's thin `appendToStatement` — a pre-rulings
     /// wrapper over `withStatementDocument` — is superseded by this one, which

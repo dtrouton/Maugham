@@ -88,10 +88,27 @@ enum RulingFailure: LocalizedError, Equatable {
 /// already holds the writer's words that is constitution must #1, not a
 /// preference.
 ///
-/// **The kind is always `.intent`.** Rulings are a stratum of the intent
-/// statement (§3.2/§3.3: the Intent pane is the declared world's one surface).
-/// Visual language is a statement too and has no rulings; taking a `kind`
-/// parameter would invite one.
+/// **Two destinations, and the kind is explicit and undefaulted** (publish
+/// department, Task 6). Rulings are a stratum of the writer's declared layer,
+/// and that layer now has two addresses: the **intent** statement (§3.2/§3.3 —
+/// the Intent pane is the declared world's one surface) and an **edition
+/// brief**, where the decisions governing one language edition are settled.
+/// Both are the writer's own prose in the open, both carry a `## Rulings`
+/// stratum, and one performer serves both rather than a second spelling
+/// serving the second.
+///
+/// Visual language is a statement too and still has no rulings — nothing mints
+/// one for it, because the destination is named by the caller and no caller
+/// names that kind. That is what the old "the kind is always `.intent`" note
+/// was protecting, and it is protected here by the same fact it always was: a
+/// `## Rulings` section appears where a verb puts one.
+///
+/// The parameter is undefaulted for `world`'s reason, one step sharper. A
+/// default would have to be `.intent`, and an edition-side call site that
+/// skipped it would file a Spanish edition's decision in the book's own intent
+/// — where every language is then checked against it, silently, with nothing
+/// red. `RulingPerformerTests.test_everyVerbTakesTheDestinationKindExplicitly`
+/// is the census.
 ///
 /// **What it deliberately does NOT do, and why**, since `PromotionPerformer`
 /// does both: no autosave flush (a write to a statement goes through its op log,
@@ -99,7 +116,10 @@ enum RulingFailure: LocalizedError, Equatable {
 /// `DocumentStore` registry, so `flushPendingSave` could not be flushing this
 /// destination) and no project-scope fallback (a ruling made about a chapter and
 /// quietly filed under the book is the M1A craft-intent defect arriving through
-/// a new door — one chapter's decision read by every other chapter's run). Both
+/// a new door — one chapter's decision read by every other chapter's run). An
+/// edition brief being project-scope is not that fallback and never triggers it:
+/// project scope is the brief's own address, written by the caller, not somewhere
+/// a document-scoped ruling was quietly redirected to. Both
 /// arguments were made at length by the M2 answer performer this replaced
 /// (`IntentAppendPerformer`, deleted with the run-rebuilt stage); they are
 /// unchanged and they live here now, because a rule whose reasoning is only in
@@ -114,8 +134,8 @@ enum RulingPerformer {
 
     // MARK: - rule
 
-    /// Add one ruling to `scope`'s intent statement, minting the statement if
-    /// this is the first thing anyone has declared about this piece.
+    /// Add one ruling to the `(kind, scope)` statement, minting it if this is
+    /// the first thing anyone has declared about this piece or this edition.
     ///
     /// `provenance` is the free suffix after the em-dash — *"from a run on
     /// ¶wnse"*, *"blessed from the bible"* — and the date is stamped here rather
@@ -127,7 +147,8 @@ enum RulingPerformer {
     /// changed, and the symptom surfaces a run later with nothing red. A
     /// defaulted parameter would let a new call site skip it in silence; `nil`
     /// has to be written and meant.
-    static func rule(_ text: String, provenance: String, forScope scope: Statement.Scope,
+    static func rule(_ text: String, provenance: String, kind: Statement.Kind,
+                     forScope scope: Statement.Scope,
                      store: ProjectStore, world: DeclaredWorldStore?) async throws {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { throw RulingFailure.emptyRuling }
@@ -136,14 +157,14 @@ enum RulingPerformer {
         // nothing: an existing statement is the only thing that can be
         // unreadable, and one about to be created is a zero-byte file with no
         // words in it to lose.
-        if let existing = store.statement(kind: .intent, scope: scope) {
+        if let existing = store.statement(kind: kind, scope: scope) {
             try refuseIfTheWordsCannotBeRead(existing, in: store)
         }
 
         // Find-or-create, idempotent, and the ONLY minting path — M1A built it
         // and every other statement writer uses it. A second spelling would be a
         // second answer to "where does a chapter's intent live".
-        let statement = try await store.createStatement(kind: .intent, scope: scope)
+        let statement = try await store.createStatement(kind: kind, scope: scope)
         let now = Date()
         // One op, carrying its own prior text. The inverse — when this call is
         // a writer's gesture rather than a run's arrival — is registered by
@@ -159,9 +180,10 @@ enum RulingPerformer {
     /// Delete exactly the one ruling `rulingId` names. The essay above it and
     /// every other ruling are untouched, and revoking the last one leaves an
     /// essay-only file rather than a heading over nothing (`RulingsSection`).
-    static func revoke(rulingId: String, forScope scope: Statement.Scope,
+    static func revoke(rulingId: String, kind: Statement.Kind,
+                       forScope scope: Statement.Scope,
                        store: ProjectStore, world: DeclaredWorldStore?) async throws {
-        try await mutate(scope, store: store, world: world) { markdown in
+        try await mutate(kind, scope, store: store, world: world) { markdown in
             guard RulingsSection.parse(markdown).rulings
                 .contains(where: { $0.id == rulingId }) else {
                 throw RulingFailure.unknownRuling(rulingId)
@@ -194,7 +216,8 @@ enum RulingPerformer {
     ///
     /// The rendering goes through `RulingsSection.render`, never hand-built
     /// markdown.
-    static func edit(rulingId: String, newText: String, forScope scope: Statement.Scope,
+    static func edit(rulingId: String, newText: String, kind: Statement.Kind,
+                     forScope scope: Statement.Scope,
                      store: ProjectStore, world: DeclaredWorldStore?) async throws {
         let words = newText.trimmingCharacters(in: .whitespacesAndNewlines)
         // An edit that empties a ruling is a revocation wearing the wrong verb,
@@ -202,7 +225,7 @@ enum RulingPerformer {
         // correct.
         guard !words.isEmpty else { throw RulingFailure.emptyRuling }
 
-        try await mutate(scope, store: store, world: world) { markdown in
+        try await mutate(kind, scope, store: store, world: world) { markdown in
             let (essay, rulings) = RulingsSection.parse(markdown)
             guard let index = rulings.firstIndex(where: { $0.id == rulingId }) else {
                 throw RulingFailure.unknownRuling(rulingId)
@@ -241,9 +264,10 @@ enum RulingPerformer {
     /// An `index` past the end lands at the end rather than refusing: the list
     /// can legitimately have shrunk since (a peer's revoke, a hand edit), and a
     /// refusal there would lose the line the writer is asking for back.
-    static func restore(_ ruling: Ruling, at index: Int, forScope scope: Statement.Scope,
+    static func restore(_ ruling: Ruling, at index: Int, kind: Statement.Kind,
+                        forScope scope: Statement.Scope,
                         store: ProjectStore, world: DeclaredWorldStore?) async throws {
-        try await mutate(scope, store: store, world: world) { markdown in
+        try await mutate(kind, scope, store: store, world: world) { markdown in
             let (essay, rulings) = RulingsSection.parse(markdown)
             var updated = rulings
             updated.insert(ruling, at: min(max(index, 0), rulings.count))
@@ -262,10 +286,11 @@ enum RulingPerformer {
     /// "is this ruling still here" check and the edit are decided over one
     /// string — see `ProjectStore.mutateStatementText`.
     private static func mutate(
-        _ scope: Statement.Scope, store: ProjectStore, world: DeclaredWorldStore?,
+        _ kind: Statement.Kind, _ scope: Statement.Scope,
+        store: ProjectStore, world: DeclaredWorldStore?,
         _ transform: (String) throws -> String
     ) async throws {
-        guard let statement = store.statement(kind: .intent, scope: scope) else {
+        guard let statement = store.statement(kind: kind, scope: scope) else {
             throw RulingFailure.noStatement
         }
         try refuseIfTheWordsCannotBeRead(statement, in: store)
@@ -285,6 +310,15 @@ enum RulingPerformer {
     /// Called only after a write has landed. Invalidating on a refusal would
     /// spend a spawn and a fistful of tokens re-deriving a statement nothing
     /// moved.
+    ///
+    /// **The key is the scope alone, and the destination kind is deliberately
+    /// not in it** (publish department, Task 6). Nothing derives a world from an
+    /// edition brief — the cache holds intent readings only, and every
+    /// brief-side caller passes `world: nil`, so the widened verbs bring the
+    /// cache no new writers. Adding the kind to the key today would be a second
+    /// spelling of a key with one shape, which is exactly what the one-spelling
+    /// rule above exists to prevent; the day a brief is derived is the day
+    /// `DeclaredWorldStore` grows the kind, in one place, for both readers.
     private static func invalidate(_ scope: Statement.Scope, in world: DeclaredWorldStore?) {
         world?.invalidate(forScopeKey: DeclaredWorldStore.scopeKey(for: scope))
     }

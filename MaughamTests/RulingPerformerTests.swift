@@ -89,7 +89,7 @@ final class RulingPerformerTests: XCTestCase {
 
         try await RulingPerformer.rule(
             "Kelly never lies about the weather.", provenance: "from a run on \u{00b6}wnse",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
 
         let after = try await ops(of: statement, in: url)
         XCTAssertEqual(
@@ -114,7 +114,7 @@ final class RulingPerformerTests: XCTestCase {
 
         try await RulingPerformer.rule(
             "Kelly heard about the call offstage.", provenance: "from a run on \u{00b6}wnse",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
 
         let rendered = try renderedFile(of: statement, in: url)
         let parsed = RulingsSection.parse(rendered)
@@ -139,10 +139,10 @@ final class RulingPerformerTests: XCTestCase {
 
         try await RulingPerformer.rule(
             "Kelly never lies.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
         try await RulingPerformer.rule(
             "The fog is a refrain.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
 
         let statement = try XCTUnwrap(
             store.statement(kind: .intent, scope: .document(chapter.id)))
@@ -166,7 +166,7 @@ final class RulingPerformerTests: XCTestCase {
 
         try await RulingPerformer.rule(
             "Kelly never lies.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
 
         let statement = try XCTUnwrap(
             store.statement(kind: .intent, scope: .document(chapter.id)),
@@ -195,7 +195,7 @@ final class RulingPerformerTests: XCTestCase {
 
         try await RulingPerformer.rule(
             "This chapter withholds the ghost.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
 
         let projectAfter = try await derivedText(of: project, in: url)
         XCTAssertEqual(
@@ -211,7 +211,7 @@ final class RulingPerformerTests: XCTestCase {
         do {
             try await RulingPerformer.rule(
                 "nowhere to put this", provenance: "ruled at the desk",
-                forScope: .document("doc-nope"), store: store, world: nil)
+                kind: .intent, forScope: .document("doc-nope"), store: store, world: nil)
             XCTFail("a ruling for a document this project does not have must refuse")
         } catch let error as ProjectStoreError {
             XCTAssertEqual(error, .structureMissing)
@@ -233,7 +233,7 @@ final class RulingPerformerTests: XCTestCase {
         do {
             try await RulingPerformer.rule(
                 "   \n  ", provenance: "ruled at the desk",
-                forScope: .document(chapter.id), store: store, world: nil)
+                kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
             XCTFail("an empty ruling must refuse")
         } catch let failure as RulingFailure {
             XCTAssertEqual(failure, .emptyRuling)
@@ -260,7 +260,7 @@ final class RulingPerformerTests: XCTestCase {
         do {
             try await RulingPerformer.rule(
                 "Kelly never lies.", provenance: "ruled at the desk",
-                forScope: .document(chapter.id), store: store, world: nil)
+                kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
             XCTFail("an unreadable destination must refuse")
         } catch let failure as RulingFailure {
             XCTAssertEqual(failure, .unreadableDestination(statement.path))
@@ -290,7 +290,7 @@ final class RulingPerformerTests: XCTestCase {
 
         try await RulingPerformer.rule(
             "Kelly never lies.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
 
         let text = try await derivedText(of: statement, in: url)
         XCTAssertTrue(text.hasPrefix("A ghost story told in weather."),
@@ -304,17 +304,17 @@ final class RulingPerformerTests: XCTestCase {
         let (url, store, chapter) = try await loadedNovel(named: "Revoke")
         try await RulingPerformer.rule(
             "Kelly never lies.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
         try await RulingPerformer.rule(
             "The fog is a refrain.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
         let statement = try XCTUnwrap(
             store.statement(kind: .intent, scope: .document(chapter.id)))
         let doomed = try XCTUnwrap(
             RulingsSection.parse(try renderedFile(of: statement, in: url)).rulings.first)
 
         try await RulingPerformer.revoke(
-            rulingId: doomed.id, forScope: .document(chapter.id), store: store, world: nil)
+            rulingId: doomed.id, kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
 
         XCTAssertEqual(
             RulingsSection.parse(try renderedFile(of: statement, in: url)).rulings.map(\.text),
@@ -331,12 +331,12 @@ final class RulingPerformerTests: XCTestCase {
         try await store.appendToStatement("A ghost story.", to: statement, session: "seed")
         try await RulingPerformer.rule(
             "Kelly never lies.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
         let only = try XCTUnwrap(
             RulingsSection.parse(try renderedFile(of: statement, in: url)).rulings.first)
 
         try await RulingPerformer.revoke(
-            rulingId: only.id, forScope: .document(chapter.id), store: store, world: nil)
+            rulingId: only.id, kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
 
         let rendered = try renderedFile(of: statement, in: url)
         XCTAssertFalse(rendered.contains(RulingsSection.heading),
@@ -353,14 +353,14 @@ final class RulingPerformerTests: XCTestCase {
         let (url, store, chapter) = try await loadedNovel(named: "RevokeUnknown")
         try await RulingPerformer.rule(
             "Kelly never lies.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
         let statement = try XCTUnwrap(
             store.statement(kind: .intent, scope: .document(chapter.id)))
         let before = try await ops(of: statement, in: url).count
 
         do {
             try await RulingPerformer.revoke(
-                rulingId: "not-a-ruling", forScope: .document(chapter.id),
+                rulingId: "not-a-ruling", kind: .intent, forScope: .document(chapter.id),
                 store: store, world: nil)
             XCTFail("revoking an id the statement does not carry must refuse")
         } catch let failure as RulingFailure {
@@ -381,7 +381,7 @@ final class RulingPerformerTests: XCTestCase {
 
         do {
             try await RulingPerformer.revoke(
-                rulingId: "anything", forScope: .document(chapter.id), store: store, world: nil)
+                rulingId: "anything", kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
             XCTFail("there is nothing to revoke")
         } catch let failure as RulingFailure {
             XCTAssertEqual(failure, .noStatement)
@@ -412,7 +412,7 @@ final class RulingPerformerTests: XCTestCase {
         let (url, store, chapter) = try await loadedNovel(named: "EditOneStep")
         try await RulingPerformer.rule(
             "Kelly never lys.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
         let statement = try XCTUnwrap(
             store.statement(kind: .intent, scope: .document(chapter.id)))
         let renderedBefore = try renderedFile(of: statement, in: url)
@@ -421,7 +421,7 @@ final class RulingPerformerTests: XCTestCase {
 
         try await RulingPerformer.edit(
             rulingId: target.id, newText: "Kelly never lies.",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
 
         let opsAfter = try await ops(of: statement, in: url)
         XCTAssertEqual(
@@ -444,7 +444,7 @@ final class RulingPerformerTests: XCTestCase {
         for text in ["First ruling.", "Second rulng.", "Third ruling."] {
             try await RulingPerformer.rule(
                 text, provenance: "ruled at the desk",
-                forScope: .document(chapter.id), store: store, world: nil)
+                kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
         }
         let statement = try XCTUnwrap(
             store.statement(kind: .intent, scope: .document(chapter.id)))
@@ -453,7 +453,7 @@ final class RulingPerformerTests: XCTestCase {
 
         try await RulingPerformer.edit(
             rulingId: target.id, newText: "Second ruling.",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
 
         let after = RulingsSection.parse(try renderedFile(of: statement, in: url)).rulings
         XCTAssertEqual(
@@ -470,7 +470,7 @@ final class RulingPerformerTests: XCTestCase {
         let (url, store, chapter) = try await loadedNovel(named: "EditUnknown")
         try await RulingPerformer.rule(
             "Kelly never lies.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
         let statement = try XCTUnwrap(
             store.statement(kind: .intent, scope: .document(chapter.id)))
         let before = try await ops(of: statement, in: url).count
@@ -478,7 +478,7 @@ final class RulingPerformerTests: XCTestCase {
         do {
             try await RulingPerformer.edit(
                 rulingId: "not-a-ruling", newText: "something else",
-                forScope: .document(chapter.id), store: store, world: nil)
+                kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
             XCTFail("editing an id the statement does not carry must refuse")
         } catch let failure as RulingFailure {
             XCTAssertEqual(failure, .unknownRuling("not-a-ruling"))
@@ -491,7 +491,7 @@ final class RulingPerformerTests: XCTestCase {
         let (url, store, chapter) = try await loadedNovel(named: "EditEmpty")
         try await RulingPerformer.rule(
             "Kelly never lies.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: nil)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
         let statement = try XCTUnwrap(
             store.statement(kind: .intent, scope: .document(chapter.id)))
         let target = try XCTUnwrap(
@@ -500,7 +500,7 @@ final class RulingPerformerTests: XCTestCase {
         do {
             try await RulingPerformer.edit(
                 rulingId: target.id, newText: "  ",
-                forScope: .document(chapter.id), store: store, world: nil)
+                kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
             XCTFail("an edit that empties a ruling is a revocation wearing the wrong verb")
         } catch let failure as RulingFailure {
             XCTAssertEqual(failure, .emptyRuling)
@@ -527,7 +527,7 @@ final class RulingPerformerTests: XCTestCase {
 
         try await RulingPerformer.rule(
             "Kelly never lies.", provenance: "ruled at the desk",
-            forScope: scope, store: store, world: declared)
+            kind: .intent, forScope: scope, store: store, world: declared)
 
         XCTAssertNil(
             declared.cached(forScopeKey: key, sourceHash: hash),
@@ -544,7 +544,7 @@ final class RulingPerformerTests: XCTestCase {
         let key = DeclaredWorldStore.scopeKey(for: scope)
         try await RulingPerformer.rule(
             "Kelly never lies.", provenance: "ruled at the desk",
-            forScope: scope, store: store, world: nil)
+            kind: .intent, forScope: scope, store: store, world: nil)
         let statement = try XCTUnwrap(store.statement(kind: .intent, scope: scope))
         let only = try XCTUnwrap(
             RulingsSection.parse(try renderedFile(of: statement, in: url)).rulings.first)
@@ -552,7 +552,7 @@ final class RulingPerformerTests: XCTestCase {
         declared.store(seededDerivation(sourceHash: hash), forScopeKey: key)
 
         try await RulingPerformer.revoke(
-            rulingId: only.id, forScope: scope, store: store, world: declared)
+            rulingId: only.id, kind: .intent, forScope: scope, store: store, world: declared)
 
         XCTAssertNil(declared.cached(forScopeKey: key, sourceHash: hash),
                      "a revoked rule must stop being checked immediately (spec \u{00a7}3.3)")
@@ -565,7 +565,7 @@ final class RulingPerformerTests: XCTestCase {
         let key = DeclaredWorldStore.scopeKey(for: scope)
         try await RulingPerformer.rule(
             "Kelly never lys.", provenance: "ruled at the desk",
-            forScope: scope, store: store, world: nil)
+            kind: .intent, forScope: scope, store: store, world: nil)
         let statement = try XCTUnwrap(store.statement(kind: .intent, scope: scope))
         let target = try XCTUnwrap(
             RulingsSection.parse(try renderedFile(of: statement, in: url)).rulings.first)
@@ -574,7 +574,7 @@ final class RulingPerformerTests: XCTestCase {
 
         try await RulingPerformer.edit(
             rulingId: target.id, newText: "Kelly never lies.",
-            forScope: scope, store: store, world: declared)
+            kind: .intent, forScope: scope, store: store, world: declared)
 
         XCTAssertNil(declared.cached(forScopeKey: key, sourceHash: hash))
     }
@@ -590,7 +590,7 @@ final class RulingPerformerTests: XCTestCase {
         declared.store(seededDerivation(sourceHash: hash), forScopeKey: key)
 
         try? await RulingPerformer.rule(
-            "   ", provenance: "ruled at the desk", forScope: scope,
+            "   ", provenance: "ruled at the desk", kind: .intent, forScope: scope,
             store: store, world: declared)
 
         XCTAssertNotNil(
@@ -609,11 +609,208 @@ final class RulingPerformerTests: XCTestCase {
 
         try await RulingPerformer.rule(
             "Kelly never lies.", provenance: "ruled at the desk",
-            forScope: .document(chapter.id), store: store, world: declared)
+            kind: .intent, forScope: .document(chapter.id), store: store, world: declared)
 
         XCTAssertNotNil(
             declared.cached(forScopeKey: projectKey, sourceHash: hash),
             "a ruling on a chapter must not throw away the book's reading")
+    }
+
+    // MARK: - The second destination: an edition brief (publish department, Task 6)
+
+    /// A ruling aimed at an edition brief lands in `editions/<lang>.md`, minting
+    /// it when absent — the same find-or-create path `.intent` walks, pointed at
+    /// the row `StatementConvention` already carried for this kind.
+    func test_aRulingLandsInTheEditionBriefAndMintsItWhenAbsent() async throws {
+        let (url, store, _) = try await loadedNovel(named: "BriefRuleMints")
+        XCTAssertNil(store.statement(kind: .editionBrief("es"), scope: .project),
+                     "precondition: nothing has minted the Spanish brief yet")
+
+        try await RulingPerformer.rule(
+            "October's doctor is female.", provenance: "ruled at the desk",
+            kind: .editionBrief("es"), forScope: .project, store: store, world: nil)
+
+        let brief = try XCTUnwrap(
+            store.statement(kind: .editionBrief("es"), scope: .project),
+            "the ruling must have minted the Spanish edition's brief")
+        XCTAssertEqual(brief.path, "editions/es.md")
+        let parsed = RulingsSection.parse(try renderedFile(of: brief, in: url))
+        XCTAssertEqual(parsed.rulings.map(\.text), ["October's doctor is female."])
+        XCTAssertEqual(parsed.rulings.first?.provenance, "ruled at the desk")
+        let ruledOn = try XCTUnwrap(parsed.rulings.first?.ruledOn,
+                                    "a ruling in a brief carries the day it was ruled, same as any")
+        XCTAssertLessThan(abs(ruledOn.timeIntervalSinceNow), 60 * 60 * 48)
+        XCTAssertEqual(parsed.essay, "",
+                       "a minted brief's essay is still empty — a ruling is not an essay")
+
+        let reloaded = try await ProjectStore.load(from: url)
+        XCTAssertEqual(
+            reloaded.statement(kind: .editionBrief("es"), scope: .project)?.id, brief.id,
+            "the mint must reach the manifest \u{2014} an in-memory entry mints a SECOND "
+            + "brief on the next ruling")
+    }
+
+    /// **The kind is an address, not a fallback.** A brief and the book's intent
+    /// share the project scope, so the only thing separating them is the
+    /// parameter — and a ruling about the Spanish edition landing in the intent
+    /// would be checked against every language.
+    func test_aBriefsRulingDoesNotReachTheProjectsIntent() async throws {
+        let (url, store, _) = try await loadedNovel(named: "BriefNotTheIntent")
+        let intent = try await store.createStatement(kind: .intent, scope: .project)
+        try await store.appendToStatement(
+            "The book is about weather.", to: intent, session: "seed")
+        let before = try await derivedText(of: intent, in: url)
+
+        try await RulingPerformer.rule(
+            "October's doctor is female.", provenance: "ruled at the desk",
+            kind: .editionBrief("es"), forScope: .project, store: store, world: nil)
+
+        let after = try await derivedText(of: intent, in: url)
+        XCTAssertEqual(
+            after, before,
+            "the book's intent must not gain one word from an edition's ruling")
+    }
+
+    /// The other three verbs on the second destination: an edit in place, a
+    /// revoke of exactly one line, and a restore that puts it back where it was
+    /// with the day it was ruled intact.
+    func test_editRevokeAndRestoreAllRoundTripOnTheBrief() async throws {
+        let (url, store, _) = try await loadedNovel(named: "BriefRoundTrip")
+        let kind = Statement.Kind.editionBrief("es")
+        for text in ["Usted, nunca tú.", "The fog keeps its refrain."] {
+            try await RulingPerformer.rule(
+                text, provenance: "ruled at the desk", kind: kind, forScope: .project,
+                store: store, world: nil)
+        }
+        let brief = try XCTUnwrap(store.statement(kind: kind, scope: .project))
+        func rows() throws -> [Ruling] {
+            RulingsSection.parse(try renderedFile(of: brief, in: url)).rulings
+        }
+
+        try await RulingPerformer.edit(
+            rulingId: try XCTUnwrap(rows().first).id, newText: "Usted, nunca tú, en ningún caso.",
+            kind: kind, forScope: .project, store: store, world: nil)
+        XCTAssertEqual(try rows().map(\.text),
+                       ["Usted, nunca tú, en ningún caso.", "The fog keeps its refrain."],
+                       "a corrected ruling stays where the writer put it")
+
+        let doomed = try XCTUnwrap(rows().first)
+        try await RulingPerformer.revoke(
+            rulingId: doomed.id, kind: kind, forScope: .project, store: store, world: nil)
+        XCTAssertEqual(try rows().map(\.text), ["The fog keeps its refrain."],
+                       "exactly the revoked line leaves; its neighbour stays")
+
+        try await RulingPerformer.restore(
+            doomed, at: 0, kind: kind, forScope: .project, store: store, world: nil)
+        XCTAssertEqual(try rows().map(\.text),
+                       ["Usted, nunca tú, en ningún caso.", "The fog keeps its refrain."],
+                       "a restore puts it back where it was, not at the bottom")
+        XCTAssertEqual(try rows().first?.ruledOn, doomed.ruledOn,
+                       "and with the day it was ruled, not today's")
+    }
+
+    /// **must #1, reached through the second address.** A brief whose words are
+    /// in its BYTES and will not decode refuses BEFORE anything is minted or
+    /// written — `refuseIfTheWordsCannotBeRead` is asked about whatever
+    /// destination the kind names, never about `.intent` alone.
+    func test_anUnreadableEditionBriefRefusesAndWritesNothing() async throws {
+        let (url, store, _) = try await loadedNovel(named: "BriefUnreadable")
+        let kind = Statement.Kind.editionBrief("es")
+        let brief = try await store.createStatement(kind: kind, scope: .project)
+        try Self.undecodableBytes.write(to: url.appendingPathComponent(brief.path))
+        XCTAssertTrue(
+            OpLogStore.opLogFileURLs(forDocId: brief.id, in: url).isEmpty,
+            "precondition: these bytes are the only copy of this brief")
+
+        do {
+            try await RulingPerformer.rule(
+                "October's doctor is female.", provenance: "ruled at the desk",
+                kind: kind, forScope: .project, store: store, world: nil)
+            XCTFail("an unreadable brief must refuse")
+        } catch let failure as RulingFailure {
+            XCTAssertEqual(failure, .unreadableDestination(brief.path))
+        }
+
+        XCTAssertEqual(
+            fileBytes(of: brief, in: url), Self.undecodableBytes,
+            "a refusal writes NOTHING \u{2014} the bytes are the writer's only copy")
+        XCTAssertTrue(
+            OpLogStore.opLogFileURLs(forDocId: brief.id, in: url).isEmpty,
+            "and it must not have opened an op log on the way to refusing")
+    }
+
+    /// A brief nobody has written has nothing to revoke — and must not be minted
+    /// on the way to finding that out.
+    func test_revokingAgainstAnAbsentBriefRefusesAndMintsNothing() async throws {
+        let (url, store, _) = try await loadedNovel(named: "BriefNoStatement")
+
+        do {
+            try await RulingPerformer.revoke(
+                rulingId: "anything", kind: .editionBrief("es"), forScope: .project,
+                store: store, world: nil)
+            XCTFail("there is nothing to revoke in a brief nobody has written")
+        } catch let failure as RulingFailure {
+            XCTAssertEqual(failure, .noStatement)
+        }
+
+        XCTAssertNil(store.statement(kind: .editionBrief("es"), scope: .project),
+                     "a revocation must not mint the brief it failed to find")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: url.appendingPathComponent("editions/es.md").path),
+            "and it must not have left a file behind for a refusal")
+    }
+
+    /// A second language is a second brief, and a ruling in one is not in the
+    /// other — the language tag rides in the kind, so it is the parameter that
+    /// keeps them apart.
+    func test_twoLanguagesKeepTheirOwnRulings() async throws {
+        let (url, store, _) = try await loadedNovel(named: "BriefTwoLanguages")
+
+        try await RulingPerformer.rule(
+            "October's doctor is female.", provenance: "ruled at the desk",
+            kind: .editionBrief("es"), forScope: .project, store: store, world: nil)
+        try await RulingPerformer.rule(
+            "Keep the vous.", provenance: "ruled at the desk",
+            kind: .editionBrief("fr"), forScope: .project, store: store, world: nil)
+
+        let spanish = try XCTUnwrap(store.statement(kind: .editionBrief("es"), scope: .project))
+        let french = try XCTUnwrap(store.statement(kind: .editionBrief("fr"), scope: .project))
+        XCTAssertNotEqual(spanish.id, french.id)
+        XCTAssertEqual(
+            RulingsSection.parse(try renderedFile(of: spanish, in: url)).rulings.map(\.text),
+            ["October's doctor is female."])
+        XCTAssertEqual(
+            RulingsSection.parse(try renderedFile(of: french, in: url)).rulings.map(\.text),
+            ["Keep the vous."])
+    }
+
+    /// **The live consequence of `StatementEssay.carriesRulings` answering
+    /// honestly for a brief** (fix round 1). A ruling puts a `## Rulings`
+    /// section in the file; prose appended afterwards must land at the end of
+    /// the ESSAY, above that list — not below it, where `RulingsSection.parse`
+    /// does not read it and no essay reader can show it. The words would be safe
+    /// on disk and invisible in the surface that owns them.
+    func test_proseAppendedToABriefWithRulingsLandsInTheEssayNotBelowTheList() async throws {
+        let (url, store, _) = try await loadedNovel(named: "BriefAppendAboveRulings")
+        let kind = Statement.Kind.editionBrief("es")
+
+        try await RulingPerformer.rule(
+            "October's doctor is female.", provenance: "ruled at the desk",
+            kind: kind, forScope: .project, store: store, world: nil)
+        let brief = try XCTUnwrap(store.statement(kind: kind, scope: .project))
+        try await store.appendToStatement(
+            "The Spanish edition keeps the fog.", to: brief, session: "seed")
+
+        let rendered = try renderedFile(of: brief, in: url)
+        let parsed = RulingsSection.parse(rendered)
+        XCTAssertTrue(
+            parsed.essay.contains("The Spanish edition keeps the fog."),
+            "the appended prose must be in the ESSAY half, not stranded under the "
+            + "rulings list: \(rendered)")
+        XCTAssertEqual(
+            parsed.rulings.map(\.text), ["October's doctor is female."],
+            "and the ruling is untouched, still a ruling: \(rendered)")
     }
 
     // MARK: - The membrane (spec §3.4)
@@ -685,6 +882,41 @@ final class RulingPerformerTests: XCTestCase {
                 signature.parameters.contains("DeclaredWorldStore? ="),
                 "\(signature.name)'s cache parameter must not be defaulted")
         }
+    }
+
+    /// **The destination cannot be assumed either, and for one step sharper a
+    /// reason than the cache.** A default would have to be `.intent`, so an
+    /// edition-side call site that forgot the parameter would file a Spanish
+    /// edition's decision in the book's own intent, where every language is
+    /// then checked against it — with nothing red. The kind sits BEFORE
+    /// `forScope` because it names *what* is being written before *what it is
+    /// about*, and because the two are read together at every call site.
+    func test_everyVerbTakesTheDestinationKindExplicitly() throws {
+        let source = try readSource("Maugham/Compiler/RulingPerformer.swift")
+        let verbs = ["rule", "revoke", "edit", "restore"]
+        var seen: Set<String> = []
+
+        for signature in Self.functionSignatures(in: source) where verbs.contains(signature.name) {
+            seen.insert(signature.name)
+            XCTAssertTrue(
+                signature.parameters.contains("kind: Statement.Kind"),
+                "\(signature.name) must take its destination kind: \(signature.parameters)")
+            XCTAssertFalse(
+                signature.parameters.contains("Statement.Kind ="),
+                "\(signature.name)'s kind must not be defaulted \u{2014} a default is how an "
+                + "edition's ruling lands in the book's intent in silence")
+            let kindAt = try XCTUnwrap(
+                signature.parameters.range(of: "kind: Statement.Kind")?.lowerBound)
+            let scopeAt = try XCTUnwrap(signature.parameters.range(of: "forScope")?.lowerBound)
+            XCTAssertLessThan(kindAt, scopeAt,
+                              "\(signature.name) takes the kind BEFORE the scope: "
+                              + "\(signature.parameters)")
+        }
+
+        // Non-vacuity: a census that parsed nothing passes for any predicate.
+        XCTAssertEqual(seen, Set(verbs),
+                       "the census must actually see every verb; it found "
+                       + "\(seen.sorted().joined(separator: ", "))")
     }
 
     // MARK: - Census machinery

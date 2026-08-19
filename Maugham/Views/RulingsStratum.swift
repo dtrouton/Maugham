@@ -84,7 +84,8 @@ enum RulingsStratum {
                        workTaskSink: @escaping (Task<Void, Never>) -> Void) async {
         do {
             try await RulingPerformer.revoke(
-                rulingId: ruling.id, forScope: scope, store: store, world: world)
+                rulingId: ruling.id, kind: .intent, forScope: scope, store: store,
+                world: world)
         } catch {
             return
         }
@@ -93,12 +94,13 @@ enum RulingsStratum {
             workTaskSink: workTaskSink,
             undo: { s in
                 try? await RulingPerformer.restore(
-                    ruling, at: index, forScope: scope, store: s, world: world)
+                    ruling, at: index, kind: .intent, forScope: scope, store: s,
+                    world: world)
             },
             redo: { s in
                 guard let id = currentId(at: index, forScope: scope, store: s) else { return }
                 try? await RulingPerformer.revoke(
-                    rulingId: id, forScope: scope, store: s, world: world)
+                    rulingId: id, kind: .intent, forScope: scope, store: s, world: world)
             })
     }
 
@@ -117,7 +119,8 @@ enum RulingsStratum {
         else { return }
         do {
             try await RulingPerformer.edit(
-                rulingId: id, newText: newText, forScope: scope, store: store, world: world)
+                rulingId: id, newText: newText, kind: .intent, forScope: scope,
+                store: store, world: world)
         } catch {
             return
         }
@@ -127,12 +130,14 @@ enum RulingsStratum {
             undo: { s in
                 guard let now = currentId(at: index, forScope: scope, store: s) else { return }
                 try? await RulingPerformer.edit(
-                    rulingId: now, newText: priorText, forScope: scope, store: s, world: world)
+                    rulingId: now, newText: priorText, kind: .intent, forScope: scope,
+                    store: s, world: world)
             },
             redo: { s in
                 guard let now = currentId(at: index, forScope: scope, store: s) else { return }
                 try? await RulingPerformer.edit(
-                    rulingId: now, newText: newText, forScope: scope, store: s, world: world)
+                    rulingId: now, newText: newText, kind: .intent, forScope: scope,
+                    store: s, world: world)
             })
     }
 

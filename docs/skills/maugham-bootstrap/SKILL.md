@@ -68,4 +68,27 @@ look, not that they forgot. That is the moment to ask what the book should
 feel like — and what they tell you belongs in the Visual Language pane,
 where it will still be there for the next edition.
 
+## Translating into a language
+
+Before you translate a paragraph into a language, call `read_edition_brief`
+(`project_id` and `language` — e.g. `es`, `pt-br`) for that edition. It is
+the writer's doctrine for THAT translated edition: register, idiom policy,
+and any rulings a prior translation session already settled. Read it first,
+whether this is your first session on the edition or your tenth — a session
+that re-decides register from scratch is how paragraph one reads warm and
+paragraph two hundred reads formal.
+
+**A ruling may already answer the question you're about to ask.** A
+translator's open question against a piece of idiom, a title, an honorific,
+gets settled once and recorded into the brief; check there before raising
+the same question again, load `translation-pass` for how queries and
+rulings work together.
+
+Absence is an answer: `exists: false` with empty `markdown` means nobody has
+declared doctrine for that language yet, not that you did something wrong.
+Translate by your own best judgment, and if a real choice comes up — a
+register call, a name that could go either way — surface it as a query
+(load `translation-pass`) rather than deciding silently; a brief can be
+created in Maugham directly.
+
 <!-- maugham:managed — installed by Maugham. Hand edits are replaced when you click Update in Maugham's Claude setup sheet. -->

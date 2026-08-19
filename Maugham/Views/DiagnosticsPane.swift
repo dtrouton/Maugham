@@ -1414,7 +1414,7 @@ struct DiagnosticsPane: View {
         do {
             try await RulingPerformer.rule(
                 text, provenance: answeredNoteProvenance(for: diagnostic),
-                forScope: .document(docId), store: store, world: world)
+                kind: .intent, forScope: .document(docId), store: store, world: world)
         } catch {
             return error.localizedDescription
         }

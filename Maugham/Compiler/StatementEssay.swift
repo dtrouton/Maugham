@@ -56,20 +56,43 @@ enum StatementEssay {
 
     /// Which statements have strata beneath the essay at all.
     ///
-    /// **Intent only, and that is a switch rather than an oversight.** A ruling
-    /// is a stratum of the intent statement (`RulingPerformer`, whose `kind` is
-    /// always `.intent`); visual language is a statement too and has no rulings.
-    /// Splitting one would take a `## Rulings` heading a writer typed as an
-    /// ordinary heading in their visual language, hide everything under it from
-    /// the editor, and list it as rows whose Revoke refuses — the performer
-    /// would go looking for an *intent* statement in that scope and raise
-    /// `RulingFailure.noStatement`.
+    /// **Intent and an edition brief — the two destinations `RulingPerformer`
+    /// writes a `## Rulings` section into** (publish department, Task 6). This
+    /// answers a question about the FILE, not about a surface: a brief carries
+    /// rulings by construction the moment a verb puts one there, so answering
+    /// `false` for it would not stop the section existing — it would only stop
+    /// everything downstream from seeing where the essay ends.
     ///
-    /// An `.unknown` kind is a newer build's and is retained and ignored
-    /// everywhere else (`Statement.Kind`); it has no strata here either.
+    /// The live consequence is `ProjectStore.appendToStatement`, which is where
+    /// the honest value pays for itself rather than a surface nobody has built:
+    /// with `false`, prose appended to a brief that already carries rulings
+    /// lands *below* the list, where `RulingsSection.parse` does not read it and
+    /// no essay reader can show it — the words safe on disk and invisible in the
+    /// surface that owns them, which is the loss that seam's own doc comment
+    /// names.
+    ///
+    /// **Visual language is still false, and that is the switch this was always
+    /// about.** It is a statement with no rulings and no verb that writes one;
+    /// splitting it would take a `## Rulings` heading a writer typed as an
+    /// ordinary heading, hide everything under it from the editor, and list it
+    /// as rows whose Revoke refuses. An `.unknown` kind is a newer build's,
+    /// retained and ignored everywhere else (`Statement.Kind`); it has no strata
+    /// here either.
+    ///
+    /// **Two things a brief-side pane will need, neither of them this
+    /// function's** (recorded here because the pane cannot see them, and
+    /// `.editionBrief` reaches neither today — `DetailPaneToggle` builds
+    /// `StatementPane` with `.intent` and `.visualLanguage` only). First,
+    /// `StatementPane.bibleFacts` gates on this predicate as a proxy for "is
+    /// this the intent statement", and the bible belongs to intent alone — it
+    /// wants its own question, not a second reading of this one. Second, the
+    /// rows' verbs (`RulingsStratum`) still name `.intent` when they call the
+    /// performer, so a brief's row would refuse until they take a kind too.
     static func carriesRulings(_ kind: Statement.Kind) -> Bool {
-        if case .intent = kind { return true }
-        return false
+        switch kind {
+        case .intent, .editionBrief: return true
+        case .visualLanguage, .unknown: return false
+        }
     }
 
     /// The writer's freeform prose: everything above the Rulings section, or the

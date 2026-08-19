@@ -223,7 +223,7 @@ final class StatementPaneStrataTests: XCTestCase {
 
         try await RulingPerformer.rule(
             "Kelly never lies", provenance: "from an answered note",
-            forScope: scope, store: fixture.store, world: nil)
+            kind: .intent, forScope: scope, store: fixture.store, world: nil)
 
         let after = try fixture.store.statementText(of: statement)
         XCTAssertTrue(after.contains(underTheHeading),
@@ -243,14 +243,23 @@ final class StatementPaneStrataTests: XCTestCase {
 
     // MARK: - Which statements have the stratum at all
 
-    /// Visual language has no rulings (`RulingPerformer`'s kind is always
-    /// `.intent`), so its editor binds its whole text — otherwise a writer who
-    /// typed `## Rulings` as an ordinary heading in their visual language would
-    /// watch the rest of the document leave the editor, with rows underneath
-    /// whose Revoke button refuses (`RulingFailure.noStatement`, because the
-    /// performer would look for an INTENT statement).
-    func test_onlyIntentCarriesTheRulingsStratum() {
+    /// The stratum belongs to the kinds a verb writes one into — intent, and
+    /// (publish department, Task 6) an edition brief, `RulingPerformer`'s two
+    /// destinations.
+    ///
+    /// Visual language has no rulings and no verb that writes one, so its editor
+    /// binds its whole text — otherwise a writer who typed `## Rulings` as an
+    /// ordinary heading in their visual language would watch the rest of the
+    /// document leave the editor, with rows underneath whose Revoke button
+    /// refuses (`RulingFailure.noStatement`, because the performer would look
+    /// for an INTENT statement).
+    func test_theRulingDestinationsCarryTheStratumAndNothingElseDoes() {
         XCTAssertTrue(StatementEssay.carriesRulings(.intent))
+        XCTAssertTrue(
+            StatementEssay.carriesRulings(.editionBrief("es")),
+            "a brief carries rulings by construction \u{2014} answering no would not stop "
+            + "the section existing, only stop everything downstream from seeing where "
+            + "the essay ends")
         XCTAssertFalse(StatementEssay.carriesRulings(.visualLanguage))
         XCTAssertFalse(StatementEssay.carriesRulings(.unknown("newer-build")))
     }
@@ -305,7 +314,7 @@ final class StatementPaneStrataTests: XCTestCase {
         try await RulingPerformer.rule(
             "Kelly only acts on what she has actually heard",
             provenance: "from a run on ¶wnse",
-            forScope: scope, store: fixture.store, world: nil)
+            kind: .intent, forScope: scope, store: fixture.store, world: nil)
 
         // The editor is unchanged by it — that is the point of the split.
         XCTAssertEqual(target.text, "Kelly is the one who notices.",
@@ -338,7 +347,7 @@ final class StatementPaneStrataTests: XCTestCase {
         try await fixture.store.appendToStatement(
             "The essay.", to: statement, session: "s")
         try await RulingPerformer.rule("A ruling", provenance: "by hand",
-                                       forScope: scope, store: fixture.store, world: nil)
+                                       kind: .intent, forScope: scope, store: fixture.store, world: nil)
         try await fixture.store.appendToStatement(
             "A promoted card.", to: statement, session: "s")
 
@@ -361,7 +370,7 @@ final class StatementPaneStrataTests: XCTestCase {
         let statement = try await fixture.store.createStatement(kind: .intent, scope: scope)
         try await fixture.store.appendToStatement("Existing essay.", to: statement, session: "s")
         try await RulingPerformer.rule("A ruling", provenance: "by hand",
-                                       forScope: scope, store: fixture.store, world: nil)
+                                       kind: .intent, forScope: scope, store: fixture.store, world: nil)
 
         let document = try await Document.load(
             url: fixture.store.url.appendingPathComponent(statement.path),
@@ -989,7 +998,7 @@ final class StatementPaneStrataTests: XCTestCase {
         // Rulings and no essay yet: the strip has nothing to say and must say
         // nothing, rather than borrowing a ruling.
         try await RulingPerformer.rule("Kelly never lies", provenance: "from a run",
-                                       forScope: scope, store: fixture.store, world: nil)
+                                       kind: .intent, forScope: scope, store: fixture.store, world: nil)
         XCTAssertNil(
             IntentStrip.line(store: fixture.store, docId: fixture.documentItemId,
                              persona: .author, isNoChromeOn: false),
@@ -1102,7 +1111,7 @@ final class StatementPaneStrataTests: XCTestCase {
         XCTAssertTrue(try fixture.staticTexts(in: window, containing: "Kelly never lies").isEmpty)
 
         try await RulingPerformer.rule("Kelly never lies", provenance: "from a run",
-                                       forScope: scope, store: fixture.store, world: world)
+                                       kind: .intent, forScope: scope, store: fixture.store, world: world)
         await fixture.pumpUntil(deadline: 5) { fixture.shows("Kelly never lies", in: window) }
         XCTAssertFalse(
             try fixture.staticTexts(in: window, containing: "Kelly never lies").isEmpty,

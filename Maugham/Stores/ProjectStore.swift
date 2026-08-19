@@ -52,6 +52,19 @@ public enum ProjectStoreError: Error, Equatable {
     /// redirected — matches `statementHasNoStorage`'s refuse-don't-redirect
     /// precedent. `name` is the reserved title, for the message.
     case researchNameReserved(name: String)
+    /// A translator was asked for with a blank language tag. Refused rather than
+    /// minted: `Role.translator(language: "")` encodes as `"translator:"`, which
+    /// decodes back as `.unknown` — the row would stop matching its own language
+    /// on the next load and every later ask would mint another one.
+    case productionRoleLanguageEmpty
+    /// A rename whose name is empty once trimmed. `ProductionRole.effectiveName`
+    /// promises never-empty; a blank byline reads as a bug, not as an unnamed
+    /// person.
+    case productionRoleNameEmpty
+    /// A rename naming a role this project does not have. Refused rather than
+    /// no-opped — a rename that silently changes nothing is the writer typing a
+    /// name into a surface that keeps showing the old one.
+    case productionRoleMissing(id: String)
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
@@ -91,6 +104,12 @@ extension ProjectStoreError: LocalizedError {
                 + "still in the Trash."
         case .researchNameReserved(let name):
             return "“\(name)” is reserved for the Palette section. Choose a different name."
+        case .productionRoleLanguageEmpty:
+            return "A translator needs a language."
+        case .productionRoleNameEmpty:
+            return "A name can’t be empty."
+        case .productionRoleMissing(let id):
+            return "The role “\(id)” could not be found."
         }
     }
 }

@@ -72,4 +72,40 @@ final class StatementLookupTests: XCTestCase {
                 kind: .intent, scope: .document("doc-9"), documentSlug: nil),
             "a document scope with no slug cannot name a file")
     }
+
+    func test_editionBriefMintsTheRowForProjectScope() {
+        XCTAssertEqual(
+            StatementConvention.newPath(
+                kind: .editionBrief("es"), scope: .project, documentSlug: nil),
+            "editions/es.md")
+    }
+
+    func test_editionBriefHasNoPathForDocumentScope() {
+        XCTAssertNil(
+            StatementConvention.newPath(
+                kind: .editionBrief("fr"), scope: .document("doc-9"), documentSlug: "chapter-nine"),
+            "edition briefs are project-scope only — there is no per-document row")
+    }
+
+    func test_editionBriefWithEmptyLanguageReturnsNil() {
+        XCTAssertNil(
+            StatementConvention.newPath(
+                kind: .editionBrief(""), scope: .project, documentSlug: nil),
+            "an empty language tag has no valid path — match the empty-slug guard")
+    }
+
+    func test_twoEditionBriefsWithDifferentLanguagesDiscriminate() {
+        let statements = [
+            statement("s-a", .editionBrief("es"), .project, "editions/es.md"),
+            statement("s-b", .editionBrief("fr"), .project, "editions/fr.md"),
+        ]
+
+        XCTAssertEqual(
+            StatementLookup.statement(in: statements, kind: .editionBrief("es"), scope: .project)?.id,
+            "s-a")
+        XCTAssertEqual(
+            StatementLookup.statement(in: statements, kind: .editionBrief("fr"), scope: .project)?.id,
+            "s-b",
+            "different language tags must discriminate — kind equality already does this")
+    }
 }
