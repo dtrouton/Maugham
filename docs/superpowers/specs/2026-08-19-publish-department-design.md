@@ -31,7 +31,9 @@ ProductionRole
   brief   String?
 ```
 
-with `effectiveName` / `effectiveBrief` fallbacks so a project that never customized still gets doctrine — the `ReviewPass` lesson: **never read the raw fields**. Stored in a per-project manifest under `.maugham/`, same pattern as the pass manifest.
+with `effectiveName` / `effectiveBrief` fallbacks so a project that never customized still gets doctrine — the `ReviewPass` lesson: **never read the raw fields**. Stored on the project manifest (`ProjectManifest.productionRoles`), same pattern as the pass manifest.
+
+**Amendment, 2026-08-19:** initially described as stored under `.maugham/`, which is contradictory — the pass manifest IS the project manifest (at the project root), not a directory under `.maugham/`. The code uses `ProjectManifest.productionRoles`; roles are manifest-level entries read alongside passes.
 
 - **The designer exists from the start**, one per project. Preset name **Tschichold**. Preset brief: read the visual language statement before proposing anything; design the page, not the decoration; one spec, demonstrated in sample pages, accounting for every element the manuscript actually contains.
 - **A translator is minted when a language edition first exists** — first translation run requested for that language, or retroactively when translations for a language are already present (an upgrade pass; Volumen Uno's `es` gets one). Default names come from a small preset table of real translators *into* that language (`es`: Cortázar, `fr`: Baudelaire, `de`: Tieck, `ja`: Motoyuki — the plan fixes the table); unlisted languages get a mint sheet asking the writer to name them. Renameable any time.
