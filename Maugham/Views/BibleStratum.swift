@@ -173,7 +173,8 @@ enum BibleStratum {
                                  bible: BibleStore, world: DeclaredWorldStore?) async {
         do {
             try await RulingPerformer.rule(
-                words, provenance: provenance, forScope: scope, store: store, world: world)
+                words, provenance: provenance, kind: .intent, forScope: scope,
+                store: store, world: world)
         } catch {
             return
         }

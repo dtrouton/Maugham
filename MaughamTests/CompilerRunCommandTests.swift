@@ -2101,7 +2101,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let ruled = "Kelly heard about the call offstage."
         try await RulingPerformer.rule(
             ruled, provenance: "answered a compiler note",
-            forScope: .document("ch-1"), store: fx.store, world: fx.declaredWorld)
+            kind: .intent, forScope: .document("ch-1"), store: fx.store, world: fx.declaredWorld)
 
         // …and keeps writing, so run 2 has a delta of its own to check. Without
         // this the second ⌘R is "nothing new" and never reaches the session at

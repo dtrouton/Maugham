@@ -152,6 +152,16 @@ on ⌘⇧R the dedupe is the whole of it.
   revoke, edit and `restore`, each taking the writer's words as a `String` or a
   `Ruling` those verbs produced, and never a reading. Spec §3.4's membrane;
   `RulingPerformerTests.test_nothingDerivedCanWriteItself` is its census.
+  **Two destinations since the publish department's Task 6**: every verb takes
+  a `kind: Statement.Kind` before its scope, undefaulted for the reason `world`
+  is, so a ruling lands either in the piece's **intent** statement or in an
+  **edition brief** (`editions/<lang>.md`) — one performer, two addresses,
+  because both are the writer's own declared prose carrying a `## Rulings`
+  stratum. Visual language still has none: nothing mints one for a kind no
+  caller names. Every call site in the app passes `.intent` today; a default
+  would be how an edition's decision landed in the book's intent in silence,
+  and `RulingPerformerTests.test_everyVerbTakesTheDestinationKindExplicitly`
+  is the census.
   **`restore` exists for ⌘Z alone**: the Intent pane's rows register the
   opposite verb on the window's `UndoManager`, and `rule` could not have served
   as revoke's inverse — it stamps today's date and appends at the end, so
@@ -474,7 +484,12 @@ Two things the trigger's shape buys, both worth keeping when you touch it:
 `RulingPerformer` invalidates the cache on every write (`rule`/`revoke`/
 `edit`, each taking `world` as an explicit, undefaulted parameter — see that
 file's own doc), which is what makes a revoked ruling stop being checked
-immediately rather than at the next statement edit.
+immediately rather than at the next statement edit. **The cache key stays the
+scope alone** even now that a verb can be aimed at an edition brief: nothing
+derives a world from a brief, every brief-side caller passes `world: nil`, and
+a second key shape would be the two-spellings defect `scopeKey` exists to
+prevent — the day a brief is derived, `DeclaredWorldStore` grows the kind once,
+for both readers.
 
 ## The atomic switch — why the essay and the clauses landed together
 
