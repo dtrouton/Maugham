@@ -11,6 +11,7 @@ final class TranslationStatusToolTests: XCTestCase {
     private struct Harness {
         let projectURL: URL
         let projectId: String
+        let projectStore: ProjectStore
         let documentStore: DocumentStore
         let registry: ProjectRegistry
         let doc1: Document
@@ -62,6 +63,7 @@ final class TranslationStatusToolTests: XCTestCase {
         return Harness(
             projectURL: tmp,
             projectId: ProjectIdentifier.id(for: tmp),
+            projectStore: pStore,
             documentStore: ds,
             registry: reg,
             doc1: doc1, doc2: doc2)
@@ -285,6 +287,75 @@ final class TranslationStatusToolTests: XCTestCase {
         XCTAssertEqual(doc1es?.missing, 1, "doc-1 has 2 paragraphs, 1 translated")
         XCTAssertEqual(doc2es?.fresh, 1)
         XCTAssertEqual(doc2es?.missing, 0, "doc-2 has 1 paragraph, translated")
+
+        await h.documentStore.close()
+    }
+
+    // MARK: - Task 8: the row names the translator
+
+    /// A stored, renamed `es` role reports the rename — `effectiveName`, not
+    /// the preset, once the writer has actually named this person.
+    func test_translatorField_reportsAStoredRename() async throws {
+        let h = try await makeHarness()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "a")
+        let minted = try await h.projectStore.translatorRole(for: "es")
+        try await h.projectStore.renameProductionRole(id: minted.id, to: "Alejandra")
+
+        let result = try await status(h, [
+            "project_id": h.projectId,
+            "document_id": "doc-1"
+        ])
+        let esRow = result.rows.first { $0.language == "es" }
+        XCTAssertEqual(esRow?.translator, "Alejandra")
+
+        await h.documentStore.close()
+    }
+
+    /// An unminted `es` with translation files reports the preset name — and
+    /// the lookup must NOT mint: the manifest on disk is untouched by asking.
+    /// (Task 8's contract: a read tool must not mint; disable experiment is
+    /// to route this lookup through `translatorRole(for:)` instead and watch
+    /// this assertion fail.)
+    func test_translatorField_unmintedPresetLanguage_doesNotMintOnRead() async throws {
+        let h = try await makeHarness()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "a")
+
+        let manifestURL = h.projectURL.appendingPathComponent("project.maugham.json")
+        let bytesBefore = try Data(contentsOf: manifestURL)
+
+        let result = try await status(h, [
+            "project_id": h.projectId,
+            "document_id": "doc-1"
+        ])
+        let esRow = result.rows.first { $0.language == "es" }
+        XCTAssertEqual(esRow?.translator, "Cortázar")
+
+        let bytesAfter = try Data(contentsOf: manifestURL)
+        XCTAssertEqual(bytesBefore, bytesAfter,
+                       "a read tool must not mint a production role")
+        XCTAssertTrue(h.projectStore.manifest.productionRoles.isEmpty,
+                      "in-memory manifest must also be untouched")
+
+        await h.documentStore.close()
+    }
+
+    /// An unlisted, unminted language (no preset, nothing stored) has no
+    /// honest name to report — the field is omitted rather than guessed.
+    func test_translatorField_unlistedUnmintedLanguage_omitsField() async throws {
+        let h = try await makeHarness()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "xx", text: "a")
+
+        let result = try await status(h, [
+            "project_id": h.projectId,
+            "document_id": "doc-1"
+        ])
+        let xxRow = result.rows.first { $0.language == "xx" }
+        XCTAssertNotNil(xxRow)
+        XCTAssertNil(xxRow?.translator,
+                     "unlisted and unminted — nothing honest to report")
 
         await h.documentStore.close()
     }

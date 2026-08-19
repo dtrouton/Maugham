@@ -283,10 +283,39 @@ public enum ReadTranslationTool: MCPTool {
 
 // MARK: - translation_status
 
+/// The translator's display name for `language`, read without minting.
+///
+/// **A read tool must not mint** (the rule stated in
+/// `ProjectStore+ProductionRoles.swift`'s doc comment): this is a pure lookup
+/// over `manifest.productionRoles` plus the preset table, never
+/// `ProjectStore.translatorRole(for:)`, which finds-or-creates and would stamp
+/// the manifest merely because `translation_status` was asked. Resolution
+/// order: the stored role's `effectiveName` when this language has one
+/// already (a rename or a prior mint both count), else the preset name, else
+/// nil — an unlisted, unminted language has no honest name to report.
+///
+/// Matching mirrors `ProjectStore.storedTranslator(for:)`'s case-insensitive
+/// tag compare (that helper is private to the store file, so this reads the
+/// manifest directly rather than sharing it) — `ES` and `es` are one
+/// language, and a regional tag like `es-MX` is its own, exactly as
+/// `defaultTranslatorName` treats it.
+func translatorName(for language: String, in manifest: ProjectManifest) -> String? {
+    let stored = manifest.productionRoles.first { role in
+        guard case .translator(let tag) = role.role else { return false }
+        return tag.caseInsensitiveCompare(language) == .orderedSame
+    }
+    if let stored { return stored.effectiveName }
+    return ProductionRole.defaultTranslatorName(language: language)
+}
+
 public enum TranslationStatusTool: MCPTool {
     public struct Row: Codable, Equatable {
         public let document_id: String
         public let language: String
+        /// The stored role's `effectiveName`, else the preset for this
+        /// language, else omitted — an unlisted, unminted language has no
+        /// honest name to report. Never mints (see `translatorName(for:in:)`).
+        public let translator: String?
         public let fresh: Int
         public let stale: Int
         public let missing: Int
@@ -369,6 +398,7 @@ public enum TranslationStatusTool: MCPTool {
 
             for language in languages {
                 let openQueryCount = openQueries.filter { $0.language == language }.count
+                let translator = translatorName(for: language, in: entry.store.manifest)
                 if fileLanguages.contains(language) {
                     let state = try currentParagraphState(
                         projectId: params.project_id, documentId: docId, registry: registry)
@@ -380,6 +410,7 @@ public enum TranslationStatusTool: MCPTool {
                     rows.append(Row(
                         document_id: docId,
                         language: language,
+                        translator: translator,
                         fresh: derived.freshCount,
                         stale: derived.staleCount,
                         missing: derived.missingCount,
@@ -394,6 +425,7 @@ public enum TranslationStatusTool: MCPTool {
                     rows.append(Row(
                         document_id: docId,
                         language: language,
+                        translator: translator,
                         fresh: 0,
                         stale: 0,
                         missing: 0,
