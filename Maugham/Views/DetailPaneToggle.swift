@@ -51,6 +51,11 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// behind it keep compiling and get a desk that reads without acting.
     var translator: TranslatorOrchestrator? = nil
     var translationRuns: TranslationRunLog? = nil
+    /// The window's designer (publish department P4 Task 4) — the desk's Design
+    /// row runs it. Threaded and defaulted exactly as `translator` is; its own
+    /// record of finished rounds is the proposal it stages, which the desk
+    /// re-derives, so there is no log beside it.
+    var designer: DesignerOrchestrator? = nil
     /// The gear menu's persisted choice, and the write-back when it changes —
     /// a value + closure rather than a `Binding` so every existing call site
     /// keeps compiling with the defaults below.
@@ -114,6 +119,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         declaredWorldStore: DeclaredWorldStore? = nil,
         translator: TranslatorOrchestrator? = nil,
         translationRuns: TranslationRunLog? = nil,
+        designer: DesignerOrchestrator? = nil,
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
@@ -141,6 +147,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.declaredWorldStore = declaredWorldStore
         self.translator = translator
         self.translationRuns = translationRuns
+        self.designer = designer
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
@@ -461,7 +468,8 @@ struct DetailPaneToggle<Inspector: View>: View {
                                // (Task 3).
                                subject: selectedSubject,
                                translator: translator,
-                               runLog: translationRuns)
+                               runLog: translationRuns,
+                               designer: designer)
         } else {
             ContentUnavailableView(
                 "Open a project",

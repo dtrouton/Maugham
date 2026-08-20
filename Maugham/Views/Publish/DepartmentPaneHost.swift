@@ -39,8 +39,19 @@ struct DepartmentPaneHost: View {
     /// because `onRunEnded` is wired when the stores are configured, long before
     /// anybody opens this pane — see `TranslationRunLog`.
     var runLog: TranslationRunLog? = nil
+    /// The window's designer (P3), reached exactly as `translator` is and for the
+    /// same reason: a round is started from this column while the warm session
+    /// that answers it belongs to the window, which is the only thing that can
+    /// tear it down (`DesignerOrchestrator.shutdown()`'s contract). Optional so a
+    /// caller that surfaces no run — the probe mounts — offers a desk that reads
+    /// and does not act.
+    var designer: DesignerOrchestrator? = nil
 
     @State private var languages: [EditionStatus.LanguageRow] = []
+    /// Every design round this project has staged, newest first — the Design
+    /// row's second line and its badge (Task 4). Derived off the body path
+    /// because it reads `.maugham/design/proposals/`.
+    @State private var proposals: [DesignProposalStore.Proposal] = []
     /// The edition whose brief is on screen, or nil for the desk itself.
     @State private var openBrief: OpenedBrief?
     /// A door that would not open. Cleared on the next attempt.
@@ -64,19 +75,31 @@ struct DepartmentPaneHost: View {
         var id: String { statementID }
     }
 
-    /// **Three signals, and the `.task`'s own mount is a fourth.** The desk's
+    /// **Four signals, and the `.task`'s own mount is a fifth.** The desk's
     /// figures move when a translation is written (a run, or `write_translation`
-    /// from outside), when a query is opened or disposed of, and when the
-    /// manifest changes (a translator renamed, a chapter added or removed).
-    /// Read as an `Equatable` value so `.task(id:)` re-runs on a change and on
-    /// nothing else.
+    /// from outside), when a query is opened or disposed of, when the manifest
+    /// changes (a translator renamed, a chapter added or removed) — and when a
+    /// design round ends. Read as an `Equatable` value so `.task(id:)` re-runs
+    /// on a change and on nothing else.
+    ///
+    /// **The designer's state is in the key rather than behind an event**
+    /// (Task 4), and it is the whole of how a finished round reaches the row: a
+    /// proposal is staged under `.maugham/design/`, which touches neither the
+    /// manifest nor any `MaughamEvent`, so nothing else would tell this pane its
+    /// Design row is out of date. Reading the orchestrator's own state here
+    /// registers the observation that makes it live, and the redundant re-derive
+    /// when a round *starts* costs one proposals listing.
     private struct ReloadKey: Equatable {
         let manifestModified: Date
         let refreshes: Int
+        let designRunState: DesignerOrchestrator.RunState?
+        let designerBusy: Bool
     }
 
     private var reloadKey: ReloadKey {
-        ReloadKey(manifestModified: store.manifest.modified, refreshes: refreshes)
+        ReloadKey(manifestModified: store.manifest.modified, refreshes: refreshes,
+                  designRunState: designer?.runState,
+                  designerBusy: designer?.isRunning ?? false)
     }
 
     var body: some View {
@@ -108,8 +131,7 @@ struct DepartmentPaneHost: View {
         return DepartmentPane(
             title: store.manifest.title,
             languages: languages,
-            // Task 4's: the staged proposals are the other half of the desk.
-            designProposalCount: 0,
+            design: designRow,
             openEditionBrief: { language in
                 Task { await present(language: language) }
             },
@@ -120,7 +142,10 @@ struct DepartmentPaneHost: View {
             // One session per window, so the row that is running is the only row
             // that offers this and there is never a question of whose round it
             // ends.
-            cancelRun: { translator?.cancel() })
+            cancelRun: { translator?.cancel() },
+            runDesign: { runDesign(direction: $0) },
+            requestDesignChanges: { requestDesignChanges($0) },
+            cancelDesignRun: { designer?.cancel() })
         .task(id: reloadKey) { await derive() }
     }
 
@@ -202,6 +227,85 @@ struct DepartmentPaneHost: View {
         "This window isn\u{2019}t ready to run a translation yet. Try again in a "
         + "moment, or reopen the project."
 
+    static let noDesignerWired =
+        "This window isn\u{2019}t ready to run a design round yet. Try again in a "
+        + "moment, or reopen the project."
+
+    // MARK: - The design round (Task 4)
+
+    /// **The Design row, resolved.**
+    ///
+    /// The proposals come from the `.task` above; everything else is read here
+    /// so the row follows the session with no event — the same reason
+    /// `runTarget` is on this path, and cheaper: `designerRole()` is a scan of
+    /// the manifest's own tiny role list (a READ, which never mints — that rule
+    /// is `ProjectStore+ProductionRoles`'), and the orchestrator's two
+    /// properties are observed stored state.
+    private var designRow: DepartmentDesignRow {
+        let runState = designer?.runState ?? .idle
+        return DepartmentDesignRow.resolve(
+            designerName: store.designerRole().effectiveName,
+            proposals: proposals,
+            runState: runState,
+            session: DesignSession.read(runState: runState,
+                                        isRunning: designer?.isRunning ?? false),
+            hasOpenProposalRound: designer?.hasOpenProposalRound ?? false)
+    }
+
+    /// **The click, and everything that can refuse it in words** (Global
+    /// Constraint 2) — `run(language:)`'s shape one section up the pane.
+    ///
+    /// **`language` is `nil`, by this milestone's ruling.** A design round is
+    /// the book's; there is no picker on this desk and no per-edition round.
+    ///
+    /// Past the pre-flight the orchestrator's own `!isRunning` guard is the only
+    /// refusal left, and it cannot be reached without the busy answer having
+    /// been given first.
+    ///
+    /// Answers whether the round went, so the pane can decide what to do with
+    /// the writer's words: spent on a round that started, kept in the box on one
+    /// that was refused.
+    private func runDesign(direction: String?) -> Bool {
+        notice = nil
+        guard let designer else {
+            notice = Self.noDesignerWired
+            return false
+        }
+        let session = DesignSession.read(runState: designer.runState,
+                                         isRunning: designer.isRunning)
+        if let refusal = DepartmentDesignRow.preflight(
+            session: session,
+            briefability: DepartmentDesignRow.briefability(
+                store: store, projectURL: projectURL)) {
+            notice = refusal
+            return false
+        }
+        designer.runDesign(direction: direction, language: nil)
+        return true
+    }
+
+    /// **The gate's iterate arm, from the desk.**
+    ///
+    /// `requestChanges` already answers whether it took the words — it is the
+    /// one verb in either loop that does — so the refusal is composed from the
+    /// conditions it guards on rather than guessed at. It lands in `notice`, the
+    /// desk's one transient-message channel, beside every other refusal a click
+    /// earned (Task 3's census).
+    private func requestDesignChanges(_ words: String) -> Bool {
+        notice = nil
+        guard let designer else {
+            notice = Self.noDesignerWired
+            return false
+        }
+        if designer.requestChanges(words) { return true }
+        notice = DepartmentDesignRow.changesRefusal(
+            words: words,
+            session: DesignSession.read(runState: designer.runState,
+                                        isRunning: designer.isRunning),
+            hasOpenProposalRound: designer.hasOpenProposalRound)
+        return false
+    }
+
     /// The brief itself, over the desk rather than beside it.
     ///
     /// **`StatementPane`, exactly as `⌘⌥N` and `⌘⌥V` present a statement** — the
@@ -249,6 +353,16 @@ struct DepartmentPaneHost: View {
             // refusal the writer ASKED for.
             _departmentLog.error(
                 "could not derive the department's language rows: \(error, privacy: .public)")
+        }
+        do {
+            // Newest first, and tolerant of a folder it cannot read — the
+            // store's own posture. Same failure policy as the walk above: the
+            // row keeps what it last had rather than losing the writer's
+            // standing proposal because one listing failed.
+            proposals = try DesignProposalStore(projectURL: projectURL).list()
+        } catch {
+            _departmentLog.error(
+                "could not list the project's design proposals: \(error, privacy: .public)")
         }
     }
 

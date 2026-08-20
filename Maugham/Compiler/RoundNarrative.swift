@@ -186,12 +186,16 @@ enum RoundNarrative {
         case check
         /// A translation round (publish department).
         case translation
+        /// A design round (publish department, P4's desk). The third owner of
+        /// the one `ClaudeCLISession` machinery, and the third set of nouns.
+        case design
 
         /// What the writer asked for, as the subject of a sentence.
         var subject: String {
             switch self {
             case .check: return "The check"
             case .translation: return "The translation round"
+            case .design: return "The design round"
             }
         }
 
@@ -200,6 +204,7 @@ enum RoundNarrative {
             switch self {
             case .check: return "The compiler\u{2019}s session"
             case .translation: return "The translator\u{2019}s session"
+            case .design: return "The designer\u{2019}s session"
             }
         }
 
@@ -208,6 +213,7 @@ enum RoundNarrative {
             switch self {
             case .check: return "notes"
             case .translation: return "translations"
+            case .design: return "a design proposal"
             }
         }
 
@@ -216,6 +222,7 @@ enum RoundNarrative {
             switch self {
             case .check: return "check your writing"
             case .translation: return "translate your writing"
+            case .design: return "design your book"
             }
         }
     }

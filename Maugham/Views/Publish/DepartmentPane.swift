@@ -6,26 +6,28 @@ import MaughamCore
 ///
 /// Review got a board saying where every piece stands on every pass; Publish
 /// gets a desk saying where the book's DESIGN stands and where each language
-/// EDITION stands. Two sections, and the milestone fills them in order: the
-/// language rows and their edition briefs (Task 2), a translation run (Task 3),
-/// and the designer's own row with a direction and a run (Task 4). This task is
-/// the seat and the skeleton — the pane reads, and nothing here acts yet.
+/// EDITION stands. Two sections, filled in over the milestone: the language rows
+/// and their edition briefs (Task 2), a translation run (Task 3), and the
+/// designer's own row with a direction and a run (Task 4).
 ///
 /// **It takes values, never a store** (tripwire 4, and the sibling's rule for
-/// the sibling's reason). Every input below is a plain value assembled by the
-/// mount in `DetailPaneToggle`, so a desk of twenty languages costs twenty rows
-/// of layout and no I/O, and the whole surface is mountable in a test with no
+/// the sibling's reason). Every input below is a plain value assembled by
+/// `DepartmentPaneHost`, so a desk of twenty languages costs twenty rows of
+/// layout and no I/O, and the whole surface is mountable in a test with no
 /// project on disk — which is what `DepartmentPaneTests` does. The derivations
 /// those values come from are expensive on purpose: the language union walks
-/// every manuscript document's translation store, and the proposal list reads
-/// `.maugham/design/proposals/`. Neither may ever happen on this body path.
+/// every manuscript document's translation store, and the design row's
+/// proposals read `.maugham/design/proposals/`. Neither may ever happen on this
+/// body path.
 ///
-/// **The empty state is honest about which of the two is missing.** A project
-/// with no translations and no design round has nothing for a department to do,
-/// and says so rather than drawing two headings over nothing. What it must not
-/// do is read as broken: `DepartmentDesk.emptiness` owns that sentence, so the
-/// truth table is assertable without mounting anything and the pane cannot
-/// disagree with itself about what it is showing.
+/// **The desk has no empty state, and that is Task 4's doing.** Task 1 drew a
+/// `ContentUnavailableView` over a project with neither translations nor
+/// proposals — honest while nothing on the pane could act. It stopped being
+/// honest the moment the Design row grew a Run: every project has a designer
+/// from the moment it exists (`ProductionRole.presetDesigner`), so asking for
+/// the book's first design round is exactly what a writer with an empty
+/// department came here to do, and an "unavailable" view would have hidden the
+/// one verb that is always available.
 struct DepartmentPane: View {
     /// The project's title, as the sibling board takes it — the desk is a
     /// project-level surface and names the book it is the department for.
@@ -36,11 +38,16 @@ struct DepartmentPane: View {
     /// anything here: a desk and a tool disagreeing about how far along an
     /// edition is gives the writer no way to find out which is wrong.
     let languages: [EditionStatus.LanguageRow]
-    /// How many design proposals the designer has staged. **Task 4 replaces
-    /// this count with the proposals themselves** (the newest pending one's
-    /// badge, the round's age, its status); a count is what the skeleton can
-    /// honestly draw with no verbs behind it.
-    let designProposalCount: Int
+    /// **The Design row, whole** (Task 4) — who designs this book, what the
+    /// newest round produced, what a round in flight is doing, and whether
+    /// either verb may be pressed.
+    ///
+    /// A resolved value rather than the proposals themselves: reading
+    /// `DesignProposalStore.list()` is disk work the host owns, and *deciding*
+    /// what the row says about it is `DepartmentDesignRow`'s, so the truth table
+    /// is assertable with nothing mounted. This replaces Task 1's placeholder
+    /// count, which was what a skeleton with no verbs could honestly draw.
+    var design: DepartmentDesignRow = DepartmentDesignRow()
     /// Open the edition brief for a language — the row's own door.
     ///
     /// A closure, because the door WRITES: it creates the statement the writer
@@ -86,6 +93,31 @@ struct DepartmentPane: View {
     /// End the round in flight — `TranslatorOrchestrator.cancel()`. Only reachable
     /// from the row that is running, which is the only row with anything to end.
     var cancelRun: () -> Void = { }
+    /// **Ask for a design round**, with the writer's words for it or `nil` for a
+    /// bare one briefed on the visual language statement alone.
+    ///
+    /// Answers whether the round actually went, which is what lets the row clear
+    /// the direction field: words used are words spent, and words *refused* must
+    /// stay in the box for the writer to press again with. The refusal itself
+    /// travels through `notice` — see below.
+    var runDesign: (String?) -> Bool = { _ in false }
+    /// **Send the writer's words back into the session that made the standing
+    /// proposal** — `DesignerOrchestrator.requestChanges`, whose own `Bool` is
+    /// what this returns.
+    var requestDesignChanges: (String) -> Bool = { _ in false }
+    /// End the design round in flight — `DesignerOrchestrator.cancel()`.
+    var cancelDesignRun: () -> Void = { }
+
+    /// **The writer's words for the next round**, and the pane's only mutable
+    /// state.
+    ///
+    /// It lives here rather than on the host because it is the field's own text
+    /// and nothing else reads it: a `Binding` down from the host would put a
+    /// keystroke-rate write on the surface that derives the language union
+    /// (tripwire 3's shape). Both verbs take it — Run as the round's direction,
+    /// Request Changes as the change request — because on this row they are the
+    /// same sentence answered by two different sessions.
+    @State private var direction = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -100,18 +132,7 @@ struct DepartmentPane: View {
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if let emptiness = DepartmentDesk.emptiness(
-                languageCount: languages.count,
-                proposalCount: designProposalCount) {
-                ContentUnavailableView {
-                    Label(emptiness.title, systemImage: "person.2")
-                } description: {
-                    Text(emptiness.description)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                desk
-            }
+            desk
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -132,9 +153,7 @@ struct DepartmentPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 section(DepartmentDesk.designHeading) {
-                    Text(DepartmentDesk.designSummary(proposalCount: designProposalCount))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    designRow
                 }
                 section(DepartmentDesk.languagesHeading) {
                     if languages.isEmpty {
@@ -166,6 +185,109 @@ struct DepartmentPane: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// **The book's design: who makes it, where the last round stands, and the
+    /// two verbs** (spec §5's Design row, Task 4).
+    ///
+    /// One row for the whole book rather than one per edition. The milestone's
+    /// ruling is that `runDesign` is called with `language: nil` — there is no
+    /// picker here and no per-edition round — so what this row is about is the
+    /// book's design, and a round started for an edition from somewhere else
+    /// still says which edition it is for (`DepartmentDesignRow.designingLine`).
+    private var designRow: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(design.designerName)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                // A proposal waiting on the writer is the one thing on this row
+                // that is asking them for something, so it is a badge rather
+                // than another grey line. At most one can be pending —
+                // `DesignProposalStore.stage` supersedes the rest — so it never
+                // has to carry a number.
+                if let badge = design.pendingBadge {
+                    Text(badge)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+                }
+                Spacer(minLength: 6)
+            }
+            Text(design.latestLine)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            TextField(DepartmentDesignRow.directionPrompt, text: $direction,
+                      axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...3)
+                .font(.callout)
+            designControls
+            if let status = design.statusLine {
+                Text(status)
+                    .font(.caption)
+                    // Red only for a failure, the cockpit's rule: a colour that
+                    // never changes is a colour that says nothing.
+                    .foregroundStyle(design.isFailure ? Color.red : Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// **Run, Request Changes while there is something to change, and Cancel
+    /// while a round is in flight.**
+    ///
+    /// Run is drawn in every state and **disabled** rather than hidden
+    /// (`ReviewRoundCockpit.runRow`'s rule, which the language rows follow one
+    /// section down). Request Changes is the opposite and deliberately so: it is
+    /// drawn only while `hasOpenProposalRound`, because outside that window it
+    /// does not merely refuse — the honest verb is Run, with the writer's words
+    /// as the round's direction, and that button is already here. A permanently
+    /// disabled second control teaching the writer to use the first is worse
+    /// than not drawing it.
+    ///
+    /// **Both buttons carry an accessibility label of their own.** The visible
+    /// titles are the spec's, and "Run" is also what every language row's button
+    /// says — three identical labels in one tree are three controls a VoiceOver
+    /// user cannot tell apart, since the row that disambiguates them visually is
+    /// not something a linear tree carries.
+    ///
+    /// **No `keyboardShortcut`**, for the language rows' reason: ⌘R is the
+    /// compiler's in whichever window hosts this pane.
+    @ViewBuilder
+    private var designControls: some View {
+        HStack(spacing: 6) {
+            Button(DepartmentDesignRow.runTitle) {
+                let words = direction.trimmingCharacters(in: .whitespacesAndNewlines)
+                if runDesign(words.isEmpty ? nil : words) { direction = "" }
+            }
+            .controlSize(.small)
+            .disabled(!design.canRun)
+            .accessibilityLabel(DepartmentDesignRow.runAccessibilityLabel)
+            .help(design.refusal
+                  ?? DepartmentDesignRow.runHelp(designerName: design.designerName))
+            if design.offersRequestChanges {
+                Button(DepartmentDesignRow.requestChangesTitle) {
+                    if requestDesignChanges(direction) { direction = "" }
+                }
+                .controlSize(.small)
+                .disabled(!design.canRun)
+                .help(design.refusal ?? DepartmentDesignRow.requestChangesHelp)
+            }
+            if design.isRunning {
+                Button(DepartmentRunState.cancelTitle) { cancelDesignRun() }
+                    .controlSize(.small)
+                    .accessibilityLabel(DepartmentDesignRow.cancelAccessibilityLabel)
+                    .help(DepartmentDesignRow.cancelHelp)
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     private func section<Content: View>(
@@ -267,43 +389,23 @@ struct DepartmentPane: View {
     }
 }
 
-/// **What the desk says when there is little to say** (publish-department P4
-/// Task 1) — the empty state's words and the two section headings, as values.
+/// **The desk's own words** (publish-department P4 Task 1) — the section
+/// headings and every string a row prints, as values.
 ///
 /// Split out of the pane's body for `ReviewBoardOpenNotes`' reason: the truth
 /// table is then assertable with nothing mounted, and the words the writer reads
-/// live in one place rather than three arms of a `ViewBuilder`.
+/// live in one place rather than three arms of a `ViewBuilder`. The Design row's
+/// own words are `DepartmentDesignRow`'s, beside the decisions they belong to.
 enum DepartmentDesk {
 
     static let designHeading = "Design"
     static let languagesHeading = "Languages"
 
     /// What the Languages section says while the book has one edition only —
-    /// the state a project is in until somebody translates a paragraph. Drawn
-    /// only when the DESIGN half has something, since a desk with neither is
-    /// the empty state below.
+    /// the state a project is in until somebody translates a paragraph. The
+    /// section is always drawn, because the Design row above it always has
+    /// something to offer (Task 4 retired the pane's empty state).
     static let noLanguagesYet = "No translations yet."
-
-    /// The empty state's two lines: what is not here, and what would put
-    /// something here.
-    struct Emptiness: Equatable {
-        let title: String
-        let description: String
-    }
-
-    /// The desk's whole empty state, or `nil` when it has something to draw.
-    ///
-    /// **Both halves must be missing.** A book with a design round and no
-    /// translations is a working department, and so is one with three editions
-    /// and no design round — hiding either behind an "unavailable" view would
-    /// tell the writer their department is empty while it is holding work.
-    static func emptiness(languageCount: Int, proposalCount: Int) -> Emptiness? {
-        guard languageCount == 0, proposalCount == 0 else { return nil }
-        return Emptiness(
-            title: "Nothing on the desk yet",
-            description: "The book's design rounds and its language editions "
-                + "appear here.")
-    }
 
     // MARK: - A language row's words (Task 2)
 
@@ -348,15 +450,5 @@ enum DepartmentDesk {
         "Register, idiom policy and what stays untranslated for the "
             + "\(TranslationReviewIndicator.displayLabel(forLanguageTag: language)) "
             + "edition"
-    }
-
-    /// The Design section's one line while the skeleton stands: how many rounds
-    /// the designer has proposed. Task 4 replaces it with the round itself.
-    static func designSummary(proposalCount: Int) -> String {
-        switch proposalCount {
-        case 0: return "No design round yet."
-        case 1: return "1 design round proposed."
-        default: return "\(proposalCount) design rounds proposed."
-        }
     }
 }

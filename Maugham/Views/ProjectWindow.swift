@@ -2687,6 +2687,10 @@ struct ProjectWindow: View {
             // compiler's pair above is.
             translator: translator,
             translationRuns: translationRuns,
+            // …and the Design row's Run (P4 Task 4), the third of this window's
+            // three long-lived sessions. No log beside it: what a design round
+            // leaves is a staged proposal, which the desk re-derives.
+            designer: designer,
             compilerModel: compilerModel,
             onCompilerModelChange: { newValue in
                 compilerModel = newValue

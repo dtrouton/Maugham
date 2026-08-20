@@ -7,25 +7,25 @@ import MaughamCore
 
 /// **What Publish's desk draws** (publish-department P4 Task 1) — the seat it
 /// takes in the right column is `PersonaPaneRegistryTests`'; this file is about
-/// the pane itself: its two sections, and the empty state it shows instead of
-/// them.
+/// the pane itself: its two sections and what a language row says. The Design
+/// row and every verb on the desk are `DepartmentRunTests`'.
 ///
 /// **Nothing here needs a project on disk**, which is the point rather than a
-/// convenience. `DepartmentPane` takes a title, a language list and a count —
-/// no `ProjectStore`, no `DocumentStore` — so the whole surface is drivable
-/// from literals, exactly as `ReviewBoardPane` is one persona over. That is
-/// tripwire 4 satisfied by construction, and `test_theSourceReadsNoStoreAtAll`
-/// is the census that keeps it so: the derivations the values come from (a walk
-/// of every document's translation store, a read of the staged proposals) are
-/// the mount's, and a `body` that could reach either would run it once per row.
+/// convenience. `DepartmentPane` takes a title, a language list and a resolved
+/// design row — no `ProjectStore`, no `DocumentStore` — so the whole surface is
+/// drivable from literals, exactly as `ReviewBoardPane` is one persona over.
+/// That is tripwire 4 satisfied by construction, and
+/// `test_theSourceReadsNoStoreAtAll` is the census that keeps it so: the
+/// derivations the values come from (a walk of every document's translation
+/// store, a read of the staged proposals) are the host's, and a `body` that
+/// could reach either would run it once per row.
 ///
-/// **How the desk is observed while it has no controls.** Task 1 wires no
-/// verbs, so there are no buttons to count the way the sibling suite counts
-/// chips. The structural reading available instead is the sections' own
-/// scroller: the desk puts them in a `ScrollView`, and the empty arm is a
-/// `ContentUnavailableView`, which is not a scroller. Tasks 3 and 4 give the
-/// rows buttons, at which point counting THOSE is the sharper reading and this
-/// helper should be re-derived rather than leant on further.
+/// **The desk has no empty state to test any more** (Task 4). Task 1's
+/// `ContentUnavailableView` was honest while nothing on the pane could act; the
+/// Design row's Run retired it, because every project has a designer and asking
+/// for a first design round is exactly what a writer with an empty department
+/// came here to do. What replaced those tests is
+/// `DepartmentRunTests.test_aProjectWithNothingInItStillOffersADesignRound`.
 @MainActor
 final class DepartmentPaneTests: XCTestCase {
 
@@ -42,48 +42,6 @@ final class DepartmentPaneTests: XCTestCase {
         for window in windows { window.contentView = NSView(frame: .zero) }
         pump(0.05)
         windows.removeAll()
-    }
-
-    // MARK: - The empty state's truth table (no window)
-
-    /// **Both halves must be missing before the desk says it is empty.** A book
-    /// with editions and no design round is a working department, and so is one
-    /// with a design round and a single language — telling either that there is
-    /// nothing on the desk would be the surface contradicting what it holds.
-    func test_theDeskIsOnlyEmptyWithNoLanguagesAndNoProposals() {
-        XCTAssertNotNil(DepartmentDesk.emptiness(languageCount: 0, proposalCount: 0),
-                        "neither half: the empty state is the honest answer")
-        XCTAssertNil(DepartmentDesk.emptiness(languageCount: 1, proposalCount: 0),
-                     "an edition is work for the department, design round or not")
-        XCTAssertNil(DepartmentDesk.emptiness(languageCount: 0, proposalCount: 1),
-                     "a staged design round is work for the department, "
-                     + "editions or not")
-        XCTAssertNil(DepartmentDesk.emptiness(languageCount: 3, proposalCount: 2))
-    }
-
-    /// The empty state says what is not here and what would fill it — never a
-    /// bare heading, which reads as a pane that failed to load.
-    func test_theEmptyStateNamesBothHalvesOfTheDepartment() throws {
-        let emptiness = try XCTUnwrap(
-            DepartmentDesk.emptiness(languageCount: 0, proposalCount: 0))
-
-        XCTAssertFalse(emptiness.title.isEmpty)
-        let description = emptiness.description.lowercased()
-        XCTAssertTrue(description.contains("design"),
-                      "the empty state must name the design half: \(emptiness.description)")
-        XCTAssertTrue(description.contains("language"),
-                      "…and the language half: \(emptiness.description)")
-    }
-
-    /// The Design section's line counts what is staged, and says nothing in a
-    /// plural where there is one thing.
-    func test_theDesignSummaryCountsWhatIsStaged() {
-        XCTAssertEqual(DepartmentDesk.designSummary(proposalCount: 0),
-                       "No design round yet.")
-        XCTAssertEqual(DepartmentDesk.designSummary(proposalCount: 1),
-                       "1 design round proposed.")
-        XCTAssertEqual(DepartmentDesk.designSummary(proposalCount: 4),
-                       "4 design rounds proposed.")
     }
 
     // MARK: - A row's own words (Task 2, no window)
@@ -296,37 +254,22 @@ final class DepartmentPaneTests: XCTestCase {
 
     // MARK: - Mounted: which arm the pane is on
 
-    /// The empty project shows the unavailable view and no desk at all.
-    ///
-    /// (That the arm chains tripwire 15's full frame is enforced for every pane
-    /// under `Maugham/` by
-    /// `TripwireGrepTests.test_contentUnavailableViewAlwaysChainsFullFrame`;
-    /// what is asserted here is that the arm is REACHED.)
-    func test_aProjectWithNeitherShowsNoDesk() async throws {
-        let window = mount(languages: [], proposals: 0)
-        pump(0.3)
-
-        XCTAssertTrue(scrollViews(in: window).isEmpty,
-                      "the pane is showing the unavailable view, which is not a "
-                      + "scroller — a desk here would mean two empty headings")
-    }
-
-    /// The control for the test above, and the mounted half of the truth table:
-    /// one language is enough to put the sections on screen.
-    func test_oneLanguageGivesTheDeskItsSections() async throws {
-        let window = mount(languages: ["es"], proposals: 0)
+    /// The sections scroll in ONE scroller of the pane's own — a right-column
+    /// pane may never grow the split view past the window it is a column of
+    /// (`DetailPaneColumnHeightCensusTests`).
+    func test_theDeskPutsItsSectionsInOneScrollerOfItsOwn() async throws {
+        let window = mount(languages: ["es"])
         let scrollers = try await scrollersSettling(in: window)
 
-        XCTAssertEqual(scrollers.count, 1,
-                       "the sections scroll in one scroller of the pane's own — "
-                       + "a right-column pane may not grow the split view "
-                       + "(DetailPaneColumnHeightCensusTests)")
+        XCTAssertEqual(scrollers.count, 1)
     }
 
-    /// And a design round with no editions at all does too, which is the arm a
-    /// reading of "the desk is for translations" would get wrong.
-    func test_aStagedDesignRoundAloneGivesTheDeskItsSections() async throws {
-        let window = mount(languages: [], proposals: 1)
+    /// …and a project with no editions at all still has them, which is the arm
+    /// a reading of "the desk is for translations" would get wrong: the Design
+    /// row is always there, and Task 4 retired the empty state that used to
+    /// stand in front of it.
+    func test_aProjectWithNoEditionsStillHasTheDesksSections() async throws {
+        let window = mount(languages: [])
         let scrollers = try await scrollersSettling(in: window)
 
         XCTAssertEqual(scrollers.count, 1)
@@ -339,7 +282,7 @@ final class DepartmentPaneTests: XCTestCase {
     /// assistive client can attach: a tree that was never built is not evidence
     /// about this view.
     func test_aLanguageRowIsNamedAsTheRestOfTheAppNamesIt() async throws {
-        let window = mount(languages: ["es"], proposals: 0)
+        let window = mount(languages: ["es"])
         _ = try await scrollersSettling(in: window)
 
         let texts = try axTexts(in: window)
@@ -359,7 +302,7 @@ final class DepartmentPaneTests: XCTestCase {
         let row = EditionStatus.LanguageRow(
             language: "es", translator: "Cortázar",
             fresh: 12, stale: 3, missing: 1, openQueries: 2)
-        let window = mount(rows: [row], proposals: 0)
+        let window = mount(rows: [row])
         _ = try await scrollersSettling(in: window)
 
         let texts = try axTexts(in: window)
@@ -377,7 +320,7 @@ final class DepartmentPaneTests: XCTestCase {
     /// keyboard and VoiceOver announces it, which a `Text` would not. Read off
     /// the accessibility tree, as the sibling board reads its chips.
     func test_theEditionBriefDoorIsAButtonOnEveryRow() async throws {
-        let window = mount(languages: ["es", "fr"], proposals: 0)
+        let window = mount(languages: ["es", "fr"])
         _ = try await scrollersSettling(in: window)
 
         let labels = try axButtonLabels(in: window)
@@ -399,7 +342,7 @@ final class DepartmentPaneTests: XCTestCase {
     /// desk (CLAUDE.md's synthetic-click premise).
     func test_theDoorReportsTheLanguageItBelongsTo() async throws {
         var opened: [String] = []
-        let window = mount(languages: ["es", "fr"], proposals: 0,
+        let window = mount(languages: ["es", "fr"],
                            openEditionBrief: { opened.append($0) })
         _ = try await scrollersSettling(in: window)
 
@@ -442,23 +385,22 @@ final class DepartmentPaneTests: XCTestCase {
 
     /// Bare tags, for the tests that are about the sections rather than a row's
     /// contents: every figure zero, nobody named.
-    private func mount(languages: [String], proposals: Int,
+    private func mount(languages: [String],
                        width: CGFloat = 340,
                        openEditionBrief: @escaping (String) -> Void = { _ in }) -> NSWindow {
         mount(rows: languages.map {
             EditionStatus.LanguageRow(language: $0, translator: nil,
                                       fresh: 0, stale: 0, missing: 0, openQueries: 0)
-        }, proposals: proposals, width: width, openEditionBrief: openEditionBrief)
+        }, width: width, openEditionBrief: openEditionBrief)
     }
 
-    private func mount(rows: [EditionStatus.LanguageRow], proposals: Int,
+    private func mount(rows: [EditionStatus.LanguageRow],
                        width: CGFloat = 340,
                        openEditionBrief: @escaping (String) -> Void = { _ in }) -> NSWindow {
         let frame = CGRect(x: 0, y: 0, width: width, height: 600)
         let hosting = NSHostingView(rootView: AnyView(
             DepartmentPane(title: "The Project",
                            languages: rows,
-                           designProposalCount: proposals,
                            openEditionBrief: openEditionBrief)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)))
         hosting.frame = frame

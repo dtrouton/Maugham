@@ -971,6 +971,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
         "Views/DiagnosticsPane.swift",
         "Views/Review/ReviewRoundCockpit.swift",
         "Views/Publish/DepartmentRunState.swift",
+        "Views/Publish/DepartmentDesignRow.swift",
     ]
 
     /// The arms a restated `switch` over `CompilerRunFailure` cannot avoid
