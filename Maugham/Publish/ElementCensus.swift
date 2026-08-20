@@ -58,6 +58,39 @@ public struct ElementCensus: Equatable, Sendable {
         case lineBreak
     }
 
+    /// Writer-facing label for one kind — the ONE spelling (`ProductionRole`'s
+    /// discipline), shared by `SamplePageSelection`'s `demonstrates` lines and
+    /// `DesignerBriefing`'s census section so the two surfaces can never drift
+    /// into naming the same kind two different ways.
+    public static func label(for kind: Kind) -> String {
+        switch kind {
+        case .paragraph: return "paragraph"
+        case .heading: return "heading"
+        case .blockquote: return "blockquote"
+        case .sceneBreak: return "scene break"
+        case .list: return "list"
+        case .verbatim: return "code block"
+        case .sceneHeading: return "scene heading"
+        case .action: return "action"
+        case .character: return "character cue"
+        case .dialogue: return "dialogue"
+        case .parenthetical: return "parenthetical"
+        case .transition: return "transition"
+        case .lyric: return "verse"
+        case .centered: return "centered text"
+        case .pageBreak: return "page break"
+        case .titlePage: return "title page"
+        case .dualDialogue: return "dual dialogue"
+        case .emphasis: return "emphasis"
+        case .strong: return "strong emphasis"
+        case .strikethrough: return "strikethrough"
+        case .underline: return "underline"
+        case .code: return "inline code"
+        case .wikiLink: return "wiki-link"
+        case .lineBreak: return "line break"
+        }
+    }
+
     public static func take(from ast: ProjectAST) -> ElementCensus {
         var kinds: Set<Kind> = []
         var firstPiece: [Kind: String] = [:]

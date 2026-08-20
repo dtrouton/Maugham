@@ -53,38 +53,9 @@ public enum SamplePageSelection {
             selected.insert(pieceID)
             pieceIds.append(pieceID)
             let title = titles[pieceID] ?? pieceID
-            demonstrates.append("\(label(for: kind)) — \u{2018}\(title)\u{2019}")
+            demonstrates.append("\(ElementCensus.label(for: kind)) — \u{2018}\(title)\u{2019}")
         }
 
         return Selection(pieceIds: pieceIds, maxPages: maxPages, demonstrates: demonstrates)
-    }
-
-    private static func label(for kind: ElementCensus.Kind) -> String {
-        switch kind {
-        case .paragraph: return "paragraph"
-        case .heading: return "heading"
-        case .blockquote: return "blockquote"
-        case .sceneBreak: return "scene break"
-        case .list: return "list"
-        case .verbatim: return "code block"
-        case .sceneHeading: return "scene heading"
-        case .action: return "action"
-        case .character: return "character cue"
-        case .dialogue: return "dialogue"
-        case .parenthetical: return "parenthetical"
-        case .transition: return "transition"
-        case .lyric: return "verse"
-        case .centered: return "centered text"
-        case .pageBreak: return "page break"
-        case .titlePage: return "title page"
-        case .dualDialogue: return "dual dialogue"
-        case .emphasis: return "emphasis"
-        case .strong: return "strong emphasis"
-        case .strikethrough: return "strikethrough"
-        case .underline: return "underline"
-        case .code: return "inline code"
-        case .wikiLink: return "wiki-link"
-        case .lineBreak: return "line break"
-        }
     }
 }
