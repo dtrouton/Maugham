@@ -138,10 +138,23 @@ public enum AnnotationDeriver {
             let spanIsStale = (span != nil && resolvedSpanRange == nil)
             let isStale = paragraphStale || spanIsStale
 
-            // Translation-pass language tag — query-only. add_query encodes its
-            // whole Params into `toolArgs` provenance, so decode it back out
-            // here; malformed/absent toolArgs → nil, never throws.
-            let language: String? = (kind == .query)
+            // Translation-pass language tag. `add_query` encodes its whole
+            // Params into `toolArgs` provenance, so decode it back out here;
+            // malformed/absent toolArgs → nil, never throws.
+            //
+            // **Queries AND craft notes**, because a translator's
+            // whole-document question is a craft note: `addAnnotation` refuses
+            // a `.query` with no anchor, so the one kind of translation
+            // question that has no paragraph — "tú or usted throughout?" — can
+            // only land as a `.craftNote`, and while the tag stopped at this
+            // line that question was invisible to every reader that filters by
+            // language. It was never re-briefed to a later round and never
+            // counted in `translation_status.open_queries`, so a fresh session
+            // asked it again, forever. No other craft note carries a
+            // `language` key in its toolArgs (`add_craft_note`'s Params have
+            // no such field; the compiler's mint writes no toolArgs at all),
+            // so widening the decode tags exactly the notes that meant it.
+            let language: String? = (kind == .query || kind == .craftNote)
                 ? decodeToolArgsLanguage(prov?.toolArgs) : nil
 
             // RULING-31: a reopened note carries its most recent PRIOR

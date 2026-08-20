@@ -283,11 +283,16 @@ extension TranslatorOrchestrator.Environment {
     /// the same round whose new questions have nowhere to land (see `mint`
     /// below) — one honest gap rather than two half-measures.
     ///
-    /// Doc-scoped queries (the vanished-anchor and whole-document arms below)
-    /// are craft notes and carry no language tag, so they are not re-briefed.
-    /// Recorded rather than fixed: the projection carries `language` for
-    /// `.query` alone, and widening it is a change to a shared wire projection
-    /// that this task has no reader for.
+    /// **Craft notes as well as queries**, because a doc-scoped translation
+    /// question mints as a `.craftNote` — `addAnnotation` refuses an
+    /// anchorless `.query` — and "tú or usted throughout?" is the question a
+    /// translator is most likely to ask and least able to guess at. Gathered
+    /// only when the note carries THIS language's tag, which
+    /// `AnnotationDeriver` now projects for both kinds off the same `toolArgs`
+    /// the mint writes; an untagged craft note is somebody else's note and
+    /// filters out on `language` alone. `translation_status`'s
+    /// `open_queries` widened the same one way, so the count the writer reads
+    /// and the history the round carries cannot disagree.
     @MainActor
     private static func languageQueries(
         docId: String, language: String, documentStore: DocumentStore?
@@ -297,7 +302,8 @@ extension TranslatorOrchestrator.Environment {
         // notes the writer has SETTLED, every one of which is invisible to
         // `AnnotationFilter`'s `[.open]` default (M5-AN-002's footgun).
         let queries = document
-            .annotations(filter: AnnotationFilter(kinds: [.query], statuses: nil))
+            .annotations(filter: AnnotationFilter(kinds: [.query, .craftNote],
+                                                  statuses: nil))
             .filter { $0.language == language }
         let open = queries
             .filter { $0.status == .open }
@@ -448,10 +454,16 @@ extension TranslatorOrchestrator.Environment {
     /// it was about is gone whichever way this goes. Doc-scoped means a craft
     /// note: `Document.addAnnotation` refuses a `.query` with no anchor
     /// (`paragraphNotFound`), and `CompilerNote`'s anchorless arm made the same
-    /// call for the same reason. The language travels in the body there, since
-    /// `Annotation.language` is projected for `.query` alone. A whole-document
-    /// question — one the report may ask with no `paragraph_id` at all — takes
-    /// the same route, and is the ordinary case rather than the sad one.
+    /// call for the same reason. A whole-document question — one the report
+    /// may ask with no `paragraph_id` at all — takes the same route, and is
+    /// the ordinary case rather than the sad one.
+    ///
+    /// **The language reaches the writer twice, on purpose.** It is stamped in
+    /// `toolArgs`, where `AnnotationDeriver` projects it for a craft note as
+    /// well as a query — that is what lets a later round be briefed on the
+    /// question and `translation_status` count it — and it is also spelled in
+    /// the body, because a craft note wears no language chip in the queue and
+    /// the writer disposing of it has to know which edition asked.
     ///
     /// **The mint never fails the run.** A note that cannot be appended is
     /// logged and the rest are written; a check that finished is not made to

@@ -287,7 +287,8 @@ public enum TranslationStatusTool: MCPTool {
         "`missing` — plus `verbatim` (of the translated paragraphs, how many are copied " +
         "unchanged from source rather than actually translated), `orphans` (translations " +
         "whose source paragraph was deleted), and `open_queries` (unresolved translator " +
-        "questions raised against that language). A language shows up here as soon as a " +
+        "questions raised against that language, whole-document ones included). A " +
+        "language shows up here as soon as a " +
         "translator asks a query against it, even before any translation file exists for " +
         "it — that row's coverage counts are all zero (nothing to derive yet) with " +
         "`open_queries` real, distinct from a language that has files but nothing missing. " +
@@ -329,11 +330,22 @@ public enum TranslationStatusTool: MCPTool {
             // can ask about a language before any file for it exists, so the
             // row set is the UNION of file languages and languages tagged on
             // an open query, not file languages alone.
+            //
+            // **Craft notes count too.** A whole-document translation
+            // question ("tú or usted throughout?") cannot be a `.query` —
+            // `addAnnotation` refuses an anchorless one — so it mints as a
+            // language-tagged `.craftNote`, and counting only `.query` here
+            // reported `open_queries: 0` over a translator who was waiting on
+            // an answer. The tag does the discriminating: an untagged craft
+            // note has a nil `language` and survives neither the filter below
+            // nor `queryLanguages`. The translator's own briefing gather
+            // widened the same one way, so what the writer is told and what
+            // the next round is briefed on cannot disagree.
             let openQueries = try await withAnnotationDocument(
                 projectId: params.project_id, documentId: docId, registry: registry
             ) { doc in
                 doc.annotations(filter: AnnotationFilter(
-                    kinds: [.query], statuses: [.open]))
+                    kinds: [.query, .craftNote], statuses: [.open]))
             }
             let queryLanguages = Set(openQueries.compactMap(\.language))
             let languages = fileLanguages.union(queryLanguages).sorted()

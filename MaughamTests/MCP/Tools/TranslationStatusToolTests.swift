@@ -175,6 +175,65 @@ final class TranslationStatusToolTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    /// **A whole-document question counts too.** "tú or usted throughout?" is
+    /// the question a translator is most likely to ask, and it cannot be a
+    /// `.query` — `addAnnotation` refuses to anchor one to nothing — so it
+    /// mints as a language-tagged craft note. Counting `.query` alone reported
+    /// `open_queries: 0` over a translator who was waiting on an answer.
+    func test_translationStatus_countsAWholeDocumentQuestion() async throws {
+        let h = try await makeHarness()
+        let ids = h.doc1.sequence
+        try await seed(h, doc: h.doc1, paragraphId: ids[0], language: "es", text: "a")
+
+        try await addDocScopedTranslationQuestion(
+            h.doc1, body: "Translation query (es) — tú or usted throughout?",
+            language: "es")
+        // An ordinary craft note carries no language and must not be counted
+        // for any edition.
+        _ = try await h.doc1.addAnnotation(
+            kind: .craftNote, paragraphId: nil,
+            body: "Kelly never uses contractions.", toolArgs: nil)
+
+        let result = try await status(h, [
+            "project_id": h.projectId,
+            "document_id": "doc-1"
+        ])
+        let esRow = result.rows.first { $0.language == "es" }
+        XCTAssertEqual(esRow?.open_queries, 1,
+                       "the whole-document question is what the writer owes an "
+                       + "answer to, and the count is where they see it")
+
+        await h.documentStore.close()
+    }
+
+    /// A language whose only question is a whole-document one still gets a
+    /// row — the query-first workflow, for the question that has no anchor.
+    func test_aWholeDocumentQuestionAloneGetsItsLanguageARow() async throws {
+        let h = try await makeHarness()
+
+        try await addDocScopedTranslationQuestion(
+            h.doc1, body: "Translation query (fr) — tu or vous throughout?",
+            language: "fr")
+
+        let result = try await status(h, ["project_id": h.projectId])
+        let frRow = result.rows.first { $0.document_id == "doc-1" && $0.language == "fr" }
+        XCTAssertNotNil(frRow, "the language is discoverable from the question alone")
+        XCTAssertEqual(frRow?.open_queries, 1)
+
+        await h.documentStore.close()
+    }
+
+    /// The mint's own shape (`TranslatorEnvironment+Project.mint`'s
+    /// anchorless arm): a craft note whose `toolArgs` carry the language tag
+    /// and the role that signed it.
+    private func addDocScopedTranslationQuestion(
+        _ doc: Document, body: String, language: String
+    ) async throws {
+        _ = try await doc.addAnnotation(
+            kind: .craftNote, paragraphId: nil, body: body,
+            toolArgs: #"{"language":"\#(language)","role_id":"role-\#(language)"}"#)
+    }
+
     private func addQuery(_ h: Harness, doc: Document, paragraphId: String,
                           body: String, language: String?) async throws {
         var params: [String: Any] = [

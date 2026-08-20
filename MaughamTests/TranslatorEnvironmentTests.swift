@@ -608,6 +608,70 @@ final class TranslatorEnvironmentTests: XCTestCase {
         await harness.documentStore.close()
     }
 
+    /// **A whole-document question comes back to the next round.** It minted
+    /// as a craft note, because `addAnnotation` refuses an anchorless
+    /// `.query`, and while the gather looked at `.query` alone the question
+    /// was invisible to every later briefing — so a fresh session asked "tú or
+    /// usted?" again, and again, with the writer's answer sitting unread in
+    /// the queue. Round-trip through this file's own mint rather than a
+    /// hand-built note, so the tag the gather filters on is the tag the mint
+    /// actually writes.
+    func test_aWholeDocumentQuestionIsRebriefedToTheNextRound() async throws {
+        let harness = try await makeHarness()
+        _ = try await harness.environment.translatorIdentity("es")
+
+        _ = await harness.environment.ingest(
+            TranslatorReport(entries: [], queries: [
+                .init(paragraphId: nil, text: "¿Tuteo o usted en todo el libro?"),
+            ]),
+            context(harness))
+        // Another edition's whole-document question, which this round must not
+        // be shown: the discriminator is the tag, not the kind.
+        _ = await harness.environment.ingest(
+            TranslatorReport(entries: [], queries: [
+                .init(paragraphId: nil, text: "Duzen oder siezen?"),
+            ]),
+            context(harness, language: "de", name: "Kurt Meyer", roleId: "role-de"))
+
+        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let inputs = try XCTUnwrap(gathered).inputs
+
+        XCTAssertEqual(inputs.openQueries.count, 1,
+                       "the German edition's question is not this round's business")
+        let open = try XCTUnwrap(inputs.openQueries.first)
+        XCTAssertNil(open.paragraphId, "it is about the piece, not a paragraph")
+        XCTAssertTrue(open.text.contains("¿Tuteo o usted en todo el libro?"), open.text)
+        XCTAssertTrue(
+            TranslatorBriefing.compose(inputs: inputs).contains("Do not raise"),
+            "…and it reaches the model under the instruction not to re-ask it")
+
+        await harness.documentStore.close()
+    }
+
+    /// The writer's answer to a whole-document question travels too — the
+    /// settled half of the same gather, which is what stops the next round
+    /// re-opening a question that has been decided.
+    func test_anAnsweredWholeDocumentQuestionTravelsAsAnAnswer() async throws {
+        let harness = try await makeHarness()
+        _ = try await harness.environment.translatorIdentity("es")
+
+        _ = await harness.environment.ingest(
+            TranslatorReport(entries: [], queries: [
+                .init(paragraphId: nil, text: "¿Tuteo o usted en todo el libro?"),
+            ]),
+            context(harness))
+        let minted = try XCTUnwrap(queries(harness).first)
+        try await harness.doc.acceptAnnotation(id: minted.id, userResponse: "Usted.")
+
+        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let inputs = try XCTUnwrap(gathered).inputs
+
+        XCTAssertTrue(inputs.openQueries.isEmpty)
+        XCTAssertEqual(inputs.answeredQueries.first?.answer, "Usted.")
+
+        await harness.documentStore.close()
+    }
+
     // MARK: - The teardown census
 
     /// **The wiring census** — `CompilerRunCommandTests`' own, in this
