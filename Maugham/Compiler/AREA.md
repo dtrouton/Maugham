@@ -357,7 +357,15 @@ object naming `entries` (a `¶id` plus exactly one of `text` or
 forms or neither is a model that has lost the contract, and there is no way
 to know which of its OTHER entries to trust either, so the whole report is
 refused rather than salvaged around the bad entry — the compiler's
-per-section tolerance does not carry over. **`delete` is deliberately absent
+per-section tolerance does not carry over. **An empty `text` counts as
+neither form** (P2's final wave): entry text and query text both run through
+`nonEmptyString`, the discipline the paragraph id always had, so `"text": ""`
+reads as absent and lands in that same refusal. Taken at face value it would
+have blanked the paragraph in the published edition through a path that never
+touches the manuscript, and the record would have carried the CURRENT
+source's hash — reading fresh, so no later derivation would ever raise it.
+Text is stored trimmed, deliberately: whitespace around an answer is an
+artifact of how the model wrote its JSON, not of the prose. **`delete` is deliberately absent
 from this contract**: a translation disappearing is the writer's own act (or
 an orphan-purge outside any run), never something a run decides on its own.
 
@@ -371,7 +379,17 @@ when the writer or a preset has set one — no briefless fallback sentence,
 because an unbriefed translator genuinely has no doctrine of their own),
 declared intent, the edition brief (embedded whole, `## Rulings` included,
 with an explicit instruction to honor a standing ruling exactly as it reads
-rather than treat it as a suggestion), this round's work-list (`TranslationDeriver`'s
+rather than treat it as a suggestion), **the established facts about this
+round's people** (`BibleStore.slice(matching:)` over the work-list's prose —
+the same ledger and the same subject-occurrence rule the compiler slices its
+delta with, extracted onto the store in P2's final wave so the two runs
+cannot disagree about which facts a run is entitled to; the heading says what
+a TRANSLATOR does with a fact, which is not what the compiler does with the
+same list: honor it in grammatical choices the source language never had to
+make — a doctor's gender is `la doctora` or an edition-wide error — and raise
+a query rather than pick a side where a fact and the source disagree; an
+empty ledger composes as silence, not as an announced absence), this round's
+work-list (`TranslationDeriver`'s
 stale-and-missing set — **no rounds ring**, freshness IS the memory, so an
 empty work-list is `nothingToTranslate` and spends no session at all, the
 compiler's empty-delta mistake avoided in a second currency), neighbour
@@ -399,7 +417,21 @@ closures do is different from the compiler's, because this loop writes:
   source hash is trustworthy. It re-validates every `¶id` against the state
   resolved at ingest time, never against the sequence the round was briefed
   on, so a paragraph the writer deleted mid-round rejects the whole batch
-  loudly, naming the ids — the words are still there to be re-run.
+  loudly, naming the ids — the words are still there to be re-run. **And a
+  paragraph the writer EDITED mid-round rejects the same way** (P2's final
+  wave), which the pipeline cannot see for itself: the id still resolves and
+  every one of its checks passes, so the record would be appended carrying
+  `TranslationHash.hash(CURRENT source)` against a translation of text the
+  model was never shown — an entry that reads fresh forever and is silently
+  wrong. The round therefore carries what it was BRIEFED with: `briefRound`
+  answers a `BriefedRound` (the pure `Inputs` plus a paragraphId→hash map read
+  off the RAW source, the same string the pipeline stamps from — not the
+  anchor-stripped display text, or the comparison would be between two
+  normalizations and fire on nothing), and `IngestContext.briefedSourceHashes`
+  carries it to `midRunEdits`, the one place it can be spent. Undefaulted on
+  the initializer, so a new call site cannot arrive at an unguarded run
+  quietly. Compared BEFORE the pipeline call, which is also what makes a
+  rejection mint no queries.
 - **The questions** go through `Document.addAnnotation`, signed with the
   translator's own name (`AnnotationAuthor(sourceKind: .claude, displayName:
   translatorName)`) and language-tagged via `toolArgs`, so a query is a note
@@ -407,7 +439,20 @@ closures do is different from the compiler's, because this loop writes:
   paragraph anchor vanished mid-run, or one that asks about the whole
   document, mints doc-scoped as a `.craftNote` rather than being dropped —
   `Document.addAnnotation` refuses a `.query` with no anchor, the same call
-  `CompilerNote`'s own anchorless arm makes. **A rejected word batch mints no
+  `CompilerNote`'s own anchorless arm makes. **That note is re-briefed and
+  counted like any other question** (P2's final wave): `AnnotationDeriver`
+  projects the translation language tag for `.craftNote` as well as `.query`,
+  off the same `toolArgs` the mint writes, and both readers widened the same
+  one way — the briefing's query-history gather here and
+  `translation_status.open_queries`. While the tag stopped at `.query`, "tú or
+  usted throughout?" — the question a translator is most likely to ask and
+  least able to guess at — was invisible to every later round, so a fresh
+  session asked it again forever with the writer's answer sitting unread in
+  the queue. The tag is the discriminator, not the kind: `add_craft_note`'s
+  Params carry no `language` and the compiler's mint writes no `toolArgs` at
+  all, so an ordinary craft note stays untagged. The body keeps its
+  `Translation query (<lang>) — ` prefix as well, because a craft note wears
+  no language chip in the queue. **A rejected word batch mints no
   queries either**: the order in `TranslatorEnvironment+Project.ingest` is
   words first, and a pipeline refusal ends the ingest there, because a
   translator query has no fingerprint to dedupe on the way the compiler's
