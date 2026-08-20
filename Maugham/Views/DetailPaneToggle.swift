@@ -578,7 +578,7 @@ struct DetailPaneToggle<Inspector: View>: View {
            let control = editorControl,
            activeDocId != BinderSubject.noDocumentSubject,
            let doc = ds.document(forDocId: activeDocId) {
-            TranslationReviewPane(document: doc, control: control)
+            TranslationReviewPane(document: doc, control: control, store: store)
         } else {
             ContentUnavailableView(
                 "Select a document",
