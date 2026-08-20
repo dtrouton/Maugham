@@ -210,6 +210,12 @@ struct ProjectWindow: View {
     /// the AI toggle in `CompilerRunModifier`. A session merely released is a
     /// live, billing process (`TranslatorOrchestrator`'s own contract).
     @State private var translator = TranslatorOrchestrator()
+    /// The designer's run state and its warm `claude` session (publish
+    /// department P3), owned beside the other two for their reason. Wired in
+    /// `load()`; torn down wherever they are — `.onDisappear` here, app quit and
+    /// the AI toggle in `CompilerRunModifier`. A session merely released is a
+    /// live, billing process (`DesignerOrchestrator`'s own contract).
+    @State private var designer = DesignerOrchestrator()
     /// The Intent pane's two lower strata (declared-world Task 6): Claude's
     /// bible of what the manuscript has established, and the per-scope cache of
     /// its readings of the writer's statements.
@@ -363,6 +369,7 @@ struct ProjectWindow: View {
                 // its `claude` subprocess alive with it.
                 compiler.detach()
                 translator.detach()
+                designer.detach()
                 store = nil
                 documentStore = nil
                 lastParsedScript = nil
@@ -370,6 +377,7 @@ struct ProjectWindow: View {
         }
         .modifier(CompilerRunModifier(orchestrator: compiler,
                                       translator: translator,
+                                      designer: designer,
                                       window: window,
                                       activeDocId: activeDocId,
                                       mcpEnabled: userPreferences.mcpEnabled))
@@ -2673,10 +2681,11 @@ struct ProjectWindow: View {
             onCompilerModelChange: { newValue in
                 compilerModel = newValue
                 compiler.updateModel(newValue.claudeModel)
-                // The translator runs on the compiler's model — one setting,
-                // both spawners. Lazily retired, so a change made mid-round
-                // never kills the round in flight.
+                // The translator and the designer run on the compiler's model —
+                // one setting, three spawners. Lazily retired, so a change made
+                // mid-round never kills the round in flight.
                 translator.updateModel(newValue.claudeModel)
+                designer.updateModel(newValue.claudeModel)
                 documentStore.updateUIState { $0.compilerModel = newValue }
             },
             assistant: assistant,
@@ -3329,6 +3338,39 @@ struct ProjectWindow: View {
         compilerFlash.show(acknowledgment)
     }
 
+    /// One finished design round, as a sentence for the log — what P4's desk
+    /// will draw as a row.
+    ///
+    /// `static` and pure so the `onRunEnded` closure holds nothing: a bare
+    /// method reference would capture `self`, and a `ProjectWindow` copy carries
+    /// `store`, `documentStore` and every orchestrator with it
+    /// (`compilerFlash`'s reasoning, one closure over).
+    ///
+    /// A staged round says both of the things it produced — the proposal that
+    /// is now on the desk, and whether its sample pages compiled — because a
+    /// sample failure ends the round CLEAN (spec §6) and a record that mentioned
+    /// only the proposal would look identical either way.
+    static func designRunRecord(_ summary: DesignerOrchestrator.RunSummary) -> String {
+        switch summary.outcome {
+        case .staged(let staged):
+            if let rejection = staged.rejection {
+                return "nothing staged — \(rejection)"
+            }
+            let proposal = staged.proposalId ?? "(none)"
+            let sample: String
+            switch staged.sample {
+            case .pages(let path): sample = "sample pages at \(path)"
+            case .failed(let error): sample = "sample did not compile: \(error)"
+            case nil: sample = "no sample recorded"
+            }
+            return "proposal \(proposal), \(staged.filesStaged) file(s), \(sample)"
+        case .cancelled:
+            return "cancelled"
+        case .failed(let failure):
+            return "failed — \(failure)"
+        }
+    }
+
     /// **The flash's own capture surface**, so a caller that has to hold the
     /// flash across a suspension holds THREE bindings rather than the window
     /// (2026-08-18 review, Minor 6). `runRoundWhenPieceOpens` keeps its expiry
@@ -3445,6 +3487,22 @@ struct ProjectWindow: View {
                     onRunEnded: { summary in
                         _projectWindowLog.info(
                             "translation run \(summary.runId, privacy: .public) ended for \(summary.docId, privacy: .public)/\(summary.language, privacy: .public)")
+                    }))
+            // The designer's loop, wired beside the other two. Headless for the
+            // translator's reason — a design round is started from the desk
+            // (P4) — so what a finished round has to say goes to the log until
+            // that desk exists to say it to. **The two things it says are the
+            // round's whole product**: which proposal is now on the desk, and
+            // whether its sample pages compiled. A record naming neither is one
+            // nobody can follow up on.
+            designer.configure(
+                environment: .production(
+                    store: s, projectURL: url,
+                    preferences: userPreferences,
+                    model: ds.uiState.compilerModel.claudeModel,
+                    onRunEnded: { summary in
+                        _projectWindowLog.info(
+                            "design run \(summary.runId, privacy: .public) round \(summary.round, privacy: .public) ended: \(Self.designRunRecord(summary), privacy: .public)")
                     }))
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty

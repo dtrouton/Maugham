@@ -124,7 +124,7 @@
 
 **Interfaces:** Consumes Tasks 4–8. Produces `DesignerOrchestrator.Environment.production(...)`: weak captures throughout; `briefRound` gathers visual language via `statementText(of:)` (tripwire 20), census+selection from a fresh `ProjectASTBuilder` build (read how `PreviewCompiler` gets its source from `ProjectStoreASTSource` and reuse), current templates read from the live publish dir, config summary, edition brief when `language != nil`, `designerRole()` identity; `stage` = Task 4 stage + Task 7 sample compile kicked off and recorded (compile failure rides the proposal, run still "succeeds" — the gate view shows the error, spec §6); `onRunEnded` summary carries proposal id + sample outcome.
 
-**Contract.** The census from P2 (`test_everyWindowEndingPathShutsTheTranslatorDownToo`) grows a third paired count rather than a new test shape. No trigger UI (P4's desk; runDesign stays headless — the roadmap says so already for P2, extend the sentence).
+**Contract.** The census from P2 (`test_everyWindowEndingPathShutsEverySessionDown`, renamed from `…ShutsTheTranslatorDownToo` when the third count landed) grows a third paired count rather than a new test shape. No trigger UI (P4's desk; runDesign stays headless — the roadmap says so already for P2, extend the sentence).
 
 - [ ] Steps: failing tests (stage→sample recorded; weak captures audit; shutdown census extended; identity reads without minting — bytes-unchanged idiom) → implement → gate (`full`) → commit — `feat: a design round stages, samples, and waits for the writer`
 

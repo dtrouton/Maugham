@@ -675,23 +675,38 @@ final class TranslatorEnvironmentTests: XCTestCase {
     // MARK: - The teardown census
 
     /// **The wiring census** — `CompilerRunCommandTests`' own, in this
-    /// currency. A `TranslatorOrchestrator` merely released keeps a live,
-    /// billing `claude` running (its `deinit` is nonisolated and cannot reap
-    /// its own child), so every path that ends a window owes it a call. Delete
-    /// any one of them and every other assertion in this file still passes.
-    func test_everyWindowEndingPathShutsTheTranslatorDownToo() throws {
+    /// currency. An orchestrator merely released keeps a live, billing `claude`
+    /// running (its `deinit` is nonisolated and cannot reap its own child), so
+    /// every path that ends a window owes each of them a call. Delete any one
+    /// of them and every other assertion in this file still passes.
+    ///
+    /// **Three counts, not two, since P3**: the designer's loop is the third
+    /// session owner and is headless like the translator's, so nothing else in
+    /// the app would notice a missing teardown. The shape is deliberately one
+    /// test rather than one per orchestrator — what is being asserted is that
+    /// the arms stay PAIRED, which is a claim about the set.
+    func test_everyWindowEndingPathShutsEverySessionDown() throws {
         let modifier = try source(at: "Maugham/Views/CompilerRunModifier.swift")
-        // The compiler's own two teardown arms, each with its sibling.
+        // The compiler's own two teardown arms, each with its siblings.
         XCTAssertTrue(modifier.contains(".onGlobalEvent(.maughamAppWillTerminate)"))
         XCTAssertTrue(modifier.contains(".onChange(of: mcpEnabled)"))
+        let compilerShutdowns =
+            modifier.components(separatedBy: "orchestrator.shutdown()").count - 1
         XCTAssertEqual(
-            modifier.components(separatedBy: "orchestrator.shutdown()").count - 1,
+            compilerShutdowns,
             modifier.components(separatedBy: "translator.shutdown()").count - 1,
             "every compiler shutdown in the modifier needs its translator sibling")
+        XCTAssertEqual(
+            compilerShutdowns,
+            modifier.components(separatedBy: "designer.shutdown()").count - 1,
+            "every compiler shutdown in the modifier needs its designer sibling")
         XCTAssertGreaterThanOrEqual(
-            modifier.components(separatedBy: "translator.shutdown()").count - 1, 2,
+            compilerShutdowns, 2,
             "app-quit and the AI toggle are both window-ending paths")
 
+        // The designer's own five tokens are `DesignerEnvironmentTests`' —
+        // each file owns the wiring of the loop it is about; the paired counts
+        // above are what has to be asserted together.
         let window = try source(at: "Maugham/Views/ProjectWindow.swift")
         for token in ["TranslatorOrchestrator()", "translator.detach()",
                       "translator.configure(", "translator: translator",

@@ -19,17 +19,21 @@ import AppKit
 /// `.onDisappear`, because it also has to drop the orchestrator's hold on the
 /// project's stores (`detach()`), and that scorch already lives there.
 ///
-/// **There are TWO session owners now** (publish department P2): the
-/// translator's loop spawns its own long-lived `claude` and inherits the same
-/// contract whole, so every teardown arm below carries a sibling call.
-/// `TranslatorEnvironmentTests`' census is what keeps them paired — a run verb
-/// for the translator is P4's, so nothing else here would notice its absence.
+/// **There are THREE session owners now** (publish department P2 and P3): the
+/// translator's loop and the designer's each spawn their own long-lived
+/// `claude` and inherit the same contract whole, so every teardown arm below
+/// carries two sibling calls. `TranslatorEnvironmentTests`' census is what keeps
+/// them paired — a run verb for either is P4's, so nothing else here would
+/// notice one's absence.
 struct CompilerRunModifier: ViewModifier {
     let orchestrator: CompilerOrchestrator
     /// The translator's session, torn down beside the compiler's. No run keys
     /// of its own yet — a translation is started from the desk (P4), not from
     /// the keyboard.
     let translator: TranslatorOrchestrator
+    /// The designer's session, torn down beside the other two. Headless for the
+    /// same reason: a design round is started from the desk (P4).
+    let designer: DesignerOrchestrator
     let window: NSWindow?
     /// The window's subject as a document id, or the no-document sentinel.
     /// Resolved by the window, not here: this modifier has no opinion about
@@ -56,11 +60,13 @@ struct CompilerRunModifier: ViewModifier {
             .onGlobalEvent(.maughamAppWillTerminate) { _ in
                 orchestrator.shutdown()
                 translator.shutdown()
+                designer.shutdown()
             }
             .onChange(of: mcpEnabled) { _, enabled in
                 guard !enabled else { return }
                 orchestrator.shutdown()
                 translator.shutdown()
+                designer.shutdown()
             }
     }
 }
