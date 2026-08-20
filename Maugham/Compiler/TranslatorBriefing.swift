@@ -99,12 +99,27 @@ enum TranslatorBriefing {
         let contextParagraphs: [ContextParagraph]
         let openQueries: [OpenQuery]
         let answeredQueries: [AnsweredQuery]
+        /// What the manuscript has already established about the people and
+        /// places this round's work names — `BibleStore.slice(matching:)` over
+        /// the work-list's prose, the same ledger and the same rule the
+        /// compiler's own briefing slices with.
+        ///
+        /// **A translator needs these more sharply than a reader does.**
+        /// English lets a sentence stay silent about a doctor's gender; most
+        /// of the languages this loop translates into do not, so a fact the
+        /// compiler recorded ("October's doctor is a woman") is the difference
+        /// between `la doctora` and an edition-wide error the writer has to
+        /// catch by reading. Empty is the ordinary early state — a project
+        /// whose compiler has never run has established nothing yet — and
+        /// `compose` omits the section rather than announcing an empty ledger.
+        let bibleFacts: [BibleFact]
 
         init(
             translatorName: String, language: String, roleBrief: String? = nil,
             craftIntentText: String? = nil, editionBriefText: String? = nil,
             workList: [WorkItem] = [], contextParagraphs: [ContextParagraph] = [],
-            openQueries: [OpenQuery] = [], answeredQueries: [AnsweredQuery] = []
+            openQueries: [OpenQuery] = [], answeredQueries: [AnsweredQuery] = [],
+            bibleFacts: [BibleFact] = []
         ) {
             self.translatorName = translatorName
             self.language = language
@@ -115,6 +130,7 @@ enum TranslatorBriefing {
             self.contextParagraphs = contextParagraphs
             self.openQueries = openQueries
             self.answeredQueries = answeredQueries
+            self.bibleFacts = bibleFacts
         }
     }
 
@@ -137,10 +153,10 @@ enum TranslatorBriefing {
     // MARK: - Compose
 
     /// Assemble one briefing message. Section order: role frame, declared
-    /// intent, edition brief, this round's work, neighbor context, queries,
-    /// the report contract — the frame everything else is read through comes
-    /// first, the output-shape instruction comes last, `CompilerPrompt`'s own
-    /// ordering rule.
+    /// intent, edition brief, established facts, this round's work, neighbor
+    /// context, queries, the report contract — the frame everything else is
+    /// read through comes first, the output-shape instruction comes last,
+    /// `CompilerPrompt`'s own ordering rule.
     static func compose(inputs: Inputs) -> String {
         var sections: [String] = [roleFrame(inputs)]
 
@@ -154,6 +170,9 @@ enum TranslatorBriefing {
                     + "sessions. Honor a standing ruling exactly as it reads; it is "
                     + "the writer's own settled answer, not a suggestion:\n"
                     + cleaned(brief))
+        }
+        if let bible = bibleSection(inputs.bibleFacts) {
+            sections.append(bible)
         }
 
         sections.append(workListSection(inputs.workList))
@@ -184,6 +203,34 @@ enum TranslatorBriefing {
         ]
         if let brief = inputs.roleBrief, !brief.isEmpty {
             lines.append(cleaned(brief))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Established facts
+
+    /// What the manuscript has established about the people and places this
+    /// round names — `CompilerPrompt.bibleSection`'s `subject: fact` line
+    /// shape, under a heading that says what a translator is supposed to DO
+    /// with it. The compiler is told these so it can notice a contradiction;
+    /// a translator is told them so a grammatical choice English never forced
+    /// comes out right, which is a different instruction and is spelled out
+    /// rather than left to be inferred from a bare list.
+    ///
+    /// `nil` for an empty slice: a project whose compiler has never run has
+    /// established nothing, and announcing an empty ledger would read as "we
+    /// know nothing about these people", which is not the same claim.
+    private static func bibleSection(_ facts: [BibleFact]) -> String? {
+        guard !facts.isEmpty else { return nil }
+        var lines = [
+            "Established so far — what the manuscript has already settled about "
+                + "the people and places in this round's work (genders, names, "
+                + "ages, relationships). Honor them in grammatical choices the "
+                + "source language never had to make; where a fact and the "
+                + "source disagree, raise a query rather than pick a side:"
+        ]
+        for fact in facts {
+            lines.append("- \(fact.subject): \(cleaned(fact.fact))")
         }
         return lines.joined(separator: "\n")
     }

@@ -22,6 +22,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         let projectStore: ProjectStore
         let documentStore: DocumentStore
         let doc: Document
+        let bible: BibleStore
         let environment: TranslatorOrchestrator.Environment
         let summaries: () -> [TranslatorOrchestrator.RunSummary]
     }
@@ -64,10 +65,13 @@ final class TranslatorEnvironmentTests: XCTestCase {
         let preferences = UserPreferences(defaults: UserDefaults(suiteName: suite)!)
 
         let summaries = Box<[TranslatorOrchestrator.RunSummary]>([])
+        let bible = BibleStore(
+            projectRoot: root, device: DeviceSlug.make(from: MacDeviceID.current))
         let environment = TranslatorOrchestrator.Environment.production(
             store: projectStore,
             documentStore: documentStore,
             projectURL: root,
+            bible: bible,
             preferences: preferences,
             onRunEnded: { summaries.value.append($0) })
 
@@ -77,6 +81,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
             projectStore: projectStore,
             documentStore: documentStore,
             doc: doc,
+            bible: bible,
             environment: environment,
             summaries: { summaries.value })
     }
@@ -517,6 +522,52 @@ final class TranslatorEnvironmentTests: XCTestCase {
         let inputs = try XCTUnwrap(gathered).inputs
         let brief = try XCTUnwrap(inputs.editionBriefText)
         XCTAssertTrue(brief.contains("Usted, nunca tuteo."), brief)
+
+        await harness.documentStore.close()
+    }
+
+    /// **The bible reaches the round**, sliced against this round's own work
+    /// the way the compiler slices its delta — one rule, on the store, two
+    /// callers. A fact about someone this round's paragraphs name travels; a
+    /// fact about someone they do not name stays home, or every round would
+    /// carry the whole ledger.
+    func test_theBriefingCarriesTheFactsAboutThisRoundsPeople() async throws {
+        let harness = try await makeHarness()
+        _ = try await harness.environment.translatorIdentity("es")
+
+        harness.bible.record([
+            BibleFact(id: "f-1", subject: "the fog", fact: "arrives before every death",
+                      establishedAt: nil, docId: harness.doc.docId, recordedAt: Date()),
+            BibleFact(id: "f-2", subject: "Marta", fact: "is the elder sister",
+                      establishedAt: nil, docId: harness.doc.docId, recordedAt: Date()),
+        ])
+
+        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let inputs = try XCTUnwrap(gathered).inputs
+
+        XCTAssertEqual(inputs.bibleFacts.map(\.subject), ["the fog"],
+                       "the slice is the work-list's own people: the first paragraph "
+                       + "says \"The fog came in.\" and no paragraph says Marta")
+        XCTAssertTrue(
+            TranslatorBriefing.compose(inputs: inputs)
+                .contains("arrives before every death"),
+            "…and the fact's own text is what the model reads")
+
+        await harness.documentStore.close()
+    }
+
+    /// A project whose compiler has never run has established nothing, and a
+    /// round briefed against an empty ledger is smaller rather than refused.
+    func test_anEmptyBibleBriefsHonestly() async throws {
+        let harness = try await makeHarness()
+        _ = try await harness.environment.translatorIdentity("es")
+
+        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let inputs = try XCTUnwrap(gathered).inputs
+
+        XCTAssertTrue(inputs.bibleFacts.isEmpty)
+        XCTAssertFalse(
+            TranslatorBriefing.compose(inputs: inputs).contains("Established so far"))
 
         await harness.documentStore.close()
     }

@@ -46,6 +46,13 @@ extension TranslatorOrchestrator.Environment {
     }
 
     /// - Parameters:
+    ///   - bible: the per-device ledger of facts the manuscript has
+    ///     established, sliced per round against this round's own prose. The
+    ///     compiler's `bibleSlice` closure takes the same store for the same
+    ///     reason; what a translator does with a fact is different (a gender
+    ///     the source never had to state is a grammatical choice in most of
+    ///     the languages this loop serves), which is the briefing's business,
+    ///     not this parameter's.
     ///   - preferences: read at every spawn, never captured as a value, so a
     ///     session already warm when the writer turns Claude off does not
     ///     answer one more round. `nil` means refuse — the safe direction.
@@ -56,6 +63,7 @@ extension TranslatorOrchestrator.Environment {
         store: ProjectStore,
         documentStore: DocumentStore,
         projectURL: URL,
+        bible: BibleStore,
         preferences: UserPreferences,
         model: String = CompilerOrchestrator.defaultModel,
         onRunEnded: @escaping @MainActor (TranslatorOrchestrator.RunSummary) -> Void
@@ -67,11 +75,12 @@ extension TranslatorOrchestrator.Environment {
             // afterwards by `TranslatorOrchestrator.updateModel(_:)`, which the
             // gear menu calls beside the compiler's rather than re-running this.
             model: model,
-            briefRound: { [weak store, weak documentStore] docId, language in
+            briefRound: { [weak store, weak documentStore, weak bible] docId, language in
                 guard let store else { return nil }
                 return briefing(
                     docId: docId, language: language, store: store,
-                    documentStore: documentStore, projectURL: projectURL)
+                    documentStore: documentStore, bible: bible,
+                    projectURL: projectURL)
             },
             translatorIdentity: { [weak store] language in
                 guard let store else { throw WiringFailure.windowClosed }
@@ -121,7 +130,7 @@ extension TranslatorOrchestrator.Environment {
     @MainActor
     private static func briefing(
         docId: String, language: String, store: ProjectStore,
-        documentStore: DocumentStore?, projectURL: URL
+        documentStore: DocumentStore?, bible: BibleStore?, projectURL: URL
     ) -> TranslatorOrchestrator.BriefedRound? {
         // The pipeline's own gate, called here so a malformed tag costs a
         // refused click rather than a whole session — the ingest would catch it
@@ -183,7 +192,15 @@ extension TranslatorOrchestrator.Environment {
             workList: workList,
             contextParagraphs: neighbours(of: work.map(\.paragraphId), in: state),
             openQueries: open,
-            answeredQueries: answered)
+            answeredQueries: answered,
+            // **The same ledger the compiler slices, sliced the same way** —
+            // `BibleStore.slice(matching:)` owns the rule; what is decided
+            // here is only which prose this run is about, which for a
+            // translator is the work-list rather than a delta. An absent
+            // store (a window torn down mid-gather) is an empty slice, not a
+            // refused round: a briefing without facts is smaller, not wrong.
+            bibleFacts: bible?.slice(matching: workList.map(\.sourceText)
+                .joined(separator: "\n")) ?? [])
 
         // **What each work paragraph looked like at send time**, hashed off
         // the RAW text rather than the stripped `sourceText` the model is
@@ -191,7 +208,7 @@ extension TranslatorOrchestrator.Environment {
         // string, so a guard comparing anything else would compare two
         // normalizations and fire on nothing. Read here because this is the
         // one place the round is gathered; carried to ingest, which is the one
-        // place it can be spent (`checkForMidRunEdits`).
+        // place it can be spent (`midRunEdits`).
         // `uniquingKeysWith` rather than `uniqueKeysWithValues`: the deriver
         // walks the sequence and cannot repeat an id today, and a trap is the
         // wrong way to find out if that ever stops being true.

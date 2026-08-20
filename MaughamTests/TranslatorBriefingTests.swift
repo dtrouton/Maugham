@@ -87,6 +87,51 @@ final class TranslatorBriefingTests: XCTestCase {
         XCTAssertFalse(emptyBriefing.contains("Edition brief"))
     }
 
+    // MARK: - Established facts
+
+    /// **The bible reaches the translator, not only the compiler.** A fact
+    /// the manuscript has established about a person is what decides
+    /// `la doctora` over `el doctor` — a choice English never had to make and
+    /// the source text therefore cannot answer.
+    func test_establishedFacts_carryTheirSubjectAndTheirText() {
+        let briefing = TranslatorBriefing.compose(
+            inputs: makeInputs(bibleFacts: [
+                fact("the doctor", "is a woman"),
+                fact("Kelly", "is Marta's younger sister"),
+            ]))
+
+        XCTAssertTrue(briefing.contains("the doctor: is a woman"), briefing)
+        XCTAssertTrue(briefing.contains("Kelly: is Marta's younger sister"), briefing)
+        XCTAssertTrue(briefing.contains("Established so far"))
+        XCTAssertTrue(
+            briefing.contains("grammatical choices"),
+            "the heading has to say what a TRANSLATOR does with a fact, which is "
+                + "not what the compiler does with the same list: \(briefing)")
+    }
+
+    /// A project whose compiler has never run has established nothing. That
+    /// composes as silence rather than as an announced empty ledger, which
+    /// would read as "we know nothing about these people" — a different and
+    /// unearned claim.
+    func test_establishedFacts_absentBibleComposesNoSection() {
+        let briefing = TranslatorBriefing.compose(inputs: makeInputs(bibleFacts: []))
+        XCTAssertFalse(briefing.contains("Established so far"))
+        XCTAssertFalse(briefing.contains("\n\n\n"))
+    }
+
+    /// Anchor hygiene reaches this section too — a fact's text is prose the
+    /// compiler read off a paragraph, and nothing embedded in a prompt may
+    /// carry a `¶id`. Same guarantee `cleaned` gives every other embedded
+    /// string here, and the same shape: a whole anchor line.
+    func test_establishedFacts_areAnchorStripped() {
+        let briefing = TranslatorBriefing.compose(
+            inputs: makeInputs(bibleFacts: [
+                fact("Kelly", "<!-- ¶a1b2 -->\n\nis Marta's younger sister"),
+            ]))
+        XCTAssertFalse(briefing.contains("<!--"))
+        XCTAssertTrue(briefing.contains("is Marta's younger sister"))
+    }
+
     // MARK: - Work list
 
     func test_workList_missingEntry_carriesItsSourceText() {
@@ -262,12 +307,19 @@ final class TranslatorBriefingTests: XCTestCase {
         workList: [TranslatorBriefing.Inputs.WorkItem] = [],
         contextParagraphs: [TranslatorBriefing.Inputs.ContextParagraph] = [],
         openQueries: [TranslatorBriefing.Inputs.OpenQuery] = [],
-        answeredQueries: [TranslatorBriefing.Inputs.AnsweredQuery] = []
+        answeredQueries: [TranslatorBriefing.Inputs.AnsweredQuery] = [],
+        bibleFacts: [BibleFact] = []
     ) -> TranslatorBriefing.Inputs {
         TranslatorBriefing.Inputs(
             translatorName: translatorName, language: language, roleBrief: roleBrief,
             craftIntentText: craftIntentText, editionBriefText: editionBriefText,
             workList: workList, contextParagraphs: contextParagraphs,
-            openQueries: openQueries, answeredQueries: answeredQueries)
+            openQueries: openQueries, answeredQueries: answeredQueries,
+            bibleFacts: bibleFacts)
+    }
+
+    private func fact(_ subject: String, _ text: String) -> BibleFact {
+        BibleFact(id: "f-\(subject)", subject: subject, fact: text,
+                  establishedAt: nil, docId: "doc-1", recordedAt: Date())
     }
 }

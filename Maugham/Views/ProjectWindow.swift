@@ -3435,6 +3435,11 @@ struct ProjectWindow: View {
             translator.configure(
                 environment: .production(
                     store: s, documentStore: ds, projectURL: url,
+                    // The same ledger the compiler was handed a few lines up,
+                    // and for the run's own reason: a fact the manuscript has
+                    // established about a person is a grammatical choice in
+                    // most of the languages this loop translates into.
+                    bible: bibleStore,
                     preferences: userPreferences,
                     model: ds.uiState.compilerModel.claudeModel,
                     onRunEnded: { summary in
