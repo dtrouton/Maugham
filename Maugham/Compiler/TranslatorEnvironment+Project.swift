@@ -1,0 +1,451 @@
+import Foundation
+import MaughamCore
+import os
+
+// Subsystem from the running bundle id so dev/stable logs separate without
+// hardcoding "com.maugham" (tripwire 13 spirit); mirrors `compilerLog`.
+private let translatorLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "Translator")
+
+/// **The translator loop's production wiring: one project window's stores, as
+/// the closures the run executes on.**
+///
+/// `CompilerEnvironment+Project.swift`'s peer in every respect that matters —
+/// separate from `TranslatorOrchestrator.swift` so that file names no store,
+/// and **every capture weak**, because SwiftUI never dismantles a closed
+/// window's view graph and an orchestrator that outlived one teardown path
+/// while holding a `ProjectStore` strongly would keep the whole project in
+/// memory with nothing on screen. `detach()` is still what stops the *session*,
+/// which no capture policy can do.
+///
+/// What is different is what the closures DO. The compiler reads and reports;
+/// this loop writes, and it writes through the writer's own doors:
+///
+/// - **the words** go through `TranslationWritePipeline`, the one place a batch
+///   of translations is validated, built and appended — the same door
+///   `write_translation` uses, so the two cannot drift about which batches are
+///   legal or which source hash is trustworthy;
+/// - **the questions** go through `Document.addAnnotation`, so a translator's
+///   query is a note the writer disposes of in the queue exactly like any
+///   other, signed with the translator's own name;
+/// - **the translator** is `ProjectStore.translatorRole(for:)`, find-or-create.
+///   This is that verb's first production caller, and a run is the write act
+///   that makes the mint legitimate (`ProjectStore+ProductionRoles`'s rule).
+extension TranslatorOrchestrator.Environment {
+
+    /// Why a closure could not do its job at all. Distinct from a *refusal*
+    /// (`briefingInputs` answering nil, an ingest rejection) — those are
+    /// answers; this is the window having gone away underneath the run.
+    enum WiringFailure: Error, LocalizedError {
+        case windowClosed
+
+        var errorDescription: String? {
+            "the project window closed before this run could resolve its translator"
+        }
+    }
+
+    /// - Parameters:
+    ///   - preferences: read at every spawn, never captured as a value, so a
+    ///     session already warm when the writer turns Claude off does not
+    ///     answer one more round. `nil` means refuse — the safe direction.
+    ///   - onRunEnded: where a finished run is recorded. P4's desk is the
+    ///     stated destination; until it exists `ProjectWindow` logs.
+    @MainActor
+    static func production(
+        store: ProjectStore,
+        documentStore: DocumentStore,
+        projectURL: URL,
+        preferences: UserPreferences,
+        model: String = CompilerOrchestrator.defaultModel,
+        onRunEnded: @escaping @MainActor (TranslatorOrchestrator.RunSummary) -> Void
+    ) -> TranslatorOrchestrator.Environment {
+        TranslatorOrchestrator.Environment(
+            projectId: ProjectIdentifier.id(for: projectURL),
+            // The compiler's setting, so a writer who chose a deeper model for
+            // their checks gets it for their translations too. Kept current
+            // afterwards by `TranslatorOrchestrator.updateModel(_:)`, which the
+            // gear menu calls beside the compiler's rather than re-running this.
+            model: model,
+            briefingInputs: { [weak store, weak documentStore] docId, language in
+                guard let store else { return nil }
+                return briefing(
+                    docId: docId, language: language, store: store,
+                    documentStore: documentStore, projectURL: projectURL)
+            },
+            translatorIdentity: { [weak store] language in
+                guard let store else { throw WiringFailure.windowClosed }
+                // **Find-or-create, and the run is what earns the mint.** The
+                // briefing below reads the same stored row back rather than
+                // resolving a name of its own — `TranslatorOrchestrator.begin`
+                // asks for the identity first precisely so it can.
+                let role = try await store.translatorRole(for: language)
+                return (role.effectiveName, role.id)
+            },
+            writeMCPConfig: {
+                try ClaudeCLISession.writeMCPConfig(
+                    bridgeBinary: ClaudeCLISession.bridgeBinary,
+                    socketPath: BuildVariant.current.mcpSocketPath,
+                    to: ClaudeCLISession.sessionConfigDirectory)
+            },
+            makeRunner: { configURL, model in
+                ClaudeCLISession(
+                    model: model,
+                    mcpConfigPath: configURL,
+                    cliOverride: nil,
+                    isEnabled: { [weak preferences] in preferences?.mcpEnabled ?? false })
+            },
+            ingest: { [weak store, weak documentStore] report, context in
+                guard let store else {
+                    return .init(rejection: WiringFailure.windowClosed.localizedDescription)
+                }
+                return await ingest(
+                    report, context: context, store: store,
+                    documentStore: documentStore, projectURL: projectURL)
+            },
+            onRunEnded: onRunEnded)
+    }
+
+    // MARK: - The briefing
+
+    /// Everything one round needs, gathered from the project.
+    ///
+    /// **`nil` is "not a run"** — the orchestrator's own escape hatch, used
+    /// here for the two things that are not worth a session to discover: a
+    /// language tag the readers could not parse (Task 4 left this validation to
+    /// its one caller rather than take a dependency on the write pipeline), and
+    /// a document whose current paragraphs cannot be resolved at all.
+    ///
+    /// An empty work-list is NOT nil: nothing stale and nothing missing is a
+    /// real answer, and the orchestrator reports it as `nothingToTranslate`.
+    @MainActor
+    private static func briefing(
+        docId: String, language: String, store: ProjectStore,
+        documentStore: DocumentStore?, projectURL: URL
+    ) -> TranslatorBriefing.Inputs? {
+        // The pipeline's own gate, called here so a malformed tag costs a
+        // refused click rather than a whole session — the ingest would catch it
+        // at the end of the round otherwise.
+        guard (try? TranslationWritePipeline.validate(language: language)) != nil else {
+            translatorLog.error(
+                "a translation run was asked for an unusable language tag: \(language, privacy: .public)")
+            return nil
+        }
+        guard let state = try? currentParagraphState(
+            documentId: docId, store: store,
+            documentStore: documentStore, projectURL: projectURL)
+        else {
+            translatorLog.error(
+                "a translation run found no current paragraphs for doc \(docId, privacy: .public)")
+            return nil
+        }
+        // **The stored row, not a second resolution.** `translatorIdentity` has
+        // already run by the time this is called (`TranslatorOrchestrator.begin`
+        // pins the order), so the mint has landed and a plain lookup agrees with
+        // the identity by construction — where a second call to the
+        // find-or-create verb would be a second chance to mint.
+        let role = store.manifest.storedTranslator(for: language)
+
+        let derived = TranslationDeriver.derive(
+            records: TranslationStore.loadMerged(
+                forDocId: docId, language: language, in: projectURL),
+            sequence: state.sequence, paragraphs: state.paragraphs, language: language)
+
+        // The delta: stale and missing, in manuscript order. A fresh paragraph
+        // is not this round's work, and `TranslationDeriver` already knows which
+        // is which — asking a subprocess would be the compiler's empty-delta
+        // mistake in another currency.
+        let work = derived.entries.filter { $0.status != .fresh }
+        let workList = work.map { entry in
+            TranslatorBriefing.Inputs.WorkItem(
+                paragraphId: entry.paragraphId,
+                // `read_translation`'s own strip: an inline `<!--t-XXXX-->` task
+                // marker must never reach the model, which would echo it back
+                // inside a translated paragraph.
+                sourceText: MarkdownDisplayFilter.stripTaskAnchorsInline(entry.sourceText),
+                status: entry.status,
+                // Only a stale item has a prior answer worth reconsidering; a
+                // missing one has nothing to hand over.
+                priorTranslation: entry.status == .stale ? entry.translatedText : nil)
+        }
+
+        let (open, answered) = languageQueries(
+            docId: docId, language: language, documentStore: documentStore)
+
+        return TranslatorBriefing.Inputs(
+            translatorName: role?.effectiveName
+                ?? ProductionRole.defaultTranslatorName(language: language)
+                ?? language,
+            language: language,
+            roleBrief: role?.effectiveBrief,
+            craftIntentText: craftIntentText(docId: docId, store: store),
+            editionBriefText: editionBriefText(language: language, store: store),
+            workList: workList,
+            contextParagraphs: neighbours(of: work.map(\.paragraphId), in: state),
+            openQueries: open,
+            answeredQueries: answered)
+    }
+
+    /// The writer's declared intent for this piece, whole — the essay AND its
+    /// rulings, on `CompilerEnvironment+Project`'s reasoning: the rulings are
+    /// half of what the writer has decided, and a translator briefed on the
+    /// essay alone is briefed on the smaller half.
+    ///
+    /// Absence is valid and mints nothing (M1A's rule). RULING-54: an
+    /// unreadable statement reads as absent here, and the Intent pane's editor
+    /// owns surfacing the refusal.
+    @MainActor
+    private static func craftIntentText(docId: String, store: ProjectStore) -> String? {
+        guard let resolved = store.effectiveIntent(forDocId: docId) else { return nil }
+        return try? store.statementText(of: resolved)
+    }
+
+    /// This edition's doctrine, verbatim — register, idiom policy, and whatever
+    /// rulings a translation session has already settled there.
+    /// `read_edition_brief`'s own text, through the same `statementText`, so
+    /// what the run is briefed on and what Claude can read on demand cannot
+    /// disagree. Project scope only: an edition's register applies to the book.
+    @MainActor
+    private static func editionBriefText(language: String, store: ProjectStore) -> String? {
+        guard let statement = store.statement(
+            kind: .editionBrief(language), scope: .project) else { return nil }
+        return try? store.statementText(of: statement)
+    }
+
+    /// The paragraph immediately before and after each work item, for
+    /// continuity — never the work itself, and deduped so a paragraph between
+    /// two work items is listed once.
+    private static func neighbours(
+        of workIds: [String],
+        in state: (sequence: [String], paragraphs: [String: String], projectURL: URL)
+    ) -> [TranslatorBriefing.Inputs.ContextParagraph] {
+        let work = Set(workIds)
+        var seen = work
+        var result: [TranslatorBriefing.Inputs.ContextParagraph] = []
+        for (index, id) in state.sequence.enumerated() where work.contains(id) {
+            for neighbour in [index - 1, index + 1] {
+                guard state.sequence.indices.contains(neighbour) else { continue }
+                let neighbourId = state.sequence[neighbour]
+                guard !seen.contains(neighbourId),
+                      let text = state.paragraphs[neighbourId],
+                      !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                else { continue }
+                seen.insert(neighbourId)
+                result.append(.init(
+                    paragraphId: neighbourId,
+                    text: MarkdownDisplayFilter.stripTaskAnchorsInline(text)))
+            }
+        }
+        return result
+    }
+
+    /// This language's queries, split into the ones still waiting on the writer
+    /// and the ones they have answered.
+    ///
+    /// **Read off the OPEN document only.** A closed one would have to be
+    /// transient-loaded, and the round that could not carry its own history is
+    /// the same round whose new questions have nowhere to land (see `mint`
+    /// below) — one honest gap rather than two half-measures.
+    ///
+    /// Doc-scoped queries (the vanished-anchor and whole-document arms below)
+    /// are craft notes and carry no language tag, so they are not re-briefed.
+    /// Recorded rather than fixed: the projection carries `language` for
+    /// `.query` alone, and widening it is a change to a shared wire projection
+    /// that this task has no reader for.
+    @MainActor
+    private static func languageQueries(
+        docId: String, language: String, documentStore: DocumentStore?
+    ) -> ([TranslatorBriefing.Inputs.OpenQuery], [TranslatorBriefing.Inputs.AnsweredQuery]) {
+        guard let document = documentStore?.document(forDocId: docId) else { return ([], []) }
+        // Unfiltered by status, then split: half of what this is for is the
+        // notes the writer has SETTLED, every one of which is invisible to
+        // `AnnotationFilter`'s `[.open]` default (M5-AN-002's footgun).
+        let queries = document
+            .annotations(filter: AnnotationFilter(kinds: [.query], statuses: nil))
+            .filter { $0.language == language }
+        let open = queries
+            .filter { $0.status == .open }
+            .map { TranslatorBriefing.Inputs.OpenQuery(
+                paragraphId: $0.paragraphId, text: $0.body) }
+        // Most recently settled first, so the briefing's own cap spends its
+        // words on the answers the writer gave last (`CompilerAnnotation
+        // Disposition.gather`'s rule). An answered query with no written
+        // answer teaches the translator nothing and is left out.
+        let answered = queries
+            .filter { $0.status != .open }
+            .sorted { ($0.resolvedAt ?? .distantPast) > ($1.resolvedAt ?? .distantPast) }
+            .compactMap { annotation -> TranslatorBriefing.Inputs.AnsweredQuery? in
+                guard let answer = annotation.userResponse,
+                      !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                else { return nil }
+                return .init(paragraphId: annotation.paragraphId,
+                             text: annotation.body, answer: answer)
+            }
+        return (open, answered)
+    }
+
+    // MARK: - Ingest
+
+    /// **Where a round's words and questions actually land**, and the only
+    /// writing this loop does.
+    ///
+    /// The order is deliberate: the words first, and a batch the pipeline
+    /// refuses ends the ingest there — nothing written, and **nothing asked
+    /// either**. Minting the questions of a round the writer will simply run
+    /// again would double-ask every one of them, since a translator query has
+    /// no fingerprint to dedupe on the way the compiler's notes do.
+    @MainActor
+    private static func ingest(
+        _ report: TranslatorReport,
+        context: TranslatorOrchestrator.IngestContext,
+        store: ProjectStore, documentStore: DocumentStore?, projectURL: URL
+    ) async -> TranslatorOrchestrator.IngestOutcome {
+        let state: (sequence: [String], paragraphs: [String: String], projectURL: URL)
+        do {
+            state = try currentParagraphState(
+                documentId: context.docId, store: store,
+                documentStore: documentStore, projectURL: projectURL)
+        } catch {
+            return .init(rejection: sentence(for: error))
+        }
+
+        var warnings: [String] = []
+        var written = 0
+        if !report.entries.isEmpty {
+            do {
+                // **The one shared write pipeline**, which re-validates every
+                // `¶id` against the state resolved a line ago rather than
+                // against the sequence the round was briefed on. A paragraph
+                // the writer deleted mid-round therefore rejects the whole
+                // batch, loudly, naming the ids — the honest all-or-nothing
+                // answer, and the words are still there to be re-run.
+                warnings = try TranslationWritePipeline.perform(
+                    entries: report.entries.map {
+                        TranslationWritePipeline.Entry(
+                            paragraphId: $0.paragraphId, text: $0.text,
+                            verbatim: $0.verbatim, delete: nil)
+                    },
+                    language: context.language,
+                    documentId: context.docId,
+                    state: state,
+                    deviceSlug: DeviceSlug.make(from: MacDeviceID.current))
+                written = report.entries.count
+            } catch {
+                return .init(rejection: sentence(for: error))
+            }
+            // `write_translation`'s step 7, verbatim: a live translation-review
+            // posture must re-derive rather than stay frozen until the writer
+            // leaves the pane and comes back.
+            MaughamEvent.post(
+                .maughamTranslationDidUpdate,
+                to: .project(for: projectURL),
+                payload: [
+                    "document_id": context.docId,
+                    "language": context.language
+                ])
+        }
+
+        let minted = await mint(
+            report.queries, context: context, documentStore: documentStore)
+        return .init(entriesWritten: written, queriesMinted: minted, warnings: warnings)
+    }
+
+    /// The round's questions, as annotations the writer disposes of like any
+    /// other note.
+    ///
+    /// **A query whose paragraph vanished mid-run mints DOC-SCOPED rather than
+    /// dropping** — the writer must still see the question, and the paragraph
+    /// it was about is gone whichever way this goes. Doc-scoped means a craft
+    /// note: `Document.addAnnotation` refuses a `.query` with no anchor
+    /// (`paragraphNotFound`), and `CompilerNote`'s anchorless arm made the same
+    /// call for the same reason. The language travels in the body there, since
+    /// `Annotation.language` is projected for `.query` alone. A whole-document
+    /// question — one the report may ask with no `paragraph_id` at all — takes
+    /// the same route, and is the ordinary case rather than the sad one.
+    ///
+    /// **The mint never fails the run.** A note that cannot be appended is
+    /// logged and the rest are written; a check that finished is not made to
+    /// look like one that died.
+    @MainActor
+    private static func mint(
+        _ queries: [TranslatorReport.Query],
+        context: TranslatorOrchestrator.IngestContext,
+        documentStore: DocumentStore?
+    ) async -> Int {
+        guard !queries.isEmpty else { return 0 }
+        // The open document, as the compiler's mint resolves it. A document
+        // closed between the send and the answer is a real gap and is logged as
+        // one: the words still landed (the pipeline reads a closed document's
+        // derived state), and re-running the round asks the questions again.
+        guard let document = documentStore?.document(forDocId: context.docId) else {
+            translatorLog.error(
+                "\(queries.count, privacy: .public) translator quer(ies) had nowhere to land: doc \(context.docId, privacy: .public) is no longer open")
+            return 0
+        }
+        let author = AnnotationAuthor(
+            sourceKind: .claude, displayName: context.translatorName)
+        let toolArgs = queryToolArgs(
+            language: context.language, roleId: context.translatorRoleId)
+
+        var minted = 0
+        for query in queries {
+            // Anchored to the LIVE paragraph, never to an id the round was
+            // briefed with and the document has since lost.
+            let anchor = query.paragraphId.flatMap {
+                document.sequence.contains($0) ? $0 : nil
+            }
+            do {
+                _ = try await document.addAnnotation(
+                    kind: anchor == nil ? .craftNote : .query,
+                    paragraphId: anchor,
+                    body: anchor == nil
+                        ? "Translation query (\(context.language)) — \(query.text)"
+                        : query.text,
+                    // The language tag `translation_status` counts an open query
+                    // by, plus the role that signs it — `add_query`'s own
+                    // encoding, which the deriver reads `language` back out of
+                    // and ignores the rest of.
+                    toolArgs: toolArgs,
+                    // **The exact label IS the filter bucket**
+                    // (`AnnotationAuthorFilter.distinctLabels`), which is the
+                    // feature: this edition's questions gather under its
+                    // translator's name. `.claude` keeps `isClaude` true, so
+                    // every existing Claude affordance still applies.
+                    author: author,
+                    // One round is ONE event to every surface counting this
+                    // project's notes, and each walks the whole project to
+                    // answer it. Paid back once below.
+                    announcing: false)
+                minted += 1
+            } catch {
+                translatorLog.error(
+                    "a translator query could not be minted on doc \(context.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        if minted > 0 { document.announceAnnotationsChanged() }
+        return minted
+    }
+
+    /// `add_query`'s `toolArgs` shape, which is where a query's language tag
+    /// lives on the wire (`AnnotationDeriver.languageFromToolArgs`). The role id
+    /// rides along as provenance: the byline is a display name and two
+    /// translators can be renamed into one, while the id is what the manifest
+    /// row is keyed by.
+    private static func queryToolArgs(language: String, roleId: String) -> String? {
+        struct Args: Encodable {
+            let language: String
+            let role_id: String
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return (try? encoder.encode(Args(language: language, role_id: roleId)))
+            .flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    /// The sentence the writer reads when a batch is refused. `MCPError.message`
+    /// is the pipeline's own wording — the unknown-`¶id` listing among it — and
+    /// is written to be read by a person, so it travels unchanged.
+    private static func sentence(for error: Error) -> String {
+        (error as? MCPError)?.message ?? error.localizedDescription
+    }
+}

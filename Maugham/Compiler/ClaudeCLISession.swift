@@ -505,6 +505,27 @@ final class ClaudeCLISession: CompilerRunner {
 
     // MARK: - The bridge config
 
+    /// The same binary the setup sheet points Claude Desktop at
+    /// (`HelpClaudeDesktopSheet.binaryPath`) — every in-app session reaches
+    /// Maugham through the identical bridge, so there is nothing
+    /// variant-specific here beyond `BuildVariant`'s own socket (tripwire 13).
+    ///
+    /// **Here rather than on one orchestrator's environment**, which is where
+    /// it lived while the compiler was the only session owner: two spellings of
+    /// this path is a build where one of the two spawners talks to a binary
+    /// that is not there.
+    static var bridgeBinary: URL {
+        Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/maugham-mcp")
+    }
+
+    /// One directory for every session config this machine writes, so a config
+    /// orphaned by a crash is findable rather than scattered through the temp
+    /// root. Each orchestrator deletes its own on shutdown.
+    static var sessionConfigDirectory: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("maugham-compiler", isDirectory: true)
+    }
+
     /// Write the per-session `--mcp-config` file: exactly Maugham's own server,
     /// through the same bridge binary the setup sheet installs. `env` is
     /// omitted when the default socket is wanted, matching

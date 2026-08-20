@@ -54,7 +54,7 @@ extension ProjectStore {
     func translatorRole(for language: String) async throws -> ProductionRole {
         let tag = language.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tag.isEmpty else { throw ProjectStoreError.productionRoleLanguageEmpty }
-        if let existing = storedTranslator(for: tag) { return existing }
+        if let existing = manifest.storedTranslator(for: tag) { return existing }
 
         let minted = ProductionRole(
             id: Self.newId(prefix: "role"),
@@ -64,15 +64,9 @@ extension ProjectStore {
         return minted
     }
 
-    /// The stored translator for a tag, or nil. Asked of the STORED list rather
-    /// than the effective one on purpose: the merge only ever supplies a
-    /// designer, and this is the list the mint appends to.
-    private func storedTranslator(for tag: String) -> ProductionRole? {
-        manifest.productionRoles.first { role in
-            guard case .translator(let language) = role.role else { return false }
-            return language.caseInsensitiveCompare(tag) == .orderedSame
-        }
-    }
+    // The find-half of the verb above is `ProjectManifest.storedTranslator(for:)`
+    // — one spelling of the case-insensitive tag match, shared with the
+    // read-only lookups that must never mint.
 
     // MARK: - The designer
 

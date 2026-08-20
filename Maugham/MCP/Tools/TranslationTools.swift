@@ -18,19 +18,37 @@ func currentParagraphState(
     guard let entry = registry.lookup(id: projectId) else {
         throw MCPError.unknownProjectID(projectId)
     }
+    return try currentParagraphState(
+        documentId: documentId, store: entry.store,
+        documentStore: entry.store.documentStore, projectURL: entry.url)
+}
+
+/// The same resolution with the project already in hand — what the translator
+/// loop's production wiring calls (`TranslatorEnvironment+Project.swift`),
+/// which holds its window's stores directly and has no registry to look
+/// anything up in.
+///
+/// **One spelling of tripwire 20's rule**, which is why the registry version
+/// above is a two-line wrapper around this one: a second copy of "open doc →
+/// live `Document`, closed doc → derived" is a second answer to what the
+/// current source text is, and the write pipeline hashes against whatever it
+/// is given.
+@MainActor
+func currentParagraphState(
+    documentId: String, store: ProjectStore, documentStore: DocumentStore?, projectURL: URL
+) throws -> (sequence: [String], paragraphs: [String: String], projectURL: URL) {
     // Open doc → live Document.
-    if let ds = entry.store.documentStore,
-       let doc = ds.document(forDocId: documentId) {
-        return (doc.sequence, doc.paragraphs, entry.url)
+    if let doc = documentStore?.document(forDocId: documentId) {
+        return (doc.sequence, doc.paragraphs, projectURL)
     }
     // Closed doc → op-log-derived state. Verify the id resolves to a manuscript
     // item first so an unknown id fails cleanly rather than deriving empty.
-    guard TreeWalk.find(id: documentId, in: entry.store.manifest.structure) != nil else {
+    guard TreeWalk.find(id: documentId, in: store.manifest.structure) != nil else {
         throw MCPError.invalidArgument(
             "document_id not found in project manifest: \(documentId)")
     }
-    let state = try entry.store.derivedCache.state(forDocId: documentId, in: entry.url)
-    return (state.sequence, state.paragraphs, entry.url)
+    let state = try store.derivedCache.state(forDocId: documentId, in: projectURL)
+    return (state.sequence, state.paragraphs, projectURL)
 }
 
 // MARK: - write_translation
@@ -230,17 +248,11 @@ public enum ReadTranslationTool: MCPTool {
 /// already (a rename or a prior mint both count), else the preset name, else
 /// nil — an unlisted, unminted language has no honest name to report.
 ///
-/// Matching mirrors `ProjectStore.storedTranslator(for:)`'s case-insensitive
-/// tag compare (that helper is private to the store file, so this reads the
-/// manifest directly rather than sharing it) — `ES` and `es` are one
-/// language, and a regional tag like `es-MX` is its own, exactly as
-/// `defaultTranslatorName` treats it.
+/// Matching is `ProjectManifest.storedTranslator(for:)`'s — the one spelling of
+/// the case-insensitive tag compare, shared with the mint's own find-half, so
+/// no reader can disagree with the writer about which row is this language's.
 func translatorName(for language: String, in manifest: ProjectManifest) -> String? {
-    let stored = manifest.productionRoles.first { role in
-        guard case .translator(let tag) = role.role else { return false }
-        return tag.caseInsensitiveCompare(language) == .orderedSame
-    }
-    if let stored { return stored.effectiveName }
+    if let stored = manifest.storedTranslator(for: language) { return stored.effectiveName }
     return ProductionRole.defaultTranslatorName(language: language)
 }
 

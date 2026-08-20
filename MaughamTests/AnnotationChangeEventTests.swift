@@ -353,6 +353,17 @@ final class AnnotationChangeEventTests: XCTestCase {
                       + "it back, so a whole round of findings lands with no "
                       + "count outside this document hearing about it")
 
+        // The third, and the same two halves again: a translation round's
+        // questions are one act, however many it asked.
+        let queries = try Self.source(of: "Compiler/TranslatorEnvironment+Project.swift")
+        XCTAssertTrue(queries.contains("announcing: false)"),
+                      "premise: the translator's query mint is the third "
+                      + "batching caller — one round is one event")
+        XCTAssertTrue(queries.contains("document.announceAnnotationsChanged()"),
+                      "the translator's mint suppresses the per-query announce "
+                      + "and never pays it back, so a round's questions land "
+                      + "with no count outside this document hearing about it")
+
         // Whole-tree: nobody else silences the funnels. A new batching caller
         // is welcome — it just has to arrive here, next to the reason.
         let tree = try Self.swiftSources(under: "Maugham")
@@ -362,9 +373,10 @@ final class AnnotationChangeEventTests: XCTestCase {
         }
         XCTAssertEqual(suppressors,
                        ["Compiler/CompilerEnvironment+Project.swift",
+                        "Compiler/TranslatorEnvironment+Project.swift",
                         "OpLog/Document+Annotations.swift"],
-                       "a production site outside the sweep and the compiler's "
-                       + "mint suppresses the annotation announce: \(suppressors)")
+                       "a production site outside the sweep and the two mints "
+                       + "suppresses the annotation announce: \(suppressors)")
     }
 
     /// …and the behaviour the census stands in front of: **one deletion burst,

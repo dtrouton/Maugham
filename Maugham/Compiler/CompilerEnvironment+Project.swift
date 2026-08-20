@@ -359,9 +359,9 @@ extension CompilerOrchestrator.Environment {
             },
             writeMCPConfig: {
                 try ClaudeCLISession.writeMCPConfig(
-                    bridgeBinary: bridgeBinary,
+                    bridgeBinary: ClaudeCLISession.bridgeBinary,
                     socketPath: BuildVariant.current.mcpSocketPath,
-                    to: sessionConfigDirectory)
+                    to: ClaudeCLISession.sessionConfigDirectory)
             },
             makeRunner: { configURL, model in
                 ClaudeCLISession(
@@ -400,21 +400,7 @@ extension CompilerOrchestrator.Environment {
         }
     }
 
-    // MARK: - The session's bridge config
-
-    /// The same binary the setup sheet points Claude Desktop at
-    /// (`HelpClaudeDesktopSheet.binaryPath`) — the compiler reaches Maugham
-    /// through the identical bridge, so there is nothing variant-specific here
-    /// beyond `BuildVariant`'s own socket (tripwire 13).
-    private static var bridgeBinary: URL {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/maugham-mcp")
-    }
-
-    /// One directory for every session config this machine writes, so a config
-    /// orphaned by a crash is findable rather than scattered through the temp
-    /// root. The orchestrator deletes its own on shutdown.
-    private static var sessionConfigDirectory: URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("maugham-compiler", isDirectory: true)
-    }
+    // The session's bridge config — the binary and the directory — lives on
+    // `ClaudeCLISession` itself now that the translator spawns sessions too
+    // (`ClaudeCLISession.bridgeBinary` / `.sessionConfigDirectory`).
 }
