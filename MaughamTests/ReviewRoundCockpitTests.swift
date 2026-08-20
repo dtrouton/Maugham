@@ -943,48 +943,112 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// two-case call-through, not a restatement. A restated switch over
     /// `CompilerRunFailure`, whatever it were called, cannot avoid its own
     /// cases; those are what is scanned for.
+    ///
+    /// The verdict itself is `oneSpellingViolations(in:)` — **shared with the
+    /// planted-offender self-test below**, which is `TripwireGrepTests`'
+    /// convention (its `adr0018ReadPatterns` note names the duplication finding
+    /// that made it one): a self-test that re-implements the scan is a self-test
+    /// of itself.
     func test_everySurfaceReadsTheOneFailureSpelling() throws {
         XCTAssertFalse(
             RoundNarrative.failureCopy(.timedOut).isEmpty,
             "premise: the shared spelling exists and answers")
 
-        for path in ["Views/DiagnosticsPane.swift",
-                     "Views/Review/ReviewRoundCockpit.swift",
-                     "Views/Publish/DepartmentRunState.swift"] {
-            let source = try Self.source(of: path)
-            XCTAssertTrue(
-                source.contains("RoundNarrative.failureCopy("),
-                "\(path) must read the shared failure spelling")
-            for arm in ["case .cliNotFound", "case .unusableOutput",
-                        "case .sessionDied("] {
-                XCTAssertFalse(
-                    source.contains(arm),
-                    "\(path) carries `\(arm)` \u{2014} a second switch over "
-                    + "`CompilerRunFailure` is a second account of one death, "
-                    + "whatever it is called")
-            }
+        for path in Self.oneSpellingSurfaces {
+            let violations = Self.oneSpellingViolations(in: try Self.source(of: path))
+            XCTAssertEqual(
+                violations, [],
+                "\(path) \(violations.joined(separator: "; ")) \u{2014} a second "
+                + "switch over `CompilerRunFailure` is a second account of one "
+                + "death, whatever it is called")
         }
     }
 
-    /// The planted offender for the census above: the arms it scans for really
-    /// are what a restatement is made of, so a green run of it is evidence rather
-    /// than a scan that finds nothing anywhere.
-    func test_theOneSpellingCensusWouldFireOnAPlantedRestatement() {
-        let planted = """
-            enum Elsewhere {
-                static func describe(_ failure: CompilerRunFailure) -> String {
-                    switch failure {
-                    case .cliNotFound: return "install it"
-                    case .unusableOutput: return "unreadable"
-                    default: return ""
-                    }
+    /// Every surface that draws a dead run. A file earns its place here by
+    /// drawing one; nothing enforces the converse, which is why the list sits
+    /// beside the rule rather than in prose somewhere else.
+    static let oneSpellingSurfaces = [
+        "Views/DiagnosticsPane.swift",
+        "Views/Review/ReviewRoundCockpit.swift",
+        "Views/Publish/DepartmentRunState.swift",
+    ]
+
+    /// The arms a restated `switch` over `CompilerRunFailure` cannot avoid
+    /// carrying. SHARED between the census and its self-test.
+    static let restatedFailureArms = [
+        "case .cliNotFound", "case .unusableOutput", "case .sessionDied(",
+    ]
+
+    /// **What is wrong with one surface's account of a dead run**, as sentences.
+    /// Empty means the file reads the one spelling and restates nothing.
+    static func oneSpellingViolations(in source: String) -> [String] {
+        var violations: [String] = []
+        if !source.contains("RoundNarrative.failureCopy(") {
+            violations.append("does not read the shared failure spelling")
+        }
+        for arm in restatedFailureArms where source.contains(arm) {
+            violations.append("restates `\(arm)`")
+        }
+        return violations
+    }
+
+    /// **The self-check: the census fires on a restatement it has never seen.**
+    ///
+    /// Written to disk and read back rather than asserted against the literal in
+    /// hand — `TripwireGrepTests`' planted-offender shape — so what runs is the
+    /// real scan over a real file, down the path the production test takes. The
+    /// version this replaces asserted `planted.contains(arm)` on the string it
+    /// had just built, which is true by construction and would have stayed green
+    /// over a census that detected nothing at all.
+    ///
+    /// The control is the second half: a file that DELEGATES must come back
+    /// clean, or the scan is one that condemns everything and the green
+    /// production run above says nothing either.
+    func test_theOneSpellingCensusFiresOnAPlantedRestatement() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("one-spelling-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let offender = tmp.appendingPathComponent("RestatingPane.swift")
+        try """
+        enum RestatingPane {
+            static func describe(_ failure: CompilerRunFailure) -> String {
+                switch failure {
+                case .cliNotFound: return "Claude Code isn't installed."
+                case .disabledByToggle: return "Claude access is off."
+                case .timedOut: return "It took too long."
+                case .sessionDied(let detail): return "It died: \\(detail)."
+                case .unusableOutput: return "Unreadable."
                 }
             }
-            """
-        for arm in ["case .cliNotFound", "case .unusableOutput"] {
-            XCTAssertTrue(planted.contains(arm),
-                          "the census would not see a restatement carrying \(arm)")
         }
+        """.write(to: offender, atomically: true, encoding: .utf8)
+
+        let caught = Self.oneSpellingViolations(
+            in: try String(contentsOf: offender, encoding: .utf8))
+        XCTAssertEqual(caught.count, Self.restatedFailureArms.count + 1,
+                       "the census must catch every restated arm AND the missing "
+                       + "delegation \u{2014} got \(caught)")
+        for arm in Self.restatedFailureArms {
+            XCTAssertTrue(caught.contains("restates `\(arm)`"),
+                          "`\(arm)` went unseen \u{2014} got \(caught)")
+        }
+
+        let clean = tmp.appendingPathComponent("DelegatingPane.swift")
+        try """
+        enum DelegatingPane {
+            static func describe(_ failure: CompilerRunFailure) -> String {
+                RoundNarrative.failureCopy(failure, session: .translation)
+            }
+        }
+        """.write(to: clean, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            Self.oneSpellingViolations(
+                in: try String(contentsOf: clean, encoding: .utf8)), [],
+            "the control must come back clean, or the scan condemns everything")
     }
 
     /// **The strip is not in the toolbar.** `AnnotationsQueueToolbar`'s one

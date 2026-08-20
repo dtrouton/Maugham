@@ -100,7 +100,12 @@ struct DepartmentPaneHost: View {
     }
 
     private var desk: some View {
-        DepartmentPane(
+        // **Resolved once per body pass and handed to both consumers.** The
+        // pane's own `runTarget` and the rows resolved against it are two
+        // readings of one question; asking it twice is two manifest walks and
+        // two chances to differ inside a single frame.
+        let target = runTarget
+        return DepartmentPane(
             title: store.manifest.title,
             languages: languages,
             // Task 4's: the staged proposals are the other half of the desk.
@@ -109,8 +114,8 @@ struct DepartmentPaneHost: View {
                 Task { await present(language: language) }
             },
             notice: notice,
-            runTarget: runTarget,
-            runs: runStates,
+            runTarget: target,
+            runs: runStates(for: target),
             runTranslation: { run(language: $0) },
             // One session per window, so the row that is running is the only row
             // that offers this and there is never a question of whose round it
@@ -128,6 +133,13 @@ struct DepartmentPaneHost: View {
     /// observed (`ProjectStore` and `DocumentStore` are `@Observable`), which is
     /// what makes the button follow the tree — the writer clicks a chapter in the
     /// left column and the desk's Run becomes pressable with no event and no poll.
+    ///
+    /// **This is the first thing to cache if the desk ever feels sticky**, and
+    /// the key is the subject: cheap as it is, a walk of a fifty-chapter manifest
+    /// on every body pass of this pane is the shape tripwire 4 is about, and the
+    /// observation is the only reason it lives here rather than in the `.task`
+    /// beside the language rows. A cache would have to be invalidated by the same
+    /// two observations, which is why it is not one yet.
     private var runTarget: DepartmentRunTarget {
         DepartmentRunTarget.resolve(
             subject: subject,
@@ -137,8 +149,12 @@ struct DepartmentPaneHost: View {
 
     /// One resolved run state per row. A pure fold over values the window already
     /// holds — no I/O, so a book with twenty editions costs twenty comparisons.
-    private var runStates: [String: DepartmentRunState] {
-        let target = runTarget
+    ///
+    /// **Takes the target rather than reading it**, so the rows and the pane's
+    /// own copy are the same answer by construction (see `desk`) and this fold
+    /// adds no manifest walk of its own to the body pass.
+    private func runStates(
+        for target: DepartmentRunTarget) -> [String: DepartmentRunState] {
         let runState = translator?.runState ?? .idle
         let session = DepartmentRunSession.read(
             runState: runState, isRunning: translator?.isRunning ?? false)
