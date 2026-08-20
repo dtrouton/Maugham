@@ -1052,6 +1052,239 @@ final class DepartmentRunTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    // MARK: - Task 9: the mint sheet for unlisted languages
+
+    /// **The three ways a language answers "does Run need to ask first?"**
+    /// (no window — `DepartmentPaneHost.needsTranslatorName` is a pure read
+    /// over `EditionStatus.translatorName`, which is the row's own "No
+    /// translator yet" question asked from the other side).
+    func test_aPresetLanguageNeverNeedsTheMintSheet() {
+        XCTAssertFalse(
+            DepartmentPaneHost.needsTranslatorName(language: "es", in: Self.blankManifest()),
+            "es has a preset translator (Cort\u{e1}zar) \u{2014} the sheet exists for "
+            + "languages nobody has named, and es is never one of them")
+    }
+
+    func test_anUnlistedUnmintedLanguageNeedsTheMintSheet() {
+        XCTAssertTrue(
+            DepartmentPaneHost.needsTranslatorName(language: "xx", in: Self.blankManifest()),
+            "xx has no preset and no stored role \u{2014} translatorRole(for:) would "
+            + "mint one named nothing but the tag, unasked")
+    }
+
+    func test_anAlreadyMintedUnlistedLanguageNeedsNoSheet() {
+        let stored = ProductionRole(id: "role-1", role: .translator(language: "xx"), name: nil)
+        let manifest = Self.blankManifest(productionRoles: [stored])
+        XCTAssertFalse(
+            DepartmentPaneHost.needsTranslatorName(language: "xx", in: manifest),
+            "a role already stored for this language \u{2014} even one still unnamed "
+            + "\u{2014} answers `effectiveName` with the uppercased tag rather than nil, "
+            + "and a run must not interrupt an edition the desk has already minted")
+    }
+
+    // MARK: - Task 9: the sheet itself (no host)
+
+    /// **Every string the sheet draws is `DepartmentMintCopy`'s** — the
+    /// `DepartmentDesk` split, so the whole surface is assertable with
+    /// nothing but the language it was given.
+    func test_theMintSheetNamesTheEditionItIsAskingAbout() async throws {
+        let window = mountMintSheet(language: "pt-br")
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains { $0.contains(DepartmentMintCopy.title(language: "pt-br")) },
+            "the sheet never said which edition it wants a name for. Published: "
+            + "\(texts.sorted())")
+        XCTAssertTrue(texts.contains { $0.contains(DepartmentMintCopy.explanation) },
+                      "…nor why. Published: \(texts.sorted())")
+    }
+
+    /// **Confirm refuses a blank name** — a translator signed "" is the thing
+    /// `renameProductionRole`'s own `.productionRoleNameEmpty` refusal exists
+    /// against, and the sheet must not let a click reach it.
+    func test_theMintSheetsConfirmIsDisabledUntilANameIsTyped() async throws {
+        let window = mountMintSheet(language: "xx")
+        let blank = try axButtons(labelled: DepartmentMintCopy.confirmTitle, in: window)
+        XCTAssertEqual(blank.count, 1)
+        XCTAssertEqual(axEnabled(blank[0]), false,
+                       "an empty field must not offer a way to confirm nothing")
+
+        let field = try XCTUnwrap(textField(placeholder: DepartmentMintCopy.placeholder,
+                                            in: window),
+                                  "the sheet mounted no name field at all")
+        type("Constance Garnett", into: field)
+        pump(0.1)
+
+        let named = try axButtons(labelled: DepartmentMintCopy.confirmTitle, in: window)
+        XCTAssertEqual(axEnabled(named[0]), true,
+                       "…and a typed name must make it pressable, or this test "
+                       + "could pass over a button that never enables")
+    }
+
+    /// **Confirm sends the trimmed name; Cancel backs out with no name at
+    /// all.** Both closures, so a sheet that silently swallowed either verb
+    /// would be caught here rather than only at the host.
+    func test_theMintSheetSendsTheTrimmedNameAndCancelSendsNothing() async throws {
+        var named: [String] = []
+        var cancelled = 0
+        let window = mountMintSheet(language: "xx",
+                                    onName: { named.append($0) },
+                                    onCancel: { cancelled += 1 })
+        let field = try XCTUnwrap(textField(placeholder: DepartmentMintCopy.placeholder,
+                                            in: window))
+        type("  Constance Garnett  ", into: field)
+        pump(0.1)
+        press(try axButtons(labelled: DepartmentMintCopy.confirmTitle, in: window)[0])
+        _ = await pumpUntil(deadline: 3) { !named.isEmpty }
+        XCTAssertEqual(named, ["Constance Garnett"],
+                       "the sheet must trim what it sends \u{2014} `renameProductionRole` "
+                       + "trims too, but a name padded with the writer's own spaces should "
+                       + "never reach it in the first place")
+
+        press(try axButtons(labelled: DepartmentMintCopy.cancelTitle, in: window)[0])
+        _ = await pumpUntil(deadline: 3) { cancelled > 0 }
+        XCTAssertEqual(cancelled, 1)
+        XCTAssertEqual(named, ["Constance Garnett"], "Cancel must not also send a name")
+    }
+
+    // MARK: - Task 9: the whole desk, wired to a real translator loop
+
+    /// **Run on an unlisted, unminted edition shows the sheet — and
+    /// nothing else happens.** Nothing is minted, nothing is renamed, and the
+    /// run never reaches `TranslatorOrchestrator`: `translatorIdentity` (the
+    /// orchestrator's own mint) is never asked, which is the one signal that
+    /// distinguishes "the sheet interposed" from "the run merely hasn't
+    /// finished yet".
+    func test_anUnlistedLanguageShowsTheSheetBeforeAnythingRuns() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "xx")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
+
+        let sheet = await attachedSheetWindow(of: window)
+        let sheetWindow = try XCTUnwrap(sheet, "Run on an unnamed edition must show the "
+                                        + "mint sheet before anything runs")
+        let texts = try axTexts(in: sheetWindow)
+        XCTAssertTrue(
+            texts.contains { $0.contains(DepartmentMintCopy.title(language: "xx")) },
+            "Published: \(texts.sorted())")
+
+        XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
+                      "opening the sheet must mint nothing — only Confirm does")
+        XCTAssertFalse(fixture.translator.isRunning,
+                       "the run must not have reached the orchestrator")
+        XCTAssertTrue(fixture.runner.sends.isEmpty,
+                      "…and nothing was sent to a session that should not exist yet")
+
+        await fixture.documentStore.close()
+    }
+
+    /// **Cancel aborts the run visibly and mints nothing** (Global Constraint
+    /// 2 — the one notice channel, said before the run rather than during
+    /// it).
+    func test_cancellingTheSheetAbortsVisiblyAndMintsNothing() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "xx")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
+        let sheet = await attachedSheetWindow(of: window)
+        let sheetWindow = try XCTUnwrap(sheet)
+        press(try axButtons(labelled: DepartmentMintCopy.cancelTitle, in: sheetWindow)[0])
+
+        _ = await pumpUntil(deadline: 5) { window.attachedSheet == nil }
+        XCTAssertNil(window.attachedSheet, "the sheet must actually close on Cancel")
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains { $0.contains(DepartmentMintCopy.cancelledLine(language: "xx")) },
+            "the abandon must be said in words, in the desk's one notice slot. "
+            + "Published: \(texts.sorted())")
+
+        XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
+                      "Cancel must mint nothing")
+        XCTAssertFalse(fixture.translator.isRunning)
+        XCTAssertTrue(fixture.runner.sends.isEmpty)
+
+        await fixture.documentStore.close()
+    }
+
+    /// **Confirm names the translator and runs the round it was standing in
+    /// front of, in one visible act.** The mint and the rename both land on
+    /// the manifest, and the run this pane's own `runTarget` resolved earlier
+    /// is the one that reaches the orchestrator.
+    func test_confirmingTheSheetNamesTheTranslatorAndRunsInOneAct() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "xx")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
+        let sheet = await attachedSheetWindow(of: window)
+        let sheetWindow = try XCTUnwrap(sheet)
+        let field = try XCTUnwrap(textField(placeholder: DepartmentMintCopy.placeholder,
+                                            in: sheetWindow))
+        type("Constance Garnett", into: field)
+        pump(0.1)
+        press(try axButtons(labelled: DepartmentMintCopy.confirmTitle, in: sheetWindow)[0])
+
+        _ = await settleUntil(deadline: 10) {
+            !fixture.projectStore.manifest.productionRoles.isEmpty
+        }
+        let role = try XCTUnwrap(
+            fixture.projectStore.manifest.storedTranslator(for: "xx"),
+            "Confirm must mint (or find) the role and store it")
+        XCTAssertEqual(role.effectiveName, "Constance Garnett",
+                       "…and rename it to what the writer typed, as one visible act")
+
+        _ = await settleUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
+        XCTAssertFalse(fixture.runner.sends.isEmpty,
+                       "the run the sheet was standing in front of must actually reach "
+                       + "the translator's session once the writer has named them")
+
+        _ = await pumpUntil(deadline: 5) { window.attachedSheet == nil }
+        XCTAssertNil(window.attachedSheet, "the sheet must close once it is answered")
+
+        await fixture.documentStore.close()
+    }
+
+    /// **A preset language never sees the sheet at all** — the control on
+    /// the whole file: `es` has a name (Cortázar) before anybody asks, so
+    /// Run must reach the orchestrator on the very first click.
+    func test_aPresetLanguageRunsStraightThroughWithNoSheet() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
+
+        _ = await settleUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
+        XCTAssertFalse(fixture.runner.sends.isEmpty,
+                       "es must run immediately — nothing here should be waiting on a name")
+        XCTAssertNil(window.attachedSheet, "…and the sheet must never have appeared")
+
+        await fixture.documentStore.close()
+    }
+
+    /// **An unlisted language whose role was already minted (even unnamed)
+    /// runs straight through on the next click** — the sheet answers a
+    /// language once, not an edition's every round.
+    func test_anAlreadyMintedUnlistedLanguageAlsoRunsStraightThrough() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "xx")
+        _ = try await fixture.projectStore.translatorRole(for: "xx")
+
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
+
+        _ = await settleUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
+        XCTAssertFalse(fixture.runner.sends.isEmpty,
+                       "a language whose role already exists must not be interrupted again")
+        XCTAssertNil(window.attachedSheet)
+
+        await fixture.documentStore.close()
+    }
+
     // MARK: - Helpers: the decisions
 
     private func designRow(designerName: String = "Tschichold",
@@ -1137,6 +1370,25 @@ final class DepartmentRunTests: XCTestCase {
         return window
     }
 
+    /// The mint sheet, mounted alone — `DepartmentPaneTests`' own dumb-view
+    /// mounting, for the sheet's own file.
+    private func mountMintSheet(language: String,
+                                onName: @escaping (String) -> Void = { _ in },
+                                onCancel: @escaping () -> Void = { }) -> NSWindow {
+        let frame = CGRect(x: 0, y: 0, width: 380, height: 220)
+        let hosting = NSHostingView(rootView: AnyView(
+            DepartmentMintSheet(language: language, onName: onName, onCancel: onCancel)))
+        hosting.frame = frame
+        let window = NSWindow(contentRect: frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.orderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        windows.append(window)
+        pump(0.1)
+        return window
+    }
+
     private func scrollersSettling(in window: NSWindow,
                                    file: StaticString = #filePath,
                                    line: UInt = #line) async throws -> [NSScrollView] {
@@ -1175,6 +1427,39 @@ final class DepartmentRunTests: XCTestCase {
     private func press(_ element: AnyObject) {
         _ = (element as? NSObject)?.perform(
             NSSelectorFromString("accessibilityPerformPress"))
+    }
+
+    /// **Drive a SwiftUI `TextField`'s binding from outside the responder
+    /// chain** — setting `stringValue` and posting the notification its
+    /// delegate listens for, which is what a real keystroke does once it
+    /// reaches the field, without needing this test host to be the active
+    /// app (CLAUDE.md's synthetic-click premise, in this surface's currency).
+    private func type(_ text: String, into field: NSTextField) {
+        field.stringValue = text
+        NotificationCenter.default.post( // adr-0021-ok: Apple's own textDidChange, not a maugham.* event
+            name: NSControl.textDidChangeNotification, object: field)
+    }
+
+    private func textField(placeholder: String, in window: NSWindow) -> NSTextField? {
+        guard let root = window.contentView else { return nil }
+        var found: [NSTextField] = []
+        collect(NSTextField.self, in: root, into: &found)
+        return found.first { $0.placeholderString == placeholder }
+    }
+
+    /// **Wait for a `.sheet(item:)` to actually attach** — a real child
+    /// `NSWindow` once `parent` is ordered front, which it is in every
+    /// mount this suite makes. Its own `contentView` is what the
+    /// `axTexts`/`axButtons` helpers above read when handed this window
+    /// instead of the parent.
+    private func attachedSheetWindow(of parent: NSWindow,
+                                     deadline: TimeInterval = 5) async -> NSWindow? {
+        var sheet: NSWindow?
+        _ = await pumpUntil(deadline: deadline) {
+            sheet = parent.attachedSheet
+            return sheet != nil
+        }
+        return sheet
     }
 
     private func axEnabled(_ element: AnyObject) -> Bool? {
@@ -1311,6 +1596,103 @@ final class DepartmentRunTests: XCTestCase {
 
         return Fixture(projectURL: tmp, projectStore: projectStore,
                        documentStore: documentStore)
+    }
+
+    // MARK: - Helpers: a project on disk, with a real translator loop (Task 9)
+
+    /// A runner that answers a minimal, valid, EMPTY report the moment it is
+    /// asked — this suite is about the run reaching (or not reaching) the
+    /// orchestrator, never about what a round produces, so there is nothing
+    /// here to hold open. Local to this suite for `DesignSpyRunner`'s own
+    /// reason: each loop's spy is `private` to its own file and the three
+    /// will diverge as they grow.
+    @MainActor
+    private final class TranslatorSpyRunner: CompilerRunner {
+        private(set) var sends: [String] = []
+        var isRunning = false
+        var sessionEpoch = 1
+
+        func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
+            sends.append(message)
+            return .resultText(#"{"entries":[],"queries":[]}"#)
+        }
+        func cancelCurrentRun() { }
+        func shutdown() { }
+    }
+
+    private struct TranslatorFixture {
+        let projectURL: URL
+        let projectStore: ProjectStore
+        let documentStore: DocumentStore
+        let translator: TranslatorOrchestrator
+        let runner: TranslatorSpyRunner
+    }
+
+    /// **`makeProject`'s project, with a real translator loop wired to a spy
+    /// runner** — `TranslatorEnvironmentTests.makeHarness`'s shape, so
+    /// `translator.runTranslation` actually reaching the orchestrator (or
+    /// not) is something this suite observes rather than assumes.
+    ///
+    /// `seedLanguage`, when given, gets one translation-file record for
+    /// `doc-1` — a filename-only fact (`EditionStatus.documentRows`'
+    /// `fileLanguages` scan never reads the record's content), which is
+    /// what puts a row, and a Run button, on the desk for a language the
+    /// desk would otherwise have no edition to show at all.
+    private func makeTranslatorFixture(seedLanguage: String) async throws -> TranslatorFixture {
+        let h = try await makeProject()
+        try await TranslationStore.append(
+            TranslationRecord(paragraphId: "zzzz", language: seedLanguage,
+                              text: "placeholder", sourceHash: TranslationHash.hash("x")),
+            forDocId: "doc-1", deviceSlug: DeviceSlug.make(from: "seed-device"),
+            in: h.projectURL)
+
+        let suite = "DepartmentMintSheet-\(UUID().uuidString)"
+        let preferences = UserPreferences(defaults: UserDefaults(suiteName: suite)!)
+        let bible = BibleStore(projectRoot: h.projectURL,
+                               device: DeviceSlug.make(from: MacDeviceID.current))
+        var environment = TranslatorOrchestrator.Environment.production(
+            store: h.projectStore, documentStore: h.documentStore,
+            projectURL: h.projectURL, bible: bible, preferences: preferences,
+            onRunEnded: { _ in })
+        let runner = TranslatorSpyRunner()
+        environment.makeRunner = { _, _ in runner }
+
+        let translator = TranslatorOrchestrator()
+        translator.configure(environment: environment)
+
+        return TranslatorFixture(projectURL: h.projectURL, projectStore: h.projectStore,
+                                 documentStore: h.documentStore, translator: translator,
+                                 runner: runner)
+    }
+
+    /// The real host over a `TranslatorFixture`'s project — Task 4's own
+    /// `mountHost`, one orchestrator over.
+    private func mountTranslatorHost(_ fixture: TranslatorFixture) -> NSWindow {
+        let frame = CGRect(x: 0, y: 0, width: 340, height: 600)
+        let hosting = NSHostingView(rootView: AnyView(
+            DepartmentPaneHost(store: fixture.projectStore,
+                               documentStore: fixture.documentStore,
+                               projectURL: fixture.projectURL,
+                               subject: .item("doc-1"),
+                               translator: fixture.translator)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)))
+        hosting.frame = frame
+        let window = NSWindow(contentRect: frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.orderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        windows.append(window)
+        pump(0.1)
+        return window
+    }
+
+    private static func blankManifest(
+        productionRoles: [ProductionRole] = []) -> ProjectManifest {
+        ProjectManifest(type: .novel, title: "T", author: "A",
+                        created: Date(), modified: Date(),
+                        structure: [], research: [],
+                        productionRoles: productionRoles)
     }
 
     // MARK: - Helpers: a design round's own project (Task 4)

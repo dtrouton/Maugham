@@ -107,6 +107,20 @@ struct DepartmentPane: View {
     var requestDesignChanges: (String) -> Bool = { _ in false }
     /// End the design round in flight — `DesignerOrchestrator.cancel()`.
     var cancelDesignRun: () -> Void = { }
+    /// **The mint sheet's prompt, or nil** (P4 Task 9) — set by the host when a
+    /// Run would mint an unlisted language's translator with no name
+    /// (`DepartmentPaneHost.needsTranslatorName`), so the writer names them
+    /// before the round the sheet is standing in front of ever reaches
+    /// `TranslatorOrchestrator`.
+    var mintPrompt: DepartmentMintPrompt? = nil
+    /// Answer the sheet with a name — mints (or finds) the role and renames it
+    /// in one visible act, then starts the run the sheet was standing in front
+    /// of. The host's, because both halves write.
+    var confirmMint: (String) -> Void = { _ in }
+    /// Back out of the sheet. The run it was standing in front of does not
+    /// happen; the abandon lands in `notice` (Global Constraint 2), which is
+    /// why this takes no reason of its own.
+    var cancelMint: () -> Void = { }
     /// **Put the newest round in the centre column** (Task 5) — the desk's door
     /// to the gate, and the row's only control that is navigation rather than a
     /// verb.
@@ -147,6 +161,17 @@ struct DepartmentPane: View {
             desk
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // **The mint sheet** (P4 Task 9). The `Binding`'s `set` is the only
+        // way this value-taking pane can hear a swipe-away or Esc dismiss —
+        // there is no `@State` here for `mintPrompt` to live in, so a
+        // dismissal that bypassed both buttons still has to reach
+        // `cancelMint`, or the host's `mintPrompt` would outlive the sheet
+        // that showed it and the next render would draw it right back.
+        .sheet(item: Binding(get: { mintPrompt },
+                              set: { if $0 == nil { cancelMint() } })) { prompt in
+            DepartmentMintSheet(language: prompt.language,
+                                onName: confirmMint, onCancel: cancelMint)
+        }
     }
 
     private var header: some View {

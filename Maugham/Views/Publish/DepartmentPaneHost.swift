@@ -65,6 +65,11 @@ struct DepartmentPaneHost: View {
     @State private var openBrief: OpenedBrief?
     /// A door that would not open. Cleared on the next attempt.
     @State private var notice: String?
+    /// **The mint sheet, standing in front of a run** (P4 Task 9) — set by
+    /// `run(language:)` when the language it was asked for would mint a
+    /// translator with no name, and cleared by whichever of `confirmMint` /
+    /// `cancelMint` answers it.
+    @State private var mintPrompt: DepartmentMintPrompt?
     /// This pane's hosting window, for the ADR 0021 receive helpers' liveness
     /// guard — resolved through `WindowAccessor` because a cached `nil` is not
     /// a close check (`MaughamEvent.isLive`).
@@ -166,6 +171,9 @@ struct DepartmentPaneHost: View {
             runDesign: { runDesign(direction: $0) },
             requestDesignChanges: { requestDesignChanges($0) },
             cancelDesignRun: { designer?.cancel() },
+            mintPrompt: mintPrompt,
+            confirmMint: { confirmMint(name: $0) },
+            cancelMint: { cancelMint() },
             // **The newest round, from the listing the row was resolved from**
             // — so the proposal the gate opens is the one `latestLine`
             // describes rather than a second lookup that could differ. The
@@ -230,6 +238,17 @@ struct DepartmentPaneHost: View {
     /// sentence resolved once. Past it the orchestrator's own `!isRunning` guard
     /// and its briefing gather are the only refusals left, and neither can be
     /// reached from here without one of the answers above having been given first.
+    ///
+    /// **One more gate past the pre-flight, and it is the last one before the
+    /// orchestrator** (P4 Task 9): a language nobody has named a translator
+    /// for yet. Left alone, the click would reach `translator.runTranslation`
+    /// and its own `translatorIdentity` closure — `ProjectStore
+    /// .translatorRole(for:)`, find-or-create — would mint a role signed with
+    /// nothing but the language tag uppercased, and the writer would never be
+    /// asked. The sheet stands in front of exactly that click; `runTarget`'s
+    /// `docId` is captured into the prompt rather than re-read at Confirm, so
+    /// the run that eventually happens is the chapter this click named, not
+    /// whatever the tree names by the time the writer finishes typing.
     private func run(language: String) {
         notice = nil
         guard let translator else {
@@ -244,6 +263,10 @@ struct DepartmentPaneHost: View {
             return
         }
         guard let docId = runTarget.docId else { return }
+        if Self.needsTranslatorName(language: language, in: store.manifest) {
+            mintPrompt = DepartmentMintPrompt(language: language, docId: docId)
+            return
+        }
         translator.runTranslation(docId: docId, language: language)
     }
 
@@ -253,6 +276,59 @@ struct DepartmentPaneHost: View {
     static let noTranslatorWired =
         "This window isn\u{2019}t ready to run a translation yet. Try again in a "
         + "moment, or reopen the project."
+
+    /// **Would this language's translator mint with no name?** (P4 Task 9.)
+    ///
+    /// The same read `EditionStatus.translatorName` answers for a row's own
+    /// "No translator yet" line, asked from the other side: `nil` there means
+    /// no honest name exists — no stored role, and no preset either — which is
+    /// exactly the run that must not reach `TranslatorOrchestrator
+    /// .runTranslation` unannounced. A preset language (`es`, `fr`, `de`,
+    /// `ja`) always answers non-nil, so it never sees the sheet; a language
+    /// whose role is already stored answers non-nil too, named or not — an
+    /// unnamed stored role's `effectiveName` falls back to the tag rather than
+    /// to `nil` — so a second click on an edition the sheet has already named
+    /// runs straight through. A pure read (`EditionStatus`'s own rule): it
+    /// never mints, so asking the question changes nothing on disk.
+    static func needsTranslatorName(language: String, in manifest: ProjectManifest) -> Bool {
+        EditionStatus.translatorName(for: language, in: manifest) == nil
+    }
+
+    /// **The sheet's Confirm.** Mint-then-rename, `ProjectStore
+    /// +ProductionRoles`'s own idempotent shape: `translatorRole(for:)` finds
+    /// the role if `runTranslation`'s own identity mint already raced it into
+    /// existence, or mints it fresh, and either way the very next line is what
+    /// puts the writer's name on it — one visible mint, never a nameless one
+    /// left standing for the writer to find later. Only once both have landed
+    /// does the run the sheet was standing in front of actually start.
+    private func confirmMint(name: String) {
+        guard let prompt = mintPrompt else { return }
+        mintPrompt = nil
+        guard let translator else { return }
+        let language = prompt.language
+        let docId = prompt.docId
+        Task {
+            do {
+                let role = try await store.translatorRole(for: language)
+                try await store.renameProductionRole(id: role.id, to: name)
+            } catch {
+                _departmentLog.error(
+                    "could not name the \(language, privacy: .public) translator: \(error, privacy: .public)")
+                notice = DepartmentMintCopy.mintFailed(language: language)
+                return
+            }
+            translator.runTranslation(docId: docId, language: language)
+        }
+    }
+
+    /// **The sheet's Cancel.** The run it was standing in front of does not
+    /// happen — nothing is minted, nothing runs — and the abandon is said in
+    /// words, in the desk's one notice slot (Global Constraint 2).
+    private func cancelMint() {
+        guard let prompt = mintPrompt else { return }
+        mintPrompt = nil
+        notice = DepartmentMintCopy.cancelledLine(language: prompt.language)
+    }
 
     // MARK: - The design round (Task 4)
 
