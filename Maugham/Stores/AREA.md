@@ -48,6 +48,7 @@ Everything derived lives under `.maugham/` in the project folder. Each subdirect
 | `.maugham/pending/` | `PendingBuffer` (OpLog area) | Device-partitioned crash-recovery buffer (`<docId>.<slug>.pending.jsonl`). Relocated out of `ops/` so it can't match the op-log glob (tripwire 17 / ADR 0012). Ephemeral; safe to nuke. |
 | `.maugham/trash/` | `TrashStore` | 30-day soft-delete; sweep on app launch |
 | `.maugham/ops/__project__.jsonl` | `ProjectStore+Tasks` | Reserved synthetic doc id for project-scope pane-created tasks (milestone-tasks). The op log is real but no manuscript backs it. **Do not allocate a real document with id `__project__`.** |
+| `.maugham/design/proposals/<proposalId>/` | `DesignProposalStore` | A staged design proposal (`spec.md`, `files/<relative path>`, `proposal.json`), plus `scratch/` and `backup/` once a sample has compiled or a promotion has run. Wholly derived — deleting `.maugham/design/` costs nothing else on disk |
 
 Don't invent new top-level subdirs without a reason. If you need a new one, the convention is: lowercase noun, plural if it's a collection of records.
 
@@ -160,6 +161,53 @@ Renaming a document moves every `[[…]]` that named it. **Three loops, one pair
 ## Production roles — `ProjectStore+ProductionRoles.swift` (2026-08-19)
 
 **Cast is translator(s) + designer.** The roles carry an identity (a preset name, customizable) and a brief (a preset doctrine, customizable). Stored on the project manifest (`ProjectManifest.productionRoles`), alongside the `reviewPasses` entries, in the same manifest file at the project root. Roles live in an array, keyed by id (role-typed `String`), and accessed through `ProjectStore.translatorRole(for:)` / `.designerRole()` — but the two are NOT symmetric. A translator is minted lazily: `translatorRole(for:)` looks the tag up in the stored list, and only on a miss mints, appends and persists a new row (`ProjectStore+ProductionRoles.swift`'s `translatorRole(for:)`, backed by `commitProductionRoles`) — a genuine write hiding behind what reads like a getter. The designer is **never minted**. `designerRole()` is a pure read: it answers the stored designer row if the writer has renamed or briefed one, else `ProductionRole.presetDesigner`, and writes nothing either way — every project has a designer from the moment it exists, so there is nothing to retroactively create. The preset only reaches disk through the writer's own rename (`renameProductionRole(id:to:)`), which is the one production entry point that mutates `productionRoles` for either role kind. Both return a `ProductionRole` that resolves through `effectiveName` / `effectiveBrief` to the raw field or a preset when absent — the `ReviewPass` shape carried forward to the publish department. External-MCP edits through `write_translation` / `write_publish_file` do not carry a role signature, so a signed annotation means the work came through the app loop (the straight-means-Claude transposition). The read-vs-write split is spelled out in `ProjectStore+ProductionRoles.swift`'s own doc comment (top of file); the lazy mint, the designer's never-mint, and the rename entry point are pinned by `MaughamTests/ProductionRoleStoreTests.swift` (`test_mintingATranslatorTwiceReturnsTheSameRole`, `test_theDesignerAnswersWithoutTouchingTheManifest`, `test_theStoredDesignerWinsOverThePreset`, and the rename suite).
+
+## `DesignProposalStore` — staging under `.maugham/design/` (publish department P3, 2026-08-20)
+
+`Maugham/Stores/DesignProposalStore.swift` is a standalone `@MainActor` struct
+over `.maugham/design/proposals/<proposalId>/` — `TrashStore`'s and
+`PublicationSnapshotStore`'s shape (a bare `projectURL` and no other state),
+**not** a `ProjectStore` extension, the model this file's own tripwire 3
+points new small stores at. It stages what `Maugham/Compiler/DesignerReport
+.swift` parses out of a designer round: `stage(report:round:designerName:)`
+writes `spec.md`, one file under `files/` per proposed path, and
+`proposal.json`; `list()` reads newest-first, tolerant of an unreadable
+folder (`TrashStore.list()`'s own precedent — skipped, not thrown); `load(id
+:)`, `updateStatus(id:_:)`, `reject(id:note:)`, `delete(id:)`, and
+`sampleResult(id:)`/`recordSampleResult(id:_:)` for
+`Maugham/Publish/SampleCompiler.swift`'s compile outcome. Read
+`Maugham/Compiler/AREA.md`'s "The designer" section for the loop this feeds;
+this entry is about the store's own shape.
+
+**`stage` takes `designerName:` as a caller-supplied parameter, never
+resolving `designerRole()` itself** — the store has no `ProjectStore`
+reference to resolve it from, and identity is resolved once, upstream, by
+whichever orchestrator caller is doing the run (`DesignerOrchestrator`'s
+`StageContext.designerName`), the same precedent `TranslatorOrchestrator
+.IngestContext` set: a layer that only records identity never re-resolves it.
+
+**Supersession is project-wide, not partitioned by language or document.**
+`stage` supersedes every still-`pending` proposal in the store on every call
+— never an `approved` one — because the spec gives Design exactly one desk
+row and one pending-proposal badge per project (unlike the translator, whose
+desk gets a row per language). If a future milestone needs per-language
+design proposals to coexist, this needs a scope parameter added; it does not
+have one today.
+
+**Status decoding follows `PassState`'s tolerance, not `SynthesisSource`'s**
+(ADR-0015 pattern either way): `Status` carries an `.unknown(String)` case
+that re-encodes losslessly, load-bearing specifically because
+`updateStatus`/`recordSampleResult`/`reject` **rewrite `proposal.json` in
+place** (this is not an append-only op log) — touching one field on a
+proposal a newer build wrote must not clobber its status down to a generic
+literal it no longer recognises.
+
+**Everything under `.maugham/design/` is derived and safely deletable** — a
+proposal is a working document about bytes the writer has not yet approved,
+never the bytes themselves once approved (those land in the live
+`.maugham/publish/` tree, `ProposalPromotion`'s job, in
+`Maugham/Publish/`). Deleting the whole directory costs nothing else on
+disk, the same contract `TrashStore`'s and `CanvasStore`'s directories carry.
 
 ## Role identity — `ResearchItem.role` (2026-07-11)
 

@@ -511,6 +511,173 @@ is reachable only by a test harness constructing an `Environment` by hand;
 nothing a writer can click exists yet, which is the honest state to leave
 this cell in rather than implying otherwise.
 
+## The designer — the area's third orchestrator
+
+Publish department P3 (2026-08-20) gave this area a third run, for a third
+job: not reporting on the manuscript and not translating it, but proposing
+the BYTES the book is typeset from — a spec plus template/style/partial
+files — and a compiled spread of sample pages so the writer can judge the
+proposal without reading LaTeX. `ElementCensus.swift`, `SamplePageSelection
+.swift` and `SampleCompiler.swift` live in `Maugham/Publish/` rather than
+here (there is no `Maugham/Publish/AREA.md` — this section is where all four
+of the designer's files are documented, wherever they physically sit);
+`DesignerReport.swift`, `DesignerBriefing.swift`, `DesignerOrchestrator.swift`
+and `DesignerEnvironment+Project.swift` are peers of the compiler's and the
+translator's own files, same reasoning as the translator section above.
+`ProposalPromotion.swift` is also in `Maugham/Publish/` — the one thing in
+this whole loop that writes the LIVE publish tree, and its own file rather
+than a `DesignerOrchestrator` verb because approval and revert are things the
+writer does to a STAGED proposal, reachable independently of any run.
+
+**The rails are `CompilerOrchestrator`'s and `TranslatorOrchestrator`'s, a
+third conformer over the same shape.** Same closure-`Environment` discipline
+(a run drives end to end with no project on disk —
+`DesignerOrchestratorTests`/`DesignerEnvironmentTests` prove it the way the
+other two orchestrators' suites do), the same warm-session-with-lazy-spawn
+shape over `CompilerRunner`/`ClaudeCLISession`, the same generation discipline
+across every suspension, and the same `RunState` vocabulary shape
+(`.idle`/`.running(round:language:)`/`.failed(failure:at:)`). What differs,
+same as the translator, is what a run is FOR — and here that difference cuts
+deeper than the translator's did:
+
+- **Warm per PROJECT, not per document-and-language.** A design proposal is
+  never about one document; it is about the whole book's typesetting, so
+  there is nothing narrower to key a session on than the project itself. This
+  is also why `requestChanges` (a follow-up send on the SAME warm session,
+  the gate's "iterate" arm) is safe here in a way it could not be for a
+  process keyed more narrowly: the session that made round N's proposal is
+  the only process that can sensibly be asked to revise it, and nothing about
+  a design round narrows further than "the book" the way a translator's
+  register narrows to one edition. Retired only by a model change or
+  `shutdown()`.
+- **A round stays OPEN after it ends**, the same shape the translator never
+  needed and the compiler doesn't have — `hasOpenProposalRound` answers
+  whether `requestChanges` has anywhere to land. It closes three ways, all in
+  `DesignerOrchestrator`'s own doc comment: a fresh `runDesign` send (closed
+  unconditionally, before the answer is known — a second `runDesign` that
+  comes back unparseable must not leave `requestChanges` talking to the
+  session about the FIRST proposal, the fix round 1 finding), `retireSession`,
+  and the epoch moving under it (`sessionEpoch`, `ClaudeCLISession`'s own
+  silent-respawn guard — a `requestChanges` sent to a respawned process would
+  be asking a process that never saw the proposal to revise it).
+- **`stage` does two things behind one closure, and both are awaited.** A
+  parsed `DesignerReport` becomes a `DesignProposalStore.Proposal`
+  (`Maugham/Stores/DesignProposalStore.swift`, staging) **and** a compiled
+  sample (`SampleCompiler`, `Maugham/Publish/`), handed back together as one
+  `StageOutcome`. A disk refusal during staging is `StageOutcome.rejection`
+  and ends the run as `.failed(.stagingRejected(_))`; a tectonic failure
+  during the sample is `StageOutcome.sample = .failed(...)` and ends the run
+  **clean** — spec §6's rule, that a sample compile failing is advisory
+  information ON the proposal, never a reason to fail the round that made it.
+- **No `nothingToTranslate` analogue.** There is always a book to design, so a
+  round that starts always has something to propose; success returns to
+  `.idle` and the pending-proposal badge P4's desk will show is the store's
+  own state, not the orchestrator's.
+
+**The census is recomputed at staging, never carried from the briefing.** A
+whole model turn separates `briefRound` from `stage`, and the writer keeps
+writing through it — `SamplePageSelection.choose` is re-run against a fresh
+`ProjectStoreASTSource` build at staging time, against the book as it stands
+NOW, so a page selection computed against the older AST never demonstrates
+text that has since moved. Both derivations are pure over the same source, so
+an unchanged book still answers identically.
+
+**One AST, one edition — a language round samples in that language, against
+base templates.** The census, the selection and the sample all come from
+`ProjectStoreASTSource` at the round's own `language`, so a Spanish round's
+sample pages carry Spanish prose (`SamplePageSelection`'s own text, not a
+translated afterthought) with the ordinary per-paragraph stale-source
+fallback a preview that mutates nothing is allowed to make. **What does NOT
+follow the language is the TEMPLATE**: `SampleCompiler` takes no `language:`
+parameter, so `LanguageSuffixedFile` resolution never runs and a proposal
+staging `template.es.tex` is sampled through the base `template.tex` — the
+prose is the edition's, the typesetting is not. This is the sharpest open
+edge in the loop (below), left rather than fixed because closing it means
+widening `SampleCompiler`'s shipped signature, a decision for whichever
+milestone builds the gate view that has to say so.
+
+**`config.json` is refused twice, at two different layers, for two different
+reasons.** `DesignerReport.parse` (parse time) refuses it so a hand-crafted
+report can never propose rewriting what "the trim" or "the format" mean — the
+one file this whole loop is structurally forbidden to touch. Everything else
+that touches config only READS it: `DesignerBriefing` embeds a *summary* of
+the trim/format facts a design needs (never the whole JSON), and
+`SampleCompiler` constructs its own `PublishConfigStore(projectURL: scratch)`
+rather than accepting a caller-supplied store, precisely because a
+caller-supplied store could only ever be pointed at the live directory — the
+one thing a sample compile exists to avoid reading. **`EMISSION.md` is the
+one honest gap in that discipline**: it is briefed to the designer as an
+ordinary template file (genuinely the most useful file in the tree for
+understanding what a LaTeX template must satisfy) even though it is
+GENERATED, from `EmissionContract.swift` — and nothing at parse time stops a
+proposal from rewriting it. Harm is small and self-healing today (the test
+suite regenerates it, so a stale proposal only costs a confusing diff), but
+if a future promotion-side refusal is wanted, that is a parse-time guard on
+`DesignerReport`, not a briefing-time one.
+
+**`ProposalPromotion` reads the live tree and never writes it except on the
+writer's own two verbs — `SampleCompiler`'s mirror image.** `approve` refuses
+while a compile is running, refuses with no live `.maugham/publish` tree, and
+(the guard the brief did not name, added because a retry needs it) refuses
+over a STANDING backup — without that third guard a second `approve` (a retry
+after a mid-write failure, or a double-click on whatever P4's button turns
+out to be) would rebuild the backup from the tree its own first attempt just
+promoted, capturing the proposal's own bytes as "the originals" and
+destroying the only way back to what the writer actually had. Order inside
+`approve`: resolve every staged path to completion first (an escape check
+behind `DesignerReport`'s own parse-time guard, defence in depth — a
+`proposal.json` is a file on disk and a hand-edited one is the one path by
+which a staged file could still name `../../../../publish/…`); back up every
+live file a staged path replaces, whole, before any live write; write; mark
+`approved` LAST, so a proposal is never `approved` over a promotion that did
+not finish. `revert` reads the BACKUP MANIFEST, not the proposal's status —
+which is what makes it double as the recovery path for a promotion that died
+halfway, not only the writer's "take this back": it restores every replaced
+file byte-for-byte, deletes every file the proposal introduced (pruning only
+the directories the round itself created, never one holding anything else),
+marks the proposal `rejected` with a note, then discards the spent backup.
+**This is a stored reversal the writer asks for by name, never an
+`NSUndoManager` registration** — the ruling stated on `ProposalPromotion`'s
+own doc comment, because a ⌘Z aimed at a sentence must never, at any depth of
+an undo stack it happens to share, un-ship a book's templates. `approve` does
+not gate on the proposal's own status beyond those three guards — a
+`superseded` proposal can still be promoted, which reads as legitimate ("the
+writer preferred round 2 to round 3") but is a product call a later milestone
+may want to narrow.
+
+**The loop still ships headless, on the same discipline as the translator's.**
+`DesignerOrchestrator.runDesign`/`.requestChanges` and
+`ProposalPromotion.approve`/`.revert` have no caller in production as of P3 —
+proven by `DesignerEnvironmentTests` and by the teardown census growing a
+THIRD paired count
+(`test_everyWindowEndingPathShutsEverySessionDown`, renamed from P2's
+two-count `test_everyWindowEndingPathShutsTheTranslatorDownToo` to hold all
+three orchestrators' shutdown pairs rather than asserting a fixed number),
+not by a keystroke. `ProjectWindow.designRunRecord(_:)` — `static`, pure — is
+the one production-adjacent surface: it turns a finished `RunSummary` into
+the log sentence a P4 desk will eventually show, built and tested ahead of
+having anywhere to render it. **Every window-ending path owes `designer
+.shutdown()`/`.detach()` beside the compiler's and the translator's** — three
+session owners now, `CompilerRunModifier`'s teardown arms and `ProjectWindow`
+'s `.onDisappear` each carrying all three, weak captures throughout so a
+closure cannot keep a closed window's stores alive.
+
+**Where a proposal lives, for the reader who only wants the filesystem
+answer.** `.maugham/design/proposals/<proposalId>/` holds `spec.md`, `files/
+<relative path>` per proposed file, `proposal.json` (id, designer name,
+round, created stamp, status, the recorded sample outcome), and — once a
+sample has compiled — `scratch/`, the assembled copy-plus-overlay the compile
+ran against, kept under the proposal's own folder rather than a temp dir so
+the pages outlive the session that made them and a promotion's own backup
+lands at `backup/` beside it. Every byte under `.maugham/design/` is derived
+and safely deletable — `DesignProposalStore`'s own contract test proves
+deleting the whole directory costs nothing else on disk — and a `stage` call
+supersedes every still-`pending` proposal project-wide rather than by
+language or by document, because the spec gives Design exactly one desk row
+and one pending-proposal badge per project, never one per language the way
+the translator's rows are. See `Maugham/Stores/AREA.md`'s own
+`DesignProposalStore` entry for the store's shape.
+
 ## Tripwires this area sits on
 
 - **17 / 24 — the sidecar.** `.maugham/diagnostics/<docId>.<slug>.json` is
