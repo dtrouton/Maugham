@@ -163,6 +163,32 @@ final class DesignerReportTests: XCTestCase {
         XCTAssertNil(DesignerReport.parse(raw))
     }
 
+    func test_duplicatePathsDifferingOnlyInCaseRefuseTheWholeReport() {
+        // On APFS's default case-insensitive volume "Template.tex" and
+        // "template.tex" collide at write time regardless of what the
+        // model spelled — same discipline as the config.json refusal,
+        // which already case-folds.
+        let raw = """
+            {"spec":"Two passes at the same file, different casing.",\
+            "files":[{"path":"Template.tex","content":"a"},\
+            {"path":"template.tex","content":"b"}]}
+            """
+        XCTAssertNil(DesignerReport.parse(raw))
+    }
+
+    func test_leadingTildeRefusesTheWholeReport() {
+        // Same discipline as PublicationSnapshotStore.extract: a leading
+        // "~" is a shell/home-directory expansion this path is never
+        // entitled to.
+        let raw = #"{"spec":"A template change.","files":[{"path":"~/template.tex","content":"x"}]}"#
+        XCTAssertNil(DesignerReport.parse(raw))
+    }
+
+    func test_embeddedNullByteRefusesTheWholeReport() {
+        let raw = "{\"spec\":\"A template change.\",\"files\":[{\"path\":\"template\u{0000}.tex\",\"content\":\"x\"}]}"
+        XCTAssertNil(DesignerReport.parse(raw))
+    }
+
     func test_agoodFileBesideABadPathRefusesTheWholeReportTooAllOrNothing() {
         let raw = """
             {"spec":"One good file, one bad one.",\

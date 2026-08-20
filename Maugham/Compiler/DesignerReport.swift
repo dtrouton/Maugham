@@ -67,13 +67,15 @@ struct DesignerReport: Equatable {
         "partials/dropcaps.tex" and so on. "content" is that file's full \
         replacement content and MAY be empty: a stub partial finished on \
         a later round is a legitimate design choice. A path must be \
-        relative (no leading "/"), must not contain a ".." segment \
-        anywhere in it, must not be named "config.json" in any case or \
-        any directory — that file is compile configuration, so propose \
-        template/style/partial files only — and must not repeat a path \
-        already used earlier in this same "files" list. Any file \
-        breaking one of those rules makes the whole report unusable, so \
-        when unsure about a path, leave that file out rather than guess. \
+        relative (no leading "/" or "~"), must not contain a ".." \
+        segment anywhere in it, must not be named "config.json" in any \
+        case or any directory — that file is compile configuration, so \
+        propose template/style/partial files only — and must not repeat \
+        a path already used earlier in this same "files" list, even \
+        under different capitalization ("Template.tex" and \
+        "template.tex" are the same file). Any file breaking one of \
+        those rules makes the whole report unusable, so when unsure \
+        about a path, leave that file out rather than guess. \
         An empty "files" beside a non-empty "spec" is a complete, valid \
         answer for a round that only has words to offer.
         """
@@ -96,6 +98,13 @@ struct DesignerReport: Equatable {
     /// empty array has still answered "nothing here". A key that is
     /// present but the wrong shape, any one file that fails `parseFile`,
     /// or a path repeated from an earlier entry fails the whole list.
+    ///
+    /// Duplicate detection case-folds: `config.json`'s own refusal already
+    /// case-folds (`isSafePath`), and on APFS's default case-insensitive
+    /// volume "Template.tex" and "template.tex" collide at write time
+    /// regardless of what the model spelled — so two proposals that would
+    /// land on the same file are a duplicate even when their casing
+    /// differs.
     private static func parseFiles(_ object: [String: Any]) -> [ProposedFile]? {
         guard let value = object[WireField.files] else { return [] }
         guard let raw = value as? [Any] else { return nil }
@@ -105,7 +114,7 @@ struct DesignerReport: Equatable {
         for element in raw {
             guard let item = element as? [String: Any],
                   let file = parseFile(item),
-                  seenPaths.insert(file.path).inserted
+                  seenPaths.insert(file.path.lowercased()).inserted
             else { return nil }
             results.append(file)
         }
@@ -123,14 +132,20 @@ struct DesignerReport: Equatable {
         return ProposedFile(path: path, content: content)
     }
 
-    /// Every rule the contract states: relative, no `..` segment anywhere
-    /// (the brief's own example — `a/../b` — is exactly a `..` segment
-    /// that isn't the whole path, which is why this splits and checks
-    /// segments rather than checking a prefix or a substring), never named
+    /// Every rule the contract states: relative (no leading `/` or `~` —
+    /// the same two the sibling `PublicationSnapshotStore.extract` refuses,
+    /// since a `~` is a shell/home-directory expansion this path is never
+    /// entitled to), no embedded null byte (a string terminator in C-based
+    /// filesystem APIs — truncates the path at the write site into
+    /// something this check never saw), no `..` segment anywhere (the
+    /// brief's own example — `a/../b` — is exactly a `..` segment that
+    /// isn't the whole path, which is why this splits and checks segments
+    /// rather than checking a prefix or a substring), never named
     /// `config.json` in any case in any directory. Duplicate detection
     /// lives in `parseFiles`, where the running set is.
     private static func isSafePath(_ path: String) -> Bool {
-        guard !path.hasPrefix("/") else { return false }
+        guard !path.hasPrefix("/"), !path.hasPrefix("~"), !path.contains("\0")
+        else { return false }
         let segments = path.split(separator: "/", omittingEmptySubsequences: false)
         guard !segments.contains("..") else { return false }
         guard let last = segments.last,
