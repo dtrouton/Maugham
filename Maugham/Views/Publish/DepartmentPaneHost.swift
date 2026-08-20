@@ -46,6 +46,15 @@ struct DepartmentPaneHost: View {
     /// caller that surfaces no run — the probe mounts — offers a desk that reads
     /// and does not act.
     var designer: DesignerOrchestrator? = nil
+    /// **Where a Show goes** (Task 5) — the window's own centre column, which is
+    /// the other side of this split view.
+    ///
+    /// A closure up rather than a write here, `ReviewBoardPane.onOpenNotes`'
+    /// shape: which surface takes the centre is `ProjectWindow`'s question, and
+    /// a pane in the right column that wrote it would be the second place the
+    /// centre is decided. The whole `Proposal` travels because this host has
+    /// just read it — see `proposals` below.
+    var onShowProposal: (DesignProposalStore.Proposal) -> Void = { _ in }
 
     @State private var languages: [EditionStatus.LanguageRow] = []
     /// Every design round this project has staged, newest first — the Design
@@ -145,7 +154,14 @@ struct DepartmentPaneHost: View {
             cancelRun: { translator?.cancel() },
             runDesign: { runDesign(direction: $0) },
             requestDesignChanges: { requestDesignChanges($0) },
-            cancelDesignRun: { designer?.cancel() })
+            cancelDesignRun: { designer?.cancel() },
+            // **The newest round, from the listing the row was resolved from**
+            // — so the proposal the gate opens is the one `latestLine`
+            // describes rather than a second lookup that could differ. The
+            // `nil` arm cannot be reached from the pane (`offersShow` is this
+            // same emptiness), and doing nothing is the right answer if it ever
+            // is: a Show for a round that no longer exists has nowhere to go.
+            showProposal: { if let newest = proposals.first { onShowProposal(newest) } })
         .task(id: reloadKey) { await derive() }
     }
 

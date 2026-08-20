@@ -1190,6 +1190,67 @@ final class PublishPreviewCentreTests: XCTestCase {
                        + "since nothing here watches the directory")
     }
 
+    // MARK: - The gate's selection is the other transient pick (P4 Task 5)
+
+    /// **A persona change lets the design gate go**, where it deliberately keeps
+    /// the writer's publication pick.
+    ///
+    /// The two are both window-transient state about Publish's centre and this
+    /// modifier owns both, so the difference has to be asserted rather than
+    /// argued: a publication pick is a place in a READING, which Denver's ruling
+    /// keeps across a walk out of Publish and back; a selected proposal is a
+    /// place in a DECISION the writer entered by pressing Show, and leaving
+    /// Publish is them leaving it.
+    func test_aPersonaChangeLetsTheGateGoAndKeepsTheBooksPick() async throws {
+        let project = try makeProject()
+        let stores = PublishingStores.sharedFor(
+            projectID: ProjectIdentifier.id(for: project), projectURL: project)
+        let older = try await append(to: stores.publicationStore, in: project,
+                                     version: "1.0", minutesAgo: 30)
+        _ = try await append(to: stores.publicationStore, in: project,
+                             version: "1.1", minutesAgo: 20)
+
+        let box = PublishCentreProbeBox(persona: .publish)
+        _ = mountRefreshProbe(projectURL: project, box: box)
+        await pumpUntil(deadline: 5) { box.preview.publications.count == 2 }
+        box.selectedPublicationID = older.publicationID
+        box.selectedProposal = Self.aProposal
+
+        box.persona = .author
+        await pumpUntil(deadline: 5) { box.selectedProposal == nil }
+
+        XCTAssertNil(box.selectedProposal,
+                     "walking out of Publish leaves the gate behind")
+        XCTAssertEqual(box.selectedPublicationID, older.publicationID,
+                       "…and does NOT take the book the writer was reading")
+    }
+
+    /// …and arriving BACK in Publish does not resurrect it. The clear is written
+    /// before the modifier's arrival guard for exactly this: the guard's own
+    /// `return` runs on a change away from Publish, and a clear behind it would
+    /// only ever fire on the way in.
+    func test_theGateIsGoneOnTheWayBackIntoPublishToo() async throws {
+        let project = try makeProject()
+        let box = PublishCentreProbeBox(persona: .publish)
+        _ = mountRefreshProbe(projectURL: project, box: box)
+        box.selectedProposal = Self.aProposal
+
+        box.persona = .author
+        await pumpUntil(deadline: 5) { box.selectedProposal == nil }
+        box.persona = .publish
+        pump(0.5)
+
+        XCTAssertNil(box.selectedProposal)
+    }
+
+    /// A staged proposal, for the tests that are about the SELECTION rather than
+    /// about what the gate draws (`DesignGateTests` owns the latter).
+    static let aProposal = DesignProposalStore.Proposal(
+        id: "prop-preview", designerName: "Tschichold", round: 1, language: nil,
+        created: Date(timeIntervalSince1970: 1_770_000_000), status: .pending,
+        specMarkdown: "# a design", filePaths: ["template.tex"],
+        sampleResult: nil, revertNote: nil)
+
     // MARK: - The shape, in production
 
     /// **The bridge from the probe's spelling to the window's.** The mounted
@@ -1646,6 +1707,10 @@ final class PublishCentreProbeBox {
     var preview: PublishPreviewResolution = .nothingCompiled
     /// The header picker's window-transient choice — `nil` is "the newest".
     var selectedPublicationID: String?
+    /// The design proposal the desk's Show put in the centre (P4 Task 5) —
+    /// window-transient like the pick above, but cleared by a persona change
+    /// where the pick deliberately is not.
+    var selectedProposal: DesignProposalStore.Proposal?
     /// The window the REFRESH MODIFIER actually got, which is not the same fact
     /// as the window the test made: `WindowAccessor` resolves it a runloop turn
     /// later, and ADR 0021's project scope drops a post whose receiver has no
@@ -1742,6 +1807,12 @@ struct PublishCentreProbeView: View {
     @ViewBuilder
     private var publishLayer: some View {
         switch publishCentre {
+        // The gate arm (publish-department P4 Task 5) — production's fourth
+        // layer, so this probe stays what it claims to be: `manuscriptEditor`'s
+        // own shape with the same decisions taken from the same statics.
+        case .designProposal(let proposal):
+            DesignGateView(proposal: proposal, projectURL: store.url,
+                           onClose: { box.selectedProposal = nil })
         case .books(let publications): book(publications)
         case .notice(let notice): PublishCentreNoticeBanner(notice: notice)
         case .none: EmptyView()
@@ -1763,7 +1834,8 @@ struct PublishCentreProbeView: View {
     private var publishCentre: PublishCentre? {
         ProjectWindow.publishCentre(persona: box.persona, subject: box.subject,
                                     structure: store.manifest.structure,
-                                    preview: box.preview)
+                                    preview: box.preview,
+                                    proposal: box.selectedProposal)
     }
 
     private var editor: some View {
@@ -1799,7 +1871,10 @@ private struct PublishRefreshProbeView: View {
                                         set: { box.preview = $0 }),
                 selectedPublicationID: Binding(
                     get: { box.selectedPublicationID },
-                    set: { box.selectedPublicationID = $0 })))
+                    set: { box.selectedPublicationID = $0 }),
+                selectedProposal: Binding(
+                    get: { box.selectedProposal },
+                    set: { box.selectedProposal = $0 })))
             .onChange(of: window) { _, next in box.modifierWindow = next }
     }
 }

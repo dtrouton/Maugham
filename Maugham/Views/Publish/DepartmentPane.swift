@@ -107,6 +107,18 @@ struct DepartmentPane: View {
     var requestDesignChanges: (String) -> Bool = { _ in false }
     /// End the design round in flight — `DesignerOrchestrator.cancel()`.
     var cancelDesignRun: () -> Void = { }
+    /// **Put the newest round in the centre column** (Task 5) — the desk's door
+    /// to the gate, and the row's only control that is navigation rather than a
+    /// verb.
+    ///
+    /// **It takes no argument on purpose.** Which proposal Show is about is a
+    /// question about `.maugham/design/proposals/`, and this pane may not reach
+    /// the disk to answer it (tripwire 4, and `DepartmentPaneTests
+    /// .test_theSourceReadsNoStoreAtAll`). The host already holds the listing it
+    /// resolved the Design row from and supplies the newest from it — so the
+    /// proposal the gate opens and the one `latestLine` describes are the same
+    /// object, not two lookups that could differ.
+    var showProposal: () -> Void = { }
 
     /// **The writer's words for the next round**, and the pane's only mutable
     /// state.
@@ -215,6 +227,20 @@ struct DepartmentPane: View {
                         .background(Capsule().fill(Color.accentColor.opacity(0.18)))
                 }
                 Spacer(minLength: 6)
+                // **A door, drawn where the language rows draw theirs** — the
+                // name line, right-aligned — and deliberately not down among
+                // the two session verbs: those refuse while a round is warm and
+                // this one never does, because reading a staged proposal
+                // contends with nothing. Absent rather than disabled when there
+                // is no round, on the `offersRequestChanges` argument: a control
+                // that can only refuse teaches the writer nothing, and the verb
+                // that WOULD get them a proposal is already on this row.
+                if design.offersShow {
+                    Button(DepartmentDesignRow.showTitle) { showProposal() }
+                        .controlSize(.small)
+                        .accessibilityLabel(DepartmentDesignRow.showAccessibilityLabel)
+                        .help(DepartmentDesignRow.showHelp)
+                }
             }
             Text(design.latestLine)
                 .font(.caption)

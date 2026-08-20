@@ -143,6 +143,18 @@ struct DepartmentDesignRow: Equatable {
     /// button already on the row.
     var offersRequestChanges: Bool = false
 
+    /// **Whether there is a round to go and look at** (P4 Task 5) — the door to
+    /// the gate in the centre column, and the close of Task 4's third concern
+    /// (the row drew a pending badge and nothing on it was clickable through).
+    ///
+    /// It is about the NEWEST proposal, whatever its status, so the row's second
+    /// line and its control are about the same thing. And it is deliberately NOT
+    /// folded into `refusal`: reading a staged proposal contends with nothing —
+    /// the files are on disk and the warm session is not involved — so Show
+    /// stays available while a round is running, which is exactly when a writer
+    /// wants to re-read what the last one proposed.
+    var offersShow: Bool = false
+
     var canRun: Bool { refusal == nil }
 
     var isRunning: Bool {
@@ -198,7 +210,8 @@ struct DepartmentDesignRow: Equatable {
             latestLine: proposals.first.map { latestLine($0, now: now) } ?? noRoundYet,
             phase: phase,
             refusal: refusal(session: session),
-            offersRequestChanges: hasOpenProposalRound)
+            offersRequestChanges: hasOpenProposalRound,
+            offersShow: proposals.first != nil)
     }
 
     /// **Why the design verbs refuse**, or `nil`.
@@ -279,6 +292,20 @@ struct DepartmentDesignRow: Equatable {
 
     static let runTitle = "Run"
     static let requestChangesTitle = "Request Changes"
+
+    /// The door to the gate (P4 Task 5). **"Show" and not "Show Proposal"** —
+    /// the row is the design, so the object is in the click, which is the same
+    /// argument `DepartmentDesk.editionBriefTitle` makes one section down.
+    static let showTitle = "Show"
+
+    /// Distinct in the accessibility tree for `runAccessibilityLabel`'s reason:
+    /// a bare "Show" is told apart from anything else on the pane only by the
+    /// row it sits on, which a linear tree does not carry.
+    static let showAccessibilityLabel = "Show the design proposal"
+
+    static let showHelp =
+        "Put the newest round in the centre column \u{2014} its written design, "
+        + "the templates it stages, and the sample pages it was compiled on."
 
     /// **The Run button's own name in the accessibility tree**, distinct from
     /// the language rows' Run.

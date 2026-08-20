@@ -56,6 +56,12 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// record of finished rounds is the proposal it stages, which the desk
     /// re-derives, so there is no log beside it.
     var designer: DesignerOrchestrator? = nil
+    /// **Where the desk's Show sends a proposal** (publish-department P4 Task 5)
+    /// — the window's centre column, which this view is not in. Threaded and
+    /// defaulted exactly as `onSetActivePass`/`onSetPassState` are, and for the
+    /// same reason: what the centre shows is `ProjectWindow`'s question, and a
+    /// right-column pane writing it would be a second place it is decided.
+    var onShowDesignProposal: (DesignProposalStore.Proposal) -> Void = { _ in }
     /// The gear menu's persisted choice, and the write-back when it changes —
     /// a value + closure rather than a `Binding` so every existing call site
     /// keeps compiling with the defaults below.
@@ -120,6 +126,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         translator: TranslatorOrchestrator? = nil,
         translationRuns: TranslationRunLog? = nil,
         designer: DesignerOrchestrator? = nil,
+        onShowDesignProposal: @escaping (DesignProposalStore.Proposal) -> Void = { _ in },
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
@@ -148,6 +155,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.translator = translator
         self.translationRuns = translationRuns
         self.designer = designer
+        self.onShowDesignProposal = onShowDesignProposal
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
@@ -469,7 +477,8 @@ struct DetailPaneToggle<Inspector: View>: View {
                                subject: selectedSubject,
                                translator: translator,
                                runLog: translationRuns,
-                               designer: designer)
+                               designer: designer,
+                               onShowProposal: onShowDesignProposal)
         } else {
             ContentUnavailableView(
                 "Open a project",

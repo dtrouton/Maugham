@@ -48,7 +48,7 @@ final class SampleCompilerTests: XCTestCase {
             specMarkdown: "# a design",
             files: files.map { .init(path: $0.path, content: $0.content) })
         return try DesignProposalStore(projectURL: projectURL)
-            .stage(report: report, round: 1, designerName: "Tschichold")
+            .stage(report: report, round: 1, designerName: "Tschichold", language: nil)
     }
 
     private func livePublishDir(_ projectURL: URL) -> URL {
@@ -233,7 +233,8 @@ final class SampleCompilerTests: XCTestCase {
         var proposal = try stage([(path: "template.tex", content: "% ok\n")], in: projectURL)
         proposal = DesignProposalStore.Proposal(
             id: proposal.id, designerName: proposal.designerName, round: proposal.round,
-            created: proposal.created, status: proposal.status,
+            language: proposal.language, created: proposal.created,
+            status: proposal.status,
             specMarkdown: proposal.specMarkdown,
             filePaths: ["../../../../publish/template.tex"], sampleResult: nil,
             revertNote: nil)
@@ -388,6 +389,8 @@ final class SampleCompilerTests: XCTestCase {
         // …and the pages are recorded on the proposal.
         let recorded = try DesignProposalStore(projectURL: projectURL)
             .sampleResult(id: proposal.id)
-        XCTAssertEqual(recorded, .pages(path: path))
+        XCTAssertEqual(recorded, .pages(path: path, demonstrates: selection(["p1"]).demonstrates),
+                       "the recorded result carries the selection's own lines, "
+                       + "which is what the gate shows beside the pages")
     }
 }

@@ -102,15 +102,86 @@ struct DesignProposalStore {
     /// result rather than being thrown away (RULING-7's shape): a tectonic
     /// failure is something the gate view shows beside the proposal, not a
     /// reason the proposal itself is unreadable.
+    ///
+    /// **`demonstrates` rides the pages for the same reason the cause rides
+    /// the failure** (P4 Task 5). `SamplePageSelection` computes those
+    /// writer-facing lines — *"chapter opener — ‘The Fog’"* — and
+    /// `SampleCompiler.Outcome` carries them, but until this task
+    /// `sampleResult(_:)` dropped them on the way to disk, so the one surface
+    /// that exists to say *why these pages* had nothing to say it with. They
+    /// cannot be recovered later: the selection is a pure function of the AST
+    /// **as it stood at the round**, and the writer has been writing since.
+    ///
+    /// **Hand-written `Codable`, tolerant of the older shape.** The
+    /// synthesized decoder would reject a `{"pages":{"path":…}}` written
+    /// before this task, and by `Status`' own argument that is not a missing
+    /// line on a gate — `readProposal` throws, `list()` skips the folder, and
+    /// the writer's standing design round vanishes off the desk. The encoded
+    /// shape is the synthesized one, so only the *reading* is widened.
     enum SampleResult: Codable, Equatable, Sendable {
-        case pages(path: String)
+        case pages(path: String, demonstrates: [String])
         case failed(error: String)
+
+        private enum CodingKeys: String, CodingKey { case pages, failed }
+        private enum PagesKeys: String, CodingKey { case path, demonstrates }
+        private enum FailedKeys: String, CodingKey { case error }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            if container.contains(.pages) {
+                let pages = try container.nestedContainer(
+                    keyedBy: PagesKeys.self, forKey: .pages)
+                self = .pages(
+                    path: try pages.decode(String.self, forKey: .path),
+                    demonstrates: try pages.decodeIfPresent(
+                        [String].self, forKey: .demonstrates) ?? [])
+                return
+            }
+            if container.contains(.failed) {
+                let failed = try container.nestedContainer(
+                    keyedBy: FailedKeys.self, forKey: .failed)
+                self = .failed(error: try failed.decode(String.self, forKey: .error))
+                return
+            }
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath,
+                debugDescription: "a sample result with neither arm present"))
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case .pages(let path, let demonstrates):
+                var pages = container.nestedContainer(
+                    keyedBy: PagesKeys.self, forKey: .pages)
+                try pages.encode(path, forKey: .path)
+                try pages.encode(demonstrates, forKey: .demonstrates)
+            case .failed(let error):
+                var failed = container.nestedContainer(
+                    keyedBy: FailedKeys.self, forKey: .failed)
+                try failed.encode(error, forKey: .error)
+            }
+        }
     }
 
     struct Proposal: Codable, Equatable {
         let id: String
         let designerName: String
         let round: Int
+        /// The edition this round was briefed for, or `nil` for a round about
+        /// the book itself — `DesignerOrchestrator.StageContext.language`,
+        /// which reached `stage` from the first round and was the one fact
+        /// about a round this store did not write down (P4 Task 5).
+        ///
+        /// **The gate cannot infer it.** Maugham keeps ONE template set per
+        /// book, so an edition round proposes the book's own files and its
+        /// staged list looks identical either way; what differs is that its
+        /// sample pages set the *edition's* text in the *base* templates,
+        /// which is the caveat the gate is required to make (P4 Global
+        /// Constraint 3). Optional, so a proposal staged before this task
+        /// decodes with no language — the honest answer for a round nobody
+        /// recorded one for.
+        let language: String?
         let created: Date
         var status: Status
         let specMarkdown: String
@@ -166,7 +237,15 @@ struct DesignProposalStore {
     /// written, every proposal this store can see that is still `.pending`
     /// is rewritten `.superseded`. Never deleted: a superseded proposal is
     /// still a design round that happened, and stays in `list()`.
-    func stage(report: DesignerReport, round: Int, designerName: String) throws -> Proposal {
+    ///
+    /// **`language` is not defaulted** (P4 Task 5). It is the round's own
+    /// identity, carried in on the same `StageContext` as `round` and
+    /// `designerName`, and a default here is the argument that eventually gets
+    /// left off by accident — after which an edition round is recorded as a
+    /// round about the book and the gate approves it as one. Every caller says
+    /// which it is.
+    func stage(report: DesignerReport, round: Int, designerName: String,
+               language: String?) throws -> Proposal {
         for var existing in try list() where existing.status == .pending {
             existing.status = .superseded
             try write(existing)
@@ -189,8 +268,8 @@ struct DesignProposalStore {
         }
 
         let proposal = Proposal(
-            id: id, designerName: designerName, round: round, created: Date(),
-            status: .pending, specMarkdown: report.specMarkdown,
+            id: id, designerName: designerName, round: round, language: language,
+            created: Date(), status: .pending, specMarkdown: report.specMarkdown,
             filePaths: report.files.map(\.path), sampleResult: nil, revertNote: nil)
         try write(proposal)
         return proposal

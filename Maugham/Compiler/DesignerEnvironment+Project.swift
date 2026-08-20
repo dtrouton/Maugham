@@ -298,7 +298,14 @@ extension DesignerOrchestrator.Environment {
         let proposal: DesignProposalStore.Proposal
         do {
             proposal = try DesignProposalStore(projectURL: projectURL).stage(
-                report: report, round: context.round, designerName: context.designerName)
+                report: report, round: context.round,
+                designerName: context.designerName,
+                // The round's own edition, written down beside its round number
+                // (P4 Task 5). It rode this context in from the first round and
+                // was dropped here; the gate needs it for Constraint 3's
+                // base-templates caveat, and nothing downstream can infer it —
+                // an edition round proposes the book's own template set.
+                language: context.language)
         } catch {
             // The one thing the writer must act on: the design is still there
             // to be re-run, and the sentence says what refused it.

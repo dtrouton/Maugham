@@ -1010,7 +1010,8 @@ final class DepartmentRunTests: XCTestCase {
         environment.stage = { report, context in
             do {
                 let proposal = try store.stage(report: report, round: context.round,
-                                               designerName: context.designerName)
+                                               designerName: context.designerName,
+                                               language: context.language)
                 staged.value.append(proposal)
                 return .init(proposalId: proposal.id, filesStaged: proposal.filePaths.count)
             } catch {
@@ -1069,7 +1070,7 @@ final class DepartmentRunTests: XCTestCase {
                           created: Date = Date()) -> DesignProposalStore.Proposal {
         DesignProposalStore.Proposal(
             id: "prop-\(round)", designerName: "Tschichold", round: round,
-            created: created, status: status,
+            language: nil, created: created, status: status,
             specMarkdown: "A quiet page.", filePaths: ["template.tex"],
             sampleResult: nil, revertNote: nil)
     }
