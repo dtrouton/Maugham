@@ -305,6 +305,167 @@ orchestrator holds a protocol, mints its runner through
 "is this the same context that read the intent last time" — for `--resume` that
 is the resumed session id, not the process.
 
+## The translator — the area's second orchestrator
+
+Publish department P2 (2026-08-20) gave this area a second run, for a
+different job: not reading the manuscript and reporting on it, but producing
+words the writer will publish. `TranslatorOrchestrator.swift` /
+`TranslatorBriefing.swift` / `TranslatorReport.swift` /
+`TranslatorEnvironment+Project.swift` are its files, alongside the compiler's
+rather than in a directory of their own — the design is explicitly "every
+piece follows a verified precedent" from this area's own machinery, and
+splitting it out would have made that harder to see, not easier.
+
+**The rails are `CompilerOrchestrator`'s, reused rather than re-derived.**
+Same closure-`Environment` shape (a run drives end to end with no project on
+disk, `TranslatorEnvironmentTests` proves it the way `CompilerOrchestrator`'s
+own tests do), the same warm-session-with-lazy-spawn shape over
+`CompilerRunner`/`ClaudeCLISession`, the same generation discipline across
+every suspension (a teardown between the click and the send *abandons* the
+run rather than letting it spawn a session the writer has just closed the
+window on — `TranslatorOrchestrator.runGeneration`, `ClaudeCLISession
+.generation`'s own reasoning in a second currency), and the same vocabulary
+for what a run can be (`RunState`, deliberately shaped like `CompilerOrchestrator
+.RunState` with `nothingToTranslate` playing `nothingNew`'s part). What
+differs is what a run is FOR, and two things follow from that:
+
+- **Warm per `(docId, language)`, not per window.** A compiler session reads
+  many documents and re-briefs each under a hash that says what it has
+  already been told; a translator session holds one edition's voice in its
+  context with no such discipline, so crossing documents or languages inside
+  one process would carry another edition's register into a round that never
+  asked for it. `TranslatorOrchestrator.ensureRunner` retires the session on
+  a pair change exactly as it does on a model change.
+- **A failure writes nothing at all, and atomicity is structural rather than
+  careful.** `Environment.ingest` is reachable from exactly one place in
+  `TranslatorOrchestrator.finish` — the arm holding a `TranslatorReport` a
+  successful parse produced — so a session that died, timed out, was
+  cancelled or answered gibberish has no path to the writer's words
+  (`TranslatorOrchestratorTests.test_aFailedRunIngestsNothing`). The
+  compiler's own version of this rule is the "compiler reads and never
+  writes" sentence at the top of this file; the translator's is the same
+  shape wearing the fact that it DOES write, just never from inside the
+  spawned session.
+
+**The report is one JSON object, not a sectioned stream.** `DiagnosticIngest`
+reads five line-delimited sections because five different kinds of finding
+can arrive independently; a translator turn answers one question — "here is
+this round's work" — so `TranslatorReport.parse` reads a single fenced
+object naming `entries` (a `¶id` plus exactly one of `text` or
+`verbatim: true`) and `queries` (a question, optionally paragraph-scoped).
+**All-or-nothing starts at parse, not at ingest**: an entry supplying both
+forms or neither is a model that has lost the contract, and there is no way
+to know which of its OTHER entries to trust either, so the whole report is
+refused rather than salvaged around the bad entry — the compiler's
+per-section tolerance does not carry over. **`delete` is deliberately absent
+from this contract**: a translation disappearing is the writer's own act (or
+an orphan-purge outside any run), never something a run decides on its own.
+
+**The briefing is a pure function, `CompilerPrompt`'s own discipline.**
+`TranslatorBriefing.compose(inputs:)` takes no I/O, no clock, no store lookup
+— `TranslatorOrchestrator` is the one production caller and owns gathering
+`Inputs` from the store, the deriver and the annotation layer; the briefing
+type does not know any of those exist. Section order: role frame ("You are
+Cortázar, translating this manuscript into es" plus the role's own `brief`
+when the writer or a preset has set one — no briefless fallback sentence,
+because an unbriefed translator genuinely has no doctrine of their own),
+declared intent, the edition brief (embedded whole, `## Rulings` included,
+with an explicit instruction to honor a standing ruling exactly as it reads
+rather than treat it as a suggestion), this round's work-list (`TranslationDeriver`'s
+stale-and-missing set — **no rounds ring**, freshness IS the memory, so an
+empty work-list is `nothingToTranslate` and spends no session at all, the
+compiler's empty-delta mistake avoided in a second currency), neighbour
+context (the paragraph immediately before/after a work item, deduped against
+the work-list itself, for continuity only), queries (open ones uncapped and
+never re-asked, answered ones capped at `answeredQueryLimit` (12) and sorted
+most-recently-settled-first — `CompilerPrompt.settledDispositionLimit`'s
+asymmetry, borrowed shape rather than shared constant), and last,
+`TranslatorReport.schemaDescription` — the output-shape instruction, always
+last, `CompilerPrompt`'s own ordering rule.
+
+**Ingest writes through the writer's own doors, and through exactly one of
+each.** `TranslatorEnvironment+Project.swift` is `CompilerEnvironment
++Project.swift`'s peer in every respect that matters — a `production(...)`
+factory building `TranslatorOrchestrator.Environment` from one window's
+stores, **every capture weak**, because SwiftUI never dismantles a closed
+window's view graph and an orchestrator holding a `ProjectStore` strongly
+would keep the whole project in memory with nothing on screen. What the
+closures do is different from the compiler's, because this loop writes:
+
+- **The words** go through `TranslationWritePipeline.perform` (`Maugham/MCP
+  /Tools/TranslationWritePipeline.swift`) — the SAME door `write_translation`
+  uses (see `Maugham/MCP/AREA.md`'s `write_translation` entry), so the tool
+  and the ingest path cannot drift about which batches are legal or which
+  source hash is trustworthy. It re-validates every `¶id` against the state
+  resolved at ingest time, never against the sequence the round was briefed
+  on, so a paragraph the writer deleted mid-round rejects the whole batch
+  loudly, naming the ids — the words are still there to be re-run.
+- **The questions** go through `Document.addAnnotation`, signed with the
+  translator's own name (`AnnotationAuthor(sourceKind: .claude, displayName:
+  translatorName)`) and language-tagged via `toolArgs`, so a query is a note
+  the writer disposes of in the queue exactly like any other. A query whose
+  paragraph anchor vanished mid-run, or one that asks about the whole
+  document, mints doc-scoped as a `.craftNote` rather than being dropped —
+  `Document.addAnnotation` refuses a `.query` with no anchor, the same call
+  `CompilerNote`'s own anchorless arm makes. **A rejected word batch mints no
+  queries either**: the order in `TranslatorEnvironment+Project.ingest` is
+  words first, and a pipeline refusal ends the ingest there, because a
+  translator query has no fingerprint to dedupe on the way the compiler's
+  notes do — minting the questions of a round the writer will simply run
+  again would double-ask every one of them.
+- **The translator** is `ProjectStore.translatorRole(for:)`, find-or-create —
+  this loop is that verb's first production caller, and a run is the write
+  act that makes the mint legitimate (`ProjectStore+ProductionRoles`'s own
+  rule: read paths never mint a role). **The identity is resolved before the
+  briefing, and that order is load-bearing**: the briefing's role frame reads
+  the stored row back rather than resolving a name of its own, so the first
+  run for a language does not brief a translator who does not exist yet
+  while the queries it produces are signed by one who does.
+
+**The confined session can read what it is briefed on, not only trust it.**
+`CompilerAllowlist.tools` gained `mcp__maugham__read_edition_brief` (publish
+department P2 Task 6): the briefing already embeds the edition brief's text
+verbatim, but the translator is also a compiler-rails spawned session with
+its own MCP bridge, and it should be able to read its own doctrine through
+that bridge the same way it reads craft intent — through the enumerated
+read-only allowlist, not only what one briefing happened to carry.
+`CompilerAllowlistTests.test_theCompilerCanReachItsDeclaredContext`'s pinned
+minimum-required set names it alongside `read_craft_intent` and
+`read_visual_language`; the no-write census and its planted offenders are
+untouched, because a read joining the allowlist is not the shape either
+census exists to catch.
+
+**The shutdown contract gained a second owner, and every teardown arm now
+carries a paired call.** `TranslatorOrchestrator` inherits `ClaudeCLISession`'s
+contract whole — `deinit` is nonisolated and cannot touch main-actor state,
+and deallocating a `Process` neither signals nor reaps its child, so an
+orchestrator merely released leaves a real, billing, API-calling `claude`
+running for as long as it survives its closed stdin. `CompilerRunModifier`'s
+own doc comment now says it plainly: "there are TWO session owners now."
+Every arm that used to call `orchestrator.shutdown()` alone now calls
+`translator.shutdown()` beside it — the `.maughamAppWillTerminate` handler
+and the `mcpEnabled` toggle's `.onChange` — and `ProjectWindow`'s own
+`.onDisappear` calls `translator.detach()` beside `compiler.detach()` before
+dropping the window's stores. `TranslatorEnvironmentTests`' teardown census
+pairs the two COUNTS (`orchestrator.shutdown()` occurrences ==
+`translator.shutdown()` occurrences) rather than asserting a fixed number, so
+a third compiler-shaped teardown arm cannot land without its translator
+sibling — the same shape tripwire 32's census takes for the canvas undo
+bracket. The translator has no run keys of its own (⌘R and ⌘⇧R are still the
+compiler's alone) and no fourth teardown arm: entering a persona never starts
+it, and nothing here reaches for itself.
+
+**The loop ships headless.** `TranslatorOrchestrator.runTranslation` has no
+caller in production as of P2 — proven by the environment wiring's own test
+suite and by the teardown census, not by a keystroke. The spec names the
+trigger as "a 'Run translation' act per language, from the department desk"
+(`docs/superpowers/specs/2026-08-19-publish-department-design.md` §2, §5),
+and that desk — the Publish-persona surface with a Design row and a row per
+language, each carrying its own Run — is not built. Until it is, this loop
+is reachable only by a test harness constructing an `Environment` by hand;
+nothing a writer can click exists yet, which is the honest state to leave
+this cell in rather than implying otherwise.
+
 ## Tripwires this area sits on
 
 - **17 / 24 — the sidecar.** `.maugham/diagnostics/<docId>.<slug>.json` is
