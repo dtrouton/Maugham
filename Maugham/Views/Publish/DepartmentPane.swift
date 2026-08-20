@@ -54,9 +54,38 @@ struct DepartmentPane: View {
     /// **A refusal the writer cannot see is the failure mode this exists for.**
     /// Creating an edition brief can fail (a full disk, a project folder gone),
     /// and the honest answer is neither a silent no-op nor an editor over a
-    /// statement that does not exist. Task 3's per-row run messages are the
-    /// same idea one level down and may well absorb this.
+    /// statement that does not exist.
+    ///
+    /// **This is the desk's ONE transient-message channel** (Task 3). A run the
+    /// desk refused before it reached the orchestrator — a second click while a
+    /// session is warm, a language tag no edition can be written for — lands
+    /// here too, naming its edition, rather than growing a second line per row:
+    /// two message slots on one pane is two places a writer has to learn to
+    /// look for one answer. What does NOT come here is a row's run STATE, which
+    /// is not a message but a standing fact about that edition and belongs on
+    /// the row that is about it. `DepartmentRunTests
+    /// .test_theDeskCarriesOneMessageChannelAndNotTwo` is the census.
     var notice: String? = nil
+    /// **Which document a Run would run** — Global Constraint 1, resolved by the
+    /// host from the window's own subject.
+    ///
+    /// The desk is project-scope and a round is a document's, so this is the one
+    /// input on the pane that is not about the book: it is about what the tree is
+    /// naming right now. `.unavailable` carries the sentence, and the pane draws
+    /// it above the rows rather than hiding it in a tooltip — a disabled control
+    /// whose explanation lives in a hover is an explanation most writers never
+    /// read.
+    var runTarget: DepartmentRunTarget = .unavailable(DepartmentRunTarget.openAChapter)
+    /// One row's run half, by language. Absent means idle and pressable — the
+    /// default a row gets before anything has been run, so a desk mounted with
+    /// no runs at all still offers every verb.
+    var runs: [String: DepartmentRunState] = [:]
+    /// Ask for a round of this language. A closure, because starting one reaches
+    /// the window's `TranslatorOrchestrator` and refuses in the host.
+    var runTranslation: (String) -> Void = { _ in }
+    /// End the round in flight — `TranslatorOrchestrator.cancel()`. Only reachable
+    /// from the row that is running, which is the only row with anything to end.
+    var cancelRun: () -> Void = { }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -113,6 +142,19 @@ struct DepartmentPane: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     } else {
+                        // **Said once, above the rows it applies to.** Every Run
+                        // on the desk refuses for the same reason when the window
+                        // is not on a chapter, so a copy of it per row would be
+                        // the same sentence four times; and Global Constraint 1
+                        // asks for the reason to be VISIBLE, which a tooltip on a
+                        // disabled button is not.
+                        if let reason = runTarget.reason {
+                            Text(reason)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                         ForEach(languages) { row in
                             languageRow(row)
                         }
@@ -150,7 +192,8 @@ struct DepartmentPane: View {
     /// the desk and the one they read in the translation indicator must be the
     /// same string, and that is where it is spelled.
     private func languageRow(_ row: EditionStatus.LanguageRow) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        let run = runs[row.language] ?? DepartmentRunState()
+        return VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(TranslationReviewIndicator.displayLabel(forLanguageTag: row.language))
                     .font(.callout.weight(.medium))
@@ -162,6 +205,7 @@ struct DepartmentPane: View {
                 }
                 .controlSize(.small)
                 .help(DepartmentDesk.editionBriefHelp(language: row.language))
+                runControls(row, run: run)
             }
             Text(DepartmentDesk.translatorLine(row.translator))
                 .font(.caption)
@@ -178,9 +222,48 @@ struct DepartmentPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            // What the round is doing, or what the last one did. One slot, and
+            // `statusLine` decides which — see `DepartmentRunState`.
+            if let status = run.statusLine {
+                Text(status)
+                    .font(.caption)
+                    // Red only for a failure, on `ReviewRoundCockpit`'s rule: a
+                    // colour that never changes is a colour that says nothing.
+                    .foregroundStyle(run.isFailure ? Color.red : Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// **Run, and — only while this edition is the one in flight — Cancel.**
+    ///
+    /// The Run button is drawn in every state and **disabled** rather than hidden
+    /// (`ReviewRoundCockpit.runRow`'s rule): a control that vanishes teaches
+    /// nothing about why it is unavailable, and the writer who came to the desk to
+    /// translate a chapter needs to learn that a chapter is what a round is for.
+    /// The reason travels as `help` here and is drawn in full above the rows.
+    ///
+    /// **No `keyboardShortcut`** — a translation is started from the desk, and the
+    /// window's ⌘R belongs to the compiler. A binding here would be a second
+    /// command competing for that key in whichever window hosts this pane.
+    @ViewBuilder
+    private func runControls(_ row: EditionStatus.LanguageRow,
+                             run: DepartmentRunState) -> some View {
+        Button(DepartmentRunState.runTitle) { runTranslation(row.language) }
+            .controlSize(.small)
+            .disabled(!run.canRun)
+            .help(run.refusal
+                  ?? DepartmentRunState.runHelp(language: row.language,
+                                                target: runTarget))
+        if run.isRunning {
+            Button(DepartmentRunState.cancelTitle) { cancelRun() }
+                .controlSize(.small)
+                .help("Stop this round. Nothing it has translated is written "
+                      + "\u{2014} a run that does not finish writes nothing at all.")
+        }
     }
 }
 

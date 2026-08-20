@@ -385,20 +385,32 @@ final class DepartmentPaneTests: XCTestCase {
                        "one door per edition. Buttons published: \(labels.sorted())")
     }
 
-    /// **Clicking a door carries the ROW's own tag**, so two editions cannot
-    /// open one brief. Driven through a real click on the button the row
-    /// actually got — the reading `ReviewBoardPaneTests` is calibrated against.
+    /// **Pressing a door carries the ROW's own tag**, so two editions cannot
+    /// open one brief.
+    ///
+    /// **Pressed through the accessibility tree since Task 3**, which is both a
+    /// necessity and an improvement. The necessity: the row grew a Run button, so
+    /// counting SwiftUI's private focus-ring views no longer identifies a door —
+    /// the reading Task 1's report warned would need re-deriving once the rows had
+    /// verbs. The improvement: `accessibilityPerformPress` is the action a click
+    /// ultimately performs, and unlike a synthetic `mouseDown` it does not need
+    /// this process to be the active app, so an overnight gate on a locked screen
+    /// can no longer fail this test for a reason that has nothing to do with the
+    /// desk (CLAUDE.md's synthetic-click premise).
     func test_theDoorReportsTheLanguageItBelongsTo() async throws {
         var opened: [String] = []
         let window = mount(languages: ["es", "fr"], proposals: 0,
                            openEditionBrief: { opened.append($0) })
         _ = try await scrollersSettling(in: window)
 
-        let doors = try await doorsSettling(in: window, expecting: 2)
-        // Row order is the language order, and the rows stack — so the second
-        // door down is `fr`'s. Read off the frames each one GOT rather than off
-        // subview order.
-        await click(doors[1], in: window, until: { !opened.isEmpty })
+        let doors = try axButtons(labelled: DepartmentDesk.editionBriefTitle,
+                                  in: window)
+        XCTAssertEqual(doors.count, 2, "one door per edition")
+        // Rows are drawn in the language order, and the tree is built in the
+        // order the rows are — so the second door is `fr`'s.
+        _ = (doors[1] as? NSObject)?.perform(
+            NSSelectorFromString("accessibilityPerformPress"))
+        _ = await pumpUntil(deadline: 3) { !opened.isEmpty }
 
         XCTAssertEqual(opened, ["fr"],
                        "the second row's door opened \(opened) — a door that "
@@ -479,54 +491,15 @@ final class DepartmentPaneTests: XCTestCase {
         return found
     }
 
-    /// The pane's buttons, in the order a writer reads them — down the rows.
-    /// A SwiftUI `Button` mounts a private focus-ring view, which is what
-    /// `ReviewBoardPaneTests.chips` reads too; sorted by the frame each one GOT
-    /// rather than by subview order, so "the second row's door" names the
-    /// control on screen whatever the layout did with this width.
-    private func doors(in window: NSWindow) -> [NSView] {
-        guard let content = window.contentView else { return [] }
-        return collect(NSView.self, in: window)
-            .filter { String(describing: type(of: $0)).contains("FocusRingView") }
-            .map { (view: $0, frame: $0.convert($0.bounds, to: content)) }
-            .sorted { $0.frame.midY < $1.frame.midY }
-            .map(\.view)
-    }
-
-    private func doorsSettling(in window: NSWindow, expecting count: Int,
-                               file: StaticString = #filePath,
-                               line: UInt = #line) async throws -> [NSView] {
-        var found: [NSView] = []
-        _ = await pumpUntil(deadline: 5) {
-            found = self.doors(in: window)
-            return found.count >= count
-        }
-        pump(0.2)
-        found = doors(in: window)
-        XCTAssertEqual(found.count, count,
-                       "the desk mounted \(found.count) doors, not \(count)",
-                       file: file, line: line)
-        return found
-    }
-
-    /// A real click at the centre of a view — down and up through the window,
-    /// so the `Button` gets its chance exactly as it does under a mouse.
-    private func click(_ view: NSView, in window: NSWindow,
-                       until settled: (() -> Bool)? = nil) async {
-        let centre = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
-        let point = view.convert(centre, to: nil)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            if let event = NSEvent.mouseEvent(
-                with: type, location: point, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil,
-                eventNumber: 0, clickCount: 1,
-                pressure: type == .leftMouseDown ? 1 : 0) {
-                window.sendEvent(event)
-            }
-            pump(0.03)
-        }
-        if let settled { _ = await pumpUntil(deadline: 3, settled) }
+    /// Every button carrying `label`, in tree order — which for a `VStack` of
+    /// rows is the order a writer reads them down the column.
+    private func axButtons(labelled label: String,
+                           in window: NSWindow) throws -> [AnyObject] {
+        _ = try axButtonLabels(in: window)   // the skip check, in one place
+        let root = try XCTUnwrap(window.contentView)
+        return axElements(under: root)
+            .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
+            .filter { (axAttribute($0, "accessibilityLabel") as? String) == label }
     }
 
     private func axButtonLabels(in window: NSWindow) throws -> [String] {

@@ -41,6 +41,16 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// pane with the writer's two strata rather than three.
     let bibleStore: BibleStore?
     let declaredWorldStore: DeclaredWorldStore?
+    /// The window's translator and its record of finished rounds (publish
+    /// department P4 Task 3) — the pair the department desk's Run needs, threaded
+    /// exactly as `compilerOrchestrator`/`diagnosticsStore` are and for the same
+    /// reason: a round is started from this column while the session that answers
+    /// it belongs to the window, which is the only thing that can tear it down.
+    ///
+    /// Defaulted, so the probe callers that mount this view without a window
+    /// behind it keep compiling and get a desk that reads without acting.
+    var translator: TranslatorOrchestrator? = nil
+    var translationRuns: TranslationRunLog? = nil
     /// The gear menu's persisted choice, and the write-back when it changes —
     /// a value + closure rather than a `Binding` so every existing call site
     /// keeps compiling with the defaults below.
@@ -102,6 +112,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         diagnosticsStore: DiagnosticsStore? = nil,
         bibleStore: BibleStore? = nil,
         declaredWorldStore: DeclaredWorldStore? = nil,
+        translator: TranslatorOrchestrator? = nil,
+        translationRuns: TranslationRunLog? = nil,
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
@@ -127,6 +139,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.diagnosticsStore = diagnosticsStore
         self.bibleStore = bibleStore
         self.declaredWorldStore = declaredWorldStore
+        self.translator = translator
+        self.translationRuns = translationRuns
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
@@ -438,7 +452,16 @@ struct DetailPaneToggle<Inspector: View>: View {
     @ViewBuilder
     private var departmentPane: some View {
         if let ds = documentStore, let projectURL {
-            DepartmentPaneHost(store: store, documentStore: ds, projectURL: projectURL)
+            DepartmentPaneHost(store: store, documentStore: ds,
+                               projectURL: projectURL,
+                               // The tree's own subject, unconverted: the run
+                               // target has to tell a group from a chapter and a
+                               // research note from both, and `activeDocId`'s
+                               // sentinel has already flattened all three
+                               // (Task 3).
+                               subject: selectedSubject,
+                               translator: translator,
+                               runLog: translationRuns)
         } else {
             ContentUnavailableView(
                 "Open a project",

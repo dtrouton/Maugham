@@ -912,38 +912,78 @@ final class ReviewRoundCockpitTests: XCTestCase {
                       + "verdict rather than recomputing one")
     }
 
-    /// **ONE spelling of a failure, read by both surfaces.**
+    /// **ONE spelling of a failure, read by every surface that draws one.**
     ///
-    /// Author's Diagnostics pane and Review's cockpit now say something about
-    /// the same death, and a writer who checks the other pane to understand the
-    /// first must not find a differently-worded account of it. The sentence
-    /// lives in `RoundNarrative` — where `checkingCopy` and the round lines
-    /// already went, and for the same reason — and both surfaces call it.
+    /// Author's Diagnostics pane, Review's cockpit and — since publish-department
+    /// P4 Task 3 — Publish's department desk all say something about the same
+    /// death, because the compiler's session and the translator's are one
+    /// `ClaudeCLISession` machinery under different owners. A writer who checks
+    /// another pane to understand the first must not find a differently-worded
+    /// account of it. The sentence lives in `RoundNarrative` — where
+    /// `checkingCopy` and the round lines already went, and for the same reason —
+    /// and every surface calls it.
+    ///
+    /// **The desk passes `session: .translation`, and that is not a second
+    /// spelling**: the switch is still `RoundNarrative`'s, and the parameter
+    /// supplies only the nouns two of its arms take. "The compiler's session
+    /// ended" over a Spanish round is one account applied to the wrong work,
+    /// which is a different defect from two accounts of one death — and the
+    /// remedy for it is a parameter, not a copy.
     ///
     /// A census rather than a value comparison because the defect this guards
-    /// is a RESTATEMENT: a second `switch failure` in either file would keep
-    /// every equality test green on the day it was written and drift the first
-    /// time one arm is reworded. `failureCopy` was `DiagnosticsPane`'s own
+    /// is a RESTATEMENT: a second `switch failure` in any of these files would
+    /// keep every equality test green on the day it was written and drift the
+    /// first time one arm is reworded. `failureCopy` was `DiagnosticsPane`'s own
     /// static until 2026-08-18; a reviewer reinstating it there would be
     /// reopening exactly that.
-    func test_bothSurfacesReadTheOneFailureSpelling() throws {
+    ///
+    /// **What is forbidden is the ARMS, not the name.** The by-name check this
+    /// used to carry stopped being a detector when the desk grew a
+    /// `failureCopy` of its own over `TranslatorOrchestrator.Failure` — a
+    /// two-case call-through, not a restatement. A restated switch over
+    /// `CompilerRunFailure`, whatever it were called, cannot avoid its own
+    /// cases; those are what is scanned for.
+    func test_everySurfaceReadsTheOneFailureSpelling() throws {
         XCTAssertFalse(
             RoundNarrative.failureCopy(.timedOut).isEmpty,
             "premise: the shared spelling exists and answers")
 
-        for path in ["Views/DiagnosticsPane.swift", "Views/Review/ReviewRoundCockpit.swift"] {
+        for path in ["Views/DiagnosticsPane.swift",
+                     "Views/Review/ReviewRoundCockpit.swift",
+                     "Views/Publish/DepartmentRunState.swift"] {
             let source = try Self.source(of: path)
             XCTAssertTrue(
                 source.contains("RoundNarrative.failureCopy("),
                 "\(path) must read the shared failure spelling")
-            XCTAssertFalse(
-                source.contains("static func failureCopy("),
-                "\u{2026}and must not carry a second copy of it \u{2014} the "
-                + "sentence is `RoundNarrative`'s, and two switches over "
-                + "`CompilerRunFailure` are two accounts of one death")
-            XCTAssertFalse(
-                source.contains("case .cliNotFound:"),
-                "\u{2026}nor an arm of one under another name (\(path))")
+            for arm in ["case .cliNotFound", "case .unusableOutput",
+                        "case .sessionDied("] {
+                XCTAssertFalse(
+                    source.contains(arm),
+                    "\(path) carries `\(arm)` \u{2014} a second switch over "
+                    + "`CompilerRunFailure` is a second account of one death, "
+                    + "whatever it is called")
+            }
+        }
+    }
+
+    /// The planted offender for the census above: the arms it scans for really
+    /// are what a restatement is made of, so a green run of it is evidence rather
+    /// than a scan that finds nothing anywhere.
+    func test_theOneSpellingCensusWouldFireOnAPlantedRestatement() {
+        let planted = """
+            enum Elsewhere {
+                static func describe(_ failure: CompilerRunFailure) -> String {
+                    switch failure {
+                    case .cliNotFound: return "install it"
+                    case .unusableOutput: return "unreadable"
+                    default: return ""
+                    }
+                }
+            }
+            """
+        for arm in ["case .cliNotFound", "case .unusableOutput"] {
+            XCTAssertTrue(planted.contains(arm),
+                          "the census would not see a restatement carrying \(arm)")
         }
     }
 

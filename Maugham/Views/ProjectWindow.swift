@@ -210,6 +210,11 @@ struct ProjectWindow: View {
     /// the AI toggle in `CompilerRunModifier`. A session merely released is a
     /// live, billing process (`TranslatorOrchestrator`'s own contract).
     @State private var translator = TranslatorOrchestrator()
+    /// What finished translation rounds left behind, for the department desk to
+    /// report (P4 Task 3). Owned here rather than by the pane because
+    /// `onRunEnded` is wired in `load()`, long before anybody opens the desk — a
+    /// record the pane held would only survive being looked at.
+    @State private var translationRuns = TranslationRunLog()
     /// The designer's run state and its warm `claude` session (publish
     /// department P3), owned beside the other two for their reason. Wired in
     /// `load()`; torn down wherever they are — `.onDisappear` here, app quit and
@@ -2677,6 +2682,11 @@ struct ProjectWindow: View {
             diagnosticsStore: compiler.diagnostics,
             bibleStore: bible,
             declaredWorldStore: declaredWorld,
+            // The department desk's Run (P4 Task 3) — the window's own session
+            // and the record of what its rounds left, reached the way the
+            // compiler's pair above is.
+            translator: translator,
+            translationRuns: translationRuns,
             compilerModel: compilerModel,
             onCompilerModelChange: { newValue in
                 compilerModel = newValue
@@ -3471,9 +3481,10 @@ struct ProjectWindow: View {
                     projectRoot: url,
                     device: DeviceSlug.make(from: MacDeviceID.current)))
             // The translator's loop, wired beside the compiler's and for its
-            // reason. It has no run verb yet — a translation is started from
-            // the desk (P4) — so what a finished run has to say goes to the
-            // log until that desk exists to say it to.
+            // reason. Its run verb is the department desk's Run button (P4 Task
+            // 3), and what a finished round has to say goes to the window's own
+            // record so that desk can report it — plus the log line, which is
+            // what a session that ran while no pane was open leaves behind.
             translator.configure(
                 environment: .production(
                     store: s, documentStore: ds, projectURL: url,
@@ -3484,7 +3495,8 @@ struct ProjectWindow: View {
                     bible: bibleStore,
                     preferences: userPreferences,
                     model: ds.uiState.compilerModel.claudeModel,
-                    onRunEnded: { summary in
+                    onRunEnded: { [weak translationRuns] summary in
+                        translationRuns?.record(summary)
                         _projectWindowLog.info(
                             "translation run \(summary.runId, privacy: .public) ended for \(summary.docId, privacy: .public)/\(summary.language, privacy: .public)")
                     }))

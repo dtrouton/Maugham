@@ -144,21 +144,79 @@ enum RoundNarrative {
     /// surfaces must say it in the same words: a writer who checks the other
     /// pane to understand the first must not find a differently-worded account
     /// of the same death. `ReviewRoundCockpitTests`' one-spelling census reads
-    /// both files and goes red on a restatement.
-    static func failureCopy(_ failure: CompilerRunFailure) -> String {
+    /// every surface's file and goes red on a restatement.
+    ///
+    /// **`session` is what the third surface needed** (publish-department P4 Task
+    /// 3). The compiler's check, the translator's round — and, when the desk's
+    /// Design row runs, the designer's — all die through this one
+    /// `CompilerRunFailure`, because they are one `ClaudeCLISession` machinery
+    /// with three owners. So there must go on being ONE switch over it. What
+    /// differs is only the noun: "The check took too long" is not what a writer
+    /// asked for when they pressed Run on the Spanish row, and "couldn't be read
+    /// as notes" describes nothing a translator produces. Defaulted to `.check`,
+    /// so the two surfaces that came first are unchanged to the byte.
+    static func failureCopy(_ failure: CompilerRunFailure,
+                            session: SessionWork = .check) -> String {
         switch failure {
         case .cliNotFound:
             return "Claude Code isn't installed. Set it up, then check "
                 + "Settings \u{2192} General \u{2192} Claude integration."
         case .disabledByToggle:
             return "Claude access is off in Settings \u{2014} turn on "
-                + "\u{201C}Allow Claude to connect (MCP)\u{201D} to check your writing."
+                + "\u{201C}Allow Claude to connect (MCP)\u{201D} to \(session.purpose)."
         case .timedOut:
-            return "The check took too long and was stopped."
+            return "\(session.subject) took too long and was stopped."
         case .sessionDied(let detail):
-            return "The compiler's session ended before it could answer: \(detail)."
+            return "\(session.owner) ended before it could answer: \(detail)."
         case .unusableOutput:
-            return "Claude's answer couldn't be read as notes."
+            return "Claude's answer couldn't be read as \(session.product)."
+        }
+    }
+
+    /// **Which of the three long-lived sessions died**, for the arms of
+    /// `failureCopy` whose sentence names the work rather than a surface to go
+    /// and fix.
+    ///
+    /// Four properties rather than four separate sentences per case: the SHAPE of
+    /// each sentence is shared — that is the whole reason there is one switch —
+    /// and what a case supplies is the nouns that shape takes.
+    enum SessionWork {
+        /// The compiler's check (M2). The default, so every existing caller
+        /// reads exactly as it did.
+        case check
+        /// A translation round (publish department).
+        case translation
+
+        /// What the writer asked for, as the subject of a sentence.
+        var subject: String {
+            switch self {
+            case .check: return "The check"
+            case .translation: return "The translation round"
+            }
+        }
+
+        /// Whose session it was.
+        var owner: String {
+            switch self {
+            case .check: return "The compiler\u{2019}s session"
+            case .translation: return "The translator\u{2019}s session"
+            }
+        }
+
+        /// What a readable answer would have been.
+        var product: String {
+            switch self {
+            case .check: return "notes"
+            case .translation: return "translations"
+            }
+        }
+
+        /// What turning the toggle back on would let Claude do.
+        var purpose: String {
+            switch self {
+            case .check: return "check your writing"
+            case .translation: return "translate your writing"
+            }
         }
     }
 

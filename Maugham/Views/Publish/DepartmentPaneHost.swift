@@ -26,6 +26,19 @@ struct DepartmentPaneHost: View {
     @Bindable var store: ProjectStore
     let documentStore: DocumentStore
     let projectURL: URL
+    /// **What the window's tree is naming** — the input Global Constraint 1 turns
+    /// into a run target (Task 3). The desk sums the whole book, but a round is
+    /// one chapter's, and this is the only thing on the pane that says which.
+    var subject: BinderSubject? = nil
+    /// The window's translator (P2), owned by `ProjectWindow` beside the compiler
+    /// and reached here the way `DiagnosticsPane` reaches the compiler: passed as
+    /// a value, never constructed. Optional so a caller that surfaces no run — the
+    /// probe mounts — offers a desk that reads and does not act.
+    var translator: TranslatorOrchestrator? = nil
+    /// The window's record of finished rounds. Window-scoped rather than held here
+    /// because `onRunEnded` is wired when the stores are configured, long before
+    /// anybody opens this pane — see `TranslationRunLog`.
+    var runLog: TranslationRunLog? = nil
 
     @State private var languages: [EditionStatus.LanguageRow] = []
     /// The edition whose brief is on screen, or nil for the desk itself.
@@ -95,9 +108,83 @@ struct DepartmentPaneHost: View {
             openEditionBrief: { language in
                 Task { await present(language: language) }
             },
-            notice: notice)
+            notice: notice,
+            runTarget: runTarget,
+            runs: runStates,
+            runTranslation: { run(language: $0) },
+            // One session per window, so the row that is running is the only row
+            // that offers this and there is never a question of whose round it
+            // ends.
+            cancelRun: { translator?.cancel() })
         .task(id: reloadKey) { await derive() }
     }
+
+    // MARK: - The run (Task 3)
+
+    /// **Which chapter a Run would translate**, from the window's own subject.
+    ///
+    /// Read on the body path on purpose and cheaply: a `TreeWalk.find` over the
+    /// manifest and one dictionary lookup in the open-document registry. Both are
+    /// observed (`ProjectStore` and `DocumentStore` are `@Observable`), which is
+    /// what makes the button follow the tree — the writer clicks a chapter in the
+    /// left column and the desk's Run becomes pressable with no event and no poll.
+    private var runTarget: DepartmentRunTarget {
+        DepartmentRunTarget.resolve(
+            subject: subject,
+            structure: store.manifest.structure,
+            isOpen: { documentStore.document(for: $0) != nil })
+    }
+
+    /// One resolved run state per row. A pure fold over values the window already
+    /// holds — no I/O, so a book with twenty editions costs twenty comparisons.
+    private var runStates: [String: DepartmentRunState] {
+        let target = runTarget
+        let runState = translator?.runState ?? .idle
+        let session = DepartmentRunSession.read(
+            runState: runState, isRunning: translator?.isRunning ?? false)
+        var states: [String: DepartmentRunState] = [:]
+        for row in languages {
+            states[row.language] = DepartmentRunState.resolve(
+                language: row.language, target: target, session: session,
+                runState: runState,
+                lastRun: target.docId.flatMap {
+                    runLog?.run(docId: $0, language: row.language)
+                })
+        }
+        return states
+    }
+
+    /// **The click, and everything that can refuse it in words** (Global
+    /// Constraint 2).
+    ///
+    /// The pre-flight is `DepartmentRunState.preflight`'s, so what the disabled
+    /// button says and what a click that beat the disable is told are the same
+    /// sentence resolved once. Past it the orchestrator's own `!isRunning` guard
+    /// and its briefing gather are the only refusals left, and neither can be
+    /// reached from here without one of the answers above having been given first.
+    private func run(language: String) {
+        notice = nil
+        guard let translator else {
+            notice = Self.noTranslatorWired
+            return
+        }
+        let session = DepartmentRunSession.read(
+            runState: translator.runState, isRunning: translator.isRunning)
+        if let refusal = DepartmentRunState.preflight(
+            language: language, target: runTarget, session: session) {
+            notice = refusal
+            return
+        }
+        guard let docId = runTarget.docId else { return }
+        translator.runTranslation(docId: docId, language: language)
+    }
+
+    /// A desk mounted with no orchestrator behind it — the probe mounts, and a
+    /// window whose stores never finished loading. Saying so is better than a
+    /// button that silently does nothing, which is the whole of Constraint 2.
+    static let noTranslatorWired =
+        "This window isn\u{2019}t ready to run a translation yet. Try again in a "
+        + "moment, or reopen the project."
 
     /// The brief itself, over the desk rather than beside it.
     ///
