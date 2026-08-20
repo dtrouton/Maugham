@@ -616,14 +616,22 @@ if a future promotion-side refusal is wanted, that is a parse-time guard on
 `DesignerReport`, not a briefing-time one.
 
 **`ProposalPromotion` reads the live tree and never writes it except on the
-writer's own two verbs — `SampleCompiler`'s mirror image.** `approve` refuses
-while a compile is running, refuses with no live `.maugham/publish` tree, and
-(the guard the brief did not name, added because a retry needs it) refuses
-over a STANDING backup — without that third guard a second `approve` (a retry
-after a mid-write failure, or a double-click on whatever P4's button turns
-out to be) would rebuild the backup from the tree its own first attempt just
-promoted, capturing the proposal's own bytes as "the originals" and
-destroying the only way back to what the writer actually had. Order inside
+writer's own three verbs — `SampleCompiler`'s mirror image.** `approve`
+refuses while a compile is running, refuses with no live `.maugham/publish`
+tree, and (the guard the brief did not name, added because a retry needs it)
+refuses over a STANDING backup — without that third guard a second `approve`
+(a retry after a mid-write failure, or a double-click on whatever P4's button
+turns out to be) would rebuild the backup from the tree its own first attempt
+just promoted, capturing the proposal's own bytes as "the originals" and
+destroying the only way back to what the writer actually had. **That third
+guard is project-wide, not per-proposal** (`proposalHoldingTheBackupSlot`,
+widened in P3's final review): there is ONE set of original templates, so
+there is one backup slot, and layering two promotions loses those originals
+just as surely by a longer route — approve(A) → approve(B) makes B's backup a
+copy of A's promoted bytes, so revert(A) → revert(B) walks the tree back to
+A's design and stops there, with every step reporting success and the
+writer's own templates in no file, no backup and no proposal. The refusal
+names who holds the slot and both ways out. Order inside
 `approve`: resolve every staged path to completion first (an escape check
 behind `DesignerReport`'s own parse-time guard, defence in depth — a
 `proposal.json` is a file on disk and a hand-edited one is the one path by
@@ -645,12 +653,30 @@ not gate on the proposal's own status beyond those three guards — a
 writer preferred round 2 to round 3") but is a product call a later milestone
 may want to narrow.
 
+**`finalize` is the third verb and the other way out of the slot**: accept
+this promotion permanently — discard its backup, keep its `approved` status,
+free the slot for the next round. It is deliberately separate from `approve`
+rather than something `approve` does for itself when it wants the slot, because
+it is the destructive half: after it, the templates that round replaced exist
+nowhere, and that must be a thing the writer asks for by name rather than a
+side effect of clicking "approve" on a later round. It refuses with no backup
+to discard, and refuses over a proposal that is not `approved` — a backup
+standing over a `pending` proposal is the signature of a promotion that died
+mid-write, and its backup is the only way out of the half-swapped tree, so
+the answer there is `revert`. It reads the STORE's status rather than the
+caller's copy (`approve` marks `approved` last, so a caller holding the value
+it passed in still reads `.pending`), and it is NOT gated on a running
+compile: it removes a directory under `.maugham/design/` and moves no live
+byte. `DesignProposalStore.delete(id:)` guards the same window from the other
+side — see `Maugham/Stores/AREA.md`.
+
 **The loop still ships headless, on the same discipline as the translator's.**
 `DesignerOrchestrator.runDesign`/`.requestChanges` and
-`ProposalPromotion.approve`/`.revert` have no caller in production as of P3 —
-proven by `DesignerEnvironmentTests` and by the teardown census growing a
-THIRD paired count
-(`test_everyWindowEndingPathShutsEverySessionDown`, renamed from P2's
+`ProposalPromotion.approve`/`.revert`/`.finalize` have no caller in production
+as of P3 — proven by `DesignerEnvironmentTests` and by the teardown census
+growing a THIRD paired count
+(`TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`,
+which is where that census lives, renamed from P2's
 two-count `test_everyWindowEndingPathShutsTheTranslatorDownToo` to hold all
 three orchestrators' shutdown pairs rather than asserting a fixed number),
 not by a keystroke. `ProjectWindow.designRunRecord(_:)` — `static`, pure — is

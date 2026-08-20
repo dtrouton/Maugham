@@ -1,7 +1,7 @@
 import Foundation
 
-/// The gate's two verbs: `approve` puts a staged design round onto the live
-/// publish tree, and `revert` takes it back.
+/// The gate's three verbs: `approve` puts a staged design round onto the live
+/// publish tree, `revert` takes it back, and `finalize` accepts it for good.
 ///
 /// **This is the only thing that writes `.maugham/publish/` on a proposal's
 /// behalf.** Staging (`DesignProposalStore`) and sampling (`SampleCompiler`)
@@ -25,6 +25,19 @@ import Foundation
 ///   stack it happens to share, un-ship a book's templates. Those two acts
 ///   have nothing in common but a keystroke, and the keystroke belongs to the
 ///   prose.
+///
+/// **There is exactly ONE backup slot for the whole project, and `approve`
+/// refuses while any proposal holds it.** A backup holds the writer's original
+/// templates — the ones nobody proposed, the ones no proposal can reconstruct.
+/// Let promotions layer and the second one's backup is a copy of the FIRST
+/// proposal's bytes, so approve(A) → approve(B) → revert(A) → revert(B) walks
+/// the tree back to B's design and then to A's, and the originals exist
+/// nowhere: not on disk, not in either backup, not in any proposal. Each step
+/// succeeds, each reports success, and what is lost is the only thing here that
+/// was never derived from anything. So the slot is single, and holding it is
+/// the promotion's own state rather than a lock: the two ways out are `revert`
+/// (put the originals back) and `finalize` (keep the new design and let the
+/// originals go, deliberately, by name).
 ///
 /// **Both verbs refuse while a compile is running.** A compile reads the
 /// publish tree file by file over many seconds; swap it underneath one and the
@@ -88,6 +101,16 @@ enum ProposalPromotion {
         // originals and lose the only way back.
         guard !fm.fileExists(atPath: backupRoot.path) else {
             throw Error.backupAlreadyStands(id: proposal.id)
+        }
+        // …and ANY proposal's backup means the same thing, because there is one
+        // set of original templates and one slot to hold it (see the type doc).
+        // Promoting over a standing backup would make the new backup a copy of
+        // the OTHER proposal's promoted bytes, and the writer's originals would
+        // then exist in no proposal, no backup and no live file.
+        if let holder = proposalHoldingTheBackupSlot(
+            projectURL: projectURL, excluding: proposal.id
+        ) {
+            throw Error.anotherProposalHoldsTheBackup(id: holder)
         }
 
         let promotions = try resolve(
@@ -186,6 +209,73 @@ enum ProposalPromotion {
     static let defaultRevertNote =
         "Reverted — the live templates were restored from this proposal's backup."
 
+    // MARK: - finalize
+
+    /// Accept `proposal`'s promotion permanently: discard its backup of the
+    /// displaced templates, freeing the project's one backup slot.
+    ///
+    /// This is the other way out of a standing promotion, and it is the
+    /// destructive one — after it, the templates this round replaced exist
+    /// nowhere. It is a verb of its own for exactly that reason. `approve`
+    /// cannot quietly do it as a side effect of wanting the slot, or the writer
+    /// would lose their originals to a click that said "approve this next
+    /// round"; the refusal names both ways out and lets them choose.
+    ///
+    /// The proposal keeps its `approved` status — finalizing changes what can
+    /// be undone, not what shipped.
+    ///
+    /// **Not gated on a running compile**, unlike `approve` and `revert`: this
+    /// removes a directory under `.maugham/design/` and moves no byte of the
+    /// live publish tree, so there is nothing a compile could read half of.
+    static func finalize(
+        proposal: DesignProposalStore.Proposal,
+        projectURL: URL
+    ) throws {
+        let store = DesignProposalStore(projectURL: projectURL)
+        // The store's status, not the caller's copy: `approve` marks the
+        // proposal approved as its LAST step, so a caller holding the value it
+        // passed to `approve` still reads `.pending`.
+        let current = try store.load(id: proposal.id)
+        let backupRoot = backupDirectory(id: proposal.id, projectURL: projectURL)
+        guard FileManager.default.fileExists(atPath: backupRoot.path) else {
+            throw Error.noBackupToFinalize(id: proposal.id)
+        }
+        // A backup standing over a proposal that is not `approved` is the
+        // signature of a promotion that died mid-write: the live tree is
+        // half-swapped and that backup is the only way out of it. Discarding it
+        // would strand the writer in a design nobody proposed.
+        guard current.status == .approved else {
+            throw Error.notApprovedToFinalize(
+                id: proposal.id, status: current.status.rawValue)
+        }
+        try FileManager.default.removeItem(at: backupRoot)
+    }
+
+    /// The id of the proposal holding the project's one backup slot, if any.
+    ///
+    /// Walks the proposal directories rather than `DesignProposalStore.list()`:
+    /// a backup is a DIRECTORY, and a proposal whose `proposal.json` this build
+    /// cannot read still holds the writer's only copy of the displaced
+    /// templates. Sorted so the answer is stable when — through a hand-edit or
+    /// a build that predates this rule — more than one stands.
+    static func proposalHoldingTheBackupSlot(
+        projectURL: URL, excluding excludedID: String? = nil
+    ) -> String? {
+        let fm = FileManager.default
+        let proposalsDir = DesignProposalStore(projectURL: projectURL).proposalsDir
+        let folders = (try? fm.contentsOfDirectory(
+            at: proposalsDir, includingPropertiesForKeys: nil, options: [])) ?? []
+        return folders
+            .filter(\.hasDirectoryPath)
+            .map(\.lastPathComponent)
+            .filter { $0 != excludedID }
+            .sorted()
+            .first {
+                fm.fileExists(
+                    atPath: backupDirectory(id: $0, projectURL: projectURL).path)
+            }
+    }
+
     // MARK: - the busy-compile guard
 
     /// Both verbs' first act. `CompileJobManager.allInProgress()` is the
@@ -206,9 +296,7 @@ enum ProposalPromotion {
     }
 
     static func backupDirectory(id: String, projectURL: URL) -> URL {
-        DesignProposalStore(projectURL: projectURL)
-            .proposalDir(id: id)
-            .appendingPathComponent("backup", isDirectory: true)
+        DesignProposalStore(projectURL: projectURL).backupDir(id: id)
     }
 
     private struct Promotion {
@@ -295,7 +383,10 @@ enum ProposalPromotion {
         case compileInProgress(jobIDs: [String])
         case noLivePublishTree(String)
         case backupAlreadyStands(id: String)
+        case anotherProposalHoldsTheBackup(id: String)
         case noBackupToRestore(id: String)
+        case noBackupToFinalize(id: String)
+        case notApprovedToFinalize(id: String, status: String)
         case backupFileMissing(String)
         case stagedPathEscapesThePublishTree(String)
         case stagedFileMissing(String)
@@ -312,9 +403,24 @@ enum ProposalPromotion {
             case .backupAlreadyStands(let id):
                 return "\(id) has already been promoted and its backup of the live "
                     + "templates still stands. Revert it before promoting it again."
+            case .anotherProposalHoldsTheBackup(let id):
+                return "\(id) is promoted and its backup of your original "
+                    + "templates still stands. Only one promotion can stand at a "
+                    + "time, because that backup is the only copy of the templates "
+                    + "no proposal wrote. Revert \(id) to put the originals back, "
+                    + "or finalize it to keep its design and let them go — then "
+                    + "promote this one."
             case .noBackupToRestore(let id):
                 return "\(id) has no backup of the live templates, so there is "
                     + "nothing to take back — it was never promoted."
+            case .noBackupToFinalize(let id):
+                return "\(id) holds no backup of the live templates, so there is "
+                    + "nothing to make permanent — it was never promoted, or it "
+                    + "has already been reverted or finalized."
+            case .notApprovedToFinalize(let id, let status):
+                return "\(id) is \(status), not approved — its promotion did not "
+                    + "finish, so its backup is the only way out of a half-swapped "
+                    + "publish tree. Revert it instead."
             case .backupFileMissing(let path):
                 return "the backup lists \(path) but nothing was held at that path, "
                     + "so the live templates cannot be restored whole."

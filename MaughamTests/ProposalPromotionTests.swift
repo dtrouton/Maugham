@@ -199,6 +199,142 @@ final class ProposalPromotionTests: XCTestCase {
                        "the original bytes must survive the second ask")
     }
 
+    // MARK: - the single backup slot
+
+    /// **The trace that names the bug.** With `approve` guarding only its OWN
+    /// backup, promotions layer: B's backup captures A's promoted bytes as
+    /// though they were the writer's originals, and unwinding both — revert A,
+    /// then revert B — walks the tree to A's design and stops. The templates
+    /// that were there before any of this exist in no file, no backup and no
+    /// proposal, and every step reported success.
+    ///
+    /// So the slot is single. The refusal names who holds it and both ways out.
+    ///
+    /// Disable experiment, run 2026-08-20: narrow the guard back to the
+    /// proposal's own backup — delete the `proposalHoldingTheBackupSlot` block
+    /// in `approve` — and this test fails on the missing throw at approve(B) and
+    /// on the live `template.tex` then reading `DESIGN B`, while the other
+    /// sixteen tests in this class all still pass. Restored.
+    func test_approve_refusesWhileAnotherProposalsBackupStands() async throws {
+        let project = try makeProject(live: [("template.tex", "LIVE ORIGINAL")])
+        let before = try snapshot(livePublishDir(project))
+        let a = try stage([("template.tex", "DESIGN A")], in: project)
+        // `stage` supersedes the pending proposal before it, which is the desk's
+        // one-pending-slot rule and no obstacle here: promotion never reads a
+        // proposal's status.
+        let b = try stage([("template.tex", "DESIGN B")], in: project)
+
+        try await ProposalPromotion.approve(
+            proposal: a, projectURL: project, jobManager: CompileJobManager())
+
+        do {
+            try await ProposalPromotion.approve(
+                proposal: b, projectURL: project, jobManager: CompileJobManager())
+            XCTFail("expected the standing promotion of \(a.id) to refuse this one")
+        } catch let error as ProposalPromotion.Error {
+            XCTAssertEqual(error, .anotherProposalHoldsTheBackup(id: a.id),
+                           "the refusal names the proposal holding the slot")
+            XCTAssertTrue(error.description.contains("Revert"), "and one way out")
+            XCTAssertTrue(error.description.contains("finalize"), "and the other")
+        }
+
+        // B moved nothing and holds nothing.
+        XCTAssertEqual(
+            try text(livePublishDir(project).appendingPathComponent("template.tex")),
+            "DESIGN A", "a refused promotion moves no live byte")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: backupDir(project, b.id).path),
+                       "and makes no second backup to layer over the first")
+
+        // And the way back still reaches the originals.
+        try await ProposalPromotion.revert(
+            proposal: a, projectURL: project, jobManager: CompileJobManager())
+        XCTAssertEqual(try snapshot(livePublishDir(project)), before,
+                       "the writer's own templates are still recoverable")
+    }
+
+    /// `finalize` is the other way out of the slot: keep this design, and let
+    /// the templates it replaced go — deliberately, by name. Then the next
+    /// round can be promoted.
+    func test_finalize_discardsTheBackup_andFreesTheSlot() async throws {
+        let project = try makeProject(live: [("template.tex", "LIVE ORIGINAL")])
+        let a = try stage([("template.tex", "DESIGN A")], in: project)
+        let b = try stage([("template.tex", "DESIGN B")], in: project)
+        try await ProposalPromotion.approve(
+            proposal: a, projectURL: project, jobManager: CompileJobManager())
+
+        try ProposalPromotion.finalize(proposal: a, projectURL: project)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: backupDir(project, a.id).path),
+                       "finalize discards the backup — that is what makes it permanent")
+        XCTAssertEqual(
+            try DesignProposalStore(projectURL: project).load(id: a.id).status, .approved,
+            "finalizing changes what can be undone, not what shipped")
+
+        try await ProposalPromotion.approve(
+            proposal: b, projectURL: project, jobManager: CompileJobManager())
+        XCTAssertEqual(
+            try text(livePublishDir(project).appendingPathComponent("template.tex")),
+            "DESIGN B", "the slot is free and the next round promotes")
+        // …and B's backup holds what B actually replaced, honestly.
+        XCTAssertEqual(
+            try text(backupDir(project, b.id).appendingPathComponent("files/template.tex")),
+            "DESIGN A")
+    }
+
+    func test_finalize_refusesAProposalThatWasNeverPromoted() async throws {
+        let project = try makeProject()
+        let proposal = try stage([("template.tex", "PROPOSED")], in: project)
+
+        XCTAssertThrowsError(
+            try ProposalPromotion.finalize(proposal: proposal, projectURL: project)
+        ) { error in
+            XCTAssertEqual(error as? ProposalPromotion.Error,
+                           .noBackupToFinalize(id: proposal.id))
+        }
+        XCTAssertEqual(
+            try DesignProposalStore(projectURL: project).load(id: proposal.id).status, .pending,
+            "a refused finalize changes no status")
+    }
+
+    /// A backup standing over a proposal that is NOT approved is the signature
+    /// of a promotion that died mid-write (`test_aFailureMidWriteLeavesTheBackupWhole…`
+    /// makes one for real): the live tree is half-swapped and that backup is the
+    /// only way out. Finalizing it would strand the writer in a design nobody
+    /// proposed. The status is put back by hand here because the point under
+    /// test is the guard, not the disk failure that produces the state.
+    func test_finalize_refusesAPromotionThatDidNotFinish() async throws {
+        let project = try makeProject(live: [("template.tex", "LIVE ORIGINAL")])
+        let proposal = try stage([("template.tex", "PROPOSED")], in: project)
+        try await ProposalPromotion.approve(
+            proposal: proposal, projectURL: project, jobManager: CompileJobManager())
+        let store = DesignProposalStore(projectURL: project)
+        try store.updateStatus(id: proposal.id, .pending)
+
+        XCTAssertThrowsError(
+            try ProposalPromotion.finalize(proposal: proposal, projectURL: project)
+        ) { error in
+            XCTAssertEqual(error as? ProposalPromotion.Error,
+                           .notApprovedToFinalize(id: proposal.id, status: "pending"))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backupDir(project, proposal.id).path),
+                      "the only way back is still standing")
+    }
+
+    /// `finalize` reads the STORE's status, never the caller's copy: `approve`
+    /// marks the proposal approved as its last step, so a caller holding the
+    /// value it passed to `approve` still reads `.pending`, and a finalize that
+    /// trusted it would refuse the ordinary case.
+    func test_finalize_readsTheStoredStatusNotTheCallersCopy() async throws {
+        let project = try makeProject(live: [("template.tex", "LIVE ORIGINAL")])
+        let stale = try stage([("template.tex", "PROPOSED")], in: project)
+        XCTAssertEqual(stale.status, .pending, "fixture: the caller's copy predates approve")
+        try await ProposalPromotion.approve(
+            proposal: stale, projectURL: project, jobManager: CompileJobManager())
+
+        try ProposalPromotion.finalize(proposal: stale, projectURL: project)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: backupDir(project, stale.id).path))
+    }
+
     // MARK: - revert
 
     func test_revert_restoresTheLiveTreeByteIdentically_andDeletesWhatWasNew() async throws {
@@ -224,6 +360,17 @@ final class ProposalPromotionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: livePublishDir(project).appendingPathComponent("partials/dropcaps.tex").path),
             "a file the round invented is deleted, not left standing")
+        // …and so is the directory the round invented to hold it. The snapshot
+        // above walks REGULAR FILES only, so an empty `partials/` left behind
+        // is invisible to that byte comparison: `pruneEmptyDirectories` needs an
+        // assertion that can actually see a directory.
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: livePublishDir(project).appendingPathComponent("partials").path),
+            "the empty directory the round invented goes with the file")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: livePublishDir(project).appendingPathComponent("styles").path),
+            "and the writer's own directories are untouched — pruning stops at "
+            + "the first directory with anything in it")
 
         let reloaded = try DesignProposalStore(projectURL: project).load(id: proposal.id)
         XCTAssertEqual(reloaded.status, .rejected)
