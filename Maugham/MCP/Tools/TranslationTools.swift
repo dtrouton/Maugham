@@ -88,92 +88,28 @@ public enum WriteTranslationTool: MCPTool {
     ) async throws -> Data {
         let params = try decodeParams(Params.self, from: paramsJSON)
 
-        // 1. Valid language tag.
-        guard TranslationRecord.isValidLanguageTag(params.language) else {
-            throw MCPError.invalidArgument("invalid language tag: \(params.language)")
-        }
+        // 1. Valid language tag — the pipeline's own gate, called here so a
+        // malformed tag is refused before the registry is touched.
+        try TranslationWritePipeline.validate(language: params.language)
 
         let state = try currentParagraphState(
             projectId: params.project_id,
             documentId: params.document_id,
             registry: registry)
 
-        // 2. Each entry supplies exactly one of `text` / `verbatim: true` /
-        // `delete: true`.
-        for e in params.entries {
-            let forms = [e.text != nil, e.verbatim == true, e.delete == true]
-            if forms.filter({ $0 }).count != 1 {
-                throw MCPError.invalidArgument(
-                    "entry for paragraph \(e.paragraph_id) must supply exactly one of " +
-                    "`text`, `verbatim: true` or `delete: true`")
-            }
-        }
-
-        // 2a. Reject intra-batch duplicate paragraph ids (a client bug).
-        let ids = params.entries.map(\.paragraph_id)
-        let duplicates = Array(Set(ids.filter { id in ids.filter { $0 == id }.count > 1 })).sorted()
-        if !duplicates.isEmpty {
-            throw MCPError.invalidArgument(
-                "duplicate paragraph ids in batch: \(duplicates.joined(separator: ", "))")
-        }
-
-        // 3. All-or-nothing: every id a `text` or `verbatim` entry names must be
-        // in the current sequence. A `delete` entry is exempt — an orphaned
-        // translation names a paragraph the document no longer has, which is
-        // exactly the one a writer needs to purge, and tombstoning an id that
-        // was never translated is an idempotent no-op. The exemption is per
-        // entry, not per batch: a text entry's unknown id still rejects the
-        // whole call, its delete siblings included.
-        let known = Set(state.sequence)
-        let unknown = params.entries
-            .filter { $0.delete != true }
-            .map(\.paragraph_id)
-            .filter { !known.contains($0) }
-        if !unknown.isEmpty {
-            throw MCPError.invalidArgument(
-                "unknown paragraph ids: \(unknown.joined(separator: ", "))")
-        }
-
-        // 4-6. Build every record first, then persist the whole batch in one
-        // write, so "nothing is written" holds for an I/O failure and not only
-        // for a validation failure. Every record carries `params.language` —
-        // one call is one language, the invariant `appendBatch` takes the tag
-        // as a parameter for and does not re-check per record.
-        let deviceSlug = DeviceSlug.make(from: MacDeviceID.current)
-        var warnings: [String] = []
-        var records: [TranslationRecord] = []
-        for e in params.entries {
-            let source = state.paragraphs[e.paragraph_id] ?? ""
-            let isVerbatim = e.verbatim == true
-            let isDelete = e.delete == true
-            // `text == nil` is the tombstone `TranslationStore.latestByParagraph`
-            // already honors — the delete form is what finally mints one.
-            let text: String? = isDelete ? nil : (isVerbatim ? source : (e.text ?? ""))
-            records.append(TranslationRecord(
-                paragraphId: e.paragraph_id,
-                language: params.language,
-                text: text,
-                sourceHash: TranslationHash.hash(source),
-                verbatim: isVerbatim))
-            if !isVerbatim, !isDelete, let translation = text {
-                warnings.append(contentsOf: ConstructSkeleton.warnings(
-                    source: source, translation: translation, paragraphId: e.paragraph_id))
-                // Both sides in display form, normalized through the same
-                // stripper the freshness hash normalizes with: against the raw
-                // source this comparison could never fire on an anchored
-                // paragraph — a slugline or a numeral, the very lines the
-                // advisory exists for.
-                if MarkdownDisplayFilter.stripAnchors(translation)
-                    == MarkdownDisplayFilter.stripAnchors(source) {
-                    warnings.append(
-                        "¶\(e.paragraph_id): translated text equals source — mark " +
-                        "verbatim: true if deliberate")
-                }
-            }
-        }
-        try TranslationStore.appendBatch(
-            records, forDocId: params.document_id, language: params.language,
-            deviceSlug: deviceSlug, in: state.projectURL)
+        // 2-6. Validation, record building and the single append all belong to
+        // the pipeline, which the coming ingest path shares (census:
+        // TripwireGrepTests). The tool's job is the wire form on either side.
+        let warnings = try TranslationWritePipeline.perform(
+            entries: params.entries.map {
+                TranslationWritePipeline.Entry(
+                    paragraphId: $0.paragraph_id, text: $0.text,
+                    verbatim: $0.verbatim, delete: $0.delete)
+            },
+            language: params.language,
+            documentId: params.document_id,
+            state: state,
+            deviceSlug: DeviceSlug.make(from: MacDeviceID.current))
 
         // 7. Notify any live window on this project so an in-progress
         // translation-review posture re-derives its read-only surface (a

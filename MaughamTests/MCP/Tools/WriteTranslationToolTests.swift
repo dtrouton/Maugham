@@ -564,11 +564,16 @@ final class WriteTranslationToolTests: XCTestCase {
 
     // MARK: - T1: the batch is one write
 
-    /// Structural: the tool builds every record first and persists them in a
+    /// Structural: the write builds every record first and persists them in a
     /// single `appendBatch` call, so "nothing is written" holds for an I/O
     /// failure and not only for a validation failure. The behavioural half
     /// (one device file, one line per entry) can't tell one write from three,
-    /// so the census below pins the call shape at the source.
+    /// so the call shape is pinned at the source by
+    /// `TripwireGrepTests.test_theTranslationWritePipelineIsTheOnlyPlaceAWriteBatchIsAppended`
+    /// — which supersedes the file-scoped census that used to sit here: it
+    /// scans all of `Maugham/` rather than one file, so it survives the write
+    /// path moving into `TranslationWritePipeline` and catches a second
+    /// pipeline anywhere.
     func test_midBatchFailureWritesNothing() async throws {
         let h = try await makeHarness()
         let ids = h.doc.sequence
@@ -592,23 +597,6 @@ final class WriteTranslationToolTests: XCTestCase {
         XCTAssertEqual(lines.count, 3, "one JSONL line per entry, mixed forms included")
 
         await h.documentStore.close()
-    }
-
-    func test_theToolPersistsThroughOneBatchCallAndNoPerRecordAppend() throws {
-        let here = URL(fileURLWithPath: #filePath)
-        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let source = try String(
-            contentsOf: repoRoot.appendingPathComponent("Maugham/MCP/Tools/TranslationTools.swift"),
-            encoding: .utf8)
-
-        XCTAssertEqual(
-            source.components(separatedBy: "TranslationStore.appendBatch(").count - 1, 1,
-            "write_translation persists through exactly one appendBatch call")
-        XCTAssertEqual(
-            source.components(separatedBy: "TranslationStore.append(").count - 1, 0,
-            "a per-record append inside a loop is what T1 removed — it makes a mid-batch " +
-            "I/O failure leave a partial write")
     }
 
     // MARK: - T2: the equals-source advisory sees the display form
