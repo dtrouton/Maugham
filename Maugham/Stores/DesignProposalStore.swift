@@ -105,6 +105,13 @@ struct DesignProposalStore {
         /// `config.json`, case-folded-unique).
         let filePaths: [String]
         var sampleResult: SampleResult?
+        /// Why this proposal was taken back, written by `ProposalPromotion`'s
+        /// revert (Task 8) — the writer's own words when they gave any, and a
+        /// standing sentence when they did not. Optional, and absent on every
+        /// proposal that was never promoted: a `rejected` proposal with nothing
+        /// to say is one the writer turned down on sight, which is a different
+        /// story from one whose templates shipped and came back.
+        var revertNote: String?
     }
 
     let projectURL: URL
@@ -160,7 +167,7 @@ struct DesignProposalStore {
         let proposal = Proposal(
             id: id, designerName: designerName, round: round, created: Date(),
             status: .pending, specMarkdown: report.specMarkdown,
-            filePaths: report.files.map(\.path), sampleResult: nil)
+            filePaths: report.files.map(\.path), sampleResult: nil, revertNote: nil)
         try write(proposal)
         return proposal
     }
@@ -192,6 +199,21 @@ struct DesignProposalStore {
     func updateStatus(id: String, _ status: Status) throws {
         var proposal = try readProposal(id: id)
         proposal.status = status
+        try write(proposal)
+    }
+
+    /// Reject a proposal AND say why, in one write.
+    ///
+    /// Kept apart from `updateStatus` rather than given to it as an optional
+    /// argument: a note belongs to exactly one status change — `ProposalPromotion`'s
+    /// revert, the only place a proposal is turned down with something to
+    /// explain — and every other caller would have to pass a `nil` that means
+    /// "leave whatever is there", which is the argument that eventually gets
+    /// passed by accident and erases a note.
+    func reject(id: String, note: String) throws {
+        var proposal = try readProposal(id: id)
+        proposal.status = .rejected
+        proposal.revertNote = note
         try write(proposal)
     }
 

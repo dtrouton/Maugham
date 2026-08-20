@@ -235,7 +235,8 @@ final class SampleCompilerTests: XCTestCase {
             id: proposal.id, designerName: proposal.designerName, round: proposal.round,
             created: proposal.created, status: proposal.status,
             specMarkdown: proposal.specMarkdown,
-            filePaths: ["../../../../publish/template.tex"], sampleResult: nil)
+            filePaths: ["../../../../publish/template.tex"], sampleResult: nil,
+            revertNote: nil)
         let before = try snapshot(livePublishDir(projectURL))
 
         XCTAssertThrowsError(
