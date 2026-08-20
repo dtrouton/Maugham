@@ -1,6 +1,6 @@
 # The Right Column
 
-The right column's modes are Inspector (covered on this page), plus Tasks, Annotations, History, Inbox, Translation, Intent, Visual Language, Diagnostics, and References (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
+The right column's modes are Inspector (covered on this page), plus Tasks, Annotations, History, Inbox, Translation, Intent, Visual Language, Diagnostics, References, and Department (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
 
 **Outline, Research, and Palette are not right-column modes.** ⌘⌥O selects the project row, which shows a corkboard or table full-width in the CENTRE column instead of opening anything here — the review board, in Review; a compiled book instead, in Publish, once you have one — see [Structure & the Binder → The project row](structure-and-binder.md#the-project-row). ⌘⌥R and ⌘⌥P open the tree's own Research and Palette sections and scroll to them — see [Research](research.md) — rather than a pane in this column.
 
@@ -11,11 +11,11 @@ Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish —
 - **Plan** — Inbox, Tasks, History, Inspector.
 - **Author** — Diagnostics, Intent, References, Tasks, History, Inspector.
 - **Review** — Annotations, Intent, References, Tasks, History, Inspector.
-- **Publish** — Visual Language, Tasks, Translation, History, Inspector.
+- **Publish** — Department, Visual Language, Tasks, Translation, History, Inspector.
 
-**There is one order, and modes appear and disappear within it.** Reading down the whole set: Diagnostics, Annotations, Inbox, Intent, References, Visual Language, Tasks, Translation, History, Inspector. Every persona above is that same sequence with the modes it doesn't offer taken out — so a mode never moves left or right of a mode it sits beside somewhere else, and you aren't hunting for it in a new place each time you change persona. Tasks marks the break between what you're working *with* and what's flowing *through*; History and Inspector always close the row, with Inspector on the far end.
+**There is one order, and modes appear and disappear within it.** Reading down the whole set: Diagnostics, Annotations, Inbox, Department, Intent, References, Visual Language, Tasks, Translation, History, Inspector. Every persona above is that same sequence with the modes it doesn't offer taken out — so a mode never moves left or right of a mode it sits beside somewhere else, and you aren't hunting for it in a new place each time you change persona. Tasks marks the break between what you're working *with* and what's flowing *through*; History and Inspector always close the row, with Inspector on the far end.
 
-Each persona's default — the mode it opens on — is just the first one it offers: Inbox in Plan, Diagnostics in Author, Annotations in Review, Visual Language in Publish.
+Each persona's default — the mode it opens on — is just the first one it offers: Inbox in Plan, Diagnostics in Author, Annotations in Review, Department in Publish.
 
 **What a persona leads you to is not what it can reach.** The right column shows what you *consult* while making something else, so a persona doesn't lead you to a mode for the thing it's there to make: you write research notes and palette cards in the binder tree — the same tree in every persona — and reach for **References** (⌘⌥E, Author and Review) to see what a chapter or a card is pinned to, or open the tree's own Research/Palette sections (⌘⌥R / ⌘⌥P) to browse them directly. Intent and Visual Language have no tree home at all — **they're right-hand panes everywhere, reached with ⌘⌥N and ⌘⌥V** rather than from any picker. They open, they work, and they stay selected while you use them; switch persona and come back and Plan is on its own modes again.
 
@@ -115,6 +115,10 @@ Research notes, PDFs, recordings, links, palette cards, photographs and loose ca
 **The column studies in Author and Review.** In Plan or Publish the shelf is still there — you can see what a piece is pinned to — but a row isn't a button there: a caption at the bottom reads *"Studying a pin opens here in Author or Review."* Study something in Author, switch to Review and back (or the other way round), and it's still up — what's studied doesn't reset on a persona switch between the two personas that study it, only on leaving to one that doesn't.
 
 **This is the same set Claude is briefed on.** When you press ⌘R the compiler is told what this piece is pinned to, by name — so what you see on the shelf is what it can go and read.
+
+### Department mode (⌘⌥K)
+
+**Publish's desk**, and the mode Publish opens on. It's about the book rather than the chapter you have open: a **Design** section for the book's design, and a **Languages** section with a row per language edition. A project that has neither — no translations, no design round — says so instead of drawing two empty headings.
 
 The right pane also has a **Tasks** mode (⌘⌥T) — see [Tasks & To-Dos](tasks.md) — and an **Annotations** mode (⌘⌥A) — see [Annotations & Suggestions](annotations-and-suggestions.md).
 

@@ -152,7 +152,10 @@ public extension Persona {
     /// Reserved for later milestones of this redesign: `.editions` → publish.
     /// (`.intent` and `.visualLanguage` were reserved here too and are consumed
     /// as of M1A; `.diagnostics` as of M2 Task 8; `.references` as of M2 Plan
-    /// 2's Task 5 — their §6.3 cells are below.)
+    /// 2's Task 5 — their §6.3 cells are below. `.department` is not one of the
+    /// reserved set at all: it is a surface a LATER design asked for, the
+    /// publish-department milestone's own, and it arrives with its citation at
+    /// the `.publish` case.)
     var panes: [DetailSegment] {
         switch self {
         case .plan:
@@ -350,11 +353,31 @@ public extension Persona {
             // exactly as Task 8 re-made it when the third arrived.
             return [.annotations, .intent, .references, .tasks, .history, .inspector]
         case .publish:
-            // Visual Language · Tasks · Translation · History · Inspector.
+            // Department · Visual Language · Tasks · Translation · History ·
+            // Inspector.
             //
-            // Visual language leads, and did before §5.0: §6.3 marks it ● for
-            // Publish and it is Publish's built work today. `.intent` left in
-            // slice 1 — Publish is not where a book's aim is read.
+            // **`.department` ARRIVES and takes the front** (publish-department
+            // P4 Task 1, §5 of
+            // `docs/superpowers/specs/2026-08-19-publish-department-design.md`).
+            // The desk is where this milestone's two named people are run from
+            // — a translator per language, the book designer — and where their
+            // state is read back, which makes it Publish's loop pane in exactly
+            // the sense `.diagnostics` is Author's. It is nobody else's: the
+            // department works on an EDITION, and the edition is Publish's
+            // object.
+            //
+            // **So Publish's landing pane moves off Visual Language**, on the
+            // precedent M2 Task 8 set when Diagnostics moved Author's off
+            // Research. Visual language is what the designer is briefed FROM;
+            // the desk is where the designing is asked for and read back, and
+            // the second is what a writer entering Publish has come to do.
+            // Visual Language is one seat along, and ⌘⌥V still opens it from
+            // any persona.
+            //
+            // Visual language led before this, and had since before §5.0: §6.3
+            // marks it ● for Publish and it was Publish's whole built work
+            // until this milestone. `.intent` left in slice 1 — Publish is not
+            // where a book's aim is read.
             //
             // **`.translation` ARRIVES here in §5.0, reversing the slice-1 move
             // that had just taken it to Review** — the argument is Denver's and
@@ -377,7 +400,8 @@ public extension Persona {
             // holds at all now that Publish carries five panes; a comment
             // stating a weaker reason than the real one is how a later reader
             // acts on the weaker one.
-            return [.visualLanguage, .tasks, .translation, .history, .inspector]
+            return [.department, .visualLanguage, .tasks, .translation,
+                    .history, .inspector]
         }
     }
 
