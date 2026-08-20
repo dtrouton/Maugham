@@ -180,6 +180,16 @@ struct DesignGateView: View {
     var onClose: () -> Void = { }
     var onProposalChanged: (DesignProposalStore.Proposal) -> Void = { _ in }
 
+    /// **The verb standing at its confirmation, published as it comes and
+    /// goes** — `nil` when nothing is waiting on the writer.
+    ///
+    /// Production passes nothing: the dialog below is drawn from the same state
+    /// and needs no witness. It exists because a `.confirmationDialog` belongs
+    /// to the window server and a headless mount can neither read its words nor
+    /// press its buttons — so without this, the one irreversible verb on this
+    /// surface would be the one verb no test could drive past its own press.
+    var onConfirmationChanged: (DesignGateConfirmation?) -> Void = { _ in }
+
     /// Whether the recorded pages are still on disk. Starts `true` so the first
     /// frame draws them — see `DesignGate.panel`'s doc for why that direction.
     @State private var pagesExist = true
@@ -201,6 +211,11 @@ struct DesignGateView: View {
     /// second backup attempt — refused by `ProposalPromotion` with a sentence,
     /// but a disabled control is the cheaper answer.
     @State private var working = false
+
+    /// The verb that has been pressed and is waiting for the writer to say yes
+    /// — `DesignGate.confirmation`'s answer, held until one of its two ways out
+    /// is taken. `nil` the rest of the time, which is most of the time.
+    @State private var pendingConfirmation: DesignGateConfirmation?
 
     private var verbs: [DesignGate.Verb] {
         DesignGate.verbs(status: proposal.status,
@@ -243,6 +258,27 @@ struct DesignGateView: View {
         .onChange(of: proposal.id) { _, _ in
             notice = nil
             words = ""
+        }
+        // **The one verb that asks first** (`DesignGate.confirmation`). The
+        // buttons run the value's own closures rather than deciding anything
+        // here, so the button labelled Finalize is the one that finalizes and a
+        // dismissal — Escape, or a click outside — takes the cancel path like
+        // any other no.
+        .confirmationDialog(
+            pendingConfirmation?.title ?? DesignGate.finalizeConfirmTitle,
+            isPresented: Binding(get: { pendingConfirmation != nil },
+                                 set: { if !$0 { cancelConfirmation() } }),
+            titleVisibility: .visible,
+            presenting: pendingConfirmation
+        ) { confirmation in
+            Button(confirmation.confirmTitle, role: .destructive) {
+                confirmation.perform()
+            }
+            Button(confirmation.cancelTitle, role: .cancel) {
+                confirmation.cancel()
+            }
+        } message: { confirmation in
+            Text(confirmation.message)
         }
     }
 
@@ -452,6 +488,11 @@ struct DesignGateView: View {
     /// publish tree, it is synchronous, and it consumes the writer's words —
     /// which are cleared only when they were spent, `DepartmentPane`'s rule for
     /// the desk's own field.
+    ///
+    /// **And Finalize is handled apart from the other two**: it is the one act
+    /// here with no way back, so the press mints a confirmation and stops. What
+    /// actually runs a verb is `run`, reached either straight from here or from
+    /// the writer's yes.
     private func perform(_ verb: DesignGate.Verb) {
         notice = nil
         guard verb != .requestChanges else {
@@ -463,6 +504,38 @@ struct DesignGateView: View {
             }
             return
         }
+        // **Finalize stops here until the writer says yes** — the press mints
+        // the confirmation and reaches no action. Everything else acts on the
+        // press; `DesignGate.confirmation` is the one place that is decided.
+        if let confirmation = DesignGate.confirmation(
+            for: verb,
+            perform: { confirmed(verb) },
+            cancel: { cancelConfirmation() }) {
+            pendingConfirmation = confirmation
+            onConfirmationChanged(confirmation)
+            return
+        }
+        run(verb)
+    }
+
+    /// The writer said yes: the dialog goes, then the verb runs.
+    private func confirmed(_ verb: DesignGate.Verb) {
+        pendingConfirmation = nil
+        onConfirmationChanged(nil)
+        run(verb)
+    }
+
+    /// …and the two ways of saying no, which do the same thing: nothing.
+    /// Idempotent, because the buttons' own actions and the dialog's dismissal
+    /// both arrive.
+    private func cancelConfirmation() {
+        guard pendingConfirmation != nil else { return }
+        pendingConfirmation = nil
+        onConfirmationChanged(nil)
+    }
+
+    /// One of the three verbs that moves the publish tree, run for real.
+    private func run(_ verb: DesignGate.Verb) {
         working = true
         Task { @MainActor in
             let outcome: DesignGateOutcome

@@ -75,12 +75,21 @@ extension DesignGate {
                     + "restored from the backup, and this round is marked "
                     + "turned down."
             case .finalize:
-                return "Keep this design for good. The templates it replaced "
-                    + "are discarded \u{2014} after this there is nothing to "
-                    + "revert to."
+                return "Keep this design for good. " + DesignGate.finalizeCost
             }
         }
     }
+
+    /// **What finalizing costs, in ONE spelling** — the second sentence of
+    /// `Verb.finalize.help` and the whole message of its confirmation.
+    ///
+    /// One constant rather than two hand-written sentences because the tooltip
+    /// and the dialog are the same promise made twice, and a writer who read the
+    /// hover and then met a different sentence in the dialog would have to work
+    /// out whether the two describe the same act.
+    static let finalizeCost =
+        "The templates it replaced are discarded \u{2014} after this there is "
+        + "nothing to revert to."
 
     /// **Which verbs a proposal offers**, from its own status and the window's
     /// designer session.
@@ -148,6 +157,44 @@ extension DesignGate {
             + "of Maugham wrote. There is nothing here to decide from this "
             + "version."
     }
+
+    // MARK: - Asking first
+
+    /// **The confirmation a verb owes the writer before it runs**, or `nil` for
+    /// one that may act on the press.
+    ///
+    /// **Finalize is the only one, and it is the only one that needs to be.**
+    /// Approve is reversible by name (Revert, offered on the very next frame),
+    /// Request Changes writes nothing to the publish tree, and Revert IS the
+    /// reversal. Finalize is the single act on this surface with no way back —
+    /// it discards the writer's own displaced templates — and it is also the one
+    /// verb whose success changes nothing visible about the proposal, so a
+    /// mis-click would be an irreversible loss that looked like a no-op.
+    ///
+    /// A value with its two ways out rather than a boolean, `ReviewBoardChip
+    /// Verbs`' shape: what the dialog says and what each of its buttons does are
+    /// then one thing a test can hold, and a surface cannot draw a confirmation
+    /// whose Finalize button does something else.
+    static func confirmation(for verb: Verb,
+                             perform: @escaping () -> Void,
+                             cancel: @escaping () -> Void) -> DesignGateConfirmation? {
+        switch verb {
+        case .approve, .requestChanges, .revert:
+            return nil
+        case .finalize:
+            return DesignGateConfirmation(
+                verb: verb, title: finalizeConfirmTitle, message: finalizeCost,
+                confirmTitle: verb.title, cancelTitle: cancelTitle,
+                perform: perform, cancel: cancel)
+        }
+    }
+
+    /// Names the act and asks, rather than "Are you sure?" — a title that could
+    /// stand over any dialog in the app tells a writer who reached it by
+    /// mis-click nothing about what they are about to lose.
+    static let finalizeConfirmTitle = "Finalize this design?"
+
+    static let cancelTitle = "Cancel"
 
     // MARK: - Refusals
 
@@ -240,6 +287,33 @@ enum DesignGateOutcome: Equatable {
     case done(DesignProposalStore.Proposal, sentence: String)
     /// The verb refused, with its own sentence.
     case refused(String)
+}
+
+/// **A verb waiting on the writer's yes** — what the dialog says, and what each
+/// of its two buttons does.
+///
+/// `ReviewBoardChipVerbs.ChipVerb`'s shape and for its reason: a menu item, or
+/// here a dialog, is a set of words with an action behind each of them, and
+/// holding the pair as one value is what makes it possible to assert that the
+/// button labelled Finalize is the one that finalizes. It also makes the
+/// pending confirmation *reachable*: a `.confirmationDialog` is drawn by the
+/// window server and a headless mount cannot press its buttons, so a surface
+/// that kept this only as private view state would put its most destructive
+/// verb out of reach of every test in the suite.
+///
+/// The closures are the view's own — `perform` runs the verb it was holding,
+/// `cancel` drops it — so nothing here decides what a verb does.
+struct DesignGateConfirmation: Identifiable {
+    let verb: DesignGate.Verb
+    let title: String
+    /// What it costs, said before the writer says yes.
+    let message: String
+    let confirmTitle: String
+    let cancelTitle: String
+    let perform: () -> Void
+    let cancel: () -> Void
+
+    var id: String { verb.rawValue }
 }
 
 /// **The gate's actions seam** (P4 Task 6).

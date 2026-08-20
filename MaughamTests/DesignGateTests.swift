@@ -1005,6 +1005,167 @@ final class DesignGateTests: XCTestCase {
         }, "the refusal is not on screen. Published: \(texts.sorted())")
     }
 
+    // MARK: - Finalize asks first
+
+    /// **Finalize is the one verb that asks, and its question names the cost.**
+    ///
+    /// The other three are all recoverable from the surface itself: Approve is
+    /// undone by the Revert it puts on screen the same frame, Request Changes
+    /// moves no byte of the publish tree, and Revert IS the way back. Finalize
+    /// discards the writer's own displaced templates — and it is also the verb
+    /// whose success changes nothing visible about the proposal, so a mis-click
+    /// there is an irreversible loss that looks like a no-op.
+    func test_finalizeIsTheOneVerbThatAsksFirstAndItsQuestionNamesTheCost() throws {
+        for immediate: DesignGate.Verb in [.approve, .requestChanges, .revert] {
+            XCTAssertNil(
+                DesignGate.confirmation(for: immediate, perform: { }, cancel: { }),
+                "\(immediate) is recoverable — a dialog in front of it is "
+                + "ceremony the writer learns to click through")
+        }
+
+        let confirmation = try XCTUnwrap(
+            DesignGate.confirmation(for: .finalize, perform: { }, cancel: { }))
+        XCTAssertEqual(confirmation.verb, .finalize)
+        XCTAssertEqual(confirmation.message, DesignGate.finalizeCost,
+                       "the question must say what is lost, not merely ask "
+                       + "whether the writer is sure")
+        XCTAssertTrue(confirmation.message.localizedCaseInsensitiveContains("discarded"),
+                      confirmation.message)
+        XCTAssertEqual(confirmation.confirmTitle, DesignGate.Verb.finalize.title,
+                       "the button that finalizes is labelled with the verb the "
+                       + "writer pressed")
+        XCTAssertEqual(confirmation.cancelTitle, DesignGate.cancelTitle)
+        XCTAssertFalse(confirmation.title.isEmpty)
+    }
+
+    /// **One spelling of the cost.** The hover and the dialog are the same
+    /// promise made twice; a writer who read one and met a different sentence in
+    /// the other would have to work out whether they describe the same act.
+    func test_theHoverAndTheDialogSayTheCostInTheSameWords() {
+        XCTAssertTrue(DesignGate.Verb.finalize.help.contains(DesignGate.finalizeCost),
+                      "the tooltip must carry the one spelling: "
+                      + DesignGate.Verb.finalize.help)
+    }
+
+    /// **Pressing Finalize reaches no promotion until the writer says yes** — on
+    /// the delivery path, pressed through the accessibility tree the way a click
+    /// presses it.
+    func test_pressingFinalizeReachesNoPromotionUntilTheWriterSaysYes() async throws {
+        let calls = Box(0)
+        let pending = Box<[DesignGateConfirmation?]>([])
+        var actions = DesignGateActions()
+        actions.finalize = { proposal in
+            calls.value += 1
+            return .done(proposal, sentence: DesignGate.finalizedConfirmation)
+        }
+        let window = mountGate(Self.proposal(status: .approved), actions: actions,
+                               onConfirmationChanged: { pending.value.append($0) })
+        _ = try await settling(in: window)
+
+        let confirmation = try await pressAwaitingConfirmation(
+            .finalize, in: window, pending: pending)
+
+        XCTAssertEqual(calls.value, 0,
+                       "the press ran the promotion before the writer had "
+                       + "answered — the confirmation would be decoration")
+        XCTAssertEqual(confirmation.verb, .finalize)
+    }
+
+    /// **Cancelling leaves the promotion exactly as it stood** — against a real
+    /// project, because what a cancelled Finalize must not touch is the backup
+    /// holding the writer's own templates, and a spy closure cannot tell me
+    /// whether that folder is still there.
+    func test_cancellingTheConfirmationLeavesTheBackupStanding() async throws {
+        let project = try Self.publishProject(in: temp.url)
+        let store = DesignProposalStore(projectURL: project)
+        let staged = try store.stage(report: Self.report(), round: 1,
+                                     designerName: "Tschichold", language: nil)
+        let approved = try Self.settled(
+            await DesignGatePromotion.approve(staged, projectURL: project,
+                                              jobManager: CompileJobManager()))
+        let backup = store.proposalDir(id: approved.id)
+            .appendingPathComponent("backup", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path),
+                      "premise: the promotion stands and its backup holds the "
+                      + "writer's originals")
+
+        let pending = Box<[DesignGateConfirmation?]>([])
+        var actions = DesignGateActions()
+        actions.finalize = { proposal in
+            DesignGatePromotion.finalize(proposal, projectURL: project)
+        }
+        let window = mountGate(approved, projectURL: project, actions: actions,
+                               onConfirmationChanged: { pending.value.append($0) })
+        _ = try await settling(in: window)
+
+        let confirmation = try await pressAwaitingConfirmation(
+            .finalize, in: window, pending: pending)
+        confirmation.cancel()
+        _ = await pumpUntil(deadline: 1) { (pending.value.last ?? nil) == nil }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path),
+                      "a cancelled Finalize discarded the backup — the writer "
+                      + "said no and lost their templates anyway")
+        XCTAssertNil(pending.value.last ?? nil,
+                     "…and nothing is left waiting on an answer already given")
+    }
+
+    /// **Saying yes runs the verb, writes the result back, and announces it.**
+    /// The whole of what the press used to do, now one gesture further along —
+    /// including the post the desk in the other column listens for, since a
+    /// confirmation that swallowed it would leave the Design row describing a
+    /// proposal whose backup is gone.
+    func test_confirmingFinalizeRunsTheVerbAndTellsTheRestOfTheWindow() async throws {
+        let project = try Self.publishProject(in: temp.url)
+        let store = DesignProposalStore(projectURL: project)
+        let staged = try store.stage(report: Self.report(), round: 1,
+                                     designerName: "Tschichold", language: nil)
+        let approved = try Self.settled(
+            await DesignGatePromotion.approve(staged, projectURL: project,
+                                              jobManager: CompileJobManager()))
+        let backup = store.proposalDir(id: approved.id)
+            .appendingPathComponent("backup", isDirectory: true)
+
+        var announcements = 0
+        let token = NotificationCenter.default.addObserver(  // adr-0021-ok: a test observing the post, not a production receiver
+            forName: .maughamDesignProposalsChanged, object: nil, queue: .main) { note in
+                guard note.userInfo?[MaughamEvent.scopeIdKey] as? String
+                    == ProjectIdentifier.id(for: project) else { return }
+                announcements += 1
+            }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let pending = Box<[DesignGateConfirmation?]>([])
+        let handedUp = Box<[DesignProposalStore.Status]>([])
+        var actions = DesignGateActions()
+        actions.finalize = { proposal in
+            DesignGatePromotion.finalize(proposal, projectURL: project)
+        }
+        let window = mountGate(approved, projectURL: project, actions: actions,
+                               onProposalChanged: { handedUp.value.append($0.status) },
+                               onConfirmationChanged: { pending.value.append($0) })
+        _ = try await settling(in: window)
+
+        let confirmation = try await pressAwaitingConfirmation(
+            .finalize, in: window, pending: pending)
+        confirmation.perform()
+        _ = await pumpUntil(deadline: 5) { !handedUp.value.isEmpty }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: backup.path),
+                       "the writer said yes and the backup is still there — the "
+                       + "confirmation ate the verb")
+        XCTAssertEqual(handedUp.value, [.approved],
+                       "finalizing changes what can be undone, not what shipped "
+                       + "— but the refreshed proposal still reaches the window")
+        XCTAssertEqual(announcements, 1,
+                       "the desk in the other column never heard the verdict")
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0.contains(DesignGate.finalizedConfirmation) },
+                      "the one verb with no visible status change said nothing "
+                      + "at all. Published: \(texts.sorted())")
+    }
+
     // MARK: - Census (Task 6)
 
     /// **`requestChanges` has one spelling, and both surfaces reach it.**
@@ -1191,17 +1352,42 @@ final class DesignGateTests: XCTestCase {
 
     private func mountGate(
         _ proposal: DesignProposalStore.Proposal,
+        projectURL: URL? = nil,
         actions: DesignGateActions = DesignGateActions(),
         hasOpenProposalRound: Bool = false,
         onClose: @escaping () -> Void = { },
-        onProposalChanged: @escaping (DesignProposalStore.Proposal) -> Void = { _ in }
+        onProposalChanged: @escaping (DesignProposalStore.Proposal) -> Void = { _ in },
+        onConfirmationChanged: @escaping (DesignGateConfirmation?) -> Void = { _ in }
     ) -> NSWindow {
-        mount(AnyView(DesignGateView(proposal: proposal, projectURL: temp.url,
+        mount(AnyView(DesignGateView(proposal: proposal,
+                                     projectURL: projectURL ?? temp.url,
                                      actions: actions,
                                      hasOpenProposalRound: hasOpenProposalRound,
                                      onClose: onClose,
-                                     onProposalChanged: onProposalChanged)),
+                                     onProposalChanged: onProposalChanged,
+                                     onConfirmationChanged: onConfirmationChanged)),
               width: 900)
+    }
+
+    /// Press a verb and wait for the confirmation it owes the writer — the
+    /// dialog itself belongs to the window server, so what a headless mount can
+    /// hold is the value behind it.
+    private func pressAwaitingConfirmation(
+        _ verb: DesignGate.Verb, in window: NSWindow, pending: Box<[DesignGateConfirmation?]>,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws -> DesignGateConfirmation {
+        try press(verb, in: window)
+        _ = await pumpUntil(deadline: 3) { !pending.value.isEmpty }
+        return try XCTUnwrap(pending.value.last ?? nil,
+                             "\(verb) never asked the writer anything",
+                             file: file, line: line)
+    }
+
+    /// A mutable cell an escaping closure can write into from the main actor.
+    /// `DepartmentRunTests.Box`'s twin.
+    private final class Box<Value> {
+        var value: Value
+        init(_ value: Value) { self.value = value }
     }
 
     private func mountDesk(proposals: [DesignProposalStore.Proposal],
