@@ -48,7 +48,7 @@ Everything derived lives under `.maugham/` in the project folder. Each subdirect
 | `.maugham/pending/` | `PendingBuffer` (OpLog area) | Device-partitioned crash-recovery buffer (`<docId>.<slug>.pending.jsonl`). Relocated out of `ops/` so it can't match the op-log glob (tripwire 17 / ADR 0012). Ephemeral; safe to nuke. |
 | `.maugham/trash/` | `TrashStore` | 30-day soft-delete; sweep on app launch |
 | `.maugham/ops/__project__.jsonl` | `ProjectStore+Tasks` | Reserved synthetic doc id for project-scope pane-created tasks (milestone-tasks). The op log is real but no manuscript backs it. **Do not allocate a real document with id `__project__`.** |
-| `.maugham/design/proposals/<proposalId>/` | `DesignProposalStore` | A staged design proposal (`spec.md`, `files/<relative path>`, `proposal.json`), plus `scratch/` and `backup/` once a sample has compiled or a promotion has run. Wholly derived — deleting `.maugham/design/` costs nothing else on disk |
+| `.maugham/design/proposals/<proposalId>/` | `DesignProposalStore` | A staged design proposal (`spec.md`, `files/<relative path>`, `proposal.json`), plus `scratch/` and `backup/` once a sample has compiled or a promotion has run. Derived — deleting `.maugham/design/` costs nothing else on disk — **with one honest exception: while a promotion stands, that proposal's `backup/` is the only copy of the templates it displaced**, until `ProposalPromotion.revert` puts them back or `.finalize` lets them go. `delete(id:)` refuses over a standing backup for exactly that window |
 
 Don't invent new top-level subdirs without a reason. If you need a new one, the convention is: lowercase noun, plural if it's a collection of records.
 
@@ -208,6 +208,19 @@ never the bytes themselves once approved (those land in the live
 `.maugham/publish/` tree, `ProposalPromotion`'s job, in
 `Maugham/Publish/`). Deleting the whole directory costs nothing else on
 disk, the same contract `TrashStore`'s and `CanvasStore`'s directories carry.
+
+**…with one window in which that is not true, and `delete(id:)` guards it.**
+Once a promotion stands, the promoted proposal's `backup/` holds the ONLY
+copy of the live templates it displaced: not the proposal (which holds the
+new ones), not the live tree (which now has the new ones), nowhere else on
+disk. Deleting the folder then is not discarding a design round the writer
+turned down — it destroys their originals while the new design is still
+shipping. So `delete` throws `.promotionBackupStands(id:)` while `backup/`
+exists, and the two ways out of that window are the promotion's own verbs:
+`ProposalPromotion.revert` (put the originals back) or `.finalize` (keep the
+new design and let them go, deliberately, by name). `backupDir(id:)` is
+spelled on this store rather than in the promotion that writes it, because
+the store owns the proposal directory's layout and `delete` has to know.
 
 ## Role identity — `ResearchItem.role` (2026-07-11)
 

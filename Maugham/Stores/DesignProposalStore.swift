@@ -28,8 +28,23 @@ import Foundation
 @MainActor
 struct DesignProposalStore {
 
-    enum StoreError: Error, Equatable {
+    enum StoreError: Error, Equatable, CustomStringConvertible {
         case notFound(id: String)
+        /// `delete` refused: a promotion of this proposal stands, and its
+        /// `backup/` is the only copy of the templates it displaced.
+        case promotionBackupStands(id: String)
+
+        var description: String {
+            switch self {
+            case .notFound(let id):
+                return "no design proposal \(id)."
+            case .promotionBackupStands(let id):
+                return "\(id) is promoted and its backup holds the only copy of "
+                    + "the templates it replaced — deleting it now would take "
+                    + "your originals with it. Revert the promotion to put them "
+                    + "back, or finalize it to keep this design and let them go."
+            }
+        }
     }
 
     /// `pending`/`approved`/`rejected`/`superseded` are every status this
@@ -132,6 +147,15 @@ struct DesignProposalStore {
         proposalsDir.appendingPathComponent(id, isDirectory: true)
     }
 
+    /// Where `ProposalPromotion` holds the live templates a promotion of this
+    /// proposal displaced. The path is spelled HERE, once, rather than in the
+    /// promotion that writes it: this store owns the proposal directory's
+    /// layout, and `delete` below has to know about the backup, because while
+    /// one stands this directory is not merely derived.
+    func backupDir(id: String) -> URL {
+        proposalDir(id: id).appendingPathComponent("backup", isDirectory: true)
+    }
+
     // MARK: - Staging
 
     /// Stage a finished designer report as a new `pending` proposal.
@@ -231,10 +255,23 @@ struct DesignProposalStore {
 
     // MARK: - Delete
 
+    /// Discard a proposal whole.
+    ///
+    /// **Refuses while a promotion of it stands.** Everything under
+    /// `.maugham/design/` is derived — except for the window between `approve`
+    /// and `revert`/`finalize`, when this proposal's `backup/` holds the only
+    /// copy of the live templates it displaced. Deleting it then is not
+    /// discarding a design round the writer did not want; it is destroying the
+    /// templates they had before the round, with the new ones still shipping.
+    /// The way out is `ProposalPromotion.revert` (take the promotion back) or
+    /// `.finalize` (keep it, and let the originals go on purpose).
     func delete(id: String) throws {
         let dir = proposalDir(id: id)
         guard FileManager.default.fileExists(atPath: dir.path) else {
             throw StoreError.notFound(id: id)
+        }
+        guard !FileManager.default.fileExists(atPath: backupDir(id: id).path) else {
+            throw StoreError.promotionBackupStands(id: id)
         }
         try FileManager.default.removeItem(at: dir)
     }

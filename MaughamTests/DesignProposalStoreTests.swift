@@ -258,6 +258,56 @@ final class DesignProposalStoreTests: XCTestCase {
         XCTAssertTrue(try store.list().isEmpty)
     }
 
+    /// **The one window in which a proposal folder is not merely derived.**
+    /// Between `ProposalPromotion.approve` and its `revert`/`finalize`, this
+    /// proposal's `backup/` holds the ONLY copy of the live templates the
+    /// promotion displaced — they are not in the proposal (which holds the new
+    /// ones), not in the live tree (which now has the new ones), and nowhere
+    /// else on disk. Deleting the folder then does not discard a design round
+    /// the writer turned down; it destroys their originals while the new design
+    /// is still shipping.
+    ///
+    /// Built by hand rather than through a real promotion: what `delete` reads
+    /// is the presence of that directory, and this suite is the store's, not the
+    /// promotion's. `ProposalPromotionTests` owns the promotion end.
+    ///
+    /// Disable experiment: drop the `backupDir` guard in `delete` and this fails
+    /// on the missing throw, with the folder — originals and all — gone.
+    func test_delete_refusesWhileAPromotionsBackupStands() throws {
+        let project = try makeProject()
+        let store = DesignProposalStore(projectURL: project)
+        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let held = store.backupDir(id: staged.id).appendingPathComponent("files")
+        try FileManager.default.createDirectory(at: held, withIntermediateDirectories: true)
+        try "LIVE ORIGINAL".write(
+            to: held.appendingPathComponent("template.tex"), atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try store.delete(id: staged.id)) { error in
+            XCTAssertEqual(error as? DesignProposalStore.StoreError,
+                           .promotionBackupStands(id: staged.id))
+        }
+        XCTAssertEqual(
+            try String(contentsOf: held.appendingPathComponent("template.tex"), encoding: .utf8),
+            "LIVE ORIGINAL", "the writer's originals survive the ask")
+        XCTAssertNoThrow(try store.load(id: staged.id), "and so does the proposal")
+    }
+
+    /// The complement: with the backup gone — reverted or finalized — the folder
+    /// is derived again and deletes like any other.
+    func test_delete_proceedsOnceTheBackupIsGone() throws {
+        let project = try makeProject()
+        let store = DesignProposalStore(projectURL: project)
+        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let backup = store.backupDir(id: staged.id)
+        try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        XCTAssertThrowsError(try store.delete(id: staged.id), "fixture: the guard is live")
+
+        try FileManager.default.removeItem(at: backup)
+
+        try store.delete(id: staged.id)
+        XCTAssertTrue(try store.list().isEmpty)
+    }
+
     func test_delete_unknownId_throwsNotFound() throws {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
