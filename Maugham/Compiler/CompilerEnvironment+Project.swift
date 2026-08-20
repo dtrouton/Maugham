@@ -197,26 +197,14 @@ extension CompilerOrchestrator.Environment {
                 return world
             },
             bibleSlice: { [weak bible] deltaProse in
-                guard let bible else { return [] }
-                // **The slice rule, decided here because this is the only place
-                // that holds the ledger.** A fact rides along when its
-                // SUBJECT's string occurs in the delta's prose,
-                // case-insensitively — spec §5's "a run about Kelly's scene
-                // carries Kelly's facts, not the ledger". Substring rather than
-                // word-boundary matching on purpose: subjects are the model's
-                // own phrases ("the Fitzgerald house") as often as they are
-                // single names, and possessives and plurals ("Kelly's") must
-                // still count. The cost is a rare over-inclusion — a subject
-                // that happens to be a common word carries its facts into a run
-                // that is not about it — which is a slightly larger prompt, not
-                // a wrong note.
-                let subjects = Set(
-                    bible.allFacts().map(\.subject).filter { subject in
-                        !subject.isEmpty
-                            && deltaProse.range(of: subject, options: .caseInsensitive) != nil
-                    })
-                guard !subjects.isEmpty else { return [] }
-                return bible.facts(subjects: subjects)
+                // **The slice rule lives on the store** (`BibleStore
+                // .slice(matching:)`), not here, because the translator's
+                // briefing now slices the same ledger — and two copies of the
+                // rule is how the two runs would come to disagree about which
+                // facts a run is entitled to. What stays here is the
+                // compiler's own answer to WHAT prose to slice against: this
+                // run's delta.
+                bible?.slice(matching: deltaProse) ?? []
             },
             annotationContext: { [weak documentStore] docId in
                 // **⌘R requires an open document**, so this resolves in every
@@ -359,9 +347,9 @@ extension CompilerOrchestrator.Environment {
             },
             writeMCPConfig: {
                 try ClaudeCLISession.writeMCPConfig(
-                    bridgeBinary: bridgeBinary,
+                    bridgeBinary: ClaudeCLISession.bridgeBinary,
                     socketPath: BuildVariant.current.mcpSocketPath,
-                    to: sessionConfigDirectory)
+                    to: ClaudeCLISession.sessionConfigDirectory)
             },
             makeRunner: { configURL, model in
                 ClaudeCLISession(
@@ -400,21 +388,7 @@ extension CompilerOrchestrator.Environment {
         }
     }
 
-    // MARK: - The session's bridge config
-
-    /// The same binary the setup sheet points Claude Desktop at
-    /// (`HelpClaudeDesktopSheet.binaryPath`) — the compiler reaches Maugham
-    /// through the identical bridge, so there is nothing variant-specific here
-    /// beyond `BuildVariant`'s own socket (tripwire 13).
-    private static var bridgeBinary: URL {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/maugham-mcp")
-    }
-
-    /// One directory for every session config this machine writes, so a config
-    /// orphaned by a crash is findable rather than scattered through the temp
-    /// root. The orchestrator deletes its own on shutdown.
-    private static var sessionConfigDirectory: URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("maugham-compiler", isDirectory: true)
-    }
+    // The session's bridge config — the binary and the directory — lives on
+    // `ClaudeCLISession` itself now that the translator spawns sessions too
+    // (`ClaudeCLISession.bridgeBinary` / `.sessionConfigDirectory`).
 }

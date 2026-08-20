@@ -18,19 +18,37 @@ func currentParagraphState(
     guard let entry = registry.lookup(id: projectId) else {
         throw MCPError.unknownProjectID(projectId)
     }
+    return try currentParagraphState(
+        documentId: documentId, store: entry.store,
+        documentStore: entry.store.documentStore, projectURL: entry.url)
+}
+
+/// The same resolution with the project already in hand — what the translator
+/// loop's production wiring calls (`TranslatorEnvironment+Project.swift`),
+/// which holds its window's stores directly and has no registry to look
+/// anything up in.
+///
+/// **One spelling of tripwire 20's rule**, which is why the registry version
+/// above is a two-line wrapper around this one: a second copy of "open doc →
+/// live `Document`, closed doc → derived" is a second answer to what the
+/// current source text is, and the write pipeline hashes against whatever it
+/// is given.
+@MainActor
+func currentParagraphState(
+    documentId: String, store: ProjectStore, documentStore: DocumentStore?, projectURL: URL
+) throws -> (sequence: [String], paragraphs: [String: String], projectURL: URL) {
     // Open doc → live Document.
-    if let ds = entry.store.documentStore,
-       let doc = ds.document(forDocId: documentId) {
-        return (doc.sequence, doc.paragraphs, entry.url)
+    if let doc = documentStore?.document(forDocId: documentId) {
+        return (doc.sequence, doc.paragraphs, projectURL)
     }
     // Closed doc → op-log-derived state. Verify the id resolves to a manuscript
     // item first so an unknown id fails cleanly rather than deriving empty.
-    guard TreeWalk.find(id: documentId, in: entry.store.manifest.structure) != nil else {
+    guard TreeWalk.find(id: documentId, in: store.manifest.structure) != nil else {
         throw MCPError.invalidArgument(
             "document_id not found in project manifest: \(documentId)")
     }
-    let state = try entry.store.derivedCache.state(forDocId: documentId, in: entry.url)
-    return (state.sequence, state.paragraphs, entry.url)
+    let state = try store.derivedCache.state(forDocId: documentId, in: projectURL)
+    return (state.sequence, state.paragraphs, projectURL)
 }
 
 // MARK: - write_translation
@@ -88,92 +106,28 @@ public enum WriteTranslationTool: MCPTool {
     ) async throws -> Data {
         let params = try decodeParams(Params.self, from: paramsJSON)
 
-        // 1. Valid language tag.
-        guard TranslationRecord.isValidLanguageTag(params.language) else {
-            throw MCPError.invalidArgument("invalid language tag: \(params.language)")
-        }
+        // 1. Valid language tag — the pipeline's own gate, called here so a
+        // malformed tag is refused before the registry is touched.
+        try TranslationWritePipeline.validate(language: params.language)
 
         let state = try currentParagraphState(
             projectId: params.project_id,
             documentId: params.document_id,
             registry: registry)
 
-        // 2. Each entry supplies exactly one of `text` / `verbatim: true` /
-        // `delete: true`.
-        for e in params.entries {
-            let forms = [e.text != nil, e.verbatim == true, e.delete == true]
-            if forms.filter({ $0 }).count != 1 {
-                throw MCPError.invalidArgument(
-                    "entry for paragraph \(e.paragraph_id) must supply exactly one of " +
-                    "`text`, `verbatim: true` or `delete: true`")
-            }
-        }
-
-        // 2a. Reject intra-batch duplicate paragraph ids (a client bug).
-        let ids = params.entries.map(\.paragraph_id)
-        let duplicates = Array(Set(ids.filter { id in ids.filter { $0 == id }.count > 1 })).sorted()
-        if !duplicates.isEmpty {
-            throw MCPError.invalidArgument(
-                "duplicate paragraph ids in batch: \(duplicates.joined(separator: ", "))")
-        }
-
-        // 3. All-or-nothing: every id a `text` or `verbatim` entry names must be
-        // in the current sequence. A `delete` entry is exempt — an orphaned
-        // translation names a paragraph the document no longer has, which is
-        // exactly the one a writer needs to purge, and tombstoning an id that
-        // was never translated is an idempotent no-op. The exemption is per
-        // entry, not per batch: a text entry's unknown id still rejects the
-        // whole call, its delete siblings included.
-        let known = Set(state.sequence)
-        let unknown = params.entries
-            .filter { $0.delete != true }
-            .map(\.paragraph_id)
-            .filter { !known.contains($0) }
-        if !unknown.isEmpty {
-            throw MCPError.invalidArgument(
-                "unknown paragraph ids: \(unknown.joined(separator: ", "))")
-        }
-
-        // 4-6. Build every record first, then persist the whole batch in one
-        // write, so "nothing is written" holds for an I/O failure and not only
-        // for a validation failure. Every record carries `params.language` —
-        // one call is one language, the invariant `appendBatch` takes the tag
-        // as a parameter for and does not re-check per record.
-        let deviceSlug = DeviceSlug.make(from: MacDeviceID.current)
-        var warnings: [String] = []
-        var records: [TranslationRecord] = []
-        for e in params.entries {
-            let source = state.paragraphs[e.paragraph_id] ?? ""
-            let isVerbatim = e.verbatim == true
-            let isDelete = e.delete == true
-            // `text == nil` is the tombstone `TranslationStore.latestByParagraph`
-            // already honors — the delete form is what finally mints one.
-            let text: String? = isDelete ? nil : (isVerbatim ? source : (e.text ?? ""))
-            records.append(TranslationRecord(
-                paragraphId: e.paragraph_id,
-                language: params.language,
-                text: text,
-                sourceHash: TranslationHash.hash(source),
-                verbatim: isVerbatim))
-            if !isVerbatim, !isDelete, let translation = text {
-                warnings.append(contentsOf: ConstructSkeleton.warnings(
-                    source: source, translation: translation, paragraphId: e.paragraph_id))
-                // Both sides in display form, normalized through the same
-                // stripper the freshness hash normalizes with: against the raw
-                // source this comparison could never fire on an anchored
-                // paragraph — a slugline or a numeral, the very lines the
-                // advisory exists for.
-                if MarkdownDisplayFilter.stripAnchors(translation)
-                    == MarkdownDisplayFilter.stripAnchors(source) {
-                    warnings.append(
-                        "¶\(e.paragraph_id): translated text equals source — mark " +
-                        "verbatim: true if deliberate")
-                }
-            }
-        }
-        try TranslationStore.appendBatch(
-            records, forDocId: params.document_id, language: params.language,
-            deviceSlug: deviceSlug, in: state.projectURL)
+        // 2-6. Validation, record building and the single append all belong to
+        // the pipeline, which the coming ingest path shares (census:
+        // TripwireGrepTests). The tool's job is the wire form on either side.
+        let warnings = try TranslationWritePipeline.perform(
+            entries: params.entries.map {
+                TranslationWritePipeline.Entry(
+                    paragraphId: $0.paragraph_id, text: $0.text,
+                    verbatim: $0.verbatim, delete: $0.delete)
+            },
+            language: params.language,
+            documentId: params.document_id,
+            state: state,
+            deviceSlug: DeviceSlug.make(from: MacDeviceID.current))
 
         // 7. Notify any live window on this project so an in-progress
         // translation-review posture re-derives its read-only surface (a
@@ -294,17 +248,11 @@ public enum ReadTranslationTool: MCPTool {
 /// already (a rename or a prior mint both count), else the preset name, else
 /// nil — an unlisted, unminted language has no honest name to report.
 ///
-/// Matching mirrors `ProjectStore.storedTranslator(for:)`'s case-insensitive
-/// tag compare (that helper is private to the store file, so this reads the
-/// manifest directly rather than sharing it) — `ES` and `es` are one
-/// language, and a regional tag like `es-MX` is its own, exactly as
-/// `defaultTranslatorName` treats it.
+/// Matching is `ProjectManifest.storedTranslator(for:)`'s — the one spelling of
+/// the case-insensitive tag compare, shared with the mint's own find-half, so
+/// no reader can disagree with the writer about which row is this language's.
 func translatorName(for language: String, in manifest: ProjectManifest) -> String? {
-    let stored = manifest.productionRoles.first { role in
-        guard case .translator(let tag) = role.role else { return false }
-        return tag.caseInsensitiveCompare(language) == .orderedSame
-    }
-    if let stored { return stored.effectiveName }
+    if let stored = manifest.storedTranslator(for: language) { return stored.effectiveName }
     return ProductionRole.defaultTranslatorName(language: language)
 }
 
@@ -339,7 +287,8 @@ public enum TranslationStatusTool: MCPTool {
         "`missing` — plus `verbatim` (of the translated paragraphs, how many are copied " +
         "unchanged from source rather than actually translated), `orphans` (translations " +
         "whose source paragraph was deleted), and `open_queries` (unresolved translator " +
-        "questions raised against that language). A language shows up here as soon as a " +
+        "questions raised against that language, whole-document ones included). A " +
+        "language shows up here as soon as a " +
         "translator asks a query against it, even before any translation file exists for " +
         "it — that row's coverage counts are all zero (nothing to derive yet) with " +
         "`open_queries` real, distinct from a language that has files but nothing missing. " +
@@ -381,11 +330,22 @@ public enum TranslationStatusTool: MCPTool {
             // can ask about a language before any file for it exists, so the
             // row set is the UNION of file languages and languages tagged on
             // an open query, not file languages alone.
+            //
+            // **Craft notes count too.** A whole-document translation
+            // question ("tú or usted throughout?") cannot be a `.query` —
+            // `addAnnotation` refuses an anchorless one — so it mints as a
+            // language-tagged `.craftNote`, and counting only `.query` here
+            // reported `open_queries: 0` over a translator who was waiting on
+            // an answer. The tag does the discriminating: an untagged craft
+            // note has a nil `language` and survives neither the filter below
+            // nor `queryLanguages`. The translator's own briefing gather
+            // widened the same one way, so what the writer is told and what
+            // the next round is briefed on cannot disagree.
             let openQueries = try await withAnnotationDocument(
                 projectId: params.project_id, documentId: docId, registry: registry
             ) { doc in
                 doc.annotations(filter: AnnotationFilter(
-                    kinds: [.query], statuses: [.open]))
+                    kinds: [.query, .craftNote], statuses: [.open]))
             }
             let queryLanguages = Set(openQueries.compactMap(\.language))
             let languages = fileLanguages.union(queryLanguages).sorted()

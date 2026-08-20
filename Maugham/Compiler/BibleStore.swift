@@ -116,6 +116,31 @@ final class BibleStore {
         Array(byId.values)
     }
 
+    /// **The slice rule, stated once because two runs now brief off it.** A
+    /// fact rides along when its SUBJECT's string occurs in `prose`,
+    /// case-insensitively — spec §5's "a run about Kelly's scene carries
+    /// Kelly's facts, not the ledger". Substring rather than word-boundary
+    /// matching on purpose: subjects are the model's own phrases ("the
+    /// Fitzgerald house") as often as they are single names, and possessives
+    /// and plurals ("Kelly's") must still count. The cost is a rare
+    /// over-inclusion — a subject that happens to be a common word carries
+    /// its facts into a run that is not about it — which is a slightly larger
+    /// prompt, not a wrong note.
+    ///
+    /// The compiler slices its delta with it; the translator slices this
+    /// round's work-list with it, so an established gender or age reaches the
+    /// grammatical choice that needs it. A second copy of the rule is how the
+    /// two would come to disagree about which facts a run is entitled to.
+    func slice(matching prose: String) -> [BibleFact] {
+        let subjects = Set(
+            allFacts().map(\.subject).filter { subject in
+                !subject.isEmpty
+                    && prose.range(of: subject, options: .caseInsensitive) != nil
+            })
+        guard !subjects.isEmpty else { return [] }
+        return facts(subjects: subjects)
+    }
+
     /// Add `candidates` to the ledger, deduping on `(subject, fact)`
     /// case-insensitively against what is already recorded — re-running a
     /// compiler pass over the same delta must not double an entry it already

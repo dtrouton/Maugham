@@ -49,7 +49,11 @@ public struct Annotation: Equatable, Sendable, Identifiable {
     public let author: AnnotationAuthor?         // who created it (provenance)
     public let span: SpanAnchor?                 // sub-paragraph anchor, if any
     public let resolvedSpanRange: Range<Int>?    // re-resolved against live text
-    public let language: String?                 // .query only: translation-pass language tag
+    /// Translation-pass language tag — on a `.query`, and on the `.craftNote`
+    /// a whole-document translation question has to mint as (`addAnnotation`
+    /// refuses an anchorless `.query`). Nil on every other kind, and on a
+    /// craft note nobody tagged.
+    public let language: String?
     /// RULING-31: after a reopen, the most recent rejection's written reason
     /// stays part of the note's record — the pane shows it as
     /// "previously rejected: …". Nil when the note was never rejected or is

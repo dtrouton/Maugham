@@ -209,6 +209,26 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         return hasDesigner ? productionRoles : [ProductionRole.presetDesigner] + productionRoles
     }
 
+    /// The STORED translator for a language tag, or nil — **the one spelling of
+    /// the tag match**, shared by everything that asks the question:
+    /// `ProjectStore.translatorRole(for:)`'s find-half, the read-only
+    /// `translatorName(for:in:)`, and the translator loop's briefing.
+    ///
+    /// Asked of the stored list rather than `effectiveProductionRoles` on
+    /// purpose: the merge only ever supplies a designer, and this is the list a
+    /// mint appends to.
+    ///
+    /// Matching is **case-insensitive on the tag** — the tag arrives from
+    /// whatever named the edition, and `ES` and `es` are one person's language
+    /// — and otherwise exact: `es-MX` is a language of its own, exactly as it
+    /// is in `ProductionRole.defaultTranslatorName`'s table.
+    public func storedTranslator(for language: String) -> ProductionRole? {
+        productionRoles.first { role in
+            guard case .translator(let tag) = role.role else { return false }
+            return tag.caseInsensitiveCompare(language) == .orderedSame
+        }
+    }
+
     public var targets: ProjectTargets?
 
     /// Per-project typography override. When non-nil, takes precedence over

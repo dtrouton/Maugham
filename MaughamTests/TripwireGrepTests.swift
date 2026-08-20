@@ -4566,4 +4566,122 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: the planted second join site in SomeNewDedupe.swift "
             + "should fire.")
     }
+
+    // MARK: - Translation write-batch census (publish department P2, Task 1)
+
+    /// Every production site that appends a batch of `TranslationRecord`s.
+    /// Comment lines are skipped: this counts CALL sites, and the pipeline
+    /// names the batch append in the prose right above it.
+    private func translationBatchAppendSites() throws -> [String] {
+        try grepSwift(
+            in: sourceDir,
+            patterns: ["TranslationStore.appendBatch("],
+            excludeLine: Self.isCommentLine)
+    }
+
+    /// Recurrence-tripper: **one translation write pipeline.** Everything that
+    /// makes a batch of translated paragraphs safe — exactly one of
+    /// text/verbatim/delete per entry, no intra-batch duplicate ids, the
+    /// unknown-id all-or-nothing rule that `delete` is exempt from, the
+    /// server-stamped `TranslationHash.hash(source)` no caller may supply, and
+    /// the single coordinated `appendBatch` that makes "nothing is written"
+    /// hold for an I/O failure too — lives in `TranslationWritePipeline`. A
+    /// second production site that builds records and appends them is a second
+    /// pipeline, and two pipelines drift: the MCP tool and the coming ingest
+    /// path would disagree about which batches are legal and which hashes are
+    /// trustworthy, silently, with the writer's translation as the evidence.
+    ///
+    /// This is a CENSUS, not an allow/deny grep: `appendBatch` is a REQUIRED
+    /// call, so what is guarded is the number and identity of its callers.
+    ///
+    /// Two sanctioned sites, and the second is a deliberate exception:
+    /// `TranslationReviewPaneLogic.purgeOrphans` appends TOMBSTONES ONLY. It
+    /// builds no translated text, stamps no source hash against live text (an
+    /// orphan's paragraph is gone, so it hashes `""`), and validates nothing
+    /// the pipeline validates, because a purge has no `text` entry to check.
+    /// It is the Mac side's own removal path (spec §2.2 — orphans never leave
+    /// through MCP), not a way in for new translations.
+    func test_theTranslationWritePipelineIsTheOnlyPlaceAWriteBatchIsAppended() throws {
+        let sites = try translationBatchAppendSites()
+
+        XCTAssertEqual(sites.count, 2,
+            "Expected exactly TWO production appendBatch sites: "
+            + "TranslationWritePipeline.swift (the one write pipeline) and "
+            + "TranslationReviewPane.swift (the tombstone-only orphan purge). "
+            + "A new site is a second write pipeline — route it through "
+            + "TranslationWritePipeline.perform instead, so the MCP tool and "
+            + "the ingest path cannot disagree about validation or the "
+            + "server-stamped source hash. Found:\n"
+            + sites.joined(separator: "\n"))
+        XCTAssertEqual(sites.filter { $0.hasPrefix("TranslationWritePipeline.swift:") }.count, 1,
+            "The one write pipeline should append exactly once. Found:\n"
+            + sites.joined(separator: "\n"))
+        XCTAssertEqual(sites.filter { $0.hasPrefix("TranslationReviewPane.swift:") }.count, 1,
+            "The orphan purge should append exactly once. Found:\n"
+            + sites.joined(separator: "\n"))
+        XCTAssertTrue(sites.allSatisfy {
+            $0.hasPrefix("TranslationWritePipeline.swift:")
+                || $0.hasPrefix("TranslationReviewPane.swift:")
+        }, "Unsanctioned appendBatch site. Found:\n" + sites.joined(separator: "\n"))
+
+        // Carried over from the retired WriteTranslationToolTests census: a
+        // per-record `append` inside a loop leaves a partial write when the
+        // I/O fails midway, which is exactly what the single batch removed.
+        let perRecord = try grepSwift(
+            in: sourceDir,
+            patterns: ["TranslationStore.append("],
+            excludeLine: Self.isCommentLine)
+        XCTAssertTrue(perRecord.isEmpty,
+            "A per-record TranslationStore.append inside a loop makes a "
+            + "mid-batch I/O failure leave a partial write. Build every record "
+            + "first and persist the batch in one call. Found:\n"
+            + perRecord.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the census FIRES on a planted third site — the real
+    /// defect it guards. An allow/deny grep for a forbidden token could not
+    /// catch a third occurrence of a REQUIRED one.
+    func test_theTranslationBatchCensusFiresOnAPlantedThirdSite() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-translationbatch-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        enum TranslationWritePipeline {
+            static func perform() throws {
+                try TranslationStore.appendBatch(
+                    records, forDocId: docId, language: language,
+                    deviceSlug: slug, in: url)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("TranslationWritePipeline.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        enum TranslationIngest {
+            // A second write pipeline — planted offender. The comment below
+            // mentions TranslationStore.appendBatch( and must NOT be counted.
+            static func ingest() throws {
+                try TranslationStore.appendBatch(
+                    records, forDocId: docId, language: language,
+                    deviceSlug: slug, in: url)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("TranslationIngest.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let sites = try grepSwift(
+            in: tmp,
+            patterns: ["TranslationStore.appendBatch("],
+            excludeLine: Self.isCommentLine)
+        XCTAssertEqual(sites.count, 2,
+            "Self-check expected two call sites (the pipeline plus the planted "
+            + "ingest), with the prose mention skipped. Got:\n"
+            + sites.joined(separator: "\n"))
+        XCTAssertTrue(sites.contains { $0.hasPrefix("TranslationIngest.swift:") },
+            "Self-check: the planted second pipeline should fire.")
+        XCTAssertFalse(sites.contains { $0.contains("must NOT be counted") },
+            "Self-check: a prose mention in a comment is not a call site.")
+    }
 }

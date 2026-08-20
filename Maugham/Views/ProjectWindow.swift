@@ -203,6 +203,13 @@ struct ProjectWindow: View {
     /// column reads the run the centre column's ⌘R started. Wired in `load()`,
     /// where the stores exist; torn down in `.onDisappear`.
     @State private var compiler = CompilerOrchestrator()
+    /// The translator's run state and its warm `claude` session (publish
+    /// department P2), owned beside the compiler for the compiler's reason: a
+    /// run is started from one column and read in another. Wired in `load()`;
+    /// torn down wherever the compiler is — `.onDisappear` here, app quit and
+    /// the AI toggle in `CompilerRunModifier`. A session merely released is a
+    /// live, billing process (`TranslatorOrchestrator`'s own contract).
+    @State private var translator = TranslatorOrchestrator()
     /// The Intent pane's two lower strata (declared-world Task 6): Claude's
     /// bible of what the manuscript has established, and the per-scope cache of
     /// its readings of the writer's statements.
@@ -355,12 +362,14 @@ struct ProjectWindow: View {
                 // would keep the whole project graph alive in the husk — and
                 // its `claude` subprocess alive with it.
                 compiler.detach()
+                translator.detach()
                 store = nil
                 documentStore = nil
                 lastParsedScript = nil
             }
         }
         .modifier(CompilerRunModifier(orchestrator: compiler,
+                                      translator: translator,
                                       window: window,
                                       activeDocId: activeDocId,
                                       mcpEnabled: userPreferences.mcpEnabled))
@@ -2664,6 +2673,10 @@ struct ProjectWindow: View {
             onCompilerModelChange: { newValue in
                 compilerModel = newValue
                 compiler.updateModel(newValue.claudeModel)
+                // The translator runs on the compiler's model — one setting,
+                // both spawners. Lazily retired, so a change made mid-round
+                // never kills the round in flight.
+                translator.updateModel(newValue.claudeModel)
                 documentStore.updateUIState { $0.compilerModel = newValue }
             },
             assistant: assistant,
@@ -3415,6 +3428,24 @@ struct ProjectWindow: View {
                 diagnostics: DiagnosticsStore(
                     projectRoot: url,
                     device: DeviceSlug.make(from: MacDeviceID.current)))
+            // The translator's loop, wired beside the compiler's and for its
+            // reason. It has no run verb yet — a translation is started from
+            // the desk (P4) — so what a finished run has to say goes to the
+            // log until that desk exists to say it to.
+            translator.configure(
+                environment: .production(
+                    store: s, documentStore: ds, projectURL: url,
+                    // The same ledger the compiler was handed a few lines up,
+                    // and for the run's own reason: a fact the manuscript has
+                    // established about a person is a grammatical choice in
+                    // most of the languages this loop translates into.
+                    bible: bibleStore,
+                    preferences: userPreferences,
+                    model: ds.uiState.compilerModel.claudeModel,
+                    onRunEnded: { summary in
+                        _projectWindowLog.info(
+                            "translation run \(summary.runId, privacy: .public) ended for \(summary.docId, privacy: .public)/\(summary.language, privacy: .public)")
+                    }))
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
 

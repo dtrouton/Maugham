@@ -116,6 +116,7 @@ final class CompilerAllowlistTests: XCTestCase {
             "read_document",
             "read_craft_intent",
             "read_visual_language",
+            "read_edition_brief",
             "list_palette_cards",
             "read_palette_card",
             "list_research",
