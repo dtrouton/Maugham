@@ -74,15 +74,16 @@ struct TranslatorReport: Equatable {
         "text":<the question>}]}
         Every entry names the paragraph it answers for and supplies \
         exactly one of two forms: "text" is the translated paragraph in \
-        full, replacing the source; "verbatim": true means this \
-        paragraph carries over unchanged — a proper name, a line of \
+        full and never empty, replacing the source; "verbatim": true \
+        means this paragraph carries over unchanged — a proper name, a line of \
         code, anything left untranslated on purpose — and takes no \
         "text" beside it. An entry with both forms or neither makes the \
         whole report unusable, so when unsure about one paragraph, leave \
         it out of entries rather than guess at a form. A query is a \
         question for the writer, never a translation decision: give it \
         "paragraph_id" when it is about one paragraph, or leave that key \
-        out for a question about the piece as a whole. There is no way \
+        out for a question about the piece as a whole; its "text" must not \
+        be empty either. There is no way \
         to retract a translation through this report — un-translating a \
         paragraph is the writer's own act, not this run's. An empty \
         "entries" and an empty "queries" is a complete, valid answer for \
@@ -93,9 +94,12 @@ struct TranslatorReport: Equatable {
 
     /// Parse one turn's output. `nil` means unusable as a whole: no
     /// complete JSON object could be found, the object found is not shaped
-    /// like this contract, or any entry breaks the exactly-one-form rule.
+    /// like this contract, any entry breaks the exactly-one-form rule, or any
+    /// entry or query carries empty text (which is the same refusal — an
+    /// empty `text` reads as no `text` at all).
     /// An empty `entries` and empty `queries` — a fully fresh document, or a
-    /// round with nothing left to do — parses successfully.
+    /// round with nothing left to do — parses successfully. An empty LIST is
+    /// a complete answer; an empty STRING inside one never is.
     static func parse(_ raw: String) -> TranslatorReport? {
         guard let object = reportObject(in: raw),
               let entries = parseList(object, key: WireField.entries, parseItem: parseEntry),
@@ -106,7 +110,16 @@ struct TranslatorReport: Equatable {
 
     private static func parseEntry(_ item: [String: Any]) -> Entry? {
         guard let paragraphId = nonEmptyString(item[WireField.paragraphId]) else { return nil }
-        let text = item[WireField.text] as? String
+        // **`nonEmptyString`, the same discipline the id gets.** `"text": ""`
+        // is not a translation and neither is `"   "`; taken at face value it
+        // would blank the paragraph in the published edition through a path
+        // that never touched the manuscript, and the record would carry the
+        // current source's hash, so it would read FRESH and no later
+        // derivation would ever raise it. Reading an empty text as ABSENT is
+        // what routes it into the exactly-one-form rule below, which refuses
+        // the whole report — an entry with neither form, which is what an
+        // empty text is.
+        let text = nonEmptyString(item[WireField.text])
         let verbatim = (item[WireField.verbatim] as? Bool) == true
         // Exactly one of the two forms. `(text != nil) != verbatim` is an
         // XOR over two booleans: equal (both true, both false) refuses,
@@ -116,7 +129,11 @@ struct TranslatorReport: Equatable {
     }
 
     private static func parseQuery(_ item: [String: Any]) -> Query? {
-        guard let text = item[WireField.text] as? String,
+        // A question with no words in it is not a question, and all-or-nothing
+        // applies here as everywhere else in this parser: a model that emitted
+        // an empty query has lost the contract, and there is no knowing what
+        // else in the turn to trust.
+        guard let text = nonEmptyString(item[WireField.text]),
               let paragraphId = paragraphIdField(item)
         else { return nil }
         return Query(paragraphId: paragraphId, text: text)
@@ -159,6 +176,12 @@ struct TranslatorReport: Equatable {
     /// A `String` value with something in it. Mirrors
     /// `DiagnosticIngest.nonEmptyString` — same discipline, kept local
     /// because this type owns no dependency on the compiler's ingest.
+    ///
+    /// It TRIMS, and every field routed through it is kept trimmed: the
+    /// paragraph id, the translated paragraph, the question. Deliberate —
+    /// whitespace around a model's answer is an artifact of how it wrote its
+    /// JSON, not of the prose, and the pipeline stores and hashes exactly
+    /// what it is handed.
     private static func nonEmptyString(_ value: Any?) -> String? {
         guard let string = value as? String else { return nil }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
