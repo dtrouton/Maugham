@@ -79,15 +79,20 @@ enum StatementEssay {
     /// retained and ignored everywhere else (`Statement.Kind`); it has no strata
     /// here either.
     ///
-    /// **Two things a brief-side pane will need, neither of them this
-    /// function's** (recorded here because the pane cannot see them, and
-    /// `.editionBrief` reaches neither today — `DetailPaneToggle` builds
-    /// `StatementPane` with `.intent` and `.visualLanguage` only). First,
-    /// `StatementPane.bibleFacts` gates on this predicate as a proxy for "is
-    /// this the intent statement", and the bible belongs to intent alone — it
-    /// wants its own question, not a second reading of this one. Second, the
-    /// rows' verbs (`RulingsStratum`) still name `.intent` when they call the
-    /// performer, so a brief's row would refuse until they take a kind too.
+    /// **The two things a brief-side pane needed are built** (publish
+    /// department, Task 7), and the record stays because what it says about this
+    /// function is permanent: neither of them was ever this function's question.
+    /// First, `StatementPane.bibleFacts` gated on this predicate as a proxy for
+    /// "is this the intent statement" — it asks `BibleStratum.belongsTo` now,
+    /// which is the bible's own question and answers `false` for a brief.
+    /// Second, the rows' verbs (`RulingsStratum`) named `.intent` at every call
+    /// into `RulingPerformer`; they take a `kind` now, undefaulted.
+    ///
+    /// **So do not read an answer of `true` here as "this is the craft
+    /// intent".** It says a `## Rulings` section can live in this file and
+    /// nothing else, and the two questions part company on exactly one kind —
+    /// which is why the proxy survived a whole milestone before the brief
+    /// arrived to falsify it.
     static func carriesRulings(_ kind: Statement.Kind) -> Bool {
         switch kind {
         case .intent, .editionBrief: return true

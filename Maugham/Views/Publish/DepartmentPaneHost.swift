@@ -336,6 +336,17 @@ struct DepartmentPaneHost: View {
     /// project-scope by construction (`StatementConvention.newPath` has no row
     /// for `(.editionBrief, .document)`), and saying so here means the pane is
     /// not relying on `effectiveScope`'s coercion to reach the right file.
+    ///
+    /// **No `bible:`, and no `world:` — by design, not because the desk lacks
+    /// them** (Task 7). The bible is Claude's reading of what the *manuscript*
+    /// establishes and belongs to the craft intent; a brief is about how the
+    /// book reads in another language and establishes nothing about Kelly. The
+    /// declared world is the same statement's derivation, so there is no cache a
+    /// ruling made here can invalidate. Neither omission is load-bearing:
+    /// `StatementPane` refuses a bible under a brief on
+    /// `BibleStratum.belongsTo`, so handing one down would change nothing on
+    /// screen — which is exactly why the test for that rule threads a store in
+    /// rather than mounting this call.
     private func brief(_ open: OpenedBrief) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {

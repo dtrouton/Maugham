@@ -31,6 +31,36 @@ enum BibleStratum {
 
     // MARK: - Reading
 
+    /// Which statements have a bible under them at all.
+    ///
+    /// **The craft intent, and nothing else** (publish department, Task 7). A
+    /// bible entry is a reading of what the MANUSCRIPT establishes, offered
+    /// against the intent the writer declared for it; no other statement is
+    /// about the manuscript's facts. Visual language is about how the book
+    /// looks, an edition brief about how it reads in another language, and an
+    /// `.unknown` kind is a newer build's — retained and ignored everywhere else
+    /// (`Statement.Kind`), so ignored here too.
+    ///
+    /// **This is the bible's own question, and that is the whole point of it.**
+    /// `StatementPane.bibleFacts` used to gate on `StatementEssay.carriesRulings`
+    /// — a question about the FILE (does a `## Rulings` section live in it) read
+    /// as a question about the SUBJECT (is this the craft intent). The two agree
+    /// for exactly as long as intent is the only kind with strata, which is why
+    /// the proxy survived a milestone and why `carriesRulings`' own doc comment
+    /// records it as a trap rather than a defect. The edition brief is the case
+    /// where they part: it carries rulings by construction and establishes
+    /// nothing about Kelly, so the proxy would have put the project's whole
+    /// bible under a brief about Spanish register.
+    /// (`StatementPaneStrataTests.test_aBriefRefusesTheBibleEvenWithAStore
+    /// ThreadedThroughIt` pins the predicate rather than the fact that Task 2's
+    /// door happens to pass no bible.)
+    static func belongsTo(_ kind: Statement.Kind) -> Bool {
+        switch kind {
+        case .intent: return true
+        case .visualLanguage, .editionBrief, .unknown: return false
+        }
+    }
+
     /// The facts this scope's pane shows.
     ///
     /// A document scope shows that document's; the project row shows the book's

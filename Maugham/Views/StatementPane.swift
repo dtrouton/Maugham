@@ -197,7 +197,8 @@ struct StatementPane: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if !rulings.isEmpty {
                         RulingsStratumView(
-                            rulings: rulings, scope: scope, store: store, world: world)
+                            rulings: rulings, kind: kind, scope: scope, store: store,
+                            world: world)
                     }
                     if let bible, !bibleFacts.isEmpty {
                         BibleStratumView(
@@ -248,11 +249,17 @@ struct StatementPane: View {
     /// (`DiagnosticsPane.rows`' idiom, and `test_thePaneRerendersWhenEither
     /// StoreBumpsItsVersion` is what holds it).
     ///
-    /// The bible belongs to the intent statement, like the rulings do — visual
-    /// language is about how the book LOOKS and the manuscript establishes
-    /// nothing about that.
+    /// **The bible belongs to the craft intent, and it is asked so directly**
+    /// (publish department, Task 7). This gated on
+    /// `StatementEssay.carriesRulings` — right by coincidence while intent was
+    /// the only kind with strata, and a live defect the moment the edition brief
+    /// joined it: a brief carries rulings and establishes nothing about the
+    /// manuscript, so the proxy would have shown the project's whole bible under
+    /// a statement about Spanish register. `BibleStratum.belongsTo` is the
+    /// question this actually wants, and it lives with the stratum whose rule it
+    /// is.
     private var bibleFacts: [BibleFact] {
-        guard StatementEssay.carriesRulings(kind), let bible else { return [] }
+        guard BibleStratum.belongsTo(kind), let bible else { return [] }
         _ = bible.version
         return BibleStratum.facts(for: scope, in: bible.allFacts())
     }
