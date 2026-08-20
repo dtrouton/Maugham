@@ -290,6 +290,56 @@ final class DesignerEnvironmentTests: XCTestCase {
         await harness.documentStore.close()
     }
 
+    /// **A staged proposal announces itself** (the final-review wave).
+    ///
+    /// Staging is the round's one write, and it moves a record the rest of the
+    /// window may already be looking at: a fresh stage SUPERSEDES whatever
+    /// pending proposal preceded it, so a writer standing at the gate on round 2
+    /// while round 3 stages is reading a proposal the store no longer holds as
+    /// pending — and the verbs under it would act on a dead round. Nothing else
+    /// would tell them: staging touches neither the manifest nor a run's own
+    /// state, which is why the desk needed this same announcement for the gate's
+    /// verbs in the first place.
+    func test_aStagedProposalAnnouncesItself() async throws {
+        let harness = try await makeHarness(publishTree: false)
+
+        var announcements = 0
+        let token = NotificationCenter.default.addObserver(  // adr-0021-ok: a test observing the post, not a production receiver
+            forName: .maughamDesignProposalsChanged, object: nil, queue: .main) { note in
+                guard note.userInfo?[MaughamEvent.scopeIdKey] as? String
+                    == ProjectIdentifier.id(for: harness.projectURL) else { return }
+                announcements += 1
+            }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let outcome = await harness.environment.stage(report(), stageContext())
+        XCTAssertNotNil(outcome.proposalId, "premise: this stage landed")
+        XCTAssertEqual(announcements, 1,
+                       "the round staged a proposal and nothing in the window "
+                       + "heard about it")
+
+        await harness.documentStore.close()
+    }
+
+    /// …and the other half, which is what keeps the announcement worth
+    /// listening to: a stage that REFUSED moved no byte, and news of nothing is
+    /// a re-read every open window on this project pays for.
+    func test_aRefusedStageAnnouncesNothing() async throws {
+        let box = WeakStoreBox()
+        let environment = try await makeEnvironmentAndForgetItsStores(box)
+
+        var announcements = 0
+        let token = NotificationCenter.default.addObserver(  // adr-0021-ok: a test observing the post, not a production receiver
+            forName: .maughamDesignProposalsChanged, object: nil, queue: .main) { _ in
+                announcements += 1
+            }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let outcome = await environment.stage(report(), stageContext())
+        XCTAssertNotNil(outcome.rejection, "premise: this stage refused")
+        XCTAssertEqual(announcements, 0)
+    }
+
     // MARK: - The window going away
 
     /// **Every capture is weak.** SwiftUI never dismantles a closed window's

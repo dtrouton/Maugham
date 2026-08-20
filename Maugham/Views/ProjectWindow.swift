@@ -1544,6 +1544,26 @@ struct ProjectWindow: View {
         }
     }
 
+    /// **A gate verb's answer, adopted only if it is about the round on
+    /// screen** (the final-review wave).
+    ///
+    /// A verb answers from a `Task` that outlives the press: a promotion is file
+    /// I/O over the writer's whole template set, and they are free to press Back
+    /// — or Show a different round on the desk — while it runs. Writing the
+    /// answer in unconditionally would then put the OLD proposal into the centre
+    /// column, reopening a gate the writer closed or replacing the round they
+    /// had just opened, both of them a frame after they acted.
+    ///
+    /// A static rather than a guard inside the closure because it is a rule
+    /// about which of two values wins, and one written inline is one no test can
+    /// reach — the very shape the write-back exists to protect is then
+    /// unassertable.
+    static func publishSelection(after updated: DesignProposalStore.Proposal,
+                                 showing current: DesignProposalStore.Proposal?)
+    -> DesignProposalStore.Proposal? {
+        current?.id == updated.id ? updated : current
+    }
+
     /// **Does Review's centre column show the passes board?** (M3 P1 Task 6,
     /// spec §4 — the board is Review's project altitude.)
     ///
@@ -2021,7 +2041,16 @@ struct ProjectWindow: View {
                                // approved on disk as its last step, so without
                                // this write the gate would go on offering
                                // Approve over a design already live.
-                               onProposalChanged: { publishSelectedProposal = $0 })
+                               //
+                               // **Through `publishSelection`, never straight
+                               // in**: a verb answers from a `Task` that
+                               // outlives the press, and the writer is free to
+                               // press Back or Show another round while it runs.
+                               onProposalChanged: { updated in
+                                   publishSelectedProposal = Self.publishSelection(
+                                       after: updated,
+                                       showing: publishSelectedProposal)
+                               })
             case .books(let publications):
                 PublishPreviewCentre(
                     publications: publications,

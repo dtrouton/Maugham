@@ -363,6 +363,39 @@ struct PublishPreviewModifier: ViewModifier {
                 guard next.previewsThePublishedBook else { return }
                 Task { await refresh() }
             }
+            // **The gate's proposal goes stale where it sits** (the final-review
+            // wave). It is a VALUE the writer opened with, and three things move
+            // the record underneath it: a new round stages and supersedes it, a
+            // promotion rewrites its status from the desk or another window, and
+            // `.maugham/design/` is derived — a writer who clears it deletes the
+            // very folder the gate is describing. `.project`-scoped through the
+            // ADR 0021 helper, which drops the post for a closed window.
+            .onProjectEvent(.maughamDesignProposalsChanged,
+                            url: projectURL, window: window) { _ in
+                rereadSelectedProposal()
+            }
+    }
+
+    /// **The selected proposal as the store now holds it** — or nothing, when
+    /// the store no longer holds it at all.
+    ///
+    /// Re-read BY ID rather than re-derived from the listing: which round the
+    /// writer is looking at is their own choice, and no event may move them to a
+    /// different one. What an event can change is what that round IS —
+    /// `.superseded` and `.rejected` draw `DesignGate.settledNote` and no verbs,
+    /// which is already a pure function of the status, so the whole of "the gate
+    /// stops offering verdicts on a round that is past deciding" is this one
+    /// write.
+    ///
+    /// **An unreadable proposal clears the selection**, which is the honest
+    /// answer rather than a defensive one: the record is gone or unparseable, so
+    /// there is nothing for the gate to describe and the column hands itself
+    /// back to the book. Keeping the stale value would leave four verbs standing
+    /// over a proposal that no longer exists.
+    private func rereadSelectedProposal() {
+        guard let id = selectedProposal?.id else { return }
+        selectedProposal = try? DesignProposalStore(projectURL: projectURL)
+            .load(id: id)
     }
 
     private func refresh() async {

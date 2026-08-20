@@ -314,6 +314,18 @@ extension DesignerOrchestrator.Environment {
                     + error.localizedDescription)
         }
 
+        // **The project is told, at the moment something on disk moved.**
+        // A fresh stage SUPERSEDES whatever pending proposal preceded it
+        // (`DesignProposalStore.stage`'s one-slot rule), so a writer sitting at
+        // the gate on round 2 while round 3 stages is looking at a record that
+        // is no longer what the store holds — the verbs it offers would act on
+        // a superseded proposal. Nothing else here would tell them: staging
+        // touches neither the manifest nor a run's own state, which is exactly
+        // why the desk grew this receiver for the gate's verbs (Task 6). The
+        // failure path above deliberately posts nothing — a refused stage moved
+        // no byte, and news of nothing is a re-read every window pays for.
+        MaughamEvent.postDesignProposalsChanged(projectURL: projectURL)
+
         return .init(
             proposalId: proposal.id,
             filesStaged: proposal.filePaths.count,
