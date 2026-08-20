@@ -57,12 +57,44 @@ public struct PreviewCompiler {
         self.allowStale = allowStale
     }
 
+    /// Compile a preview, registering a job for it.
+    ///
+    /// **Every exit past the registration is terminal for that job.** The gate
+    /// blocks below fail it and return; a THROW — from the EMISSION write, from
+    /// the AST source, from `PDFCompiler`/`EPUBCompiler` (locating tectonic,
+    /// building the AST, the cache, the spawn) — would otherwise leave the job
+    /// `.inProgress` for the life of the process, and an in-progress job is not
+    /// an inert record: `ProposalPromotion` reads `allInProgress()` and refuses
+    /// approve/revert while one stands, so a preview that died on a missing
+    /// binary would lock the writer out of promoting their templates, naming a
+    /// compile that will never end. So the throw fails the job on its way out.
     public func preview(
         format: PublishConfig.Format,
         sectionIDs: [String]?,
         maxPages: Int?
     ) async throws -> Result {
         let jobID = await jobManager.register(phase: .renderingBody)
+        do {
+            return try await run(
+                jobID: jobID, format: format, sectionIDs: sectionIDs, maxPages: maxPages)
+        } catch {
+            await jobManager.fail(
+                jobID: jobID,
+                errors: [TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: "the preview could not be compiled: \(error)",
+                    contextLines: [])],
+                logExcerpt: String(describing: error))
+            throw error
+        }
+    }
+
+    private func run(
+        jobID: String,
+        format: PublishConfig.Format,
+        sectionIDs: [String]?,
+        maxPages: Int?
+    ) async throws -> Result {
         guard var config = try await configStore.load() else {
             // RULING-7 (M7-PB-010): the cause rides the Result, so the tool
             // renders the failed shape — an empty `errors` here was read by
