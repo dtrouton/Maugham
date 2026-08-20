@@ -118,11 +118,13 @@ Research notes, PDFs, recordings, links, palette cards, photographs and loose ca
 
 ### Department mode (⌘⌥K)
 
-**Publish's desk**, and the mode Publish opens on. It's about the book rather than the chapter you have open: a **Design** section for the book's design, and a **Languages** section with a row per language edition. A project that has neither — no translations, no design round — says so instead of drawing two empty headings.
+**Publish's desk**, and the mode Publish opens on. It's about the book rather than the chapter you have open: a **Design** section for the book's design, with its own Run, and a **Languages** section with a row per language edition. Every project has a designer from the moment it exists, so the Design row is always there; a language row appears as soon as there's a reason for one — even a translator's first question, before anything has been translated.
 
-Each language row names its translator, says how much of the book is fresh, stale, and missing in that language, and — where you owe one — how many open queries the translator is waiting on you to answer. These are the same figures Claude reads through `translation_status`. A language appears here as soon as a translator asks a question about it, even before anything has been translated into it, and a language you have never named a translator for says so rather than leaving the line blank.
+Each language row names its translator, says how much of the book is fresh, stale, and missing in that language, and — where you owe one — how many open queries the translator is waiting on you to answer. These are the same figures Claude reads through `translation_status`. A language you have never named a translator for says so rather than leaving the line blank.
 
-**Edition Brief** on a row opens that edition's brief — a writer-owned statement, like your craft intent and your visual language, for register, idiom policy, what stays untranslated, and typographic conventions. Clicking it creates the brief the first time and opens that same one every time after. The chevron at the top takes you back to the desk. See [Translating Your Manuscript](translation-review.md).
+**Edition Brief** on a row opens that edition's brief — a writer-owned statement, like your craft intent and your visual language, for register, idiom policy, what stays untranslated, and typographic conventions. Clicking it creates the brief the first time and opens that same one every time after. The chevron at the top takes you back to the desk.
+
+Running a translation or a design round, judging a design proposal at the gate, and turning a translator's answer into a ruling are all covered in [The Publish Department](publish-department.md); reviewing a finished translation is in [Translating Your Manuscript](translation-review.md).
 
 The right pane also has a **Tasks** mode (⌘⌥T) — see [Tasks & To-Dos](tasks.md) — and an **Annotations** mode (⌘⌥A) — see [Annotations & Suggestions](annotations-and-suggestions.md).
 

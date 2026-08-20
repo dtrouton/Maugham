@@ -500,16 +500,28 @@ bracket. The translator has no run keys of its own (⌘R and ⌘⇧R are still t
 compiler's alone) and no fourth teardown arm: entering a persona never starts
 it, and nothing here reaches for itself.
 
-**The loop ships headless.** `TranslatorOrchestrator.runTranslation` has no
-caller in production as of P2 — proven by the environment wiring's own test
-suite and by the teardown census, not by a keystroke. The spec names the
-trigger as "a 'Run translation' act per language, from the department desk"
-(`docs/superpowers/specs/2026-08-19-publish-department-design.md` §2, §5),
-and that desk — the Publish-persona surface with a Design row and a row per
-language, each carrying its own Run — is not built. Until it is, this loop
-is reachable only by a test harness constructing an `Environment` by hand;
-nothing a writer can click exists yet, which is the honest state to leave
-this cell in rather than implying otherwise.
+**The loop shipped headless through P2 and P3; P4 (2026-08-20) wired the
+click.** `TranslatorOrchestrator.runTranslation` had no caller in production
+through P3 — proven by the environment wiring's own test suite and by the
+teardown census, not by a keystroke. The spec's trigger, "a 'Run translation'
+act per language, from the department desk"
+(`docs/superpowers/specs/2026-08-19-publish-department-design.md` §2, §5), is
+now `DepartmentPaneHost.run(language:)` (`Maugham/Views/Publish/`) — the
+department desk's per-language Run, ⌘⌥K — which pre-flights against
+`TranslationWritePipeline.validate` (the SAME gate the briefing itself calls,
+so the desk was not widened to answer a question it can already ask) and then
+calls this orchestrator. **Global Constraint 1 survives structurally, not by
+a new refusal**: Run resolves against the OPEN document only
+(`DepartmentRunTarget.resolve`), because `currentParagraphState` — the read
+the briefing gather already goes through — answers an open document straight
+off the registry and has no way to refuse one; the desk's own test names that
+closure `test_theBriefingAbandonIsClosedByTheOpenDocumentGate` rather than
+asserting it as a comment, so a future change to that registry read would
+turn it red first. Only one translation round runs at a time, across every
+language — one warm `TranslatorOrchestrator` session, `DepartmentRunSession
+.busy` naming the edition already holding it. An unlisted language's first
+Run opens a mint sheet (`DepartmentMintSheet.swift`, **Name & Run**) rather
+than silently minting a translator with no chosen name.
 
 ## The designer — the area's third orchestrator
 
@@ -591,10 +603,14 @@ fallback a preview that mutates nothing is allowed to make. **What does NOT
 follow the language is the TEMPLATE**: `SampleCompiler` takes no `language:`
 parameter, so `LanguageSuffixedFile` resolution never runs and a proposal
 staging `template.es.tex` is sampled through the base `template.tex` — the
-prose is the edition's, the typesetting is not. This is the sharpest open
-edge in the loop (below), left rather than fixed because closing it means
-widening `SampleCompiler`'s shipped signature, a decision for whichever
-milestone builds the gate view that has to say so.
+prose is the edition's, the typesetting is not. **P4's gate says so rather
+than fixing it**: the caveat sentence and `Proposal.language` are plumbed
+through to the gate view (`Maugham/Views/AREA.md`'s "The department desk"),
+but `SampleCompiler`'s signature was deliberately not widened — Denver's
+ruling keeps a design round scoped to the whole book (`runDesign(language:
+nil)`, no per-edition picker on the desk), so no proposal a writer can create
+today actually carries a language, and the caveat arm is real but
+unreachable from the shipping UI until a per-edition design round exists.
 
 **`config.json` is refused twice, at two different layers, for two different
 reasons.** `DesignerReport.parse` (parse time) refuses it so a hand-crafted
@@ -670,19 +686,31 @@ compile: it removes a directory under `.maugham/design/` and moves no live
 byte. `DesignProposalStore.delete(id:)` guards the same window from the other
 side — see `Maugham/Stores/AREA.md`.
 
-**The loop still ships headless, on the same discipline as the translator's.**
+**The loop shipped headless through P3; P4 (2026-08-20) wired every verb.**
 `DesignerOrchestrator.runDesign`/`.requestChanges` and
-`ProposalPromotion.approve`/`.revert`/`.finalize` have no caller in production
-as of P3 — proven by `DesignerEnvironmentTests` and by the teardown census
-growing a THIRD paired count
-(`TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`,
-which is where that census lives, renamed from P2's
-two-count `test_everyWindowEndingPathShutsTheTranslatorDownToo` to hold all
-three orchestrators' shutdown pairs rather than asserting a fixed number),
-not by a keystroke. `ProjectWindow.designRunRecord(_:)` — `static`, pure — is
-the one production-adjacent surface: it turns a finished `RunSummary` into
-the log sentence a P4 desk will eventually show, built and tested ahead of
-having anywhere to render it. **Every window-ending path owes `designer
+`ProposalPromotion.approve`/`.revert`/`.finalize` had no caller in production
+through P3 — proven by `DesignerEnvironmentTests` and by the teardown census,
+not by a keystroke. All five are now reachable: `runDesign`/`requestChanges`
+from `DepartmentPaneHost` (the Design row's Run and its direction field,
+`runDesign(direction:language:)` called with `language: nil` always — no
+picker, no per-edition round, Denver's ruling spelled once at that call
+site), and `approve`/`revert`/`finalize` from `DesignGatePromotion.perform`
+(`Maugham/Views/Publish/DesignGateVerbs.swift`) behind the gate's own four
+verb buttons — see `Maugham/Views/AREA.md`'s "The department desk" for the
+surface. **The verb's result is written back into the caller's proposal, not
+carried from the request**: `approve` marks the store `approved` as its LAST
+step, so `DesignGatePromotion` re-reads the proposal after every verb and
+hands the CALLER that, never the value it was given — `onProposalChanged`
+then rewrites the window's `publishSelectedProposal`, which is what makes the
+footer that drew Approve draw Revert/Finalize on the very next frame with no
+stale snapshot in between. A successful verb also posts
+`.maughamDesignProposalsChanged` (ADR 0021, no payload) so the OTHER column —
+the desk, whose `ReloadKey` watches only the designer's RUN state and would
+not otherwise notice a promotion — re-derives too; a refused verb posts
+nothing, because nothing on disk moved. `ProjectWindow.designRunRecord(_:)` —
+`static`, pure, built in P3 ahead of having anywhere to render it — is now
+that render site, the log line beside the desk's row. **Every window-ending
+path owes `designer
 .shutdown()`/`.detach()` beside the compiler's and the translator's** — three
 session owners now, `CompilerRunModifier`'s teardown arms and `ProjectWindow`
 's `.onDisappear` each carrying all three, weak captures throughout so a
