@@ -428,20 +428,17 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// not on whichever chapter happens to be open, so this arm asks for a
     /// project and nothing else.
     ///
-    /// **The two collections are empty here on purpose, and only until this
-    /// milestone's next tasks.** The language union walks every manuscript
-    /// document's translation store and the proposal list reads
-    /// `.maugham/design/proposals/` — neither may run on a `body` path
-    /// (tripwire 4), so both arrive as values from a derivation this mount will
-    /// grow: Task 2 supplies the languages, Task 4 the proposals. Until then
-    /// the desk draws its own empty state, which is what a pane with nothing
-    /// derived yet should say.
+    /// **The desk arrives through a host, not from this body** (Task 2). The
+    /// language union walks every manuscript document's translation store,
+    /// reads each one's open annotations and derives coverage against the
+    /// current paragraph state; the proposal list (Task 4) reads
+    /// `.maugham/design/proposals/`. Neither may run on a `body` path (tripwire
+    /// 4), so `DepartmentPaneHost` derives both in a `.task` and hands the pane
+    /// plain values — `referencesPane`'s shape below, for the same reason.
     @ViewBuilder
     private var departmentPane: some View {
-        if documentStore != nil {
-            DepartmentPane(title: store.manifest.title,
-                           languages: [],
-                           designProposalCount: 0)
+        if let ds = documentStore, let projectURL {
+            DepartmentPaneHost(store: store, documentStore: ds, projectURL: projectURL)
         } else {
             ContentUnavailableView(
                 "Open a project",

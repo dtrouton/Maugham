@@ -30,21 +30,47 @@ struct DepartmentPane: View {
     /// The project's title, as the sibling board takes it — the desk is a
     /// project-level surface and names the book it is the department for.
     let title: String
-    /// The languages this book has editions in, as BCP-47 tags. **Task 2's
-    /// union**, computed by the mount off the body path: it is the same one
-    /// `translation_status` reports, and this pane derives no second version of
-    /// it.
-    let languages: [String]
+    /// One row per language this book has an edition in — the union
+    /// `translation_status` reports, with that tool's own figures, derived by
+    /// `EditionStatus` off the body path. The pane derives no second version of
+    /// anything here: a desk and a tool disagreeing about how far along an
+    /// edition is gives the writer no way to find out which is wrong.
+    let languages: [EditionStatus.LanguageRow]
     /// How many design proposals the designer has staged. **Task 4 replaces
     /// this count with the proposals themselves** (the newest pending one's
     /// badge, the round's age, its status); a count is what the skeleton can
     /// honestly draw with no verbs behind it.
     let designProposalCount: Int
+    /// Open the edition brief for a language — the row's own door.
+    ///
+    /// A closure, because the door WRITES: it creates the statement the writer
+    /// is about to type in, and then presents an editor. Both belong to the
+    /// host (`DepartmentPaneHost`), which is what keeps this pane's census
+    /// (`test_theSourceReadsNoStoreAtAll`) true while the row grows a verb.
+    var openEditionBrief: (String) -> Void = { _ in }
+    /// Something the desk needs to say that is not a row — a door that would
+    /// not open, so far. Nil in the ordinary case.
+    ///
+    /// **A refusal the writer cannot see is the failure mode this exists for.**
+    /// Creating an edition brief can fail (a full disk, a project folder gone),
+    /// and the honest answer is neither a silent no-op nor an editor over a
+    /// statement that does not exist. Task 3's per-row run messages are the
+    /// same idea one level down and may well absorb this.
+    var notice: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
+            if let notice {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if let emptiness = DepartmentDesk.emptiness(
                 languageCount: languages.count,
                 proposalCount: designProposalCount) {
@@ -87,8 +113,8 @@ struct DepartmentPane: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(languages, id: \.self) { language in
-                            languageRow(language)
+                        ForEach(languages) { row in
+                            languageRow(row)
                         }
                     }
                 }
@@ -113,16 +139,47 @@ struct DepartmentPane: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// One edition. Task 2 gives the row its translator, its fresh/stale/missing
-    /// figures, its open queries and the door to its brief; today it is the
-    /// language itself, which is the fact the desk already knows.
-    private func languageRow(_ language: String) -> some View {
-        HStack(spacing: 6) {
-            Text(TranslationReviewIndicator.displayLabel(forLanguageTag: language))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
+    /// One edition: who translates it, how much of it stands, what is still
+    /// unanswered, and the door to its brief (spec §5's language row, minus the
+    /// Run that is Task 3's).
+    ///
+    /// **Every string here is `DepartmentDesk`'s**, so the whole row is
+    /// assertable with nothing mounted — the split `ReviewBoardOpenNotes` made
+    /// for the same reason. The one exception is the language's own name, which
+    /// is `TranslationReviewIndicator.displayLabel`: the tag the writer reads on
+    /// the desk and the one they read in the translation indicator must be the
+    /// same string, and that is where it is spelled.
+    private func languageRow(_ row: EditionStatus.LanguageRow) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(TranslationReviewIndicator.displayLabel(forLanguageTag: row.language))
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 6)
+                Button(DepartmentDesk.editionBriefTitle) {
+                    openEditionBrief(row.language)
+                }
+                .controlSize(.small)
+                .help(DepartmentDesk.editionBriefHelp(language: row.language))
+            }
+            Text(DepartmentDesk.translatorLine(row.translator))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(DepartmentDesk.coverageLine(
+                fresh: row.fresh, stale: row.stale, missing: row.missing))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            // Absent at zero rather than rendered as "0 open queries": the line
+            // is a debt the writer owes a translator, and a surface that says
+            // "0" of it every time trains them to stop reading it.
+            if let queries = DepartmentDesk.queryLine(openQueries: row.openQueries) {
+                Text(queries)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+        .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -163,6 +220,51 @@ enum DepartmentDesk {
             title: "Nothing on the desk yet",
             description: "The book's design rounds and its language editions "
                 + "appear here.")
+    }
+
+    // MARK: - A language row's words (Task 2)
+
+    /// The door on every language row. **"Brief" and not "Open Brief"** — the
+    /// row is the edition, so the verb is in the click.
+    static let editionBriefTitle = "Edition Brief"
+
+    /// What a row says where a person's name goes when there is none.
+    ///
+    /// `EditionStatus.translatorName` answers nil for an unlisted, unminted
+    /// language, which is the honest answer for `translation_status`'s field —
+    /// it omits it. A desk row cannot omit a line without leaving a blank where
+    /// a name goes, and a blank reads as a bug rather than as somebody the
+    /// writer has not named yet.
+    static let noTranslatorYet = "No translator yet"
+
+    /// What the coverage line says for a language nobody has translated a
+    /// paragraph of — the query-first edition, whose figures are all zero
+    /// because there is no file to derive them from. "0 fresh · 0 stale · 0
+    /// missing" would read as a book with no paragraphs in it.
+    static let notStarted = "Not started"
+
+    static func translatorLine(_ translator: String?) -> String {
+        translator ?? noTranslatorYet
+    }
+
+    /// The three figures `translation_status` reports, in its own vocabulary
+    /// and its own order.
+    static func coverageLine(fresh: Int, stale: Int, missing: Int) -> String {
+        guard fresh + stale + missing > 0 else { return notStarted }
+        return "\(fresh) fresh · \(stale) stale · \(missing) missing"
+    }
+
+    /// What the writer still owes this edition's translator, or nil when they
+    /// owe nothing.
+    static func queryLine(openQueries: Int) -> String? {
+        guard openQueries > 0 else { return nil }
+        return "\(openQueries) open quer\(openQueries == 1 ? "y" : "ies")"
+    }
+
+    static func editionBriefHelp(language: String) -> String {
+        "Register, idiom policy and what stays untranslated for the "
+            + "\(TranslationReviewIndicator.displayLabel(forLanguageTag: language)) "
+            + "edition"
     }
 
     /// The Design section's one line while the skeleton stands: how many rounds

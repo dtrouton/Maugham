@@ -120,6 +120,10 @@ Research notes, PDFs, recordings, links, palette cards, photographs and loose ca
 
 **Publish's desk**, and the mode Publish opens on. It's about the book rather than the chapter you have open: a **Design** section for the book's design, and a **Languages** section with a row per language edition. A project that has neither — no translations, no design round — says so instead of drawing two empty headings.
 
+Each language row names its translator, says how much of the book is fresh, stale, and missing in that language, and — where you owe one — how many open queries the translator is waiting on you to answer. These are the same figures Claude reads through `translation_status`. A language appears here as soon as a translator asks a question about it, even before anything has been translated into it, and a language you have never named a translator for says so rather than leaving the line blank.
+
+**Edition Brief** on a row opens that edition's brief — a writer-owned statement, like your craft intent and your visual language, for register, idiom policy, what stays untranslated, and typographic conventions. Clicking it creates the brief the first time and opens that same one every time after. The chevron at the top takes you back to the desk. See [Translating Your Manuscript](translation-review.md).
+
 The right pane also has a **Tasks** mode (⌘⌥T) — see [Tasks & To-Dos](tasks.md) — and an **Annotations** mode (⌘⌥A) — see [Annotations & Suggestions](annotations-and-suggestions.md).
 
 It also has a **History** mode (⌘⌥H) — a read-only timeline of edits, annotations, and checkpoints, with a scrubber for time-travel — an **Inbox** mode (⌘⌥B) — triage text/audio/photo captures from MaughamPhone, see [The Sense Pass](sense-pass.md) — and a **Translation** mode (⌘⌥L) — the selected paragraph's source text and any open translator queries, active while reviewing a translation, see [Translating Your Manuscript](translation-review.md).
