@@ -90,14 +90,41 @@ final class TranslatorOrchestrator {
     /// `unusableOutput` for a turn `TranslatorReport.parse` refused whole.
     /// `ingestRejected` is a report that was read perfectly and could not be
     /// written: the all-or-nothing rule catching a paragraph that vanished
-    /// between the send and the ingest, whose sentence names the ids (spec
-    /// §6, "unknown `¶id`s fail the whole batch loudly, listing them"). The
+    /// between the send and the ingest, or one the writer EDITED in that
+    /// window, whose sentence names the ids (spec §6, "unknown `¶id`s fail
+    /// the whole batch loudly, listing them"). The
     /// second is louder-sounding and less serious — the words are still
     /// there to be re-run — and a desk that could not tell them apart would
     /// have to guess which.
     enum Failure: Equatable, Sendable {
         case run(CompilerRunFailure)
         case ingestRejected(String)
+    }
+
+    /// One round's briefing, together with what its paragraphs looked like at
+    /// the moment it was sent.
+    ///
+    /// **Two values rather than one because they are read by different
+    /// people.** `inputs` is what the model is shown and is a pure function's
+    /// argument (`TranslatorBriefing.Inputs` keeps its rule that every field
+    /// has a reader in `compose`); `sourceHashes` is shown to nobody and
+    /// exists only so ingest can tell whether the writer edited a paragraph
+    /// while the round was in flight. Hashed off the RAW paragraph text — the
+    /// same string `TranslationWritePipeline` stamps a record's `sourceHash`
+    /// from — not off the anchor-stripped display text the work item carries,
+    /// because a comparison against a different normalization would be a
+    /// guard that fires on nothing.
+    struct BriefedRound: Equatable {
+        let inputs: TranslatorBriefing.Inputs
+        /// `paragraphId` → `TranslationHash.hash` of the raw source as
+        /// briefed. Keyed on the work-list only: a context paragraph is not
+        /// this round's work and no entry may name one.
+        let sourceHashes: [String: String]
+
+        init(inputs: TranslatorBriefing.Inputs, sourceHashes: [String: String]) {
+            self.inputs = inputs
+            self.sourceHashes = sourceHashes
+        }
     }
 
     /// What ingest is told about the run whose report it is writing.
@@ -118,14 +145,24 @@ final class TranslatorOrchestrator {
         let translatorName: String
         /// `ProductionRole.id` — what an annotation byline is signed with.
         let translatorRoleId: String
+        /// `BriefedRound.sourceHashes`, carried whole.
+        ///
+        /// **Undefaulted on purpose.** An empty map is a run whose paragraphs
+        /// nobody can check, and a defaulted parameter is how a new call site
+        /// arrives at that silently — the pipeline would then happily stamp
+        /// the CURRENT source's hash onto a translation of text the model was
+        /// never shown, and the entry would read fresh forever.
+        let briefedSourceHashes: [String: String]
 
         init(docId: String, language: String, runId: String,
-             translatorName: String, translatorRoleId: String) {
+             translatorName: String, translatorRoleId: String,
+             briefedSourceHashes: [String: String]) {
             self.docId = docId
             self.language = language
             self.runId = runId
             self.translatorName = translatorName
             self.translatorRoleId = translatorRoleId
+            self.briefedSourceHashes = briefedSourceHashes
         }
     }
 
@@ -205,18 +242,18 @@ final class TranslatorOrchestrator {
         /// translations too. Defaulted to the compiler's own constant rather
         /// than a second literal.
         var model: String = CompilerOrchestrator.defaultModel
-        /// `(docId, language)` → everything one briefing needs, or `nil` when
-        /// this pair is not something the window can translate at all (no
-        /// such document, no translation posture). `nil` is not an error and
-        /// not a run — the compiler's `reading(docId) == nil` guard, in this
-        /// currency.
+        /// `(docId, language)` → everything one briefing needs **and the
+        /// paragraph hashes it was gathered against**, or `nil` when this pair
+        /// is not something the window can translate at all (no such document,
+        /// no translation posture). `nil` is not an error and not a run — the
+        /// compiler's `reading(docId) == nil` guard, in this currency.
         ///
         /// **Asked AFTER `translatorIdentity`, and that order is
         /// load-bearing** — see `begin`. The name this answers with must be
         /// the one the identity resolved: production reads both through
         /// `ProjectStore`'s translator row, which the mint has already put
         /// there by the time this is called.
-        var briefingInputs: @MainActor (String, String) async -> TranslatorBriefing.Inputs?
+        var briefRound: @MainActor (String, String) async -> BriefedRound?
         /// The translator for a language, minting one the first time anybody
         /// asks (`ProjectStore.translatorRole(for:)`). **A run is a write
         /// act**, which is what makes the mint legitimate here and illegitimate
@@ -385,7 +422,7 @@ final class TranslatorOrchestrator {
         }
         guard runGeneration == generation else { return }
 
-        guard let inputs = await environment.briefingInputs(pair.docId, pair.language) else {
+        guard let round = await environment.briefRound(pair.docId, pair.language) else {
             // Not a run: the click had nothing to act on, so there is nothing
             // to report and nothing to end.
             guard runGeneration == generation else { return }
@@ -393,6 +430,7 @@ final class TranslatorOrchestrator {
             return
         }
         guard runGeneration == generation else { return }
+        let inputs = round.inputs
 
         // **The work-list is this loop's delta.** Nothing stale, nothing
         // missing, no session: spending a subprocess to be told what
@@ -419,7 +457,7 @@ final class TranslatorOrchestrator {
             message: TranslatorBriefing.compose(inputs: inputs),
             systemPreamble: Self.sessionSystemPreamble(projectId: environment.projectId))
         await finish(event, pair: pair, runId: runId, identity: identity,
-                     generation: generation)
+                     briefedSourceHashes: round.sourceHashes, generation: generation)
     }
 
     // MARK: - The turn coming back
@@ -436,7 +474,8 @@ final class TranslatorOrchestrator {
     /// arriving.
     private func finish(
         _ event: CompilerRunEvent, pair: Pair, runId: String,
-        identity: (name: String, roleId: String), generation: Int
+        identity: (name: String, roleId: String),
+        briefedSourceHashes: [String: String], generation: Int
     ) async {
         switch event {
         case .started:
@@ -468,7 +507,8 @@ final class TranslatorOrchestrator {
                 report,
                 IngestContext(docId: pair.docId, language: pair.language, runId: runId,
                               translatorName: identity.name,
-                              translatorRoleId: identity.roleId))
+                              translatorRoleId: identity.roleId,
+                              briefedSourceHashes: briefedSourceHashes))
             // The last suspension, and the only one this class resumes from
             // with writes still to do. A shutdown inside the ingest window
             // has already set the surface idle; resuming afterwards would

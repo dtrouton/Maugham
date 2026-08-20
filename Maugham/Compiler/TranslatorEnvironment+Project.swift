@@ -35,7 +35,7 @@ private let translatorLog = Logger(
 extension TranslatorOrchestrator.Environment {
 
     /// Why a closure could not do its job at all. Distinct from a *refusal*
-    /// (`briefingInputs` answering nil, an ingest rejection) — those are
+    /// (`briefRound` answering nil, an ingest rejection) — those are
     /// answers; this is the window having gone away underneath the run.
     enum WiringFailure: Error, LocalizedError {
         case windowClosed
@@ -67,7 +67,7 @@ extension TranslatorOrchestrator.Environment {
             // afterwards by `TranslatorOrchestrator.updateModel(_:)`, which the
             // gear menu calls beside the compiler's rather than re-running this.
             model: model,
-            briefingInputs: { [weak store, weak documentStore] docId, language in
+            briefRound: { [weak store, weak documentStore] docId, language in
                 guard let store else { return nil }
                 return briefing(
                     docId: docId, language: language, store: store,
@@ -122,7 +122,7 @@ extension TranslatorOrchestrator.Environment {
     private static func briefing(
         docId: String, language: String, store: ProjectStore,
         documentStore: DocumentStore?, projectURL: URL
-    ) -> TranslatorBriefing.Inputs? {
+    ) -> TranslatorOrchestrator.BriefedRound? {
         // The pipeline's own gate, called here so a malformed tag costs a
         // refused click rather than a whole session — the ingest would catch it
         // at the end of the round otherwise.
@@ -172,7 +172,7 @@ extension TranslatorOrchestrator.Environment {
         let (open, answered) = languageQueries(
             docId: docId, language: language, documentStore: documentStore)
 
-        return TranslatorBriefing.Inputs(
+        let inputs = TranslatorBriefing.Inputs(
             translatorName: role?.effectiveName
                 ?? ProductionRole.defaultTranslatorName(language: language)
                 ?? language,
@@ -184,6 +184,25 @@ extension TranslatorOrchestrator.Environment {
             contextParagraphs: neighbours(of: work.map(\.paragraphId), in: state),
             openQueries: open,
             answeredQueries: answered)
+
+        // **What each work paragraph looked like at send time**, hashed off
+        // the RAW text rather than the stripped `sourceText` the model is
+        // shown — the pipeline stamps a record's `sourceHash` from the raw
+        // string, so a guard comparing anything else would compare two
+        // normalizations and fire on nothing. Read here because this is the
+        // one place the round is gathered; carried to ingest, which is the one
+        // place it can be spent (`checkForMidRunEdits`).
+        // `uniquingKeysWith` rather than `uniqueKeysWithValues`: the deriver
+        // walks the sequence and cannot repeat an id today, and a trap is the
+        // wrong way to find out if that ever stops being true.
+        let hashes = Dictionary(
+            work.map { entry in
+                (entry.paragraphId,
+                 TranslationHash.hash(state.paragraphs[entry.paragraphId] ?? ""))
+            },
+            uniquingKeysWith: { first, _ in first })
+
+        return TranslatorOrchestrator.BriefedRound(inputs: inputs, sourceHashes: hashes)
     }
 
     /// The writer's declared intent for this piece, whole — the essay AND its
@@ -289,11 +308,12 @@ extension TranslatorOrchestrator.Environment {
     /// **Where a round's words and questions actually land**, and the only
     /// writing this loop does.
     ///
-    /// The order is deliberate: the words first, and a batch the pipeline
-    /// refuses ends the ingest there — nothing written, and **nothing asked
-    /// either**. Minting the questions of a round the writer will simply run
-    /// again would double-ask every one of them, since a translator query has
-    /// no fingerprint to dedupe on the way the compiler's notes do.
+    /// The order is deliberate: the freshness check and the words first, and a
+    /// batch either of them refuses ends the ingest there — nothing written,
+    /// and **nothing asked either**. Minting the questions of a round the
+    /// writer will simply run again would double-ask every one of them, since
+    /// a translator query has no fingerprint to dedupe on the way the
+    /// compiler's notes do.
     @MainActor
     private static func ingest(
         _ report: TranslatorReport,
@@ -307,6 +327,19 @@ extension TranslatorOrchestrator.Environment {
                 documentStore: documentStore, projectURL: projectURL)
         } catch {
             return .init(rejection: sentence(for: error))
+        }
+
+        // **The mid-run edit, refused before anything is written.** The
+        // pipeline's own re-validation catches a paragraph that VANISHED; a
+        // paragraph the writer rewrote while the session was thinking passes
+        // every one of its checks and is the more dangerous case, because the
+        // record it would append carries the hash of the CURRENT source
+        // against a translation of text the model was never shown — an entry
+        // that reads fresh forever and is silently wrong. Compared before the
+        // pipeline call, so a rejection also mints no queries: `mint` is
+        // reached only by falling past this and the write.
+        if let edited = midRunEdits(in: report, context: context, state: state) {
+            return .init(rejection: edited)
         }
 
         var warnings: [String] = []
@@ -348,6 +381,46 @@ extension TranslatorOrchestrator.Environment {
         let minted = await mint(
             report.queries, context: context, documentStore: documentStore)
         return .init(entriesWritten: written, queriesMinted: minted, warnings: warnings)
+    }
+
+    /// The paragraphs whose source changed between the send and the answer,
+    /// as the sentence the writer reads — or `nil` when the round's words are
+    /// still about the text the model saw.
+    ///
+    /// **Compared against the hash the round was BRIEFED with**, which is the
+    /// only thing that can tell an edit from a coincidence: the state resolved
+    /// a line above is the current text, and hashing it twice would agree with
+    /// itself no matter what the writer typed. An entry naming a paragraph the
+    /// round never briefed as work is not this guard's business — it is either
+    /// a context paragraph the contract told the model to leave out or an id
+    /// the document does not have, and the pipeline's own rules answer both.
+    ///
+    /// The answer is a refusal rather than a repair: the honest thing to do
+    /// with a translation of a sentence the writer has since rewritten is to
+    /// throw it away and run the round again, which is the same answer the
+    /// deleted-paragraph case gets.
+    @MainActor
+    private static func midRunEdits(
+        in report: TranslatorReport,
+        context: TranslatorOrchestrator.IngestContext,
+        state: (sequence: [String], paragraphs: [String: String], projectURL: URL)
+    ) -> String? {
+        let edited = report.entries
+            .compactMap { entry -> String? in
+                guard let briefed = context.briefedSourceHashes[entry.paragraphId]
+                else { return nil }
+                let current = TranslationHash.hash(state.paragraphs[entry.paragraphId] ?? "")
+                return current == briefed ? nil : entry.paragraphId
+            }
+            .sorted()
+        guard !edited.isEmpty else { return nil }
+        // The pipeline's own vocabulary for the same shape of refusal — a
+        // list of ids and a sentence a person can act on.
+        return "paragraphs edited while this round was running: "
+            + edited.joined(separator: ", ")
+            + " — nothing was written, because the translation would be of text "
+            + "you have since changed. Run the translation again to pick up the "
+            + "new wording."
     }
 
     /// The round's questions, as annotations the writer disposes of like any

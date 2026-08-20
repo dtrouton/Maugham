@@ -69,15 +69,26 @@ final class TranslatorOrchestratorTests: XCTestCase {
         "queries":[{"paragraph_id":"a1b2","text":"\u{00bf}La doctora es mujer?"}]}
         """
 
-    private func makeInputs(work: Int = 1) -> TranslatorBriefing.Inputs {
+    /// One round's briefing plus the hashes it was gathered against — the
+    /// pair the window answers a click with. The hashes are real
+    /// (`TranslationHash.hash` over the same prose the work item carries), so
+    /// an assertion about what reaches ingest is an assertion about a value
+    /// production could have produced.
+    private func makeRound(work: Int = 1) -> TranslatorOrchestrator.BriefedRound {
         let ids = ["a1b2", "c3d4", "e5f6"]
-        return TranslatorBriefing.Inputs(
-            translatorName: "Elena Ruiz",
-            language: language,
-            workList: (0..<work).map {
-                .init(paragraphId: ids[$0 % ids.count],
-                      sourceText: "The fog came.", status: .missing)
-            })
+        let items = (0..<work).map { index in
+            TranslatorBriefing.Inputs.WorkItem(
+                paragraphId: ids[index % ids.count],
+                sourceText: "The fog came.", status: .missing)
+        }
+        return TranslatorOrchestrator.BriefedRound(
+            inputs: TranslatorBriefing.Inputs(
+                translatorName: "Elena Ruiz",
+                language: language,
+                workList: items),
+            sourceHashes: Dictionary(
+                items.map { ($0.paragraphId, TranslationHash.hash($0.sourceText)) },
+                uniquingKeysWith: { first, _ in first }))
     }
 
     private final class Box<T> {
@@ -108,7 +119,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
         /// `makeRunner` hands back the same spy either way.
         var spawns: Int { runnerSpawns() }
         let runnerSpawns: () -> Int
-        let setInputs: (TranslatorBriefing.Inputs?) -> Void
+        let setRound: (TranslatorOrchestrator.BriefedRound?) -> Void
     }
 
     /// A closure the test can hold open, so the window between the click and
@@ -135,7 +146,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
 
     private func makeHarness(
         runner: SpyRunner,
-        inputs: TranslatorBriefing.Inputs?,
+        round: TranslatorOrchestrator.BriefedRound?,
         identity: (name: String, roleId: String)? = ("Elena Ruiz", "role-es"),
         ingestOutcome: TranslatorOrchestrator.IngestOutcome = .init(entriesWritten: 1,
                                                                     queriesMinted: 1),
@@ -150,7 +161,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let configURL = root.appendingPathComponent("translator-mcp.json")
 
-        let live = Box(inputs)
+        let live = Box(round)
         let ingests = Box<[(report: TranslatorReport,
                             context: TranslatorOrchestrator.IngestContext)]>([])
         let summaries = Box<[TranslatorOrchestrator.RunSummary]>([])
@@ -161,8 +172,8 @@ final class TranslatorOrchestratorTests: XCTestCase {
         orchestrator.configure(environment: TranslatorOrchestrator.Environment(
             projectId: "p-1",
             model: "test-model",
-            briefingInputs: { _, _ in
-                order.value.append("briefingInputs")
+            briefRound: { _, _ in
+                order.value.append("briefRound")
                 if let holdBriefing { await holdBriefing.hold() }
                 return live.value
             },
@@ -191,7 +202,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
                        ended: { summaries.value },
                        asked: { order.value },
                        runnerSpawns: { spawns.value },
-                       setInputs: { live.value = $0 })
+                       setRound: { live.value = $0 })
     }
 
     /// Wait until the spy has been sent `count` messages, so an assertion
@@ -234,7 +245,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     /// summary for the desk at the end of it.
     func test_aRunBriefsTheSessionAndIngestsWhatComesBack() throws {
         let runner = SpyRunner()
-        let harness = try makeHarness(runner: runner, inputs: makeInputs())
+        let harness = try makeHarness(runner: runner, round: makeRound())
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
         awaitSends(1, on: runner)
@@ -258,6 +269,14 @@ final class TranslatorOrchestratorTests: XCTestCase {
                        + "a second resolution downstream is how a byline and a "
                        + "briefing come to name different people")
         XCTAssertEqual(ingest.context.translatorRoleId, "role-es")
+        // **What the round was briefed with reaches the writer's words.**
+        // Ingest is the only place an edit made while the session was
+        // thinking can be noticed, and it can only notice it by comparing
+        // against this — a context that arrived without it would let a
+        // translation of superseded text be stamped with the current hash and
+        // read fresh forever.
+        XCTAssertEqual(ingest.context.briefedSourceHashes,
+                       ["a1b2": TranslationHash.hash("The fog came.")])
         XCTAssertEqual(harness.orchestrator.runState, .idle)
 
         let summary = try XCTUnwrap(harness.summaries.first)
@@ -278,13 +297,13 @@ final class TranslatorOrchestratorTests: XCTestCase {
     /// one who does.
     func test_theIdentityIsMintedBeforeTheBriefingReadsIt() throws {
         let runner = SpyRunner()
-        let harness = try makeHarness(runner: runner, inputs: makeInputs())
+        let harness = try makeHarness(runner: runner, round: makeRound())
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
         awaitSends(1, on: runner)
         settle()
 
-        XCTAssertEqual(harness.order, ["translatorIdentity", "briefingInputs"])
+        XCTAssertEqual(harness.order, ["translatorIdentity", "briefRound"])
     }
 
     /// A pair the window cannot brief — no such document, no translation
@@ -292,7 +311,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     /// reported: the click had nothing to act on.
     func test_aPairWithNoBriefingIsNotARun() throws {
         let runner = SpyRunner()
-        let harness = try makeHarness(runner: runner, inputs: nil)
+        let harness = try makeHarness(runner: runner, round: nil)
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
         settle()
@@ -309,7 +328,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     /// mistake in another currency.
     func test_anEmptyWorkListSpawnsNothing() throws {
         let runner = SpyRunner()
-        let harness = try makeHarness(runner: runner, inputs: makeInputs(work: 0))
+        let harness = try makeHarness(runner: runner, round: makeRound(work: 0))
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
         settle()
@@ -338,7 +357,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     func test_aSecondRunWhileRunningIsRefusedNotQueued() throws {
         let runner = SpyRunner()
         runner.nextEvent = nil   // hold the turn open
-        let harness = try makeHarness(runner: runner, inputs: makeInputs())
+        let harness = try makeHarness(runner: runner, round: makeRound())
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
         awaitSends(1, on: runner)
@@ -364,7 +383,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     func test_aSecondRunDuringTheBriefingGatherIsRefused() throws {
         let runner = SpyRunner()
         let gate = Gate()
-        let harness = try makeHarness(runner: runner, inputs: makeInputs(),
+        let harness = try makeHarness(runner: runner, round: makeRound(),
                                       holdBriefing: gate)
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
@@ -391,7 +410,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
                         .sessionDied(detail: "the CLI exited with status 1")] {
             let runner = SpyRunner()
             runner.nextEvent = .failed(failure)
-            let harness = try makeHarness(runner: runner, inputs: makeInputs())
+            let harness = try makeHarness(runner: runner, round: makeRound())
 
             harness.orchestrator.runTranslation(docId: docId, language: language)
             awaitSends(1, on: runner)
@@ -420,7 +439,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
                      #"{"entries":[{"paragraph_id":"a1b2","text":"Ya","verbatim":true}],"queries":[]}"#] {
             let runner = SpyRunner()
             runner.nextEvent = .resultText(text)
-            let harness = try makeHarness(runner: runner, inputs: makeInputs())
+            let harness = try makeHarness(runner: runner, round: makeRound())
 
             harness.orchestrator.runTranslation(docId: docId, language: language)
             awaitSends(1, on: runner)
@@ -441,7 +460,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     func test_anEmptyReportIsAValidAnswer() throws {
         let runner = SpyRunner()
         runner.nextEvent = .resultText(#"{"entries":[],"queries":[]}"#)
-        let harness = try makeHarness(runner: runner, inputs: makeInputs(),
+        let harness = try makeHarness(runner: runner, round: makeRound(),
                                       ingestOutcome: .init())
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
@@ -464,7 +483,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
                        CompilerRunFailure.Detail.runInFlight] {
             let runner = SpyRunner()
             runner.nextEvent = .failed(.sessionDied(detail: detail))
-            let harness = try makeHarness(runner: runner, inputs: makeInputs())
+            let harness = try makeHarness(runner: runner, round: makeRound())
 
             harness.orchestrator.runTranslation(docId: docId, language: language)
             awaitSends(1, on: runner)
@@ -483,7 +502,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     /// anyway would produce work nobody could sign.
     func test_anIdentityThatCannotBeResolvedFailsBeforeAnySpawn() throws {
         let runner = SpyRunner()
-        let harness = try makeHarness(runner: runner, inputs: makeInputs(), identity: nil)
+        let harness = try makeHarness(runner: runner, round: makeRound(), identity: nil)
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
         settle()
@@ -506,7 +525,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     func test_anIngestRejectionIsReportedRatherThanSwallowed() throws {
         let runner = SpyRunner()
         let harness = try makeHarness(
-            runner: runner, inputs: makeInputs(),
+            runner: runner, round: makeRound(),
             ingestOutcome: .init(rejection: "unknown paragraph ids: a1b2"))
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
@@ -529,7 +548,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     func test_advisoryWarningsRideTheSummaryWithoutFailingTheRun() throws {
         let runner = SpyRunner()
         let harness = try makeHarness(
-            runner: runner, inputs: makeInputs(),
+            runner: runner, round: makeRound(),
             ingestOutcome: .init(entriesWritten: 1,
                                  warnings: ["a1b2: the translation drops a heading"]))
 
@@ -550,7 +569,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     /// than restart every round.
     func test_theSessionStaysWarmForTheSamePair() throws {
         let runner = SpyRunner()
-        let harness = try makeHarness(runner: runner, inputs: makeInputs())
+        let harness = try makeHarness(runner: runner, round: makeRound())
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
         awaitSends(1, on: runner)
@@ -571,7 +590,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     func test_aChangeOfEitherHalfOfThePairRetiresTheSession() throws {
         for (docId, language) in [("doc-2", "es"), ("doc-1", "fr")] {
             let runner = SpyRunner()
-            let harness = try makeHarness(runner: runner, inputs: makeInputs())
+            let harness = try makeHarness(runner: runner, round: makeRound())
 
             harness.orchestrator.runTranslation(docId: self.docId, language: self.language)
             awaitSends(1, on: runner)
@@ -595,7 +614,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     func test_cancelEndsTheRunQuietly() throws {
         let runner = SpyRunner()
         runner.nextEvent = nil
-        let harness = try makeHarness(runner: runner, inputs: makeInputs())
+        let harness = try makeHarness(runner: runner, round: makeRound())
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
         awaitSends(1, on: runner)
@@ -616,7 +635,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     func test_cancelBeforeTheSendAbandonsTheRun() throws {
         let runner = SpyRunner()
         let gate = Gate()
-        let harness = try makeHarness(runner: runner, inputs: makeInputs(),
+        let harness = try makeHarness(runner: runner, round: makeRound(),
                                       holdBriefing: gate)
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
@@ -637,7 +656,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     /// socket path leaks into the temp directory for the life of the machine.
     func test_shutdownEndsTheSessionAndDeletesItsConfig() throws {
         let runner = SpyRunner()
-        let harness = try makeHarness(runner: runner, inputs: makeInputs())
+        let harness = try makeHarness(runner: runner, round: makeRound())
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
         awaitSends(1, on: runner)
@@ -658,7 +677,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     func test_shutdownMidTurnAbandonsTheRunAndTheLateAnswer() throws {
         let runner = SpyRunner()
         runner.nextEvent = nil
-        let harness = try makeHarness(runner: runner, inputs: makeInputs())
+        let harness = try makeHarness(runner: runner, round: makeRound())
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
         awaitSends(1, on: runner)
@@ -679,7 +698,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     /// compiler's own distinction, and not interchangeable.
     func test_detachDropsTheEnvironmentAndShutdownDoesNot() throws {
         let runner = SpyRunner()
-        let harness = try makeHarness(runner: runner, inputs: makeInputs())
+        let harness = try makeHarness(runner: runner, round: makeRound())
 
         harness.orchestrator.runTranslation(docId: docId, language: language)
         awaitSends(1, on: runner)
