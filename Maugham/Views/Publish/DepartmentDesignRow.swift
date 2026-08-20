@@ -288,6 +288,42 @@ struct DepartmentDesignRow: Equatable {
         return unknownRefusal
     }
 
+    /// **The one spelling of "send the writer's words back to the standing
+    /// round"** (P4 Task 6), answering `nil` when the words went and the
+    /// refusal's own sentence otherwise.
+    ///
+    /// **Two surfaces reach it now** — the desk's Design row, and the gate in the
+    /// centre column, which is where a writer actually forms the opinion the
+    /// words carry. Composing the refusal is three reads of the orchestrator's
+    /// state in a fixed order, and the second surface copying that composition
+    /// would be two answers to "why did that not go", free to drift the moment
+    /// `requestChanges` grows a fifth guard. `DesignerOrchestrator.requestChanges`
+    /// is called from exactly here (`DesignGateTests
+    /// .test_requestChangesHasOneSpellingAndBothSurfacesReachIt`).
+    ///
+    /// The `nil` designer is the window whose stores never finished loading, or
+    /// a probe mount — a case the caller cannot compose a sentence for from the
+    /// orchestrator's state, because there is no orchestrator.
+    @MainActor
+    static func sendChanges(_ words: String,
+                            to designer: DesignerOrchestrator?) -> String? {
+        guard let designer else { return noDesignerWired }
+        if designer.requestChanges(words) { return nil }
+        return changesRefusal(
+            words: words,
+            session: DesignSession.read(runState: designer.runState,
+                                        isRunning: designer.isRunning),
+            hasOpenProposalRound: designer.hasOpenProposalRound)
+    }
+
+    /// A window with no designer behind it. **Here rather than on the pane host**
+    /// (P4 Task 6): it is the design half's sentence, and it is now read by two
+    /// surfaces in two columns — the host's own `noTranslatorWired` stays where
+    /// it is because the translation half has only ever had one.
+    static let noDesignerWired =
+        "This window isn\u{2019}t ready to run a design round yet. Try again in a "
+        + "moment, or reopen the project."
+
     // MARK: - Copy
 
     static let runTitle = "Run"

@@ -35,8 +35,13 @@ import MaughamCore
 ///   contract is about what a writer can SEE: the spec, the staged files, the
 ///   pages (PDFKit's, the book's own renderer) or the cause when there are none.
 ///
-/// **Nothing here is a verb.** Approve / Request Changes / Revert / Finalize are
-/// Task 6's; the one control on this surface is the way back to the book.
+/// **And since Task 6, the verdict itself.** Approve / Request Changes / Revert /
+/// Finalize sit in the gate's footer, and three things about them are pinned
+/// here: which verbs a proposal offers (a pure function of its status), that
+/// every refusal arrives in its OWN words on the delivery path (Global Constraint
+/// 2/4), and that a verb's result is written back into the window — because the
+/// gate holds its proposal as a VALUE, and a verb that answered with the value it
+/// was handed would leave Approve on screen over a design already live.
 @MainActor
 final class DesignGateTests: XCTestCase {
 
@@ -589,7 +594,560 @@ final class DesignGateTests: XCTestCase {
                        + "to know which proposal Show is about (tripwire 4)")
     }
 
+    // MARK: - The verbs: what a proposal offers (Task 6, no window)
+
+    /// **A proposal waiting on the writer offers Approve** — and Request Changes
+    /// only while the session that made it can still be asked to revise it, which
+    /// is the desk's own rule (`DepartmentDesignRow.offersRequestChanges`): outside
+    /// that window the honest verb is a fresh Run, which lives on the desk.
+    func test_aPendingProposalOffersApproveAndIterationWhileTheRoundIsOpen() {
+        XCTAssertEqual(
+            DesignGate.verbs(status: .pending, hasOpenProposalRound: false),
+            [.approve],
+            "a closed round leaves Approve as the only thing to do here")
+        XCTAssertEqual(
+            DesignGate.verbs(status: .pending, hasOpenProposalRound: true),
+            [.approve, .requestChanges])
+    }
+
+    /// **An approved proposal offers the two ways out of a standing promotion**,
+    /// and no longer offers Approve. `ProposalPromotion`'s type doc is the reason
+    /// there are exactly two: the backup holding the writer's originals is a
+    /// single slot, and Revert (put them back) and Finalize (let them go, by
+    /// name) are how it is freed.
+    func test_anApprovedProposalOffersRevertAndFinalizeAndNotApprove() {
+        let verbs = DesignGate.verbs(status: .approved, hasOpenProposalRound: true)
+
+        XCTAssertEqual(verbs, [.revert, .finalize])
+        XCTAssertFalse(verbs.contains(.approve),
+                       "a design already live is not one to approve again")
+        XCTAssertFalse(verbs.contains(.requestChanges),
+                       "…nor one the writer is still iterating on")
+    }
+
+    /// **A proposal past deciding offers nothing and says why.** A footer with
+    /// neither a verb nor a reason is the blank RULING-7's shape forbids: it
+    /// reads as a surface that failed to load rather than as a decision already
+    /// taken.
+    func test_aSettledProposalOffersNothingAndSaysWhyInstead() throws {
+        for status: DesignProposalStore.Status in
+            [.rejected, .superseded, .unknown("archived")] {
+            XCTAssertEqual(
+                DesignGate.verbs(status: status, hasOpenProposalRound: true), [],
+                "\(status) is not a verdict the writer can still give")
+            let note = try XCTUnwrap(
+                DesignGate.settledNote(Self.proposal(status: status)),
+                "\(status) draws no verbs, so it owes the writer a sentence")
+            XCTAssertFalse(note.isEmpty)
+        }
+
+        for status: DesignProposalStore.Status in [.pending, .approved] {
+            XCTAssertNil(DesignGate.settledNote(Self.proposal(status: status)),
+                         "\(status) has verbs; a settled note beside them would "
+                         + "tell the writer the decision is already made")
+        }
+    }
+
+    /// **A reverted round says the revert's own words**, not a sentence invented
+    /// here. `ProposalPromotion.revert` writes the note where the cause is known
+    /// — the writer's own words when they gave any, its standing sentence when
+    /// they did not — and the gate is where that note is read.
+    func test_aRevertedRoundShowsTheNoteTheRevertWrote() throws {
+        var reverted = Self.proposal(status: .rejected)
+        reverted.revertNote = ProposalPromotion.defaultRevertNote
+
+        XCTAssertEqual(DesignGate.settledNote(reverted),
+                       ProposalPromotion.defaultRevertNote)
+
+        var wordless = Self.proposal(status: .rejected)
+        wordless.revertNote = "   "
+        XCTAssertEqual(DesignGate.settledNote(wordless), DesignGate.turnedDownNote,
+                       "a rejected proposal with nothing on record still says "
+                       + "something — an empty box where a reason goes is the "
+                       + "failure this whole surface is written against")
+    }
+
+    /// **A status from a newer build is carried raw**, `DepartmentDesignRow
+    /// .statusWord`'s discipline: printing "unknown" over it would tell the
+    /// writer their proposal is broken when it is merely from the future.
+    func test_aStatusFromANewerBuildIsNamedRatherThanCalledBroken() throws {
+        let note = try XCTUnwrap(
+            DesignGate.settledNote(Self.proposal(status: .unknown("archived"))))
+        XCTAssertTrue(note.contains("archived"), note)
+    }
+
+    // MARK: - The verbs: every refusal renders its own sentence (Constraint 2/4)
+
+    /// **The four refusals, each in its own words, each earned against a real
+    /// project.** This is the brief's sharpest clause and the reason the verbs
+    /// go through `DesignGatePromotion` rather than swallowing a throw: a writer
+    /// who presses Approve and is told nothing cannot tell a refusal from a bug.
+    ///
+    /// Driven end-to-end rather than by constructing the errors, because what is
+    /// under test is that the sentence REACHES the surface — a `catch` that
+    /// logged and returned would pass an errors-are-well-worded test.
+    func test_everyRefusalReachesTheGateInItsOwnWords() async throws {
+        let project = try Self.publishProject(in: temp.url)
+        let store = DesignProposalStore(projectURL: project)
+        let first = try store.stage(report: Self.report(), round: 1,
+                                    designerName: "Tschichold", language: nil)
+        let second = try store.stage(report: Self.report(), round: 2,
+                                     designerName: "Tschichold", language: nil)
+
+        // 1. A compile is running. Names the job, because a writer with two
+        //    editions compiling needs to know which one to wait for.
+        let busy = CompileJobManager()
+        let jobID = await busy.register(phase: .compiling)
+        let compiling = try Self.refusal(
+            await DesignGatePromotion.approve(first, projectURL: project,
+                                              jobManager: busy))
+        XCTAssertTrue(compiling.contains(jobID),
+                      "the busy-compile refusal must name the job: \(compiling)")
+
+        // 2. Finalize with nothing promoted — named before the slot is taken, so
+        //    the sentence is about this proposal rather than another's backup.
+        let nothingToFinalize = try Self.refusal(
+            DesignGatePromotion.finalize(first, projectURL: project))
+        XCTAssertTrue(nothingToFinalize.contains(first.id), nothingToFinalize)
+
+        // Promote the first round for real; the two remaining refusals are both
+        // about the backup slot it now holds.
+        guard case .done = await DesignGatePromotion.approve(
+            first, projectURL: project, jobManager: CompileJobManager())
+        else { return XCTFail("the first approval should have gone through") }
+
+        // 3. The same proposal again: its own backup already stands.
+        let doubleApprove = try Self.refusal(
+            await DesignGatePromotion.approve(first, projectURL: project,
+                                              jobManager: CompileJobManager()))
+        XCTAssertTrue(doubleApprove.contains(first.id), doubleApprove)
+
+        // 4. A DIFFERENT proposal, refused by the project's one backup slot —
+        //    naming the proposal holding it and both ways out.
+        let slotTaken = try Self.refusal(
+            await DesignGatePromotion.approve(second, projectURL: project,
+                                              jobManager: CompileJobManager()))
+        XCTAssertTrue(slotTaken.contains(first.id),
+                      "the slot refusal names the proposal holding it: \(slotTaken)")
+        for wayOut in ["Revert", "finalize"] {
+            XCTAssertTrue(slotTaken.localizedCaseInsensitiveContains(wayOut),
+                          "the slot refusal offers \(wayOut) as a way out: "
+                          + slotTaken)
+        }
+
+        let sentences = [compiling, nothingToFinalize, doubleApprove, slotTaken]
+        XCTAssertEqual(Set(sentences).count, sentences.count,
+                       "four different refusals, four different sentences — a "
+                       + "shared one teaches the writer nothing about which "
+                       + "wall they hit: \(sentences)")
+        for sentence in sentences { XCTAssertFalse(sentence.isEmpty) }
+    }
+
+    /// **A refusal that is not the promotion's own still gets a sentence.** A
+    /// promotion is file I/O against the writer's own folder, and a permissions
+    /// error or a project that moved must not be the one press that produces
+    /// silence.
+    func test_aFailureThePromotionDoesNotNameStillSaysSomething() async throws {
+        let gone = temp.url.appendingPathComponent("no-such-project")
+        let sentence = try Self.refusal(
+            await DesignGatePromotion.approve(Self.proposal(), projectURL: gone,
+                                              jobManager: CompileJobManager()))
+        XCTAssertFalse(sentence.isEmpty)
+
+        struct Wordless: Error { }
+        XCTAssertFalse(DesignGate.refusalSentence(Wordless()).isEmpty)
+    }
+
+    // MARK: - The verbs: the status the writer sees is the one on disk
+
+    /// **Approve hands back the APPROVED proposal, not the one it was given.**
+    ///
+    /// Task 5's ledgered concern, closed. The gate holds its proposal as a value
+    /// — deliberately, so nothing reads `.maugham/design/` on a body path — and
+    /// `ProposalPromotion.approve` marks it approved as its LAST step, on disk,
+    /// where the caller's copy cannot see it. A verb that answered with the value
+    /// it was handed would leave the gate offering Approve over a proposal it had
+    /// just approved.
+    func test_approveHandsBackTheApprovedProposalRatherThanTheStaleSnapshot() async throws {
+        let project = try Self.publishProject(in: temp.url)
+        let staged = try DesignProposalStore(projectURL: project)
+            .stage(report: Self.report(), round: 1,
+                   designerName: "Tschichold", language: nil)
+        XCTAssertEqual(staged.status, .pending)
+
+        let settled = try Self.settled(
+            await DesignGatePromotion.approve(staged, projectURL: project,
+                                              jobManager: CompileJobManager()))
+
+        XCTAssertEqual(settled.status, .approved,
+                       "the value handed back is what the store now holds")
+        XCTAssertEqual(DesignGate.verbs(status: settled.status,
+                                        hasOpenProposalRound: false),
+                       [.revert, .finalize],
+                       "…which is what makes the footer reconfigure on the very "
+                       + "next body pass")
+    }
+
+    /// **Revert hands back the rejected proposal WITH its note**, which is the
+    /// only thing the gate then has to say about that round.
+    func test_revertHandsBackTheRejectedProposalAndItsNote() async throws {
+        let project = try Self.publishProject(in: temp.url)
+        let staged = try DesignProposalStore(projectURL: project)
+            .stage(report: Self.report(), round: 1,
+                   designerName: "Tschichold", language: nil)
+        _ = await DesignGatePromotion.approve(staged, projectURL: project,
+                                              jobManager: CompileJobManager())
+
+        let settled = try Self.settled(
+            await DesignGatePromotion.revert(staged, projectURL: project,
+                                             jobManager: CompileJobManager()))
+
+        XCTAssertEqual(settled.status, .rejected)
+        XCTAssertEqual(DesignGate.settledNote(settled),
+                       ProposalPromotion.defaultRevertNote)
+        XCTAssertEqual(DesignGate.verbs(status: settled.status,
+                                        hasOpenProposalRound: true), [],
+                       "a reverted round is read-only from here on")
+    }
+
+    /// **Finalize keeps the proposal approved and takes the way back away.**
+    /// It is the one verb whose result is invisible in the proposal's status —
+    /// what it changes is what can be undone — which is exactly why it answers
+    /// with a sentence of its own.
+    func test_finalizeKeepsTheStatusAndDiscardsTheBackup() async throws {
+        let project = try Self.publishProject(in: temp.url)
+        let store = DesignProposalStore(projectURL: project)
+        let staged = try store.stage(report: Self.report(), round: 1,
+                                     designerName: "Tschichold", language: nil)
+        _ = await DesignGatePromotion.approve(staged, projectURL: project,
+                                              jobManager: CompileJobManager())
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: store.backupDir(id: staged.id).path))
+
+        let outcome = DesignGatePromotion.finalize(staged, projectURL: project)
+
+        XCTAssertEqual(try Self.settled(outcome).status, .approved)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: store.backupDir(id: staged.id).path),
+            "the displaced templates are gone — that is the whole verb")
+        guard case .done(_, let sentence) = outcome else {
+            return XCTFail("finalize should have answered .done")
+        }
+        XCTAssertEqual(sentence, DesignGate.finalizedConfirmation,
+                       "the one verb with no visible status change is the one "
+                       + "that most needs to say it happened")
+    }
+
+    /// **A verb that worked announces itself, and one that refused does not.**
+    ///
+    /// The department desk one column over lists `.maugham/design/proposals/` in
+    /// a `.task` whose key watches the designer's RUN state — and a promotion is
+    /// not a run, so without this post the desk goes on saying "waiting for your
+    /// review" over a proposal the writer just approved (Task 5's concern 1, the
+    /// half the value hand-back cannot reach).
+    func test_aVerbThatWorkedTellsTheRestOfTheWindow() async throws {
+        let project = try Self.publishProject(in: temp.url)
+        let staged = try DesignProposalStore(projectURL: project)
+            .stage(report: Self.report(), round: 1,
+                   designerName: "Tschichold", language: nil)
+
+        var announcements = 0
+        let token = NotificationCenter.default.addObserver(  // adr-0021-ok: a test observing the post, not a production receiver
+            forName: .maughamDesignProposalsChanged, object: nil, queue: .main) { note in
+                guard note.userInfo?[MaughamEvent.scopeIdKey] as? String
+                    == ProjectIdentifier.id(for: project) else { return }
+                announcements += 1
+            }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        _ = await DesignGatePromotion.approve(staged, projectURL: project,
+                                              jobManager: CompileJobManager())
+        XCTAssertEqual(announcements, 1,
+                       "an approval must reach the desk's Design row")
+
+        // …and a refusal is not news: nothing on disk moved.
+        _ = await DesignGatePromotion.approve(staged, projectURL: project,
+                                              jobManager: CompileJobManager())
+        XCTAssertEqual(announcements, 1,
+                       "a refused verb changed nothing, so it announces nothing")
+    }
+
+    // MARK: - The verbs, mounted
+
+    /// **The gate draws what the proposal offers, and nothing else.** Read off
+    /// the accessibility tree because the contract is about what a writer can
+    /// reach — and each verb carries a label of its own, since "Revert" told
+    /// apart only by the surface it sits on is not something a linear tree
+    /// carries.
+    func test_thePendingGateDrawsApproveAndRequestChangesAndNoWayBackFromNowhere()
+        async throws {
+        let window = mountGate(Self.proposal(status: .pending),
+                               hasOpenProposalRound: true)
+        _ = try await settling(in: window)
+
+        let labels = try axButtonLabels(in: window)
+        for offered: DesignGate.Verb in [.approve, .requestChanges] {
+            XCTAssertTrue(labels.contains(offered.accessibilityLabel),
+                          "\(offered) is not on the gate. Published: \(labels.sorted())")
+        }
+        for absent: DesignGate.Verb in [.revert, .finalize] {
+            XCTAssertFalse(labels.contains(absent.accessibilityLabel),
+                           "\(absent) has nothing to act on over a proposal that "
+                           + "was never promoted. Published: \(labels.sorted())")
+        }
+    }
+
+    /// …and an approved one draws the two ways out instead.
+    func test_theApprovedGateDrawsRevertAndFinalize() async throws {
+        let window = mountGate(Self.proposal(status: .approved),
+                               hasOpenProposalRound: true)
+        _ = try await settling(in: window)
+
+        let labels = try axButtonLabels(in: window)
+        for offered: DesignGate.Verb in [.revert, .finalize] {
+            XCTAssertTrue(labels.contains(offered.accessibilityLabel),
+                          "\(offered) is not on the gate. Published: \(labels.sorted())")
+        }
+        XCTAssertFalse(labels.contains(DesignGate.Verb.approve.accessibilityLabel),
+                       "Published: \(labels.sorted())")
+    }
+
+    /// **A settled proposal draws no verbs and says why on screen.**
+    func test_aTurnedDownRoundDrawsItsNoteAndNoVerdicts() async throws {
+        var reverted = Self.proposal(status: .rejected)
+        reverted.revertNote = "Reverted — the ligatures broke in the Spanish edition."
+        let window = mountGate(reverted, hasOpenProposalRound: true)
+        _ = try await settling(in: window)
+
+        let labels = try axButtonLabels(in: window)
+        for verb in DesignGate.Verb.allCases {
+            XCTAssertFalse(labels.contains(verb.accessibilityLabel),
+                           "\(verb) over a round already turned down. "
+                           + "Published: \(labels.sorted())")
+        }
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0.contains("ligatures broke") },
+                      "the revert's own note is not on the gate. "
+                      + "Published: \(texts.sorted())")
+    }
+
+    /// **A refused verb puts its own sentence on the gate**, on the delivery
+    /// path: pressed through the accessibility tree, with the refusal travelling
+    /// from the seam exactly as production's does.
+    func test_aRefusedVerbDrawsItsSentenceRatherThanDoingNothingVisible()
+        async throws {
+        let sentence = "a compile is running (job-7) — wait for it, or cancel it."
+        var actions = DesignGateActions()
+        actions.approve = { _ in .refused(sentence) }
+        let window = mountGate(Self.proposal(status: .pending), actions: actions)
+        _ = try await settling(in: window)
+
+        try press(.approve, in: window)
+        _ = await pumpUntil(deadline: 3) {
+            ((try? self.axTexts(in: window)) ?? []).contains { $0.contains(sentence) }
+        }
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0.contains(sentence) },
+                      "the refusal is not on screen. Published: \(texts.sorted())")
+    }
+
+    /// **A verb's result reaches the window, so the gate cannot lie about where
+    /// the proposal stands.**
+    ///
+    /// The delivery-path half of Task 5's ledgered concern: the gate's proposal
+    /// is `ProjectWindow.publishSelectedProposal`, and unless the verb writes the
+    /// refreshed value back into it the surface keeps drawing the snapshot it
+    /// opened with — Approve still offered, "waiting for your review" still in
+    /// the header, over templates that are already live.
+    func test_aVerbsResultIsWrittenBackSoTheGateCannotLieAboutTheStatus()
+        async throws {
+        var approved = Self.proposal(status: .pending)
+        approved.status = .approved
+        var actions = DesignGateActions()
+        actions.approve = { _ in
+            .done(approved, sentence: DesignGate.approvedConfirmation)
+        }
+        var handedUp: [DesignProposalStore.Status] = []
+        let window = mountGate(Self.proposal(status: .pending), actions: actions,
+                               onProposalChanged: { handedUp.append($0.status) })
+        _ = try await settling(in: window)
+
+        try press(.approve, in: window)
+        _ = await pumpUntil(deadline: 3) { !handedUp.isEmpty }
+
+        XCTAssertEqual(handedUp, [.approved],
+                       "the window's own copy of the proposal must move, or the "
+                       + "gate goes on offering Approve over a live design")
+    }
+
+    /// **Request Changes takes the writer's words and reports what happened
+    /// either way** — the one verb here that does not touch the publish tree, and
+    /// the one whose refusal comes back as a sentence rather than an outcome.
+    func test_requestChangesSendsTheWritersWordsAndSaysWhenItCannot() async throws {
+        var sent: [String] = []
+        var actions = DesignGateActions()
+        actions.requestChanges = { words in
+            sent.append(words)
+            return words.isEmpty ? DepartmentDesignRow.noWordsRefusal : nil
+        }
+        let window = mountGate(Self.proposal(status: .pending), actions: actions,
+                               hasOpenProposalRound: true)
+        _ = try await settling(in: window)
+
+        try press(.requestChanges, in: window)
+        _ = await pumpUntil(deadline: 3) { !sent.isEmpty }
+
+        XCTAssertEqual(sent, [""], "the field's words, whatever they are")
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains {
+            $0.contains(DepartmentDesignRow.noWordsRefusal)
+        }, "the refusal is not on screen. Published: \(texts.sorted())")
+    }
+
+    // MARK: - Census (Task 6)
+
+    /// **`requestChanges` has one spelling, and both surfaces reach it.**
+    ///
+    /// The desk composed the call and its three refusals inline until this task;
+    /// the gate is the second surface to want them, and a copy would be two
+    /// answers to "why did that not go" — free to drift the moment
+    /// `DesignerOrchestrator.requestChanges` grows a fifth guard, which is
+    /// exactly what `unknownRefusal` exists against.
+    func test_requestChangesHasOneSpellingAndBothSurfacesReachIt() throws {
+        let orchestratorCallers = try ["Views/Publish/DepartmentDesignRow.swift",
+                                       "Views/Publish/DepartmentPaneHost.swift",
+                                       "Views/Publish/DesignGateView.swift",
+                                       "Views/Publish/DesignGateVerbs.swift",
+                                       "Views/ProjectWindow.swift"]
+            .filter { path in
+                SourceScan.codeLines(of: try Self.source(of: path))
+                    .contains { $0.contains("designer.requestChanges(") }
+            }
+        XCTAssertEqual(orchestratorCallers,
+                       ["Views/Publish/DepartmentDesignRow.swift"],
+                       "the orchestrator's verb is called from `sendChanges` and "
+                       + "nowhere else in this department")
+
+        for surface in ["Views/Publish/DepartmentPaneHost.swift",
+                        "Views/ProjectWindow.swift"] {
+            XCTAssertTrue(
+                SourceScan.codeLines(of: try Self.source(of: surface))
+                    .contains { $0.contains("DepartmentDesignRow.sendChanges") },
+                "\(surface) must reach the one spelling rather than compose its own")
+        }
+    }
+
+    /// **Nothing about the gate's verbs reaches `NSUndoManager`** — the
+    /// stored-reversal ruling, which `ProposalPromotion`'s type doc settles and
+    /// this surface is the one most likely to forget.
+    ///
+    /// *Undoable* here is `revert`: a verb the writer asks for by name. A ⌘Z in a
+    /// text pane must never, at any depth of an undo stack it happens to share,
+    /// un-ship a book's templates — those two acts have nothing in common but a
+    /// keystroke, and the keystroke belongs to the prose.
+    func test_nothingAboutTheGatesVerbsReachesTheUndoManager() throws {
+        let banned = ["NSUndoManager", "undoManager", "registerUndo",
+                      "UndoBracket", "beginUndoGrouping"]
+        for path in ["Publish/ProposalPromotion.swift",
+                     "Stores/DesignProposalStore.swift",
+                     "Views/Publish/DesignGateVerbs.swift",
+                     "Views/Publish/DesignGateView.swift"] {
+            let code = SourceScan.codeLines(of: try Self.source(of: path))
+            for token in banned {
+                XCTAssertFalse(
+                    code.contains { $0.contains(token) },
+                    "\(path) names \(token) in code. Approving a design is a "
+                    + "stored reversal (Revert), never an undo registration.")
+            }
+        }
+    }
+
+    /// **The window hands the gate its verbs**, and hands the result back into
+    /// the one piece of state the gate arm is a function of. The bridge from the
+    /// seam's spelling to production's — without it every mounted test above
+    /// passes over a surface nothing wires up.
+    func test_theWindowWiresTheVerbsAndTakesTheirResultBack() throws {
+        let code = SourceScan.codeLines(of: try Self.source(of: "Views/ProjectWindow.swift"))
+
+        XCTAssertTrue(code.contains { $0.contains("actions:") && $0.contains("designGateActions") }
+                      || code.contains { $0.contains("designGateActions(") },
+                      "the gate must be given a wired `DesignGateActions`")
+        XCTAssertTrue(
+            code.contains { $0.contains("onProposalChanged:") },
+            "…and the window must take the refreshed proposal back, or the gate "
+            + "draws the snapshot it opened with for the rest of the session")
+        XCTAssertTrue(
+            code.contains { $0.contains("DesignGatePromotion.") },
+            "the verbs run through the one performer, which is what re-reads the "
+            + "proposal and announces the change")
+    }
+
+    /// **The desk re-derives when the gate acts.** The other half of the
+    /// write-back: `ProjectWindow`'s state feeds the gate, and the desk in the
+    /// right column has its own listing keyed on the designer's run state — which
+    /// a promotion never touches.
+    func test_theDeskListensForTheGatesVerdict() throws {
+        let code = SourceScan.codeLines(
+            of: try Self.source(of: "Views/Publish/DepartmentPaneHost.swift"))
+        XCTAssertTrue(
+            code.contains { $0.contains("maughamDesignProposalsChanged") },
+            "the desk must hear a promotion, or its Design row keeps describing "
+            + "a status the proposal no longer has")
+    }
+
     // MARK: - Fixtures
+
+    /// A project with a live publish tree to promote onto —
+    /// `ProposalPromotionTests`' fixture, built by hand for its reason: what
+    /// `approve` needs is that the tree EXISTS and holds the file it is about to
+    /// overwrite, and a hand-built one says exactly which bytes are under test.
+    private static func publishProject(in root: URL) throws -> URL {
+        let projectURL = root.appendingPathComponent("P-\(UUID().uuidString)")
+        let publish = projectURL.appendingPathComponent(".maugham/publish",
+                                                        isDirectory: true)
+        try FileManager.default.createDirectory(at: publish,
+                                                withIntermediateDirectories: true)
+        try "LIVE ORIGINAL".write(
+            to: publish.appendingPathComponent("template.tex"),
+            atomically: true, encoding: .utf8)
+        return projectURL
+    }
+
+    private static func refusal(_ outcome: DesignGateOutcome,
+                                file: StaticString = #filePath,
+                                line: UInt = #line) throws -> String {
+        guard case .refused(let sentence) = outcome else {
+            XCTFail("expected a refusal, got \(outcome)", file: file, line: line)
+            throw XCTSkip("not a refusal")
+        }
+        return sentence
+    }
+
+    private static func settled(_ outcome: DesignGateOutcome,
+                                file: StaticString = #filePath,
+                                line: UInt = #line) throws -> DesignProposalStore.Proposal {
+        guard case .done(let proposal, _) = outcome else {
+            XCTFail("expected the verb to have run, got \(outcome)",
+                    file: file, line: line)
+            throw XCTSkip("not a completed verb")
+        }
+        return proposal
+    }
+
+    /// Press a verb through the accessibility tree — `DepartmentPaneTests`'
+    /// idiom: it is the action a click ultimately performs and, unlike a
+    /// synthetic `mouseDown`, it does not need this process to be the active app
+    /// (CLAUDE.md's synthetic-click premise).
+    private func press(_ verb: DesignGate.Verb, in window: NSWindow) throws {
+        let published = try axButtonLabels(in: window).sorted()
+        let buttons = try axButtons(labelled: verb.accessibilityLabel, in: window)
+        XCTAssertEqual(buttons.count, 1,
+                       "one \(verb) on the gate. Buttons: \(published)")
+        guard let button = buttons.first else { return }
+        _ = (button as? NSObject)?.perform(
+            NSSelectorFromString("accessibilityPerformPress"))
+    }
 
     private static func proposal(
         round: Int = 2,
@@ -631,10 +1189,18 @@ final class DesignGateTests: XCTestCase {
 
     // MARK: - Hosting
 
-    private func mountGate(_ proposal: DesignProposalStore.Proposal,
-                           onClose: @escaping () -> Void = { }) -> NSWindow {
+    private func mountGate(
+        _ proposal: DesignProposalStore.Proposal,
+        actions: DesignGateActions = DesignGateActions(),
+        hasOpenProposalRound: Bool = false,
+        onClose: @escaping () -> Void = { },
+        onProposalChanged: @escaping (DesignProposalStore.Proposal) -> Void = { _ in }
+    ) -> NSWindow {
         mount(AnyView(DesignGateView(proposal: proposal, projectURL: temp.url,
-                                     onClose: onClose)),
+                                     actions: actions,
+                                     hasOpenProposalRound: hasOpenProposalRound,
+                                     onClose: onClose,
+                                     onProposalChanged: onProposalChanged)),
               width: 900)
     }
 
@@ -756,12 +1322,28 @@ final class DesignGateTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
 
+    /// Poll `condition`, pumping the run loop AND releasing the main actor
+    /// between turns.
+    ///
+    /// **The `await` is load-bearing and cost this task an hour.** Task 6's verbs
+    /// answer from an unstructured, main-actor `Task` (a promotion is file I/O
+    /// over the writer's whole template set). `RunLoop.current.run(until:)` spins
+    /// the loop but never suspends the test's own task, and the main actor is a
+    /// serial executor — so a loop of bare `pump` calls holds the actor for the
+    /// whole deadline and the very Task under test cannot be scheduled until
+    /// after the assertion has failed. Measured: the verb's `Task` ran, its
+    /// outcome was correct, and the callback landed *after* teardown.
+    ///
+    /// A synchronous surface (the desk's Show, Request Changes) never showed it,
+    /// which is exactly why it is written down here rather than left as a
+    /// timing tweak.
     private func pumpUntil(deadline: TimeInterval,
                            _ condition: () -> Bool) async -> Bool {
         let end = Date().addingTimeInterval(deadline)
         while Date() < end {
             if condition() { return true }
-            pump(0.05)
+            pump(0.02)
+            try? await Task.sleep(nanoseconds: 20_000_000)
         }
         return condition()
     }

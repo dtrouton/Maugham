@@ -120,6 +120,17 @@ enum MaughamEvent {
              payload: [noticeMessageKey: message])
     }
 
+    /// **The one spelling of the design-proposals-changed post** (P4 Task 6).
+    ///
+    /// Posted by `DesignGatePromotion` after Approve, Revert or Finalize has
+    /// rewritten a `proposal.json`. `projectURL` is the project ROOT, matching
+    /// what the `.onProjectEvent` receivers subscribe with. One spelling for the
+    /// three verbs, because a scope spelled three times is a scope spelled wrong
+    /// once.
+    static func postDesignProposalsChanged(projectURL: URL) {
+        post(.maughamDesignProposalsChanged, to: .project(for: projectURL))
+    }
+
     /// Ask the key window's right column to show `segment`.
     ///
     /// **The one spelling of this post**, because there are now two kinds of

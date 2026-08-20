@@ -2006,11 +2006,22 @@ struct ProjectWindow: View {
                                       proposal: publishSelectedProposal) {
             case .designProposal(let proposal):
                 DesignGateView(proposal: proposal, projectURL: store.url,
+                               // The verdict's four verbs (P4 Task 6), wired to
+                               // the window's own job manager and warm designer.
+                               actions: designGateActions(projectURL: store.url),
+                               hasOpenProposalRound: designer.hasOpenProposalRound,
                                // Deselecting is the whole of Back: the arm is a
                                // pure function of this one piece of window
                                // state, so dropping it hands the column back to
                                // whatever the book's own rule answers.
-                               onClose: { publishSelectedProposal = nil })
+                               onClose: { publishSelectedProposal = nil },
+                               // …and the same piece of state is how a verb's
+                               // result reaches the surface. The gate holds the
+                               // proposal as a VALUE and `approve` marks it
+                               // approved on disk as its last step, so without
+                               // this write the gate would go on offering
+                               // Approve over a design already live.
+                               onProposalChanged: { publishSelectedProposal = $0 })
             case .books(let publications):
                 PublishPreviewCentre(
                     publications: publications,
@@ -2023,6 +2034,52 @@ struct ProjectWindow: View {
                 EmptyView()
             }
         }
+    }
+
+    /// **The gate's four verbs, wired to this window** (P4 Task 6).
+    ///
+    /// Closures rather than a store handed down, `DepartmentPane`'s rule: the
+    /// gate reads no disk on a body path (tripwire 4), and every one of these
+    /// reaches something that belongs to the window — the project's shared
+    /// `CompileJobManager` (which is what `approve`/`revert` refuse against while
+    /// a compile is reading the publish tree) and the warm designer session.
+    ///
+    /// **The job manager is resolved INSIDE each closure**, never here: this
+    /// function is called from the centre column's switch, which is a body path,
+    /// and `PublishingStores.sharedFor` constructs four stores on its first call
+    /// for a project. Inside the closure it is paid once per press.
+    ///
+    /// **Request Changes calls `DepartmentDesignRow.sendChanges`, which is also
+    /// what the desk calls** — one spelling of the orchestrator call and of the
+    /// three refusals it can earn, since the two surfaces are the same verb
+    /// reached from two columns.
+    private func designGateActions(projectURL: URL) -> DesignGateActions {
+        DesignGateActions(
+            approve: { proposal in
+                await DesignGatePromotion.approve(
+                    proposal, projectURL: projectURL,
+                    jobManager: Self.compileJobs(for: projectURL))
+            },
+            revert: { proposal in
+                await DesignGatePromotion.revert(
+                    proposal, projectURL: projectURL,
+                    jobManager: Self.compileJobs(for: projectURL))
+            },
+            finalize: { proposal in
+                DesignGatePromotion.finalize(proposal, projectURL: projectURL)
+            },
+            requestChanges: { [designer] words in
+                DepartmentDesignRow.sendChanges(words, to: designer)
+            })
+    }
+
+    /// The project's ONE compile-job manager — the same instance every compile of
+    /// this book contends on, which is the only thing that makes "a compile is
+    /// running" answerable at all.
+    private static func compileJobs(for projectURL: URL) -> CompileJobManager {
+        PublishingStores.sharedFor(
+            projectID: ProjectIdentifier.id(for: projectURL),
+            projectURL: projectURL).jobManager
     }
 
     /// **Recount the board's open notes** (M3 P2 Task 9) — the one writer of

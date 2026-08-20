@@ -84,12 +84,14 @@ struct DepartmentPaneHost: View {
         var id: String { statementID }
     }
 
-    /// **Four signals, and the `.task`'s own mount is a fifth.** The desk's
+    /// **Five signals, and the `.task`'s own mount is a sixth.** The desk's
     /// figures move when a translation is written (a run, or `write_translation`
     /// from outside), when a query is opened or disposed of, when the manifest
-    /// changes (a translator renamed, a chapter added or removed) — and when a
-    /// design round ends. Read as an `Equatable` value so `.task(id:)` re-runs
-    /// on a change and on nothing else.
+    /// changes (a translator renamed, a chapter added or removed), when a design
+    /// round ends — and when the gate in the centre column approves, reverts or
+    /// finalizes one (P4 Task 6, through `.maughamDesignProposalsChanged` into
+    /// `refreshes`). Read as an `Equatable` value so `.task(id:)` re-runs on a
+    /// change and on nothing else.
     ///
     /// **The designer's state is in the key rather than behind an event**
     /// (Task 4), and it is the whole of how a finished round reaches the row: a
@@ -127,6 +129,15 @@ struct DepartmentPaneHost: View {
             refreshes += 1
         }
         .onProjectEvent(.maughamAnnotationsChanged, url: projectURL, window: window) { _ in
+            refreshes += 1
+        }
+        // **The gate's verdict, one column over** (P4 Task 6). Approve / Revert /
+        // Finalize rewrite a `proposal.json` and nothing else here would notice:
+        // the `ReloadKey` below watches the designer's RUN state, and a promotion
+        // is not a run. Without this the Design row goes on saying "waiting for
+        // your review" over a proposal the writer just approved.
+        .onProjectEvent(.maughamDesignProposalsChanged,
+                        url: projectURL, window: window) { _ in
             refreshes += 1
         }
     }
@@ -243,10 +254,6 @@ struct DepartmentPaneHost: View {
         "This window isn\u{2019}t ready to run a translation yet. Try again in a "
         + "moment, or reopen the project."
 
-    static let noDesignerWired =
-        "This window isn\u{2019}t ready to run a design round yet. Try again in a "
-        + "moment, or reopen the project."
-
     // MARK: - The design round (Task 4)
 
     /// **The Design row, resolved.**
@@ -284,7 +291,7 @@ struct DepartmentPaneHost: View {
     private func runDesign(direction: String?) -> Bool {
         notice = nil
         guard let designer else {
-            notice = Self.noDesignerWired
+            notice = DepartmentDesignRow.noDesignerWired
             return false
         }
         let session = DesignSession.read(runState: designer.runState,
@@ -307,19 +314,14 @@ struct DepartmentPaneHost: View {
     /// conditions it guards on rather than guessed at. It lands in `notice`, the
     /// desk's one transient-message channel, beside every other refusal a click
     /// earned (Task 3's census).
+    ///
+    /// **The composition itself moved to `DepartmentDesignRow.sendChanges`** (P4
+    /// Task 6) the moment the gate in the centre column grew the same verb: one
+    /// spelling of the call and of the three refusals it can earn, reached from
+    /// both surfaces.
     private func requestDesignChanges(_ words: String) -> Bool {
-        notice = nil
-        guard let designer else {
-            notice = Self.noDesignerWired
-            return false
-        }
-        if designer.requestChanges(words) { return true }
-        notice = DepartmentDesignRow.changesRefusal(
-            words: words,
-            session: DesignSession.read(runState: designer.runState,
-                                        isRunning: designer.isRunning),
-            hasOpenProposalRound: designer.hasOpenProposalRound)
-        return false
+        notice = DepartmentDesignRow.sendChanges(words, to: designer)
+        return notice == nil
     }
 
     /// The brief itself, over the desk rather than beside it.

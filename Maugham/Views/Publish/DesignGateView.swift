@@ -155,17 +155,57 @@ enum DesignGate {
 /// the altitude view still mounted underneath it, and anything translucent would
 /// read the corkboard through the page.
 ///
-/// **No verbs.** Approve / Request Changes / Revert / Finalize are Task 6's. The
-/// one control here is the way back to the book, which is navigation rather than
-/// a verdict.
+/// **And the verdict, along the bottom** (Task 6). Approve / Request Changes /
+/// Revert / Finalize sit in a footer under both columns rather than in the
+/// header, because they are what the writer does *after* reading the two halves
+/// above — and because the header's other control is the way OUT, which must not
+/// end up adjacent to the way the templates ship.
+///
+/// **Which verbs are drawn is a pure function of the proposal's status**
+/// (`DesignGate.verbs`), and the proposal is a value owned by the window. That
+/// is the whole of "transitions reflect immediately": a verb hands its result to
+/// `onProposalChanged`, the window rewrites the value, and the footer that drew
+/// Approve draws Revert and Finalize on the next body pass. A gate that kept a
+/// `@State` copy of the proposal would be the second source of truth this shape
+/// exists to avoid.
+///
+/// **Nothing here registers with `NSUndoManager`.** `ProposalPromotion`'s type
+/// doc settles it: the reversal is `revert`, a verb asked for by name, and a ⌘Z
+/// in a text pane must never un-ship a book's templates.
 struct DesignGateView: View {
     let proposal: DesignProposalStore.Proposal
     let projectURL: URL
+    var actions: DesignGateActions = DesignGateActions()
+    var hasOpenProposalRound: Bool = false
     var onClose: () -> Void = { }
+    var onProposalChanged: (DesignProposalStore.Proposal) -> Void = { _ in }
 
     /// Whether the recorded pages are still on disk. Starts `true` so the first
     /// frame draws them — see `DesignGate.panel`'s doc for why that direction.
     @State private var pagesExist = true
+
+    /// **What the last verb said** — a refusal in its own words, or the
+    /// confirmation that it worked. The gate's one transient-message channel,
+    /// `DepartmentPane.notice`'s shape and for its reason: a click that produces
+    /// nothing visible is the silent no-op Global Constraint 2 exists against.
+    @State private var notice: String?
+
+    /// The writer's words for the next round. Local to this surface for the
+    /// reason `DepartmentPane.direction` is local to the desk: it is the field's
+    /// own text, and a `Binding` up to the window would put a keystroke-rate
+    /// write on `ProjectWindow`'s state (tripwire 3's shape).
+    @State private var words = ""
+
+    /// True between a verb's press and its answer. The verbs are file I/O over
+    /// the writer's whole template set, so a second press mid-promotion is a
+    /// second backup attempt — refused by `ProposalPromotion` with a sentence,
+    /// but a disabled control is the cheaper answer.
+    @State private var working = false
+
+    private var verbs: [DesignGate.Verb] {
+        DesignGate.verbs(status: proposal.status,
+                         hasOpenProposalRound: hasOpenProposalRound)
+    }
 
     private var panel: DesignGate.SamplePanel {
         DesignGate.panel(for: proposal.sampleResult, projectURL: projectURL,
@@ -188,12 +228,22 @@ struct DesignGateView: View {
                 Divider()
                 sample
             }
+            Divider()
+            footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
         // Asked here, never on a body path, and re-asked when the path moves —
         // which it does when the writer Shows a different round.
         .task(id: recordedPagesPath) { await checkPages() }
+        // **A different round is a different decision.** Keyed on the id rather
+        // than the whole proposal: a verb's own write-back changes the value and
+        // must NOT clear the sentence it just produced, which is the one thing
+        // telling the writer what happened.
+        .onChange(of: proposal.id) { _, _ in
+            notice = nil
+            words = ""
+        }
     }
 
     /// Who made this, where it stands, and the way out.
@@ -329,6 +379,113 @@ struct DesignGateView: View {
         }
     }
 
+    // MARK: - The verdict (Task 6)
+
+    /// **The footer: what the writer can do about this round, and what happened
+    /// last time they did.**
+    ///
+    /// Always drawn, never conditionally: `DesignGate.verbs` is empty exactly
+    /// when `settledNote` is not, so every status has something to say here.
+    /// A footer that vanished over a superseded round would leave the writer
+    /// looking for controls that were never coming.
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let notice {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(notice)
+            }
+            if let settled = DesignGate.settledNote(proposal) {
+                Text(settled)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // The words ride ABOVE the buttons rather than beside them: the field
+            // grows to three lines, and a row that changed height as the writer
+            // typed would move the verdict under their cursor.
+            if verbs.contains(.requestChanges) {
+                TextField(DesignGate.changeRequestPrompt, text: $words,
+                          axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...3)
+                    .font(.callout)
+            }
+            if !verbs.isEmpty { controls }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// **The verbs, trailing.** Approve leads visually because it is what a
+    /// pending round is for; every one of them carries an accessibility label of
+    /// its own, since the words "Revert" and "Approve" are told apart from the
+    /// rest of the window only by the surface they sit on, which a linear tree
+    /// does not carry.
+    ///
+    /// **No `keyboardShortcut`**, for the desk's reason: ⌘R and ⌘⇧R belong to the
+    /// compiler in whichever window hosts this, and a return-key default over a
+    /// control that ships a book's templates is a keystroke nobody meant.
+    private var controls: some View {
+        HStack(spacing: 8) {
+            Spacer(minLength: 0)
+            ForEach(verbs, id: \.self) { verb in
+                Button(verb.title) { perform(verb) }
+                    .controlSize(.small)
+                    .disabled(working)
+                    .accessibilityLabel(verb.accessibilityLabel)
+                    .help(verb.help)
+            }
+        }
+    }
+
+    /// **One press, one sentence** — whichever way it goes (Global Constraint
+    /// 2/4).
+    ///
+    /// Request Changes is handled apart from the other three because it is a
+    /// different kind of act: it starts a round rather than moving a byte of the
+    /// publish tree, it is synchronous, and it consumes the writer's words —
+    /// which are cleared only when they were spent, `DepartmentPane`'s rule for
+    /// the desk's own field.
+    private func perform(_ verb: DesignGate.Verb) {
+        notice = nil
+        guard verb != .requestChanges else {
+            if let refusal = actions.requestChanges(words) {
+                notice = refusal
+            } else {
+                words = ""
+                notice = DesignGate.changesSentConfirmation
+            }
+            return
+        }
+        working = true
+        Task { @MainActor in
+            let outcome: DesignGateOutcome
+            switch verb {
+            case .approve: outcome = await actions.approve(proposal)
+            case .revert: outcome = await actions.revert(proposal)
+            case .finalize: outcome = await actions.finalize(proposal)
+            case .requestChanges: return   // answered above
+            }
+            working = false
+            switch outcome {
+            case .done(let updated, let sentence):
+                notice = sentence
+                // **The write-back**, and the reason this view holds no copy of
+                // the proposal: the status the verb produced lives on disk, and
+                // the window's own value is what every surface here reads.
+                onProposalChanged(updated)
+            case .refused(let sentence):
+                notice = sentence
+            }
+        }
+    }
+
     /// **The edition caveat, above everything.** It changes what approving this
     /// proposal MEANS, so it is read before the spec rather than filed under the
     /// pages it is about.
@@ -401,3 +558,4 @@ struct DesignGateView: View {
         pagesExist = FileManager.default.fileExists(atPath: url.path)
     }
 }
+
