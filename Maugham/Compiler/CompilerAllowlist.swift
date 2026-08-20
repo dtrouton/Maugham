@@ -39,7 +39,8 @@ public enum CompilerAllowlist {
         "mcp__maugham__get_help",
         "mcp__maugham__read_translation",
         "mcp__maugham__translation_status",
-        "mcp__maugham__list_canvas"
+        "mcp__maugham__list_canvas",
+        "mcp__maugham__read_edition_brief"
     ]
 
     /// Returns the CLI arguments to pass to the spawned Claude process.
