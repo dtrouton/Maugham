@@ -435,4 +435,58 @@ final class PreviewCompilerTests: XCTestCase {
         XCTAssertEqual(two.outputPath, one.outputPath)
     }
 
+    /// **A preview that throws must not leave its job running forever.** The
+    /// gate blocks fail the job on their way out; every other exit past
+    /// `register` used to be a bare `throw`, and an `.inProgress` job is read by
+    /// `ProposalPromotion` as a live compile — so one failed preview would
+    /// refuse every approve and revert for the life of the process, naming a
+    /// compile that will never end.
+    ///
+    /// The failure is the disk's own (the rollback idiom this repo already uses
+    /// for the same job): with `.maugham/publish` unwritable, the EMISSION
+    /// refresh at the head of the preview cannot land. No tectonic, no LaTeX —
+    /// the throw is what is under test, not what raised it.
+    ///
+    /// Disable experiment: drop the `do`/`catch` around `preview`'s body and
+    /// this fails on a job still `.inProgress`.
+    func testPreview_aThrowPastRegistrationFailsTheJob() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Doomed", author: "X")))
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "A.")]
+            }
+        }
+        let manager = CompileJobManager()
+        let preview = PreviewCompiler(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore, jobManager: manager,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+
+        let fm = FileManager.default
+        let publish = tmp.appendingPathComponent(".maugham/publish", isDirectory: true)
+        let original = try XCTUnwrap(
+            fm.attributesOfItem(atPath: publish.path)[.posixPermissions] as? NSNumber)
+        try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: publish.path)
+        defer { try? fm.setAttributes([.posixPermissions: original], ofItemAtPath: publish.path) }
+
+        do {
+            _ = try await preview.preview(format: .epub, sectionIDs: nil, maxPages: nil)
+            XCTFail("expected the unwritable publish directory to refuse the EMISSION refresh")
+        } catch {
+            // Whatever the disk raised — the point is what the job says after it.
+        }
+
+        let running = await manager.allInProgress()
+        XCTAssertTrue(running.isEmpty,
+                      "a thrown preview leaves no job running — ProposalPromotion "
+                      + "reads exactly this and would refuse every promotion")
+        let jobs = await manager.all()
+        XCTAssertEqual(jobs.count, 1, "fixture: the preview registered exactly one job")
+        let status = try XCTUnwrap(jobs.first).status
+        guard case .failed = status else {
+            return XCTFail("expected .failed, got \(status)")
+        }
+    }
+
 }

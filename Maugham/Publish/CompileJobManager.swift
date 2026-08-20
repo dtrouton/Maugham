@@ -40,6 +40,16 @@ public actor CompileJobManager {
             .sorted(by: { $0.startedAt < $1.startedAt })
     }
 
+    /// Every job this manager holds, oldest first — `allInProgress()`'s
+    /// unfiltered sibling. It exists because a caller that never learns a job's
+    /// id can otherwise only ask whether the job is still running, and "not
+    /// running" cannot tell a `.failed` job from one that was never registered:
+    /// `PreviewCompilerTests` pins a thrown preview ending `.failed`, and
+    /// `preview` hands its job id back to nobody.
+    public func all() -> [CompileJob] {
+        jobs.values.sorted(by: { $0.startedAt < $1.startedAt })
+    }
+
     public func updatePhase(jobID: String, phase: CompileJob.Phase) {
         // A terminal job is never resurrected to `.inProgress` — without this
         // the compilers' phase updates overwrote `.cancelled` back to
