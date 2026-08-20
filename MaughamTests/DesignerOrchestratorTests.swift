@@ -662,6 +662,38 @@ final class DesignerOrchestratorTests: XCTestCase {
         XCTAssertEqual(runner.sends.count, 1)
     }
 
+    /// **A fresh round closes the open one at the send, whatever becomes of
+    /// it.** The sharp sequence: round one stages a proposal, round two comes
+    /// back unparseable — which retires no session and moves no epoch, so a
+    /// round closed only by the paths that produce a proposal would still read
+    /// as open. Request changes would then send "the writer has reviewed your
+    /// proposal" into a session whose last turn was the garbled second attempt,
+    /// and get back a revision of whichever design it decided that meant.
+    func test_aFreshRoundClosesTheOpenOneEvenWhenItComesBackUnusable() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, inputs: makeInputs())
+
+        harness.orchestrator.runDesign()
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertTrue(harness.orchestrator.hasOpenProposalRound)
+
+        runner.nextEvent = .resultText("I'd rather talk about the cover, honestly.")
+        harness.orchestrator.runDesign()
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertEqual(runner.shutdowns, 0, "the premise: nothing retired the session")
+        XCTAssertEqual(harness.spawns, 1, "…and nothing respawned it, so the epoch is "
+                       + "the same one the first proposal was made under")
+        XCTAssertFalse(harness.orchestrator.hasOpenProposalRound,
+                       "the first round's proposal is not something this session can "
+                       + "still be asked to revise")
+        XCTAssertFalse(harness.orchestrator.requestChanges("more air"))
+        settle()
+        XCTAssertEqual(runner.sends.count, 2, "the follow-up must not reach the runner")
+    }
+
     /// Empty words are not a change request. Refused before anything is spent,
     /// and the round stays open for the writer to say what they meant.
     func test_anEmptyChangeRequestIsRefusedAndLeavesTheRoundOpen() throws {

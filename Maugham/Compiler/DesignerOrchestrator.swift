@@ -339,6 +339,10 @@ final class DesignerOrchestrator {
     /// can still be asked to revise. P4's gate reads this to decide whether
     /// Request changes is a live control — a refusal a writer can see coming
     /// beats a button that does nothing.
+    ///
+    /// Three things close a round: a fresh `runDesign` reaching its send (see
+    /// `begin`), the session being retired (`retireSession`), and the process
+    /// behind the seam respawning (the epoch below).
     var hasOpenProposalRound: Bool {
         guard let openRound, let runner else { return false }
         return runner.sessionEpoch == openRound.epoch
@@ -453,6 +457,17 @@ final class DesignerOrchestrator {
 
         isPreparingRun = false
         runState = .running(round: 1, language: language)
+        // **A fresh round supersedes the open one, unconditionally and here** —
+        // at the send, not at the answer. From this turn on, the last thing this
+        // session was asked is a different design; a follow-up saying "the writer
+        // has reviewed your proposal" would be about whichever proposal happened
+        // to be open before, in a context that has moved past it. Closing it only
+        // on the paths that produce a NEW proposal is the bug: a second round
+        // whose report will not parse retires no session and moves no epoch, so
+        // the stale round would still answer `hasOpenProposalRound` true. This
+        // mirrors what `DesignProposalStore.stage` already does store-side, where
+        // staging supersedes every pending proposal before it mints.
+        openRound = nil
 
         let context = StageContext(runId: runId, round: 1,
                                    designerName: inputs.designerName, language: language)
