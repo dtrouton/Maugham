@@ -28,7 +28,7 @@ final class DesignProposalStoreTests: XCTestCase {
         let store = DesignProposalStore(projectURL: project)
         let report = makeReport()
 
-        let staged = try store.stage(report: report, round: 1, designerName: "Tschichold")
+        let staged = try store.stage(report: report, round: 1, designerName: "Tschichold", language: nil)
 
         XCTAssertTrue(staged.id.hasPrefix("prop-"))
         XCTAssertEqual(staged.designerName, "Tschichold")
@@ -71,7 +71,7 @@ final class DesignProposalStoreTests: XCTestCase {
         let store = DesignProposalStore(projectURL: project)
         let report = makeReport(spec: "Before I propose anything: square or portrait?", files: [])
 
-        let staged = try store.stage(report: report, round: 1, designerName: "Tschichold")
+        let staged = try store.stage(report: report, round: 1, designerName: "Tschichold", language: nil)
         XCTAssertTrue(staged.filePaths.isEmpty)
 
         let loaded = try store.load(id: staged.id)
@@ -99,10 +99,10 @@ final class DesignProposalStoreTests: XCTestCase {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
 
-        let first = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let first = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
         try store.updateStatus(id: first.id, .approved)
         Thread.sleep(forTimeInterval: 1.1) // ISO8601 whole-second precision
-        let second = try store.stage(report: makeReport(), round: 2, designerName: "Tschichold")
+        let second = try store.stage(report: makeReport(), round: 2, designerName: "Tschichold", language: nil)
 
         let listed = try store.list()
         XCTAssertEqual(listed.map(\.id), [second.id, first.id])
@@ -114,10 +114,10 @@ final class DesignProposalStoreTests: XCTestCase {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
 
-        let first = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let first = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
         XCTAssertEqual(first.status, .pending)
 
-        let second = try store.stage(report: makeReport(), round: 2, designerName: "Tschichold")
+        let second = try store.stage(report: makeReport(), round: 2, designerName: "Tschichold", language: nil)
         XCTAssertEqual(second.status, .pending)
 
         let reloadedFirst = try store.load(id: first.id)
@@ -139,10 +139,10 @@ final class DesignProposalStoreTests: XCTestCase {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
 
-        let first = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let first = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
         try store.updateStatus(id: first.id, .approved)
 
-        let second = try store.stage(report: makeReport(), round: 2, designerName: "Tschichold")
+        let second = try store.stage(report: makeReport(), round: 2, designerName: "Tschichold", language: nil)
         XCTAssertEqual(second.status, .pending)
 
         let reloadedFirst = try store.load(id: first.id)
@@ -154,7 +154,7 @@ final class DesignProposalStoreTests: XCTestCase {
     func test_updateStatus_persists() throws {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
-        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
 
         try store.updateStatus(id: staged.id, .rejected)
 
@@ -174,7 +174,7 @@ final class DesignProposalStoreTests: XCTestCase {
     func test_load_unrecognizedStatus_preservesRawVerbatim() throws {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
-        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
 
         // Hand-write a status a newer build might have written.
         try Self.rewriteStatusField(
@@ -190,14 +190,14 @@ final class DesignProposalStoreTests: XCTestCase {
         // that status down to a generic literal on the rewrite.
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
-        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
         try Self.rewriteStatusField("in_review", forProposal: staged.id, in: project)
 
-        try store.recordSampleResult(id: staged.id, .pages(path: "sample.pdf"))
+        try store.recordSampleResult(id: staged.id, .pages(path: "sample.pdf", demonstrates: []))
 
         let loaded = try store.load(id: staged.id)
         XCTAssertEqual(loaded.status, .unknown("in_review"))
-        XCTAssertEqual(loaded.sampleResult, .pages(path: "sample.pdf"))
+        XCTAssertEqual(loaded.sampleResult, .pages(path: "sample.pdf", demonstrates: []))
     }
 
     private static func rewriteStatusField(
@@ -216,25 +216,25 @@ final class DesignProposalStoreTests: XCTestCase {
     func test_sampleResult_nilUntilRecorded() throws {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
-        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
         XCTAssertNil(try store.sampleResult(id: staged.id))
     }
 
     func test_recordSampleResult_pages_roundTrips() throws {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
-        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
 
-        try store.recordSampleResult(id: staged.id, .pages(path: "scratch/sample.pdf"))
+        try store.recordSampleResult(id: staged.id, .pages(path: "scratch/sample.pdf", demonstrates: []))
 
-        XCTAssertEqual(try store.sampleResult(id: staged.id), .pages(path: "scratch/sample.pdf"))
-        XCTAssertEqual(try store.load(id: staged.id).sampleResult, .pages(path: "scratch/sample.pdf"))
+        XCTAssertEqual(try store.sampleResult(id: staged.id), .pages(path: "scratch/sample.pdf", demonstrates: []))
+        XCTAssertEqual(try store.load(id: staged.id).sampleResult, .pages(path: "scratch/sample.pdf", demonstrates: []))
     }
 
     func test_recordSampleResult_failed_carriesTheErrorText() throws {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
-        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
 
         try store.recordSampleResult(id: staged.id, .failed(error: "! Undefined control sequence."))
 
@@ -247,7 +247,7 @@ final class DesignProposalStoreTests: XCTestCase {
     func test_delete_removesTheProposalFolder() throws {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
-        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
         let dir = project.appendingPathComponent(".maugham/design/proposals/\(staged.id)")
         XCTAssertTrue(FileManager.default.fileExists(atPath: dir.path))
 
@@ -276,7 +276,7 @@ final class DesignProposalStoreTests: XCTestCase {
     func test_delete_refusesWhileAPromotionsBackupStands() throws {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
-        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
         let held = store.backupDir(id: staged.id).appendingPathComponent("files")
         try FileManager.default.createDirectory(at: held, withIntermediateDirectories: true)
         try "LIVE ORIGINAL".write(
@@ -297,7 +297,7 @@ final class DesignProposalStoreTests: XCTestCase {
     func test_delete_proceedsOnceTheBackupIsGone() throws {
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
-        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
         let backup = store.backupDir(id: staged.id)
         try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
         XCTAssertThrowsError(try store.delete(id: staged.id), "fixture: the guard is live")
@@ -323,7 +323,7 @@ final class DesignProposalStoreTests: XCTestCase {
         // outside it is touched by wiping it.
         let project = try makeProject()
         let store = DesignProposalStore(projectURL: project)
-        _ = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold")
+        _ = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
 
         let manuscriptMarker = project.appendingPathComponent("chapter-one.md")
         try "Once upon a time.".write(to: manuscriptMarker, atomically: true, encoding: .utf8)

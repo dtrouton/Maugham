@@ -232,10 +232,16 @@ enum SampleCompiler {
     /// The outcome as the proposal records it. A failure keeps its cause: the
     /// desk shows it beside the proposal, and a proposal with no sample and no
     /// reason is indistinguishable from one that was never compiled.
+    ///
+    /// **The pages keep their `demonstrates` lines too** (P4 Task 5). This
+    /// function used to drop them, which meant the selection's account of
+    /// *why these pages* existed only inside the call that computed it — and
+    /// the gate cannot rebuild it, because the selection is a function of the
+    /// AST at the round and the writer keeps writing.
     static func sampleResult(_ outcome: Outcome) -> DesignProposalStore.SampleResult {
         switch outcome {
-        case .pages(let path, _):
-            return .pages(path: path)
+        case .pages(let path, let demonstrates):
+            return .pages(path: path, demonstrates: demonstrates)
         case .failed:
             return .failed(error: failureSentence(outcome))
         }

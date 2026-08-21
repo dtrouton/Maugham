@@ -1190,6 +1190,220 @@ final class PublishPreviewCentreTests: XCTestCase {
                        + "since nothing here watches the directory")
     }
 
+    // MARK: - The gate's selection is the other transient pick (P4 Task 5)
+
+    /// **A persona change lets the design gate go**, where it deliberately keeps
+    /// the writer's publication pick.
+    ///
+    /// The two are both window-transient state about Publish's centre and this
+    /// modifier owns both, so the difference has to be asserted rather than
+    /// argued: a publication pick is a place in a READING, which Denver's ruling
+    /// keeps across a walk out of Publish and back; a selected proposal is a
+    /// place in a DECISION the writer entered by pressing Show, and leaving
+    /// Publish is them leaving it.
+    func test_aPersonaChangeLetsTheGateGoAndKeepsTheBooksPick() async throws {
+        let project = try makeProject()
+        let stores = PublishingStores.sharedFor(
+            projectID: ProjectIdentifier.id(for: project), projectURL: project)
+        let older = try await append(to: stores.publicationStore, in: project,
+                                     version: "1.0", minutesAgo: 30)
+        _ = try await append(to: stores.publicationStore, in: project,
+                             version: "1.1", minutesAgo: 20)
+
+        let box = PublishCentreProbeBox(persona: .publish)
+        _ = mountRefreshProbe(projectURL: project, box: box)
+        await pumpUntil(deadline: 5) { box.preview.publications.count == 2 }
+        box.selectedPublicationID = older.publicationID
+        box.selectedProposal = Self.aProposal
+
+        box.persona = .author
+        await pumpUntil(deadline: 5) { box.selectedProposal == nil }
+
+        XCTAssertNil(box.selectedProposal,
+                     "walking out of Publish leaves the gate behind")
+        XCTAssertEqual(box.selectedPublicationID, older.publicationID,
+                       "…and does NOT take the book the writer was reading")
+    }
+
+    /// …and arriving BACK in Publish does not resurrect it. The clear is written
+    /// before the modifier's arrival guard for exactly this: the guard's own
+    /// `return` runs on a change away from Publish, and a clear behind it would
+    /// only ever fire on the way in.
+    func test_theGateIsGoneOnTheWayBackIntoPublishToo() async throws {
+        let project = try makeProject()
+        let box = PublishCentreProbeBox(persona: .publish)
+        _ = mountRefreshProbe(projectURL: project, box: box)
+        box.selectedProposal = Self.aProposal
+
+        box.persona = .author
+        await pumpUntil(deadline: 5) { box.selectedProposal == nil }
+        box.persona = .publish
+        pump(0.5)
+
+        XCTAssertNil(box.selectedProposal)
+    }
+
+    /// A staged proposal, for the tests that are about the SELECTION rather than
+    /// about what the gate draws (`DesignGateTests` owns the latter).
+    static let aProposal = DesignProposalStore.Proposal(
+        id: "prop-preview", designerName: "Tschichold", round: 1, language: nil,
+        created: Date(timeIntervalSince1970: 1_770_000_000), status: .pending,
+        specMarkdown: "# a design", filePaths: ["template.tex"],
+        sampleResult: nil, revertNote: nil)
+
+    /// …and the report behind one, for the tests that need a proposal the store
+    /// really holds rather than a value.
+    static let aReport = DesignerReport(
+        specMarkdown: "# a design",
+        files: [DesignerReport.ProposedFile(path: "template.tex",
+                                            content: "\\documentclass{book}")])
+
+    // MARK: - …and the gate's proposal goes stale where the writer sits
+
+    /// **A round superseded under the writer stops offering verdicts.**
+    ///
+    /// The gate holds its proposal as a VALUE, and the store keeps ONE pending
+    /// slot: a fresh round — the writer's own next Run, or one an MCP caller
+    /// asked for — marks whatever preceded it `superseded` on disk. Nothing
+    /// re-derived the selection, so the writer went on looking at Approve and
+    /// Request Changes over a proposal the store had already retired, and
+    /// pressing either acted on a dead round.
+    ///
+    /// `DesignGate.verbs`/`settledNote` are already pure functions of the
+    /// status, so the whole of the fix is that the status ARRIVES.
+    func test_aSupersededRoundStopsOfferingVerdictsWhereTheWriterSits() async throws {
+        let project = try makeProject()
+        let store = DesignProposalStore(projectURL: project)
+        let first = try store.stage(report: Self.aReport, round: 1,
+                                    designerName: "Tschichold", language: nil)
+
+        let box = PublishCentreProbeBox(persona: .publish)
+        _ = mountRefreshProbe(projectURL: project, box: box)
+        await pumpUntil(deadline: 5) { box.modifierWindow != nil }
+        XCTAssertTrue(MaughamEvent.isLive(box.modifierWindow),
+                      "premise: the receiver has a live window — ADR 0021's "
+                      + "project scope drops the post otherwise, and this test "
+                      + "would measure nothing")
+        box.selectedProposal = first
+        XCTAssertEqual(box.selectedProposal?.status, .pending,
+                       "premise: the writer opened a round still to decide")
+
+        _ = try store.stage(report: Self.aReport, round: 2,
+                            designerName: "Tschichold", language: nil)
+        MaughamEvent.postDesignProposalsChanged(projectURL: project)
+        await pumpUntil(deadline: 5) { box.selectedProposal?.status == .superseded }
+
+        XCTAssertEqual(box.selectedProposal?.id, first.id,
+                       "which round the writer is looking at is their own "
+                       + "choice — the re-read must not move them to the new one")
+        XCTAssertEqual(box.selectedProposal?.status, .superseded,
+                       "the gate is still offering Approve over a round the "
+                       + "store retired")
+        XCTAssertEqual(DesignGate.verbs(status: .superseded,
+                                        hasOpenProposalRound: true), [],
+                       "…which is what makes the status enough: the footer's "
+                       + "verbs are a pure function of it")
+    }
+
+    /// **A proposal that is gone clears the selection rather than leaving a
+    /// ghost.** Everything under `.maugham/design/` is derived and the store's
+    /// own doc says deleting it is safe, so this is a state a writer reaches on
+    /// purpose. Four verbs over a record that no longer exists is the worse
+    /// answer: every one of them refuses, one press at a time.
+    func test_aDeletedProposalClearsTheSelectionRatherThanDrawingAGhost() async throws {
+        let project = try makeProject()
+        let store = DesignProposalStore(projectURL: project)
+        let staged = try store.stage(report: Self.aReport, round: 1,
+                                     designerName: "Tschichold", language: nil)
+
+        let box = PublishCentreProbeBox(persona: .publish)
+        _ = mountRefreshProbe(projectURL: project, box: box)
+        await pumpUntil(deadline: 5) { box.modifierWindow != nil }
+        XCTAssertTrue(MaughamEvent.isLive(box.modifierWindow),
+                      "premise: the receiver has a live window")
+        box.selectedProposal = staged
+
+        try FileManager.default.removeItem(at: store.proposalDir(id: staged.id))
+        MaughamEvent.postDesignProposalsChanged(projectURL: project)
+        await pumpUntil(deadline: 5) { box.selectedProposal == nil }
+
+        XCTAssertNil(box.selectedProposal,
+                     "the gate is describing a proposal that is not on disk")
+    }
+
+    /// **The control: an announcement with no gate open disturbs nothing.**
+    /// Without it the two tests above could pass over a modifier that cleared
+    /// the selection — or the book's own pick — on every post.
+    func test_anAnnouncementWithNoGateOpenDisturbsNothing() async throws {
+        let project = try makeProject()
+        let stores = PublishingStores.sharedFor(
+            projectID: ProjectIdentifier.id(for: project), projectURL: project)
+        let published = try await append(to: stores.publicationStore, in: project,
+                                         version: "1.0", minutesAgo: 0)
+
+        let box = PublishCentreProbeBox(persona: .publish)
+        _ = mountRefreshProbe(projectURL: project, box: box)
+        await pumpUntil(deadline: 5) {
+            box.preview.publication?.publicationID == published.publicationID
+        }
+        box.selectedPublicationID = published.publicationID
+
+        MaughamEvent.postDesignProposalsChanged(projectURL: project)
+        await waitOut(0.3)
+
+        XCTAssertNil(box.selectedProposal)
+        XCTAssertEqual(box.selectedPublicationID, published.publicationID,
+                       "a design announcement is not news about the book")
+        XCTAssertEqual(box.preview.publication?.publicationID,
+                       published.publicationID)
+    }
+
+    /// **A verb's answer about another round is dropped.**
+    ///
+    /// A verb answers from a `Task` that outlives the press — a promotion is
+    /// file I/O over the writer's whole template set — and they are free to
+    /// press Back, or Show a different round on the desk, while it runs. Writing
+    /// the answer in unconditionally would reopen a gate the writer closed, or
+    /// replace the round they had just opened, a frame after they acted.
+    func test_aVerbsAnswerAboutAnotherRoundIsDropped() {
+        var promoted = Self.aProposal
+        promoted.status = .approved
+
+        XCTAssertEqual(
+            ProjectWindow.publishSelection(after: promoted,
+                                           showing: Self.aProposal)?.status,
+            .approved,
+            "the round on screen takes its own verb's answer, or the gate goes "
+            + "on offering Approve over a design already live")
+
+        let another = DesignProposalStore.Proposal(
+            id: "prop-somewhere-else", designerName: "Tschichold", round: 2,
+            language: nil, created: Date(timeIntervalSince1970: 1_770_000_100),
+            status: .pending, specMarkdown: "# another design",
+            filePaths: ["template.tex"], sampleResult: nil, revertNote: nil)
+        XCTAssertEqual(
+            ProjectWindow.publishSelection(after: promoted, showing: another)?.id,
+            another.id,
+            "the writer moved on; a verb about the round they left must not "
+            + "pull it back into the centre column")
+        XCTAssertNil(
+            ProjectWindow.publishSelection(after: promoted, showing: nil),
+            "…and one about a gate they CLOSED must not reopen it")
+    }
+
+    /// The bridge: the window's write-back goes through that rule rather than
+    /// straight into its own state. Without this the pure test above pins a rule
+    /// nothing obeys.
+    func test_theWindowsWriteBackGoesThroughTheSelectionRule() throws {
+        let code = SourceScan.codeLines(
+            of: try Self.source(of: "Views/ProjectWindow.swift"))
+        XCTAssertTrue(
+            code.contains { $0.contains("publishSelection(") },
+            "`onProposalChanged` must adopt through `publishSelection`, or a "
+            + "verb answering after the writer moved on writes the old proposal "
+            + "back into the centre column")
+    }
+
     // MARK: - The shape, in production
 
     /// **The bridge from the probe's spelling to the window's.** The mounted
@@ -1646,6 +1860,10 @@ final class PublishCentreProbeBox {
     var preview: PublishPreviewResolution = .nothingCompiled
     /// The header picker's window-transient choice — `nil` is "the newest".
     var selectedPublicationID: String?
+    /// The design proposal the desk's Show put in the centre (P4 Task 5) —
+    /// window-transient like the pick above, but cleared by a persona change
+    /// where the pick deliberately is not.
+    var selectedProposal: DesignProposalStore.Proposal?
     /// The window the REFRESH MODIFIER actually got, which is not the same fact
     /// as the window the test made: `WindowAccessor` resolves it a runloop turn
     /// later, and ADR 0021's project scope drops a post whose receiver has no
@@ -1742,6 +1960,12 @@ struct PublishCentreProbeView: View {
     @ViewBuilder
     private var publishLayer: some View {
         switch publishCentre {
+        // The gate arm (publish-department P4 Task 5) — production's fourth
+        // layer, so this probe stays what it claims to be: `manuscriptEditor`'s
+        // own shape with the same decisions taken from the same statics.
+        case .designProposal(let proposal):
+            DesignGateView(proposal: proposal, projectURL: store.url,
+                           onClose: { box.selectedProposal = nil })
         case .books(let publications): book(publications)
         case .notice(let notice): PublishCentreNoticeBanner(notice: notice)
         case .none: EmptyView()
@@ -1763,7 +1987,8 @@ struct PublishCentreProbeView: View {
     private var publishCentre: PublishCentre? {
         ProjectWindow.publishCentre(persona: box.persona, subject: box.subject,
                                     structure: store.manifest.structure,
-                                    preview: box.preview)
+                                    preview: box.preview,
+                                    proposal: box.selectedProposal)
     }
 
     private var editor: some View {
@@ -1799,7 +2024,10 @@ private struct PublishRefreshProbeView: View {
                                         set: { box.preview = $0 }),
                 selectedPublicationID: Binding(
                     get: { box.selectedPublicationID },
-                    set: { box.selectedPublicationID = $0 })))
+                    set: { box.selectedPublicationID = $0 }),
+                selectedProposal: Binding(
+                    get: { box.selectedProposal },
+                    set: { box.selectedProposal = $0 })))
             .onChange(of: window) { _, next in box.modifierWindow = next }
     }
 }

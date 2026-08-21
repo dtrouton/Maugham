@@ -16,6 +16,19 @@ import AppKit
 /// surfaces, which is why the rule now asks the subject question at all (it
 /// took none until this revision).
 enum PublishCentre: Equatable {
+    /// **A design proposal the writer asked to look at** (publish-department P4
+    /// Task 5) — the department desk's Show, answered in this column.
+    ///
+    /// It outranks the two arms below while it is selected, for the reason the
+    /// book outranks altitude: the writer asked for the proposal, and a compiled
+    /// PDF drawn over the thing they asked to see is the truth table upside
+    /// down. Deselecting hands the column straight back — this arm carries no
+    /// state of its own, so there is nothing for leaving it to cost.
+    ///
+    /// The proposal travels whole rather than by id: it was just read off disk
+    /// by the desk that offered the Show, and a second read here would be a
+    /// second answer about the same file.
+    case designProposal(DesignProposalStore.Proposal)
     /// Every readable PDF, newest first and non-empty. WHICH of them is drawn is
     /// the header picker's business — a window-transient choice — and
     /// deliberately not this rule's: a rule that carried the selection would be
@@ -320,6 +333,21 @@ struct PublishPreviewModifier: ViewModifier {
     /// The header picker's window-transient choice, cleared when a new book
     /// arrives. Never persisted — a relaunch is always the newest.
     @Binding var selectedPublicationID: String?
+    /// **The design proposal the desk's Show put in this column** (P4 Task 5),
+    /// cleared by any persona change.
+    ///
+    /// Here rather than in a modifier of its own because this is already the one
+    /// place that owns the Publish centre's transient picks, and the body it
+    /// hangs off has no expression budget (the Release type-check ceiling).
+    ///
+    /// **It clears where `selectedPublicationID` deliberately does not**, and
+    /// the asymmetry is the point. The publication pick is a place in a
+    /// *reading* — Denver's ruling keeps it across a walk out of Publish and
+    /// back. The gate is a place in a *decision*: the writer entered it by
+    /// pressing Show and a persona change is them leaving. Coming back to
+    /// Publish should show the book, which is what Publish is for, and pressing
+    /// Show again is one click.
+    @Binding var selectedProposal: DesignProposalStore.Proposal?
 
     func body(content: Content) -> some View {
         content
@@ -329,9 +357,45 @@ struct PublishPreviewModifier: ViewModifier {
                 Task { await refresh() }
             }
             .onChange(of: persona) { _, next in
+                // Before the arrival guard: leaving Publish is a persona change
+                // too, and it is the one that most needs the gate let go of.
+                selectedProposal = nil
                 guard next.previewsThePublishedBook else { return }
                 Task { await refresh() }
             }
+            // **The gate's proposal goes stale where it sits** (the final-review
+            // wave). It is a VALUE the writer opened with, and three things move
+            // the record underneath it: a new round stages and supersedes it, a
+            // promotion rewrites its status from the desk or another window, and
+            // `.maugham/design/` is derived — a writer who clears it deletes the
+            // very folder the gate is describing. `.project`-scoped through the
+            // ADR 0021 helper, which drops the post for a closed window.
+            .onProjectEvent(.maughamDesignProposalsChanged,
+                            url: projectURL, window: window) { _ in
+                rereadSelectedProposal()
+            }
+    }
+
+    /// **The selected proposal as the store now holds it** — or nothing, when
+    /// the store no longer holds it at all.
+    ///
+    /// Re-read BY ID rather than re-derived from the listing: which round the
+    /// writer is looking at is their own choice, and no event may move them to a
+    /// different one. What an event can change is what that round IS —
+    /// `.superseded` and `.rejected` draw `DesignGate.settledNote` and no verbs,
+    /// which is already a pure function of the status, so the whole of "the gate
+    /// stops offering verdicts on a round that is past deciding" is this one
+    /// write.
+    ///
+    /// **An unreadable proposal clears the selection**, which is the honest
+    /// answer rather than a defensive one: the record is gone or unparseable, so
+    /// there is nothing for the gate to describe and the column hands itself
+    /// back to the book. Keeping the stale value would leave four verbs standing
+    /// over a proposal that no longer exists.
+    private func rereadSelectedProposal() {
+        guard let id = selectedProposal?.id else { return }
+        selectedProposal = try? DesignProposalStore(projectURL: projectURL)
+            .load(id: id)
     }
 
     private func refresh() async {

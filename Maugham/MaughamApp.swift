@@ -282,6 +282,15 @@ struct MaughamApp: App {
                 // redesign assigned it: "E references".
                 Button("References") { postSegment(.references) }
                     .keyboardShortcut("e", modifiers: [.command, .option])
+                // **⌘⌥K, and every letter of "Department" was already
+                // spoken for**: D is Diagnostics, E References, P Palette,
+                // A Annotations, R Research, T Tasks — and M, the last one
+                // left in the word, is the system's own Minimize All, which
+                // this app's Window menu carries. So the letter comes from
+                // the surface's name in the design instead: the department
+                // *desk*.
+                Button("Department") { postSegment(.department) }
+                    .keyboardShortcut("k", modifiers: [.command, .option])
                 #if MAUGHAM_DEV_BUILD
                 // Scene-storage spike instrument (ADR 0021): logs how many
                 // EditorCoordinators are still alive. Close a project window,

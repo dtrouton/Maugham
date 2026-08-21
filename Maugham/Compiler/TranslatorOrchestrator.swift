@@ -46,7 +46,12 @@ final class TranslatorOrchestrator {
     /// The document-and-language a run is about. One value because neither
     /// half means anything alone here: the work-list, the briefing, the
     /// session and every state below are all per pair.
-    struct Pair: Equatable, Sendable {
+    /// `Hashable` since P4 Task 3, for the one thing a desk needs and the
+    /// session does not: `TranslationRunLog` remembers the newest finished run
+    /// per pair, and a pair is what a run IS. A key built by interpolating the
+    /// two halves into a string would be a second spelling of this identity,
+    /// free to disagree with `runnerPair`'s.
+    struct Pair: Hashable, Sendable {
         let docId: String
         let language: String
 

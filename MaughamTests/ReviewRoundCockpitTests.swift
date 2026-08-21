@@ -912,39 +912,144 @@ final class ReviewRoundCockpitTests: XCTestCase {
                       + "verdict rather than recomputing one")
     }
 
-    /// **ONE spelling of a failure, read by both surfaces.**
+    /// **ONE spelling of a failure, read by every surface that draws one.**
     ///
-    /// Author's Diagnostics pane and Review's cockpit now say something about
-    /// the same death, and a writer who checks the other pane to understand the
-    /// first must not find a differently-worded account of it. The sentence
-    /// lives in `RoundNarrative` — where `checkingCopy` and the round lines
-    /// already went, and for the same reason — and both surfaces call it.
+    /// Author's Diagnostics pane, Review's cockpit and — since publish-department
+    /// P4 Task 3 — Publish's department desk all say something about the same
+    /// death, because the compiler's session and the translator's are one
+    /// `ClaudeCLISession` machinery under different owners. A writer who checks
+    /// another pane to understand the first must not find a differently-worded
+    /// account of it. The sentence lives in `RoundNarrative` — where
+    /// `checkingCopy` and the round lines already went, and for the same reason —
+    /// and every surface calls it.
+    ///
+    /// **The desk passes `session: .translation`, and that is not a second
+    /// spelling**: the switch is still `RoundNarrative`'s, and the parameter
+    /// supplies only the nouns two of its arms take. "The compiler's session
+    /// ended" over a Spanish round is one account applied to the wrong work,
+    /// which is a different defect from two accounts of one death — and the
+    /// remedy for it is a parameter, not a copy.
     ///
     /// A census rather than a value comparison because the defect this guards
-    /// is a RESTATEMENT: a second `switch failure` in either file would keep
-    /// every equality test green on the day it was written and drift the first
-    /// time one arm is reworded. `failureCopy` was `DiagnosticsPane`'s own
+    /// is a RESTATEMENT: a second `switch failure` in any of these files would
+    /// keep every equality test green on the day it was written and drift the
+    /// first time one arm is reworded. `failureCopy` was `DiagnosticsPane`'s own
     /// static until 2026-08-18; a reviewer reinstating it there would be
     /// reopening exactly that.
-    func test_bothSurfacesReadTheOneFailureSpelling() throws {
+    ///
+    /// **What is forbidden is the ARMS, not the name.** The by-name check this
+    /// used to carry stopped being a detector when the desk grew a
+    /// `failureCopy` of its own over `TranslatorOrchestrator.Failure` — a
+    /// two-case call-through, not a restatement. A restated switch over
+    /// `CompilerRunFailure`, whatever it were called, cannot avoid its own
+    /// cases; those are what is scanned for.
+    ///
+    /// The verdict itself is `oneSpellingViolations(in:)` — **shared with the
+    /// planted-offender self-test below**, which is `TripwireGrepTests`'
+    /// convention (its `adr0018ReadPatterns` note names the duplication finding
+    /// that made it one): a self-test that re-implements the scan is a self-test
+    /// of itself.
+    func test_everySurfaceReadsTheOneFailureSpelling() throws {
         XCTAssertFalse(
             RoundNarrative.failureCopy(.timedOut).isEmpty,
             "premise: the shared spelling exists and answers")
 
-        for path in ["Views/DiagnosticsPane.swift", "Views/Review/ReviewRoundCockpit.swift"] {
-            let source = try Self.source(of: path)
-            XCTAssertTrue(
-                source.contains("RoundNarrative.failureCopy("),
-                "\(path) must read the shared failure spelling")
-            XCTAssertFalse(
-                source.contains("static func failureCopy("),
-                "\u{2026}and must not carry a second copy of it \u{2014} the "
-                + "sentence is `RoundNarrative`'s, and two switches over "
-                + "`CompilerRunFailure` are two accounts of one death")
-            XCTAssertFalse(
-                source.contains("case .cliNotFound:"),
-                "\u{2026}nor an arm of one under another name (\(path))")
+        for path in Self.oneSpellingSurfaces {
+            let violations = Self.oneSpellingViolations(in: try Self.source(of: path))
+            XCTAssertEqual(
+                violations, [],
+                "\(path) \(violations.joined(separator: "; ")) \u{2014} a second "
+                + "switch over `CompilerRunFailure` is a second account of one "
+                + "death, whatever it is called")
         }
+    }
+
+    /// Every surface that draws a dead run. A file earns its place here by
+    /// drawing one; nothing enforces the converse, which is why the list sits
+    /// beside the rule rather than in prose somewhere else.
+    static let oneSpellingSurfaces = [
+        "Views/DiagnosticsPane.swift",
+        "Views/Review/ReviewRoundCockpit.swift",
+        "Views/Publish/DepartmentRunState.swift",
+        "Views/Publish/DepartmentDesignRow.swift",
+    ]
+
+    /// The arms a restated `switch` over `CompilerRunFailure` cannot avoid
+    /// carrying. SHARED between the census and its self-test.
+    static let restatedFailureArms = [
+        "case .cliNotFound", "case .unusableOutput", "case .sessionDied(",
+    ]
+
+    /// **What is wrong with one surface's account of a dead run**, as sentences.
+    /// Empty means the file reads the one spelling and restates nothing.
+    static func oneSpellingViolations(in source: String) -> [String] {
+        var violations: [String] = []
+        if !source.contains("RoundNarrative.failureCopy(") {
+            violations.append("does not read the shared failure spelling")
+        }
+        for arm in restatedFailureArms where source.contains(arm) {
+            violations.append("restates `\(arm)`")
+        }
+        return violations
+    }
+
+    /// **The self-check: the census fires on a restatement it has never seen.**
+    ///
+    /// Written to disk and read back rather than asserted against the literal in
+    /// hand — `TripwireGrepTests`' planted-offender shape — so what runs is the
+    /// real scan over a real file, down the path the production test takes. The
+    /// version this replaces asserted `planted.contains(arm)` on the string it
+    /// had just built, which is true by construction and would have stayed green
+    /// over a census that detected nothing at all.
+    ///
+    /// The control is the second half: a file that DELEGATES must come back
+    /// clean, or the scan is one that condemns everything and the green
+    /// production run above says nothing either.
+    func test_theOneSpellingCensusFiresOnAPlantedRestatement() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("one-spelling-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let offender = tmp.appendingPathComponent("RestatingPane.swift")
+        try """
+        enum RestatingPane {
+            static func describe(_ failure: CompilerRunFailure) -> String {
+                switch failure {
+                case .cliNotFound: return "Claude Code isn't installed."
+                case .disabledByToggle: return "Claude access is off."
+                case .timedOut: return "It took too long."
+                case .sessionDied(let detail): return "It died: \\(detail)."
+                case .unusableOutput: return "Unreadable."
+                }
+            }
+        }
+        """.write(to: offender, atomically: true, encoding: .utf8)
+
+        let caught = Self.oneSpellingViolations(
+            in: try String(contentsOf: offender, encoding: .utf8))
+        XCTAssertEqual(caught.count, Self.restatedFailureArms.count + 1,
+                       "the census must catch every restated arm AND the missing "
+                       + "delegation \u{2014} got \(caught)")
+        for arm in Self.restatedFailureArms {
+            XCTAssertTrue(caught.contains("restates `\(arm)`"),
+                          "`\(arm)` went unseen \u{2014} got \(caught)")
+        }
+
+        let clean = tmp.appendingPathComponent("DelegatingPane.swift")
+        try """
+        enum DelegatingPane {
+            static func describe(_ failure: CompilerRunFailure) -> String {
+                RoundNarrative.failureCopy(failure, session: .translation)
+            }
+        }
+        """.write(to: clean, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            Self.oneSpellingViolations(
+                in: try String(contentsOf: clean, encoding: .utf8)), [],
+            "the control must come back clean, or the scan condemns everything")
     }
 
     /// **The strip is not in the toolbar.** `AnnotationsQueueToolbar`'s one
@@ -1034,35 +1139,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
     }
 
     // MARK: - Accessibility (mirrors DiagnosticsPaneTests' readers)
-
-    private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
-        guard let object = element as? NSObject,
-              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
-        return object.value(forKey: attribute)
-    }
-
-    /// Whether an AX element reports itself pressable.
-    ///
-    /// **Neither shortcut works here** (measured 2026-08-17, macOS 26.6):
-    /// SwiftUI's hosted `AccessibilityNode` does NOT respond to
-    /// `accessibilityEnabled` — only to the KVC getter `isAccessibilityEnabled`
-    /// — and the value it returns is an `__NSCFNumber`, which `as? Bool` fails
-    /// on because only `__NSCFBoolean` bridges. So the generic `axAttribute`
-    /// reader answers `nil` for both reasons at once, which reads exactly like
-    /// "the button is neither enabled nor disabled". `NSNumber.boolValue` is
-    /// what makes the answer a fact.
-    private func axEnabled(_ element: AnyObject) -> Bool? {
-        guard let object = element as? NSObject,
-              object.responds(to: NSSelectorFromString("isAccessibilityEnabled"))
-        else { return nil }
-        return (object.value(forKey: "accessibilityEnabled") as? NSNumber)?.boolValue
-    }
-
-    private func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
-        guard depth < 40 else { return [] }
-        let children = axAttribute(root, "accessibilityChildren") as? [AnyObject] ?? []
-        return [root] + children.flatMap { axElements(under: $0, depth: depth + 1) }
-    }
 
     private func axTree(in window: NSWindow) throws -> [AnyObject] {
         var role: CFTypeRef?

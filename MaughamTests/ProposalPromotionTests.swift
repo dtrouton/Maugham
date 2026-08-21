@@ -56,7 +56,7 @@ final class ProposalPromotionTests: XCTestCase {
             specMarkdown: "# a design",
             files: files.map { .init(path: $0.path, content: $0.content) })
         return try DesignProposalStore(projectURL: projectURL)
-            .stage(report: report, round: 1, designerName: "Tschichold")
+            .stage(report: report, round: 1, designerName: "Tschichold", language: nil)
     }
 
     private func livePublishDir(_ projectURL: URL) -> URL {
@@ -161,8 +161,8 @@ final class ProposalPromotionTests: XCTestCase {
     func test_approve_refusesAStagedPathThatEscapesThePublishTree() async throws {
         let project = try makeProject()
         let forged = DesignProposalStore.Proposal(
-            id: "prop-forged", designerName: "Tschichold", round: 1, created: Date(),
-            status: .pending, specMarkdown: "# a design",
+            id: "prop-forged", designerName: "Tschichold", round: 1, language: nil,
+            created: Date(), status: .pending, specMarkdown: "# a design",
             filePaths: ["../../escape.tex"], sampleResult: nil, revertNote: nil)
 
         do {

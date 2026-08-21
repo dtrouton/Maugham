@@ -41,6 +41,27 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// pane with the writer's two strata rather than three.
     let bibleStore: BibleStore?
     let declaredWorldStore: DeclaredWorldStore?
+    /// The window's translator and its record of finished rounds (publish
+    /// department P4 Task 3) — the pair the department desk's Run needs, threaded
+    /// exactly as `compilerOrchestrator`/`diagnosticsStore` are and for the same
+    /// reason: a round is started from this column while the session that answers
+    /// it belongs to the window, which is the only thing that can tear it down.
+    ///
+    /// Defaulted, so the probe callers that mount this view without a window
+    /// behind it keep compiling and get a desk that reads without acting.
+    var translator: TranslatorOrchestrator? = nil
+    var translationRuns: TranslationRunLog? = nil
+    /// The window's designer (publish department P4 Task 4) — the desk's Design
+    /// row runs it. Threaded and defaulted exactly as `translator` is; its own
+    /// record of finished rounds is the proposal it stages, which the desk
+    /// re-derives, so there is no log beside it.
+    var designer: DesignerOrchestrator? = nil
+    /// **Where the desk's Show sends a proposal** (publish-department P4 Task 5)
+    /// — the window's centre column, which this view is not in. Threaded and
+    /// defaulted exactly as `onSetActivePass`/`onSetPassState` are, and for the
+    /// same reason: what the centre shows is `ProjectWindow`'s question, and a
+    /// right-column pane writing it would be a second place it is decided.
+    var onShowDesignProposal: (DesignProposalStore.Proposal) -> Void = { _ in }
     /// The gear menu's persisted choice, and the write-back when it changes —
     /// a value + closure rather than a `Binding` so every existing call site
     /// keeps compiling with the defaults below.
@@ -102,6 +123,10 @@ struct DetailPaneToggle<Inspector: View>: View {
         diagnosticsStore: DiagnosticsStore? = nil,
         bibleStore: BibleStore? = nil,
         declaredWorldStore: DeclaredWorldStore? = nil,
+        translator: TranslatorOrchestrator? = nil,
+        translationRuns: TranslationRunLog? = nil,
+        designer: DesignerOrchestrator? = nil,
+        onShowDesignProposal: @escaping (DesignProposalStore.Proposal) -> Void = { _ in },
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
@@ -127,6 +152,10 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.diagnosticsStore = diagnosticsStore
         self.bibleStore = bibleStore
         self.declaredWorldStore = declaredWorldStore
+        self.translator = translator
+        self.translationRuns = translationRuns
+        self.designer = designer
+        self.onShowDesignProposal = onShowDesignProposal
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
@@ -418,6 +447,45 @@ struct DetailPaneToggle<Inspector: View>: View {
             diagnosticsPane
         case .references:
             referencesPane
+        case .department:
+            departmentPane
+        }
+    }
+
+    /// **Publish's desk** (publish-department P4 Task 1). Project-scoped, like
+    /// the Review board it is the sibling of: a department works on the book,
+    /// not on whichever chapter happens to be open, so this arm asks for a
+    /// project and nothing else.
+    ///
+    /// **The desk arrives through a host, not from this body** (Task 2). The
+    /// language union walks every manuscript document's translation store,
+    /// reads each one's open annotations and derives coverage against the
+    /// current paragraph state; the proposal list (Task 4) reads
+    /// `.maugham/design/proposals/`. Neither may run on a `body` path (tripwire
+    /// 4), so `DepartmentPaneHost` derives both in a `.task` and hands the pane
+    /// plain values — `referencesPane`'s shape below, for the same reason.
+    @ViewBuilder
+    private var departmentPane: some View {
+        if let ds = documentStore, let projectURL {
+            DepartmentPaneHost(store: store, documentStore: ds,
+                               projectURL: projectURL,
+                               // The tree's own subject, unconverted: the run
+                               // target has to tell a group from a chapter and a
+                               // research note from both, and `activeDocId`'s
+                               // sentinel has already flattened all three
+                               // (Task 3).
+                               subject: selectedSubject,
+                               translator: translator,
+                               runLog: translationRuns,
+                               designer: designer,
+                               onShowProposal: onShowDesignProposal)
+        } else {
+            ContentUnavailableView(
+                "Open a project",
+                systemImage: "person.2",
+                description: Text("The department works on a book — its design "
+                                  + "and its language editions."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -510,7 +578,7 @@ struct DetailPaneToggle<Inspector: View>: View {
            let control = editorControl,
            activeDocId != BinderSubject.noDocumentSubject,
            let doc = ds.document(forDocId: activeDocId) {
-            TranslationReviewPane(document: doc, control: control)
+            TranslationReviewPane(document: doc, control: control, store: store)
         } else {
             ContentUnavailableView(
                 "Select a document",

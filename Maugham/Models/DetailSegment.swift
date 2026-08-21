@@ -16,6 +16,11 @@ public enum DetailSegment: String, Codable, Equatable, Sendable, CaseIterable {
     case visualLanguage  // m1a-spine: how the book looks (⌘⌥V)
     case diagnostics     // m2-compiler-loop: the compiler's notes (⌘⌥D)
     case references      // m2-author-surfaces: what this piece is pinned to (⌘⌥E)
+    // publish-department: the desk (⌘⌥K) — Publish's own working pane, where
+    // the translator per language and the book designer are run from and their
+    // state is read back. Publish's only, and it leads there
+    // (`PersonaPaneRegistryTests.test_theDepartmentDeskIsPublishsAndLeadsIt`).
+    case department
 }
 
 // MARK: - Presentation
@@ -41,6 +46,9 @@ public extension DetailSegment {
         // holds — the piece's *pinned* set — and the shelf is a row of things
         // pinned up beside the desk rather than a folder of them.
         case .references: return "pin"
+        // Two people, because that is what the pane is: the translator and the
+        // designer, named, with what each of them is working on.
+        case .department: return "person.2"
         }
     }
 
@@ -56,6 +64,7 @@ public extension DetailSegment {
         case .visualLanguage: return "Visual Language — how the book looks (⌘⌥V)"
         case .diagnostics: return "Diagnostics — the compiler's notes on what you've written (⌘⌥D)"
         case .references: return "References — what this piece is pinned to (⌘⌥E)"
+        case .department: return "Department — the book's design and its language editions (⌘⌥K)"
         }
     }
 }

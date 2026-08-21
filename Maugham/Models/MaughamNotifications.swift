@@ -17,8 +17,9 @@ import Foundation
 ///   `maughamCheckpointAdded`, `maughamQuarantineRecordsChanged`,
 ///   `maughamSessionLogChanged`, `maughamNavigateToDocument`,
 ///   `maughamTranslationDidUpdate`, `maughamCanvasNodesAdded`,
-///   `maughamDocumentNotice`, `maughamAnnotationsChanged`): delivered to live
-///   windows on the matching project only.
+///   `maughamDocumentNotice`, `maughamAnnotationsChanged`,
+///   `maughamDesignProposalsChanged`): delivered to live windows on the matching
+///   project only.
 /// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
 ///   per-name zombie-harm audit note where present): `maughamNewProject`,
 ///   `maughamOpenProject`, `maughamAppWillTerminate`, `maughamShowHelp`.
@@ -274,4 +275,25 @@ extension Notification.Name {
     /// what the writer actually clicked. Menu-command class: only the key
     /// window travels. Scope: .keyWindow.
     public static let maughamTreeTravel = Notification.Name("maugham.tree.travel")
+    /// **A design proposal's record changed** (publish-department P4 Task 6) —
+    /// the gate's Approve, Revert or Finalize, which is the only thing in the app
+    /// that rewrites `proposal.json` behind another surface's back.
+    ///
+    /// The department desk derives its Design row from
+    /// `.maugham/design/proposals/`, and its `.task(id:)` key watches the
+    /// designer's RUN state — a promotion is not a run, and it touches neither
+    /// the manifest nor any other event. Without this the desk goes on saying
+    /// "waiting for your review" over a proposal the writer approved one column
+    /// away.
+    ///
+    /// No payload: which proposals a surface holds is its own answer (it
+    /// re-lists them), not the verb's. Post via
+    /// `MaughamEvent.postDesignProposalsChanged`, never by hand.
+    ///
+    /// Scope: .project(id:) — a data event, like `maughamAnnotationsChanged`.
+    /// Windows on another book must not re-list this one's proposals, and a
+    /// closed window must list nothing at all (the receive helper's liveness
+    /// guard, ADR 0021).
+    public static let maughamDesignProposalsChanged = Notification.Name(
+        "maugham.design.proposals.changed")
 }

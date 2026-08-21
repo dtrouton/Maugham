@@ -115,9 +115,21 @@ struct TranslationReviewPane: View {
     /// the ordered per-paragraph freshness entries (each carrying its rendered
     /// translated text), threaded one-way from `ProjectWindow` (ADR 0017).
     let control: EditorControl
+    /// The project — where an answered query's ruling is filed (publish
+    /// department, Task 8). The statement layer is the project's, not the
+    /// document's: an edition brief is project-scope by construction, and this
+    /// pane's `document` could not address one.
+    let store: ProjectStore
     @Environment(\.undoManager) private var undoManager
 
     @State private var querySheet: Annotation?
+    /// The query being answered as a ruling — the edition brief's `## Rulings`
+    /// and this thread's reply, from one sentence (`QueryRuling`).
+    @State private var rulingSheet: Annotation?
+    /// What `QueryRuling.commit` refused, in its own words. Surfaced rather
+    /// than logged: this act can land half-done, and a writer who is not told
+    /// would answer again and mint a second ruling for one decision.
+    @State private var rulingNotice: String?
 
     private var entries: [TranslationBadgeLayout.Entry] {
         control.translationBadges.entries
@@ -180,6 +192,39 @@ struct TranslationReviewPane: View {
                 querySheet = nil
             } onCancel: { querySheet = nil }
         }
+        .sheet(item: $rulingSheet) { ann in
+            // The tag is what opened the sheet, so it is there; the fallback
+            // draws a sheet that refuses in `commit`'s own words rather than
+            // crashing on the writer's sentence.
+            QueryRulingSheet(
+                annotation: ann,
+                language: QueryRuling.language(of: ann) ?? ""
+            ) { answer in
+                answerAsRuling(ann, answer: answer)
+                rulingSheet = nil
+            } onCancel: { rulingSheet = nil }
+        }
+        .alert(
+            "That answer could not be filed",
+            isPresented: Binding(
+                get: { rulingNotice != nil },
+                set: { if !$0 { rulingNotice = nil } })
+        ) {
+            Button("OK") { rulingNotice = nil }
+        } message: {
+            Text(rulingNotice ?? "")
+        }
+    }
+
+    /// Answer a translator's question as doctrine — the ruling in this
+    /// edition's brief and the reply on the thread, from one sentence
+    /// (`QueryRuling`, publish department Task 8).
+    private func answerAsRuling(_ ann: Annotation, answer: String) {
+        Task {
+            rulingNotice = await QueryRuling.commit(
+                answer, answering: ann, in: document, store: store,
+                undoManager: undoManager)
+        }
     }
 
     // MARK: - Source
@@ -224,7 +269,10 @@ struct TranslationReviewPane: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(openQueries) { ann in
-                    TranslationQueryRow(annotation: ann) { querySheet = ann }
+                    TranslationQueryRow(
+                        annotation: ann,
+                        onReply: { querySheet = ann },
+                        onAnswerAsRuling: { rulingSheet = ann })
                     Divider()
                 }
             }
@@ -304,10 +352,19 @@ private struct OrphanRowView: View {
     }
 }
 
-/// A single open translator query with its body and a Reply affordance.
+/// A single open translator query with its body, a Reply affordance, and —
+/// where the question carries an edition — the answer that hardens into
+/// doctrine (publish department, Task 8).
+///
+/// The gate is `QueryRuling.offersARuling` and not "this pane is in review",
+/// even though every row here is language-tagged by the pane's own filter: the
+/// queue asks the same question of the same annotation, and two surfaces
+/// deciding eligibility differently is how one of them starts offering to file
+/// an answer with nowhere to put it.
 private struct TranslationQueryRow: View {
     let annotation: Annotation
     let onReply: () -> Void
+    let onAnswerAsRuling: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -317,6 +374,11 @@ private struct TranslationQueryRow: View {
                 .textSelection(.enabled)
             HStack {
                 Spacer()
+                if QueryRuling.offersARuling(annotation) {
+                    Button("Answer as ruling\u{2026}", action: onAnswerAsRuling)
+                        .controlSize(.small)
+                        .help("A dated ruling in the edition brief, and your reply here")
+                }
                 Button("Reply", action: onReply)
                     .controlSize(.small)
             }

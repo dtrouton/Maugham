@@ -118,8 +118,16 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// Research and Palette left this order whole in stage 3a Task 6 — every
     /// tree grew its own section for both (stage 2a), so neither is a
     /// right-column segment any more.
+    /// **`.department` takes the fourth seat, beside the other three personas'
+    /// own working panes** (publish-department P4 Task 1). Diagnostics is
+    /// Author's loop pane, Annotations is Review's, Inbox is Plan's — and the
+    /// desk is Publish's: the surface its translator and its designer are run
+    /// from. No persona holds the desk and any of those three, so its exact
+    /// position inside that leading group is invisible to a writer; placing it
+    /// after them leaves the three undisturbed and still puts it at the front
+    /// of Publish's own row, which is what makes it that persona's default.
     static let canonicalPaneOrder: [DetailSegment] = [
-        .diagnostics, .annotations, .inbox, .intent,
+        .diagnostics, .annotations, .inbox, .department, .intent,
         .references, .visualLanguage, .tasks, .translation, .history, .inspector
     ]
 
@@ -721,6 +729,15 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// so `.author`'s row below is what stage 3a's own docs (not §5.0) now
     /// authorize.
     ///
+    /// **A FOURTH document, later again: §5 of
+    /// `docs/superpowers/specs/2026-08-19-publish-department-design.md` gives
+    /// Publish `.department`** — *"a new right-pane surface in Publish: one new
+    /// `DetailSegment` case, one registry entry, one seat in
+    /// `PersonaPaneRegistryTests.canonicalPaneOrder`"*. That is a membership
+    /// addition to `.publish`'s row and touches nobody else's: the desk is
+    /// where this milestone's two named people — the translator per language
+    /// and the book designer — are run from, and running them is a Publish act.
+    ///
     /// Editing this table without re-citing it leaves the test asserting a
     /// matrix no document contains.
     private static let designMatrix: [Persona: Set<DetailSegment>] = [
@@ -728,7 +745,7 @@ final class PersonaPaneRegistryTests: XCTestCase {
         .author: [.diagnostics, .intent, .references,
                   .tasks, .history],
         .review: [.annotations, .intent, .references, .tasks, .history],
-        .publish: [.visualLanguage, .tasks, .translation, .history]
+        .publish: [.department, .visualLanguage, .tasks, .translation, .history]
     ]
 
     /// Departures the design requires that this re-cut does not deliver. This
@@ -824,6 +841,34 @@ final class PersonaPaneRegistryTests: XCTestCase {
         for segment in DetailSegment.allCases {
             XCTAssertTrue(mentioned.contains(segment),
                           "\(segment) exists but has no row in the transcribed matrix")
+        }
+    }
+
+    /// **The desk is Publish's alone, and it leads there** (publish-department
+    /// P4 Task 1).
+    ///
+    /// Membership first: the department is the translator and the book designer
+    /// working on an EDITION, which is Publish's object. A desk in Author would
+    /// offer to start a run over prose the writer is still changing, and one in
+    /// Review would put a second queue beside the annotations queue that Review
+    /// exists to work through.
+    ///
+    /// And it leads, moving Publish's landing pane off Visual Language, for the
+    /// reason `.diagnostics` moved Author's off Research in M2 Task 8: the
+    /// persona's own loop pane takes the front of its row. Visual Language is
+    /// what a designer is briefed FROM; the desk is where the designing is
+    /// asked for and read back, so it is what entering Publish should show.
+    /// Asserted through `defaultPane` rather than `panes.first` so the property
+    /// that production reads is the one under test.
+    func test_theDepartmentDeskIsPublishsAndLeadsIt() {
+        XCTAssertTrue(Persona.publish.panes.contains(.department))
+        XCTAssertEqual(Persona.publish.defaultPane, .department,
+                       "Publish opens on its desk — the surface its translator "
+                       + "and its designer are run from")
+        for persona in Persona.allCases where persona != .publish {
+            XCTAssertFalse(persona.panes.contains(.department),
+                           "\(persona) offers the department desk: the department "
+                           + "works on an edition, which is Publish's object")
         }
     }
 

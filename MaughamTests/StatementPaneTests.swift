@@ -244,8 +244,30 @@ final class StatementPaneTests: XCTestCase {
 
     /// The header is never empty — the failure mode the picker's deletion could
     /// have left behind is a selected document with no header at all.
+    /// **An edition brief names its edition** (publish-department P4 Task 2).
+    /// The pane is the same one, so without an arm of its own the Spanish
+    /// brief's header read "What this project is going for" — the craft
+    /// intent's sentence, over a different document entirely. Like visual
+    /// language's, it ignores the scope, because `effectiveScope` coerces every
+    /// subject to `.project` for any kind but `.intent`.
+    func test_theEditionBriefHeaderNamesTheEdition() {
+        let caption = StatementPane.headerCaption(
+            kind: .editionBrief("es"), scope: .project, structure: structure)
+        XCTAssertTrue(
+            caption.contains(TranslationReviewIndicator.displayLabel(forLanguageTag: "es")),
+            "the header must name the edition: \(caption)")
+        XCTAssertNotEqual(caption, "What this project is going for")
+        XCTAssertEqual(
+            StatementPane.headerCaption(
+                kind: .editionBrief("es"), scope: .document("doc-1"), structure: structure),
+            caption,
+            "an edition brief is project-scope, and its header says the same "
+            + "thing whatever the tree names")
+    }
+
     func test_theHeaderSaysSomethingForEveryKindAndScope() {
-        for kind in [Statement.Kind.intent, .visualLanguage, .unknown("future")] {
+        for kind in [Statement.Kind.intent, .visualLanguage,
+                     .editionBrief("es"), .unknown("future")] {
             for scope in [Statement.Scope.project, .document("doc-1"), .document("gone")] {
                 XCTAssertFalse(
                     StatementPane.headerCaption(

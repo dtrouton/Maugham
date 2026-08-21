@@ -1,8 +1,20 @@
 import SwiftUI
 import MaughamCore
 
-/// The writer's rulings, itemized under their essay — the second stratum of the
-/// Intent pane (declared-world Task 6, spec §3.2).
+/// The writer's rulings, itemized under their essay — the second stratum of a
+/// statement pane (declared-world Task 6, spec §3.2).
+///
+/// **Every verb takes the statement's KIND** (publish department, Task 7), and
+/// takes it undefaulted, before the scope — `RulingPerformer`'s own shape, for
+/// its own reason: a caller that has to say which statement it is acting on
+/// cannot fail to have thought about it. Until Task 7 these named `.intent` at
+/// all six calls into the performer and again in `currentRows`' lookup, which
+/// was true while intent was the only kind a verb wrote a ruling into and became
+/// a live defect the moment the edition brief joined it. The failure would not
+/// have been the refusal the trap's own note predicted: a brief is project-scope
+/// and the book's craft intent is project-scope too, so `.intent` names a
+/// statement that really is there, and a Revoke pressed on the Spanish brief
+/// would have gone looking through the book's intent instead.
 ///
 /// **The rules live here and the drawing lives in `RulingsStratumView`.**
 /// Everything a test would want to ask — what the rows are, what a row's caption
@@ -78,13 +90,14 @@ enum RulingsStratum {
     ///
     /// The registration happens only on success, after the write: a refused
     /// revoke must leave no undo entry standing over a file nothing moved.
-    static func revoke(_ ruling: Ruling, at index: Int, forScope scope: Statement.Scope,
+    static func revoke(_ ruling: Ruling, at index: Int, kind: Statement.Kind,
+                       forScope scope: Statement.Scope,
                        store: ProjectStore, world: DeclaredWorldStore?,
                        undoManager: UndoManager?,
                        workTaskSink: @escaping (Task<Void, Never>) -> Void) async {
         do {
             try await RulingPerformer.revoke(
-                rulingId: ruling.id, kind: .intent, forScope: scope, store: store,
+                rulingId: ruling.id, kind: kind, forScope: scope, store: store,
                 world: world)
         } catch {
             return
@@ -94,13 +107,14 @@ enum RulingsStratum {
             workTaskSink: workTaskSink,
             undo: { s in
                 try? await RulingPerformer.restore(
-                    ruling, at: index, kind: .intent, forScope: scope, store: s,
+                    ruling, at: index, kind: kind, forScope: scope, store: s,
                     world: world)
             },
             redo: { s in
-                guard let id = currentId(at: index, forScope: scope, store: s) else { return }
+                guard let id = currentId(at: index, kind: kind, forScope: scope, store: s)
+                else { return }
                 try? await RulingPerformer.revoke(
-                    rulingId: id, kind: .intent, forScope: scope, store: s, world: world)
+                    rulingId: id, kind: kind, forScope: scope, store: s, world: world)
             })
     }
 
@@ -110,16 +124,18 @@ enum RulingsStratum {
     /// old words. `RulingPerformer.edit` keeps the position, the date and the
     /// provenance, so the inverse is the same verb pointed the other way and
     /// the record is unchanged either direction.
-    static func edit(at index: Int, to newText: String, forScope scope: Statement.Scope,
+    static func edit(at index: Int, to newText: String, kind: Statement.Kind,
+                     forScope scope: Statement.Scope,
                      store: ProjectStore, world: DeclaredWorldStore?,
                      undoManager: UndoManager?,
                      workTaskSink: @escaping (Task<Void, Never>) -> Void) async {
-        guard let id = currentId(at: index, forScope: scope, store: store),
-              let priorText = currentRows(forScope: scope, store: store)[safe: index]?.text
+        guard let id = currentId(at: index, kind: kind, forScope: scope, store: store),
+              let priorText = currentRows(kind: kind, forScope: scope,
+                                          store: store)[safe: index]?.text
         else { return }
         do {
             try await RulingPerformer.edit(
-                rulingId: id, newText: newText, kind: .intent, forScope: scope,
+                rulingId: id, newText: newText, kind: kind, forScope: scope,
                 store: store, world: world)
         } catch {
             return
@@ -128,27 +144,33 @@ enum RulingsStratum {
             undoManager, actionName: "Edit Ruling", target: store,
             workTaskSink: workTaskSink,
             undo: { s in
-                guard let now = currentId(at: index, forScope: scope, store: s) else { return }
+                guard let now = currentId(at: index, kind: kind, forScope: scope, store: s)
+                else { return }
                 try? await RulingPerformer.edit(
-                    rulingId: now, newText: priorText, kind: .intent, forScope: scope,
+                    rulingId: now, newText: priorText, kind: kind, forScope: scope,
                     store: s, world: world)
             },
             redo: { s in
-                guard let now = currentId(at: index, forScope: scope, store: s) else { return }
+                guard let now = currentId(at: index, kind: kind, forScope: scope, store: s)
+                else { return }
                 try? await RulingPerformer.edit(
-                    rulingId: now, newText: newText, kind: .intent, forScope: scope,
+                    rulingId: now, newText: newText, kind: kind, forScope: scope,
                     store: s, world: world)
             })
     }
 
     // MARK: - The current file, asked at the moment of the write
 
-    /// The rulings a scope's statement carries right now, through the one
+    /// The rulings a `(kind, scope)` statement carries right now, through the one
     /// statement reader (`ProjectStore.statementText`, tripwire 20 — never the
     /// `.md`).
-    static func currentRows(forScope scope: Statement.Scope,
+    ///
+    /// **The kind is half the address**, not decoration: an edition brief and the
+    /// book's craft intent are both `.project`-scoped, so a scope alone names two
+    /// files and picks whichever this lookup happens to ask for.
+    static func currentRows(kind: Statement.Kind, forScope scope: Statement.Scope,
                             store: ProjectStore) -> [Ruling] {
-        guard let statement = store.statement(kind: .intent, scope: scope) else { return [] }
+        guard let statement = store.statement(kind: kind, scope: scope) else { return [] }
         // `statementText` throws since RULING-54's strict-read slice. An
         // unreadable statement file here means the verb's premise is gone —
         // "no rulings to act on" is the same honest answer a shrunk list gets
@@ -162,9 +184,10 @@ enum RulingsStratum {
     /// shrunk under the caller — a peer's revoke, a hand edit — which every
     /// verb treats as "there is nothing there to act on" rather than acting on
     /// the neighbour.
-    private static func currentId(at index: Int, forScope scope: Statement.Scope,
+    private static func currentId(at index: Int, kind: Statement.Kind,
+                                  forScope scope: Statement.Scope,
                                   store: ProjectStore) -> String? {
-        currentRows(forScope: scope, store: store)[safe: index]?.id
+        currentRows(kind: kind, forScope: scope, store: store)[safe: index]?.id
     }
 }
 
@@ -182,6 +205,10 @@ private extension Array {
 /// a bible entry is a reading Claude offered. They must not look alike.
 struct RulingsStratumView: View {
     let rulings: [Ruling]
+    /// Which statement these rows belong to. Undefaulted for the reason the
+    /// verbs' own parameter is: `(kind, scope)` is the whole address, and a
+    /// default would let a brief-side mount silently act on the craft intent.
+    let kind: Statement.Kind
     let scope: Statement.Scope
     @Bindable var store: ProjectStore
     let world: DeclaredWorldStore?
@@ -247,8 +274,8 @@ struct RulingsStratumView: View {
         let um = undoManager
         Task { @MainActor in
             await RulingsStratum.revoke(
-                ruling, at: index, forScope: scope, store: store, world: world,
-                undoManager: um, workTaskSink: { _ in })
+                ruling, at: index, kind: kind, forScope: scope, store: store,
+                world: world, undoManager: um, workTaskSink: { _ in })
         }
     }
 
@@ -261,8 +288,8 @@ struct RulingsStratumView: View {
         let um = undoManager
         Task { @MainActor in
             await RulingsStratum.edit(
-                at: index, to: trimmed, forScope: scope, store: store, world: world,
-                undoManager: um, workTaskSink: { _ in })
+                at: index, to: trimmed, kind: kind, forScope: scope, store: store,
+                world: world, undoManager: um, workTaskSink: { _ in })
         }
     }
 }

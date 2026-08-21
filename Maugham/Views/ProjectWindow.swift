@@ -177,6 +177,16 @@ struct ProjectWindow: View {
     /// book rather than on whatever proof was being checked last week. A new
     /// compile clears it too (`PublishPreviewModifier`).
     @State private var publishSelectedPublicationID: String?
+    /// **The design proposal the department desk's Show put in the centre**
+    /// (publish-department P4 Task 5), or `nil` for the book.
+    ///
+    /// The whole value rather than an id: the desk read it off disk to draw its
+    /// own Design row and hands up what it already has, so nothing here reads
+    /// `.maugham/design/` a second time and the gate cannot disagree with the
+    /// row that opened it. Window `@State` and cleared on any persona change
+    /// (`PublishPreviewModifier`) — a gate is a place in a decision, and leaving
+    /// Publish is leaving it.
+    @State private var publishSelectedProposal: DesignProposalStore.Proposal?
     @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
@@ -210,6 +220,11 @@ struct ProjectWindow: View {
     /// the AI toggle in `CompilerRunModifier`. A session merely released is a
     /// live, billing process (`TranslatorOrchestrator`'s own contract).
     @State private var translator = TranslatorOrchestrator()
+    /// What finished translation rounds left behind, for the department desk to
+    /// report (P4 Task 3). Owned here rather than by the pane because
+    /// `onRunEnded` is wired in `load()`, long before anybody opens the desk — a
+    /// record the pane held would only survive being looked at.
+    @State private var translationRuns = TranslationRunLog()
     /// The designer's run state and its warm `claude` session (publish
     /// department P3), owned beside the other two for their reason. Wired in
     /// `load()`; torn down wherever they are — `.onDisappear` here, app quit and
@@ -574,7 +589,8 @@ struct ProjectWindow: View {
         .modifier(PublishPreviewModifier(
             projectURL: url, window: window, persona: persona,
             publishPreview: $publishPreview,
-            selectedPublicationID: $publishSelectedPublicationID))
+            selectedPublicationID: $publishSelectedPublicationID,
+            selectedProposal: $publishSelectedProposal))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, persona: persona))
         // The writer's notice that Claude added cards to their canvas, and the way
@@ -1492,13 +1508,25 @@ struct ProjectWindow: View {
     /// resolves to no manuscript document, so it lands here as project level and
     /// gets the book — which is what the spec's "project altitude shown" degrade
     /// always meant.
+    ///
+    /// **The design gate joins as a THIRD answer, above the other two**
+    /// (publish-department P4 Task 5), and it is composed into this function
+    /// rather than layered beside it for the reason the whole function exists:
+    /// two gates over one column are two answers free to disagree, and the
+    /// disagreement here would be a compiled book drawn over the proposal the
+    /// writer pressed Show on. Both guards above it still apply unchanged — the
+    /// gate is Publish's, and it is PROJECT-level, so a chapter subject opens the
+    /// editor with a proposal selected exactly as it does with one compiled.
     static func publishCentre(persona: Persona,
                               subject: BinderSubject?,
                               structure: [StructureItem],
-                              preview: PublishPreviewResolution) -> PublishCentre? {
+                              preview: PublishPreviewResolution,
+                              proposal: DesignProposalStore.Proposal? = nil)
+    -> PublishCentre? {
         guard persona.previewsThePublishedBook else { return nil }
         guard subjectShowsAltitude(persona: persona, subject: subject,
                                    structure: structure) else { return nil }
+        if let proposal { return .designProposal(proposal) }
         switch preview {
         case .ready(let publications):
             // `.ready` is non-empty by construction (the resolver answers
@@ -1514,6 +1542,26 @@ struct ProjectWindow: View {
         case .unreadableCatalog(let reason):
             return .notice(.unreadableCatalog(reason: reason))
         }
+    }
+
+    /// **A gate verb's answer, adopted only if it is about the round on
+    /// screen** (the final-review wave).
+    ///
+    /// A verb answers from a `Task` that outlives the press: a promotion is file
+    /// I/O over the writer's whole template set, and they are free to press Back
+    /// — or Show a different round on the desk — while it runs. Writing the
+    /// answer in unconditionally would then put the OLD proposal into the centre
+    /// column, reopening a gate the writer closed or replacing the round they
+    /// had just opened, both of them a frame after they acted.
+    ///
+    /// A static rather than a guard inside the closure because it is a rule
+    /// about which of two values wins, and one written inline is one no test can
+    /// reach — the very shape the write-back exists to protect is then
+    /// unassertable.
+    static func publishSelection(after updated: DesignProposalStore.Proposal,
+                                 showing current: DesignProposalStore.Proposal?)
+    -> DesignProposalStore.Proposal? {
+        current?.id == updated.id ? updated : current
     }
 
     /// **Does Review's centre column show the passes board?** (M3 P1 Task 6,
@@ -1963,10 +2011,46 @@ struct ProjectWindow: View {
             // composes `subjectShowsAltitude`, so a chapter subject in Publish
             // reaches neither and opens in the host underneath — Denver's
             // 2026-08-12 ruling, made structural rather than asserted twice.
+            //
+            // **And the gate is a fourth layer of this same stack** (P4 Task
+            // 5), arriving as a third arm of the ONE switch rather than as a
+            // branch of its own — stage 3a's rule, which the book already
+            // follows: two ViewBuilder arms are two view identities, and
+            // `EditorHost.onDisappear` is `doc.close()` + `unregister(path:)` +
+            // `loads.abandon()`. A gate on its own arm would tear the host down
+            // on every Show and every Back.
             switch Self.publishCentre(persona: persona,
                                       subject: selectedSubject,
                                       structure: store.manifest.structure,
-                                      preview: publishPreview) {
+                                      preview: publishPreview,
+                                      proposal: publishSelectedProposal) {
+            case .designProposal(let proposal):
+                DesignGateView(proposal: proposal, projectURL: store.url,
+                               // The verdict's four verbs (P4 Task 6), wired to
+                               // the window's own job manager and warm designer.
+                               actions: designGateActions(projectURL: store.url),
+                               hasOpenProposalRound: designer.hasOpenProposalRound,
+                               // Deselecting is the whole of Back: the arm is a
+                               // pure function of this one piece of window
+                               // state, so dropping it hands the column back to
+                               // whatever the book's own rule answers.
+                               onClose: { publishSelectedProposal = nil },
+                               // …and the same piece of state is how a verb's
+                               // result reaches the surface. The gate holds the
+                               // proposal as a VALUE and `approve` marks it
+                               // approved on disk as its last step, so without
+                               // this write the gate would go on offering
+                               // Approve over a design already live.
+                               //
+                               // **Through `publishSelection`, never straight
+                               // in**: a verb answers from a `Task` that
+                               // outlives the press, and the writer is free to
+                               // press Back or Show another round while it runs.
+                               onProposalChanged: { updated in
+                                   publishSelectedProposal = Self.publishSelection(
+                                       after: updated,
+                                       showing: publishSelectedProposal)
+                               })
             case .books(let publications):
                 PublishPreviewCentre(
                     publications: publications,
@@ -1979,6 +2063,52 @@ struct ProjectWindow: View {
                 EmptyView()
             }
         }
+    }
+
+    /// **The gate's four verbs, wired to this window** (P4 Task 6).
+    ///
+    /// Closures rather than a store handed down, `DepartmentPane`'s rule: the
+    /// gate reads no disk on a body path (tripwire 4), and every one of these
+    /// reaches something that belongs to the window — the project's shared
+    /// `CompileJobManager` (which is what `approve`/`revert` refuse against while
+    /// a compile is reading the publish tree) and the warm designer session.
+    ///
+    /// **The job manager is resolved INSIDE each closure**, never here: this
+    /// function is called from the centre column's switch, which is a body path,
+    /// and `PublishingStores.sharedFor` constructs four stores on its first call
+    /// for a project. Inside the closure it is paid once per press.
+    ///
+    /// **Request Changes calls `DepartmentDesignRow.sendChanges`, which is also
+    /// what the desk calls** — one spelling of the orchestrator call and of the
+    /// three refusals it can earn, since the two surfaces are the same verb
+    /// reached from two columns.
+    private func designGateActions(projectURL: URL) -> DesignGateActions {
+        DesignGateActions(
+            approve: { proposal in
+                await DesignGatePromotion.approve(
+                    proposal, projectURL: projectURL,
+                    jobManager: Self.compileJobs(for: projectURL))
+            },
+            revert: { proposal in
+                await DesignGatePromotion.revert(
+                    proposal, projectURL: projectURL,
+                    jobManager: Self.compileJobs(for: projectURL))
+            },
+            finalize: { proposal in
+                DesignGatePromotion.finalize(proposal, projectURL: projectURL)
+            },
+            requestChanges: { [designer] words in
+                DepartmentDesignRow.sendChanges(words, to: designer)
+            })
+    }
+
+    /// The project's ONE compile-job manager — the same instance every compile of
+    /// this book contends on, which is the only thing that makes "a compile is
+    /// running" answerable at all.
+    private static func compileJobs(for projectURL: URL) -> CompileJobManager {
+        PublishingStores.sharedFor(
+            projectID: ProjectIdentifier.id(for: projectURL),
+            projectURL: projectURL).jobManager
     }
 
     /// **Recount the board's open notes** (M3 P2 Task 9) — the one writer of
@@ -2677,6 +2807,19 @@ struct ProjectWindow: View {
             diagnosticsStore: compiler.diagnostics,
             bibleStore: bible,
             declaredWorldStore: declaredWorld,
+            // The department desk's Run (P4 Task 3) — the window's own session
+            // and the record of what its rounds left, reached the way the
+            // compiler's pair above is.
+            translator: translator,
+            translationRuns: translationRuns,
+            // …and the Design row's Run (P4 Task 4), the third of this window's
+            // three long-lived sessions. No log beside it: what a design round
+            // leaves is a staged proposal, which the desk re-derives.
+            designer: designer,
+            // …and the desk's Show (P4 Task 5), which is the only thing on that
+            // pane that reaches the CENTRE column. One write, of the one piece
+            // of window state the gate arm is a function of.
+            onShowDesignProposal: { publishSelectedProposal = $0 },
             compilerModel: compilerModel,
             onCompilerModelChange: { newValue in
                 compilerModel = newValue
@@ -3471,9 +3614,10 @@ struct ProjectWindow: View {
                     projectRoot: url,
                     device: DeviceSlug.make(from: MacDeviceID.current)))
             // The translator's loop, wired beside the compiler's and for its
-            // reason. It has no run verb yet — a translation is started from
-            // the desk (P4) — so what a finished run has to say goes to the
-            // log until that desk exists to say it to.
+            // reason. Its run verb is the department desk's Run button (P4 Task
+            // 3), and what a finished round has to say goes to the window's own
+            // record so that desk can report it — plus the log line, which is
+            // what a session that ran while no pane was open leaves behind.
             translator.configure(
                 environment: .production(
                     store: s, documentStore: ds, projectURL: url,
@@ -3484,7 +3628,8 @@ struct ProjectWindow: View {
                     bible: bibleStore,
                     preferences: userPreferences,
                     model: ds.uiState.compilerModel.claudeModel,
-                    onRunEnded: { summary in
+                    onRunEnded: { [weak translationRuns] summary in
+                        translationRuns?.record(summary)
                         _projectWindowLog.info(
                             "translation run \(summary.runId, privacy: .public) ended for \(summary.docId, privacy: .public)/\(summary.language, privacy: .public)")
                     }))

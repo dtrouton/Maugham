@@ -67,6 +67,14 @@ struct AnnotationsPane: View {
     @State private var showResolved: Bool = false
     @State private var rejectSheet: AnnotationTarget?
     @State private var querySheet: AnnotationTarget?
+    /// The language-tagged question being answered as a ruling (publish
+    /// department, Task 8) — the edition brief's `## Rulings` and the thread's
+    /// reply, from one sentence.
+    @State private var rulingSheet: AnnotationTarget?
+    /// What `QueryRuling.commit` refused, in its own words. A refusal here can
+    /// arrive with half the act done (the ruling landed, the reply did not), so
+    /// it is never swallowed — the sentence says what is where.
+    @State private var rulingNotice: String?
     @State private var staleConfirm: AnnotationTarget?
     /// A suggestion whose accept was REFUSED because its quoted phrase is no
     /// longer in the paragraph (RULING-5). Drives the told-why alert; the
@@ -434,6 +442,28 @@ struct AnnotationsPane: View {
                 replyToQuery(target.document, target.annotation, reply: reply)
                 querySheet = nil
             } onCancel: { querySheet = nil }
+        }
+        .sheet(item: $rulingSheet) { target in
+            // The tag is what opened the sheet, so it is there; the fallback
+            // draws a sheet that will refuse in `commit`'s own words rather
+            // than crashing on the writer's sentence.
+            QueryRulingSheet(
+                annotation: target.annotation,
+                language: QueryRuling.language(of: target.annotation) ?? ""
+            ) { answer in
+                answerAsRuling(target.document, target.annotation, answer: answer)
+                rulingSheet = nil
+            } onCancel: { rulingSheet = nil }
+        }
+        .alert(
+            "That answer could not be filed",
+            isPresented: Binding(
+                get: { rulingNotice != nil },
+                set: { if !$0 { rulingNotice = nil } })
+        ) {
+            Button("OK") { rulingNotice = nil }
+        } message: {
+            Text(rulingNotice ?? "")
         }
         .alert(
             "Paragraph has changed since this suggestion",
@@ -951,6 +981,8 @@ struct AnnotationsPane: View {
             onArchive: { withDocument(rowDocument) { archive($0, ann) } },
             onReply: { withDocument(rowDocument) {
                 querySheet = AnnotationTarget(document: $0, annotation: ann) } },
+            onAnswerAsRuling: { withDocument(rowDocument) {
+                rulingSheet = AnnotationTarget(document: $0, annotation: ann) } },
             onEdit: { withDocument(rowDocument) {
                 editSheet = AnnotationTarget(document: $0, annotation: ann) } },
             onWithdraw: { withDocument(rowDocument) {
@@ -1235,6 +1267,23 @@ struct AnnotationsPane: View {
         }
     }
 
+    /// Answer a translator's question as doctrine — the ruling in the edition
+    /// brief and the reply on the thread, from one sentence (`QueryRuling`).
+    ///
+    /// The refusal is surfaced rather than logged: unlike a reply, this act can
+    /// land half-done, and a writer who is not told would answer again and mint
+    /// a second ruling for a decision already in the brief.
+    private func answerAsRuling(
+        _ document: Document, _ ann: Annotation, answer: String
+    ) {
+        Task {
+            rulingNotice = await QueryRuling.commit(
+                answer, answering: ann, in: document, store: store,
+                undoManager: undoManager)
+            noteChanged()
+        }
+    }
+
     private func reject(_ document: Document, _ ann: Annotation, reason: String) {
         Task {
             try? await document.rejectAnnotation(
@@ -1474,6 +1523,11 @@ struct AnnotationRow: View {
     var onTriage: (TriageMark?) -> Void = { _ in }
     let onArchive: () -> Void
     let onReply: () -> Void
+    /// The translator's answer that becomes doctrine (publish department, Task
+    /// 8). Defaulted to a no-op so every host predating it still compiles —
+    /// and never drawn where it would do nothing, since the affordance is
+    /// gated on `QueryRuling.offersARuling` rather than on the closure.
+    var onAnswerAsRuling: () -> Void = {}
     var onEdit: () -> Void = {}
     var onWithdraw: () -> Void = {}
     var onRevert: () -> Void = {}
@@ -1745,13 +1799,35 @@ struct AnnotationRow: View {
             }
         case .query:
             Button("Reply\u{2026}", action: onReply).buttonStyle(.borderedProminent)
+            answerAsRulingButton(useIcons: useIcons)
             stetButton(useIcons: useIcons)
             secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
         case .craftNote:
             Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
+            answerAsRulingButton(useIcons: useIcons)
             secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
             stetButton(useIcons: useIcons)
             secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+        }
+    }
+
+    /// **A translator's question can be answered into doctrine** (publish
+    /// department, Task 8) — offered on the two kinds a language tag ever
+    /// reaches, and only while the tag is there and the question open
+    /// (`QueryRuling.offersARuling`).
+    ///
+    /// Secondary rather than primary: Reply is still the ordinary answer, and
+    /// most notes in this queue are not a translator's. It degrades to its icon
+    /// under column pressure with the others — a tagged query carries one more
+    /// control than an untagged one, and the narrow column is exactly where
+    /// that has to cost a word rather than the pane's layout width.
+    @ViewBuilder
+    private func answerAsRulingButton(useIcons: Bool) -> some View {
+        if QueryRuling.offersARuling(annotation) {
+            secondary("Answer as ruling\u{2026}", symbol: "building.columns",
+                      useIcons: useIcons,
+                      help: "Answer as ruling\u{2026} — a dated ruling in the edition brief, and your reply here",
+                      action: onAnswerAsRuling)
         }
     }
 

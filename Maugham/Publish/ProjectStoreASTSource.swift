@@ -47,12 +47,35 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
     }
 
     public func orderedPieces() throws -> [ProjectASTBuilder.PieceRef] {
-        let docs = ProjectStore.collectDocuments(in: projectStore.manifest.structure)
-        return try docs.compactMap { try pieceRef(for: $0) }
+        try publishablePieces().compactMap { try pieceRef(for: $0) }
+    }
+
+    /// **Which structure items this source will turn into sections** — the
+    /// question "is there a book here at all" answered without materializing
+    /// one.
+    ///
+    /// Extracted from `orderedPieces()` (publish-department P4 Task 4) so the
+    /// department desk can pre-flight a design round: `DesignerEnvironment`'s
+    /// briefing refuses a project whose AST has no sections, and it refuses
+    /// *silently* — so the desk has to ask the same question before the click
+    /// vanishes into an abandoned round.
+    ///
+    /// Every item here yields exactly one section: `ProjectASTBuilder.build`
+    /// maps one-to-one, and `pieceRef` cannot answer nil for an item that
+    /// passed these two guards. So `publishablePieces().count ==
+    /// build(from:).sections.count`, which is what `DepartmentRunTests
+    /// .test_thePublishablePiecesAreExactlyTheSectionsTheASTWouldBuild` pins —
+    /// the desk's cheap question and the briefing's expensive one must not
+    /// drift.
+    ///
+    /// Reading it costs a walk of the manifest's structure and nothing else: no
+    /// op log, no derived cache, no disk.
+    public func publishablePieces() -> [StructureItem] {
+        ProjectStore.collectDocuments(in: projectStore.manifest.structure)
+            .filter { $0.pieceKind != .reference && $0.path != nil }
     }
 
     private func pieceRef(for item: StructureItem) throws -> ProjectASTBuilder.PieceRef? {
-        if item.pieceKind == .reference { return nil }
         guard let path = item.path else { return nil }
         let mode: ProjectAST.Mode = path.lowercased().hasSuffix(".fountain")
             ? .fountain

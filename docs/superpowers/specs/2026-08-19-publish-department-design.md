@@ -1,7 +1,7 @@
 # The Publish Department — Design
 
 **Date:** 2026-08-19
-**Status:** Approved design, pre-plan
+**Status:** Built — shipped 2026-08-20 across four plans (P1 cast + brief, P2 translator loop, P3 designer loop, P4 the surfaces). See `docs/roadmap.md`'s Publish-department entry for what shipped in each and `docs/guide/publish-department.md` for the writer-facing surface.
 **Constitution check:** extends the Claude-parallel-layer principle — spawned sessions never hold a write tool and manuscript text is reachable from nothing here (translations are the Claude-authored layer; templates are publish files, not manuscript). Manuscripts stay plain text at writer paths; everything new (roles manifest, staged proposals) lives under `.maugham/`. The keystroke-only trigger rule (ADR 0028's tempo discipline) carries over: no timer ever starts a translation or design run.
 
 ## Purpose

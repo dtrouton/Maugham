@@ -439,8 +439,8 @@ final class StatementPaneStrataTests: XCTestCase {
         var work: [Task<Void, Never>] = []
         let rows = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))
         await RulingsStratum.revoke(
-            rows[0], at: 0, forScope: scope, store: fixture.store, world: nil,
-            undoManager: undoManager, workTaskSink: { work.append($0) })
+            rows[0], at: 0, kind: .intent, forScope: scope, store: fixture.store,
+            world: nil, undoManager: undoManager, workTaskSink: { work.append($0) })
 
         XCTAssertEqual(
             RulingsStratum.rows(in: try fixture.store.statementText(of: statement)).map(\.text),
@@ -477,8 +477,9 @@ final class StatementPaneStrataTests: XCTestCase {
         let undoManager = UndoManager()
         var work: [Task<Void, Never>] = []
         await RulingsStratum.edit(
-            at: 0, to: "First, corrected", forScope: scope, store: fixture.store,
-            world: nil, undoManager: undoManager, workTaskSink: { work.append($0) })
+            at: 0, to: "First, corrected", kind: .intent, forScope: scope,
+            store: fixture.store, world: nil, undoManager: undoManager,
+            workTaskSink: { work.append($0) })
 
         let edited = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))
         XCTAssertEqual(edited.map(\.text), ["First, corrected", "Second"],
@@ -541,10 +542,10 @@ final class StatementPaneStrataTests: XCTestCase {
         // whichever row it found.
         try fixture.pressButton(labelled: "Revoke", in: window)
         await fixture.pumpUntil(deadline: 5) {
-            RulingsStratum.currentRows(forScope: scope, store: fixture.store).count == 1
+            RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store).count == 1
         }
         XCTAssertEqual(
-            RulingsStratum.currentRows(forScope: scope, store: fixture.store).map(\.text),
+            RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store).map(\.text),
             ["Second"], "pressing Revoke on the mounted row did not revoke it")
 
         let undoManager = try XCTUnwrap(
@@ -560,9 +561,9 @@ final class StatementPaneStrataTests: XCTestCase {
 
         undoManager.undo()
         await fixture.pumpUntil(deadline: 5) {
-            RulingsStratum.currentRows(forScope: scope, store: fixture.store).count == 2
+            RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store).count == 2
         }
-        let restored = RulingsStratum.currentRows(forScope: scope, store: fixture.store)
+        let restored = RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store)
         XCTAssertEqual(restored.map(\.text), ["First", "Second"],
                        "the window's ⌘Z did not put the revoked ruling back in place")
         XCTAssertEqual(restored[0].ruledOn, ruled)
@@ -588,8 +589,8 @@ final class StatementPaneStrataTests: XCTestCase {
         let before = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))[0].id
 
         await RulingsStratum.edit(
-            at: 0, to: "After", forScope: scope, store: fixture.store, world: nil,
-            undoManager: nil, workTaskSink: { _ in })
+            at: 0, to: "After", kind: .intent, forScope: scope, store: fixture.store,
+            world: nil, undoManager: nil, workTaskSink: { _ in })
 
         let after = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))[0]
         XCTAssertNotEqual(after.id, before,
@@ -600,8 +601,8 @@ final class StatementPaneStrataTests: XCTestCase {
         // verb re-derived the id from the current text rather than reusing the
         // one the row was built with.
         await RulingsStratum.edit(
-            at: 0, to: "After again", forScope: scope, store: fixture.store, world: nil,
-            undoManager: nil, workTaskSink: { _ in })
+            at: 0, to: "After again", kind: .intent, forScope: scope,
+            store: fixture.store, world: nil, undoManager: nil, workTaskSink: { _ in })
         XCTAssertEqual(
             RulingsStratum.rows(in: try fixture.store.statementText(of: statement)).map(\.text),
             ["After again"])
@@ -631,8 +632,8 @@ final class StatementPaneStrataTests: XCTestCase {
         XCTAssertNotNil(world.cached(forScopeKey: key, sourceHash: hash))
 
         await RulingsStratum.edit(
-            at: 0, to: "One, corrected", forScope: scope, store: fixture.store,
-            world: world, undoManager: nil, workTaskSink: { _ in })
+            at: 0, to: "One, corrected", kind: .intent, forScope: scope,
+            store: fixture.store, world: world, undoManager: nil, workTaskSink: { _ in })
         XCTAssertNil(world.cached(forScopeKey: key, sourceHash: hash),
                      "an edited ruling left the scope's reading standing")
     }
@@ -1125,7 +1126,244 @@ final class StatementPaneStrataTests: XCTestCase {
                        + textView.string)
     }
 
+    // MARK: - The edition brief is a first-class statement surface (P4 Task 7)
+
+    /// **The bible belongs to the craft intent alone, and it is asked its own
+    /// question** — the first of the two traps `StatementEssay.carriesRulings`
+    /// recorded against itself, sprung.
+    ///
+    /// `bibleFacts` gated on `carriesRulings`, which answers a question about
+    /// the FILE — does a `## Rulings` section live in this one — standing in for
+    /// a question about the SUBJECT: is this the craft intent. The two agreed
+    /// for exactly as long as intent was the only kind with strata. The moment
+    /// the edition brief joined it, the proxy put the project's whole bible —
+    /// Claude's readings of what the manuscript establishes — under a brief
+    /// about how the book reads in Spanish.
+    ///
+    /// **What is pinned here is the PREDICATE, not a nil.** Task 2's door hands
+    /// `StatementPane` no bible at all, so a test that mounted the brief the way
+    /// the department does would pass over a pane with nothing to draw and would
+    /// say nothing whatever about the rule. Both panes below are handed the SAME
+    /// live store holding the SAME fact; the only difference between them is the
+    /// kind.
+    ///
+    /// Falsify by putting `StatementEssay.carriesRulings` back into
+    /// `StatementPane.bibleFacts`: the brief's assertion goes red.
+    func test_aBriefRefusesTheBibleEvenWithAStoreThreadedThroughIt() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "brief-no-bible")
+        defer { fixture.tearDown() }
+        let bible = BibleStore(projectRoot: fixture.projectURL,
+                               device: DeviceSlug.make(from: "test-mac"))
+        bible.record([makeFact(id: "f1", subject: "Kelly", fact: "Kelly is a nurse.",
+                               docId: fixture.documentItemId)])
+
+        let briefWindow = await fixture.host(
+            kind: .editionBrief("es"), subject: .project, bible: bible)
+        // An absence needs a span of wall clock to mean anything.
+        await fixture.waitOut(0.4)
+        XCTAssertTrue(
+            fixture.shows(
+                TranslationReviewIndicator.displayLabel(forLanguageTag: "es"), in: briefWindow),
+            "control: the brief pane's own header never rendered, so the assertion "
+            + "below proves nothing about what it refused to draw")
+        XCTAssertTrue(
+            try fixture.staticTexts(in: briefWindow, containing: "Kelly is a nurse.").isEmpty,
+            "the project's bible — Claude's readings of the English manuscript — is "
+            + "on screen under a brief about how the book reads in Spanish")
+
+        // The same store, the same fact, the kind it does belong to.
+        let intentWindow = await fixture.host(
+            kind: .intent, subject: .project, bible: bible)
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.shows("Kelly is a nurse.", in: intentWindow)
+        }
+        XCTAssertFalse(
+            try fixture.staticTexts(in: intentWindow, containing: "Kelly is a nurse.").isEmpty,
+            "the new predicate refuses the bible under INTENT too — the trap was "
+            + "sprung by taking the stratum away from everybody")
+    }
+
+    /// The bible's question, beside the rulings' question, on the one kind where
+    /// they differ. Two predicates that agree everywhere are one predicate with
+    /// a spare name, and the inequality below is what stops this becoming that
+    /// again.
+    func test_theBibleBelongsToTheCraftIntentAloneAndAsksItsOwnQuestion() {
+        XCTAssertTrue(BibleStratum.belongsTo(.intent))
+        XCTAssertFalse(BibleStratum.belongsTo(.editionBrief("es")))
+        XCTAssertFalse(BibleStratum.belongsTo(.visualLanguage))
+        XCTAssertFalse(BibleStratum.belongsTo(.unknown("newer-build")))
+        XCTAssertNotEqual(
+            BibleStratum.belongsTo(.editionBrief("es")),
+            StatementEssay.carriesRulings(.editionBrief("es")),
+            "the bible's predicate is the rulings' predicate again — an edition "
+            + "brief carries rulings and does not carry a bible, and one answer "
+            + "cannot say both")
+    }
+
+    /// **The rulings verbs act on the statement they are given, and never on
+    /// intent** — the second recorded trap, sprung.
+    ///
+    /// They named `.intent` at all six calls into `RulingPerformer` and again in
+    /// `currentRows`' lookup. The failure that would have caused is worse than
+    /// the refusal the trap's own note predicted: an edition brief is
+    /// project-scope, the craft intent for a book is project-scope too, so a
+    /// Revoke pressed on the Spanish brief's row would have found the BOOK's
+    /// intent statement at the same scope, matched nothing there and refused —
+    /// or, with a ruling of the same words in both, revoked the wrong one.
+    ///
+    /// So both statements exist here with different rulings, and every assertion
+    /// checks the one that was not addressed as well as the one that was.
+    func test_theRulingsVerbsActOnTheStatementTheyAreGivenAndNotOnIntent() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "brief-verbs")
+        defer { fixture.tearDown() }
+        let brief = Statement.Kind.editionBrief("es")
+        let ruled = Date(timeIntervalSince1970: 1_786_060_800)
+        let (intentStatement, briefStatement) = try await seedBothStatements(
+            in: fixture, ruled: ruled)
+
+        // Reading is keyed on the kind, not on the scope alone.
+        XCTAssertEqual(
+            RulingsStratum.currentRows(kind: brief, forScope: .project,
+                                       store: fixture.store).map(\.text),
+            ["Usted throughout", "Keep the songs in English"])
+        XCTAssertEqual(
+            RulingsStratum.currentRows(kind: .intent, forScope: .project,
+                                       store: fixture.store).map(\.text),
+            ["Kelly never lies"])
+
+        let undoManager = UndoManager()
+        var work: [Task<Void, Never>] = []
+        let rows = RulingsStratum.currentRows(kind: brief, forScope: .project,
+                                              store: fixture.store)
+        await RulingsStratum.revoke(
+            rows[0], at: 0, kind: brief, forScope: .project, store: fixture.store,
+            world: nil, undoManager: undoManager, workTaskSink: { work.append($0) })
+
+        XCTAssertEqual(
+            RulingsStratum.currentRows(kind: brief, forScope: .project,
+                                       store: fixture.store).map(\.text),
+            ["Keep the songs in English"],
+            "the brief's Revoke did not reach the brief")
+        XCTAssertEqual(
+            RulingsStratum.rows(in: try fixture.store.statementText(of: intentStatement))
+                .map(\.text),
+            ["Kelly never lies"],
+            "a Revoke pressed on the Spanish brief reached the book's craft intent")
+
+        undoManager.undo()
+        for task in work { await task.value }
+        work.removeAll()
+        let restored = RulingsStratum.currentRows(kind: brief, forScope: .project,
+                                                  store: fixture.store)
+        XCTAssertEqual(restored.map(\.text), ["Usted throughout", "Keep the songs in English"],
+                       "one ⌘Z did not put the brief's ruling back where it was")
+        XCTAssertEqual(restored[0].ruledOn, ruled,
+                       "the restored ruling was re-dated — a ⌘Z must not rewrite the record")
+        XCTAssertEqual(restored[0].provenance, "from an answered query")
+
+        await RulingsStratum.edit(
+            at: 0, to: "Usted throughout, except in the songs", kind: brief,
+            forScope: .project, store: fixture.store, world: nil,
+            undoManager: undoManager, workTaskSink: { work.append($0) })
+
+        XCTAssertEqual(
+            RulingsStratum.currentRows(kind: brief, forScope: .project,
+                                       store: fixture.store).map(\.text),
+            ["Usted throughout, except in the songs", "Keep the songs in English"],
+            "an edit moved the brief's ruling out of its place")
+        XCTAssertEqual(
+            RulingsStratum.rows(in: try fixture.store.statementText(of: intentStatement))
+                .map(\.text),
+            ["Kelly never lies"], "the brief's Edit reached the book's craft intent")
+        XCTAssertEqual(
+            StatementEssay.half(of: try fixture.store.statementText(of: briefStatement)),
+            "The Spanish edition.", "the edit disturbed the brief's essay")
+
+        undoManager.undo()
+        for task in work { await task.value }
+        XCTAssertEqual(
+            RulingsStratum.currentRows(kind: brief, forScope: .project,
+                                       store: fixture.store).map(\.text),
+            ["Usted throughout", "Keep the songs in English"],
+            "one ⌘Z did not restore the brief ruling's old words")
+    }
+
+    /// **The delivery path**: the brief's rows are on screen, and the Revoke the
+    /// writer presses there acts on the brief.
+    ///
+    /// The verbs taking a kind is enforced by the compiler; that
+    /// `StatementPane` hands them **its own** kind rather than a literal
+    /// `.intent` is not, and this project's recorded lesson is that a stratum
+    /// suite can be green over a control that reaches the wrong file
+    /// (`memory/project_milestone_mode_ux_redesign.md`). Production the whole
+    /// way: the real pane, the real mounted stratum, the real `Button` pressed
+    /// through the accessibility tree.
+    func test_pressingRevokeOnTheMountedBriefTakesTheBriefsRulingAndNotTheBooks() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "brief-revoke")
+        defer { fixture.tearDown() }
+        let brief = Statement.Kind.editionBrief("es")
+        let ruled = Date(timeIntervalSince1970: 1_786_060_800)
+        let (intentStatement, _) = try await seedBothStatements(in: fixture, ruled: ruled)
+
+        let window = await fixture.host(kind: brief, subject: .project)
+        await fixture.pumpUntil(deadline: 5) { fixture.shows("Usted throughout", in: window) }
+        XCTAssertTrue(
+            fixture.shows("Usted throughout", in: window),
+            "the brief's rulings never reached the mounted stratum, so there is no "
+            + "control to press")
+        XCTAssertFalse(
+            fixture.shows("Kelly never lies", in: window),
+            "the book's craft intent is itemized under the Spanish edition brief")
+
+        try fixture.pressButton(labelled: "Revoke", in: window)
+        await fixture.pumpUntil(deadline: 5) {
+            RulingsStratum.currentRows(kind: brief, forScope: .project,
+                                       store: fixture.store).count == 1
+        }
+        XCTAssertEqual(
+            RulingsStratum.currentRows(kind: brief, forScope: .project,
+                                       store: fixture.store).map(\.text),
+            ["Keep the songs in English"],
+            "pressing Revoke on the mounted brief row did not revoke it")
+        XCTAssertEqual(
+            RulingsStratum.rows(in: try fixture.store.statementText(of: intentStatement))
+                .map(\.text),
+            ["Kelly never lies"],
+            "the mounted pane passed a literal `.intent` to its stratum — the writer's "
+            + "press on a brief row reached the book's craft intent")
+    }
+
     // MARK: - Helpers
+
+    /// The book's craft intent and its Spanish edition brief, both project-scope,
+    /// each carrying its own rulings — the arrangement every brief-side assertion
+    /// needs, because a verb that reaches the wrong one is invisible unless the
+    /// other one is there to be reached.
+    private func seedBothStatements(
+        in fixture: StatementMountFixture, ruled: Date
+    ) async throws -> (intent: Statement, brief: Statement) {
+        _ = try await fixture.store.createStatement(kind: .intent, scope: .project)
+        _ = try await fixture.store.createStatement(kind: .editionBrief("es"), scope: .project)
+        let intentStatement = try XCTUnwrap(
+            fixture.store.statement(kind: .intent, scope: .project))
+        let briefStatement = try XCTUnwrap(
+            fixture.store.statement(kind: .editionBrief("es"), scope: .project))
+        try await fixture.store.mutateStatementText(of: intentStatement, session: "s") { _ in
+            RulingsSection.render(essay: "The book.", rulings: [
+                Ruling(id: "", text: "Kelly never lies", ruledOn: ruled,
+                       provenance: "from a run"),
+            ])
+        }
+        try await fixture.store.mutateStatementText(of: briefStatement, session: "s") { _ in
+            RulingsSection.render(essay: "The Spanish edition.", rulings: [
+                Ruling(id: "", text: "Usted throughout", ruledOn: ruled,
+                       provenance: "from an answered query"),
+                Ruling(id: "", text: "Keep the songs in English", ruledOn: ruled,
+                       provenance: "by hand"),
+            ])
+        }
+        return (intentStatement, briefStatement)
+    }
 
     private func makeFact(id: String, subject: String, fact: String, docId: String,
                           establishedAt: String? = nil,

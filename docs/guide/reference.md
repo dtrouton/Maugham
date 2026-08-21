@@ -43,6 +43,7 @@ The ones you'll use most:
 | `⌘⌥V` | Visual Language pane |
 | `⌘⌥D` | Diagnostics pane — the compiler's notes on what you've written |
 | `⌘⌥E` | References pane — what this piece is pinned to |
+| `⌘⌥K` | Department pane — Publish's desk: the book's design and its language editions |
 | `⌘⌥0` | Toggle inspector column |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |

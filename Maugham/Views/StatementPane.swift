@@ -1,8 +1,9 @@
 import SwiftUI
 import MaughamCore
 
-/// The right pane for a statement — Intent (⌘⌥N) or Visual Language (⌘⌥V),
-/// M1A spec §4.3.
+/// The right pane for a statement — Intent (⌘⌥N), Visual Language (⌘⌥V), or an
+/// edition brief reached from the department desk's language row
+/// (publish-department P4 Task 2); M1A spec §4.3.
 ///
 /// **Scope follows the window's subject, and this pane has no say in it.** The
 /// tree is the subject-picker (persona shell §3.3): select a chapter and Intent
@@ -127,6 +128,17 @@ struct StatementPane: View {
         structure: [StructureItem]
     ) -> String {
         if case .visualLanguage = kind { return "How this book looks" }
+        // **An edition brief names its edition** (publish-department P4 Task
+        // 2). Without an arm of its own the Spanish brief wore the craft
+        // intent's sentence — "What this project is going for" — over a
+        // different document entirely, and the header is the only thing on
+        // screen saying which statement the editor beneath it is bound to.
+        // Scope-blind, exactly as visual language's is, because `effectiveScope`
+        // coerces every subject to `.project` for any kind but `.intent`.
+        if case .editionBrief(let language) = kind {
+            return "How this book reads in "
+                + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+        }
         guard case .document(let id) = scope else {
             return "What this project is going for"
         }
@@ -185,7 +197,8 @@ struct StatementPane: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if !rulings.isEmpty {
                         RulingsStratumView(
-                            rulings: rulings, scope: scope, store: store, world: world)
+                            rulings: rulings, kind: kind, scope: scope, store: store,
+                            world: world)
                     }
                     if let bible, !bibleFacts.isEmpty {
                         BibleStratumView(
@@ -236,11 +249,17 @@ struct StatementPane: View {
     /// (`DiagnosticsPane.rows`' idiom, and `test_thePaneRerendersWhenEither
     /// StoreBumpsItsVersion` is what holds it).
     ///
-    /// The bible belongs to the intent statement, like the rulings do — visual
-    /// language is about how the book LOOKS and the manuscript establishes
-    /// nothing about that.
+    /// **The bible belongs to the craft intent, and it is asked so directly**
+    /// (publish department, Task 7). This gated on
+    /// `StatementEssay.carriesRulings` — right by coincidence while intent was
+    /// the only kind with strata, and a live defect the moment the edition brief
+    /// joined it: a brief carries rulings and establishes nothing about the
+    /// manuscript, so the proxy would have shown the project's whole bible under
+    /// a statement about Spanish register. `BibleStratum.belongsTo` is the
+    /// question this actually wants, and it lives with the stratum whose rule it
+    /// is.
     private var bibleFacts: [BibleFact] {
-        guard StatementEssay.carriesRulings(kind), let bible else { return [] }
+        guard BibleStratum.belongsTo(kind), let bible else { return [] }
         _ = bible.version
         return BibleStratum.facts(for: scope, in: bible.allFacts())
     }

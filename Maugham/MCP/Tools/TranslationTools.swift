@@ -237,32 +237,14 @@ public enum ReadTranslationTool: MCPTool {
 
 // MARK: - translation_status
 
-/// The translator's display name for `language`, read without minting.
-///
-/// **A read tool must not mint** (the rule stated in
-/// `ProjectStore+ProductionRoles.swift`'s doc comment): this is a pure lookup
-/// over `manifest.productionRoles` plus the preset table, never
-/// `ProjectStore.translatorRole(for:)`, which finds-or-creates and would stamp
-/// the manifest merely because `translation_status` was asked. Resolution
-/// order: the stored role's `effectiveName` when this language has one
-/// already (a rename or a prior mint both count), else the preset name, else
-/// nil — an unlisted, unminted language has no honest name to report.
-///
-/// Matching is `ProjectManifest.storedTranslator(for:)`'s — the one spelling of
-/// the case-insensitive tag compare, shared with the mint's own find-half, so
-/// no reader can disagree with the writer about which row is this language's.
-func translatorName(for language: String, in manifest: ProjectManifest) -> String? {
-    if let stored = manifest.storedTranslator(for: language) { return stored.effectiveName }
-    return ProductionRole.defaultTranslatorName(language: language)
-}
-
 public enum TranslationStatusTool: MCPTool {
     public struct Row: Codable, Equatable {
         public let document_id: String
         public let language: String
         /// The stored role's `effectiveName`, else the preset for this
         /// language, else omitted — an unlisted, unminted language has no
-        /// honest name to report. Never mints (see `translatorName(for:in:)`).
+        /// honest name to report. Never mints (see
+        /// `EditionStatus.translatorName(for:in:)`).
         public let translator: String?
         public let fresh: Int
         public let stale: Int
@@ -306,96 +288,30 @@ public enum TranslationStatusTool: MCPTool {
             throw MCPError.unknownProjectID(params.project_id)
         }
 
-        // Which documents to report: the named one, or every manuscript leaf
-        // (skip collection references, same walk as ProjectStoreASTSource).
-        let docIds: [String]
-        if let only = params.document_id {
-            docIds = [only]
-        } else {
-            docIds = ProjectStore.collectDocuments(in: entry.store.manifest.structure)
-                .filter { $0.pieceKind != .reference }
-                .map(\.id)
-        }
+        // Which documents to report: the named one, or every manuscript leaf.
+        let docIds = params.document_id.map { [$0] }
+            ?? EditionStatus.manuscriptDocumentIds(in: entry.store.manifest)
 
-        let explicitDoc = params.document_id != nil
-        var rows: [Row] = []
-        for docId in docIds {
-            // Languages with an actual translation file — a cheap filename scan.
-            let fileLanguages = Set(TranslationStore.languages(forDocId: docId, in: entry.url))
+        // **The union, the coverage derivation and the open-query filter are
+        // `EditionStatus`'s** (publish-department P4 Task 2) — they were this
+        // handler's own body until the department desk had to report the same
+        // figures, and a desk that derived its own would be a second answer to
+        // "how far along is the Spanish edition" with no way for a writer to
+        // tell which one is wrong. The tool's job is the wire form on either
+        // side, exactly as `write_translation`'s is.
+        let rows = try await EditionStatus.documentRows(
+            documentIds: docIds, store: entry.store, projectURL: entry.url)
 
-            // Open translator questions for this doc, resolved the same
-            // open/closed way list_annotations (and TranslationReviewPane's
-            // own filter) do so counts match the pane. Fetched once per doc;
-            // also the source of query-first languages (M2) — a translator
-            // can ask about a language before any file for it exists, so the
-            // row set is the UNION of file languages and languages tagged on
-            // an open query, not file languages alone.
-            //
-            // **Craft notes count too.** A whole-document translation
-            // question ("tú or usted throughout?") cannot be a `.query` —
-            // `addAnnotation` refuses an anchorless one — so it mints as a
-            // language-tagged `.craftNote`, and counting only `.query` here
-            // reported `open_queries: 0` over a translator who was waiting on
-            // an answer. The tag does the discriminating: an untagged craft
-            // note has a nil `language` and survives neither the filter below
-            // nor `queryLanguages`. The translator's own briefing gather
-            // widened the same one way, so what the writer is told and what
-            // the next round is briefed on cannot disagree.
-            let openQueries = try await withAnnotationDocument(
-                projectId: params.project_id, documentId: docId, registry: registry
-            ) { doc in
-                doc.annotations(filter: AnnotationFilter(
-                    kinds: [.query, .craftNote], statuses: [.open]))
-            }
-            let queryLanguages = Set(openQueries.compactMap(\.language))
-            let languages = fileLanguages.union(queryLanguages).sorted()
-
-            // In the project-wide walk, skip documents with neither a
-            // translation file nor an open query for any language. An
-            // explicit document_id always resolves so a bad id fails loudly
-            // rather than returning empty rows.
-            if !explicitDoc && languages.isEmpty { continue }
-
-            for language in languages {
-                let openQueryCount = openQueries.filter { $0.language == language }.count
-                let translator = translatorName(for: language, in: entry.store.manifest)
-                if fileLanguages.contains(language) {
-                    let state = try currentParagraphState(
-                        projectId: params.project_id, documentId: docId, registry: registry)
-                    let records = TranslationStore.loadMerged(
-                        forDocId: docId, language: language, in: state.projectURL)
-                    let derived = TranslationDeriver.derive(
-                        records: records, sequence: state.sequence,
-                        paragraphs: state.paragraphs, language: language)
-                    rows.append(Row(
-                        document_id: docId,
-                        language: language,
-                        translator: translator,
-                        fresh: derived.freshCount,
-                        stale: derived.staleCount,
-                        missing: derived.missingCount,
-                        verbatim: derived.verbatimCount,
-                        orphans: derived.orphans.count,
-                        open_queries: openQueryCount))
-                } else {
-                    // Query-only language: no translation file yet, so there
-                    // is no coverage to derive — report it zero/absent rather
-                    // than "every paragraph missing", which would conflate
-                    // "not started" with "started and incomplete".
-                    rows.append(Row(
-                        document_id: docId,
-                        language: language,
-                        translator: translator,
-                        fresh: 0,
-                        stale: 0,
-                        missing: 0,
-                        verbatim: 0,
-                        orphans: 0,
-                        open_queries: openQueryCount))
-                }
-            }
-        }
-
-        return try JSONEncoder().encode(Result(rows: rows))
+        return try JSONEncoder().encode(Result(rows: rows.map {
+            Row(document_id: $0.documentId,
+                language: $0.language,
+                translator: $0.translator,
+                fresh: $0.fresh,
+                stale: $0.stale,
+                missing: $0.missing,
+                verbatim: $0.verbatim,
+                orphans: $0.orphans,
+                open_queries: $0.openQueries)
+        }))
     }
 }

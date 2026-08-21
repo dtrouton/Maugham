@@ -29,18 +29,38 @@ func withAnnotationDocument<T>(
     guard let entry = registry.lookup(id: projectId) else {
         throw MCPError.unknownProjectID(projectId)
     }
+    return try await withAnnotationDocument(
+        store: entry.store, projectURL: entry.url, documentId: documentId, body: body)
+}
+
+/// The same resolution with the project already in hand — what a SURFACE calls
+/// (`EditionStatus`, the department desk's derivation), which holds its
+/// window's stores directly and has no registry to look anything up in.
+///
+/// **One spelling of the open-doc-else-transient-load rule**, which is why the
+/// registry version above is a three-line wrapper around this one —
+/// `currentParagraphState`'s pair, for `currentParagraphState`'s reason: a
+/// second copy of "loaded → live instance, otherwise load and close" is a
+/// second answer to which `Document` an annotation read is about, and the two
+/// answers can differ by a whole typing burst.
+@MainActor
+func withAnnotationDocument<T>(
+    store: ProjectStore,
+    projectURL: URL,
+    documentId: String,
+    body: (Document) async throws -> T
+) async throws -> T {
     // Case 1: doc is loaded in the editor — use the live instance.
-    if let doc = openAnnotationDocument(documentId, in: entry) {
+    if let doc = openAnnotationDocument(documentId, in: store) {
         return try await body(doc)
     }
     // Case 2: doc not loaded — transient-load from disk.
-    guard let item = TreeWalk.find(
-            id: documentId, in: entry.store.manifest.structure),
+    guard let item = TreeWalk.find(id: documentId, in: store.manifest.structure),
           let path = item.path else {
         throw MCPError.invalidArgument(
             "document_id not found in project manifest: \(documentId)")
     }
-    let docURL = entry.url.appendingPathComponent(path)
+    let docURL = projectURL.appendingPathComponent(path)
     let doc = try await Document.load(
         url: docURL,
         device: "mcp",
@@ -64,7 +84,14 @@ func withAnnotationDocument<T>(
 func openAnnotationDocument(
     _ documentId: String, in entry: ProjectRegistry.Entry
 ) -> Document? {
-    entry.store.documentStore?.document(forDocId: documentId)
+    openAnnotationDocument(documentId, in: entry.store)
+}
+
+@MainActor
+func openAnnotationDocument(
+    _ documentId: String, in store: ProjectStore
+) -> Document? {
+    store.documentStore?.document(forDocId: documentId)
 }
 
 /// The review pass an MCP-created note is stamped with (M3 P2 Task 8), or nil.
