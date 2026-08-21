@@ -520,8 +520,12 @@ asserting it as a comment, so a future change to that registry read would
 turn it red first. Only one translation round runs at a time, across every
 language — one warm `TranslatorOrchestrator` session, `DepartmentRunSession
 .busy` naming the edition already holding it. An unlisted language's first
-Run opens a mint sheet (`DepartmentMintSheet.swift`, **Name & Run**) rather
-than silently minting a translator with no chosen name.
+Run opens the cast sheet (`DepartmentCastSheet.swift`, **Name & Run**) rather
+than silently minting a translator with no chosen name. That sheet asks the
+same question at three moments as of cast-management (2026-08-21) — name the
+translator a Run is waiting on, **Add Language…**, and **Rename …** on any
+row of the desk — so one composition (`translatorRole(for:)` +
+`renameProductionRole`) is the only way anybody on this book is named.
 
 ## The designer — the area's third orchestrator
 

@@ -12,7 +12,7 @@ import MaughamCore
 /// is wrong. So the union, the coverage derivation and the open-query filter
 /// live here once, and both readers are callers.
 ///
-/// **The union has two sources, and the second is not optional.** A language
+/// **The union has three sources, and none of them is optional.** A language
 /// shows up as soon as a translator ASKS about it — the query-first workflow —
 /// which is before any translation file exists for it, so file languages
 /// alone would hide the edition the writer is being asked a question about.
@@ -20,6 +20,24 @@ import MaughamCore
 /// whole-document question ("tú or usted throughout?") cannot be a `.query`,
 /// because `addAnnotation` refuses an anchorless one, and counting only
 /// `.query` reported `open_queries: 0` over a translator who was waiting.
+///
+/// **The third source is a stored translator role, and it is what lets the desk
+/// START an edition** (cast-management, 2026-08-21). Before it, the only ways
+/// into this union were a file somebody else had written and a question
+/// somebody else had asked — so *Add Language* had nowhere to put its answer,
+/// and a writer who named a Portuguese translator saw nothing at all until the
+/// first paragraph of Portuguese existed. The role anchors the edition:
+/// `ProjectManifest.productionRoles`' `.translator(language:)` rows join the
+/// union, case-insensitively (`ES` and `es` are one person's language, exactly
+/// as `storedTranslator(for:)` reads them), and a language that has only a role
+/// derives no coverage — the query-first arm's own answer, for the query-first
+/// arm's own reason: nothing has been translated, which is *not started* rather
+/// than *every paragraph missing*.
+///
+/// **One derivation, so both readers widen together**: the desk's rows and
+/// `translation_status`'s are this file, and a tool that could not see an
+/// edition the desk had just started would be the disagreement this type exists
+/// to prevent.
 ///
 /// **Nothing here mints.** `translatorName` is a lookup plus the preset table,
 /// never `ProjectStore.translatorRole(for:)` — see that file's own doc comment,
@@ -72,7 +90,8 @@ enum EditionStatus {
     ) async throws -> [LanguageRow] {
         languageRows(from: try await documentRows(
             documentIds: manuscriptDocumentIds(in: store.manifest),
-            store: store, projectURL: projectURL))
+            store: store, projectURL: projectURL),
+            in: store.manifest)
     }
 
     /// One row per `(document, language)` over the documents named.
@@ -92,6 +111,11 @@ enum EditionStatus {
         documentIds: [String], store: ProjectStore, projectURL: URL
     ) async throws -> [DocumentRow] {
         var rows: [DocumentRow] = []
+        // A fact about the BOOK rather than about any one document, so it is
+        // read once rather than per chapter — and it is why an edition the
+        // writer has only just named reports a row for every manuscript
+        // document instead of none at all.
+        let roleLanguages = storedTranslatorLanguages(in: store.manifest)
         for documentId in documentIds {
             // Languages with an actual translation file — a cheap filename scan.
             let fileLanguages = Set(
@@ -110,17 +134,22 @@ enum EditionStatus {
             // The tag does the discriminating: an untagged craft note has a nil
             // `language` and belongs to no edition.
             let queryLanguages = Set(openQuestions.compactMap(\.language))
-            let languages = fileLanguages.union(queryLanguages).sorted()
+            let languages = editionLanguages(
+                files: fileLanguages, queries: queryLanguages, roles: roleLanguages)
             if languages.isEmpty { continue }
 
             for language in languages {
                 let openQueryCount = openQuestions.filter { $0.language == language }.count
                 let translator = translatorName(for: language, in: store.manifest)
                 guard fileLanguages.contains(language) else {
-                    // Query-only language: no translation file yet, so there is
-                    // no coverage to derive — report it absent rather than
-                    // "every paragraph missing", which would conflate "not
-                    // started" with "started and incomplete".
+                    // A language reached through a query or a role alone: no
+                    // translation file yet, so there is no coverage to derive —
+                    // report it absent rather than "every paragraph missing",
+                    // which would conflate "not started" with "started and
+                    // incomplete". The two file-less arms answer alike on
+                    // purpose; a role-only edition that reported the whole book
+                    // as missing would be a third coverage policy saying the
+                    // same thing in a more alarming way.
                     rows.append(DocumentRow(
                         documentId: documentId, language: language,
                         translator: translator,
@@ -162,7 +191,16 @@ enum EditionStatus {
     /// the first one is as good as the last; a first non-nil rather than a
     /// blind `first` only because the fold should not depend on that being
     /// true.
-    nonisolated static func languageRows(from rows: [DocumentRow]) -> [LanguageRow] {
+    /// **…and a book with no chapters yet still shows the editions it has
+    /// named** (cast-management, 2026-08-21). The fold above can only produce
+    /// what the document walk gave it, and the walk has nothing to walk in a
+    /// project whose manuscript is still empty — so *Add Language* on a fresh
+    /// project would have written a role to disk and changed nothing on screen.
+    /// The manifest closes that one gap and no other: with a single chapter in
+    /// the book, every stored translator already has a document row here.
+    nonisolated static func languageRows(
+        from rows: [DocumentRow], in manifest: ProjectManifest
+    ) -> [LanguageRow] {
         var byLanguage: [String: LanguageRow] = [:]
         for row in rows {
             let running = byLanguage[row.language]
@@ -174,7 +212,63 @@ enum EditionStatus {
                 missing: (running?.missing ?? 0) + row.missing,
                 openQueries: (running?.openQueries ?? 0) + row.openQueries)
         }
+        for tag in storedTranslatorLanguages(in: manifest)
+        where !byLanguage.keys.contains(where: {
+            $0.caseInsensitiveCompare(tag) == .orderedSame
+        }) {
+            byLanguage[tag] = LanguageRow(
+                language: tag, translator: translatorName(for: tag, in: manifest),
+                fresh: 0, stale: 0, missing: 0, openQueries: 0)
+        }
         return byLanguage.values.sorted { $0.language < $1.language }
+    }
+
+    /// Every language this book has a stored translator for — the union's third
+    /// source, and the only one that is a fact about the project rather than
+    /// about a document.
+    ///
+    /// `.designer` and `.unknown` rows are not editions and contribute nothing.
+    /// A blank tag cannot reach here through the decoder (`"translator:"` reads
+    /// back as `.unknown`, deliberately) but an in-memory role could carry one,
+    /// and a blank language would put a nameless row on every desk.
+    ///
+    /// **Lowercased, and that is load-bearing rather than tidy.** A role's tag
+    /// is whatever named the edition and `translatorRole(for:)` stores it
+    /// verbatim, so a manifest can carry `ES` while every translation file for
+    /// it is `es`. Left alone, the chapter with a file would report `es` and the
+    /// chapter without one would report `ES` — one edition drawn as two rows,
+    /// which no per-document fold can see. And the write pipeline's own
+    /// `isValidLanguageTag` is lowercase-only, so a row spelled `ES` would offer
+    /// a Run that could never write anything.
+    nonisolated static func storedTranslatorLanguages(
+        in manifest: ProjectManifest
+    ) -> [String] {
+        manifest.productionRoles.compactMap { role in
+            guard case .translator(let tag) = role.role else { return nil }
+            let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed.lowercased()
+        }
+    }
+
+    /// **The union, as one pure function** — so the rule is assertable without a
+    /// project on disk, and so the two callers above cannot spell it differently.
+    ///
+    /// Files and queries are unioned exactly as they always were (both arrive
+    /// already lowercased in practice — a filename scan and an annotation tag).
+    /// A ROLE joins only when no language already present matches it
+    /// case-insensitively: `storedTranslator(for:)` reads `ES` and `es` as one
+    /// person's language, so a manifest that spells the tag one way and a
+    /// translation file that spells it the other must not draw the writer two
+    /// rows for one edition.
+    nonisolated static func editionLanguages(
+        files: Set<String>, queries: Set<String>, roles: [String]
+    ) -> [String] {
+        var languages = files.union(queries)
+        var seen = Set(languages.map { $0.lowercased() })
+        for tag in roles where seen.insert(tag.lowercased()).inserted {
+            languages.insert(tag)
+        }
+        return languages.sorted()
     }
 
     /// The translator's display name for `language`, read **without minting**.

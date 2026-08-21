@@ -107,20 +107,32 @@ struct DepartmentPane: View {
     var requestDesignChanges: (String) -> Bool = { _ in false }
     /// End the design round in flight — `DesignerOrchestrator.cancel()`.
     var cancelDesignRun: () -> Void = { }
-    /// **The mint sheet's prompt, or nil** (P4 Task 9) — set by the host when a
-    /// Run would mint an unlisted language's translator with no name
-    /// (`DepartmentPaneHost.needsTranslatorName`), so the writer names them
-    /// before the round the sheet is standing in front of ever reaches
-    /// `TranslatorOrchestrator`.
-    var mintPrompt: DepartmentMintPrompt? = nil
-    /// Answer the sheet with a name — mints (or finds) the role and renames it
-    /// in one visible act, then starts the run the sheet was standing in front
-    /// of. The host's, because both halves write.
-    var confirmMint: (String) -> Void = { _ in }
-    /// Back out of the sheet. The run it was standing in front of does not
+    /// **The cast sheet's prompt, or nil** (P4 Task 9, widened by
+    /// cast-management) — what the desk is asking the writer about one of the
+    /// book's people. Set by the host when a Run would mint an unlisted
+    /// language's translator with no name (`DepartmentPaneHost
+    /// .needsTranslatorName`), and when the writer asks to start an edition.
+    var castPrompt: DepartmentCastPrompt? = nil
+    /// Answer the sheet — mints (or finds) the role and renames it in one
+    /// visible act, then does whatever the ask was standing in front of. The
+    /// host's, because every half of it writes.
+    var confirmCast: (DepartmentCastAnswer) -> Void = { _ in }
+    /// Back out of the sheet. Whatever it was standing in front of does not
     /// happen; the abandon lands in `notice` (Global Constraint 2), which is
     /// why this takes no reason of its own.
-    var cancelMint: () -> Void = { }
+    var cancelCast: () -> Void = { }
+    /// **Start an edition the book does not have yet** (cast-management) — the
+    /// button at the foot of the Languages section. A closure, because opening
+    /// the sheet is the host's: the desk's rows are the host's derivation, and
+    /// deciding a language is already among them is a question about them.
+    var addLanguage: () -> Void = { }
+    /// **Say who translates this edition** (cast-management) — the language
+    /// row's own rename, by language. A closure for `addLanguage`'s reason:
+    /// resolving which role that is may have to mint one first.
+    var renameTranslator: (String) -> Void = { _ in }
+    /// **Say who designs this book.** No argument: there is one designer, and
+    /// the Design row is about them.
+    var renameDesigner: () -> Void = { }
     /// **Put the newest round in the centre column** (Task 5) — the desk's door
     /// to the gate, and the row's only control that is navigation rather than a
     /// verb.
@@ -161,16 +173,16 @@ struct DepartmentPane: View {
             desk
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        // **The mint sheet** (P4 Task 9). The `Binding`'s `set` is the only
+        // **The cast sheet** (P4 Task 9). The `Binding`'s `set` is the only
         // way this value-taking pane can hear a swipe-away or Esc dismiss —
-        // there is no `@State` here for `mintPrompt` to live in, so a
+        // there is no `@State` here for `castPrompt` to live in, so a
         // dismissal that bypassed both buttons still has to reach
-        // `cancelMint`, or the host's `mintPrompt` would outlive the sheet
+        // `cancelCast`, or the host's `castPrompt` would outlive the sheet
         // that showed it and the next render would draw it right back.
-        .sheet(item: Binding(get: { mintPrompt },
-                              set: { if $0 == nil { cancelMint() } })) { prompt in
-            DepartmentMintSheet(language: prompt.language,
-                                onName: confirmMint, onCancel: cancelMint)
+        .sheet(item: Binding(get: { castPrompt },
+                              set: { if $0 == nil { cancelCast() } })) { prompt in
+            DepartmentCastSheet(prompt: prompt,
+                                onConfirm: confirmCast, onCancel: cancelCast)
         }
     }
 
@@ -197,6 +209,7 @@ struct DepartmentPane: View {
                         Text(DepartmentDesk.noLanguagesYet)
                             .font(.callout)
                             .foregroundStyle(.secondary)
+                        addLanguageButton
                     } else {
                         // **Said once, above the rows it applies to.** Every Run
                         // on the desk refuses for the same reason when the window
@@ -214,6 +227,7 @@ struct DepartmentPane: View {
                         ForEach(languages) { row in
                             languageRow(row)
                         }
+                        addLanguageButton
                     }
                 }
             }
@@ -222,6 +236,24 @@ struct DepartmentPane: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// **The door to an edition the book does not have yet** (cast-management),
+    /// at the foot of the section it adds a row to — drawn in both arms,
+    /// because the empty one is exactly where a writer with no editions yet
+    /// comes to start their first.
+    ///
+    /// **Not `keyboardShortcut`ed**, on the language rows' own rule: the keys
+    /// this window has left belong to the compiler, and a control the writer
+    /// presses once per edition has no claim on one.
+    private var addLanguageButton: some View {
+        HStack {
+            Button(DepartmentDesk.addLanguageTitle) { addLanguage() }
+                .controlSize(.small)
+                .help(DepartmentDesk.addLanguageHelp)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 2)
     }
 
     /// **The book's design: who makes it, where the last round stands, and the
@@ -266,6 +298,12 @@ struct DepartmentPane: View {
                         .accessibilityLabel(DepartmentDesignRow.showAccessibilityLabel)
                         .help(DepartmentDesignRow.showHelp)
                 }
+                renameButton(DepartmentDesignRow.renameTitle(
+                    designerName: design.designerName)) { renameDesigner() }
+            }
+            .contextMenu {
+                Button(DepartmentDesignRow.renameTitle(
+                    designerName: design.designerName)) { renameDesigner() }
             }
             Text(design.latestLine)
                 .font(.caption)
@@ -373,6 +411,9 @@ struct DepartmentPane: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 6)
+                renameButton(DepartmentDesk.renameTitle(translator: row.translator)) {
+                    renameTranslator(row.language)
+                }
                 Button(DepartmentDesk.editionBriefTitle) {
                     openEditionBrief(row.language)
                 }
@@ -409,6 +450,37 @@ struct DepartmentPane: View {
         }
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu {
+            Button(DepartmentDesk.renameTitle(translator: row.translator)) {
+                renameTranslator(row.language)
+            }
+        }
+    }
+
+    /// **The rename affordance, drawn twice on purpose** — once as this small
+    /// control on the row, once as a right-click item beside it.
+    ///
+    /// A context menu alone would be the whole verb: a writer without a mouse
+    /// could not reach it, VoiceOver would not announce it, and no test here
+    /// could press it — SwiftUI builds a `.contextMenu`'s items only while the
+    /// menu is up, so an accessibility-tree press has nothing to find (the
+    /// board's chip verbs record the same finding one persona over). So the
+    /// button is the real door and the menu is the gesture a Mac writer will
+    /// reach for first; they post the same call.
+    ///
+    /// A glyph rather than a word because the row already carries two or three
+    /// controls in a column 340pt wide, and a third title is what starts
+    /// truncating the language's own name. Its accessibility label is the full
+    /// sentence, so the tree says what the picture means.
+    private func renameButton(_ title: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "pencil")
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .accessibilityLabel(title)
+        .help(title)
     }
 
     /// **Run, and — only while this edition is the one in flight — Cancel.**
@@ -458,6 +530,14 @@ enum DepartmentDesk {
     /// something to offer (Task 4 retired the pane's empty state).
     static let noLanguagesYet = "No translations yet."
 
+    /// **The door to a first (or fourth) edition** (cast-management). The
+    /// ellipsis is the platform's promise that a sheet follows rather than an
+    /// edition appearing on the spot.
+    static let addLanguageTitle = "Add Language\u{2026}"
+
+    static let addLanguageHelp =
+        "Start an edition in another language and say who translates it"
+
     // MARK: - A language row's words (Task 2)
 
     /// The door on every language row. **"Brief" and not "Open Brief"** — the
@@ -481,6 +561,18 @@ enum DepartmentDesk {
 
     static func translatorLine(_ translator: String?) -> String {
         translator ?? noTranslatorYet
+    }
+
+    /// **The row's rename verb, naming the person it is about** — a desk with
+    /// four editions offers four of these, and "Rename…" four times is four
+    /// controls a VoiceOver user cannot tell apart.
+    ///
+    /// A row with nobody on it yet asks for a NAME rather than a rename, which
+    /// is the honest verb for an unlisted language nothing has minted a role
+    /// for — `translatorLine` prints "No translator yet" on the same row.
+    static func renameTitle(translator: String?) -> String {
+        guard let translator else { return "Name This Translator\u{2026}" }
+        return "Rename \(translator)\u{2026}"
     }
 
     /// The three figures `translation_status` reports, in its own vocabulary
