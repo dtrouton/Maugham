@@ -16,9 +16,26 @@ to have open: a **Design** section for the book's typesetting, and a
 
 Every project has a designer from the moment it exists, so the Design row
 and its **Run** button are always there — there's no empty state to work
-around. A language row appears the moment there's a reason for one: as soon
-as a translator asks a question about that language, even before a word of
-it has been translated.
+around. A language row appears the moment there's a reason for one: when
+you start the edition yourself (below), as soon as a translator asks a
+question about that language, or as soon as a paragraph of it has been
+translated.
+
+## Starting an edition
+
+**Add Language…**, at the foot of the Languages section, is how a book
+gets an edition it doesn't have yet. Type the language's tag — `es`,
+`fr`, `pt-br`; capitals are fine, Maugham lowers them for you — and the
+name of the person who translates it. For the four languages that come
+with a translator already picked, that name fills itself in; keep it or
+type somebody else's. A tag that isn't a language tag says so in the
+sheet rather than failing later, and Cancel leaves the book's editions
+exactly as they were.
+
+The row appears as soon as you confirm, with nothing translated yet and
+the whole book ahead of it. Adding a language the book already has just
+says so — the edition is already on the desk, and renaming its translator
+is that row's own verb.
 
 ## The people
 
@@ -33,6 +50,14 @@ Ask for a language Maugham has no preset for and the first Run asks you to
 name its translator first — a short sheet, one field, **Name & Run**. What
 you type there is the byline for everything that edition's translator writes
 from then on; there's no picker and no way to leave it blank.
+
+Nobody's name is fixed. Every row on the desk carries a rename — the
+pencil beside it, or a right-click on the row: **Rename Cortázar…** on a
+language row, **Rename Tschichold…** on the Design row, and **Name This
+Translator…** where an edition has nobody yet. A new name signs
+everything from then on, and orphans nothing: the paragraphs, queries and
+design rounds already signed stay theirs, because a rename renames the
+person rather than handing their work to somebody else.
 
 ## Running a translation
 
