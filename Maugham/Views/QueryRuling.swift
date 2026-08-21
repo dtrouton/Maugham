@@ -123,8 +123,15 @@ enum QueryRuling {
     /// ruling is an op in the brief's own log and ⌘Z reaches it from the
     /// stratum's rows, while the reply is the annotation's own lifecycle op
     /// with its own undo — passing the window's manager is what puts the reply
-    /// on the writer's stack, and nothing here groups the two into one step
-    /// (ADR 0023's warning is that grouping state is what corrupts).
+    /// on the writer's stack, and nothing here groups the two into one step.
+    ///
+    /// **Not for ADR 0023's reason**, which is narrower than this once read:
+    /// its corollary is that `removeAllActions` must never run inside an open
+    /// manual undo group, because that is what corrupts the grouping state —
+    /// and nothing here clears actions or opens a group. The two stay separate
+    /// because they are separate acts against separate logs: one ⌘Z takes the
+    /// reply back, another takes the ruling back, and a writer who meant only
+    /// the reply keeps the doctrine they wrote.
     static func commit(
         _ text: String, answering annotation: Annotation,
         in document: Document, store: ProjectStore, undoManager: UndoManager?

@@ -82,12 +82,16 @@ to it:
   replaced from that backup.
 - **Finalize** keeps an approved round for good and lets the backup go. This
   is the one irreversible step in the department: once you finalize, there's
-  nothing left to revert to.
+  nothing left to revert to. It's also the only verb here that asks before it
+  acts — a confirmation naming what's discarded, with Cancel leaving the
+  promotion exactly as it stood.
 
 Only the verbs that make sense for where a round stands are ever offered —
-Approve and Request Changes on a pending round, Revert and Finalize once
-you've approved one — and a round that's been superseded by a newer one, or
-turned down, says so instead of offering anything at all. Whenever a verb
+Approve on a pending round, and Request Changes beside it while the session
+that proposed it is still open (once that session has closed, the honest next
+move is a fresh Run from the desk); Revert and Finalize once you've approved
+one — and a round that's been superseded by a newer one, or turned down, says
+so instead of offering anything at all. Whenever a verb
 can't go through — another proposal is already holding the one backup slot,
 a compile is running, there's nothing to finalize — you get the reason in
 words, never a button that quietly does nothing.
