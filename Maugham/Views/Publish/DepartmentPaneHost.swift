@@ -65,11 +65,12 @@ struct DepartmentPaneHost: View {
     @State private var openBrief: OpenedBrief?
     /// A door that would not open. Cleared on the next attempt.
     @State private var notice: String?
-    /// **The mint sheet, standing in front of a run** (P4 Task 9) — set by
-    /// `run(language:)` when the language it was asked for would mint a
-    /// translator with no name, and cleared by whichever of `confirmMint` /
-    /// `cancelMint` answers it.
-    @State private var mintPrompt: DepartmentMintPrompt?
+    /// **The cast sheet's question, or nil** (P4 Task 9, widened by
+    /// cast-management) — set by `run(language:)` when the language it was asked
+    /// for would mint a translator with no name, and by `askForALanguage()` when
+    /// the writer wants an edition the book does not have yet. Cleared by
+    /// whichever of `confirmCast` / `cancelCast` answers it.
+    @State private var castPrompt: DepartmentCastPrompt?
     /// This pane's hosting window, for the ADR 0021 receive helpers' liveness
     /// guard — resolved through `WindowAccessor` because a cached `nil` is not
     /// a close check (`MaughamEvent.isLive`).
@@ -171,9 +172,10 @@ struct DepartmentPaneHost: View {
             runDesign: { runDesign(direction: $0) },
             requestDesignChanges: { requestDesignChanges($0) },
             cancelDesignRun: { designer?.cancel() },
-            mintPrompt: mintPrompt,
-            confirmMint: { confirmMint(name: $0) },
-            cancelMint: { cancelMint() },
+            castPrompt: castPrompt,
+            confirmCast: { confirmCast($0) },
+            cancelCast: { cancelCast() },
+            addLanguage: { askForALanguage() },
             // **The newest round, from the listing the row was resolved from**
             // — so the proposal the gate opens is the one `latestLine`
             // describes rather than a second lookup that could differ. The
@@ -264,7 +266,8 @@ struct DepartmentPaneHost: View {
         }
         guard let docId = runTarget.docId else { return }
         if Self.needsTranslatorName(language: language, in: store.manifest) {
-            mintPrompt = DepartmentMintPrompt(language: language, docId: docId)
+            castPrompt = DepartmentCastPrompt(
+                ask: .nameForRun(language: language, docId: docId))
             return
         }
         translator.runTranslation(docId: docId, language: language)
@@ -294,40 +297,104 @@ struct DepartmentPaneHost: View {
         EditionStatus.translatorName(for: language, in: manifest) == nil
     }
 
-    /// **The sheet's Confirm.** Mint-then-rename, `ProjectStore
-    /// +ProductionRoles`'s own idempotent shape: `translatorRole(for:)` finds
-    /// the role if `runTranslation`'s own identity mint already raced it into
-    /// existence, or mints it fresh, and either way the very next line is what
-    /// puts the writer's name on it — one visible mint, never a nameless one
-    /// left standing for the writer to find later. Only once both have landed
-    /// does the run the sheet was standing in front of actually start.
-    private func confirmMint(name: String) {
-        guard let prompt = mintPrompt else { return }
-        mintPrompt = nil
-        guard let translator else { return }
-        let language = prompt.language
-        let docId = prompt.docId
-        Task {
-            do {
-                let role = try await store.translatorRole(for: language)
-                try await store.renameProductionRole(id: role.id, to: name)
-            } catch {
-                _departmentLog.error(
-                    "could not name the \(language, privacy: .public) translator: \(error, privacy: .public)")
-                notice = DepartmentMintCopy.mintFailed(language: language)
-                return
+    // MARK: - The cast sheet (P4 Task 9, widened by cast-management)
+
+    /// **Open the sheet on an edition the book does not have yet.**
+    private func askForALanguage() {
+        notice = nil
+        castPrompt = DepartmentCastPrompt(ask: .addLanguage)
+    }
+
+    /// **The sheet's Confirm**, routed by what it was asking.
+    ///
+    /// Both arms end in the same one visible act — see `nameTranslator` — and
+    /// the prompt is cleared FIRST, so a failure reported into `notice` cannot
+    /// be drawn behind a sheet that is still up.
+    private func confirmCast(_ answer: DepartmentCastAnswer) {
+        guard let prompt = castPrompt else { return }
+        castPrompt = nil
+        switch prompt.ask {
+        case .nameForRun(let language, let docId):
+            guard let translator else { return }
+            Task {
+                guard await nameTranslator(language: language, name: answer.name)
+                else { return }
+                translator.runTranslation(docId: docId, language: language)
             }
-            translator.runTranslation(docId: docId, language: language)
+        case .addLanguage:
+            addLanguage(tag: answer.language ?? "", name: answer.name)
         }
     }
 
-    /// **The sheet's Cancel.** The run it was standing in front of does not
+    /// **The sheet's Cancel.** Whatever it was standing in front of does not
     /// happen — nothing is minted, nothing runs — and the abandon is said in
     /// words, in the desk's one notice slot (Global Constraint 2).
-    private func cancelMint() {
-        guard let prompt = mintPrompt else { return }
-        mintPrompt = nil
-        notice = DepartmentMintCopy.cancelledLine(language: prompt.language)
+    private func cancelCast() {
+        guard let prompt = castPrompt else { return }
+        castPrompt = nil
+        switch prompt.ask {
+        case .nameForRun(let language, _):
+            notice = DepartmentCastCopy.cancelledLine(language: language)
+        case .addLanguage:
+            notice = DepartmentCastCopy.addCancelledLine
+        }
+    }
+
+    /// **Start an edition** (cast-management): mint its translator, named.
+    ///
+    /// The tag arrives lowercased and validated by the sheet; re-asking here is
+    /// the cheap half of a two-sided guard, because this is the verb that writes
+    /// and `TranslationWritePipeline` would refuse an unusable tag much later,
+    /// somewhere the writer is no longer looking.
+    ///
+    /// **An edition already on the desk is a no-op with a sentence, never a
+    /// second row.** `translatorRole(for:)` is idempotent, so a duplicate was
+    /// never the hazard; renaming somebody the writer had not meant to rename
+    /// was — Confirm carries a name, and for a language that already has one
+    /// this act would overwrite it silently. The row's own Rename verb is where
+    /// that decision belongs.
+    ///
+    /// Nothing is said on success: the row appearing in the section this button
+    /// sits under IS the answer, and the notice slot is for what the writer
+    /// cannot otherwise see.
+    private func addLanguage(tag: String, name: String) {
+        notice = nil
+        let language = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard TranslationRecord.isValidLanguageTag(language) else {
+            notice = DepartmentCastCopy.unusableTag(tag)
+            return
+        }
+        if let existing = languages.first(where: {
+            $0.language.caseInsensitiveCompare(language) == .orderedSame
+        }) {
+            notice = DepartmentCastCopy.alreadyOnTheDesk(language: existing.language)
+            return
+        }
+        Task { _ = await nameTranslator(language: language, name: name) }
+    }
+
+    /// **Mint-then-rename, the one visible act** — `ProjectStore
+    /// +ProductionRoles`'s own idempotent shape: `translatorRole(for:)` finds
+    /// the role if something already minted it (`runTranslation`'s own identity
+    /// mint can race it into existence), or mints it fresh, and either way the
+    /// very next line is what puts the writer's name on it — never a nameless
+    /// role left standing for the writer to find later.
+    ///
+    /// Answers whether it landed, so a caller with something to do afterwards —
+    /// the run the sheet was standing in front of — does it only if the person
+    /// it would be signed by actually exists.
+    @discardableResult
+    private func nameTranslator(language: String, name: String) async -> Bool {
+        do {
+            let role = try await store.translatorRole(for: language)
+            try await store.renameProductionRole(id: role.id, to: name)
+            return true
+        } catch {
+            _departmentLog.error(
+                "could not name the \(language, privacy: .public) translator: \(error, privacy: .public)")
+            notice = DepartmentCastCopy.mintFailed(language: language)
+            return false
+        }
     }
 
     // MARK: - The design round (Task 4)

@@ -1084,17 +1084,17 @@ final class DepartmentRunTests: XCTestCase {
 
     // MARK: - Task 9: the sheet itself (no host)
 
-    /// **Every string the sheet draws is `DepartmentMintCopy`'s** — the
+    /// **Every string the sheet draws is `DepartmentCastCopy`'s** — the
     /// `DepartmentDesk` split, so the whole surface is assertable with
     /// nothing but the language it was given.
     func test_theMintSheetNamesTheEditionItIsAskingAbout() async throws {
         let window = mountMintSheet(language: "pt-br")
         let texts = try axTexts(in: window)
         XCTAssertTrue(
-            texts.contains { $0.contains(DepartmentMintCopy.title(language: "pt-br")) },
+            texts.contains { $0.contains(DepartmentCastCopy.nameForRunTitle(language: "pt-br")) },
             "the sheet never said which edition it wants a name for. Published: "
             + "\(texts.sorted())")
-        XCTAssertTrue(texts.contains { $0.contains(DepartmentMintCopy.explanation) },
+        XCTAssertTrue(texts.contains { $0.contains(DepartmentCastCopy.explanation) },
                       "…nor why. Published: \(texts.sorted())")
     }
 
@@ -1103,18 +1103,18 @@ final class DepartmentRunTests: XCTestCase {
     /// against, and the sheet must not let a click reach it.
     func test_theMintSheetsConfirmIsDisabledUntilANameIsTyped() async throws {
         let window = mountMintSheet(language: "xx")
-        let blank = try axButtons(labelled: DepartmentMintCopy.confirmTitle, in: window)
+        let blank = try axButtons(labelled: DepartmentCastCopy.nameAndRunTitle, in: window)
         XCTAssertEqual(blank.count, 1)
         XCTAssertEqual(axEnabled(blank[0]), false,
                        "an empty field must not offer a way to confirm nothing")
 
-        let field = try XCTUnwrap(textField(placeholder: DepartmentMintCopy.placeholder,
+        let field = try XCTUnwrap(textField(placeholder: DepartmentCastCopy.placeholder,
                                             in: window),
                                   "the sheet mounted no name field at all")
         type("Constance Garnett", into: field)
         pump(0.1)
 
-        let named = try axButtons(labelled: DepartmentMintCopy.confirmTitle, in: window)
+        let named = try axButtons(labelled: DepartmentCastCopy.nameAndRunTitle, in: window)
         XCTAssertEqual(axEnabled(named[0]), true,
                        "…and a typed name must make it pressable, or this test "
                        + "could pass over a button that never enables")
@@ -1129,18 +1129,18 @@ final class DepartmentRunTests: XCTestCase {
         let window = mountMintSheet(language: "xx",
                                     onName: { named.append($0) },
                                     onCancel: { cancelled += 1 })
-        let field = try XCTUnwrap(textField(placeholder: DepartmentMintCopy.placeholder,
+        let field = try XCTUnwrap(textField(placeholder: DepartmentCastCopy.placeholder,
                                             in: window))
         type("  Constance Garnett  ", into: field)
         pump(0.1)
-        press(try axButtons(labelled: DepartmentMintCopy.confirmTitle, in: window)[0])
+        press(try axButtons(labelled: DepartmentCastCopy.nameAndRunTitle, in: window)[0])
         _ = await pumpUntil(deadline: 3) { !named.isEmpty }
         XCTAssertEqual(named, ["Constance Garnett"],
                        "the sheet must trim what it sends \u{2014} `renameProductionRole` "
                        + "trims too, but a name padded with the writer's own spaces should "
                        + "never reach it in the first place")
 
-        press(try axButtons(labelled: DepartmentMintCopy.cancelTitle, in: window)[0])
+        press(try axButtons(labelled: DepartmentCastCopy.cancelTitle, in: window)[0])
         _ = await pumpUntil(deadline: 3) { cancelled > 0 }
         XCTAssertEqual(cancelled, 1)
         XCTAssertEqual(named, ["Constance Garnett"], "Cancel must not also send a name")
@@ -1166,7 +1166,7 @@ final class DepartmentRunTests: XCTestCase {
                                         + "mint sheet before anything runs")
         let texts = try axTexts(in: sheetWindow)
         XCTAssertTrue(
-            texts.contains { $0.contains(DepartmentMintCopy.title(language: "xx")) },
+            texts.contains { $0.contains(DepartmentCastCopy.nameForRunTitle(language: "xx")) },
             "Published: \(texts.sorted())")
 
         XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
@@ -1190,14 +1190,14 @@ final class DepartmentRunTests: XCTestCase {
         press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
         let sheet = await attachedSheetWindow(of: window)
         let sheetWindow = try XCTUnwrap(sheet)
-        press(try axButtons(labelled: DepartmentMintCopy.cancelTitle, in: sheetWindow)[0])
+        press(try axButtons(labelled: DepartmentCastCopy.cancelTitle, in: sheetWindow)[0])
 
         _ = await pumpUntil(deadline: 5) { window.attachedSheet == nil }
         XCTAssertNil(window.attachedSheet, "the sheet must actually close on Cancel")
 
         let texts = try axTexts(in: window)
         XCTAssertTrue(
-            texts.contains { $0.contains(DepartmentMintCopy.cancelledLine(language: "xx")) },
+            texts.contains { $0.contains(DepartmentCastCopy.cancelledLine(language: "xx")) },
             "the abandon must be said in words, in the desk's one notice slot. "
             + "Published: \(texts.sorted())")
 
@@ -1221,11 +1221,11 @@ final class DepartmentRunTests: XCTestCase {
         press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
         let sheet = await attachedSheetWindow(of: window)
         let sheetWindow = try XCTUnwrap(sheet)
-        let field = try XCTUnwrap(textField(placeholder: DepartmentMintCopy.placeholder,
+        let field = try XCTUnwrap(textField(placeholder: DepartmentCastCopy.placeholder,
                                             in: sheetWindow))
         type("Constance Garnett", into: field)
         pump(0.1)
-        press(try axButtons(labelled: DepartmentMintCopy.confirmTitle, in: sheetWindow)[0])
+        press(try axButtons(labelled: DepartmentCastCopy.nameAndRunTitle, in: sheetWindow)[0])
 
         _ = await pumpUntil(deadline: 10) {
             !fixture.projectStore.manifest.productionRoles.isEmpty
@@ -1339,6 +1339,244 @@ final class DepartmentRunTests: XCTestCase {
         await fixture.documentStore.close()
     }
 
+    // MARK: - cast-management: the Add Language sheet (no host)
+
+    /// **A tag no edition can be written for is refused in the sheet, in
+    /// words** — not at a dead button, and not much later inside
+    /// `TranslationWritePipeline`, where the writer is no longer looking.
+    func test_theAddLanguageSheetRefusesAnUnusableTagInWords() async throws {
+        let window = mountCastSheet(ask: .addLanguage)
+        let tagField = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.tagPlaceholder, in: window),
+            "the Add Language sheet mounted no tag field at all")
+        type("PT BR", into: tagField)
+        pump(0.1)
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains { $0.contains(DepartmentCastCopy.unusableTag("PT BR")) },
+            "the sheet took an unusable tag without saying so. Published: "
+            + "\(texts.sorted())")
+        let confirm = try axButtons(labelled: DepartmentCastCopy.addConfirmTitle,
+                                    in: window)
+        XCTAssertEqual(axEnabled(confirm[0]), false,
+                       "…and it must not offer a way to add it anyway")
+    }
+
+    /// **The tag is lowered BEFORE it is judged**, so a writer who types the way
+    /// a language is written down gets an edition rather than a rejection —
+    /// `isValidLanguageTag` is lowercase-only, and "PT-BR" is not a mistake.
+    func test_aTypedTagIsLoweredBeforeItIsJudgedAndBeforeItIsSent() async throws {
+        var answered: [DepartmentCastAnswer] = []
+        let window = mountCastSheet(ask: .addLanguage,
+                                    onConfirm: { answered.append($0) })
+        let tagField = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.tagPlaceholder, in: window))
+        type("PT-BR", into: tagField)
+        pump(0.1)
+        let nameField = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
+        type("  Ana  ", into: nameField)
+        pump(0.1)
+
+        let texts = try axTexts(in: window)
+        XCTAssertFalse(
+            texts.contains { $0.contains(DepartmentCastCopy.unusableTag("PT-BR")) },
+            "a tag the writer capitalised is a language, not a syntax error")
+
+        press(try axButtons(labelled: DepartmentCastCopy.addConfirmTitle, in: window)[0])
+        _ = await pumpUntil(deadline: 3) { !answered.isEmpty }
+        XCTAssertEqual(answered, [DepartmentCastAnswer(language: "pt-br", name: "Ana")],
+                       "the sheet sends the tag lowered and the name trimmed — "
+                       + "everything downstream reads a tag one way only")
+    }
+
+    /// **A preset language arrives with its translator already in the field**,
+    /// and the sheet says whose name that is: an offer the writer recognises
+    /// rather than a name they have to wonder about.
+    func test_aPresetLanguageArrivesWithItsTranslatorAlreadyNamed() async throws {
+        let window = mountCastSheet(ask: .addLanguage)
+        let tagField = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.tagPlaceholder, in: window))
+        type("es", into: tagField)
+        pump(0.1)
+
+        let nameField = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
+        XCTAssertEqual(nameField.stringValue, "Cortázar")
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains {
+                $0.contains(DepartmentCastCopy.addExplanation(preset: "Cortázar"))
+            },
+            "the sheet never said where that name came from. Published: "
+            + "\(texts.sorted())")
+        let confirm = try axButtons(labelled: DepartmentCastCopy.addConfirmTitle,
+                                    in: window)
+        XCTAssertEqual(axEnabled(confirm[0]), true,
+                       "a preset language is answerable the moment it is typed")
+    }
+
+    /// **A name the writer typed outranks any preset.** The auto-fill follows
+    /// the tag only while the field still holds what the sheet put there; a
+    /// writer who names their own translator and then corrects the tag must not
+    /// find Cortázar in place of them.
+    func test_theWritersOwnNameSurvivesAChangeOfTag() async throws {
+        let window = mountCastSheet(ask: .addLanguage)
+        let nameField = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
+        type("Ana", into: nameField)
+        pump(0.1)
+        let tagField = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.tagPlaceholder, in: window))
+        type("es", into: tagField)
+        pump(0.1)
+
+        XCTAssertEqual(nameField.stringValue, "Ana",
+                       "the writer had already answered the question the preset "
+                       + "answers")
+    }
+
+    /// A blank name is refused in words as well as by the disabled button — the
+    /// refusal `renameProductionRole` would throw, said where the writer can act
+    /// on it.
+    func test_theSheetSaysWhyABlankNameIsNotEnough() async throws {
+        let window = mountCastSheet(ask: .addLanguage)
+        let nameField = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
+        type("Ana", into: nameField)
+        pump(0.1)
+        type("   ", into: nameField)
+        pump(0.1)
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0.contains(DepartmentCastCopy.nameRequired) },
+                      "a cleared name field said nothing about why Confirm went "
+                      + "dead. Published: \(texts.sorted())")
+    }
+
+    // MARK: - cast-management: Add Language on the real desk
+
+    /// **The whole act, on the production host: press the button, name a
+    /// language, and the edition is on the desk.** Nothing else starts one —
+    /// before this, a language existed only once somebody had written a file or
+    /// asked a question about it.
+    func test_addingALanguageStartsTheEditionAndDrawsItsRow() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        press(try axButtons(labelled: DepartmentDesk.addLanguageTitle, in: window)[0])
+        let sheet = await attachedSheetWindow(of: window)
+        let sheetWindow = try XCTUnwrap(sheet, "Add Language opened no sheet")
+        type("pt-br", into: try XCTUnwrap(textField(
+            placeholder: DepartmentCastCopy.tagPlaceholder, in: sheetWindow)))
+        pump(0.1)
+        type("Ana", into: try XCTUnwrap(textField(
+            placeholder: DepartmentCastCopy.placeholder, in: sheetWindow)))
+        pump(0.1)
+        press(try axButtons(labelled: DepartmentCastCopy.addConfirmTitle,
+                            in: sheetWindow)[0])
+
+        _ = await pumpUntil(deadline: 10) {
+            fixture.projectStore.manifest.storedTranslator(for: "pt-br") != nil
+        }
+        let role = try XCTUnwrap(
+            fixture.projectStore.manifest.storedTranslator(for: "pt-br"),
+            "Add Language must mint the edition's translator")
+        XCTAssertEqual(role.effectiveName, "Ana",
+                       "…named, in the same act — never a nameless role left "
+                       + "standing for the writer to find later")
+
+        let label = TranslationReviewIndicator.displayLabel(forLanguageTag: "pt-br")
+        let drew = await pumpUntil(deadline: 10) {
+            let texts = (try? self.axTexts(in: window)) ?? []
+            return texts.contains { $0.contains(label) }
+        }
+        XCTAssertTrue(drew,
+                      "the edition was started and the desk never drew it. "
+                      + "Published: \((try? axTexts(in: window))?.sorted() ?? [])")
+        XCTAssertNil(window.attachedSheet, "the sheet must close once it is answered")
+
+        await fixture.documentStore.close()
+    }
+
+    /// **Cancel aborts visibly and mints nothing** (Global Constraint 2 — the
+    /// one notice channel).
+    func test_cancellingAddLanguageSaysSoAndMintsNothing() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        press(try axButtons(labelled: DepartmentDesk.addLanguageTitle, in: window)[0])
+        let sheet = await attachedSheetWindow(of: window)
+        let sheetWindow = try XCTUnwrap(sheet)
+        press(try axButtons(labelled: DepartmentCastCopy.cancelTitle,
+                            in: sheetWindow)[0])
+
+        _ = await pumpUntil(deadline: 5) { window.attachedSheet == nil }
+        XCTAssertNil(window.attachedSheet, "the sheet must actually close on Cancel")
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0.contains(DepartmentCastCopy.addCancelledLine) },
+                      "the abandon must be said in words, in the desk's one notice "
+                      + "slot. Published: \(texts.sorted())")
+        XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
+                      "Cancel must mint nothing")
+
+        await fixture.documentStore.close()
+    }
+
+    /// **An edition the book already has is named and left alone.** The hazard
+    /// is not a duplicate — `translatorRole(for:)` is idempotent — it is the
+    /// rename the writer did not know they were performing: Confirm carries a
+    /// name, and Spanish already has one.
+    func test_addingALanguageTheBookAlreadyHasChangesNobodysName() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        press(try axButtons(labelled: DepartmentDesk.addLanguageTitle, in: window)[0])
+        let sheet = await attachedSheetWindow(of: window)
+        let sheetWindow = try XCTUnwrap(sheet)
+        type("es", into: try XCTUnwrap(textField(
+            placeholder: DepartmentCastCopy.tagPlaceholder, in: sheetWindow)))
+        pump(0.1)
+        type("Somebody Else", into: try XCTUnwrap(textField(
+            placeholder: DepartmentCastCopy.placeholder, in: sheetWindow)))
+        pump(0.1)
+        press(try axButtons(labelled: DepartmentCastCopy.addConfirmTitle,
+                            in: sheetWindow)[0])
+
+        _ = await pumpUntil(deadline: 5) { window.attachedSheet == nil }
+        let said = await pumpUntil(deadline: 5) {
+            let texts = (try? self.axTexts(in: window)) ?? []
+            return texts.contains {
+                $0.contains(DepartmentCastCopy.alreadyOnTheDesk(language: "es"))
+            }
+        }
+        XCTAssertTrue(said,
+                      "the desk must say the edition is already here. Published: "
+                      + "\((try? axTexts(in: window))?.sorted() ?? [])")
+        XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
+                      "…and must not have renamed Cortázar on the way past")
+
+        await fixture.documentStore.close()
+    }
+
+    /// The button is on the empty desk too — which is where a writer with no
+    /// editions yet comes to start their first, and the one arm a reading of
+    /// "it goes under the rows" would leave without it.
+    func test_theAddLanguageDoorIsDrawnWithNoEditionsAtAll() async throws {
+        let window = mount(languages: [], target: .ready(docId: "doc-1",
+                                                         title: "Chapter 1"))
+        _ = try await scrollersSettling(in: window)
+
+        let labels = try axButtonLabels(in: window)
+        XCTAssertEqual(labels.filter { $0 == DepartmentDesk.addLanguageTitle }.count, 1,
+                       "one door, drawn once. Buttons published: \(labels.sorted())")
+    }
+
     // MARK: - Helpers: the decisions
 
     private func designRow(designerName: String = "Tschichold",
@@ -1424,14 +1662,24 @@ final class DepartmentRunTests: XCTestCase {
         return window
     }
 
-    /// The mint sheet, mounted alone — `DepartmentPaneTests`' own dumb-view
-    /// mounting, for the sheet's own file.
+    /// The cast sheet, mounted alone on the run-mint's own ask —
+    /// `DepartmentPaneTests`' dumb-view mounting, for the sheet's own file.
     private func mountMintSheet(language: String,
                                 onName: @escaping (String) -> Void = { _ in },
                                 onCancel: @escaping () -> Void = { }) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 380, height: 220)
+        mountCastSheet(ask: .nameForRun(language: language, docId: "doc-1"),
+                       onConfirm: { onName($0.name) }, onCancel: onCancel)
+    }
+
+    /// The cast sheet on any ask — the shape the Add Language cases drive.
+    private func mountCastSheet(
+        ask: DepartmentCastPrompt.Ask,
+        onConfirm: @escaping (DepartmentCastAnswer) -> Void = { _ in },
+        onCancel: @escaping () -> Void = { }) -> NSWindow {
+        let frame = CGRect(x: 0, y: 0, width: 380, height: 260)
         let hosting = NSHostingView(rootView: AnyView(
-            DepartmentMintSheet(language: language, onName: onName, onCancel: onCancel)))
+            DepartmentCastSheet(prompt: DepartmentCastPrompt(ask: ask),
+                                onConfirm: onConfirm, onCancel: onCancel)))
         hosting.frame = frame
         let window = NSWindow(contentRect: frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
