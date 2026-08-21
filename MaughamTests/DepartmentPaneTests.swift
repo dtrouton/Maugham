@@ -189,6 +189,124 @@ final class DepartmentPaneTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    // MARK: - A named translator anchors an edition (cast-management)
+
+    /// **A stored translator is enough to put an edition on the desk** — the
+    /// union's third source, and the whole of what makes *Add Language* land
+    /// somewhere. No translation file, no query: just somebody named.
+    ///
+    /// The disable experiment: drop `roles` from `EditionStatus.editionLanguages`
+    /// and this row vanishes while the manifest goes on carrying the person the
+    /// writer named.
+    func test_aNamedTranslatorAloneGivesTheEditionARowOnTheDesk() async throws {
+        let h = try await makeProject()
+        let minted = try await h.projectStore.translatorRole(for: "pt-br")
+        try await h.projectStore.renameProductionRole(id: minted.id, to: "Ana")
+
+        let rows = try await EditionStatus.languageRows(
+            in: h.projectStore, projectURL: h.projectURL)
+
+        let row = try XCTUnwrap(rows.first { $0.language == "pt-br" },
+                                "naming a translator started an edition the desk "
+                                + "cannot see. Rows: \(rows.map(\.language))")
+        XCTAssertEqual(row.translator, "Ana")
+        XCTAssertEqual(
+            DepartmentDesk.coverageLine(fresh: row.fresh, stale: row.stale,
+                                        missing: row.missing),
+            DepartmentDesk.notStarted,
+            "nothing is translated yet, which is 'Not started' — the query-first "
+            + "arm's own answer, not 'every paragraph missing'")
+        XCTAssertEqual(row.openQueries, 0)
+
+        await h.documentStore.close()
+    }
+
+    /// **One edition spelled two ways is still one row.** `storedTranslator(for:)`
+    /// reads `ES` and `es` as one person's language, so a manifest that spells a
+    /// tag one way and a translation file that spells it the other must not draw
+    /// the writer two rows for the same Spanish edition.
+    func test_anEditionSpelledTwoWaysIsStillOneRow() async throws {
+        let h = try await makeProject()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "uno")
+        _ = try await h.projectStore.translatorRole(for: "ES")
+
+        let rows = try await EditionStatus.languageRows(
+            in: h.projectStore, projectURL: h.projectURL)
+
+        XCTAssertEqual(rows.map(\.language), ["es"],
+                       "one Spanish edition, however its tag is capitalised, and "
+                       + "spelled the way the write pipeline spells one")
+        XCTAssertEqual(rows[0].fresh, 1, "…and it keeps the file's own coverage")
+
+        await h.documentStore.close()
+    }
+
+    /// **A book with no chapters yet still shows the edition it named.** The
+    /// per-document walk has nothing to walk in an empty manuscript, so without
+    /// the manifest arm of the fold, Add Language on a fresh project would write
+    /// a translator to disk and change nothing on screen.
+    ///
+    /// Driven through the pure fold rather than a fixture, because "no documents
+    /// at all" is precisely the state a project on disk here would not be in.
+    func test_aBookWithNoChaptersStillShowsTheEditionItNamed() {
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [], research: [],
+            productionRoles: [ProductionRole(
+                id: "role-1", role: .translator(language: "pt-br"), name: "Ana")])
+
+        let rows = EditionStatus.languageRows(from: [], in: manifest)
+
+        XCTAssertEqual(rows.map(\.language), ["pt-br"])
+        XCTAssertEqual(rows.first?.translator, "Ana")
+    }
+
+    /// The union itself, as a truth table: files and queries as before, a role
+    /// joining only when nothing already present matches it case-insensitively.
+    func test_theUnionTakesFilesQueriesAndRolesAndFoldsTheirCase() {
+        XCTAssertEqual(
+            EditionStatus.editionLanguages(files: ["es"], queries: ["fr"],
+                                           roles: ["pt-br"]),
+            ["es", "fr", "pt-br"])
+        XCTAssertEqual(
+            EditionStatus.editionLanguages(files: ["es"], queries: [], roles: ["ES"]),
+            ["es"], "one edition, one row")
+        XCTAssertEqual(
+            EditionStatus.editionLanguages(files: [], queries: [], roles: []),
+            [], "a document with nothing to say about any edition says nothing")
+    }
+
+    /// A designer is not an edition, and neither is a role written by a newer
+    /// build — only `.translator` rows anchor a language.
+    func test_onlyATranslatorRoleAnchorsAnEdition() {
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [], research: [],
+            productionRoles: [
+                ProductionRole(id: "designer", role: .designer, name: "Tschichold"),
+                ProductionRole(id: "role-x", role: .unknown("proofreader"), name: "P"),
+                ProductionRole(id: "role-1", role: .translator(language: "de")),
+            ])
+
+        XCTAssertEqual(
+            EditionStatus.storedTranslatorLanguages(in: manifest), ["de"])
+    }
+
+    /// A tag stored in whatever case the writer typed reaches the union in the
+    /// one case every other reader of a language tag uses — the write pipeline's
+    /// own `isValidLanguageTag` accepts nothing else.
+    func test_aStoredTagReachesTheUnionLowercased() {
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [], research: [],
+            productionRoles: [ProductionRole(
+                id: "role-1", role: .translator(language: "PT-BR"))])
+
+        XCTAssertEqual(
+            EditionStatus.storedTranslatorLanguages(in: manifest), ["pt-br"])
+    }
+
     /// An unlisted, unminted language has nobody to name, and the row says so
     /// in words rather than leaving the line blank.
     func test_anUnlistedLanguageHasNobodyToName() async throws {

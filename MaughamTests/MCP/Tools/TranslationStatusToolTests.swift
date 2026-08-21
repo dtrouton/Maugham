@@ -400,6 +400,62 @@ final class TranslationStatusToolTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    // MARK: - cast-management: a stored translator anchors an edition
+
+    /// **A language the writer has only NAMED somebody for still gets rows
+    /// here** — the desk's *Add Language* writes a translator role and nothing
+    /// else, and a tool that could not see the edition the desk had just
+    /// started would be exactly the disagreement `EditionStatus` exists to
+    /// prevent.
+    ///
+    /// One row per manuscript document, because the role is a fact about the
+    /// BOOK: every chapter is untranslated into it, and each says so with the
+    /// coverage a language with no file has — absent, not "all missing".
+    func test_aStoredTranslatorAloneGetsItsLanguageARowInEveryDocument() async throws {
+        let h = try await makeHarness()
+        let minted = try await h.projectStore.translatorRole(for: "pt-br")
+        try await h.projectStore.renameProductionRole(id: minted.id, to: "Ana")
+
+        let result = try await status(h, ["project_id": h.projectId])
+
+        let rows = result.rows.filter { $0.language == "pt-br" }
+        XCTAssertEqual(Set(rows.map(\.document_id)), ["doc-1", "doc-2"],
+                       "every chapter is untranslated into the new edition. "
+                       + "Rows: \(result.rows.map { "\($0.document_id)/\($0.language)" })")
+        for row in rows {
+            XCTAssertEqual(row.translator, "Ana")
+            XCTAssertEqual(row.fresh, 0)
+            XCTAssertEqual(row.stale, 0)
+            XCTAssertEqual(row.missing, 0,
+                           "no file yet — coverage is absent, not 'every "
+                           + "paragraph missing'")
+            XCTAssertEqual(row.open_queries, 0)
+        }
+
+        await h.documentStore.close()
+    }
+
+    /// The same on the explicit-`document_id` path, which is the other half of
+    /// `test_bothPathsSeeIt`'s concern one union-source later.
+    func test_aStoredTranslatorIsVisibleThroughAnExplicitDocumentIdToo() async throws {
+        let h = try await makeHarness()
+        _ = try await h.projectStore.translatorRole(for: "pt-br")
+
+        let result = try await status(h, [
+            "project_id": h.projectId,
+            "document_id": "doc-1"
+        ])
+
+        let row = try XCTUnwrap(result.rows.first { $0.language == "pt-br" })
+        XCTAssertEqual(row.document_id, "doc-1")
+        XCTAssertEqual(row.translator, "PT-BR",
+                       "an unnamed stored role reports `effectiveName`'s last "
+                       + "resort rather than omitting the field — somebody is "
+                       + "on the book, they just have no name yet")
+
+        await h.documentStore.close()
+    }
+
     /// An unlisted, unminted language (no preset, nothing stored) has no
     /// honest name to report — the field is omitted rather than guessed.
     func test_translatorField_unlistedUnmintedLanguage_omitsField() async throws {
