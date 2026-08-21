@@ -1027,7 +1027,7 @@ final class DepartmentRunTests: XCTestCase {
 
         press(try axButtons(labelled: DepartmentDesignRow.runAccessibilityLabel,
                             in: window)[0])
-        _ = await settleUntil(deadline: 10) { !staged.value.isEmpty }
+        _ = await pumpUntil(deadline: 10) { !staged.value.isEmpty }
 
         let proposal = try XCTUnwrap(
             staged.value.first,
@@ -1042,7 +1042,7 @@ final class DepartmentRunTests: XCTestCase {
 
         // The loop closing: the round ends, the host re-derives, and the row
         // draws the proposal it just made.
-        let drew = await settleUntil(deadline: 10) {
+        let drew = await pumpUntil(deadline: 10) {
             (try? self.axTexts(in: window))?
                 .contains { $0.contains("Round 1") } ?? false
         }
@@ -1227,7 +1227,7 @@ final class DepartmentRunTests: XCTestCase {
         pump(0.1)
         press(try axButtons(labelled: DepartmentMintCopy.confirmTitle, in: sheetWindow)[0])
 
-        _ = await settleUntil(deadline: 10) {
+        _ = await pumpUntil(deadline: 10) {
             !fixture.projectStore.manifest.productionRoles.isEmpty
         }
         let role = try XCTUnwrap(
@@ -1236,7 +1236,7 @@ final class DepartmentRunTests: XCTestCase {
         XCTAssertEqual(role.effectiveName, "Constance Garnett",
                        "…and rename it to what the writer typed, as one visible act")
 
-        _ = await settleUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
+        _ = await pumpUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
         XCTAssertFalse(fixture.runner.sends.isEmpty,
                        "the run the sheet was standing in front of must actually reach "
                        + "the translator's session once the writer has named them")
@@ -1257,7 +1257,7 @@ final class DepartmentRunTests: XCTestCase {
 
         press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
 
-        _ = await settleUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
+        _ = await pumpUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
         XCTAssertFalse(fixture.runner.sends.isEmpty,
                        "es must run immediately — nothing here should be waiting on a name")
         XCTAssertNil(window.attachedSheet, "…and the sheet must never have appeared")
@@ -1277,7 +1277,7 @@ final class DepartmentRunTests: XCTestCase {
 
         press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
 
-        _ = await settleUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
+        _ = await pumpUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
         XCTAssertFalse(fixture.runner.sends.isEmpty,
                        "a language whose role already exists must not be interrupted again")
         XCTAssertNil(window.attachedSheet)
@@ -1406,29 +1406,6 @@ final class DepartmentRunTests: XCTestCase {
 
     // MARK: - Helpers: the accessibility tree
 
-    /// Every button carrying `label`, in tree order — which for a `VStack` of rows
-    /// is the order a writer reads them down the column.
-    ///
-    /// **Pressed through the tree rather than clicked**, which is the difference
-    /// between this and Task 2's door test: a synthetic `mouseDown` needs the test
-    /// host to be the active app, and an overnight gate on a locked screen would go
-    /// red for a reason that has nothing to do with the desk (CLAUDE.md).
-    /// `accessibilityPerformPress` is the action the click ultimately performs and
-    /// is `ReviewRoundCockpitTests`' technique for the same reason.
-    private func axButtons(labelled label: String, in window: NSWindow) throws
-    -> [AnyObject] {
-        try requireAssistiveClient()
-        let root = try XCTUnwrap(window.contentView)
-        return axElements(under: root)
-            .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
-            .filter { (axAttribute($0, "accessibilityLabel") as? String) == label }
-    }
-
-    private func press(_ element: AnyObject) {
-        _ = (element as? NSObject)?.perform(
-            NSSelectorFromString("accessibilityPerformPress"))
-    }
-
     /// **Drive a SwiftUI `TextField`'s binding from outside the responder
     /// chain** — setting `stringValue` and posting the notification its
     /// delegate listens for, which is what a real keystroke does once it
@@ -1460,96 +1437,6 @@ final class DepartmentRunTests: XCTestCase {
             return sheet != nil
         }
         return sheet
-    }
-
-    private func axEnabled(_ element: AnyObject) -> Bool? {
-        axAttribute(element, "isAccessibilityEnabled") as? Bool
-    }
-
-    private func axTexts(in window: NSWindow) throws -> [String] {
-        try requireAssistiveClient()
-        let root = try XCTUnwrap(window.contentView)
-        return axElements(under: root).flatMap { element -> [String] in
-            [axAttribute(element, "accessibilityValue") as? String,
-             axAttribute(element, "accessibilityLabel") as? String]
-                .compactMap { $0 }
-                .filter { !$0.isEmpty }
-        }
-    }
-
-    /// A tree that was never built is not evidence about this view, so the suite
-    /// skips BY NAME where no assistive client can attach.
-    private func requireAssistiveClient() throws {
-        var role: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(
-            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
-        guard error == .success, role != nil else {
-            throw XCTSkip(
-                "no assistive client could be attached to this process "
-                + "(AXUIElementCopyAttributeValue -> \(error.rawValue)), so "
-                + "SwiftUI never builds the tree this test reads")
-        }
-    }
-
-    private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
-        guard let object = element as? NSObject,
-              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
-        return object.value(forKey: attribute)
-    }
-
-    private func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
-        guard depth < 40 else { return [] }
-        let children = axAttribute(root, "accessibilityChildren") as? [AnyObject] ?? []
-        return [root] + children.flatMap { axElements(under: $0, depth: depth + 1) }
-    }
-
-    private func collect<T: NSView>(_ type: T.Type, in window: NSWindow) -> [T] {
-        guard let root = window.contentView else { return [] }
-        var found: [T] = []
-        collect(type, in: root, into: &found)
-        return found
-    }
-
-    private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
-        if let hit = view as? T { out.append(hit) }
-        for sub in view.subviews { collect(type, in: sub, into: &out) }
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
-    }
-
-    private func pumpUntil(deadline: TimeInterval,
-                           _ condition: () -> Bool) async -> Bool {
-        let end = Date().addingTimeInterval(deadline)
-        while Date() < end {
-            if condition() { return true }
-            pump(0.05)
-        }
-        return condition()
-    }
-
-    /// **Wait by yielding as well as by pumping** — what a test driving a REAL
-    /// round needs and `pumpUntil` above cannot give it.
-    ///
-    /// `RunLoop.run(until:)` drives AppKit, which is what puts a press through a
-    /// mounted view; it does not hand the main actor's cooperative executor a
-    /// turn, so a round suspended in its briefing gather (an actor hop into
-    /// `PublishConfigStore`, among others) never resumes and the wait times out
-    /// with `runState` still idle and `isRunning` still true — measured, and the
-    /// exact shape the end-to-end test first failed in. `Task.sleep` yields, so
-    /// the round advances; the pump beside it is what lets the pane redraw and
-    /// republish its accessibility tree afterwards. `ReviewRoundCockpitTests`'
-    /// own end-to-end wait is the sleep half of this.
-    private func settleUntil(deadline: TimeInterval,
-                             _ condition: () -> Bool) async -> Bool {
-        let end = Date().addingTimeInterval(deadline)
-        while Date() < end {
-            if condition() { return true }
-            pump(0.02)
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-        return condition()
     }
 
     // MARK: - Helpers: a project on disk

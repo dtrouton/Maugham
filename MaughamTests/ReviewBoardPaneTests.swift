@@ -1061,50 +1061,6 @@ final class ReviewBoardPaneTests: XCTestCase {
         collect(NSScrollView.self, in: window)
     }
 
-    private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
-        guard let object = element as? NSObject,
-              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
-        return object.value(forKey: attribute)
-    }
-
-    private func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
-        guard depth < 40 else { return [] }
-        let children = axAttribute(root, "accessibilityChildren") as? [AnyObject] ?? []
-        return [root] + children.flatMap { axElements(under: $0, depth: depth + 1) }
-    }
-
-    private func axButtonLabels(in window: NSWindow) throws -> [String] {
-        var role: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(
-            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
-        guard error == .success, role != nil else {
-            throw XCTSkip(
-                "no assistive client could be attached to this process "
-                + "(AXUIElementCopyAttributeValue -> \(error.rawValue)), so "
-                + "SwiftUI never builds the tree this test reads")
-        }
-        let root = try XCTUnwrap(window.contentView)
-        return axElements(under: root)
-            .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
-            .compactMap { axAttribute($0, "accessibilityLabel") as? String }
-    }
-
-    private func collect<T: NSView>(_ type: T.Type, in window: NSWindow) -> [T] {
-        guard let root = window.contentView else { return [] }
-        var found: [T] = []
-        collect(type, in: root, into: &found)
-        return found
-    }
-
-    private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
-        if let hit = view as? T { out.append(hit) }
-        for sub in view.subviews { collect(type, in: sub, into: &out) }
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.15) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
-    }
-
     // MARK: - Census helpers
 
     private static var appSourceDir: URL {

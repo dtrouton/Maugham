@@ -1140,35 +1140,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
 
     // MARK: - Accessibility (mirrors DiagnosticsPaneTests' readers)
 
-    private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
-        guard let object = element as? NSObject,
-              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
-        return object.value(forKey: attribute)
-    }
-
-    /// Whether an AX element reports itself pressable.
-    ///
-    /// **Neither shortcut works here** (measured 2026-08-17, macOS 26.6):
-    /// SwiftUI's hosted `AccessibilityNode` does NOT respond to
-    /// `accessibilityEnabled` — only to the KVC getter `isAccessibilityEnabled`
-    /// — and the value it returns is an `__NSCFNumber`, which `as? Bool` fails
-    /// on because only `__NSCFBoolean` bridges. So the generic `axAttribute`
-    /// reader answers `nil` for both reasons at once, which reads exactly like
-    /// "the button is neither enabled nor disabled". `NSNumber.boolValue` is
-    /// what makes the answer a fact.
-    private func axEnabled(_ element: AnyObject) -> Bool? {
-        guard let object = element as? NSObject,
-              object.responds(to: NSSelectorFromString("isAccessibilityEnabled"))
-        else { return nil }
-        return (object.value(forKey: "accessibilityEnabled") as? NSNumber)?.boolValue
-    }
-
-    private func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
-        guard depth < 40 else { return [] }
-        let children = axAttribute(root, "accessibilityChildren") as? [AnyObject] ?? []
-        return [root] + children.flatMap { axElements(under: $0, depth: depth + 1) }
-    }
-
     private func axTree(in window: NSWindow) throws -> [AnyObject] {
         var role: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(
