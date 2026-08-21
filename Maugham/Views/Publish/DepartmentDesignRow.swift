@@ -343,6 +343,15 @@ struct DepartmentDesignRow: Equatable {
         "Put the newest round in the centre column \u{2014} its written design, "
         + "the templates it stages, and the sample pages it was compiled on."
 
+    /// **The Design row's rename verb, naming the designer it is about**
+    /// (cast-management) — `DepartmentDesk.renameTitle`'s sibling, for the same
+    /// reason: a desk full of "Rename…" is a desk of controls a VoiceOver user
+    /// cannot tell apart. There is no nobody-yet arm here, because every project
+    /// has Tschichold from the moment it exists.
+    static func renameTitle(designerName: String) -> String {
+        "Rename \(designerName)\u{2026}"
+    }
+
     /// **The Run button's own name in the accessibility tree**, distinct from
     /// the language rows' Run.
     ///

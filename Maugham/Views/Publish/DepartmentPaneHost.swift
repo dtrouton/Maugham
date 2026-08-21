@@ -176,6 +176,8 @@ struct DepartmentPaneHost: View {
             confirmCast: { confirmCast($0) },
             cancelCast: { cancelCast() },
             addLanguage: { askForALanguage() },
+            renameTranslator: { askToRename(language: $0) },
+            renameDesigner: { askToRenameTheDesigner() },
             // **The newest round, from the listing the row was resolved from**
             // — so the proposal the gate opens is the one `latestLine`
             // describes rather than a second lookup that could differ. The
@@ -305,6 +307,30 @@ struct DepartmentPaneHost: View {
         castPrompt = DepartmentCastPrompt(ask: .addLanguage)
     }
 
+    /// **Open the sheet on this edition's translator.**
+    ///
+    /// The current name is `EditionStatus.translatorName`'s — a pure read, the
+    /// same one the row prints — so opening the sheet mints nothing, exactly as
+    /// looking at the row does not. Its `nil` (an unlisted language nobody has
+    /// named) travels as an empty string, which the prompt reads as a naming
+    /// rather than a renaming.
+    private func askToRename(language: String) {
+        notice = nil
+        castPrompt = DepartmentCastPrompt(ask: .rename(
+            subject: .translator(language: language),
+            currentName: EditionStatus.translatorName(
+                for: language, in: store.manifest) ?? ""))
+    }
+
+    /// **Open the sheet on the book's designer.** `designerRole()` is a read
+    /// that answers the preset when nothing is stored, so the field starts with
+    /// Tschichold on a project that has never customized anybody.
+    private func askToRenameTheDesigner() {
+        notice = nil
+        castPrompt = DepartmentCastPrompt(ask: .rename(
+            subject: .designer, currentName: store.designerRole().effectiveName))
+    }
+
     /// **The sheet's Confirm**, routed by what it was asking.
     ///
     /// Both arms end in the same one visible act — see `nameTranslator` — and
@@ -323,6 +349,10 @@ struct DepartmentPaneHost: View {
             }
         case .addLanguage:
             addLanguage(tag: answer.language ?? "", name: answer.name)
+        case .rename(.translator(let language), _):
+            Task { await nameTranslator(language: language, name: answer.name) }
+        case .rename(.designer, _):
+            renameTheDesigner(to: answer.name)
         }
     }
 
@@ -337,6 +367,8 @@ struct DepartmentPaneHost: View {
             notice = DepartmentCastCopy.cancelledLine(language: language)
         case .addLanguage:
             notice = DepartmentCastCopy.addCancelledLine
+        case .rename(_, let currentName):
+            notice = DepartmentCastCopy.renameCancelledLine(currentName: currentName)
         }
     }
 
@@ -383,6 +415,28 @@ struct DepartmentPaneHost: View {
     /// Answers whether it landed, so a caller with something to do afterwards —
     /// the run the sheet was standing in front of — does it only if the person
     /// it would be signed by actually exists.
+    /// **Say who designs this book.**
+    ///
+    /// The id is `designerRole()`'s, which answers the PRESET's id when nothing
+    /// is stored — and that is the whole of how the designer every project has
+    /// reaches disk for the first time: `renameProductionRole` materializes the
+    /// preset rather than throwing "no such role" (P1's own semantics, and the
+    /// one place the preset is written). Reading the id here rather than
+    /// spelling `ProductionRole.designerPresetID` keeps a project that has
+    /// ALREADY stored a designer renaming that one instead of minting a second.
+    private func renameTheDesigner(to name: String) {
+        let id = store.designerRole().id
+        Task {
+            do {
+                try await store.renameProductionRole(id: id, to: name)
+            } catch {
+                _departmentLog.error(
+                    "could not rename the designer: \(error, privacy: .public)")
+                notice = DepartmentCastCopy.designerRenameFailed
+            }
+        }
+    }
+
     @discardableResult
     private func nameTranslator(language: String, name: String) async -> Bool {
         do {

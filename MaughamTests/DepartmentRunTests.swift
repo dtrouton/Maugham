@@ -1577,6 +1577,232 @@ final class DepartmentRunTests: XCTestCase {
                        "one door, drawn once. Buttons published: \(labels.sorted())")
     }
 
+    // MARK: - cast-management: renaming the cast (no host)
+
+    /// **A rename starts from the name it is about** — the writer is usually
+    /// correcting a spelling, not typing a stranger from scratch — and the sheet
+    /// says whose name it is asking about, because a desk with four editions
+    /// offers four of these.
+    func test_theRenameSheetStartsFromTheNameItIsAbout() async throws {
+        let window = mountCastSheet(
+            ask: .rename(subject: .translator(language: "es"),
+                         currentName: "Cortázar"))
+
+        let nameField = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
+        XCTAssertEqual(nameField.stringValue, "Cortázar")
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains {
+                $0.contains(DepartmentCastCopy.renameTitle(currentName: "Cortázar"))
+            },
+            "the sheet never said who it was about. Published: \(texts.sorted())")
+        XCTAssertTrue(
+            texts.contains {
+                $0.contains(DepartmentCastCopy.renameExplanation(
+                    subject: .translator(language: "es")))
+            },
+            "…nor that a rename orphans nothing, which is the fear that stops a "
+            + "writer renaming anybody. Published: \(texts.sorted())")
+    }
+
+    /// **A row with nobody on it yet asks for a NAME**, which is the honest verb
+    /// for an unlisted language nothing has minted a role for — "Rename " with
+    /// an empty name after it would be a sheet about nobody.
+    func test_aRowWithNobodyOnItAsksForANameRatherThanARename() async throws {
+        let prompt = DepartmentCastPrompt(
+            ask: .rename(subject: .translator(language: "xx"), currentName: ""))
+        XCTAssertEqual(prompt.title,
+                       DepartmentCastCopy.nameForRunTitle(language: "xx"))
+        XCTAssertEqual(prompt.confirmTitle, DepartmentCastCopy.nameConfirmTitle)
+
+        let window = mountCastSheet(ask: prompt.ask)
+        let confirm = try axButtons(labelled: DepartmentCastCopy.nameConfirmTitle,
+                                    in: window)
+        XCTAssertEqual(confirm.count, 1)
+        XCTAssertEqual(axEnabled(confirm[0]), false,
+                       "there is nothing to confirm until somebody is named")
+    }
+
+    /// **Emptying the field is refused in words**, not only by a button going
+    /// dead — `renameProductionRole` throws `.productionRoleNameEmpty` for the
+    /// same reason, and a writer who cleared a field to retype it deserves the
+    /// sentence rather than a puzzle.
+    func test_anEmptyRenameIsRefusedInWords() async throws {
+        let window = mountCastSheet(
+            ask: .rename(subject: .designer, currentName: "Tschichold"))
+        let nameField = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
+        type("   ", into: nameField)
+        pump(0.1)
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0.contains(DepartmentCastCopy.nameRequired) },
+                      "Published: \(texts.sorted())")
+        let confirm = try axButtons(labelled: DepartmentCastCopy.renameConfirmTitle,
+                                    in: window)
+        XCTAssertEqual(axEnabled(confirm[0]), false)
+    }
+
+    /// **Every person on the desk can be renamed from the row they are on** —
+    /// one door per language row plus the Design row's, read off the tree the
+    /// way a keyboard and VoiceOver read it. A `.contextMenu` alone would have
+    /// published nothing here, which is why the row carries a control as well.
+    func test_everyRowOffersARenameTheTreeCanReach() async throws {
+        let window = mountRows([
+            EditionStatus.LanguageRow(language: "es", translator: "Cortázar",
+                                      fresh: 0, stale: 0, missing: 0, openQueries: 0),
+            EditionStatus.LanguageRow(language: "xx", translator: nil,
+                                      fresh: 0, stale: 0, missing: 0, openQueries: 0),
+        ])
+        _ = try await scrollersSettling(in: window)
+
+        let labels = try axButtonLabels(in: window)
+        for expected in [DepartmentDesk.renameTitle(translator: "Cortázar"),
+                         DepartmentDesk.renameTitle(translator: nil),
+                         DepartmentDesignRow.renameTitle(designerName: "Tschichold")] {
+            XCTAssertEqual(labels.filter { $0 == expected }.count, 1,
+                           "no reachable control reads \u{201C}\(expected)\u{201D}. "
+                           + "Buttons published: \(labels.sorted())")
+        }
+    }
+
+    /// …and pressing one carries the ROW's own language, so two editions cannot
+    /// rename one translator (`test_theDoorReportsTheLanguageItBelongsTo`'s
+    /// concern, one verb over).
+    func test_pressingARowsRenameNamesThatRowsEdition() async throws {
+        var asked: [String] = []
+        let window = mountRows([
+            EditionStatus.LanguageRow(language: "es", translator: "Cortázar",
+                                      fresh: 0, stale: 0, missing: 0, openQueries: 0),
+            EditionStatus.LanguageRow(language: "fr", translator: "Baudelaire",
+                                      fresh: 0, stale: 0, missing: 0, openQueries: 0),
+        ], renameTranslator: { asked.append($0) })
+        _ = try await scrollersSettling(in: window)
+
+        press(try axButtons(
+            labelled: DepartmentDesk.renameTitle(translator: "Baudelaire"),
+            in: window)[0])
+        _ = await pumpUntil(deadline: 3) { !asked.isEmpty }
+
+        XCTAssertEqual(asked, ["fr"])
+    }
+
+    // MARK: - cast-management: renaming on the real desk
+
+    /// **The whole act on the production host: rename this edition's
+    /// translator.** The preset name is what the row printed and what the sheet
+    /// starts from; what the writer types is what signs the edition from now on.
+    func test_renamingATranslatorNamesThemOnTheDeskAndInTheManifest() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        press(try axButtons(labelled: DepartmentDesk.renameTitle(translator: "Cortázar"),
+                            in: window)[0])
+        let sheet = await attachedSheetWindow(of: window)
+        let sheetWindow = try XCTUnwrap(sheet, "the row's rename opened no sheet")
+        type("Alejandra", into: try XCTUnwrap(textField(
+            placeholder: DepartmentCastCopy.placeholder, in: sheetWindow)))
+        pump(0.1)
+        press(try axButtons(labelled: DepartmentCastCopy.renameConfirmTitle,
+                            in: sheetWindow)[0])
+
+        _ = await pumpUntil(deadline: 10) {
+            fixture.projectStore.manifest.storedTranslator(for: "es") != nil
+        }
+        let role = try XCTUnwrap(
+            fixture.projectStore.manifest.storedTranslator(for: "es"),
+            "renaming a preset translator must mint the role that carries the name")
+        XCTAssertEqual(role.effectiveName, "Alejandra")
+
+        let drew = await pumpUntil(deadline: 10) {
+            let texts = (try? self.axTexts(in: window)) ?? []
+            return texts.contains { $0.contains("Alejandra") }
+        }
+        XCTAssertTrue(drew,
+                      "the desk went on printing the old name. Published: "
+                      + "\((try? axTexts(in: window))?.sorted() ?? [])")
+
+        await fixture.documentStore.close()
+    }
+
+    /// **Renaming the preset designer MATERIALIZES them** — the one place the
+    /// preset reaches disk (P1's own semantics, pinned here from the surface
+    /// that finally exercises it). What is stored is the id, the role and the
+    /// name; **`brief` stays nil**, so a later revision of the preset doctrine
+    /// still reaches a project whose designer has been renamed.
+    func test_renamingThePresetDesignerMaterializesThemAndKeepsTheirDoctrine()
+    async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+        XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
+                      "the preset designer is not on disk until something "
+                      + "customizes them")
+
+        press(try axButtons(
+            labelled: DepartmentDesignRow.renameTitle(designerName: "Tschichold"),
+            in: window)[0])
+        let sheet = await attachedSheetWindow(of: window)
+        let sheetWindow = try XCTUnwrap(sheet, "the Design row's rename opened no sheet")
+        type("Jan", into: try XCTUnwrap(textField(
+            placeholder: DepartmentCastCopy.placeholder, in: sheetWindow)))
+        pump(0.1)
+        press(try axButtons(labelled: DepartmentCastCopy.renameConfirmTitle,
+                            in: sheetWindow)[0])
+
+        _ = await pumpUntil(deadline: 10) {
+            !fixture.projectStore.manifest.productionRoles.isEmpty
+        }
+        let stored = try XCTUnwrap(
+            fixture.projectStore.manifest.productionRoles.first {
+                if case .designer = $0.role { return true }
+                return false
+            },
+            "the writer's first act on the designer must materialize them rather "
+            + "than throwing 'no such role'")
+        XCTAssertEqual(stored.id, ProductionRole.designerPresetID,
+                       "…under the preset's own id, or every proposal already "
+                       + "signed by Tschichold is orphaned")
+        XCTAssertEqual(stored.effectiveName, "Jan")
+        XCTAssertNil(stored.brief,
+                     "freezing a copy of the doctrine into the manifest is the "
+                     + "migration this seam is at pains not to perform")
+        XCTAssertEqual(stored.effectiveBrief, ProductionRole.presetDesigner.brief,
+                       "…and the doctrine still resolves, through `effectiveBrief`")
+
+        await fixture.documentStore.close()
+    }
+
+    /// Cancel backs out visibly, in the desk's one notice slot, and changes
+    /// nobody's name.
+    func test_cancellingARenameSaysSoAndChangesNothing() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        press(try axButtons(labelled: DepartmentDesk.renameTitle(translator: "Cortázar"),
+                            in: window)[0])
+        let sheet = await attachedSheetWindow(of: window)
+        let sheetWindow = try XCTUnwrap(sheet)
+        press(try axButtons(labelled: DepartmentCastCopy.cancelTitle,
+                            in: sheetWindow)[0])
+
+        _ = await pumpUntil(deadline: 5) { window.attachedSheet == nil }
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains {
+                $0.contains(DepartmentCastCopy.renameCancelledLine(
+                    currentName: "Cortázar"))
+            },
+            "the abandon must be said in words. Published: \(texts.sorted())")
+        XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
+                      "Cancel must write nobody to disk")
+
+        await fixture.documentStore.close()
+    }
+
     // MARK: - Helpers: the decisions
 
     private func designRow(designerName: String = "Tschichold",
@@ -1650,6 +1876,32 @@ final class DepartmentRunTests: XCTestCase {
                            runDesign: runDesign,
                            requestDesignChanges: requestDesignChanges,
                            cancelDesignRun: cancelDesignRun)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)))
+        hosting.frame = frame
+        let window = NSWindow(contentRect: frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.orderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        windows.append(window)
+        pump(0.1)
+        return window
+    }
+
+    /// The pane over rows that carry a translator — `mount(languages:target:)`
+    /// builds nameless ones, and the rename verbs are about who is named.
+    private func mountRows(
+        _ rows: [EditionStatus.LanguageRow],
+        design: DepartmentDesignRow = DepartmentDesignRow(),
+        renameTranslator: @escaping (String) -> Void = { _ in },
+        renameDesigner: @escaping () -> Void = { }) -> NSWindow {
+        let frame = CGRect(x: 0, y: 0, width: 340, height: 600)
+        let hosting = NSHostingView(rootView: AnyView(
+            DepartmentPane(title: "The Project",
+                           languages: rows,
+                           design: design,
+                           renameTranslator: renameTranslator,
+                           renameDesigner: renameDesigner)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)))
         hosting.frame = frame
         let window = NSWindow(contentRect: frame, styleMask: [.titled],

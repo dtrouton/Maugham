@@ -126,6 +126,13 @@ struct DepartmentPane: View {
     /// the sheet is the host's: the desk's rows are the host's derivation, and
     /// deciding a language is already among them is a question about them.
     var addLanguage: () -> Void = { }
+    /// **Say who translates this edition** (cast-management) — the language
+    /// row's own rename, by language. A closure for `addLanguage`'s reason:
+    /// resolving which role that is may have to mint one first.
+    var renameTranslator: (String) -> Void = { _ in }
+    /// **Say who designs this book.** No argument: there is one designer, and
+    /// the Design row is about them.
+    var renameDesigner: () -> Void = { }
     /// **Put the newest round in the centre column** (Task 5) — the desk's door
     /// to the gate, and the row's only control that is navigation rather than a
     /// verb.
@@ -291,6 +298,12 @@ struct DepartmentPane: View {
                         .accessibilityLabel(DepartmentDesignRow.showAccessibilityLabel)
                         .help(DepartmentDesignRow.showHelp)
                 }
+                renameButton(DepartmentDesignRow.renameTitle(
+                    designerName: design.designerName)) { renameDesigner() }
+            }
+            .contextMenu {
+                Button(DepartmentDesignRow.renameTitle(
+                    designerName: design.designerName)) { renameDesigner() }
             }
             Text(design.latestLine)
                 .font(.caption)
@@ -398,6 +411,9 @@ struct DepartmentPane: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 6)
+                renameButton(DepartmentDesk.renameTitle(translator: row.translator)) {
+                    renameTranslator(row.language)
+                }
                 Button(DepartmentDesk.editionBriefTitle) {
                     openEditionBrief(row.language)
                 }
@@ -434,6 +450,37 @@ struct DepartmentPane: View {
         }
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu {
+            Button(DepartmentDesk.renameTitle(translator: row.translator)) {
+                renameTranslator(row.language)
+            }
+        }
+    }
+
+    /// **The rename affordance, drawn twice on purpose** — once as this small
+    /// control on the row, once as a right-click item beside it.
+    ///
+    /// A context menu alone would be the whole verb: a writer without a mouse
+    /// could not reach it, VoiceOver would not announce it, and no test here
+    /// could press it — SwiftUI builds a `.contextMenu`'s items only while the
+    /// menu is up, so an accessibility-tree press has nothing to find (the
+    /// board's chip verbs record the same finding one persona over). So the
+    /// button is the real door and the menu is the gesture a Mac writer will
+    /// reach for first; they post the same call.
+    ///
+    /// A glyph rather than a word because the row already carries two or three
+    /// controls in a column 340pt wide, and a third title is what starts
+    /// truncating the language's own name. Its accessibility label is the full
+    /// sentence, so the tree says what the picture means.
+    private func renameButton(_ title: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "pencil")
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .accessibilityLabel(title)
+        .help(title)
     }
 
     /// **Run, and — only while this edition is the one in flight — Cancel.**
@@ -514,6 +561,18 @@ enum DepartmentDesk {
 
     static func translatorLine(_ translator: String?) -> String {
         translator ?? noTranslatorYet
+    }
+
+    /// **The row's rename verb, naming the person it is about** — a desk with
+    /// four editions offers four of these, and "Rename…" four times is four
+    /// controls a VoiceOver user cannot tell apart.
+    ///
+    /// A row with nobody on it yet asks for a NAME rather than a rename, which
+    /// is the honest verb for an unlisted language nothing has minted a role
+    /// for — `translatorLine` prints "No translator yet" on the same row.
+    static func renameTitle(translator: String?) -> String {
+        guard let translator else { return "Name This Translator\u{2026}" }
+        return "Rename \(translator)\u{2026}"
     }
 
     /// The three figures `translation_status` reports, in its own vocabulary

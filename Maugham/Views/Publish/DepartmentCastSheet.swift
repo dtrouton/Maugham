@@ -11,7 +11,8 @@ import MaughamCore
 ///
 /// **The other asks are the same question at another moment**, which is why they
 /// share one sheet rather than growing a second and a third: *add a language* is
-/// that question with the language itself still to be named. One sheet means one
+/// that question with the language itself still to be named, and *rename* is it
+/// asked again about somebody who already has an answer. One sheet means one
 /// place where a name is trimmed, one place where blank is refused, and one
 /// visible act composed of `translatorRole(for:)` + `renameProductionRole` —
 /// never a nameless role left standing for the writer to find later.
@@ -29,6 +30,24 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         /// takes a language tag, because it is the only one where the language
         /// is not already known.
         case addLanguage
+        /// **Say who somebody on the desk is.** `currentName` is what the field
+        /// starts with and what the sheet's own words are about; it is EMPTY for
+        /// a row that has nobody yet (an unlisted language nothing has minted a
+        /// role for), which is a naming rather than a renaming and says so.
+        ///
+        /// WHICH role this is stays the host's question: resolving it may have
+        /// to mint one first — a preset translator, or the preset designer, who
+        /// reaches disk for the first time here.
+        case rename(subject: RenameSubject, currentName: String)
+    }
+
+    /// Who a rename is about. The desk has two kinds of person on it and they
+    /// reach `renameProductionRole` by different routes — a translator through
+    /// its language, the designer through `ProjectStore.designerRole()` — so the
+    /// ask names the kind rather than an id the pane has no way to know.
+    enum RenameSubject: Equatable {
+        case translator(language: String)
+        case designer
     }
 
     let ask: Ask
@@ -39,6 +58,8 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         switch ask {
         case .nameForRun(let language, _): return "run:\(language)"
         case .addLanguage: return "add"
+        case .rename(.translator(let language), _): return "rename:\(language)"
+        case .rename(.designer, _): return "rename:designer"
         }
     }
 
@@ -50,6 +71,11 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
             return DepartmentCastCopy.nameForRunTitle(language: language)
         case .addLanguage:
             return DepartmentCastCopy.addLanguageTitle
+        case .rename(let subject, let currentName):
+            guard !currentName.isEmpty else {
+                return DepartmentCastCopy.nameSubjectTitle(subject: subject)
+            }
+            return DepartmentCastCopy.renameTitle(currentName: currentName)
         }
     }
 
@@ -57,7 +83,19 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         switch ask {
         case .nameForRun: return DepartmentCastCopy.nameAndRunTitle
         case .addLanguage: return DepartmentCastCopy.addConfirmTitle
+        case .rename(_, let currentName):
+            return currentName.isEmpty
+                ? DepartmentCastCopy.nameConfirmTitle
+                : DepartmentCastCopy.renameConfirmTitle
         }
+    }
+
+    /// What the name field starts with — the current name for a rename, nothing
+    /// for the asks about somebody who has none yet. (`.addLanguage` fills
+    /// itself in as the tag is typed; see `DepartmentCastSheet`.)
+    var initialName: String {
+        if case .rename(_, let currentName) = ask { return currentName }
+        return ""
     }
 
     /// Whether the sheet draws a language-tag field. `.addLanguage` alone.
@@ -140,6 +178,8 @@ struct DepartmentCastSheet: View {
         case .addLanguage:
             return DepartmentCastCopy.addExplanation(
                 preset: ProductionRole.defaultTranslatorName(language: trimmedTag))
+        case .rename(let subject, _):
+            return DepartmentCastCopy.renameExplanation(subject: subject)
         }
     }
 
@@ -192,6 +232,9 @@ struct DepartmentCastSheet: View {
         }
         .padding(20)
         .frame(width: 380)
+        // A rename starts from the name it is about — the writer is usually
+        // correcting a spelling, not typing a stranger from scratch.
+        .onAppear { name = prompt.initialName }
     }
 }
 
@@ -288,4 +331,60 @@ enum DepartmentCastCopy {
             + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
             + " edition is already on the desk."
     }
+
+    // MARK: - Renaming somebody on the desk (cast-management)
+
+    static func renameTitle(currentName: String) -> String {
+        "Rename \(currentName)"
+    }
+
+    /// The headline for a row that has nobody on it yet — a naming rather than
+    /// a renaming, which is a real state for an unlisted language nothing has
+    /// minted a role for. The designer arm is unreachable (every project has
+    /// Tschichold from the moment it exists) and total rather than clever.
+    static func nameSubjectTitle(
+        subject: DepartmentCastPrompt.RenameSubject) -> String {
+        switch subject {
+        case .translator(let language): return nameForRunTitle(language: language)
+        case .designer: return "Who designs this book?"
+        }
+    }
+
+    static let renameConfirmTitle = "Rename"
+    static let nameConfirmTitle = "Name"
+
+    /// **A rename orphans nothing, and the sheet says so** — identity is
+    /// `ProductionRole.id`, minted once and never touched by a rename, so every
+    /// annotation and every proposal already signed stays theirs. A writer who
+    /// suspects otherwise will not rename anybody.
+    static func renameExplanation(
+        subject: DepartmentCastPrompt.RenameSubject) -> String {
+        switch subject {
+        case .translator(let language):
+            return "Whatever stands here signs the "
+                + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+                + " edition\u{2019}s paragraphs and queries from now on. Work "
+                + "already signed stays theirs \u{2014} a new name renames the "
+                + "person, it doesn\u{2019}t hand their work to somebody else."
+        case .designer:
+            return "Whatever stands here signs this book\u{2019}s design rounds "
+                + "from now on. Rounds already proposed stay theirs \u{2014} a "
+                + "new name renames the person, it doesn\u{2019}t hand their "
+                + "work to somebody else."
+        }
+    }
+
+    /// The desk's one notice slot, when the writer backs out of a rename.
+    static func renameCancelledLine(currentName: String) -> String {
+        currentName.isEmpty
+            ? "Nothing named \u{2014} the desk is as it was."
+            : "Nothing renamed \u{2014} they are still \(currentName)."
+    }
+
+    /// What the notice says when the designer's rename could not be written.
+    /// A translator's failure is `mintFailed`'s, which names the edition —
+    /// there is only one designer, so there is nothing to disambiguate here.
+    static let designerRenameFailed =
+        "Couldn\u{2019}t rename the designer. Check that the project folder is "
+        + "still where it was."
 }
