@@ -1265,6 +1265,60 @@ final class DepartmentRunTests: XCTestCase {
         await fixture.documentStore.close()
     }
 
+    /// **The end-to-end pin for the other loop: the desk's language Run drives a
+    /// REAL round, and the row draws the report that round produced.**
+    ///
+    /// `test_theDesignRunDrivesARealRoundWhoseProposalTheDesignerSigns` is its
+    /// twin one section down, and it exists for the same reason: nothing else
+    /// proves the WIRING. The cases above drive the decisions and the controls,
+    /// `TranslatorOrchestratorTests` drives the loop, and neither would notice a
+    /// host that passed the wrong closure — or, as here, a desk handed no run
+    /// log at all, which draws no report however well the round went. The whole
+    /// path runs: the real `DepartmentPaneHost`, the real pane, the button
+    /// pressed the way a click presses it, the real pre-flight, the real
+    /// `TranslatorOrchestrator`, the real briefing over a real project, the real
+    /// ingest, and `onRunEnded` into the window's own `TranslationRunLog` — then
+    /// the desk re-derives and draws the round it just ran, which is the loop
+    /// closing.
+    ///
+    /// **One substitution, stated**: the subprocess. The round is answered with
+    /// a valid EMPTY report, which is enough — what is under test is that a
+    /// finished round becomes a line on the row that asked for it, and "wrote
+    /// nothing and asked nothing" is as much a report as any other.
+    func test_theLanguageRunDrivesARealRoundWhoseReportTheRowDraws() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        let runs = try axButtons(labelled: DepartmentRunState.runTitle, in: window)
+        XCTAssertEqual(runs.count, 1, "one Run for the book's one edition")
+        press(runs[0])
+
+        _ = await pumpUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
+        XCTAssertFalse(fixture.runner.sends.isEmpty,
+                       "the row's Run never reached a real round — the wiring, "
+                       + "not the decisions, is what this test is about")
+
+        _ = await pumpUntil(deadline: 10) {
+            fixture.runLog.run(docId: "doc-1", language: "es") != nil
+        }
+        let summary = try XCTUnwrap(
+            fixture.runLog.run(docId: "doc-1", language: "es"),
+            "the round ended and the window's record of it never heard — "
+            + "`onRunEnded` is what turns a finished round into a line")
+        XCTAssertEqual(summary.language, "es")
+
+        let landed = DepartmentRunState.landedLine(entries: 0, queries: 0)
+        let drew = await pumpUntil(deadline: 10) {
+            (try? self.axTexts(in: window))?.contains { $0.contains(landed) } ?? false
+        }
+        XCTAssertTrue(drew,
+                      "the desk never drew the round it had just run. Published: "
+                      + "\((try? axTexts(in: window))?.sorted() ?? [])")
+
+        await fixture.documentStore.close()
+    }
+
     /// **An unlisted language whose role was already minted (even unnamed)
     /// runs straight through on the next click** — the sheet answers a
     /// language once, not an edition's every round.
@@ -1513,6 +1567,11 @@ final class DepartmentRunTests: XCTestCase {
         let documentStore: DocumentStore
         let translator: TranslatorOrchestrator
         let runner: TranslatorSpyRunner
+        /// **The window's own record of finished rounds**, wired to this
+        /// environment's `onRunEnded` — production's path from a round that has
+        /// ENDED to the line its row draws (`ProjectWindow.translationRuns`).
+        /// Without it a test could watch a round start and never see it land.
+        let runLog: TranslationRunLog
     }
 
     /// **`makeProject`'s project, with a real translator loop wired to a spy
@@ -1537,10 +1596,15 @@ final class DepartmentRunTests: XCTestCase {
         let preferences = UserPreferences(defaults: UserDefaults(suiteName: suite)!)
         let bible = BibleStore(projectRoot: h.projectURL,
                                device: DeviceSlug.make(from: MacDeviceID.current))
+        // The window's own wiring: `ProjectWindow` hands `onRunEnded` to a
+        // `TranslationRunLog` it owns, and the desk reads the log. Recording
+        // into a log here is what makes the end-to-end test able to watch a
+        // round LAND rather than only start.
+        let runLog = TranslationRunLog()
         var environment = TranslatorOrchestrator.Environment.production(
             store: h.projectStore, documentStore: h.documentStore,
             projectURL: h.projectURL, bible: bible, preferences: preferences,
-            onRunEnded: { _ in })
+            onRunEnded: { [weak runLog] summary in runLog?.record(summary) })
         let runner = TranslatorSpyRunner()
         environment.makeRunner = { _, _ in runner }
 
@@ -1549,7 +1613,7 @@ final class DepartmentRunTests: XCTestCase {
 
         return TranslatorFixture(projectURL: h.projectURL, projectStore: h.projectStore,
                                  documentStore: h.documentStore, translator: translator,
-                                 runner: runner)
+                                 runner: runner, runLog: runLog)
     }
 
     /// The real host over a `TranslatorFixture`'s project — Task 4's own
@@ -1561,7 +1625,11 @@ final class DepartmentRunTests: XCTestCase {
                                documentStore: fixture.documentStore,
                                projectURL: fixture.projectURL,
                                subject: .item("doc-1"),
-                               translator: fixture.translator)
+                               translator: fixture.translator,
+                               // The window passes its log the same way; a desk
+                               // without one draws no report line at all, and a
+                               // test watching for one would wait for ever.
+                               runLog: fixture.runLog)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)))
         hosting.frame = frame
         let window = NSWindow(contentRect: frame, styleMask: [.titled],
