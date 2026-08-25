@@ -332,7 +332,7 @@ extension CompilerOrchestrator.Environment {
                 // `StructureItem.links`. See that file for what each costs.
                 return PinnedReferenceResolver.pins(
                     forDocId: docId, store: store, projectRoot: projectURL
-                ).map(Self.pinnedListingLine)
+                ).references.map(Self.pinnedListingLine)
             },
             paletteListing: { [weak store] in
                 guard let store else { return [] }

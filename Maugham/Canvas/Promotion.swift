@@ -1296,7 +1296,12 @@ enum Promotion {
     /// Regions are created unlabelled and named in the inspector, so this is the
     /// common case for the first minute of a region's life. An untitled palette
     /// card is unfindable on the wall.
-    private static func regionTitle(_ region: CanvasRegion) -> String {
+    ///
+    /// **Internal rather than private** since the references shelf (§2.2)
+    /// titles a bound region's section with it: the fallback is reached rather
+    /// than restated, so a second surface cannot invent a second word for an
+    /// unlabelled region.
+    static func regionTitle(_ region: CanvasRegion) -> String {
         let trimmed = region.label.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? CanvasRegion.untitledLabel : trimmed
     }
@@ -1307,8 +1312,13 @@ enum Promotion {
     /// the joined text should read the way the region reads. The id tiebreak is
     /// not decoration: two cards at the same origin would otherwise let a `Set`'s
     /// iteration order decide, and that differs between runs of the same binary.
-    private static func readingOrder(_ ids: Set<CanvasNodeID>,
-                                     in scene: CanvasScene) -> [CanvasNodeID] {
+    ///
+    /// **Internal rather than private** since the references shelf (§2.2) shows
+    /// a region's cards in the same order a promotion joins their words in —
+    /// one order, so the shelf reads the way the region reads and the way the
+    /// note it becomes reads.
+    static func readingOrder(_ ids: Set<CanvasNodeID>,
+                             in scene: CanvasScene) -> [CanvasNodeID] {
         ids.compactMap { scene.node($0) }
             .sorted { a, b in
                 if a.origin.y != b.origin.y { return a.origin.y < b.origin.y }

@@ -44,8 +44,10 @@ struct ReferencesPane: View {
     static let emptyTitle = "Nothing pinned yet."
 
     /// **Both ways in, and naming only one would be worse than naming neither**
-    /// — it would read as the only way. The two are the two halves of the union
-    /// `PinnedReferences.pinned` computes.
+    /// — it would read as the only way. They are two of the three sources
+    /// `PinnedReferences.pinned` draws on; the third, research a Collection or
+    /// a single-document project CONTAINS, is not an act the writer performs
+    /// and so is not an instruction this copy can give.
     static let emptyDescription =
         "Link research to this document, or cluster its cards inside a region on "
         + "the planning canvas."
@@ -304,10 +306,10 @@ struct ReferencesPaneHost: View {
         ReferencesPane(rows: rows, projectRoot: projectURL, persona: persona,
                        assistant: assistant)
             .task(id: reloadKey) {
-                let pins = PinnedReferenceResolver.pins(
+                let shelf = PinnedReferenceResolver.pins(
                     forDocId: docId, store: store, projectRoot: projectURL)
                 rows = ReferencesPane.rows(
-                    for: pins,
+                    for: shelf.references,
                     in: CanvasItemIndex.over(research: store.manifest.research))
             }
     }

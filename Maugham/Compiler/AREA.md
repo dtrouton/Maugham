@@ -180,9 +180,10 @@ on ⌘⇧R the dedupe is the whole of it.
   actions on a fact (bless / correct / dismiss, `Maugham/Views/BibleStratum.swift`)
   are what promote or discard a reading, never this store.
 - **What a document is pinned to** (`PinnedReferences`, `PinnedReferenceResolver`)
-  — the union of research the writer linked and cards they clustered on the
-  canvas, one pure function with two production callers: the run's own context
-  and the Author surfaces below. Neither may re-derive it.
+  — the research the writer linked, the research their project type derives for
+  the piece, and the cards they clustered on the canvas, grouped into a
+  `PinnedShelf`: one pure function with two production callers, the run's own
+  context and the Author surfaces below. Neither may re-derive it.
 
 The pane is not here — `Maugham/Views/DiagnosticsPane.swift` — and neither is
 the run key's delivery, `Maugham/Views/CompilerRunModifier.swift`, nor the
@@ -216,8 +217,8 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `DeclaredWorld.swift` | `DerivedClause`/`DerivedRule`/`DerivedWorld` (the reading) + `DeclaredWorldStore` (its per-device, hash-gated cache) |
 | `DeclaredWorldDeriver.swift` | `ClaudeWorldDeriver` — the one-shot, no-MCP `claude -p` that turns a statement's prose into a `DerivedWorld` |
 | `BibleStore.swift` | `BibleFact` (a reading with its establishing ¶) + `BibleStore` (per-device, project-scoped ledger) |
-| `PinnedReferences.swift` | The pure union: linked research + clustered canvas cards, resolved to renderable pins |
-| `PinnedReferenceResolver.swift` | The caller-side assembly against a live project — the four inputs `PinnedReferences.pinned` takes, gathered in one place |
+| `PinnedReferences.swift` | The pure projection: linked research + the research the project type derives + clustered canvas cards, resolved to renderable pins and grouped into a `PinnedShelf` — one untitled run of research, a titled section per bound region (a promoted region contributing the note it became), then `Cards` |
+| `PinnedReferenceResolver.swift` | The caller-side assembly against a live project — the five inputs `PinnedReferences.pinned` takes, gathered in one place |
 
 **A run's first act is to close the writer's burst, and only then read.**
 `Environment.prepareForRun` is awaited at the top of `runRequested`, before
@@ -1288,8 +1289,8 @@ drifted from them is a defect in this file.
   refusal — the offer for a never-run, non-stub document, gone once refused,
   gone for good once any run happens.
 - `CompilerRunCommandTests` — ⌘R's real delivery path.
-- `PinnedReferencesTests` — the union and its resolution, including the
-  dedup/dangling/sort rules; its census keeps `linkedResearchIds` (not
+- `PinnedReferencesTests` — the projection, its sections and its resolution,
+  including the dedup/dangling/order rules; its census keeps `linkedResearchIds` (not
   `StructureItem.links`) the only field a caller may name. `ReferencesPaneTests`
   and `AssistantColumnTests`, across the seam in `Maugham/Views/`, are the
   shelf's and the column's own suites, and pin that both surfaces and the run's
