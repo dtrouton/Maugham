@@ -105,7 +105,7 @@ struct ResearchNotePreviewPane: View {
         var buffer: [String] = []
         func flush() {
             guard !buffer.isEmpty else { return }
-            let joined = buffer.joined(separator: " ")
+            let joined = buffer.joined(separator: "\n")
             buffer.removeAll()
             result.append(attributedParagraph(joined))
         }
@@ -138,8 +138,15 @@ struct ResearchNotePreviewPane: View {
         return NSImage(contentsOf: imageURL)
     }
 
+    /// `.inlineOnlyPreservingWhitespace` keeps a soft line break inside the
+    /// joined text as a literal `"\n"` rather than collapsing it to a space
+    /// the way `.full`/default parsing renders a Markdown soft break — that
+    /// collapse is exactly the bug this parses around (see file header).
+    private static let inlinePreservingWhitespace =
+        AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+
     private static func attributedParagraph(_ joined: String) -> Block {
-        if let attr = try? AttributedString(markdown: joined) {
+        if let attr = try? AttributedString(markdown: joined, options: inlinePreservingWhitespace) {
             return .paragraph(attr)
         } else {
             return .unknown(joined)
@@ -147,7 +154,7 @@ struct ResearchNotePreviewPane: View {
     }
 
     private static func markdownAttr(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text)) ?? AttributedString(text)
+        (try? AttributedString(markdown: text, options: inlinePreservingWhitespace)) ?? AttributedString(text)
     }
 
     private static func reflowListItem(_ lines: [String]) -> String {

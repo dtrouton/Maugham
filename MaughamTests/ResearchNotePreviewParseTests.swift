@@ -5,8 +5,11 @@ import AppKit
 /// Audit A4: `ResearchNotePreviewPane` used to turn every non-empty line into
 /// its own `.paragraph` block, so hard-wrapped prose rendered as stacked line
 /// fragments instead of flowing paragraphs. `parse` accumulates consecutive
-/// non-empty, non-heading, non-solo-image lines and joins them with a single
-/// space; a blank line, heading, solo image, or end of text flushes the buffer.
+/// non-empty, non-heading, non-solo-image lines and joins them with a
+/// newline, preserving the writer's own line break inside the paragraph
+/// (parsed with `.inlineOnlyPreservingWhitespace` so Markdown's default
+/// soft-break-to-space collapse never eats it); a blank line, heading, solo
+/// image, or end of text flushes the buffer.
 final class ResearchNotePreviewParseTests: XCTestCase {
     typealias Block = ResearchNotePreviewPane.Block
 
@@ -46,7 +49,7 @@ final class ResearchNotePreviewParseTests: XCTestCase {
             text: text, notePath: "research/sarah.md", projectURL: project)
 
         XCTAssertEqual(blocks.count, 2, "blank line separates exactly two paragraphs")
-        XCTAssertEqual(plainText(blocks[0]), "line one line two")
+        XCTAssertEqual(plainText(blocks[0]), "line one\nline two")
         XCTAssertEqual(plainText(blocks[1]), "para two")
     }
 
@@ -94,7 +97,7 @@ final class ResearchNotePreviewParseTests: XCTestCase {
             text: text, notePath: "research/sarah.md", projectURL: project)
 
         XCTAssertEqual(blocks.count, 1, "got \(blocks)")
-        XCTAssertEqual(plainText(blocks[0]), "line one alt line two")
+        XCTAssertEqual(plainText(blocks[0]), "line one\nalt\nline two")
     }
 
     func test_endOfTextFlushesTrailingParagraph() throws {
@@ -104,7 +107,58 @@ final class ResearchNotePreviewParseTests: XCTestCase {
             text: text, notePath: "research/sarah.md", projectURL: project)
 
         XCTAssertEqual(blocks.count, 1)
-        XCTAssertEqual(plainText(blocks[0]), "only one wrapped line")
+        XCTAssertEqual(plainText(blocks[0]), "only one\nwrapped line")
+    }
+
+    // MARK: - Task 4: a line break inside a paragraph renders as one
+
+    func test_singleNewlineSurvivesInsideOneParagraph() throws {
+        let project = try makeProject()
+        let text = "first line\nsecond line"
+        let blocks = ResearchNotePreviewPane.parse(
+            text: text, notePath: "research/sarah.md", projectURL: project)
+
+        XCTAssertEqual(blocks.count, 1, "got \(blocks)")
+        let plain = plainText(blocks[0])
+        XCTAssertEqual(plain, "first line\nsecond line")
+        XCTAssertTrue(plain?.contains("\n") == true, "the line break must survive, not collapse to a space")
+    }
+
+    func test_blankLineStillSeparatesTwoParagraphs() throws {
+        let project = try makeProject()
+        let text = "a\n\nb"
+        let blocks = ResearchNotePreviewPane.parse(
+            text: text, notePath: "research/sarah.md", projectURL: project)
+
+        XCTAssertEqual(blocks.count, 2, "got \(blocks)")
+        XCTAssertEqual(plainText(blocks[0]), "a")
+        XCTAssertEqual(plainText(blocks[1]), "b")
+    }
+
+    /// Emphasis must still resolve ACROSS a preserved line break: `*a\nb*` is
+    /// one run of `AttributedString` inline Markdown, not two runs split by
+    /// the newline, so the writer's italics spanning a hard-wrapped sentence
+    /// keep working under the new parsing options.
+    func test_emphasisSpansAPreservedLineBreak() throws {
+        let project = try makeProject()
+        let text = "*a\nb*"
+        let blocks = ResearchNotePreviewPane.parse(
+            text: text, notePath: "research/sarah.md", projectURL: project)
+
+        XCTAssertEqual(blocks.count, 1, "got \(blocks)")
+        guard case .paragraph(let attr) = blocks[0] else {
+            return XCTFail("expected paragraph, got \(blocks[0])")
+        }
+        XCTAssertEqual(String(attr.characters), "a\nb")
+        let emphasizedRuns = attr.runs.filter {
+            $0.inlinePresentationIntent?.contains(.emphasized) == true
+        }
+        XCTAssertFalse(emphasizedRuns.isEmpty, "expected at least one emphasized run spanning the break")
+        for run in emphasizedRuns {
+            let runText = String(attr[run.range].characters)
+            XCTAssertTrue(runText == "a" || runText == "b" || runText == "a\nb",
+                          "unexpected emphasized run text: \(runText)")
+        }
     }
 
     // MARK: - Shared block parser cutover: new block kinds
