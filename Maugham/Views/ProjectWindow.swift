@@ -2443,7 +2443,39 @@ struct ProjectWindow: View {
             .navigationSplitViewColumnWidth(
                 Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,
                                                 containerWidth: containerWidth))
+        } else {
+            Self.hiddenDetailColumn
         }
+    }
+
+    /// **The right column when there is nothing in it** — and it has to SAY so.
+    ///
+    /// This arm used to be no arm at all: `detailColumn` was a bare
+    /// `if showInspector { … }`, on the reading that a column rendering nothing
+    /// takes no room. In a three-column `NavigationSplitView` the DETAIL column
+    /// is the flexible trailing one, so what actually happened is that AppKit
+    /// resolved the CONTENT column on its `ideal` (720) and handed everything
+    /// left over to a column with nothing in it. Measured in a 1200pt window
+    /// before this arm existed:
+    ///
+    /// | state | binder | prose | empty right column |
+    /// |---|---|---|---|
+    /// | `⌘\` on the canvas (`.doubleColumn`, pane hidden) | — | 720 | 479 |
+    /// | `⌘⌥I` in Author (`.all`, pane hidden) | 240 | 720 | ~240 |
+    ///
+    /// The first row is Denver's report — *the binder vanishes, the right-hand
+    /// side goes blank and roughly doubles, and the board is squeezed* — and the
+    /// second is the same defect in every persona, which is why the fix is the
+    /// hidden ARM rather than anything in `canvasCollapse`: the decision was
+    /// right (`.doubleColumn` keeps the canvas, `.detailOnly` would hide it),
+    /// and the column simply never declared that it wanted no width.
+    ///
+    /// **One static, shared with the harness.** `DetailColumnWidthTests` mounts
+    /// its own three-column split, and a harness carrying its own copy of this
+    /// spelling would measure a column production does not have — so both call
+    /// this, and the two cannot drift.
+    static var hiddenDetailColumn: some View {
+        Color.clear.navigationSplitViewColumnWidth(0)
     }
 
     /// The right column's own resize affordance, on its leading edge.

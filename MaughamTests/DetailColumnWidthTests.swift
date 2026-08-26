@@ -38,6 +38,27 @@ final class DetailColumnProbe {
         containerWidth = width
     }
 
+    /// **What the CENTRE column actually got.** Measured through production's
+    /// own `ContainerWidthReporter`, the same reporter the container width comes
+    /// from, so the two numbers this file's collapse tests compare are made the
+    /// same way.
+    ///
+    /// No guard on the way in, unlike `noteContainerWidth`: the container's memo
+    /// deliberately KEEPS its first measurement, and the centre's whole job here
+    /// is to move when a `columnVisibility` transition moves it.
+    private(set) var centreWidth: Double?
+
+    func noteCentreWidth(_ width: Double) { centreWidth = width }
+
+    /// **What the BINDER column actually got**, measured the same way and for
+    /// the same reason: the control below subtracts it from the container, and
+    /// a subtrahend read off `NSSplitView.arrangedSubviews` would be a different
+    /// kind of number than the minuend (those frames sum to more than the window
+    /// — measured — so they are not the layout this file is about).
+    private(set) var binderWidth: Double?
+
+    func noteBinderWidth(_ width: Double) { binderWidth = width }
+
     /// The writer's WISH — what `UIState` stores. What the column is given is
     /// `ProjectWindow.effectiveDetailColumnWidth` of this and the container, and
     /// keeping the two spelled apart here is how a test can assert that the
@@ -70,13 +91,24 @@ private struct DetailColumnHarness: View {
             // the affordability sum reasons about these two numbers, so a
             // harness carrying its own copies would be measuring a different
             // window than the one the sum is about.
-            Color.gray.navigationSplitViewColumnWidth(
-                min: ProjectWindow.binderColumnFloor, ideal: 240)
+            Color.gray
+                .modifier(ContainerWidthReporter(onWidth: { probe.noteBinderWidth($0) }))
+                .navigationSplitViewColumnWidth(
+                    min: ProjectWindow.binderColumnFloor, ideal: 240)
         } content: {
-            Color.white.navigationSplitViewColumnWidth(
-                min: ProjectWindow.centreColumnFloor, ideal: 720)
+            // The prose column reports what it was given, through the same
+            // production reporter the container is measured with — this is what
+            // the collapse tests below are about, and it is a measurement of
+            // AppKit's split rather than of anything this file computes.
+            Color.white
+                .modifier(ContainerWidthReporter(onWidth: { probe.noteCentreWidth($0) }))
+                .navigationSplitViewColumnWidth(
+                    min: ProjectWindow.centreColumnFloor, ideal: 720)
         } detail: {
-            if probe.mounted { detailColumn }
+            // The hidden arm is production's own static, not a copy of it —
+            // this is the whole subject of the two collapse cases below, and a
+            // second spelling here would measure a column the app does not have.
+            if probe.mounted { detailColumn } else { ProjectWindow.hiddenDetailColumn }
         }
         .modifier(ContainerWidthReporter(onWidth: { probe.noteContainerWidth($0) }))
     }
@@ -524,6 +556,95 @@ final class DetailColumnWidthTests: XCTestCase {
                        "the column's width must still win the tie against a "
                        + "pane that cannot break — if this goes red, read this "
                        + "test's doc comment before assuming it is a flake")
+    }
+
+    // MARK: - The collapse gives the canvas the window
+
+    /// **What `⌘\` on the canvas is FOR** (spec §5, Task 6), measured on a real
+    /// split rather than argued from the decision that drives it.
+    ///
+    /// `canvasCollapse` answers `.doubleColumn` with `showInspector: false`, and
+    /// `detailColumn` renders nothing under that flag — which READS as "the
+    /// canvas gets the window". It did not. In a three-column
+    /// `NavigationSplitView` the DETAIL column is the flexible trailing one, so
+    /// an arm that renders no view and declares no width leaves AppKit resolving
+    /// the CONTENT column on its `ideal` (720) and handing everything left to a
+    /// column with nothing in it. Denver's report is exactly that arithmetic:
+    /// the binder vanishes, the right-hand side goes blank and roughly doubles,
+    /// and the board he just asked to see is squeezed.
+    ///
+    /// Measured on this machine before the fix: a 1200pt window gave the prose
+    /// 720 and an empty detail column the remaining ~478.
+    ///
+    /// The claim is the container minus the split's own divider, which is what
+    /// the 2pt is for — not slack for a column that is merely nearly right.
+    func test_theCollapsedCanvasGetsTheWholeWindow() async throws {
+        let probe = DetailColumnProbe(width: UIState.defaultDetailColumnWidth)
+        let (_, split) = try await mount(probe)
+
+        // The collapse, as `applyCanvasCollapse` folds it into the window: the
+        // pane goes, and the sidebar goes with it.
+        probe.mounted = false
+        probe.visibility = .doubleColumn
+        await pump(1.0)
+
+        let container = try XCTUnwrap(probe.containerWidth,
+                                      "the container reporter never fired — "
+                                      + "nothing below is measuring anything")
+        let centre = try XCTUnwrap(probe.centreWidth,
+                                   "the centre reporter never fired — "
+                                   + "nothing below is measuring anything")
+        XCTAssertEqual(centre, container, accuracy: 2,
+                       "under the collapse the canvas is the only column with "
+                       + "anything in it and must have the whole window: got "
+                       + "\(centre)pt of \(container)pt, with the split's "
+                       + "columns at \(Self.columnWidths(split)). A trailing "
+                       + "column that renders no view still takes room unless "
+                       + "it declares it wants none")
+    }
+
+    /// **The control, and the same rule with the sidebar still up**: hiding the
+    /// pane with ⌘⌥I in Author leaves three columns declared and two with
+    /// anything in them, and the prose must take what the binder does not.
+    ///
+    /// It shares the reproduction's mechanism exactly — an unmounted detail arm
+    /// — and differs only in the visibility, which is what makes it worth
+    /// asserting beside it: if this one is red too, the hidden arm is costing
+    /// the writer room in EVERY persona and not only under the collapse.
+    func test_hidingThePaneGivesTheProseWhatTheBinderDoesNot() async throws {
+        let probe = DetailColumnProbe(width: UIState.defaultDetailColumnWidth)
+        let (_, split) = try await mount(probe)
+
+        probe.mounted = false
+        await pump(1.0)
+
+        let container = try XCTUnwrap(probe.containerWidth)
+        let centre = try XCTUnwrap(probe.centreWidth)
+        let sidebar = try XCTUnwrap(probe.binderWidth)
+        XCTAssertGreaterThan(sidebar, 0,
+                             "premise: `.all` keeps the binder on screen, or "
+                             + "this case is the collapse test wearing another "
+                             + "name")
+        // What the binder OCCUPIES, which is its content plus the furniture
+        // macOS 26 draws around a sidebar — production's own constant, the same
+        // one `effectiveDetailColumnWidth`'s sum is built from. A control that
+        // subtracted the content alone would be 8pt out and would say the
+        // defect was still here.
+        XCTAssertEqual(centre,
+                       container - sidebar - Double(ProjectWindow.sidebarInset),
+                       accuracy: 2,
+                       "with the pane hidden the prose takes everything the "
+                       + "binder does not: got \(centre)pt of "
+                       + "\(container)pt less a \(sidebar)pt binder and its "
+                       + "\(ProjectWindow.sidebarInset)pt inset, with the "
+                       + "split's columns at \(Self.columnWidths(split))")
+    }
+
+    /// The three columns as the split actually laid them out — for failure
+    /// messages, so a red run says which column took the room rather than only
+    /// that the prose did not get it.
+    private static func columnWidths(_ split: NSSplitView) -> [CGFloat] {
+        split.arrangedSubviews.map(\.frame.width)
     }
 
     // MARK: - Nothing but a drag writes the width
