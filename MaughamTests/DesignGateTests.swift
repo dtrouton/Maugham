@@ -996,7 +996,11 @@ final class DesignGateTests: XCTestCase {
         _ = try await settling(in: window)
 
         try press(.requestChanges, in: window)
-        _ = await pumpUntil(deadline: 3) { !sent.isEmpty }
+        _ = await pumpUntil(deadline: 3) {
+            ((try? self.axTexts(in: window)) ?? []).contains {
+                $0.contains(DepartmentDesignRow.noWordsRefusal)
+            }
+        }
 
         XCTAssertEqual(sent, [""], "the field's words, whatever they are")
         let texts = try axTexts(in: window)
@@ -1149,7 +1153,11 @@ final class DesignGateTests: XCTestCase {
         let confirmation = try await pressAwaitingConfirmation(
             .finalize, in: window, pending: pending)
         confirmation.perform()
-        _ = await pumpUntil(deadline: 5) { !handedUp.value.isEmpty }
+        _ = await pumpUntil(deadline: 5) {
+            ((try? self.axTexts(in: window)) ?? []).contains {
+                $0.contains(DesignGate.finalizedConfirmation)
+            }
+        }
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: backup.path),
                        "the writer said yes and the backup is still there — the "
