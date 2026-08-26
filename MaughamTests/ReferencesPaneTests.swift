@@ -58,6 +58,16 @@ final class ReferencesPaneTests: XCTestCase {
         PinnedReference(id: id, kind: kind, title: title)
     }
 
+    /// One untitled section over these pins, resolved the way the host does.
+    /// The click and inertness tests below mount this: what they are about is a
+    /// row's press, not the grouping, and going through
+    /// `ReferencesPane.sections` keeps them on the production path all the same.
+    private func oneSection(_ pins: [PinnedReference]) -> [ReferencesPane.Section] {
+        ReferencesPane.sections(
+            for: PinnedShelf(sections: [PinnedSection(title: nil, references: pins)]),
+            in: index())
+    }
+
     // MARK: - Contract: a row is a thumbnail, a glyph and a title
 
     /// A research note has no pixels, so it draws its glyph and no thumbnail.
@@ -134,21 +144,89 @@ final class ReferencesPaneTests: XCTestCase {
                        pins.map(\.id))
     }
 
+    // MARK: - Contract: the shelf keeps the projection's sections
+
+    /// **The pane draws what the projection grouped**, in its order, with its
+    /// titles — the whole point of §2.2. A pane that flattened the shelf would
+    /// pass every row test in this file and still show the writer six titles in
+    /// dictionary order with nothing saying they belong together.
+    func test_sectionsPreserveTheShelfsOrderAndTitles() {
+        let shelf = PinnedShelf(sections: [
+            PinnedSection(title: nil, references: [
+                pin("res-note", .research(itemId: "res-note"), "The falls at night")]),
+            PinnedSection(title: "Act II fog bank", references: [
+                pin("res-card", .palette(cardId: "res-card"), "Act II fog")]),
+            PinnedSection(title: PinnedShelf.looseCardsTitle, references: [
+                pin("n1", .scrap(nodeId: "n1"), "a thought")])])
+
+        let sections = ReferencesPane.sections(for: shelf, in: index())
+
+        XCTAssertEqual(sections.map(\.title),
+                       [nil, "Act II fog bank", PinnedShelf.looseCardsTitle])
+        XCTAssertEqual(sections.map { $0.rows.map(\.id) },
+                       [["res-note"], ["res-card"], ["n1"]])
+        XCTAssertEqual(sections.flatMap(\.rows).map(\.glyph),
+                       [CanvasItemKind.researchNote.glyph,
+                        CanvasItemKind.paletteCard.glyph,
+                        ReferencesPane.scrapGlyph],
+                       "a section resolves its rows through rows(for:in:) — the glyph "
+                       + "table is still the canvas's, not a second one per section")
+    }
+
+    /// **A section's id is derived from its contents, never minted.**
+    /// `PinnedReferenceResolver.pins` is a pure function the host re-runs on
+    /// every manifest and scene change; a `UUID()` here would make two runs over
+    /// an unchanged project unequal, and `ForEach` would tear the shelf down and
+    /// rebuild it under the writer's cursor. The same argument
+    /// `PinnedReference.id`'s doc comment makes for the rows.
+    func test_aSectionsIdIsDerivedFromItsContentsSoARecomputeKeepsIt() {
+        let shelf = PinnedShelf(sections: [
+            PinnedSection(title: "Fog", references: [
+                pin("res-note", .research(itemId: "res-note"), "The falls at night")]),
+            PinnedSection(title: "Fog", references: [
+                pin("res-card", .palette(cardId: "res-card"), "Act II fog")])])
+
+        let first = ReferencesPane.sections(for: shelf, in: index())
+        let second = ReferencesPane.sections(for: shelf, in: index())
+
+        XCTAssertEqual(first.map(\.id), second.map(\.id),
+                       "two runs over an unchanged shelf must produce the same section "
+                       + "ids — anything minted per recompute rebuilds the whole shelf")
+        XCTAssertEqual(Set(first.map(\.id)).count, first.count,
+                       "two regions the writer gave the same label are a real state "
+                       + "(boundRegions breaks that tie on the region id), so the title "
+                       + "alone cannot be the id — the sections are disjoint, so their "
+                       + "first rows tell them apart")
+    }
+
     // MARK: - Contract: the empty state names the two ways in
 
     /// *"Nothing pinned yet."* is only half an empty state. A writer who has
-    /// never linked research and never clustered a card has no way to guess what
+    /// never added research and never clustered a card has no way to guess what
     /// would fill this pane, so the description names **both** routes — and
     /// naming only one would be worse than naming neither, because it would
     /// read as the only way.
-    func test_theEmptyStateNamesBothWaysSomethingBecomesAReference() {
+    ///
+    /// **It must not say "link".** Linking is a *Novel* chapter's spelling of
+    /// adding research (`ResearchScope.researchRouting`: `.sharedPlusLink` for
+    /// novels, `.pieceFolder` for a Collection's loose piece, `.sharedOnly` for
+    /// a short story or a screenplay). A Collection writer told to link would go
+    /// looking for a command their project type does not offer — and their
+    /// research pins here all the same, by containment, which is Task 1's whole
+    /// §2.1 fix.
+    func test_theEmptyStateNamesBothWaysInWithoutPromisingALink() {
         XCTAssertEqual(ReferencesPane.emptyTitle, "Nothing pinned yet.")
 
         let description = ReferencesPane.emptyDescription.lowercased()
-        XCTAssertTrue(description.contains("link"),
-                      "the empty state must name linking research: \(description)")
+        XCTAssertTrue(description.contains("research"),
+                      "the empty state must name research: \(description)")
         XCTAssertTrue(description.contains("canvas"),
                       "the empty state must name the planning canvas: \(description)")
+        XCTAssertFalse(description.contains("link"),
+                       "linking is the Novel's spelling only — a Collection's research "
+                       + "reaches this shelf by containment, and instructing a link "
+                       + "would send that writer after a command they do not have: "
+                       + "\(description)")
     }
 
     // MARK: - Contract: click promotes ONE, click again sends it back
@@ -275,7 +353,7 @@ final class ReferencesPaneTests: XCTestCase {
                     pin("res-card", .palette(cardId: "res-card"), "Act II fog")]
 
         let window = mount(AnyView(
-            ReferencesPane(rows: ReferencesPane.rows(for: pins, in: index()),
+            ReferencesPane(sections: oneSection(pins),
                            projectRoot: temp.url,
                            persona: .author,
                            assistant: model)
@@ -292,12 +370,59 @@ final class ReferencesPaneTests: XCTestCase {
     func test_anEmptyShelfShowsTheEmptyStateAndNoRows() async throws {
         let model = AssistantColumnModel()
         let window = mount(AnyView(
-            ReferencesPane(rows: [], projectRoot: temp.url, persona: .author, assistant: model)
+            ReferencesPane(sections: [], projectRoot: temp.url, persona: .author,
+                           assistant: model)
                 .frame(width: 300, height: 500)))
 
         let text = allStrings(in: window).joined(separator: "\n")
         XCTAssertTrue(text.contains(ReferencesPane.emptyTitle),
                       "the empty state's title is not on screen. Found: \(text)")
+    }
+
+    // MARK: - Contract: a titled section wears its heading, an untitled one does not
+
+    /// **A caption per titled section, and nothing over the untitled run.**
+    /// The research at the top of the shelf is not a group the writer named —
+    /// it arrives by a link in a Novel and by containment in a Collection, which
+    /// is a fact about the project type rather than about the note — so a
+    /// heading invented for it would claim a distinction the projection
+    /// deliberately does not draw (`PinnedReferences.pinned`'s "one untitled
+    /// run" comment).
+    ///
+    /// Asserted as *what is on screen that is not a row*, rather than by counting
+    /// occurrences of the title: a row's button answers to its title in more
+    /// than one accessibility attribute and reports it doubled
+    /// ("The falls at night, The falls at night", measured), so a count would be
+    /// a test of AppKit's label aggregation. Subtracting the rows catches the
+    /// failure that matters — a heading drawn over the untitled section, empty
+    /// or invented — and the region's label is deliberately no row title's
+    /// substring so the subtraction cannot swallow the heading itself.
+    func test_aTitledSectionDrawsAHeaderAndAnUntitledOneDrawsNone() async throws {
+        let model = AssistantColumnModel()
+        let rowTitles = ["The falls at night", "Act II fog"]
+        let shelf = PinnedShelf(sections: [
+            PinnedSection(title: nil, references: [
+                pin("res-note", .research(itemId: "res-note"), rowTitles[0])]),
+            PinnedSection(title: "Fog bank", references: [
+                pin("res-card", .palette(cardId: "res-card"), rowTitles[1])])])
+
+        let window = mount(AnyView(
+            ReferencesPane(sections: ReferencesPane.sections(for: shelf, in: index()),
+                           projectRoot: temp.url,
+                           persona: .author,
+                           assistant: model)
+                .frame(width: 300, height: 500)))
+
+        _ = try axTree(in: window)   // reads the premise: no assistive client, no tree
+        let strings = allStrings(in: window)
+        let notRows = Set(strings.filter { string in
+            !rowTitles.contains { string.contains($0) }
+        })
+
+        XCTAssertEqual(notRows, ["Fog bank"],
+                       "the shelf must draw exactly one heading — the bound region's "
+                       + "label — and nothing over the untitled research above it. "
+                       + "Found: \(strings)")
     }
 
     // MARK: - Contract: Review studies too (Denver's 2026-08-14 ruling, spec §9)
@@ -312,7 +437,7 @@ final class ReferencesPaneTests: XCTestCase {
         let pins = [pin("res-note", .research(itemId: "res-note"), "The falls at night")]
 
         let window = mount(AnyView(
-            ReferencesPane(rows: ReferencesPane.rows(for: pins, in: index()),
+            ReferencesPane(sections: oneSection(pins),
                            projectRoot: temp.url,
                            persona: .review,
                            assistant: model)
@@ -339,7 +464,7 @@ final class ReferencesPaneTests: XCTestCase {
             let pins = [pin("res-note", .research(itemId: "res-note"), "The falls at night")]
 
             let window = mount(AnyView(
-                ReferencesPane(rows: ReferencesPane.rows(for: pins, in: index()),
+                ReferencesPane(sections: oneSection(pins),
                                projectRoot: temp.url,
                                persona: persona,
                                assistant: model)

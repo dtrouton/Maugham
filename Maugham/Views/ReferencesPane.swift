@@ -12,10 +12,11 @@ import MaughamCore
 /// ⌘⌥R two segments away. What one click does is promote a pin into the
 /// assistant column beside the prose.
 ///
-/// **The rows arrive already built.** `rows(for:in:)` is pure and the pins come
-/// from `PinnedReferenceResolver` — a manifest walk, a canvas read and a link
-/// lookup are all things a `body` may not do (tripwire 4), and the mounting site
-/// does them in a `.task`.
+/// **The sections arrive already built.** `sections(for:in:)` is pure and the
+/// shelf comes from `PinnedReferenceResolver` — a manifest walk, a canvas read
+/// and a link lookup are all things a `body` may not do (tripwire 4), and the
+/// mounting site does them in a `.task`. The GROUPING is the projection's too
+/// (spec §2.2): this view draws the headings and never decides them.
 struct ReferencesPane: View {
 
     /// One shelf row: what to draw, resolved once.
@@ -33,6 +34,41 @@ struct ReferencesPane: View {
         var id: String { reference.id }
     }
 
+    /// One run of rows under an optional heading — a `PinnedShelf.sections`
+    /// element, resolved for drawing.
+    ///
+    /// The projection decides the grouping and this type only carries it: a
+    /// pane that re-derived "which region did this come from" would be the
+    /// second answer to a question `PinnedReferences.pinned` already answers,
+    /// and the two would disagree the first time a region was promoted.
+    struct Section: Identifiable, Equatable {
+
+        /// The writer's own word for the group — a bound region's label (or
+        /// `Promotion.regionTitle`'s fallback), or `PinnedShelf.looseCardsTitle`.
+        /// **Nil draws no heading**: the research at the top of the shelf is not
+        /// a group the writer named, and a heading invented for it would claim a
+        /// distinction the projection deliberately does not draw.
+        let title: String?
+        let rows: [Row]
+
+        /// **Derived from the section's contents, never minted.**
+        ///
+        /// `PinnedReferenceResolver.pins` is a pure function this pane's host
+        /// re-runs on every manifest change and every structural canvas change,
+        /// so a `UUID()` here would make two runs over an unchanged project
+        /// unequal and `ForEach` would tear the shelf down and rebuild it under
+        /// the writer's cursor — the argument `PinnedReference.id`'s own doc
+        /// comment makes for the rows, one level up.
+        ///
+        /// The title alone would not do: two regions the writer labelled
+        /// identically are a real state, which is why `PinnedReferences`' own
+        /// region ordering breaks that tie on the region's id. The first row's
+        /// id separates them, and *can*, because the shelf's sections are
+        /// disjoint — deduplication happened at assembly, so no pin appears in
+        /// two sections.
+        var id: String { (title ?? "") + "\u{1}" + (rows.first?.id ?? "") }
+    }
+
     /// **A scrap is not an item and has no `CanvasItemKind`** — it is loose
     /// words the writer typed on the board, and its text lives in `canvas.md`
     /// rather than in the manifest. So it is the one glyph this file names, and
@@ -44,12 +80,18 @@ struct ReferencesPane: View {
     static let emptyTitle = "Nothing pinned yet."
 
     /// **Both ways in, and naming only one would be worse than naming neither**
-    /// — it would read as the only way. They are two of the three sources
-    /// `PinnedReferences.pinned` draws on; the third, research a Collection or
-    /// a single-document project CONTAINS, is not an act the writer performs
-    /// and so is not an instruction this copy can give.
+    /// — it would read as the only way.
+    ///
+    /// It says *add* and never *link*. Linking is a **Novel** chapter's spelling
+    /// of adding research and nothing else's: `ResearchScope.researchRouting`
+    /// answers `.sharedPlusLink` for a novel, `.pieceFolder` for a Collection's
+    /// loose piece and `.sharedOnly` for a short story or a screenplay, and only
+    /// the first writes a link record. Research reaches this shelf from all
+    /// three since §2.1, so an instruction to link would send every writer but
+    /// the novelist after a command their project type does not offer. "Add
+    /// research to this document" is what all three of them actually do.
     static let emptyDescription =
-        "Link research to this document, or cluster its cards inside a region on "
+        "Add research to this document, or cluster its cards inside a region on "
         + "the planning canvas."
 
     /// **Author and Review, as of Denver's 2026-08-14 ruling (spec §9).**
@@ -67,7 +109,7 @@ struct ReferencesPane: View {
     /// points→pixels allowance, and the bucket ladder snaps it up from there.
     static let thumbnailSize: CGFloat = 32
 
-    let rows: [Row]
+    let sections: [Section]
     let projectRoot: URL
     /// **Whether a row's click can reach the assistant column.** The same
     /// predicate as `AssistantColumn.isPresented`'s persona veto
@@ -78,6 +120,16 @@ struct ReferencesPane: View {
     @Bindable var assistant: AssistantColumnModel
 
     private var isInteractive: Bool { persona.studiesPinnedReferences }
+
+    /// Every row on the shelf, in section order.
+    ///
+    /// The thumbnail pass and the empty state are about the shelf's CONTENTS,
+    /// which the sections partition rather than change. One flatMap over a list
+    /// that is short by construction is not tripwire 4's per-row manifest walk —
+    /// what that tripwire forbids is work *inside* a row's body, and the work
+    /// this shelf could get wrong that way (a manifest walk, a canvas read)
+    /// happens in the host's `.task` and arrives here already done.
+    private var allRows: [Row] { sections.flatMap(\.rows) }
 
     /// Thumbnails decoded for this shelf, by project-relative path.
     ///
@@ -94,7 +146,7 @@ struct ReferencesPane: View {
     var body: some View {
         VStack(spacing: 0) {
             Group {
-                if rows.isEmpty {
+                if allRows.isEmpty {
                     // Tripwire 15: without the full frame chain SwiftUI sizes to
                     // the intrinsic content and the enclosing stack collapses,
                     // floating the pane's picker to the window's centre.
@@ -116,9 +168,14 @@ struct ReferencesPane: View {
                     // and here it also makes the behaviour untestable, which is
                     // worse: the test skips and the suite reads green.
                     ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(rows) { row in
-                                rowView(row)
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(sections) { section in
+                                if let title = section.title {
+                                    sectionHeader(title)
+                                }
+                                ForEach(section.rows) { row in
+                                    rowView(row)
+                                }
                             }
                         }
                         .padding(.vertical, 4)
@@ -145,9 +202,26 @@ struct ReferencesPane: View {
         // dictionary lookup by contract and `servicePending` is `async` so that
         // it cannot be called from a draw pass. Re-run when the shelf's contents
         // change, which is the only time a new picture can be wanted.
-        .task(id: rows.map(\.id).joined(separator: "\u{1}")) {
+        .task(id: allRows.map(\.id).joined(separator: "\u{1}")) {
             await loadThumbnails()
         }
+    }
+
+    /// **A caption over a titled run** — the weight the window's other lists
+    /// give their section headers, so the shelf reads as one of them rather than
+    /// as a form. It is a plain `Text` and never a control: a section is not a
+    /// thing to study, and nothing on this shelf may look pressable without
+    /// being so (the same rule the non-studying footer exists to keep).
+    @ViewBuilder
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel(title)
     }
 
     /// One row, interactive or not. **Never a disabled `Button`** — a disabled
@@ -205,7 +279,7 @@ struct ReferencesPane: View {
     }
 
     private func loadThumbnails() async {
-        let wanted = rows.compactMap(\.thumbnailPath)
+        let wanted = allRows.compactMap(\.thumbnailPath)
         guard !wanted.isEmpty else {
             if !images.isEmpty { images = [:] }
             return
@@ -255,6 +329,18 @@ struct ReferencesPane: View {
             }
         }
     }
+
+    /// The shelf resolved for drawing: each section's title carried across
+    /// untouched, its references through `rows(for:in:)`.
+    ///
+    /// A wrapper and not a second derivation — the grouping is
+    /// `PinnedReferences.pinned`'s and the glyphs are `CanvasItemFacts`', and
+    /// this function's whole job is to put one inside the other.
+    static func sections(for shelf: PinnedShelf, in items: CanvasItemIndex) -> [Section] {
+        shelf.sections.map {
+            Section(title: $0.title, rows: rows(for: $0.references, in: items))
+        }
+    }
 }
 
 // MARK: - Assembling the shelf
@@ -273,7 +359,7 @@ struct ReferencesPaneHost: View {
     let persona: Persona
     @Bindable var assistant: AssistantColumnModel
 
-    @State private var rows: [ReferencesPane.Row] = []
+    @State private var sections: [ReferencesPane.Section] = []
 
     /// **Three signals, and each is needed** — the same argument
     /// `CanvasItemIndex.fingerprint` makes for its own two-part key:
@@ -303,13 +389,13 @@ struct ReferencesPaneHost: View {
     }
 
     var body: some View {
-        ReferencesPane(rows: rows, projectRoot: projectURL, persona: persona,
+        ReferencesPane(sections: sections, projectRoot: projectURL, persona: persona,
                        assistant: assistant)
             .task(id: reloadKey) {
                 let shelf = PinnedReferenceResolver.pins(
                     forDocId: docId, store: store, projectRoot: projectURL)
-                rows = ReferencesPane.rows(
-                    for: shelf.references,
+                sections = ReferencesPane.sections(
+                    for: shelf,
                     in: CanvasItemIndex.over(research: store.manifest.research))
             }
     }
