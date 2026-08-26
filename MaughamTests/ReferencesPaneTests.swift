@@ -423,6 +423,21 @@ final class ReferencesPaneTests: XCTestCase {
                        "the shelf must draw exactly one heading — the bound region's "
                        + "label — and nothing over the untitled research above it. "
                        + "Found: \(strings)")
+
+        // **And it is a heading, not grey text.** A grouping that exists only
+        // in caption grey is invisible to the writer who listens: the rows and
+        // the heading would read as one undifferentiated run, which is the flat
+        // shelf §2.2 is about, restored for VoiceOver alone. The trait is what
+        // lets a listener move section by section, and it is observable —
+        // measured: `.isHeader` bridges to role `AXHeading` here.
+        let header = (try axTree(in: window)).first {
+            (axAttribute($0, "accessibilityLabel") as? String) == "Fog bank"
+        }
+        XCTAssertEqual(header.flatMap { axAttribute($0, "accessibilityRole") as? String },
+                       "AXHeading",
+                       "the section's caption must carry the header trait — without it "
+                       + "the grouping is visual only, and a writer using VoiceOver gets "
+                       + "the flat shelf back")
     }
 
     // MARK: - Contract: Review studies too (Denver's 2026-08-14 ruling, spec §9)

@@ -212,6 +212,13 @@ struct ReferencesPane: View {
     /// as a form. It is a plain `Text` and never a control: a section is not a
     /// thing to study, and nothing on this shelf may look pressable without
     /// being so (the same rule the non-studying footer exists to keep).
+    ///
+    /// **The header trait is load-bearing, not decoration.** Caption grey says
+    /// "these belong together" to a writer who looks and to nobody else; with
+    /// `.isHeader` the caption reads as a heading and a listener can move
+    /// section by section, instead of hearing the flat shelf §2.2 exists to
+    /// end. The same argument the canvas makes for `CanvasAccessibility`'s
+    /// spoken term, where a lean is what is inaudible.
     @ViewBuilder
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
@@ -222,6 +229,7 @@ struct ReferencesPane: View {
             .padding(.bottom, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel(title)
+            .accessibilityAddTraits(.isHeader)
     }
 
     /// One row, interactive or not. **Never a disabled `Button`** — a disabled
