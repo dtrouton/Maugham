@@ -299,9 +299,12 @@ final class CompilerOrchestrator {
         var recordFacts: @MainActor ([BibleFact]) -> Void
         /// What the writer pinned beside this document — linked research
         /// unioned with the canvas cluster (`PinnedReferences`, §7.2) — as
-        /// "title (id) — tool" lines. Empty is a valid answer (nothing
-        /// pinned, or the Plan side never opened); `CompilerPrompt` omits the
-        /// whole section rather than showing nothing.
+        /// "title (id) — tool" lines, grouped exactly as the `PinnedShelf`
+        /// arranges them: a `## <title>` line ahead of each titled section,
+        /// no header over an untitled one (`pinnedListingLines`). Empty is a
+        /// valid answer (nothing pinned, or the Plan side never opened);
+        /// `CompilerPrompt` omits the whole section rather than showing
+        /// nothing.
         var pinnedListing: @MainActor (String) -> [String]
         /// Every card in the project's palette, "title (id)" — independent
         /// of the document, because the palette is project-wide vocabulary

@@ -330,9 +330,12 @@ extension CompilerOrchestrator.Environment {
                 // the attached-or-sidecar scene discriminator, the manifest
                 // index, and `linkedResearchIds` rather than
                 // `StructureItem.links`. See that file for what each costs.
-                return PinnedReferenceResolver.pins(
-                    forDocId: docId, store: store, projectRoot: projectURL
-                ).references.map(Self.pinnedListingLine)
+                // `pinnedListingLines` carries the resolved `PinnedShelf`'s own
+                // section grouping into the lines below (references-shelf,
+                // Task 3): a run reads the same "## <region>" headings the
+                // writer sees in the pane, not a re-alphabetised flat list.
+                return Self.pinnedListingLines(PinnedReferenceResolver.pins(
+                    forDocId: docId, store: store, projectRoot: projectURL))
             },
             paletteListing: { [weak store] in
                 guard let store else { return [] }
@@ -385,6 +388,28 @@ extension CompilerOrchestrator.Environment {
         case .palette: return "\(base) — read_palette_card"
         case .scrap: return "\(base) — list_canvas"
         case .photo: return "\(base) — no read tool yet, title only"
+        }
+    }
+
+    /// The shelf's own grouping, carried into the briefing: one
+    /// `pinnedListingLine` per pin, with a `## <title>` line ahead of each
+    /// TITLED section — an untitled section (the research run at the top of
+    /// the shelf) gets no header, exactly as `ReferencesPane` draws no
+    /// caption over it. `internal` rather than `private` so it is unit
+    /// testable with no project on disk (`CompilerPromptTests`); the closure
+    /// above is its only production caller.
+    ///
+    /// `CompilerPrompt.listingSections` bullets every line it is given
+    /// unchanged, so a `##` header rides into the prompt as a bulleted line
+    /// too (`- ## Act II fog`) rather than real Markdown structure — accepted
+    /// per the references-shelf design's §2 Readers, which asks only that a
+    /// run be briefed on the same grouping the writer sees, not that the
+    /// prompt itself be pretty.
+    static func pinnedListingLines(_ shelf: PinnedShelf) -> [String] {
+        shelf.sections.flatMap { section -> [String] in
+            let lines = section.references.map(pinnedListingLine)
+            guard let title = section.title else { return lines }
+            return ["## \(title)"] + lines
         }
     }
 

@@ -996,4 +996,45 @@ final class CompilerPromptTests: XCTestCase {
             + "compiler run, warm or cold; if it grew here, that is a "
             + "conscious cost, so look at what grew before raising the ceiling.")
     }
+
+    // MARK: - The briefing carries the shelf's grouping (references-shelf, Task 3)
+
+    /// One line per pin, exactly as `pinnedListingLine` writes today, with a
+    /// `## <title>` line ahead of each TITLED section — an untitled section
+    /// (the research run at the top of the shelf) gets no header at all, so a
+    /// run reads the same grouping the writer sees in the References pane.
+    func test_pinnedListingLinesPrecedesEachTitledSectionWithAHeader() {
+        let untitled = PinnedSection(
+            title: nil,
+            references: [PinnedReference(id: "res-sarah", kind: .research(itemId: "res-sarah"),
+                                         title: "Sarah")])
+        let titled = PinnedSection(
+            title: "Act II fog",
+            references: [PinnedReference(id: "res-fog", kind: .research(itemId: "res-fog"),
+                                         title: "The falls at night")])
+        let shelf = PinnedShelf(sections: [untitled, titled])
+
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(shelf)
+
+        XCTAssertEqual(lines, [
+            "Sarah (res-sarah) — read_document",
+            "## Act II fog",
+            "The falls at night (res-fog) — read_document",
+        ])
+    }
+
+    /// A shelf with no titled sections at all — every reference under one
+    /// untitled run — emits no header anywhere.
+    func test_pinnedListingLinesEmitsNoHeaderForAnUntitledShelf() {
+        let shelf = PinnedShelf(sections: [
+            PinnedSection(title: nil, references: [
+                PinnedReference(id: "res-sarah", kind: .research(itemId: "res-sarah"),
+                                title: "Sarah"),
+            ]),
+        ])
+
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(shelf)
+
+        XCTAssertEqual(lines, ["Sarah (res-sarah) — read_document"])
+    }
 }
