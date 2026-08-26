@@ -2433,7 +2433,8 @@ struct ProjectWindow: View {
                 // is what `DetailColumnWidthTests` is about.
                 if AssistantColumn.isPresented(studied: assistant.studied,
                                                persona: persona,
-                                               isNoChromeOn: isNoChromeOn) {
+                                               isNoChromeOn: isNoChromeOn,
+                                               showInspector: showInspector) {
                     AssistantColumn(store: store, projectRoot: url,
                                     assistant: assistant)
                 } else {

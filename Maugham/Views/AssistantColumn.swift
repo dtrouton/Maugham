@@ -149,9 +149,18 @@ struct AssistantColumn: View {
     /// the escape-arbiter fix. Switching to a non-studying persona hides the
     /// column but leaves `studied` alone, so switching back — to Author or to
     /// Review — restores exactly what was up.
+    /// **`showInspector` is the fourth veto, and it is C1 arriving one input
+    /// later** (2026-08-25, superseding spec §3.2's "three inputs unchanged").
+    /// The column lives in `ProjectWindow.detailColumn`'s first arm, which is
+    /// behind `showInspector` — so ⌘⌥I with a pin studied takes the column off
+    /// screen without touching what is studied, exactly as ⌘\ does, and a
+    /// predicate blind to the flag left an invisible column holding the window's
+    /// highest-priority Escape claim. Not a dismiss: ⌘⌥I back restores the
+    /// study, the same clean cut the persona input made.
     static func isPresented(studied: PinnedReference?, persona: Persona,
-                            isNoChromeOn: Bool) -> Bool {
+                            isNoChromeOn: Bool, showInspector: Bool) -> Bool {
         studied != nil && persona.studiesPinnedReferences && !isNoChromeOn
+            && showInspector
     }
 
     @State private var subject: Subject?
@@ -293,6 +302,12 @@ final class AssistantColumnEscape {
     /// left minutes ago.
     private var persona: Persona = .default
 
+    /// The window's right-column flag, refreshed by every `sync` and read at
+    /// event time beside the other three: the column is `detailColumn`'s first
+    /// arm and ⌘⌥I takes that whole column away, which is C1's hazard one input
+    /// later.
+    private var showInspector = true
+
     /// The arbiter this consumer is currently registered with, or nil. Held
     /// weakly: the table in `WindowEscapeArbiter` owns them, keyed by window.
     private weak var arbiter: WindowEscapeArbiter?
@@ -312,7 +327,8 @@ final class AssistantColumnEscape {
     /// condition written out here is exactly how the two diverged.
     private var isColumnPresented: Bool {
         AssistantColumn.isPresented(studied: model?.studied, persona: persona,
-                                    isNoChromeOn: isNoChromeOn)
+                                    isNoChromeOn: isNoChromeOn,
+                                    showInspector: showInspector)
     }
 
     /// Register or resign to match **the column's presentation**. Idempotent in
@@ -339,16 +355,23 @@ final class AssistantColumnEscape {
     /// also closes the review's finding 3 (the previous comment claimed the
     /// window was read at event time when it was really read at last-sync time).
     ///
+    /// **`showInspector` joined them as a fourth (2026-08-25).** ⌘⌥I hides the
+    /// right column, the study column IS that column's first arm, and nothing
+    /// dismisses the studied pin when the flag flips — so the same invisible
+    /// claim C1 found came back through a different key. The rule is one
+    /// function; every input it reads is synced here.
+    ///
     /// **`persona` joined `isNoChromeOn` as a third input the mounting site must
     /// sync on (2026-08-08).** A writer who leaves Author with a pin studied
     /// must not go on holding the window's highest-priority Escape claim for a
     /// column nobody can see — the same hazard C1 found for `isNoChromeOn`,
     /// one input later.
     func sync(model: AssistantColumnModel, window: NSWindow?, persona: Persona,
-             isNoChromeOn: Bool) {
+             isNoChromeOn: Bool, showInspector: Bool) {
         self.model = model
         self.persona = persona
         self.isNoChromeOn = isNoChromeOn
+        self.showInspector = showInspector
         guard isColumnPresented, let window else {
             stop()
             return
@@ -461,6 +484,13 @@ struct AssistantColumnModifier: ViewModifier {
             // otherwise leave the column registered nowhere.
             .onChange(of: window) { _, _ in syncEscape() }
             .onChange(of: isNoChromeOn) { _, _ in syncEscape() }
+            // **⌘⌥I, the fourth input** (2026-08-25). The column is
+            // `ProjectWindow.detailColumn`'s first arm and this flag is what
+            // mounts that arm at all, so hiding the right column takes the
+            // study column off screen with the pin still studied — C1's
+            // invisible Escape claim, one key later. Watched, never stashed:
+            // ⌘⌥I back brings the study straight back.
+            .onChange(of: showInspector) { _, _ in syncEscape() }
             // **Not `assistant.dismiss()`.** Leaving Author must drop the Escape
             // claim for a column nobody can see, exactly like `isNoChromeOn` —
             // but the studied pin itself survives, so ⌘2 back restores it. See
@@ -498,7 +528,7 @@ struct AssistantColumnModifier: ViewModifier {
 
     private func syncEscape() {
         escape.sync(model: assistant, window: window, persona: persona,
-                    isNoChromeOn: isNoChromeOn)
+                    isNoChromeOn: isNoChromeOn, showInspector: showInspector)
     }
 
     /// The window's persona and its right-hand pane, as one value, because the

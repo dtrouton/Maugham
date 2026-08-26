@@ -223,7 +223,8 @@ final class StudyColumnMountTests: XCTestCase {
             HStack(spacing: 0) {
                 if AssistantColumn.isPresented(studied: probe.assistant.studied,
                                                persona: probe.persona,
-                                               isNoChromeOn: probe.isNoChromeOn) {
+                                               isNoChromeOn: probe.isNoChromeOn,
+                                               showInspector: true) {
                     AssistantColumn(store: store, projectRoot: projectRoot,
                                     assistant: probe.assistant)
                 } else {
