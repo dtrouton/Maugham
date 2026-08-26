@@ -149,6 +149,7 @@ struct AssistantColumn: View {
     /// the escape-arbiter fix. Switching to a non-studying persona hides the
     /// column but leaves `studied` alone, so switching back — to Author or to
     /// Review — restores exactly what was up.
+    ///
     /// **`showInspector` is the fourth veto, and it is C1 arriving one input
     /// later** (2026-08-25, superseding spec §3.2's "three inputs unchanged").
     /// The column lives in `ProjectWindow.detailColumn`'s first arm, which is
