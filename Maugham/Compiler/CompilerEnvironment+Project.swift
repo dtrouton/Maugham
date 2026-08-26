@@ -405,13 +405,50 @@ extension CompilerOrchestrator.Environment {
     /// per the references-shelf design's §2 Readers, which asks only that a
     /// run be briefed on the same grouping the writer sees, not that the
     /// prompt itself be pretty.
+    ///
+    /// **Capped at `pinnedListingCap` pin lines** (whole-branch review I3,
+    /// 2026-08-26). The shelf's §2.1 widening means a short story or a
+    /// screenplay pins EVERY research asset in the project, on every piece, so
+    /// the briefing's length stopped being a property of what the writer chose
+    /// and became a property of how much research their project holds — and
+    /// this listing ships on every ⌘R, with a running cost. The cap is on pins
+    /// and not on lines: a `## <region>` header is what says where the pins
+    /// below it came from, and dropping headers to make room would save four
+    /// tokens and cost the grouping this milestone exists to carry.
+    ///
+    /// The trailer is not decoration either — a silently short list reads to
+    /// the model as *"this is all of it"*, and a run that concludes a fact is
+    /// unsupported because its source was truncated away is the failure this
+    /// line exists to prevent. It names the surface that holds the rest, which
+    /// is the one place the writer can act on it.
     static func pinnedListingLines(_ shelf: PinnedShelf) -> [String] {
-        shelf.sections.flatMap { section -> [String] in
-            let lines = section.references.map(pinnedListingLine)
-            guard let title = section.title else { return lines }
-            return ["## \(title)"] + lines
+        var out: [String] = []
+        var emitted = 0
+        for section in shelf.sections where emitted < pinnedListingCap {
+            let taken = section.references.prefix(pinnedListingCap - emitted)
+            guard !taken.isEmpty else { continue }
+            // The header only when something lands under it — a heading over
+            // nothing is the same defect `PinnedShelf`'s own assembly drops.
+            if let title = section.title { out.append("## \(title)") }
+            out.append(contentsOf: taken.map(pinnedListingLine))
+            emitted += taken.count
         }
+        let total = shelf.references.count
+        if total > emitted {
+            out.append("…and \(total - emitted) more pinned — see References")
+        }
+        return out
     }
+
+    /// How many pinned references a run is briefed on before the listing says
+    /// how many more there are.
+    ///
+    /// **Pins, not lines** — `## <region>` headers do not count against it. Forty
+    /// is chosen the way `scrapTitleCharacterLimit` was: enough that a writer's
+    /// own arrangement (a chapter's linked notes plus a few bound regions) is
+    /// never truncated, small enough that a screenplay whose research tree runs
+    /// to hundreds of assets does not ship all of them on every ⌘R.
+    static let pinnedListingCap = 40
 
     // The session's bridge config — the binary and the directory — lives on
     // `ClaudeCLISession` itself now that the translator spawns sessions too

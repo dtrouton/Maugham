@@ -7,9 +7,17 @@ import MaughamCore
 /// research the writer linked to it, unioned with the cards they clustered for
 /// it on the planning canvas — as a thumbnail, a kind glyph and a title.
 ///
-/// *A shelf, not a browser.* It offers no search, no tree and no filter: the
-/// list is short by construction, and a writer who wants to browse research has
-/// ⌘⌥R two segments away. What one click does is promote a pin into the
+/// *A shelf, not a browser.* It offers no search, no tree and no filter, and a
+/// writer who wants to browse research has ⌘⌥R two segments away. **How long the
+/// list actually is depends on the project type** (corrected 2026-08-26, when
+/// §2.1 routed derivation into it and this paragraph still said "short by
+/// construction"): a Novel chapter shows what the writer linked to it plus what
+/// they clustered for it, and a Collection piece its own research folder plus the
+/// same — both bounded by the writer's own arranging. A short story or a
+/// screenplay has no per-piece research at all, so it shows EVERY research asset
+/// in the project, plus its cards. On a project whose research tree has grown,
+/// that is a long list with no way to filter it, which is the honest cost of
+/// §2.1's ruling rather than a defect to fix here. What one click does is promote a pin into the
 /// assistant column — which, since spec §3.2 (2026-08-25), is THIS column:
 /// studying replaces the picker and the shelf rather than opening a fourth
 /// column beside the prose.
@@ -126,11 +134,11 @@ struct ReferencesPane: View {
     /// Every row on the shelf, in section order.
     ///
     /// The thumbnail pass and the empty state are about the shelf's CONTENTS,
-    /// which the sections partition rather than change. One flatMap over a list
-    /// that is short by construction is not tripwire 4's per-row manifest walk —
-    /// what that tripwire forbids is work *inside* a row's body, and the work
-    /// this shelf could get wrong that way (a manifest walk, a canvas read)
-    /// happens in the host's `.task` and arrives here already done.
+    /// which the sections partition rather than change. One flatMap over an
+    /// already-resolved array is not tripwire 4's per-row manifest walk — what
+    /// that tripwire forbids is work *inside* a row's body, and the work this
+    /// shelf could get wrong that way (a manifest walk, a canvas read) happens
+    /// in the host's `.task` and arrives here already done.
     private var allRows: [Row] { sections.flatMap(\.rows) }
 
     /// Thumbnails decoded for this shelf, by project-relative path.
@@ -288,6 +296,14 @@ struct ReferencesPane: View {
         .clipped()
     }
 
+    /// **Every picture on the shelf, in one pass, and deliberately uncapped.**
+    /// Since §2.1 that can be the project's whole research tree on a short story
+    /// or a screenplay — but `CanvasThumbnails` is a BOUNDED cache with a
+    /// permanent path→aspect memo beside it (tripwire 22's neighbour), so a
+    /// tree larger than the cache costs eviction and re-decode on the next open,
+    /// never unbounded memory. Left as it is (whole-branch review I3, 2026-08-26):
+    /// a cap here would put a glyph where a writer expects their photograph, on
+    /// rows they can see, to buy back work the cache already bounds.
     private func loadThumbnails() async {
         let wanted = allRows.compactMap(\.thumbnailPath)
         guard !wanted.isEmpty else {

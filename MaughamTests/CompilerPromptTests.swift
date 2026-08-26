@@ -1037,4 +1037,67 @@ final class CompilerPromptTests: XCTestCase {
 
         XCTAssertEqual(lines, ["Sarah (res-sarah) — read_document"])
     }
+
+    /// **The listing is capped, and it says what it left out** (whole-branch
+    /// review I3, 2026-08-26).
+    ///
+    /// §2.1 routes `derivedResearchItems` into the shelf, and for a short story
+    /// or a screenplay that is *every research asset in the project*, on every
+    /// piece — so the briefing's length became a property of how much research
+    /// the writer holds rather than of what they chose, on a listing that ships
+    /// with every ⌘R. The prompt-ceiling test above guards a fixture; this
+    /// guards the real bound.
+    ///
+    /// The trailer matters as much as the cap: a silently short list reads to
+    /// the model as "this is all of it".
+    func test_pinnedListingLinesCapsThePinsAndSaysHowManyItLeftOut() {
+        let cap = CompilerOrchestrator.Environment.pinnedListingCap
+        let many = (0..<(cap + 7)).map { i in
+            PinnedReference(id: "res-\(i)", kind: .research(itemId: "res-\(i)"),
+                            title: "Note \(i)")
+        }
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            PinnedShelf(sections: [PinnedSection(title: nil, references: many)]))
+
+        XCTAssertEqual(lines.count, cap + 1,
+                       "\(cap) pins and the trailer, or the ceiling is not a "
+                       + "ceiling")
+        XCTAssertEqual(lines.first, "Note 0 (res-0) — read_document",
+                       "the writer's own order survives the cap — it truncates "
+                       + "the tail, it does not sample")
+        XCTAssertEqual(lines.last, "…and 7 more pinned — see References",
+                       "a short list with nothing saying so reads as the whole "
+                       + "of it, and a run can conclude a fact is unsupported "
+                       + "because its source was truncated away")
+    }
+
+    /// **Headers do not count against the cap, and none is emitted over
+    /// nothing.** The `## <region>` line is what says where the pins under it
+    /// came from — dropping headers to make room would save four tokens and cost
+    /// the grouping this listing exists to carry — and a section the cap leaves
+    /// no room for is omitted whole rather than drawn as a bare heading.
+    func test_theCapCountsPinsAndNeverLeavesAHeadingOverNothing() {
+        let cap = CompilerOrchestrator.Environment.pinnedListingCap
+        let full = (0..<cap).map { i in
+            PinnedReference(id: "res-\(i)", kind: .research(itemId: "res-\(i)"),
+                            title: "Note \(i)")
+        }
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            PinnedShelf(sections: [
+                PinnedSection(title: "Act I", references: Array(full.prefix(2))),
+                PinnedSection(title: "Act II fog", references: Array(full.dropFirst(2))),
+                PinnedSection(title: "Act III", references: [
+                    PinnedReference(id: "res-late", kind: .research(itemId: "res-late"),
+                                    title: "Too late"),
+                ]),
+            ]))
+
+        XCTAssertEqual(lines.first, "## Act I",
+                       "the two headers that DO have room are emitted, and they "
+                       + "are not what the cap counts")
+        XCTAssertEqual(lines.filter { $0.hasPrefix("## ") }.count, 2,
+                       "the third section had no room for a pin, so it is "
+                       + "omitted whole rather than drawn as a bare heading")
+        XCTAssertEqual(lines.last, "…and 1 more pinned — see References")
+    }
 }
