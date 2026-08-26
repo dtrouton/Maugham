@@ -60,12 +60,13 @@ you were going for.
 
 ## References, and what you can study
 
-⌘⌥E opens **References** — the research you've linked to this document, plus
-any cards you've clustered for it on the planning canvas, as a shelf of
-thumbnails and titles. Click a pin and it opens in a column between the binder
-and your prose, wide enough to read, and you can drag its edge to resize.
-Click the same pin again, promote a different one, or press Escape, and it
-goes back.
+⌘⌥E opens **References** — the research you've linked to this document (or,
+in a Collection, simply placed inside it — no separate linking step), plus
+any cards you've clustered for it on the planning canvas, grouped by the
+region you arranged them in, as a shelf of thumbnails and titles. Click a pin
+and it studies in the right column itself, in place of whatever pane was
+there — your writing column doesn't move. ✕ or Escape puts the pane back;
+promoting a different pin swaps it.
 
 **This is the same list a check reads.** What's on your shelf is what Claude
 is briefed on when you press ⌘R — nothing more, nothing hidden. Full mechanics

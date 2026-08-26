@@ -607,9 +607,12 @@ public extension Persona {
     /// Review with no column on screen to receive it.
     ///
     /// **Plan and Publish stay out, for reasons already on record rather than
-    /// new ones minted here.** Plan: the column would take 260–620pt from the
-    /// canvas §8A.3 protects. Publish: no registry pane ever offered a study
-    /// column, and its centre is the compiled book.
+    /// new ones minted here.** Plan: studying would replace Plan's own right
+    /// column — the canvas's Inspector, region/scrap/line arms and every
+    /// Promote button — at `detailColumnWidth` (240–480pt, 2026-08-25; no
+    /// longer a separate width of its own), which is exactly the column §8A.3
+    /// protects. Publish: no registry pane ever offered a study column, and
+    /// its centre is the compiled book.
     ///
     /// Exhaustive with no `default:`, so a fifth persona has to say whether
     /// it studies pins rather than inheriting "no".

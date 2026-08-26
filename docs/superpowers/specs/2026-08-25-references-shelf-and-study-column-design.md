@@ -1,7 +1,7 @@
 # The references shelf and the study column — design
 
-**Date:** 2026-08-25 · **Status:** approved by Denver in conversation ("go"), built on branch `claude/references-shelf-2026-08-25`
-**Amends:** `2026-07-25-mode-based-ux-redesign-design.md` §"Referencing — pinned, promotable"; `2026-08-04-m2-author-compiler-design.md` §6.2; `2026-08-01-persona-shell-workflow-design.md` §8A.3 (the canvas collapse)
+**Date:** 2026-08-25 · **Status:** approved by Denver in conversation ("go"); built on branch `claude/references-shelf-2026-08-25` — all four findings fixed, docs moved with the code. See `docs/roadmap.md`'s dated entry for what shipped and `docs/guide/right-pane.md` (§References mode) / `docs/guide/compiler.md` (§"References, and what you can study") for the writer-facing surface.
+**Amends:** `2026-07-25-mode-based-ux-redesign-design.md` §"Referencing — pinned, promotable"; `2026-08-04-m2-author-compiler-design.md` §6.2; `2026-07-25-planning-canvas-design.md` §8A.3 (the canvas collapse — not `2026-08-01-persona-shell-workflow-design.md`, which cites §8A.3 but does not contain it)
 **Constitution:** *the words are safe* is untouched; this is about the writer being able to SEE what they pinned and still have a column to write in.
 
 ## 1. What Denver saw

@@ -224,6 +224,8 @@ Two distinct needs hide inside "side by side":
 
 **Referencing — pinned, promotable.** The piece's pinned set renders as thumbnails in a References pane (⌘⌥E). Clicking a pin promotes it into a full assistant column between binder and editor, at a size you can actually study; clicking again sends it back. Small by default, big when it earns it — which keeps the three-column layout honest at normal window widths and only squeezes the centred writing column when asked.
 
+> **Amended 2026-08-25**: the studied pin no longer opens a fourth column between binder and editor — it takes the right column itself, in place of the pane picker and the pane, and no longer squeezes the prose. The pinned set also gained structure (sections by canvas region, a promoted region contributing its note). See `docs/superpowers/specs/2026-08-25-references-shelf-and-study-column-design.md`.
+
 **Glancing — the intent strip.** A single dimmed line above the prose, permanently visible in the Author persona, hidden in ⌘\ focus mode. This is the compiler frame made literal: an IDE keeps the signature in view while you write the body. It is not a pane and you never open it; you just never quite lose it.
 
 ---
