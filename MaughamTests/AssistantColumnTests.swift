@@ -597,29 +597,42 @@ final class AssistantColumnTests: XCTestCase {
     }
 
     /// **Registered exactly when there is a column**, asked over the product of
-    /// all three inputs and stated against `isPresented` itself rather than a
-    /// second copy of the rule — the conditions diverging is what C1 *was*, and
-    /// persona is the input the 2026-08-08 ruling added to the same product.
+    /// all FOUR inputs and stated against `isPresented` itself rather than a
+    /// second copy of the rule — the conditions diverging is what C1 *was*,
+    /// persona is the input the 2026-08-08 ruling added to the same product, and
+    /// `showInspector` is the one ⌘⌥I added (2026-08-25).
+    ///
+    /// The fourth was nailed to `true` on both sides until the whole-branch
+    /// review's M4 (2026-08-26), which made this census unable to see the exact
+    /// defect class it exists for: a `sync` that stopped reading `showInspector`
+    /// while `isPresented` still did would have passed it. Nothing was
+    /// unguarded — `test_aColumnHiddenByTheRightColumnHoldsNoClaimOnEscape`
+    /// covers that case directly — but a census that pins one of its inputs to a
+    /// constant is not asking the question its own comment claims.
     func test_theConsumerIsRegisteredExactlyWhenThereIsAColumn() {
         for pin in [nil, aPin()] {
             for persona in Persona.allCases {
                 for noChrome in [false, true] {
-                    let window = makeWindow()
-                    let escape = AssistantColumnEscape()
-                    let model = AssistantColumnModel()
-                    if let pin { model.study(pin) }
+                    for inspector in [false, true] {
+                        let window = makeWindow()
+                        let escape = AssistantColumnEscape()
+                        let model = AssistantColumnModel()
+                        if let pin { model.study(pin) }
 
-                    escape.sync(model: model, window: window, persona: persona,
-                               isNoChromeOn: noChrome, showInspector: true)
-                    XCTAssertEqual(
-                        escape.isInstalled,
-                        AssistantColumn.isPresented(studied: model.studied, persona: persona,
-                                                    isNoChromeOn: noChrome,
-                                            showInspector: true),
-                        "the Escape claim and the column disagree about whether there "
-                        + "is a column: studied \(pin?.id ?? "nil"), persona \(persona), "
-                        + "isNoChromeOn \(noChrome)")
-                    escape.stop()
+                        escape.sync(model: model, window: window, persona: persona,
+                                    isNoChromeOn: noChrome, showInspector: inspector)
+                        XCTAssertEqual(
+                            escape.isInstalled,
+                            AssistantColumn.isPresented(studied: model.studied,
+                                                        persona: persona,
+                                                        isNoChromeOn: noChrome,
+                                                        showInspector: inspector),
+                            "the Escape claim and the column disagree about whether "
+                            + "there is a column: studied \(pin?.id ?? "nil"), "
+                            + "persona \(persona), isNoChromeOn \(noChrome), "
+                            + "showInspector \(inspector)")
+                        escape.stop()
+                    }
                 }
             }
         }

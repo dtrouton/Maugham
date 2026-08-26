@@ -200,6 +200,33 @@ final class ResearchNotePreviewParseTests: XCTestCase {
         XCTAssertEqual(String(text2.characters), "first")
     }
 
+    /// **A list item's own whitespace does not reach the rendered row** —
+    /// whole-branch review M3, 2026-08-26.
+    ///
+    /// This pane parses with `.inlineOnlyPreservingWhitespace` so a writer's
+    /// hard wrap survives inside a paragraph, and that option preserves every
+    /// space it is handed rather than collapsing runs the way `.full` did. A
+    /// wrapped list item is joined out of several source lines, so any spacing
+    /// left on one of them lands in the middle of the row's text.
+    func test_aWrappedListItemCarriesNoneOfItsSourceWhitespace() throws {
+        let project = try makeProject()
+        // Indented continuation, and a trailing space on the item's first line —
+        // both invisible in the writer's file, both preserved by the new options.
+        let text = "-   the fog came down   \n    over the whole valley"
+        let blocks = ResearchNotePreviewPane.parse(
+            text: text, notePath: "research/sarah.md", projectURL: project)
+
+        XCTAssertEqual(blocks.count, 1, "got \(blocks)")
+        guard case .listItem(_, _, let attr) = blocks[0] else {
+            return XCTFail("expected listItem, got \(blocks[0])")
+        }
+        XCTAssertEqual(String(attr.characters),
+                       "the fog came down over the whole valley",
+                       "one space between the joined lines, and none leading — "
+                       + "the bullet is drawn by the view, so any indentation "
+                       + "here is a second, ragged one beside it")
+    }
+
     func test_tableRendersHeaderAndRows() throws {
         let project = try makeProject()
         let text = "| a | b |\n|---|---|\n| 1 | 2 |"

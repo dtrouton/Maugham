@@ -275,7 +275,8 @@ final class StudyColumnMountTests: XCTestCase {
             .map { Double($0.visibleFrame.width) } ?? .greatestFiniteMagnitude
         try XCTSkipUnless(
             display >= Double(ProjectWindow.windowFloor),
-            "test_studyColumnMount: this display is \(display)pt wide, narrower "
+            "StudyColumnMountTests (every test in the class): this display is "
+            + "\(display)pt wide, narrower "
             + "than the window's own \(ProjectWindow.windowFloor)pt floor, so "
             + "the three columns cannot be mounted at the widths this file "
             + "measures")

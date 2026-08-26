@@ -157,9 +157,19 @@ struct ResearchNotePreviewPane: View {
         (try? AttributedString(markdown: text, options: inlinePreservingWhitespace)) ?? AttributedString(text)
     }
 
+    /// **Every line is trimmed, line 0 included** — which is where this spelling
+    /// parts company with the identical-looking ones in `GuideMarkdownView` and
+    /// `SyntaxHelpSheet` (whole-branch review M3, 2026-08-26). Those two parse
+    /// with `.full`, which strips leading and collapses run-together whitespace
+    /// on its own; this pane parses with `.inlineOnlyPreservingWhitespace` so a
+    /// writer's own line break survives (see the file header), and that option
+    /// PRESERVES whatever spacing it is handed. `MarkdownBlockParser` hands line
+    /// 0 over already marker-stripped, so today the only thing this catches is a
+    /// trailing space before the join — but the untrimmed line was untrimmed
+    /// because `.full` made it not matter, and it no longer does.
     private static func reflowListItem(_ lines: [String]) -> String {
-        lines.enumerated()
-            .map { index, line in index == 0 ? line : line.trimmingCharacters(in: .whitespaces) }
+        lines
+            .map { $0.trimmingCharacters(in: .whitespaces) }
             .joined(separator: " ")
     }
 
