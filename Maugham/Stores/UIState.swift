@@ -66,48 +66,24 @@ public struct UIState: Codable, Equatable, Sendable {
     /// of.
     public var activePassMemory: ActivePassMemory
 
-    /// How wide the assistant column is when a reference is being studied
-    /// (M2 §6.2, Plan 2 Task 5).
-    ///
-    /// **No schema bump**, for `compilerModel`'s reason: one additive key with
-    /// a default, so a file written without it decodes to
-    /// `defaultAssistantColumnWidth` and an older build ignores a key it has
-    /// never heard of.
-    ///
-    /// **Every way in is clamped, including the decode.** The drag is one
-    /// writer of this field and a hand-edited `ui-state.json` is the other, and
-    /// only one of them has a gesture with a limit — so the clamp lives with the
-    /// stored value rather than in the view, and a 4000 pt column cannot be
-    /// restored into a window that has no room for it.
-    public var assistantColumnWidth: Double
-
-    /// The width a project that has never been dragged opens at. Wide enough to
-    /// read a research note's paragraphs at the editor's own measure, narrow
-    /// enough that the prose beside it is still a column rather than a margin.
-    public static let defaultAssistantColumnWidth: Double = 340
-
-    /// **The floor is a legibility floor, not a layout one.** Below ~260 pt a
-    /// research note's paragraphs break every four or five words and the column
-    /// stops being a thing you can study — which is the only reason it exists.
-    /// The ceiling keeps the writing column the wider of the two at the window's
-    /// own minimum (`ProjectWindow`'s `minWidth: 980`).
-    public static let assistantColumnWidthRange: ClosedRange<Double> = 260...620
-
-    public static func clampedAssistantColumnWidth(_ width: Double) -> Double {
-        min(max(width, assistantColumnWidthRange.lowerBound),
-            assistantColumnWidthRange.upperBound)
-    }
+    /// **`assistantColumnWidth` used to live here** (M2 §6.2) and died with the
+    /// fourth column, 2026-08-25: a studied reference now takes the RIGHT
+    /// column at `detailColumnWidth`, so there is no second width to hold. The
+    /// key is deliberately NOT in `CodingKeys` any more — a keyed container
+    /// never asks for a key it has no case for, so a `ui-state.json` written by
+    /// any earlier build still decodes, carrying the dead number harmlessly
+    /// (`AssistantColumnTests.test_aFileStillCarryingTheDeadWidthKeyDecodes`).
 
     /// How wide the window's RIGHT column is — one width, held through every
     /// persona and every pane switch (shell-finish stage 1, Task 1).
     ///
-    /// **Spelled like `assistantColumnWidth` on purpose**: a non-optional
-    /// `Double` with a default and a clamp on every way in, rather than a
+    /// **A non-optional `Double` with a default and a clamp on every way in**
+    /// — rather than a
     /// `Double?` whose `nil` would mean "never dragged". Nothing distinguishes
     /// a never-dragged column from one dragged back to 280, and two spellings
-    /// of one rule is how the second comes to differ. No schema bump, for the
-    /// same reason as its sibling: one additive key with a default reads
-    /// cleanly in both directions of the version skew.
+    /// of one rule is how the second comes to differ. No schema bump: one
+    /// additive key with a default reads cleanly in both directions of the
+    /// version skew.
     ///
     /// **The reason it has to be persisted at all is a measured one.** The
     /// column used to declare a RANGE (`min: 240, ideal: 280, max: 360`), and a
@@ -156,7 +132,6 @@ public struct UIState: Codable, Equatable, Sendable {
         personaMemory: PersonaMemory = .empty,
         compilerModel: CompilerModelChoice = .standard,
         activePassMemory: ActivePassMemory = .empty,
-        assistantColumnWidth: Double = UIState.defaultAssistantColumnWidth,
         detailColumnWidth: Double = UIState.defaultDetailColumnWidth
     ) {
         self.schemaVersion = schemaVersion
@@ -170,8 +145,6 @@ public struct UIState: Codable, Equatable, Sendable {
         self.personaMemory = personaMemory
         self.compilerModel = compilerModel
         self.activePassMemory = activePassMemory
-        self.assistantColumnWidth =
-            UIState.clampedAssistantColumnWidth(assistantColumnWidth)
         self.detailColumnWidth =
             UIState.clampedDetailColumnWidth(detailColumnWidth)
     }
@@ -184,7 +157,7 @@ public struct UIState: Codable, Equatable, Sendable {
              isNoChromeOn,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
              persona, personaMemory, compilerModel, activePassMemory,
-             assistantColumnWidth, detailColumnWidth
+             detailColumnWidth
     }
 
     /// Hand-written because `selectedSubject` is not stored the way it is
@@ -212,7 +185,6 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(personaMemory, forKey: .personaMemory)
         try c.encode(compilerModel, forKey: .compilerModel)
         try c.encode(activePassMemory, forKey: .activePassMemory)
-        try c.encode(assistantColumnWidth, forKey: .assistantColumnWidth)
         try c.encode(detailColumnWidth, forKey: .detailColumnWidth)
     }
 
@@ -244,11 +216,7 @@ public struct UIState: Codable, Equatable, Sendable {
             (try? c.decode(CompilerModelChoice.self, forKey: .compilerModel)) ?? .standard
         self.activePassMemory =
             (try? c.decode(ActivePassMemory.self, forKey: .activePassMemory)) ?? .empty
-        // Clamped on the way IN as well as on the way out — see the property.
-        self.assistantColumnWidth = UIState.clampedAssistantColumnWidth(
-            (try? c.decode(Double.self, forKey: .assistantColumnWidth))
-                ?? UIState.defaultAssistantColumnWidth)
-        // Clamped on the way IN for its sibling's reason: a hand-edited
+        // Clamped on the way IN as well as on the way out: a hand-edited
         // `ui-state.json` is a writer of this field too, and it has no gesture
         // with a limit.
         self.detailColumnWidth = UIState.clampedDetailColumnWidth(
@@ -256,7 +224,9 @@ public struct UIState: Codable, Equatable, Sendable {
                 ?? UIState.defaultDetailColumnWidth)
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep), and `binderSegment` in shell-finish stage
-        // 2b Task 7, when the binder strip died with `BinderSegment`. A keyed
+        // 2b Task 7, when the binder strip died with `BinderSegment`, and
+        // `assistantColumnWidth` on 2026-08-25, when the study column took the
+        // right column and stopped having a width of its own. A keyed
         // container never asks for a key it has no case for, so every one of
         // those old values decodes away and is dropped on the next write —
         // which is what "no migration" (tripwire 11) means here. There is

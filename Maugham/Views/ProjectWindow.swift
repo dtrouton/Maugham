@@ -119,7 +119,7 @@ struct ProjectWindow: View {
     /// by nothing else — see `detailColumn`.
     @State private var detailColumnWidth: Double = UIState.defaultDetailColumnWidth
     /// The drag's starting width, so the gesture reads its own translation
-    /// rather than accumulating. Mirrors `AssistantColumnModifier`.
+    /// rather than accumulating.
     @State private var detailDragStartWidth: Double?
     /// The window content's measured width, and the ONLY reason it is measured:
     /// the three columns' floors can out-arithmetic the window's own, and the
@@ -245,9 +245,11 @@ struct ProjectWindow: View {
     @State private var bible: BibleStore?
     @State private var declaredWorld: DeclaredWorldStore?
 
-    /// The assistant column's subject and width (M2 §6.2). Owned here rather
-    /// than in either column because the References pane that fills it is in the
-    /// window's RIGHT column and the column itself is in the CENTRE.
+    /// **What pin is being studied** (M2 §6.2). Owned by the window rather than
+    /// by either surface because two of them read it: the References pane
+    /// writes it, and `detailColumn`'s first arm — which stands *in place of*
+    /// that pane — is a function of it. It has no width; a studied reference
+    /// takes `detailColumnWidth`, the right column's own (spec §3.2).
     @State private var assistant = AssistantColumnModel()
     /// Raw share snapshot kept alongside `collaborator` for the pill's hover
     /// diagnostics (the `.help()` tooltip), so the resolver stays the single
@@ -497,6 +499,7 @@ struct ProjectWindow: View {
             detailSegment: $detailSegment,
             persona: $persona,
             restoreOutcome: $restoreOutcome,
+            assistant: assistant,
             mcpBanner: mcpBanner,
             treeState: treeState))
         .modifier(CheckpointModifier(
@@ -602,6 +605,7 @@ struct ProjectWindow: View {
                                               model: canvasModel,
                                               persona: $persona,
                                               showInspector: $showInspector,
+                                              detailSegment: $detailSegment,
                                               documentStore: documentStore))
         // ⌘\ on the canvas collapses both side columns (spec §8A.3). One line,
         // because this body has no expression budget (the Release type-check
@@ -822,6 +826,10 @@ struct ProjectWindow: View {
         /// What ⌘⌥Z has to say when it cannot restore a deletion whole, or
         /// when a restore gave back less than was deleted (RULING-40/42).
         @Binding var restoreOutcome: String?
+        /// **The studied pin**, for the ⌘⌥-letter handler alone: a keystroke
+        /// naming a pane is an act, and an act ends a study even when the pane
+        /// it names is the one already selected.
+        let assistant: AssistantColumnModel
         let mcpBanner: MCPBannerModel
         /// The tree's disclosure/selection state (stage-3a Task 4) — held here
         /// too, since Task 8, for the find-match handler's scroll request. An
@@ -835,6 +843,16 @@ struct ProjectWindow: View {
                     guard let raw = note.userInfo?[MaughamEvent.detailSegmentKey] as? String,
                           let seg = DetailSegment(rawValue: raw) else { return }
                     showInspector = true     // ensure pane is visible
+                    // **The keystroke ends a study, even when it names the pane
+                    // already selected** — Denver's fix-round-1 ruling. A
+                    // studied reference stands IN PLACE OF the pane picker, so
+                    // ⌘⌥E is precisely what a writer presses to get the shelf
+                    // back; leaving it to `detailSegment`'s `.onChange` made it
+                    // inert, because the value it writes is the one already
+                    // there. The picker's own no-op snap is NOT a keystroke and
+                    // keeps the study — that half stays with `.onChange`
+                    // (`AssistantColumnModifier.paneChangeEndsTheStudy`).
+                    assistant.dismiss()
                     detailSegment = seg
                 }
                 .onKeyWindowCommand(.maughamTidyAllFilenames, window: window) { _ in
@@ -1296,22 +1314,18 @@ struct ProjectWindow: View {
                     ViewOnlyShareNotice()
                 }
             }
-            // The studied reference, between the binder and the prose (M2 §6.2).
-            // Applied OUTSIDE the three top insets on purpose: the strip and the
-            // two banners belong to the page, and the column stands beside the
-            // whole of it. One line, because this body has no expression budget
-            // under the Release type-checker — delete it and every token in
-            // `AssistantColumn.swift` is still present, every test still green,
-            // and clicking a pin does nothing visible.
+            // The studied reference's BEHAVIOUR — Escape, the reveal, and the
+            // three dismisses. It inserts no view: the column itself is
+            // `detailColumn`'s first arm, in the RIGHT column (spec §3.2). This
+            // rides the centre column only because the modifier has to hang
+            // somewhere that lives as long as the window does — `detailColumn`
+            // is behind `showInspector` and would take Escape's arbiter
+            // registration down with it every time the writer hid the column.
             .modifier(AssistantColumnModifier(
-                store: store, projectURL: url, documentStore: documentStore,
                 window: window, isNoChromeOn: isNoChromeOn, persona: persona,
-                activeDocId: activeDocId, assistant: assistant))
-            // Unchanged, and deliberately: the column SQUEEZES the centred
-            // writing column while it exists (spec §6.2) rather than widening
-            // the window's content column, which would push the binder shut
-            // instead. The clamp on `assistant.width` is what keeps the prose a
-            // column rather than a margin.
+                activeDocId: activeDocId, detailSegment: detailSegment,
+                selectedSubject: selectedSubject, showInspector: $showInspector,
+                assistant: assistant))
             .navigationSplitViewColumnWidth(
                 min: ProjectWindow.centreColumnFloor, ideal: 720)
     }
@@ -2390,8 +2404,8 @@ struct ProjectWindow: View {
     ///
     /// The cost of the fixed column is that the split view's own divider goes
     /// inert — a fixed column is not draggable — so the column brings its own
-    /// handle, exactly as the assistant column does one directory over
-    /// (`AssistantColumnModifier.resizeHandle`).
+    /// handle. (The assistant column used to ship the same shape one directory
+    /// over; it has no width of its own any more — it takes THIS one.)
     ///
     /// What is applied is the **effective** width, not the stored one; see
     /// `effectiveDetailColumnWidth` for the window-affordability sum and why the
@@ -2401,28 +2415,92 @@ struct ProjectWindow: View {
         if showInspector {
             HStack(spacing: 0) {
                 detailResizeHandle(documentStore: documentStore)
-                inspectorPane(store: store, documentStore: documentStore)
+                // **A studied reference takes this column, in place of the pane
+                // picker and the pane** (spec §3.2, 2026-08-25) — at the
+                // column's own width, so the prose keeps the measure it had.
+                // Denver ruled against the fourth column it used to be, having
+                // written beside one.
+                //
+                // **The census this arm carries**: delete the branch and every
+                // token in `AssistantColumn.swift` is still present,
+                // `AssistantColumnTests` is still green — its predicate, Escape
+                // and resolution tests are all about values — and clicking a pin
+                // puts nothing on screen. `StudyColumnMountTests` is what
+                // measures the arm rather than the predicate.
+                //
+                // **One `HStack` with the branch inside it**, not two branches
+                // each applying the width: the handle keeps its identity across
+                // the swap, and the width is applied in exactly one place, which
+                // is what `DetailColumnWidthTests` is about.
+                // `showInspector` is a tautology HERE — this whole arm is inside
+                // `if showInspector` — and it is passed anyway because the
+                // predicate has a second caller for whom it decides everything:
+                // `AssistantColumnEscape.isColumnPresented`, which is asked with
+                // no view in hand and is how ⌘⌥I takes the study's Escape claim
+                // with it. Simplifying it away here would leave that caller
+                // asking a different question from the one this column answers,
+                // which is the shape of the C1 the Task-5 review closed.
+                if AssistantColumn.isPresented(studied: assistant.studied,
+                                               persona: persona,
+                                               isNoChromeOn: isNoChromeOn,
+                                               showInspector: showInspector) {
+                    AssistantColumn(store: store, projectRoot: url,
+                                    assistant: assistant)
+                } else {
+                    inspectorPane(store: store, documentStore: documentStore)
+                }
             }
             .navigationSplitViewColumnWidth(
                 Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,
                                                 containerWidth: containerWidth))
+        } else {
+            Self.hiddenDetailColumn
         }
+    }
+
+    /// **The right column when there is nothing in it** — and it has to SAY so.
+    ///
+    /// This arm used to be no arm at all: `detailColumn` was a bare
+    /// `if showInspector { … }`, on the reading that a column rendering nothing
+    /// takes no room. In a three-column `NavigationSplitView` the DETAIL column
+    /// is the flexible trailing one, so what actually happened is that AppKit
+    /// resolved the CONTENT column on its `ideal` (720) and handed everything
+    /// left over to a column with nothing in it. Measured in a 1200pt window
+    /// before this arm existed:
+    ///
+    /// | state | binder | prose | empty right column |
+    /// |---|---|---|---|
+    /// | `⌘\` on the canvas (`.doubleColumn`, pane hidden) | — | 720 | 479 |
+    /// | `⌘⌥I` in Author (`.all`, pane hidden) | 240 | 720 | ~240 |
+    ///
+    /// The first row is Denver's report — *the binder vanishes, the right-hand
+    /// side goes blank and roughly doubles, and the board is squeezed* — and the
+    /// second is the same defect in every persona, which is why the fix is the
+    /// hidden ARM rather than anything in `canvasCollapse`: the decision was
+    /// right (`.doubleColumn` keeps the canvas, `.detailOnly` would hide it),
+    /// and the column simply never declared that it wanted no width.
+    ///
+    /// **One static, shared with the harness.** `DetailColumnWidthTests` mounts
+    /// its own three-column split, and a harness carrying its own copy of this
+    /// spelling would measure a column production does not have — so both call
+    /// this, and the two cannot drift.
+    static var hiddenDetailColumn: some View {
+        Color.clear.navigationSplitViewColumnWidth(0)
     }
 
     /// The right column's own resize affordance, on its leading edge.
     ///
-    /// **A gutter in the layout rather than an overlay over the pane**, which is
-    /// the same shape `AssistantColumnModifier.resizeHandle` ships and the same
-    /// reason: a `contentShape`d strip laid *over* the pane swallows every click
-    /// in the leftmost 8pt of every row, list and control in the column, for the
-    /// whole height of the window, and it does it silently. Eight points of
+    /// **A gutter in the layout rather than an overlay over the pane**, for a
+    /// measured reason: a `contentShape`d strip laid *over* the pane swallows
+    /// every click in the leftmost 8pt of every row, list and control in the
+    /// column, for the whole height of the window, and it does it silently.
+    /// Eight points of
     /// layout is the cheaper mistake. It is deliberately not drawn — the split
     /// view's own divider is still there and is still the seam a writer aims at;
     /// this sits just inside it, and the resize cursor on hover is what says so.
     ///
     /// Live during the gesture and persisted only at its end — a `UIState` write
-    /// per drag frame is 60 a second through the manuscript's own debounce, and
-    /// the assistant column already settled that question.
+    /// per drag frame is 60 a second through the manuscript's own debounce.
     ///
     /// **Nothing else writes this width.** There is no geometry observation
     /// feeding the COLUMN's width back, because a fixed column has no geometry
@@ -3575,20 +3653,68 @@ struct ProjectWindow: View {
             // can reach it otherwise. In `load()` and never in `body` — a store
             // is not read from a view body or anything a body calls.
             s.liveCanvas = canvasModel
+
+            // **Every `ds.uiState` seed is read BEFORE the stores are published,
+            // and the order is the contract** (2026-08-26). `showInspector`
+            // defaults to `true` and `detailSegment` to `.inspector`, so any body
+            // pass that runs with a store in hand and these still at their
+            // defaults mounts `DetailPaneToggle` on `.inspector` — and that view's
+            // `.onAppear` PERSISTS the segment it mounted with. The read below
+            // would then be reading back what the mount had just written, and
+            // every writer's remembered pane would silently reset on launch.
+            //
+            // It did not happen while these sat below, and only by an accident
+            // nothing wrote down: the one `await` in that stretch is
+            // `ds.loadSessionLog()`, whose body contains no suspension point
+            // (`NSFileCoordinator.coordinate` blocks), so the main actor was never
+            // yielded and no render pass could interleave. One genuinely
+            // suspending call added there — or that read moved off the main actor
+            // for perfectly good reasons — and the launch pane resets for
+            // everyone, with nothing red. Seeding first retires the hazard instead
+            // of describing it: with the stores still nil there is no body pass
+            // that can observe the defaults.
+            //
+            // Seed UI state from disk (or defaults), through the one rule that
+            // decides where a freshly opened window lands. There is always an
+            // answer — `.project` needs no document to exist — so there is
+            // nothing to leave alone and no `if let` here.
+            self.selectedSubject = Self.validSubject(
+                ds.uiState.selectedSubject, in: s.manifest.structure,
+                research: s.manifest.research)
+            self.isNoChromeOn = ds.uiState.isNoChromeOn
+            self.isReviewModeOn = ds.uiState.isReviewModeOn
+            self.researchPreviewVisible = ds.uiState.researchPreviewVisible
+            self.compilerModel = ds.uiState.compilerModel
+            // **Nothing about the study column is restored**, and that is the
+            // whole of it since it stopped having a width of its own
+            // (2026-08-25): nothing is studied when a window opens, because
+            // restoring a subject would put a reference over the right column
+            // before the writer had asked for anything.
+            //
+            // The right column's width. A window that opened before this line
+            // existed opened at the range's `max` or its `min` depending on
+            // what the last visibility transition had left behind.
+            self.detailColumnWidth = ds.uiState.detailColumnWidth
+            // Restored VERBATIM, exactly as the binder below is. Coercing to
+            // the restored persona's registry here silently ate the writer's
+            // last explicit pane choice (⌘⌥O in any persona, quit, reopen →
+            // Outline gone, back when `.outline` was still a pane), and would
+            // have moved every pre-persona project off
+            // Annotations/History/Inbox/Translation on upgrade. It protects
+            // nothing: `DetailPaneToggle` appends an out-of-persona selection
+            // and renders it highlighted — `visibleSegments`' own doc comment
+            // names a restored `UIState` as a path that append exists to
+            // honour, and (stage 3a Task 6) that append never refuses now. A
+            // `detailSegment` stored as one of the three retired segments
+            // simply fails `UIState`'s own tolerant decode and falls back to
+            // `.inspector` before this line ever runs.
+            self.detailSegment = ds.uiState.detailSegment
+            self.persona = ds.uiState.persona
+            self.outlineLayout = ds.uiState.outlineLayout
+            applyNoChrome()
+
             self.store = s
             self.documentStore = ds
-            // The compiler, wired here for the canvas model's reason: the
-            // stores exist at this point and a view body may not read one.
-            self.compilerModel = ds.uiState.compilerModel
-            // The width only; nothing is studied when a window opens, and
-            // restoring a subject would put a reference column over the prose
-            // before the writer had asked for anything.
-            self.assistant.width = ds.uiState.assistantColumnWidth
-            // The right column's width, restored for the assistant column's
-            // reason and by the same read. A window that opened before this
-            // line existed opened at the range's `max` or its `min` depending
-            // on what the last visibility transition had left behind.
-            self.detailColumnWidth = ds.uiState.detailColumnWidth
             // The Intent pane's strata, on the same device slug and the same
             // rule as every other derived sidecar (tripwire 24 at the filename
             // point, which both stores take care of themselves).
@@ -3651,34 +3777,6 @@ struct ProjectWindow: View {
                     }))
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
-
-            // Seed UI state from disk (or defaults), through the one rule that
-            // decides where a freshly opened window lands. There is always an
-            // answer — `.project` needs no document to exist — so there is
-            // nothing to leave alone and no `if let` here.
-            self.selectedSubject = Self.validSubject(
-                ds.uiState.selectedSubject, in: s.manifest.structure,
-                research: s.manifest.research)
-            self.isNoChromeOn = ds.uiState.isNoChromeOn
-            self.isReviewModeOn = ds.uiState.isReviewModeOn
-            self.researchPreviewVisible = ds.uiState.researchPreviewVisible
-            // Restored VERBATIM, exactly as the binder below is. Coercing to
-            // the restored persona's registry here silently ate the writer's
-            // last explicit pane choice (⌘⌥O in any persona, quit, reopen →
-            // Outline gone, back when `.outline` was still a pane), and would
-            // have moved every pre-persona project off
-            // Annotations/History/Inbox/Translation on upgrade. It protects
-            // nothing: `DetailPaneToggle` appends an out-of-persona selection
-            // and renders it highlighted — `visibleSegments`' own doc comment
-            // names a restored `UIState` as a path that append exists to
-            // honour, and (stage 3a Task 6) that append never refuses now. A
-            // `detailSegment` stored as one of the three retired segments
-            // simply fails `UIState`'s own tolerant decode and falls back to
-            // `.inspector` before this line ever runs.
-            self.detailSegment = ds.uiState.detailSegment
-            self.persona = ds.uiState.persona
-            self.outlineLayout = ds.uiState.outlineLayout
-            applyNoChrome()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {
             loadError = "No project.maugham.json was found in this folder."

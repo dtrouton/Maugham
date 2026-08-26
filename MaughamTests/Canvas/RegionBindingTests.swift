@@ -685,22 +685,24 @@ final class RegionBindingTests: XCTestCase {
     ///   owns. It calls rather than re-derives for the reason above, and the
     ///   failure re-deriving produces is on screen: `home ∪ appearances` lights
     ///   a card merely visiting a bound region.
-    /// - `PinnedReferences.swift` *(M2 Task 2)* — **the rail itself**, arriving
-    ///   where the entry below said it would. It consumes the projection as the
-    ///   CANVAS HALF of what is pinned beside a document, unioned with the
-    ///   research the writer linked, and it is the only caller with three
-    ///   readers downstream of it (the References pane, the assistant column,
-    ///   the compiler's context listing) — which is precisely why none of those
-    ///   three may see `bound_piece_id` at all. Note it is not in
-    ///   `Maugham/Canvas/`: the census walks the production tree, and a rail
-    ///   built one directory over is exactly the reader this test exists to
-    ///   catch re-deriving.
     ///
-    /// The rail was **M2's** (umbrella spec §10 — the intent strip, pinned
-    /// references and the assistant column) and is now built. A `RegionInspector`
-    /// or `Persona` entry appearing here is still not that rail: those are the
-    /// canvas's own panes, and one calling the projection needs its own
-    /// argument, not a line in this list.
+    /// **`PinnedReferences.swift` was the third caller from M2 Task 2 until the
+    /// references shelf (2026-08-25 design, §2.2) sectioned it, and its
+    /// departure is the one sanctioned way off this list.** The shelf shows a
+    /// bound region's cards under that region's own title, and a unioned `Set`
+    /// of node ids is precisely what cannot say which region a card came from —
+    /// so the rail now walks the piece's regions one at a time. It did not take
+    /// the two rules with it: residency is still
+    /// `CanvasMembership.residents`, the same function this projection itself
+    /// calls, and a card's own `boundPieceID` is read as its own one-line rule.
+    /// `home ∪ appearances` is therefore still unreachable from there, and
+    /// `PinnedReferencesTests.test_aVisitingCardIsNotPinned` is the test that
+    /// says so. A future reader wanting the union — rather than the split — has
+    /// this projection and belongs back on this list.
+    ///
+    /// A `RegionInspector` or `Persona` entry appearing here is not the rail
+    /// returning: those are the canvas's own panes, and one calling the
+    /// projection needs its own argument, not a line in this list.
     func test_theProjectionHasAProductionCaller() throws {
         let files = try CanvasSourceCensus.productionFiles()
         let callers = files
@@ -711,8 +713,7 @@ final class RegionBindingTests: XCTestCase {
             }
             .map(\.name)
             .sorted()
-        XCTAssertEqual(callers, ["CanvasHighlight.swift", "CanvasTools.swift",
-                                 "PinnedReferences.swift"],
+        XCTAssertEqual(callers, ["CanvasHighlight.swift", "CanvasTools.swift"],
                        "if this is ever empty again, the two rules below §4.4 are "
                        + "reachable only from this file and every other reader "
                        + "re-derives them wrongly. If it grows, the new caller is a "

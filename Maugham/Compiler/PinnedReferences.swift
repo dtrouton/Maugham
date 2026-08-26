@@ -52,9 +52,65 @@ struct PinnedReference: Identifiable, Equatable, Sendable {
     let title: String
 }
 
-/// **The union**: the research a writer LINKED to a document, plus the cards
-/// they clustered for it on the planning canvas — the two ways something
-/// becomes context for a piece — resolved to one ordered, deduplicated list.
+/// One run of pinned references under an optional heading — a `PinnedShelf`'s
+/// element.
+///
+/// **The title is the writer's own word for the group**, never a category name
+/// invented here: a region's label, or `Promotion.regionTitle`'s fallback while
+/// the region is still unlabelled. `nil` means the run needs no heading — the
+/// research at the top of the shelf, which is one undifferentiated list whether
+/// the writer linked it or their project type contains it.
+struct PinnedSection: Equatable, Sendable {
+    let title: String?
+    let references: [PinnedReference]
+}
+
+/// **What a document is pinned to, grouped the way the writer arranged it.**
+///
+/// The references-shelf design's §2.2: the projection used to dissolve the
+/// canvas into one alphabetical list, so a writer who had put six cards in
+/// reading order under a titled region got six titles in dictionary order with
+/// nothing saying they belonged together. A shelf keeps the arrangement, and
+/// each reader takes what it can use — the References pane draws the headings,
+/// the compiler's context listing emits them as `##` lines, and a reader
+/// wanting a plain list reads `references`.
+struct PinnedShelf: Equatable, Sendable {
+
+    /// The heading over cards the writer tied to the piece ITSELF, which belong
+    /// to no region of its. One fixed string rather than a spelling per reader:
+    /// the pane draws this heading and the compiler's briefing emits it, and a
+    /// writer reading both must not find two words for one group.
+    static let looseCardsTitle = "Cards"
+
+    /// In the order the shelf reads: the research, then a section per bound
+    /// region, then the loose cards. Never empty of content — a section with
+    /// nothing in it is omitted rather than drawn as bare chrome.
+    let sections: [PinnedSection]
+
+    /// The flat projection in section order — the value `pinned` returned before
+    /// it was sectioned, and what the compiler's context listing and every other
+    /// list-shaped reader takes.
+    ///
+    /// **The deduplication happened at assembly**, on the pin's id with the
+    /// first section winning, so the sections are disjoint and this
+    /// concatenation cannot reintroduce a duplicate. Deduplicating a second
+    /// time here would not make the shelf safer — a duplicate would still be
+    /// drawn twice by the pane, which reads `sections` — it would only hide a
+    /// broken assembly from the one reader that could still see it.
+    var references: [PinnedReference] { sections.flatMap(\.references) }
+}
+
+/// **The three sources**: the research a writer LINKED to a document, the
+/// research their project type DERIVES for it, and the cards they clustered for
+/// it on the planning canvas — the three ways something becomes context for a
+/// piece — resolved to one ordered, deduplicated, sectioned `PinnedShelf`.
+///
+/// The derived source is the references-shelf design's §2.1. `linkedResearchIds`
+/// is a *Novel* chapter's record only: a Collection routes a loose piece's
+/// research by containment and a single-document project by derivation, and
+/// neither writes a link. A projection reading links alone is complete for
+/// Novels and silently short for every other project type — in all three of its
+/// readers at once.
 ///
 /// Three readers consume it and none of them may re-derive it: the References
 /// pane and its assistant column, and the author compiler's context listing.
@@ -85,10 +141,16 @@ enum PinnedReferences {
     ///     `InspectorLinksSection`'s unrelated document-to-document backlink
     ///     field; `linkResearch(researchId:toDocumentId:)` is the only write
     ///     path into `linkedResearchIds`, and it never touches `.links`
-    ///     (found wiring this into the compiler, Task 3 — the two fields
-    ///     share no reader or writer despite the near-identical name).
+    ///     (found wiring this into the compiler, M2 Plan 2 Task 3 — the two
+    ///     fields share no reader or writer despite the near-identical name).
+    ///   - derived: `ProjectStore.derivedResearchItems(forDocumentId:)`'s ids —
+    ///     the research the project TYPE associates with this document with no
+    ///     link record (§2.1). Required rather than defaulted, for the reason
+    ///     `scraps` is: a caller who forgot it would short every Collection and
+    ///     every single-document project to their links — which is to say, to
+    ///     nothing — with nothing red.
     ///   - scene: nil when the project's Plan side has never been opened, which
-    ///     is a real state and not an error; the links still pin.
+    ///     is a real state and not an error; the research still pins.
     ///   - scraps: `CanvasModel.scraps`. Required rather than defaulted: a
     ///     caller who forgot it would get a list of cards all reading
     ///     "Empty scrap" with nothing red.
@@ -97,47 +159,129 @@ enum PinnedReferences {
     ///     question. Built once per manifest change at the composition root.
     static func pinned(forDocId docId: String,
                        links: [String]?,
+                       derived: [String],
                        scene: CanvasScene?,
                        scraps: [CanvasNodeID: String],
-                       items: CanvasItemIndex) -> [PinnedReference] {
+                       items: CanvasItemIndex) -> PinnedShelf {
 
+        var sections: [PinnedSection] = []
         var out: [PinnedReference] = []
         var seen = Set<String>()
 
-        // Deduplication is on the pin's id, so an item that is both linked and
-        // on the canvas resolves to the same pin twice and lands once — in the
-        // LINKED position. The two sources are two ways of saying one thing
-        // about one object, and neither wins: they produce identical values.
+        // Deduplication is on the pin's id and spans the whole shelf, so an item
+        // that is linked, derived AND on the canvas resolves to the same pin
+        // three times and lands once — in the FIRST section that claims it. The
+        // sources are several ways of saying one thing about one object, and
+        // none wins on merit: they produce identical values, so the earliest
+        // position is the only thing to decide.
         func take(_ pin: PinnedReference?) {
             guard let pin, seen.insert(pin.id).inserted else { return }
             out.append(pin)
         }
 
-        // Manifest order, which is the writer's order — never sorted. A sort
-        // applied to the whole list would put the canvas set among the links
-        // and lose the distinction the pane draws on.
-        for id in links ?? [] { take(projectPin(id, in: items)) }
+        /// Closes the section being accumulated. **An empty one is dropped**,
+        /// which is what makes "no loose cards" and "a region whose every card
+        /// is a visitor" come out as an absent heading rather than a heading
+        /// over nothing.
+        func close(titled title: String?) {
+            defer { out = [] }
+            guard !out.isEmpty else { return }
+            sections.append(PinnedSection(title: title, references: out))
+        }
 
-        guard let scene else { return out }
+        // **The piece's bound regions are resolved BEFORE the untitled run**,
+        // because a promoted region's note is claimed by that region's own
+        // heading and dedup-first-wins alone would give it to whoever came
+        // first — which is the untitled run, always.
+        //
+        // **The region wins it** (2026-08-26). In a Collection this is the
+        // NORMAL case rather than an edge one: region promotion writes the note
+        // into the bound piece's own research folder, so `derived` already
+        // carries it, `take` claimed it above, and `close(titled:)` then saw an
+        // empty `out` and dropped the heading — the shelf showed the note once,
+        // correctly, with nothing saying where it came from, in exactly the
+        // project shape this milestone was written for. The heading is the half
+        // that carries the writer's own word for the material, so it is the half
+        // that has to survive the collision; the untitled run drops the id and
+        // is one shorter, which costs nothing, because the same note is on
+        // screen a few rows down under the region's name.
+        let regions = scene.map { boundRegions(toPiece: docId, in: $0) } ?? []
+        let reserved = Set(regions.compactMap { region in
+            region.promotedItemID.flatMap { projectPin($0, in: items)?.id }
+        })
 
-        // `RegionBinding.references` and never a walk of our own: residents
-        // only, unioned across every region bound to this piece, plus the cards
-        // bound to it themselves. Those two rules have already been re-derived
-        // wrongly once, as `home ∪ appearances`, by a reader that read
-        // `bound_piece_id` raw.
-        let clustered = RegionBinding.references(forPiece: docId, in: scene)
-            .compactMap { pin(for: $0, in: scene, scraps: scraps, items: items) }
-            .sorted { a, b in
-                let order = a.title.localizedStandardCompare(b.title)
-                if order != .orderedSame { return order == .orderedAscending }
-                // Not decoration: every empty scrap answers with the same
-                // placeholder, so title alone would leave a `Set`'s iteration
-                // order deciding the list — a different order on every launch.
-                // `RegionInspector.rows` takes the identical discipline.
-                return a.id < b.id
+        // Manifest order, which is the writer's order — never sorted, and one
+        // untitled run: the shelf does not tell the writer which of their notes
+        // arrived by a link and which by containment, because that is a fact
+        // about the project type rather than about the note.
+        for id in links ?? [] where !reserved.contains(id) {
+            take(projectPin(id, in: items))
+        }
+        for id in derived where !reserved.contains(id) {
+            take(projectPin(id, in: items))
+        }
+        close(titled: nil)
+
+        guard let scene else { return PinnedShelf(sections: sections) }
+
+        // **Region by region, and deliberately NOT through
+        // `RegionBinding.references`**, whose unioned `Set` is exactly what
+        // discards the grouping this shelf exists to keep. Its two rules are
+        // still reached and not re-derived: residency through
+        // `CanvasMembership.residents` — the same function that projection
+        // calls, so a visitor is still cited rather than owned — and a card's
+        // own association through its own `boundPieceID` below. The wrong
+        // re-derivation that census guards against (`home ∪ appearances`) is
+        // unreachable from here for that reason, and
+        // `test_aVisitingCardIsNotPinned` is what says so.
+        for region in regions {
+            if let itemID = region.promotedItemID,
+               let promoted = projectPin(itemID, in: items) {
+                // §2.3. The region BECAME that note; pinning the note beside the
+                // cards it was made from is the seventh row Denver saw. A mark
+                // naming an item the manifest cannot resolve falls through to
+                // the cards instead — the fact is stale and the writer still
+                // has the material.
+                take(promoted)
+            } else {
+                for id in Promotion.readingOrder(
+                    CanvasMembership.residents(of: region.id, in: scene), in: scene) {
+                    take(pin(for: id, in: scene, scraps: scraps, items: items))
+                }
             }
-        for pin in clustered { take(pin) }
-        return out
+            close(titled: Promotion.regionTitle(region))
+        }
+
+        // A card the writer tied to the piece ITSELF. `seen` is what keeps one
+        // that also lives in a bound region out of here: it belongs to the
+        // section that already showed it, and this heading is for what belongs
+        // to no region of the piece's.
+        let loose = Set(scene.unorderedNodes.filter { $0.boundPieceID == docId }.map(\.id))
+        for id in Promotion.readingOrder(loose, in: scene) {
+            take(pin(for: id, in: scene, scraps: scraps, items: items))
+        }
+        close(titled: PinnedShelf.looseCardsTitle)
+
+        return PinnedShelf(sections: sections)
+    }
+
+    /// The piece's regions in the order the shelf shows them: by the title the
+    /// writer reads, then by id.
+    ///
+    /// The id tiebreak is not decoration — `unorderedRegions` is a
+    /// `Dictionary`'s values, so two identically-labelled regions would
+    /// otherwise swap between launches of the same binary. `RegionInspector.rows`
+    /// takes the identical discipline.
+    private static func boundRegions(toPiece docId: String,
+                                     in scene: CanvasScene) -> [CanvasRegion] {
+        scene.unorderedRegions
+            .filter { $0.boundPieceID == docId }
+            .sorted { a, b in
+                let order = Promotion.regionTitle(a)
+                    .localizedStandardCompare(Promotion.regionTitle(b))
+                if order != .orderedSame { return order == .orderedAscending }
+                return a.id.raw < b.id.raw
+            }
     }
 
     // MARK: - Resolving one node

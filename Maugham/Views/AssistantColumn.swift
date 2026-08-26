@@ -2,14 +2,16 @@ import AppKit
 import SwiftUI
 import MaughamCore
 
-/// **What is being studied, and how wide** — the assistant column's whole
-/// state (M2 spec §6.2).
+/// **What is being studied** — the assistant column's whole state (M2 spec
+/// §6.2, narrowed to one field on 2026-08-25 when the column took the right
+/// column and stopped having a width of its own).
 ///
-/// An `@Observable` object rather than two `@State` values on `ProjectWindow`
-/// for a reason the escape monitor makes concrete: the References pane is in the
-/// window's RIGHT column and the assistant column is in its CENTRE, so the
-/// selection has to be shared across a boundary that a `Binding` would have to
-/// be threaded through `DetailPaneToggle`'s whole initialiser — and the monitor's
+/// An `@Observable` object rather than a `@State` value on `ProjectWindow`
+/// for a reason the escape monitor makes concrete: the References pane and the
+/// assistant column are both the window's RIGHT column, one at a time, so the
+/// selection is written by the References pane and read by the column that
+/// REPLACES it, across a boundary a `Binding` would have to be threaded through
+/// `DetailPaneToggle`'s whole initialiser — and the monitor's
 /// event-time closure needs something stable to read, which a `Binding` captured
 /// once at install time is not (`CanvasModel` and `EditorControl` are the
 /// precedents).
@@ -20,9 +22,6 @@ final class AssistantColumnModel {
     /// The one studied reference, or none. **One at a time**, because two
     /// studied references is a research session rather than writing (§6.2).
     private(set) var studied: PinnedReference?
-
-    /// Read from `UIState` at load and written back on the drag's end.
-    var width: Double = UIState.defaultAssistantColumnWidth
 
     /// Promote a pin, or send it back if it is the one already up.
     ///
@@ -46,8 +45,11 @@ final class AssistantColumnModel {
 
 // MARK: - The column
 
-/// One pinned reference, between the binder and the prose, at a width you can
-/// read at (M2 spec §6.2).
+/// One pinned reference, in the window's RIGHT column, in place of the pane
+/// picker and the pane (spec §3.2, 2026-08-25 — it used to be a fourth column
+/// between the binder and the prose, and Denver, having written in it, asked
+/// for the opposite: the prose keeps its measure and the reference takes the
+/// column that was already there).
 ///
 /// **It renders nothing of its own.** Each arm hands off to a surface this app
 /// already ships — `ResearchPreview` for anything in the research tree,
@@ -137,9 +139,9 @@ struct AssistantColumn: View {
     /// §9, closing the M2-era held decision that started as Author-only,
     /// 2026-08-08): a reviewer adjudicating a pin needs the same column a
     /// drafter does, so the column widens to Review as well. Plan and Publish
-    /// still veto: in Plan it would take 260–620pt from the canvas §8A.3
-    /// protects; in Publish it would be a study column a registry never
-    /// offered. See `ReferencesPane.isInteractive`, the predicate's second
+    /// still veto: in Plan the right column is the canvas's inspector and a
+    /// study column would take it; in Publish it would be a study column a
+    /// registry never offered. See `ReferencesPane.isInteractive`, the predicate's second
     /// read site, which keeps a non-studying mount a non-event rather than a
     /// dead click.
     ///
@@ -147,9 +149,19 @@ struct AssistantColumn: View {
     /// the escape-arbiter fix. Switching to a non-studying persona hides the
     /// column but leaves `studied` alone, so switching back — to Author or to
     /// Review — restores exactly what was up.
+    ///
+    /// **`showInspector` is the fourth veto, and it is C1 arriving one input
+    /// later** (2026-08-25, superseding spec §3.2's "three inputs unchanged").
+    /// The column lives in `ProjectWindow.detailColumn`'s first arm, which is
+    /// behind `showInspector` — so ⌘⌥I with a pin studied takes the column off
+    /// screen without touching what is studied, exactly as ⌘\ does, and a
+    /// predicate blind to the flag left an invisible column holding the window's
+    /// highest-priority Escape claim. Not a dismiss: ⌘⌥I back restores the
+    /// study, the same clean cut the persona input made.
     static func isPresented(studied: PinnedReference?, persona: Persona,
-                            isNoChromeOn: Bool) -> Bool {
+                            isNoChromeOn: Bool, showInspector: Bool) -> Bool {
         studied != nil && persona.studiesPinnedReferences && !isNoChromeOn
+            && showInspector
     }
 
     @State private var subject: Subject?
@@ -291,6 +303,12 @@ final class AssistantColumnEscape {
     /// left minutes ago.
     private var persona: Persona = .default
 
+    /// The window's right-column flag, refreshed by every `sync` and read at
+    /// event time beside the other three: the column is `detailColumn`'s first
+    /// arm and ⌘⌥I takes that whole column away, which is C1's hazard one input
+    /// later.
+    private var showInspector = true
+
     /// The arbiter this consumer is currently registered with, or nil. Held
     /// weakly: the table in `WindowEscapeArbiter` owns them, keyed by window.
     private weak var arbiter: WindowEscapeArbiter?
@@ -310,7 +328,8 @@ final class AssistantColumnEscape {
     /// condition written out here is exactly how the two diverged.
     private var isColumnPresented: Bool {
         AssistantColumn.isPresented(studied: model?.studied, persona: persona,
-                                    isNoChromeOn: isNoChromeOn)
+                                    isNoChromeOn: isNoChromeOn,
+                                    showInspector: showInspector)
     }
 
     /// Register or resign to match **the column's presentation**. Idempotent in
@@ -337,16 +356,23 @@ final class AssistantColumnEscape {
     /// also closes the review's finding 3 (the previous comment claimed the
     /// window was read at event time when it was really read at last-sync time).
     ///
+    /// **`showInspector` joined them as a fourth (2026-08-25).** ⌘⌥I hides the
+    /// right column, the study column IS that column's first arm, and nothing
+    /// dismisses the studied pin when the flag flips — so the same invisible
+    /// claim C1 found came back through a different key. The rule is one
+    /// function; every input it reads is synced here.
+    ///
     /// **`persona` joined `isNoChromeOn` as a third input the mounting site must
     /// sync on (2026-08-08).** A writer who leaves Author with a pin studied
     /// must not go on holding the window's highest-priority Escape claim for a
     /// column nobody can see — the same hazard C1 found for `isNoChromeOn`,
     /// one input later.
     func sync(model: AssistantColumnModel, window: NSWindow?, persona: Persona,
-             isNoChromeOn: Bool) {
+             isNoChromeOn: Bool, showInspector: Bool) {
         self.model = model
         self.persona = persona
         self.isNoChromeOn = isNoChromeOn
+        self.showInspector = showInspector
         guard isColumnPresented, let window else {
             stop()
             return
@@ -386,19 +412,26 @@ final class AssistantColumnEscape {
 
 // MARK: - Mounting
 
-/// Puts the assistant column between the binder and the prose, keeps its width
-/// in `UIState`, and wires Escape.
+/// **The study column's behaviour, and none of its geometry.** Escape, the
+/// reveal, and the three ways a newer act ends the study.
 ///
-/// **A `ViewModifier` for `ProjectWindow`'s own reason** — that body has no
-/// expression budget left under the Release type-checker, and every one of its
-/// neighbours (`CanvasCollapseModifier`, `CanvasClaudeArrivalModifier`,
-/// `TranslationReviewModifier`) is here for the same. As with those: deleting
-/// the one line that applies this leaves every token in this file present and
-/// every test in `AssistantColumnTests` green, and puts nothing on screen.
+/// **It inserts no view at all** (spec §3.2, 2026-08-25). It used to wrap the
+/// centre column in an `HStack` and put `AssistantColumn` beside the prose at a
+/// width of its own; the column now lives in `ProjectWindow.detailColumn`'s own
+/// first arm, and what is left here is the chain of `.onChange`es that arm is a
+/// function of. The census that used to be spelled here — *delete the one line
+/// that applies this and every token in this file is still present, every test
+/// still green, and clicking a pin does nothing visible* — moved with the view,
+/// to `ProjectWindow.detailColumn`.
+///
+/// **Still a `ViewModifier` rather than seven `.onChange`es in the window's
+/// body**, for that body's own reason: it has no expression budget left under
+/// the Release type-checker, and every one of its neighbours
+/// (`CanvasCollapseModifier`, `CanvasClaudeArrivalModifier`,
+/// `TranslationReviewModifier`) is here for the same. Deleting the one line that
+/// applies THIS leaves the column mounting exactly as before and takes away
+/// Escape, the reveal and every dismiss — behaviour, not pixels.
 struct AssistantColumnModifier: ViewModifier {
-    let store: ProjectStore?
-    let projectURL: URL
-    let documentStore: DocumentStore?
     let window: NSWindow?
     let isNoChromeOn: Bool
     /// The window's persona. **The column presents for Author and Review**
@@ -410,74 +443,117 @@ struct AssistantColumnModifier: ViewModifier {
     /// per-document, so a pin studied for chapter one is not pinned to chapter
     /// three and would sit there claiming otherwise.
     let activeDocId: String
+    /// **The right column's own selection**, watched because the study column
+    /// stands *in place of* the pane it names: a ⌘⌥-letter is the writer asking
+    /// for that pane, and the study is what is in its way.
+    let detailSegment: DetailSegment
+    /// **The window's subject**, watched beside `activeDocId` and not instead of
+    /// it: clicking a research row in the tree moves the subject and leaves
+    /// `activeDocId` exactly where it was, so a chain watching only the document
+    /// would leave a chapter's pin studied over a research subject.
+    let selectedSubject: BinderSubject?
+    /// **Studying reveals the column** (spec §3.2) — the same shape
+    /// `ProjectWindow.revealResearchColumn` uses for a research subject in Plan,
+    /// and deliberately NOT a stash/restore pair, which is tripwire 2's shape.
+    /// Closing leaves the column up showing whatever `detailSegment` still
+    /// holds; the inspector is one ⌘⌥I away.
+    @Binding var showInspector: Bool
     @Bindable var assistant: AssistantColumnModel
 
     @State private var escape = AssistantColumnEscape()
-    /// The drag's running total, so the gesture is smooth and only its END
-    /// writes to disk — a `UIState` write per drag frame is 60 writes a second
-    /// through the same debounce the manuscript uses.
-    @State private var dragStartWidth: Double?
 
     func body(content: Content) -> some View {
-        HStack(spacing: 0) {
-            if let store,
-               AssistantColumn.isPresented(studied: assistant.studied, persona: persona,
-                                           isNoChromeOn: isNoChromeOn) {
-                AssistantColumn(store: store, projectRoot: projectURL,
-                                assistant: assistant)
-                    .frame(width: assistant.width)
-                resizeHandle
+        content
+            // **Every input `isPresented` reads gets an `.onChange` below, and
+            // each one calls `syncEscape()`** — count the chain, not this
+            // comment, so an input added to `isPresented` and forgotten here is
+            // a comment nobody has to trust. `isNoChromeOn` was the one missing
+            // at final review C1: ⌘\ and ⌘⇧F take the column off screen without
+            // touching what is studied, and the claim used to stay behind.
+            //
+            // The reveal rides the same handler rather than a second
+            // `.onChange` on the same key: two handlers on one value is two
+            // orders SwiftUI does not promise, and only one of them puts the
+            // column on screen before Escape starts watching for it.
+            .onChange(of: assistant.studied?.id) { old, new in
+                if old == nil, new != nil { showInspector = true }
+                syncEscape()
             }
-            content
-        }
-        // **Every input `isPresented` reads gets an `.onChange` below, and each
-        // one calls `syncEscape()`** — count the chain, not this comment, so an
-        // input added to `isPresented` and forgotten here is a comment nobody
-        // has to trust. `isNoChromeOn` was the one missing at final review C1:
-        // ⌘\ and ⌘⇧F take the column off screen without touching what is
-        // studied, and the claim used to stay behind.
-        .onChange(of: assistant.studied?.id) { _, _ in syncEscape() }
-        // **The window as well as the reference**, because the arbiter is keyed
-        // by window: `WindowAccessor` reports one asynchronously after mount, and
-        // a window that arrived after the first sync would otherwise leave the
-        // column registered nowhere.
-        .onChange(of: window) { _, _ in syncEscape() }
-        .onChange(of: isNoChromeOn) { _, _ in syncEscape() }
-        // **Not `assistant.dismiss()`.** Leaving Author must drop the Escape
-        // claim for a column nobody can see, exactly like `isNoChromeOn` — but
-        // the studied pin itself survives, so ⌘2 back restores it. See
-        // `AssistantColumn.isPresented`'s doc comment for the ruling.
-        .onChange(of: persona) { _, _ in syncEscape() }
-        .onChange(of: activeDocId) { _, _ in assistant.dismiss() }
-        .onDisappear { escape.stop() }
+            // **The window as well as the reference**, because the arbiter is
+            // keyed by window: `WindowAccessor` reports one asynchronously after
+            // mount, and a window that arrived after the first sync would
+            // otherwise leave the column registered nowhere.
+            .onChange(of: window) { _, _ in syncEscape() }
+            .onChange(of: isNoChromeOn) { _, _ in syncEscape() }
+            // **⌘⌥I, the fourth input** (2026-08-25). The column is
+            // `ProjectWindow.detailColumn`'s first arm and this flag is what
+            // mounts that arm at all, so hiding the right column takes the
+            // study column off screen with the pin still studied — C1's
+            // invisible Escape claim, one key later. Watched, never stashed:
+            // ⌘⌥I back brings the study straight back.
+            .onChange(of: showInspector) { _, _ in syncEscape() }
+            // **Not `assistant.dismiss()`.** Leaving Author must drop the Escape
+            // claim for a column nobody can see, exactly like `isNoChromeOn` —
+            // but the studied pin itself survives, so ⌘2 back restores it. See
+            // `AssistantColumn.isPresented`'s doc comment for the ruling.
+            .onChange(of: persona) { _, _ in syncEscape() }
+            // **The newest act wins**, over three signals. A document change
+            // and a subject change end the study unconditionally: the shelf is
+            // per-document, and a writer asking about something else is asking
+            // about something else.
+            .onChange(of: activeDocId) { _, _ in assistant.dismiss() }
+            .onChange(of: selectedSubject) { _, _ in assistant.dismiss() }
+            // **The pane, watched BESIDE the persona rather than on its own** —
+            // fix-round 1, and the whole of review Important 1.
+            //
+            // Every writer of `persona` writes `detailSegment` in the same pass
+            // (`PersonaModifier`, `TreeTravel`, the palette wall's door), and
+            // `change.segment` is the destination persona's REMEMBERED pane —
+            // a different segment on essentially every switch, since Plan's
+            // registry does not contain `.references` at all. Watching the pane
+            // alone therefore took the study away on ⌘1, and on ⌘2 back, which
+            // is exactly what spec §3.2 and `AssistantColumn.isPresented`'s own
+            // doc comment promise it will not do.
+            //
+            // One `.onChange` over the pair, so the handler can see what ELSE
+            // moved in the same pass; the rule itself is
+            // `paneChangeEndsTheStudy`, a static a test can ask over the
+            // product of its inputs rather than only down the path a mounted
+            // harness happens to drive.
+            .onChange(of: PersonaPane(persona: persona, pane: detailSegment)) { old, new in
+                guard Self.paneChangeEndsTheStudy(from: old, to: new) else { return }
+                assistant.dismiss()
+            }
+            .onDisappear { escape.stop() }
     }
 
     private func syncEscape() {
         escape.sync(model: assistant, window: window, persona: persona,
-                    isNoChromeOn: isNoChromeOn)
+                    isNoChromeOn: isNoChromeOn, showInspector: showInspector)
     }
 
-    /// A draggable divider. `.resizeLeftRight` on hover, because a divider that
-    /// can be dragged and does not say so is a divider nobody drags.
-    private var resizeHandle: some View {
-        Divider()
-            .frame(width: 1)
-            .overlay(Color.clear.frame(width: 8).contentShape(Rectangle()))
-            .onHover { inside in
-                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-            }
-            .gesture(
-                DragGesture(minimumDistance: 1)
-                    .onChanged { value in
-                        let start = dragStartWidth ?? assistant.width
-                        dragStartWidth = start
-                        assistant.width = UIState.clampedAssistantColumnWidth(
-                            start + value.translation.width)
-                    }
-                    .onEnded { _ in
-                        dragStartWidth = nil
-                        let width = assistant.width
-                        documentStore?.updateUIState { $0.assistantColumnWidth = width }
-                    })
+    /// The window's persona and its right-hand pane, as one value, because the
+    /// question the dismiss rule asks is about the two of them together.
+    struct PersonaPane: Equatable {
+        let persona: Persona
+        let pane: DetailSegment
+    }
+
+    /// **Does this pane change end the study?** Yes when the writer changed the
+    /// pane; no when the PERSONA changed it.
+    ///
+    /// A persona change hides the column and keeps what is up (spec §3.2), so
+    /// ⌘2 back restores exactly what was there — and every persona writer moves
+    /// the pane in the same pass, which is why "the persona is unchanged" is
+    /// what separates the writer's act from the persona's.
+    ///
+    /// **This is not a presented-ness guard, and that distinction is the fix.**
+    /// Asking `AssistantColumn.isPresented` with the new persona correctly
+    /// skips the way OUT of Author — the column is not on screen under Plan —
+    /// but not the way BACK: on ⌘2 the persona studies again, the pane moves to
+    /// Author's remembered one, `isPresented` is true, and the study dies on
+    /// the return leg instead of the departure. The pair is what sees both.
+    static func paneChangeEndsTheStudy(from old: PersonaPane, to new: PersonaPane) -> Bool {
+        old.persona == new.persona && old.pane != new.pane
     }
 }

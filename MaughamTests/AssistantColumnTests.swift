@@ -2,11 +2,13 @@ import XCTest
 import AppKit
 import ApplicationServices
 import SwiftUI
+import Observation
 import MaughamCore
 @testable import Maugham
 
-/// The assistant column (M2 spec §6.2) — **one** studied reference, between the
-/// binder and the prose, at a width you can read at.
+/// The assistant column (M2 spec §6.2, reshaped by the 2026-08-25 spec §3.2) —
+/// **one** studied reference, in the window's RIGHT column, in place of the pane
+/// picker and the pane.
 ///
 /// Two contracts here are structural rather than visual, and both are the kind
 /// that a screenshot passes and a writer meets a week later:
@@ -18,6 +20,10 @@ import MaughamCore
 /// - **It goes with the chrome.** ⌘\ means "nothing but my prose", and a
 ///   reference column that survived it would be the loudest thing left on
 ///   screen.
+/// - **It has no width of its own.** It takes the right column's, which is why
+///   nothing here measures one any more — see the fourth-column section below,
+///   and `StudyColumnMountTests` for the measurement that the prose beside it
+///   does not move.
 /// - **Escape is arbitrated, not raced.** The column and the canvas's dim are
 ///   two overlays reachable on one window, and both want the key. They register
 ///   as consumers of the window's ONE `WindowEscapeArbiter` — the same
@@ -43,23 +49,34 @@ final class AssistantColumnTests: XCTestCase {
     }
 
     // MARK: - Contract: the column exists only while something is studied
+    //
+    // The predicate below is what `ProjectWindow.detailColumn`'s FIRST arm asks
+    // (spec §3.2) — it used to be what `AssistantColumnModifier`'s `HStack`
+    // asked, and the rule did not change when the column moved. What these
+    // pin is the decision; `StudyColumnMountTests` is what pins that the arm
+    // reading it is wired to a column.
 
     func test_nothingStudiedIsNoColumn() {
         XCTAssertFalse(AssistantColumn.isPresented(studied: nil, persona: .author,
-                                                    isNoChromeOn: false))
+                                                   isNoChromeOn: false,
+                                                   showInspector: true))
     }
 
     func test_aStudiedReferenceMountsTheColumn() {
         XCTAssertTrue(AssistantColumn.isPresented(studied: aPin(), persona: .author,
-                                                   isNoChromeOn: false))
+                                                  isNoChromeOn: false,
+                                                  showInspector: true))
     }
 
     /// **The same flag the intent strip rides** (`isNoChromeOn`, Task 4). ⌘\
     /// takes the chrome, and a studied reference is chrome — the writer asked
-    /// for their prose and nothing else.
+    /// for their prose and nothing else. With the column in the RIGHT column
+    /// this is what hands the pane picker back rather than what removes a
+    /// fourth column: `detailColumn`'s arm falls through to `inspectorPane`.
     func test_theColumnGoesWithTheChrome() {
         XCTAssertFalse(AssistantColumn.isPresented(studied: aPin(), persona: .author,
-                                                    isNoChromeOn: true))
+                                                   isNoChromeOn: true,
+                                                   showInspector: true))
     }
 
     /// **Author and Review both study, Denver's 2026-08-14 ruling (spec §9,
@@ -71,32 +88,44 @@ final class AssistantColumnTests: XCTestCase {
         for persona: Persona in [.author, .review] {
             XCTAssertTrue(
                 AssistantColumn.isPresented(studied: aPin(), persona: persona,
-                                            isNoChromeOn: false),
+                                            isNoChromeOn: false, showInspector: true),
                 "\(persona) studies pins and must present the column")
         }
         for persona: Persona in [.plan, .publish] {
             XCTAssertFalse(
                 AssistantColumn.isPresented(studied: aPin(), persona: persona,
-                                            isNoChromeOn: false),
+                                            isNoChromeOn: false, showInspector: true),
                 "\(persona) must not present the column")
         }
     }
 
     /// Asked over the product rather than down the one path the plan named:
-    /// the rule is a conjunction and all three inputs must be able to veto.
-    func test_thePresentationRuleIsAskedOverAllThreeInputs() {
-        let expected: [(PinnedReference?, Persona, Bool, Bool)] = [
-            (nil, .author, false, false), (nil, .author, true, false),
-            (aPin(), .author, false, true), (aPin(), .author, true, false),
-            (aPin(), .review, false, true), (aPin(), .review, true, false),
-            (aPin(), .plan, false, false), (aPin(), .publish, false, false),
+    /// the rule is a conjunction and all FOUR inputs must be able to veto.
+    ///
+    /// `showInspector` is the fourth (2026-08-25). The column is
+    /// `ProjectWindow.detailColumn`'s first arm, which is behind that flag, so
+    /// ⌘⌥I is a way of taking the column off screen that the predicate could
+    /// not see — see `test_aColumnHiddenByTheRightColumnHoldsNoClaimOnEscape`
+    /// for what an unseeing predicate cost.
+    func test_thePresentationRuleIsAskedOverAllFourInputs() {
+        let expected: [(PinnedReference?, Persona, Bool, Bool, Bool)] = [
+            (nil, .author, false, true, false), (nil, .author, true, true, false),
+            (aPin(), .author, false, true, true), (aPin(), .author, true, true, false),
+            (aPin(), .review, false, true, true), (aPin(), .review, true, true, false),
+            (aPin(), .plan, false, true, false), (aPin(), .publish, false, true, false),
+            // The fourth input's own column: the same rows that present above,
+            // with the right column hidden.
+            (aPin(), .author, false, false, false),
+            (aPin(), .review, false, false, false),
+            (nil, .author, false, false, false),
         ]
-        for (studied, persona, noChrome, wanted) in expected {
+        for (studied, persona, noChrome, inspector, wanted) in expected {
             XCTAssertEqual(
                 AssistantColumn.isPresented(studied: studied, persona: persona,
-                                            isNoChromeOn: noChrome), wanted,
+                                            isNoChromeOn: noChrome,
+                                            showInspector: inspector), wanted,
                 "studied: \(studied?.id ?? "nil"), persona: \(persona), "
-                + "isNoChromeOn: \(noChrome)")
+                + "isNoChromeOn: \(noChrome), showInspector: \(inspector)")
         }
     }
 
@@ -109,45 +138,44 @@ final class AssistantColumnTests: XCTestCase {
         XCTAssertEqual(Persona.allCases.filter(\.studiesPinnedReferences), [.author, .review])
     }
 
-    // MARK: - Contract: the width persists, clamped
+    // MARK: - Contract: the fourth column is gone, and so is its width
 
-    func test_theDefaultWidthIsInsideItsOwnRange() {
-        XCTAssertTrue(
-            UIState.assistantColumnWidthRange.contains(UIState.defaultAssistantColumnWidth),
-            "the default width sits outside the range every write is clamped to, so a "
-            + "fresh project would be corrected on its first drag")
-    }
-
-    /// A hand-edited `ui-state.json` must not be able to hand the writer a
-    /// column wider than the window — the clamp lives with the persisted value
-    /// so both the drag and the decode go through it.
-    func test_theWidthIsClampedOnBothSides() {
-        let range = UIState.assistantColumnWidthRange
-        XCTAssertEqual(UIState.clampedAssistantColumnWidth(-40), range.lowerBound)
-        XCTAssertEqual(UIState.clampedAssistantColumnWidth(9_000), range.upperBound)
-        XCTAssertEqual(UIState.clampedAssistantColumnWidth(range.lowerBound + 20),
-                       range.lowerBound + 20)
-    }
-
-    func test_aWidthOutsideTheRangeOnDiskDecodesInsideIt() throws {
+    /// **The right column's own width, and no second one.** `UIState`'s
+    /// `assistantColumnWidth` / `defaultAssistantColumnWidth` /
+    /// `assistantColumnWidthRange` / `clampedAssistantColumnWidth` and
+    /// `AssistantColumnModel.width` all died on 2026-08-25 with the fourth
+    /// column (spec §3.2) — the compiler is the census on that, since a reader
+    /// of any of them will not build.
+    ///
+    /// What is left to assert is the on-disk half: a `ui-state.json` written by
+    /// every build up to v0.31.0 still carries the key, and it must still open.
+    /// `CodingKeys` has no case for it any more, and a keyed container never
+    /// asks for a key it has no case for — so the value decodes away and is
+    /// dropped on the next write, which is what "no migration" (tripwire 11)
+    /// means here.
+    func test_aFileStillCarryingTheDeadWidthKeyDecodes() throws {
         let json = """
-        {"schemaVersion": \(UIState.currentSchemaVersion), "assistantColumnWidth": 4000}
+        {"schemaVersion": \(UIState.currentSchemaVersion), \
+        "assistantColumnWidth": 400, "detailColumnWidth": 320, \
+        "isNoChromeOn": true}
         """
         let decoded = try JSONDecoder().decode(UIState.self, from: Data(json.utf8))
-        XCTAssertEqual(decoded.assistantColumnWidth,
-                       UIState.assistantColumnWidthRange.upperBound)
+
+        XCTAssertEqual(decoded.detailColumnWidth, 320,
+                       "the dead key must not derail the keys either side of it")
+        XCTAssertTrue(decoded.isNoChromeOn)
+        XCTAssertEqual(decoded.schemaVersion, UIState.currentSchemaVersion,
+                       "and the field's death cost no schema bump — there was "
+                       + "nothing to migrate")
     }
 
-    /// The additive-key discipline (`compilerModel`'s, `selectedSubject`'s):
-    /// a file written without the key reads as the default rather than failing.
-    func test_aFileWithoutTheKeyDecodesToTheDefault() throws {
-        let json = #"{"schemaVersion": 5, "isNoChromeOn": false}"#
-        let decoded = try JSONDecoder().decode(UIState.self, from: Data(json.utf8))
-        XCTAssertEqual(decoded.assistantColumnWidth, UIState.defaultAssistantColumnWidth)
-    }
-
-    func test_theNewFieldDidNotCostASchemaBump() {
-        XCTAssertEqual(UIState.currentSchemaVersion, 5)
+    /// The write half of the same fact: what this build encodes carries no
+    /// `assistantColumnWidth` at all, so the key really is gone from disk on the
+    /// next save rather than merely ignored on load.
+    func test_theDeadKeyIsNotWrittenBack() throws {
+        let data = try JSONEncoder().encode(UIState(detailColumnWidth: 320))
+        let text = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertFalse(text.contains("assistantColumnWidth"), text)
     }
 
     // MARK: - Contract: what the column renders, resolved against a project
@@ -294,16 +322,19 @@ final class AssistantColumnTests: XCTestCase {
         let escape = AssistantColumnEscape()
         let model = AssistantColumnModel()
 
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
         XCTAssertFalse(escape.isInstalled,
                        "with nothing studied the column must eat no keys at all")
 
         model.study(aPin())
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
         XCTAssertTrue(escape.isInstalled)
 
         model.dismiss()
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
         XCTAssertFalse(escape.isInstalled,
                        "a consumer left registered goes on swallowing Escape in a "
                        + "window with no column in it")
@@ -318,7 +349,8 @@ final class AssistantColumnTests: XCTestCase {
         let escape = AssistantColumnEscape()
         let model = AssistantColumnModel()
         model.study(aPin())
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
 
         model.study(PinnedReference(id: "res-other", kind: .research(itemId: "res-other"),
                                     title: "Another"))
@@ -331,7 +363,8 @@ final class AssistantColumnTests: XCTestCase {
         let window = makeWindow()
         let escape = AssistantColumnEscape()
         let model = AssistantColumnModel()
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
 
         XCTAssertFalse(escape.performEscape(),
                        "with no column open the key must travel on — a great many "
@@ -365,11 +398,13 @@ final class AssistantColumnTests: XCTestCase {
         var dimLifted = 0
 
         model.study(aPin())
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
         XCTAssertTrue(escape.isInstalled)
 
         // ⌘\ (or ⌘⇧F). The column leaves the screen; its claim must leave with it.
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: true)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: true, showInspector: true)
         XCTAssertFalse(escape.isInstalled,
                        "a column nobody can see is holding the window's "
                        + "highest-priority Escape claim")
@@ -391,9 +426,70 @@ final class AssistantColumnTests: XCTestCase {
 
         // Chrome back: the column returns, and so does its claim, with the same
         // reference still up.
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
         XCTAssertTrue(escape.isInstalled,
                       "the column came back with the chrome and its Escape did not")
+        XCTAssertNotNil(model.studied)
+        XCTAssertTrue(escape.performEscape())
+        XCTAssertNil(model.studied)
+        escape.stop()
+    }
+
+    /// **C1 arriving through a different key** — ⌘⌥I rather than ⌘\.
+    ///
+    /// The study column is `ProjectWindow.detailColumn`'s FIRST arm since spec
+    /// §3.2, so the right column's own visibility is now one of the things that
+    /// puts it on screen. `isPresented` did not read it: hiding the right column
+    /// with a pin studied left an invisible column holding the window's
+    /// highest-priority Escape claim — exactly the shape the final review found
+    /// for `isNoChromeOn`, one input later, and it fails the same way. The first
+    /// Escape does nothing the writer can see, discards the reference they were
+    /// studying, and the consumer below it (the canvas dim, the find bar, a
+    /// binder rename) needs a second press.
+    ///
+    /// **Not a stash.** The study survives the hide; ⌘⌥I back restores it,
+    /// which is the same clean cut the persona input made (tripwire 2).
+    func test_aColumnHiddenByTheRightColumnHoldsNoClaimOnEscape() {
+        let window = makeWindow()
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+        let escape = AssistantColumnEscape()
+        let model = AssistantColumnModel()
+        var dimLifted = 0
+
+        model.study(aPin())
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
+        XCTAssertTrue(escape.isInstalled)
+
+        // ⌘⌥I. The right column goes, and the study column goes with it.
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: false)
+        XCTAssertFalse(escape.isInstalled,
+                       "a column the right column took away is holding the "
+                       + "window's highest-priority Escape claim")
+        XCTAssertFalse(escape.performEscape(),
+                       "the offer must be declined so the key passes on")
+        XCTAssertNotNil(model.studied,
+                        "Escape discarded the studied reference while the "
+                        + "column was off screen — the writer sees nothing "
+                        + "happen and finds the pin gone when ⌘⌥I brings the "
+                        + "column back")
+
+        arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
+        XCTAssertTrue(arbiter.offerEscape())
+        XCTAssertEqual(dimLifted, 1,
+                       "the consumer below needed two Escapes: the first was "
+                       + "eaten by a column that was not on screen")
+        arbiter.resign(.canvasDim)
+
+        // ⌘⌥I back: the column returns, the same reference still studied, and
+        // Escape is its own again.
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
+        XCTAssertTrue(escape.isInstalled,
+                      "the column came back with the right column and its "
+                      + "Escape did not")
         XCTAssertNotNil(model.studied)
         XCTAssertTrue(escape.performEscape())
         XCTAssertNil(model.studied)
@@ -413,7 +509,8 @@ final class AssistantColumnTests: XCTestCase {
         model.study(aPin())
 
         for persona: Persona in [.plan, .publish] {
-            escape.sync(model: model, window: window, persona: persona, isNoChromeOn: false)
+            escape.sync(model: model, window: window, persona: persona,
+                        isNoChromeOn: false, showInspector: true)
             XCTAssertFalse(escape.isInstalled,
                            "\(persona) does not study pins; a claim held there is a "
                            + "claim nobody can see")
@@ -435,7 +532,8 @@ final class AssistantColumnTests: XCTestCase {
 
         for persona: Persona in [.author, .review] {
             let escape = AssistantColumnEscape()
-            escape.sync(model: model, window: window, persona: persona, isNoChromeOn: false)
+            escape.sync(model: model, window: window, persona: persona,
+                        isNoChromeOn: false, showInspector: true)
             XCTAssertTrue(escape.isInstalled,
                           "\(persona) studies pins and must hold the Escape claim")
             escape.stop()
@@ -452,15 +550,18 @@ final class AssistantColumnTests: XCTestCase {
         let model = AssistantColumnModel()
         model.study(aPin())
 
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
         XCTAssertTrue(escape.isInstalled)
 
-        escape.sync(model: model, window: window, persona: .plan, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .plan,
+                    isNoChromeOn: false, showInspector: true)
         XCTAssertFalse(escape.isInstalled, "leaving Author must drop the Escape claim")
         XCTAssertNotNil(model.studied,
                         "the studied pin must survive a persona switch away from Author")
 
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
         XCTAssertTrue(escape.isInstalled,
                       "returning to Author must restore the column's claim")
         XCTAssertEqual(model.studied?.id, aPin().id)
@@ -479,42 +580,59 @@ final class AssistantColumnTests: XCTestCase {
         let model = AssistantColumnModel()
         model.study(aPin())
 
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
         XCTAssertTrue(escape.isInstalled)
 
-        escape.sync(model: model, window: window, persona: .review, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .review,
+                    isNoChromeOn: false, showInspector: true)
         XCTAssertTrue(escape.isInstalled,
                       "Review studies pins too; switching to it must not drop the claim")
         XCTAssertNotNil(model.studied)
 
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
         XCTAssertTrue(escape.isInstalled)
         escape.stop()
     }
 
     /// **Registered exactly when there is a column**, asked over the product of
-    /// all three inputs and stated against `isPresented` itself rather than a
-    /// second copy of the rule — the conditions diverging is what C1 *was*, and
-    /// persona is the input the 2026-08-08 ruling added to the same product.
+    /// all FOUR inputs and stated against `isPresented` itself rather than a
+    /// second copy of the rule — the conditions diverging is what C1 *was*,
+    /// persona is the input the 2026-08-08 ruling added to the same product, and
+    /// `showInspector` is the one ⌘⌥I added (2026-08-25).
+    ///
+    /// The fourth was nailed to `true` on both sides until the whole-branch
+    /// review's M4 (2026-08-26), which made this census unable to see the exact
+    /// defect class it exists for: a `sync` that stopped reading `showInspector`
+    /// while `isPresented` still did would have passed it. Nothing was
+    /// unguarded — `test_aColumnHiddenByTheRightColumnHoldsNoClaimOnEscape`
+    /// covers that case directly — but a census that pins one of its inputs to a
+    /// constant is not asking the question its own comment claims.
     func test_theConsumerIsRegisteredExactlyWhenThereIsAColumn() {
         for pin in [nil, aPin()] {
             for persona in Persona.allCases {
                 for noChrome in [false, true] {
-                    let window = makeWindow()
-                    let escape = AssistantColumnEscape()
-                    let model = AssistantColumnModel()
-                    if let pin { model.study(pin) }
+                    for inspector in [false, true] {
+                        let window = makeWindow()
+                        let escape = AssistantColumnEscape()
+                        let model = AssistantColumnModel()
+                        if let pin { model.study(pin) }
 
-                    escape.sync(model: model, window: window, persona: persona,
-                               isNoChromeOn: noChrome)
-                    XCTAssertEqual(
-                        escape.isInstalled,
-                        AssistantColumn.isPresented(studied: model.studied, persona: persona,
-                                                    isNoChromeOn: noChrome),
-                        "the Escape claim and the column disagree about whether there "
-                        + "is a column: studied \(pin?.id ?? "nil"), persona \(persona), "
-                        + "isNoChromeOn \(noChrome)")
-                    escape.stop()
+                        escape.sync(model: model, window: window, persona: persona,
+                                    isNoChromeOn: noChrome, showInspector: inspector)
+                        XCTAssertEqual(
+                            escape.isInstalled,
+                            AssistantColumn.isPresented(studied: model.studied,
+                                                        persona: persona,
+                                                        isNoChromeOn: noChrome,
+                                                        showInspector: inspector),
+                            "the Escape claim and the column disagree about whether "
+                            + "there is a column: studied \(pin?.id ?? "nil"), "
+                            + "persona \(persona), isNoChromeOn \(noChrome), "
+                            + "showInspector \(inspector)")
+                        escape.stop()
+                    }
                 }
             }
         }
@@ -541,7 +659,8 @@ final class AssistantColumnTests: XCTestCase {
         var dimLifted = 0
 
         model.study(aPin())
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
         arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
 
         XCTAssertTrue(arbiter.offerEscape(), "the key is used by one of the two")
@@ -571,9 +690,11 @@ final class AssistantColumnTests: XCTestCase {
             model.study(aPin())
             if dimFirst {
                 arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
-                escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+                escape.sync(model: model, window: window, persona: .author,
+                            isNoChromeOn: false, showInspector: true)
             } else {
-                escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+                escape.sync(model: model, window: window, persona: .author,
+                            isNoChromeOn: false, showInspector: true)
                 arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
             }
 
@@ -677,7 +798,8 @@ final class AssistantColumnTests: XCTestCase {
         var dimLifted = 0
 
         model.study(aPin())
-        escape.sync(model: model, window: window, persona: .author, isNoChromeOn: false)
+        escape.sync(model: model, window: window, persona: .author,
+                    isNoChromeOn: false, showInspector: true)
         arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
 
         NSApp.sendEvent(escapeKeyEvent(for: window))
@@ -711,6 +833,282 @@ final class AssistantColumnTests: XCTestCase {
         _ = close.perform(NSSelectorFromString("accessibilityPerformPress"))
         pump()
         XCTAssertNil(model.studied)
+    }
+
+    // MARK: - Contract: studying reveals the column, and the newest act wins
+
+    /// **Studying a pin while the right column is hidden opens it** (spec §3.2).
+    /// The write lives in the window's `.onChange`, never in
+    /// `AssistantColumnModel` — the model is window-free, which is the whole
+    /// reason it can be handed to a References pane in one column and read by
+    /// the column that replaces it.
+    ///
+    /// **Not a stash/restore pair**, which is tripwire 2's shape: closing the
+    /// study leaves the column up showing whatever `detailSegment` still holds,
+    /// and ⌘⌥I is one keystroke.
+    func test_studyingAPinRevealsTheRightColumn() async throws {
+        let probe = StudyChainProbe(showInspector: false)
+        mountChain(probe)
+
+        probe.assistant.study(aPin())
+        await settleChain()
+
+        XCTAssertTrue(probe.showInspector,
+                      "studying a pin with the column hidden must open it — "
+                      + "otherwise the click puts the reference nowhere at all")
+    }
+
+    /// The converse, and the reason the reveal is keyed on `nil → non-nil`
+    /// rather than on any change: dismissing must not re-open a column the
+    /// writer closed, and swapping one studied pin for another must not fight
+    /// a hidden column back open either.
+    func test_dismissingDoesNotTouchTheColumnsVisibility() async throws {
+        let probe = StudyChainProbe(showInspector: false)
+        mountChain(probe)
+        probe.assistant.study(aPin())
+        await settleChain()
+        XCTAssertTrue(probe.showInspector, "premise: the study opened it")
+
+        probe.showInspector = false
+        probe.assistant.dismiss()
+        await settleChain()
+
+        XCTAssertFalse(probe.showInspector,
+                       "closing a study must not re-open a column the writer "
+                       + "has since hidden")
+    }
+
+    /// **The newest act wins, over all three of its inputs.** A ⌘⌥-letter is
+    /// the writer asking for a pane; a tree click is the writer asking about
+    /// something else; a document change makes the shelf's whole premise stale.
+    /// `selectedSubject` is the one that is NOT covered by `activeDocId`:
+    /// clicking a research row moves the subject and leaves the active document
+    /// exactly where it was.
+    func test_aNewerActEndsTheStudy() async throws {
+        let acts: [(String, (StudyChainProbe) -> Void)] = [
+            ("a pane shortcut", { $0.detailSegment = .history }),
+            ("a tree click", { $0.selectedSubject = .research("res-other") }),
+            ("a document change", { $0.activeDocId = "ch-2" }),
+        ]
+        for (what, act) in acts {
+            let probe = StudyChainProbe(showInspector: true)
+            mountChain(probe)
+            probe.assistant.study(aPin())
+            await settleChain()
+            XCTAssertNotNil(probe.assistant.studied, "premise: \(what) begins studied")
+
+            act(probe)
+            await settleChain()
+
+            XCTAssertNil(probe.assistant.studied,
+                         "\(what) must end the study — the right column cannot "
+                         + "show a reference and the thing the writer just asked "
+                         + "for at once")
+        }
+    }
+
+    /// **The picker's own no-op snap keeps the study.**
+    ///
+    /// Narrowed by Denver's fix-round-1 ruling, which split what used to be one
+    /// case in two: a **keystroke** naming the pane already selected is an act
+    /// and ends the study (⌘⌥E is precisely what a writer presses to get the
+    /// shelf back, and it was inert) — that half is
+    /// `AltitudeKeyspaceTests`-shaped and lives at the handler, asserted by
+    /// `test_theKeystrokeEndsAStudyEvenWhenItNamesThePaneAlreadyShowing`.
+    /// `DetailPaneToggle`'s snap is NOT a keystroke: it writes `segment` only
+    /// when it actually snaps, so the no-op case never reaches the chain at
+    /// all, and this pins that the chain does not dismiss on a WRITE of an
+    /// equal value.
+    func test_theNoOpSnapKeepsTheStudy() async throws {
+        let probe = StudyChainProbe(showInspector: true)
+        probe.detailSegment = .references
+        mountChain(probe)
+        probe.assistant.study(aPin())
+        await settleChain()
+
+        probe.detailSegment = .references
+        await settleChain()
+
+        XCTAssertNotNil(probe.assistant.studied,
+                        "a write of the value already there is not a newer act")
+    }
+
+    /// **A persona change is the recorded exception, driven the way ⌘1–⌘4
+    /// actually drives it.**
+    ///
+    /// The first version of this test moved `probe.persona` alone and was green
+    /// while the app was broken — the recorded "one test must model the real
+    /// delivery path" defect, found by review. `PersonaModifier` writes
+    /// `persona`, `detailSegment` and `showInspector` in ONE pass
+    /// (`ProjectWindow.swift`), and `change.segment` is the destination
+    /// persona's remembered pane — a different segment on essentially every
+    /// switch, since Plan's registry does not contain `.references` at all. So
+    /// the pane write is what the study has to survive, and this test makes it.
+    func test_aPersonaSwitchHidesTheColumnWithoutEndingTheStudy() async throws {
+        let probe = StudyChainProbe(showInspector: true)
+        probe.detailSegment = .references
+        mountChain(probe)
+        probe.assistant.study(aPin())
+        await settleChain()
+
+        // ⌘1 — Plan, and Plan's own pane, together.
+        probe.persona = .plan
+        probe.detailSegment = .inbox
+        await settleChain()
+
+        XCTAssertNotNil(probe.assistant.studied,
+                        "leaving Author must HIDE the column and keep what is "
+                        + "up (spec §3.2) — the pane moved because the persona "
+                        + "moved it, which is not the writer asking for a pane")
+        XCTAssertFalse(
+            AssistantColumn.isPresented(studied: probe.assistant.studied,
+                                        persona: probe.persona,
+                                        isNoChromeOn: false,
+                                        showInspector: true),
+            "and it is off screen while they are in Plan")
+
+        // ⌘2 — back, and Author's remembered pane with it. The RETURN leg is
+        // the one a presented-ness guard would have got wrong.
+        probe.persona = .author
+        probe.detailSegment = .references
+        await settleChain()
+
+        XCTAssertNotNil(probe.assistant.studied,
+                        "switching back restores exactly what was up — "
+                        + "`AssistantColumn.isPresented`'s own promise")
+        XCTAssertTrue(
+            AssistantColumn.isPresented(studied: probe.assistant.studied,
+                                        persona: probe.persona,
+                                        isNoChromeOn: false,
+                                        showInspector: true))
+    }
+
+    /// The rule itself, asked over the product of its inputs rather than only
+    /// down the two paths the mounted tests drive.
+    ///
+    /// The fourth row is the one that separates this rule from a presented-ness
+    /// guard: a persona change that lands BACK on a studying persona moves the
+    /// pane too, and a guard reading `isPresented` with the new persona would
+    /// say "present, so dismiss" and take the study away on the return leg.
+    func test_thePaneRuleIsAskedOverTheProductOfItsInputs() {
+        typealias Pair = AssistantColumnModifier.PersonaPane
+        let cases: [(String, Pair, Pair, Bool)] = [
+            ("the writer asked for another pane",
+             Pair(persona: .author, pane: .references),
+             Pair(persona: .author, pane: .diagnostics), true),
+            ("the picker wrote the pane already showing",
+             Pair(persona: .author, pane: .references),
+             Pair(persona: .author, pane: .references), false),
+            ("⌘1 out of Author, taking the pane with it",
+             Pair(persona: .author, pane: .references),
+             Pair(persona: .plan, pane: .inbox), false),
+            ("⌘2 back into Author, taking the pane with it",
+             Pair(persona: .plan, pane: .inbox),
+             Pair(persona: .author, pane: .references), false),
+            ("a persona change that happened to keep the pane",
+             Pair(persona: .author, pane: .inspector),
+             Pair(persona: .review, pane: .inspector), false),
+        ]
+        for (what, old, new, wanted) in cases {
+            XCTAssertEqual(
+                AssistantColumnModifier.paneChangeEndsTheStudy(from: old, to: new),
+                wanted, what)
+        }
+    }
+
+    // MARK: - Contract: what the study column costs the pane it replaces
+
+    /// **A pane the writer asked for while studying still reaches
+    /// `ui-state.json`** — fix-round 1, review Important 2.
+    ///
+    /// `DetailPaneToggle`'s `.onChange(of: segment)` is the only writer of
+    /// `UIState.detailSegment`, and it cannot fire for a change that predates
+    /// its own mount. The study column unmounts that view, so ⌘⌥D while
+    /// studying went: segment written → the study dismissed → the toggle
+    /// mounted FRESH on `.diagnostics` with nothing left to observe, and the
+    /// project reopened on the pane before the one the writer chose. The mount
+    /// now persists what it mounted with.
+    ///
+    /// Driven at the seam rather than through the window: what the defect is
+    /// about is a CONDITIONAL mount arriving with the change already applied,
+    /// which is exactly what mounting the view on a segment nobody has
+    /// persisted reproduces.
+    func test_aFreshlyMountedPanePersistsThePaneItMountedWith() async throws {
+        let (url, store) = try await makeProject()
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+        defer { withExtendedLifetime(ds) {} }
+        ds.updateUIState { $0.detailSegment = .inspector }
+        await settleChain()
+        XCTAssertEqual(ds.uiState.detailSegment, .inspector, "premise")
+
+        // The writer's ⌘⌥D landed while a reference was up: the segment is
+        // already `.diagnostics` when this view first appears.
+        var segment: DetailSegment = .diagnostics
+        var subject: BinderSubject? = .item("ch-1")
+        mount(AnyView(DetailPaneToggle(
+            store: store,
+            segment: Binding(get: { segment }, set: { segment = $0 }),
+            selectedSubject: Binding(get: { subject }, set: { subject = $0 }),
+            activeManuscriptItemId: "ch-1",
+            persona: .author,
+            projectURL: url,
+            activeDocId: "ch-1",
+            documentStore: ds) { Color.clear }
+            .frame(width: 320, height: 480)))
+        await settleChain()
+
+        XCTAssertEqual(ds.uiState.detailSegment, .diagnostics,
+                       "the pane the writer asked for never reached ui-state, "
+                       + "so the project would reopen on the previous one")
+    }
+
+    /// **A ⌘⌥-letter naming the pane already selected still ends the study** —
+    /// Denver's fix-round-1 ruling. The study stands IN PLACE OF the References
+    /// pane, so ⌘⌥E is the keystroke a writer presses to get the shelf back,
+    /// and leaving it to `detailSegment`'s `.onChange` made it inert: the value
+    /// the handler writes is the one already there.
+    ///
+    /// A source census rather than a mounted assertion, because the handler
+    /// lives inside `SessionAndNavigationModifier` on a `ProjectWindow` no test
+    /// can reach — the same reason `ReferencesPaneTests`' assembly census is a
+    /// census. The planted offender below is what keeps it honest.
+    func test_theKeystrokeEndsAStudyEvenWhenItNamesThePaneAlreadyShowing() throws {
+        XCTAssertTrue(
+            Self.setDetailSegmentHandlerDismissesTheStudy(in: try Self.projectWindowSource()),
+            "the `.maughamSetDetailSegment` handler must call `assistant.dismiss()`: "
+            + "it writes a segment that is often the one already selected, so "
+            + "`.onChange` cannot see it, and ⌘⌥E over a studied reference does "
+            + "nothing at all")
+    }
+
+    /// The planted offender: without it the census could be reading nothing.
+    func test_theKeystrokeCensusCanSeeTheHandlerLoseItsDismiss() throws {
+        let stripped = try Self.projectWindowSource()
+            .replacingOccurrences(of: "assistant.dismiss()", with: "// removed")
+        XCTAssertFalse(Self.setDetailSegmentHandlerDismissesTheStudy(in: stripped),
+                       "the census cannot see the dismiss go — it is not reading "
+                       + "the handler")
+    }
+
+    private static func projectWindowSource() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Views/ProjectWindow.swift")
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Does the `.maughamSetDetailSegment` handler dismiss? Read as the body
+    /// between that handler's opening line and the next `.onKeyWindowCommand`,
+    /// so a `dismiss()` somewhere else in a 4,000-line file cannot answer for
+    /// it.
+    private static func setDetailSegmentHandlerDismissesTheStudy(in source: String) -> Bool {
+        guard let start = source.range(of: ".onKeyWindowCommand(.maughamSetDetailSegment") else {
+            return false
+        }
+        let rest = source[start.upperBound...]
+        let end = rest.range(of: ".onKeyWindowCommand(")?.lowerBound ?? rest.endIndex
+        return rest[..<end].contains("assistant.dismiss()")
     }
 
     // MARK: - Fixtures
@@ -830,6 +1228,58 @@ final class AssistantColumnTests: XCTestCase {
             [axAttribute(element, "accessibilityLabel") as? String,
              axAttribute(element, "accessibilityValue") as? String,
              axAttribute(element, "accessibilityTitle") as? String].compactMap { $0 }
+        }
+    }
+
+    // MARK: - The chain, mounted
+
+    /// The window state `AssistantColumnModifier` watches, outside the view so a
+    /// test can drive it and read the writes back. `@Observable` for the reason
+    /// `DetailColumnProbe` is: a `@State` the test cannot reach measures
+    /// nothing.
+    @Observable
+    @MainActor
+    final class StudyChainProbe {
+        var showInspector: Bool
+        var persona: Persona = .author
+        var isNoChromeOn = false
+        var activeDocId = "ch-1"
+        var detailSegment: DetailSegment = .inspector
+        var selectedSubject: BinderSubject? = .item("ch-1")
+        let assistant = AssistantColumnModel()
+
+        init(showInspector: Bool) { self.showInspector = showInspector }
+    }
+
+    /// The modifier applied to a view that draws nothing — which is the whole
+    /// point of it since spec §3.2: what it contributes is Escape, the reveal
+    /// and the dismisses, and no pixels at all.
+    private struct StudyChainHost: View {
+        let probe: StudyChainProbe
+
+        var body: some View {
+            Color.clear.modifier(AssistantColumnModifier(
+                window: nil, isNoChromeOn: probe.isNoChromeOn,
+                persona: probe.persona, activeDocId: probe.activeDocId,
+                detailSegment: probe.detailSegment,
+                selectedSubject: probe.selectedSubject,
+                showInspector: Binding(get: { probe.showInspector },
+                                       set: { probe.showInspector = $0 }),
+                assistant: probe.assistant))
+        }
+    }
+
+    @discardableResult
+    private func mountChain(_ probe: StudyChainProbe) -> NSWindow {
+        mount(AnyView(StudyChainHost(probe: probe).frame(width: 200, height: 200)))
+    }
+
+    /// `.onChange` runs on the next update pass, not on the write, so every
+    /// assertion about the chain waits one out.
+    private func settleChain() async {
+        for _ in 0..<20 {
+            pump(0.02)
+            try? await Task.sleep(for: .milliseconds(20))
         }
     }
 

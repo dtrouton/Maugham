@@ -295,6 +295,12 @@ persists per project.
 This is `ProjectWindow` surgery near the type-checker ceiling: extracted
 `ViewModifier`s, and a local **Release** build before any report (CLAUDE.md).
 
+> **Amended 2026-08-25**: the studied pin now takes the RIGHT column in place
+> of the pane picker and the pane — no fourth column, no width of its own —
+> and the pinned union gained sections (per bound region, a promoted region
+> contributing its note) reflected in `pinnedListing`'s `## <title>` lines. See
+> `docs/superpowers/specs/2026-08-25-references-shelf-and-study-column-design.md`.
+
 ### 6.3 Author posture: none ships, on the record
 
 The shell spec's §2 reserved an Author posture at M2 ("writing and answering

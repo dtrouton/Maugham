@@ -421,6 +421,8 @@ Two hazards, both already scarred into this file:
 - `PersonaModifier.clearsPaletteStash` exists because `PaletteSegmentModifier`'s `.onChange` fires in a *later* update pass and would otherwise restore stashed inspector visibility over a persona switch's force-open. Any canvas column-collapse that stashes state inherits this exact ordering hazard and must extend the predicate rather than defer a pass (tripwire 2).
 - Column visibility must not add an expression to `ProjectWindow.body` (§7A / zero budget).
 
+> **Amended 2026-08-25**: the collapse's decision (`.doubleColumn` + `showInspector: false`) held, but `detailColumn`'s hidden arm rendered no view and no width, which left the canvas squeezed rather than full-width — AppKit gave the CONTENT column its `ideal` and handed the rest to an empty detail column. Fixed by giving the hidden arm an explicit `.navigationSplitViewColumnWidth(0)` (`ProjectWindow.hiddenDetailColumn`), shared with `⌘⌥I`'s identical case. See `docs/superpowers/specs/2026-08-25-references-shelf-and-study-column-design.md` §5.
+
 ### 8A.4 Inbox → canvas, directly
 
 *Added 2026-07-30 (Denver, re-deriving 1C-c3). Built in **1C-d**, with the rest of §8A.*

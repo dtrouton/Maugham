@@ -278,6 +278,34 @@ final class CanvasClaudeBannerTests: XCTestCase {
                       + "names what arrived either")
     }
 
+    /// **Show lands on the Inspector, and it takes writing the segment to get
+    /// there.** `Destination.opensInspector` promises the pane that names what
+    /// arrived; before 2026-08-26 `show` forced the COLUMN open and left the
+    /// segment alone, which meant Plan's own coercion picked the pane (`.inbox`)
+    /// — and once a studied pin can be what is mounted in the right column,
+    /// `DetailPaneToggle` is unmounted at the moment the persona moves, remounts
+    /// fresh in Plan still carrying `.references`, and its `.onAppear` persists
+    /// that shelf into `ui-state.json`. So the destination's promise is asserted
+    /// here and the write that keeps it is censused below.
+    ///
+    /// The premise is asserted rather than assumed: `.inspector` really is a pane
+    /// Plan offers, or the segment written would be coerced straight back out.
+    func test_showOpensThePaneThatNamesWhatArrived() throws {
+        let to = CanvasClaudeArrivalModifier.destination(forRegion: r1)
+        XCTAssertTrue(to.opensInspector,
+                      "premise: the destination promises the naming pane")
+        XCTAssertTrue(Persona.plan.panes.contains(.inspector),
+                      "premise: .inspector is one of Plan's own panes, or the "
+                      + "segment Show writes is coerced back out from under it")
+
+        let text = CanvasSourceCensus.commentsStripped(try CanvasSourceCensus.source(
+            at: "Maugham/Views/CanvasClaudeArrivalModifier.swift"))
+        XCTAssertTrue(text.contains("detailSegment = .inspector"),
+                      "Show forces the column open and lets whatever pane was "
+                      + "last mounted decide what fills it — a studied pin's "
+                      + "References shelf, every row inert, persisted on mount")
+    }
+
     /// Two batches into the SAME region add up rather than replacing, which is
     /// `MCPBannerModel.bump`'s behaviour for research notes and the same reason:
     /// the writer wants to know how much is waiting, not how much the last call

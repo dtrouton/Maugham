@@ -2,13 +2,15 @@ import XCTest
 import MaughamCore
 @testable import Maugham
 
-/// M2 §: **what is pinned beside a document** — the research the writer linked
-/// to it, unioned with the cards they clustered for it on the planning canvas,
-/// each resolved to something a pane, a column or a prompt can render.
+/// M2 §, widened by the references-shelf design's §2: **what is pinned beside a
+/// document** — the research the writer linked to it, the research their project
+/// type CONTAINS for it, and the cards they clustered for it on the planning
+/// canvas, resolved to something a pane, a column or a prompt can render, and
+/// grouped the way the writer arranged them.
 ///
 /// Everything here is pure: no project on disk, no store, no window. The
 /// manifest arrives as a `CanvasItemIndex` and the scrap words as a dictionary,
-/// which is what makes the union assertable at all — `CanvasItemFactsTests`'
+/// which is what makes the projection assertable at all — `CanvasItemFactsTests`'
 /// own shape, for its reason.
 final class PinnedReferencesTests: XCTestCase {
 
@@ -60,11 +62,13 @@ final class PinnedReferencesTests: XCTestCase {
     }
 
     private func pins(links: [String]? = nil,
+                      derived: [String] = [],
                       scene: CanvasScene? = nil,
                       scraps: [CanvasNodeID: String] = [:],
-                      docId: String? = nil) -> [PinnedReference] {
+                      docId: String? = nil) -> PinnedShelf {
         PinnedReferences.pinned(forDocId: docId ?? self.docId,
                                 links: links,
+                                derived: derived,
                                 scene: scene,
                                 scraps: scraps,
                                 items: index())
@@ -73,7 +77,7 @@ final class PinnedReferencesTests: XCTestCase {
     // MARK: - The linked half
 
     func test_aLinkedResearchItemBecomesAPinWithItsRealTitle() {
-        let out = pins(links: ["res-note"])
+        let out = pins(links: ["res-note"]).references
         XCTAssertEqual(out.map(\.id), ["res-note"])
         XCTAssertEqual(out.first?.title, "The falls at night",
                        "a pin carries the manifest's title, never the id")
@@ -83,16 +87,55 @@ final class PinnedReferencesTests: XCTestCase {
     /// Contract 1. The writer deleted the note; a row reading `res-gone` is a
     /// code, and a reference LIST has nothing to show for it.
     func test_aDanglingLinkIsDroppedRatherThanRenderedAsARawId() {
-        XCTAssertEqual(pins(links: ["res-gone", "res-note"]).map(\.id), ["res-note"])
+        XCTAssertEqual(pins(links: ["res-gone", "res-note"]).references.map(\.id),
+                       ["res-note"])
     }
 
     func test_aRepeatedLinkAppearsOnce() {
-        XCTAssertEqual(pins(links: ["res-note", "res-note"]).map(\.id), ["res-note"])
+        XCTAssertEqual(pins(links: ["res-note", "res-note"]).references.map(\.id),
+                       ["res-note"])
     }
 
     func test_noLinksAndNoSceneIsEmpty() {
-        XCTAssertTrue(pins().isEmpty)
-        XCTAssertTrue(pins(links: []).isEmpty)
+        XCTAssertTrue(pins().references.isEmpty)
+        XCTAssertTrue(pins(links: []).references.isEmpty)
+    }
+
+    /// A shelf with nothing on it has no sections at all — not one empty
+    /// untitled section. The pane draws a section per element, so an empty one
+    /// is an empty row of chrome, and the emptiness is `ReferencesPane`'s own
+    /// question to ask of `references`.
+    func test_anEmptyShelfHasNoSections() {
+        XCTAssertTrue(pins().sections.isEmpty)
+    }
+
+    // MARK: - The derived half (§2.1)
+
+    /// §2.1, the missing source. In a Collection the piece's research is routed
+    /// by CONTAINMENT and nothing writes a link, so a shelf reading
+    /// `linkedResearchIds` alone is empty for a piece with a full research
+    /// folder — complete for Novels and silently short for everything else.
+    func test_researchTheProjectTypeDerivesIsPinnedWithNoLinkAtAll() {
+        let out = pins(derived: ["res-note"]).references
+        XCTAssertEqual(out.map(\.id), ["res-note"])
+        XCTAssertEqual(out.first?.kind, .research(itemId: "res-note"))
+    }
+
+    /// One untitled run of research at the top, links first: the link is the
+    /// writer's explicit act and derivation is the project type's, and both are
+    /// in manifest order — never sorted.
+    func test_linkedResearchLeadsTheDerivedResearchInOneUntitledSection() {
+        let shelf = pins(links: ["res-photo"], derived: ["res-note"])
+        XCTAssertEqual(shelf.sections.map(\.title), [nil])
+        XCTAssertEqual(shelf.references.map(\.id), ["res-photo", "res-note"])
+    }
+
+    /// The two sources are two ways of saying one thing about one object, so
+    /// the pin is the same pin and it keeps the LINKED position — the same rule
+    /// the canvas half has always taken.
+    func test_researchBothLinkedAndDerivedLandsOnce() {
+        XCTAssertEqual(pins(links: ["res-note"], derived: ["res-note"]).references.map(\.id),
+                       ["res-note"])
     }
 
     // MARK: - The discriminator: research vs palette
@@ -103,7 +146,7 @@ final class PinnedReferencesTests: XCTestCase {
     /// `res-`-prefixed `.document` assets — so an id-shape heuristic would call
     /// this one research and be wrong with nothing red.
     func test_aPaletteCardIsToldApartByItsPositionAndNotByItsId() {
-        let out = pins(links: ["res-card", "res-note"])
+        let out = pins(links: ["res-card", "res-note"]).references
         XCTAssertEqual(out.map(\.kind), [.palette(cardId: "res-card"),
                                          .research(itemId: "res-note")])
     }
@@ -112,7 +155,7 @@ final class PinnedReferencesTests: XCTestCase {
     /// canvas itself ingested and owns, keyed by path. This one has an id, a
     /// manifest entry and a research preview to open in.
     func test_aResearchImageIsAResearchPinAndNotAPhotoPin() {
-        XCTAssertEqual(pins(links: ["res-photo"]).map(\.kind),
+        XCTAssertEqual(pins(links: ["res-photo"]).references.map(\.kind),
                        [.research(itemId: "res-photo")])
     }
 
@@ -121,7 +164,7 @@ final class PinnedReferencesTests: XCTestCase {
     func test_aScrapClusteredForThePieceBecomesAPinTitledByItsFirstLine() {
         var s = scene()
         CanvasMembership.join(scrapA, home: region, in: &s)
-        let out = pins(scene: s, scraps: [scrapA: "The fog came down\n\nand stayed."])
+        let out = pins(scene: s, scraps: [scrapA: "The fog came down\n\nand stayed."]).references
         XCTAssertEqual(out.map(\.id), [scrapA.raw])
         XCTAssertEqual(out.first?.title, "The fog came down")
         XCTAssertEqual(out.first?.kind, .scrap(nodeId: scrapA.raw))
@@ -132,7 +175,7 @@ final class PinnedReferencesTests: XCTestCase {
     func test_anEmptyScrapSaysSoRatherThanRenderingNothing() {
         var s = scene()
         CanvasMembership.join(scrapA, home: region, in: &s)
-        XCTAssertEqual(pins(scene: s, scraps: [scrapA: "   \n\n  "]).first?.title,
+        XCTAssertEqual(pins(scene: s, scraps: [scrapA: "   \n\n  "]).references.first?.title,
                        CanvasAccessibility.emptyScrapValue)
     }
 
@@ -140,19 +183,22 @@ final class PinnedReferencesTests: XCTestCase {
         var s = scene()
         CanvasMembership.join(scrapA, home: region, in: &s)
         let long = String(repeating: "x", count: 200)
-        let title = pins(scene: s, scraps: [scrapA: long]).first?.title ?? ""
+        let title = pins(scene: s, scraps: [scrapA: long]).references.first?.title ?? ""
         XCTAssertTrue(title.hasSuffix(CanvasRenderer.ellipsis))
         XCTAssertEqual(title.count, PinnedReferences.scrapTitleCharacterLimit + 1,
                        "the limit is on the text; the mark is added to it")
     }
 
-    /// §4.4, through `RegionBinding.references` and never re-derived: a card
-    /// that merely *appears* in a bound region is cited, not owned.
+    /// §4.4, and never re-derived as `home ∪ appearances`: a card that merely
+    /// *appears* in a bound region is cited, not owned. The projection reaches
+    /// the residency rule through `CanvasMembership.residents` — the same
+    /// function `RegionBinding.references` reaches it through — which is what
+    /// keeps this green now that the shelf walks region by region.
     func test_aVisitingCardIsNotPinned() {
         var s = scene()
         CanvasMembership.join(scrapA, home: region, in: &s)
         CanvasMembership.addAppearance(scrapB, to: region, in: &s)
-        XCTAssertEqual(pins(scene: s, scraps: [scrapA: "one", scrapB: "two"]).map(\.id),
+        XCTAssertEqual(pins(scene: s, scraps: [scrapA: "one", scrapB: "two"]).references.map(\.id),
                        [scrapA.raw])
     }
 
@@ -161,13 +207,15 @@ final class PinnedReferencesTests: XCTestCase {
     func test_aCardBoundToThePieceItselfIsPinned() {
         var s = scene()
         s.setBoundPiece(docId, for: scrapB)
-        XCTAssertEqual(pins(scene: s, scraps: [scrapB: "its own"]).map(\.id), [scrapB.raw])
+        XCTAssertEqual(pins(scene: s, scraps: [scrapB: "its own"]).references.map(\.id),
+                       [scrapB.raw])
     }
 
     func test_aCardClusteredForAnotherPieceIsNotPinned() {
         var s = scene()
         CanvasMembership.join(scrapA, home: region, in: &s)
-        XCTAssertTrue(pins(scene: s, scraps: [scrapA: "one"], docId: otherDocId).isEmpty)
+        XCTAssertTrue(pins(scene: s, scraps: [scrapA: "one"], docId: otherDocId)
+                        .references.isEmpty)
     }
 
     // MARK: - Item nodes on the canvas, both provenances
@@ -178,7 +226,7 @@ final class PinnedReferencesTests: XCTestCase {
         s.insert(CanvasNode(id: node, kind: .item(.project(id: "res-card")),
                             origin: .zero, width: 240, cachedHeight: 80))
         CanvasMembership.join(node, home: region, in: &s)
-        let out = pins(scene: s)
+        let out = pins(scene: s).references
         XCTAssertEqual(out.map(\.id), ["res-card"], "the pin's id is what it points AT")
         XCTAssertEqual(out.first?.kind, .palette(cardId: "res-card"))
         XCTAssertEqual(out.first?.title, "Act II fog")
@@ -194,7 +242,7 @@ final class PinnedReferencesTests: XCTestCase {
         s.insert(CanvasNode(id: node, kind: .item(.project(id: "res-gone")),
                             origin: .zero, width: 240, cachedHeight: 80))
         CanvasMembership.join(node, home: region, in: &s)
-        XCTAssertTrue(pins(scene: s).isEmpty)
+        XCTAssertTrue(pins(scene: s).references.isEmpty)
     }
 
     /// An owned picture needs no manifest — it exists nowhere else in the
@@ -207,67 +255,250 @@ final class PinnedReferencesTests: XCTestCase {
         s.insert(CanvasNode(id: node, kind: .item(.owned(path: path)),
                             origin: .zero, width: 240, cachedHeight: 80))
         CanvasMembership.join(node, home: region, in: &s)
-        let out = PinnedReferences.pinned(forDocId: docId, links: nil, scene: s,
-                                          scraps: [:], items: .empty)
+        let out = PinnedReferences.pinned(forDocId: docId, links: nil, derived: [], scene: s,
+                                          scraps: [:], items: .empty).references
         XCTAssertEqual(out.map(\.id), [path])
         XCTAssertEqual(out.first?.kind, .photo(path: path))
         XCTAssertEqual(out.first?.title, CanvasItemFacts.ownedTitle)
     }
 
-    // MARK: - The union
+    // MARK: - The sections (§2.2)
 
-    /// Contract 3. The two sources are two ways of saying the same thing about
-    /// one object, so the pin is the same pin — and it keeps the LINKED
-    /// position, because the writer's explicit link is the older statement.
-    func test_anItemBothLinkedAndOnTheCanvasAppearsOnce() {
+    /// §2.2, the missing structure. A writer who arranged six cards under a
+    /// titled region used to get six titles in dictionary order with nothing
+    /// saying they belong together.
+    func test_aBoundRegionIsItsOwnSectionTitledWithItsLabel() {
         var s = scene()
+        CanvasMembership.join(scrapA, home: region, in: &s)
+        let shelf = pins(links: ["res-note"], scene: s, scraps: [scrapA: "The fog came down"])
+        XCTAssertEqual(shelf.sections.map(\.title), [nil, "Act II fog"])
+        XCTAssertEqual(shelf.sections.last?.references.map(\.id), [scrapA.raw])
+    }
+
+    /// The fallback is `Promotion.regionTitle`'s and is reached rather than
+    /// restated: a region drawn by a drag is unlabelled for the first minute of
+    /// its life, and a section header reading nothing at all is chrome.
+    func test_anUnlabelledBoundRegionTakesPromotionsOwnFallbackTitle() {
+        var s = scene()
+        s.updateRegion(region) { $0.label = "   " }
+        CanvasMembership.join(scrapA, home: region, in: &s)
+        XCTAssertEqual(pins(scene: s, scraps: [scrapA: "one"]).sections.map(\.title),
+                       [CanvasRegion.untitledLabel])
+    }
+
+    /// Regions in label order, `RegionInspector.rows`' discipline — with the id
+    /// tiebreak that keeps two identically-labelled regions from swapping
+    /// between launches on a `Dictionary`'s iteration order.
+    func test_twoBoundRegionsAreOrderedByLabelThenById() {
+        var s = scene()
+        RegionBinding.bind(otherRegion, toPiece: docId, in: &s)
+        CanvasMembership.join(scrapA, home: region, in: &s)
+        CanvasMembership.join(scrapB, home: otherRegion, in: &s)
+        XCTAssertEqual(pins(scene: s, scraps: [scrapA: "one", scrapB: "two"])
+                        .sections.map(\.title), ["Act II fog", "Falls"])
+
+        s.updateRegion(otherRegion) { $0.label = "Act II fog" }
+        for _ in 0..<20 {
+            XCTAssertEqual(pins(scene: s, scraps: [scrapA: "one", scrapB: "two"])
+                            .sections.flatMap { $0.references.map(\.id) },
+                           [scrapA.raw, scrapB.raw],
+                           "r1 before r2 on the id tiebreak, on every run")
+        }
+    }
+
+    /// A card lives in one place. Unioned across regions it would be pinned
+    /// twice; the dedup is on the pin's id and the FIRST section wins, which is
+    /// the section the writer sees first.
+    func test_aCardResidentInTwoBoundRegionsAppearsInTheFirstSectionOnly() {
+        var s = scene()
+        RegionBinding.bind(otherRegion, toPiece: docId, in: &s)
+        CanvasMembership.join(scrapA, home: region, in: &s)
+        // Not `join`, which moves a card's home: a hand-edited sidecar can name
+        // one node in two regions' `homeMembers`, and the shelf must not double it.
+        s.updateRegion(otherRegion) { $0.addHome(self.scrapA) }
+        let shelf = pins(scene: s, scraps: [scrapA: "one"])
+        XCTAssertEqual(shelf.sections.map(\.title), ["Act II fog"],
+                       "the second region's section is empty and omitted")
+        XCTAssertEqual(shelf.references.map(\.id), [scrapA.raw])
+    }
+
+    /// §2.3, the promotion. The region BECAME that note; pinning both is the
+    /// seventh-row defect Denver saw.
+    func test_aPromotedRegionContributesTheNoteItBecameAndNotItsCards() {
+        var s = scene()
+        CanvasMembership.join(scrapA, home: region, in: &s)
+        s.updateRegion(region) { $0.promotedItemID = "res-note" }
+        let shelf = pins(scene: s, scraps: [scrapA: "The fog came down"])
+        XCTAssertEqual(shelf.sections.map(\.title), ["Act II fog"])
+        XCTAssertEqual(shelf.references.map(\.id), ["res-note"])
+        XCTAssertEqual(shelf.references.first?.kind, .research(itemId: "res-note"))
+    }
+
+    /// **The region keeps the heading over a note the piece ALSO holds** — the
+    /// whole-branch review's M1, ruled 2026-08-26.
+    ///
+    /// In a Collection this is the normal case rather than an edge one: region
+    /// promotion writes the note into the bound piece's own research folder, so
+    /// `derivedResearchItems` carries it and the untitled run reached it first.
+    /// Dedup-first-wins then dropped it from the region's section, `close` saw an
+    /// empty `out`, and the heading vanished — the note was on the shelf exactly
+    /// once and correctly, with nothing saying where it came from, in precisely
+    /// the project shape this milestone was written for. The heading is what
+    /// carries the writer's own word for the material, so the region wins the
+    /// collision and the untitled run is one shorter.
+    ///
+    /// Driven from BOTH upstream sources, because the reservation has to happen
+    /// before either of them takes the id, and a fix that only handled
+    /// containment would leave the Novel-chapter path (a linked note promoted
+    /// from a region) on the old behaviour.
+    func test_aPromotedRegionKeepsItsHeadingOverANoteThePieceAlsoHolds() {
+        var s = scene()
+        CanvasMembership.join(scrapA, home: region, in: &s)
+        s.updateRegion(region) { $0.promotedItemID = "res-note" }
+
+        for (source, shelf) in [
+            ("contained", pins(derived: ["res-photo", "res-note"], scene: s,
+                               scraps: [scrapA: "The fog came down"])),
+            ("linked", pins(links: ["res-photo", "res-note"], scene: s,
+                            scraps: [scrapA: "The fog came down"])),
+        ] {
+            XCTAssertEqual(shelf.sections.map(\.title), [nil, "Act II fog"],
+                           "\(source): the region's own name is what tells the "
+                           + "writer where the note came from, and it is the half "
+                           + "that vanished when the untitled run claimed the id")
+            XCTAssertEqual(shelf.sections.first?.references.map(\.id), ["res-photo"],
+                           "\(source): the rest of the run is untouched — only "
+                           + "the promoted note is reserved")
+            XCTAssertEqual(shelf.sections.last?.references.map(\.id), ["res-note"],
+                           "\(source): under the region's heading, and its cards "
+                           + "are still not pinned beside it")
+            XCTAssertEqual(shelf.references.map(\.id), ["res-photo", "res-note"],
+                           "\(source): once on the shelf, not twice")
+        }
+    }
+
+    /// The mark is a record of something that happened once, not a live link,
+    /// so it can name a note the writer has since deleted. The fact is stale
+    /// and the writer still has the material.
+    func test_aPromotedRegionWhoseNoteIsGoneFallsBackToItsCards() {
+        var s = scene()
+        CanvasMembership.join(scrapA, home: region, in: &s)
+        s.updateRegion(region) { $0.promotedItemID = "gone" }
+        XCTAssertEqual(pins(scene: s, scraps: [scrapA: "The fog came down"])
+                        .references.map(\.id), [scrapA.raw])
+    }
+
+    /// A card's OWN promotion does not supersede the card: the writer pinned
+    /// the card. A region is different because its promotion is what the region
+    /// is FOR.
+    func test_aCardsOwnPromotionDoesNotSupersedeTheCard() {
+        var s = scene()
+        s.setBoundPiece(docId, for: scrapB)
+        s.setPromotedItem("res-note", for: scrapB)
+        XCTAssertEqual(pins(scene: s, scraps: [scrapB: "its own"]).references.map(\.id),
+                       [scrapB.raw])
+    }
+
+    func test_aSelfBoundCardOutsideEveryBoundRegionLandsUnderCards() {
+        var s = scene()
+        CanvasMembership.join(scrapA, home: region, in: &s)
+        s.setBoundPiece(docId, for: scrapB)
+        let shelf = pins(scene: s, scraps: [scrapA: "in the region", scrapB: "on its own"])
+        XCTAssertEqual(shelf.sections.map(\.title), ["Act II fog", PinnedShelf.looseCardsTitle])
+        XCTAssertEqual(shelf.sections.last?.references.map(\.id), [scrapB.raw])
+    }
+
+    func test_theCardsSectionIsAbsentWhenNothingIsLooseInIt() {
+        var s = scene()
+        CanvasMembership.join(scrapA, home: region, in: &s)
+        XCTAssertEqual(pins(scene: s, scraps: [scrapA: "one"]).sections.map(\.title),
+                       ["Act II fog"])
+    }
+
+    /// A resident of a bound region carries no `boundPieceID` of its own, so it
+    /// is the region's and never the loose set's — the two sources are asked
+    /// different questions and a card answering both lands once, in the region.
+    func test_aSelfBoundResidentOfABoundRegionStaysInTheRegionsSection() {
+        var s = scene()
+        CanvasMembership.join(scrapA, home: region, in: &s)
+        s.setBoundPiece(docId, for: scrapA)
+        let shelf = pins(scene: s, scraps: [scrapA: "one"])
+        XCTAssertEqual(shelf.sections.map(\.title), ["Act II fog"])
+        XCTAssertEqual(shelf.references.map(\.id), [scrapA.raw])
+    }
+
+    // MARK: - The flat projection
+
+    /// The old return value, and what the compiler's listing and any reader
+    /// wanting a list reads. The sections are disjoint by construction, so this
+    /// is the concatenation — and every id in it is unique.
+    func test_theFlatListIsTheSectionsConcatenatedWithNoIdTwice() {
+        var s = scene()
+        RegionBinding.bind(otherRegion, toPiece: docId, in: &s)
+        CanvasMembership.join(scrapA, home: region, in: &s)
         let node = CanvasNodeID.item("res-note")
         s.insert(CanvasNode(id: node, kind: .item(.project(id: "res-note")),
                             origin: .zero, width: 240, cachedHeight: 80))
-        CanvasMembership.join(node, home: region, in: &s)
-        CanvasMembership.join(scrapA, home: region, in: &s)
-        let out = pins(links: ["res-note"], scene: s, scraps: [scrapA: "A scrap"])
-        XCTAssertEqual(out.map(\.id), ["res-note", scrapA.raw])
-        XCTAssertEqual(out.filter { $0.id == "res-note" }.count, 1)
+        CanvasMembership.join(node, home: otherRegion, in: &s)
+        s.setBoundPiece(docId, for: scrapB)
+        let shelf = pins(links: ["res-note"], derived: ["res-card"], scene: s,
+                         scraps: [scrapA: "one", scrapB: "two"])
+        XCTAssertEqual(shelf.references, shelf.sections.flatMap(\.references))
+        XCTAssertEqual(Set(shelf.references.map(\.id)).count, shelf.references.count)
+        XCTAssertEqual(shelf.references.map(\.id),
+                       ["res-note", "res-card", scrapA.raw, scrapB.raw],
+                       "the linked note takes the res-note card's place on the canvas")
     }
 
+    // MARK: - Order
+
     /// Contract 4. Linked first in manifest order — which is NOT alphabetical
-    /// here, so a sort applied to the whole list would fail this — then the
-    /// canvas set by title.
-    func test_linkedComeFirstInManifestOrderThenTheCanvasSetByTitle() {
+    /// here, so a sort applied to the whole list would fail this — then each
+    /// region's cards in READING order: the writer arranged them, and the shelf
+    /// reads the way the region reads (`Promotion.readingOrder`, the same order
+    /// a promotion joins their words in).
+    func test_linkedComeFirstInManifestOrderThenTheCanvasSetInReadingOrder() {
         var s = scene()
         CanvasMembership.join(scrapA, home: region, in: &s)
         CanvasMembership.join(scrapB, home: region, in: &s)
+        s.move(scrapB, to: CGPoint(x: 0, y: 0))
+        s.move(scrapA, to: CGPoint(x: 0, y: 400))
         let out = pins(links: ["res-photo", "res-note"], scene: s,
-                       scraps: [scrapA: "Zebra", scrapB: "Antelope"])
+                       scraps: [scrapA: "Antelope", scrapB: "Zebra"]).references
         XCTAssertEqual(out.map(\.title),
-                       ["The gorge from above", "The falls at night", "Antelope", "Zebra"])
+                       ["The gorge from above", "The falls at night", "Zebra", "Antelope"],
+                       "B is above A on the canvas, so B is above A on the shelf — "
+                       + "alphabetical order would put Antelope first")
     }
 
-    /// The tiebreak is not decoration: every empty scrap answers with the same
-    /// placeholder, so title alone would leave a `Set`'s iteration order
-    /// deciding the list — a different order on every launch.
-    /// `RegionInspector.rows` takes the identical discipline.
-    func test_theCanvasOrderTiebreaksOnIdSoTwoEmptyScrapsDoNotSwap() {
+    /// The tiebreak is not decoration: two cards at the same origin would
+    /// otherwise leave a `Set`'s iteration order deciding the list — a
+    /// different order on every launch. `Promotion.readingOrder` takes the
+    /// identical discipline, and this is the same order a promotion joins them
+    /// in.
+    func test_theReadingOrderTiebreaksOnIdSoTwoCardsAtOnePointDoNotSwap() {
         var s = scene()
         CanvasMembership.join(scrapA, home: region, in: &s)
         CanvasMembership.join(scrapB, home: region, in: &s)
         for _ in 0..<20 {
-            XCTAssertEqual(pins(scene: s, scraps: [scrapA: "", scrapB: ""]).map(\.id),
+            XCTAssertEqual(pins(scene: s, scraps: [scrapA: "", scrapB: ""]).references.map(\.id),
                            [scrapA.raw, scrapB.raw])
         }
     }
 
     /// Contract 5. A project whose Plan side has never been opened has no
-    /// scene, and the links still pin.
-    func test_noSceneDegradesToLinksOnly() {
-        XCTAssertEqual(pins(links: ["res-note"], scene: nil).map(\.id), ["res-note"])
+    /// scene, and the research still pins — as one untitled section.
+    func test_noSceneDegradesToTheResearchSectionOnly() {
+        let shelf = pins(links: ["res-note"], scene: nil)
+        XCTAssertEqual(shelf.sections.map(\.title), [nil])
+        XCTAssertEqual(shelf.references.map(\.id), ["res-note"])
     }
 
     /// Contract: the id is the underlying id/path, so a recomputation over an
     /// unchanged project and scene is `Equatable`-identical — which is what
-    /// lets a pane hold a selection across one.
-    func test_recomputingOverAnUnchangedProjectGivesTheIdenticalList() {
+    /// lets a pane hold a selection across one. The shelf is `Equatable` for
+    /// the same reason its rows are.
+    func test_recomputingOverAnUnchangedProjectGivesTheIdenticalShelf() {
         var s = scene()
         CanvasMembership.join(scrapA, home: region, in: &s)
         let scraps = [scrapA: "The fog came down"]
