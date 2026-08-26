@@ -334,6 +334,49 @@ final class PinnedReferencesTests: XCTestCase {
         XCTAssertEqual(shelf.references.first?.kind, .research(itemId: "res-note"))
     }
 
+    /// **The region keeps the heading over a note the piece ALSO holds** — the
+    /// whole-branch review's M1, ruled 2026-08-26.
+    ///
+    /// In a Collection this is the normal case rather than an edge one: region
+    /// promotion writes the note into the bound piece's own research folder, so
+    /// `derivedResearchItems` carries it and the untitled run reached it first.
+    /// Dedup-first-wins then dropped it from the region's section, `close` saw an
+    /// empty `out`, and the heading vanished — the note was on the shelf exactly
+    /// once and correctly, with nothing saying where it came from, in precisely
+    /// the project shape this milestone was written for. The heading is what
+    /// carries the writer's own word for the material, so the region wins the
+    /// collision and the untitled run is one shorter.
+    ///
+    /// Driven from BOTH upstream sources, because the reservation has to happen
+    /// before either of them takes the id, and a fix that only handled
+    /// containment would leave the Novel-chapter path (a linked note promoted
+    /// from a region) on the old behaviour.
+    func test_aPromotedRegionKeepsItsHeadingOverANoteThePieceAlsoHolds() {
+        var s = scene()
+        CanvasMembership.join(scrapA, home: region, in: &s)
+        s.updateRegion(region) { $0.promotedItemID = "res-note" }
+
+        for (source, shelf) in [
+            ("contained", pins(derived: ["res-photo", "res-note"], scene: s,
+                               scraps: [scrapA: "The fog came down"])),
+            ("linked", pins(links: ["res-photo", "res-note"], scene: s,
+                            scraps: [scrapA: "The fog came down"])),
+        ] {
+            XCTAssertEqual(shelf.sections.map(\.title), [nil, "Act II fog"],
+                           "\(source): the region's own name is what tells the "
+                           + "writer where the note came from, and it is the half "
+                           + "that vanished when the untitled run claimed the id")
+            XCTAssertEqual(shelf.sections.first?.references.map(\.id), ["res-photo"],
+                           "\(source): the rest of the run is untouched — only "
+                           + "the promoted note is reserved")
+            XCTAssertEqual(shelf.sections.last?.references.map(\.id), ["res-note"],
+                           "\(source): under the region's heading, and its cards "
+                           + "are still not pinned beside it")
+            XCTAssertEqual(shelf.references.map(\.id), ["res-photo", "res-note"],
+                           "\(source): once on the shelf, not twice")
+        }
+    }
+
     /// The mark is a record of something that happened once, not a live link,
     /// so it can name a note the writer has since deleted. The fact is stale
     /// and the writer still has the material.

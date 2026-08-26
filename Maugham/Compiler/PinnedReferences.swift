@@ -180,21 +180,46 @@ enum PinnedReferences {
         }
 
         /// Closes the section being accumulated. **An empty one is dropped**,
-        /// which is what makes "a promoted region whose note was already linked"
-        /// and "no loose cards" both come out as an absent heading rather than a
-        /// heading over nothing.
+        /// which is what makes "no loose cards" and "a region whose every card
+        /// is a visitor" come out as an absent heading rather than a heading
+        /// over nothing.
         func close(titled title: String?) {
             defer { out = [] }
             guard !out.isEmpty else { return }
             sections.append(PinnedSection(title: title, references: out))
         }
 
+        // **The piece's bound regions are resolved BEFORE the untitled run**,
+        // because a promoted region's note is claimed by that region's own
+        // heading and dedup-first-wins alone would give it to whoever came
+        // first — which is the untitled run, always.
+        //
+        // **The region wins it** (2026-08-26). In a Collection this is the
+        // NORMAL case rather than an edge one: region promotion writes the note
+        // into the bound piece's own research folder, so `derived` already
+        // carries it, `take` claimed it above, and `close(titled:)` then saw an
+        // empty `out` and dropped the heading — the shelf showed the note once,
+        // correctly, with nothing saying where it came from, in exactly the
+        // project shape this milestone was written for. The heading is the half
+        // that carries the writer's own word for the material, so it is the half
+        // that has to survive the collision; the untitled run drops the id and
+        // is one shorter, which costs nothing, because the same note is on
+        // screen a few rows down under the region's name.
+        let regions = scene.map { boundRegions(toPiece: docId, in: $0) } ?? []
+        let reserved = Set(regions.compactMap { region in
+            region.promotedItemID.flatMap { projectPin($0, in: items)?.id }
+        })
+
         // Manifest order, which is the writer's order — never sorted, and one
         // untitled run: the shelf does not tell the writer which of their notes
         // arrived by a link and which by containment, because that is a fact
         // about the project type rather than about the note.
-        for id in links ?? [] { take(projectPin(id, in: items)) }
-        for id in derived { take(projectPin(id, in: items)) }
+        for id in links ?? [] where !reserved.contains(id) {
+            take(projectPin(id, in: items))
+        }
+        for id in derived where !reserved.contains(id) {
+            take(projectPin(id, in: items))
+        }
         close(titled: nil)
 
         guard let scene else { return PinnedShelf(sections: sections) }
@@ -209,7 +234,7 @@ enum PinnedReferences {
         // re-derivation that census guards against (`home ∪ appearances`) is
         // unreachable from here for that reason, and
         // `test_aVisitingCardIsNotPinned` is what says so.
-        for region in boundRegions(toPiece: docId, in: scene) {
+        for region in regions {
             if let itemID = region.promotedItemID,
                let promoted = projectPin(itemID, in: items) {
                 // §2.3. The region BECAME that note; pinning the note beside the
