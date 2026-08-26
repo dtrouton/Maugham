@@ -45,6 +45,17 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
     @Binding var persona: Persona
     /// Forced open by Show — see `Destination.opensInspector`.
     @Binding var showInspector: Bool
+    /// **Written beside `showInspector`, and the column is wrong without it.**
+    /// This is the one persona writer that does not go through
+    /// `PersonaModifier`, so nothing else coerces the segment into the persona
+    /// it just moved to. While `DetailPaneToggle` was mounted throughout that
+    /// cost nothing — its own `.onChange(of: persona)` dropped an out-of-persona
+    /// pane — but the study column REPLACES that view, so with a pin studied it
+    /// is unmounted at the moment the persona moves and remounts fresh in Plan
+    /// carrying `.references`: a shelf whose every row is inert, persisted into
+    /// `ui-state.json` by the mount, instead of the Inspector that
+    /// `Destination.opensInspector` exists to reach.
+    @Binding var detailSegment: DetailSegment
     /// Where the persona lands durably. Nil while the project is still loading,
     /// which is also when no banner can be on screen.
     let documentStore: DocumentStore?
@@ -136,6 +147,12 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         /// and the detail-segment command with "ensure pane is visible" — and
         /// without it a writer who has closed the column with ⌘⌥I clicks Show and
         /// gets a camera move and a selection with nothing naming what arrived.
+        ///
+        /// **It names the pane as well as the column** (2026-08-26): forcing the
+        /// column open while leaving `detailSegment` alone had never actually
+        /// meant the Inspector — Plan's coercion landed the writer on `.inbox` —
+        /// and once the study column can be what is mounted, it landed them on an
+        /// inert References shelf. `show` writes `.inspector` beside the reveal.
         let opensInspector: Bool
     }
 
@@ -175,7 +192,10 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         let to = Self.destination(forRegion: arrival.region)
         persona = to.persona
         model.selection = to.selection
-        if to.opensInspector { showInspector = true }
+        if to.opensInspector {
+            showInspector = true
+            detailSegment = .inspector
+        }
         // **And the camera, or Show shows nothing.**
         // `CanvasClaudePlacement.looseOrigin` is `occupied.maxX + gutter` over
         // the union of every node and region, so on any non-empty canvas Claude's

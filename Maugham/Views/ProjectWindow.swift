@@ -605,6 +605,7 @@ struct ProjectWindow: View {
                                               model: canvasModel,
                                               persona: $persona,
                                               showInspector: $showInspector,
+                                              detailSegment: $detailSegment,
                                               documentStore: documentStore))
         // ⌘\ on the canvas collapses both side columns (spec §8A.3). One line,
         // because this body has no expression budget (the Release type-check
@@ -2431,6 +2432,14 @@ struct ProjectWindow: View {
                 // each applying the width: the handle keeps its identity across
                 // the swap, and the width is applied in exactly one place, which
                 // is what `DetailColumnWidthTests` is about.
+                // `showInspector` is a tautology HERE — this whole arm is inside
+                // `if showInspector` — and it is passed anyway because the
+                // predicate has a second caller for whom it decides everything:
+                // `AssistantColumnEscape.isColumnPresented`, which is asked with
+                // no view in hand and is how ⌘⌥I takes the study's Escape claim
+                // with it. Simplifying it away here would leave that caller
+                // asking a different question from the one this column answers,
+                // which is the shape of the C1 the Task-5 review closed.
                 if AssistantColumn.isPresented(studied: assistant.studied,
                                                persona: persona,
                                                isNoChromeOn: isNoChromeOn,
@@ -3644,10 +3653,37 @@ struct ProjectWindow: View {
             // can reach it otherwise. In `load()` and never in `body` — a store
             // is not read from a view body or anything a body calls.
             s.liveCanvas = canvasModel
-            self.store = s
-            self.documentStore = ds
-            // The compiler, wired here for the canvas model's reason: the
-            // stores exist at this point and a view body may not read one.
+
+            // **Every `ds.uiState` seed is read BEFORE the stores are published,
+            // and the order is the contract** (2026-08-26). `showInspector`
+            // defaults to `true` and `detailSegment` to `.inspector`, so any body
+            // pass that runs with a store in hand and these still at their
+            // defaults mounts `DetailPaneToggle` on `.inspector` — and that view's
+            // `.onAppear` PERSISTS the segment it mounted with. The read below
+            // would then be reading back what the mount had just written, and
+            // every writer's remembered pane would silently reset on launch.
+            //
+            // It did not happen while these sat below, and only by an accident
+            // nothing wrote down: the one `await` in that stretch is
+            // `ds.loadSessionLog()`, whose body contains no suspension point
+            // (`NSFileCoordinator.coordinate` blocks), so the main actor was never
+            // yielded and no render pass could interleave. One genuinely
+            // suspending call added there — or that read moved off the main actor
+            // for perfectly good reasons — and the launch pane resets for
+            // everyone, with nothing red. Seeding first retires the hazard instead
+            // of describing it: with the stores still nil there is no body pass
+            // that can observe the defaults.
+            //
+            // Seed UI state from disk (or defaults), through the one rule that
+            // decides where a freshly opened window lands. There is always an
+            // answer — `.project` needs no document to exist — so there is
+            // nothing to leave alone and no `if let` here.
+            self.selectedSubject = Self.validSubject(
+                ds.uiState.selectedSubject, in: s.manifest.structure,
+                research: s.manifest.research)
+            self.isNoChromeOn = ds.uiState.isNoChromeOn
+            self.isReviewModeOn = ds.uiState.isReviewModeOn
+            self.researchPreviewVisible = ds.uiState.researchPreviewVisible
             self.compilerModel = ds.uiState.compilerModel
             // **Nothing about the study column is restored**, and that is the
             // whole of it since it stopped having a width of its own
@@ -3659,6 +3695,26 @@ struct ProjectWindow: View {
             // existed opened at the range's `max` or its `min` depending on
             // what the last visibility transition had left behind.
             self.detailColumnWidth = ds.uiState.detailColumnWidth
+            // Restored VERBATIM, exactly as the binder below is. Coercing to
+            // the restored persona's registry here silently ate the writer's
+            // last explicit pane choice (⌘⌥O in any persona, quit, reopen →
+            // Outline gone, back when `.outline` was still a pane), and would
+            // have moved every pre-persona project off
+            // Annotations/History/Inbox/Translation on upgrade. It protects
+            // nothing: `DetailPaneToggle` appends an out-of-persona selection
+            // and renders it highlighted — `visibleSegments`' own doc comment
+            // names a restored `UIState` as a path that append exists to
+            // honour, and (stage 3a Task 6) that append never refuses now. A
+            // `detailSegment` stored as one of the three retired segments
+            // simply fails `UIState`'s own tolerant decode and falls back to
+            // `.inspector` before this line ever runs.
+            self.detailSegment = ds.uiState.detailSegment
+            self.persona = ds.uiState.persona
+            self.outlineLayout = ds.uiState.outlineLayout
+            applyNoChrome()
+
+            self.store = s
+            self.documentStore = ds
             // The Intent pane's strata, on the same device slug and the same
             // rule as every other derived sidecar (tripwire 24 at the filename
             // point, which both stores take care of themselves).
@@ -3721,34 +3777,6 @@ struct ProjectWindow: View {
                     }))
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
-
-            // Seed UI state from disk (or defaults), through the one rule that
-            // decides where a freshly opened window lands. There is always an
-            // answer — `.project` needs no document to exist — so there is
-            // nothing to leave alone and no `if let` here.
-            self.selectedSubject = Self.validSubject(
-                ds.uiState.selectedSubject, in: s.manifest.structure,
-                research: s.manifest.research)
-            self.isNoChromeOn = ds.uiState.isNoChromeOn
-            self.isReviewModeOn = ds.uiState.isReviewModeOn
-            self.researchPreviewVisible = ds.uiState.researchPreviewVisible
-            // Restored VERBATIM, exactly as the binder below is. Coercing to
-            // the restored persona's registry here silently ate the writer's
-            // last explicit pane choice (⌘⌥O in any persona, quit, reopen →
-            // Outline gone, back when `.outline` was still a pane), and would
-            // have moved every pre-persona project off
-            // Annotations/History/Inbox/Translation on upgrade. It protects
-            // nothing: `DetailPaneToggle` appends an out-of-persona selection
-            // and renders it highlighted — `visibleSegments`' own doc comment
-            // names a restored `UIState` as a path that append exists to
-            // honour, and (stage 3a Task 6) that append never refuses now. A
-            // `detailSegment` stored as one of the three retired segments
-            // simply fails `UIState`'s own tolerant decode and falls back to
-            // `.inspector` before this line ever runs.
-            self.detailSegment = ds.uiState.detailSegment
-            self.persona = ds.uiState.persona
-            self.outlineLayout = ds.uiState.outlineLayout
-            applyNoChrome()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {
             loadError = "No project.maugham.json was found in this folder."
