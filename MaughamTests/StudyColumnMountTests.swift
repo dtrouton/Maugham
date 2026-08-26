@@ -17,9 +17,16 @@ import MaughamCore
 /// dismisses), and both would stay green against a study column mounted
 /// anywhere at all — including back in the centre. What only a mounted split
 /// view can say is the thing the ruling is actually about: **the writing column
-/// does not move**. So the assertion here is a measurement of the CENTRE, taken
+/// does not move**. So the assertion here is a measurement of the prose, taken
 /// before and after, with the detail column's contents checked to prove the
 /// study really happened rather than silently failing to present.
+///
+/// **The prose is measured from INSIDE the centre column**, by a
+/// `GeometryReader`, and never off the split view's arranged subview — see
+/// `StudyProbe.proseWidth`, which records the falsification that forced the
+/// distinction: rebuilding the old fourth column inside the content arm left
+/// the arranged subview's width identical to the point, so the first draft of
+/// this file passed the very design it was written to rule out.
 ///
 /// **The harness, not `ProjectWindow`.** `ProjectWindow.assistant` is
 /// `@State private`; nothing outside the view can study a pin in a real window,
@@ -63,16 +70,18 @@ final class StudyColumnMountTests: XCTestCase {
         let probe = StudyProbe()
         let (_, split) = try await mount(probe, store: store, projectRoot: url)
 
-        let before = centreWidth(of: split)
-        XCTAssertGreaterThan(before, 0, "premise: there is a centre column to measure")
+        let before = probe.proseWidth
+        XCTAssertGreaterThan(before, 0,
+                             "premise: the writing column reported a width — "
+                             + "without one this test measures nothing")
 
         probe.assistant.study(aPin())
         await pump(0.8)
 
-        XCTAssertEqual(centreWidth(of: split), before, accuracy: 1,
+        XCTAssertEqual(probe.proseWidth, before, accuracy: 1,
                        "studying a reference must not take a point from the "
                        + "writing column — that is the whole of Denver's "
-                       + "ruling. Measured \(centreWidth(of: split))pt against "
+                       + "ruling. Measured \(probe.proseWidth)pt against "
                        + "\(before)pt")
         XCTAssertEqual(split.arrangedSubviews.count, 3,
                        "and it must not have minted a fourth column to do it")
@@ -145,6 +154,17 @@ final class StudyColumnMountTests: XCTestCase {
         var isNoChromeOn = false
         var width: Double = UIState.defaultDetailColumnWidth
         private(set) var containerWidth: Double?
+        /// **What the writer's page is actually laid out at**, reported by a
+        /// `GeometryReader` INSIDE the centre column rather than read off the
+        /// split view's arranged subview.
+        ///
+        /// The distinction is the whole reason this property exists, and it was
+        /// found by falsification: rebuild the old fourth column *inside* the
+        /// content arm and the arranged subview's width does not move by a
+        /// single point — the split view is still handing that column the same
+        /// number, and it is the prose within it that gives up 340pt. A test
+        /// measuring the arranged subview passed the old design unchanged.
+        var proseWidth: Double = 0
 
         func noteContainerWidth(_ width: Double) {
             guard ProjectWindow.recordsContainerWidth(width, over: containerWidth) else { return }
@@ -164,7 +184,7 @@ final class StudyColumnMountTests: XCTestCase {
                 Color.gray.navigationSplitViewColumnWidth(
                     min: ProjectWindow.binderColumnFloor, ideal: 240)
             } content: {
-                Color.white.navigationSplitViewColumnWidth(
+                prose.navigationSplitViewColumnWidth(
                     min: ProjectWindow.centreColumnFloor, ideal: 720)
             } detail: {
                 detailColumn
@@ -173,6 +193,18 @@ final class StudyColumnMountTests: XCTestCase {
                             persisted: probe.width, containerWidth: probe.containerWidth))
             }
             .modifier(ContainerWidthReporter(onWidth: { probe.noteContainerWidth($0) }))
+        }
+
+        /// The writing column, reporting the width it was actually laid out
+        /// at. `ProjectWindow`'s centre arm is an editor and this is a
+        /// rectangle, but what is being measured is the room the split view and
+        /// anything wrapping it leave — which is the same question either way.
+        private var prose: some View {
+            GeometryReader { geo in
+                Color.white
+                    .onAppear { probe.proseWidth = geo.size.width }
+                    .onChange(of: geo.size.width) { _, new in probe.proseWidth = new }
+            }
         }
 
         @ViewBuilder
@@ -235,10 +267,6 @@ final class StudyColumnMountTests: XCTestCase {
             + "than the window's own \(ProjectWindow.windowFloor)pt floor, so "
             + "the three columns cannot be mounted at the widths this file "
             + "measures")
-    }
-
-    private func centreWidth(of split: NSSplitView) -> Double {
-        Double(split.arrangedSubviews.dropLast().last?.frame.width ?? -1)
     }
 
     private func detailWidth(of split: NSSplitView) -> Double {
