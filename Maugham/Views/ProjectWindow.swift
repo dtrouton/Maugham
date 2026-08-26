@@ -119,7 +119,7 @@ struct ProjectWindow: View {
     /// by nothing else — see `detailColumn`.
     @State private var detailColumnWidth: Double = UIState.defaultDetailColumnWidth
     /// The drag's starting width, so the gesture reads its own translation
-    /// rather than accumulating. Mirrors `AssistantColumnModifier`.
+    /// rather than accumulating.
     @State private var detailDragStartWidth: Double?
     /// The window content's measured width, and the ONLY reason it is measured:
     /// the three columns' floors can out-arithmetic the window's own, and the
@@ -245,9 +245,11 @@ struct ProjectWindow: View {
     @State private var bible: BibleStore?
     @State private var declaredWorld: DeclaredWorldStore?
 
-    /// The assistant column's subject and width (M2 §6.2). Owned here rather
-    /// than in either column because the References pane that fills it is in the
-    /// window's RIGHT column and the column itself is in the CENTRE.
+    /// **What pin is being studied** (M2 §6.2). Owned by the window rather than
+    /// by either surface because two of them read it: the References pane
+    /// writes it, and `detailColumn`'s first arm — which stands *in place of*
+    /// that pane — is a function of it. It has no width; a studied reference
+    /// takes `detailColumnWidth`, the right column's own (spec §3.2).
     @State private var assistant = AssistantColumnModel()
     /// Raw share snapshot kept alongside `collaborator` for the pill's hover
     /// diagnostics (the `.help()` tooltip), so the resolver stays the single
@@ -1296,22 +1298,18 @@ struct ProjectWindow: View {
                     ViewOnlyShareNotice()
                 }
             }
-            // The studied reference, between the binder and the prose (M2 §6.2).
-            // Applied OUTSIDE the three top insets on purpose: the strip and the
-            // two banners belong to the page, and the column stands beside the
-            // whole of it. One line, because this body has no expression budget
-            // under the Release type-checker — delete it and every token in
-            // `AssistantColumn.swift` is still present, every test still green,
-            // and clicking a pin does nothing visible.
+            // The studied reference's BEHAVIOUR — Escape, the reveal, and the
+            // three dismisses. It inserts no view: the column itself is
+            // `detailColumn`'s first arm, in the RIGHT column (spec §3.2). This
+            // rides the centre column only because the modifier has to hang
+            // somewhere that lives as long as the window does — `detailColumn`
+            // is behind `showInspector` and would take Escape's arbiter
+            // registration down with it every time the writer hid the column.
             .modifier(AssistantColumnModifier(
-                store: store, projectURL: url, documentStore: documentStore,
                 window: window, isNoChromeOn: isNoChromeOn, persona: persona,
-                activeDocId: activeDocId, assistant: assistant))
-            // Unchanged, and deliberately: the column SQUEEZES the centred
-            // writing column while it exists (spec §6.2) rather than widening
-            // the window's content column, which would push the binder shut
-            // instead. The clamp on `assistant.width` is what keeps the prose a
-            // column rather than a margin.
+                activeDocId: activeDocId, detailSegment: detailSegment,
+                selectedSubject: selectedSubject, showInspector: $showInspector,
+                assistant: assistant))
             .navigationSplitViewColumnWidth(
                 min: ProjectWindow.centreColumnFloor, ideal: 720)
     }
@@ -2390,8 +2388,8 @@ struct ProjectWindow: View {
     ///
     /// The cost of the fixed column is that the split view's own divider goes
     /// inert — a fixed column is not draggable — so the column brings its own
-    /// handle, exactly as the assistant column does one directory over
-    /// (`AssistantColumnModifier.resizeHandle`).
+    /// handle. (The assistant column used to ship the same shape one directory
+    /// over; it has no width of its own any more — it takes THIS one.)
     ///
     /// What is applied is the **effective** width, not the stored one; see
     /// `effectiveDetailColumnWidth` for the window-affordability sum and why the
@@ -2401,7 +2399,31 @@ struct ProjectWindow: View {
         if showInspector {
             HStack(spacing: 0) {
                 detailResizeHandle(documentStore: documentStore)
-                inspectorPane(store: store, documentStore: documentStore)
+                // **A studied reference takes this column, in place of the pane
+                // picker and the pane** (spec §3.2, 2026-08-25) — at the
+                // column's own width, so the prose keeps the measure it had.
+                // Denver ruled against the fourth column it used to be, having
+                // written beside one.
+                //
+                // **The census this arm carries**: delete these three lines and
+                // every token in `AssistantColumn.swift` is still present,
+                // `AssistantColumnTests` is still green — its predicate, Escape
+                // and resolution tests are all about values — and clicking a pin
+                // puts nothing on screen. `StudyColumnMountTests` is what
+                // measures the arm rather than the predicate.
+                //
+                // **One `HStack` with the branch inside it**, not two branches
+                // each applying the width: the handle keeps its identity across
+                // the swap, and the width is applied in exactly one place, which
+                // is what `DetailColumnWidthTests` is about.
+                if AssistantColumn.isPresented(studied: assistant.studied,
+                                               persona: persona,
+                                               isNoChromeOn: isNoChromeOn) {
+                    AssistantColumn(store: store, projectRoot: url,
+                                    assistant: assistant)
+                } else {
+                    inspectorPane(store: store, documentStore: documentStore)
+                }
             }
             .navigationSplitViewColumnWidth(
                 Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,
@@ -2411,9 +2433,8 @@ struct ProjectWindow: View {
 
     /// The right column's own resize affordance, on its leading edge.
     ///
-    /// **A gutter in the layout rather than an overlay over the pane**, which is
-    /// the same shape `AssistantColumnModifier.resizeHandle` ships and the same
-    /// reason: a `contentShape`d strip laid *over* the pane swallows every click
+    /// **A gutter in the layout rather than an overlay over the pane**, for a
+    /// measured reason: a `contentShape`d strip laid *over* the pane swallows every click
     /// in the leftmost 8pt of every row, list and control in the column, for the
     /// whole height of the window, and it does it silently. Eight points of
     /// layout is the cheaper mistake. It is deliberately not drawn — the split
@@ -2421,8 +2442,7 @@ struct ProjectWindow: View {
     /// this sits just inside it, and the resize cursor on hover is what says so.
     ///
     /// Live during the gesture and persisted only at its end — a `UIState` write
-    /// per drag frame is 60 a second through the manuscript's own debounce, and
-    /// the assistant column already settled that question.
+    /// per drag frame is 60 a second through the manuscript's own debounce.
     ///
     /// **Nothing else writes this width.** There is no geometry observation
     /// feeding the COLUMN's width back, because a fixed column has no geometry
@@ -3580,14 +3600,15 @@ struct ProjectWindow: View {
             // The compiler, wired here for the canvas model's reason: the
             // stores exist at this point and a view body may not read one.
             self.compilerModel = ds.uiState.compilerModel
-            // The width only; nothing is studied when a window opens, and
-            // restoring a subject would put a reference column over the prose
+            // **Nothing about the study column is restored**, and that is the
+            // whole of it since it stopped having a width of its own
+            // (2026-08-25): nothing is studied when a window opens, because
+            // restoring a subject would put a reference over the right column
             // before the writer had asked for anything.
-            self.assistant.width = ds.uiState.assistantColumnWidth
-            // The right column's width, restored for the assistant column's
-            // reason and by the same read. A window that opened before this
-            // line existed opened at the range's `max` or its `min` depending
-            // on what the last visibility transition had left behind.
+            //
+            // The right column's width. A window that opened before this line
+            // existed opened at the range's `max` or its `min` depending on
+            // what the last visibility transition had left behind.
             self.detailColumnWidth = ds.uiState.detailColumnWidth
             // The Intent pane's strata, on the same device slug and the same
             // rule as every other derived sidecar (tripwire 24 at the filename

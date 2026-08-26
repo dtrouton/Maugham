@@ -601,7 +601,7 @@ final class DetailColumnWidthTests: XCTestCase {
 
     /// The clamp is the safety on a value the writer owns, and a hand-edited
     /// `ui-state.json` is a writer of it with no gesture to limit it — so both
-    /// ways in clamp, exactly as `assistantColumnWidth` does.
+    /// ways in clamp.
     func test_everyWayInIsClamped() throws {
         let range = UIState.detailColumnWidthRange
         XCTAssertTrue(range.contains(UIState.defaultDetailColumnWidth),

@@ -10,7 +10,9 @@ import MaughamCore
 /// *A shelf, not a browser.* It offers no search, no tree and no filter: the
 /// list is short by construction, and a writer who wants to browse research has
 /// ⌘⌥R two segments away. What one click does is promote a pin into the
-/// assistant column beside the prose.
+/// assistant column — which, since spec §3.2 (2026-08-25), is THIS column:
+/// studying replaces the picker and the shelf rather than opening a fourth
+/// column beside the prose.
 ///
 /// **The sections arrive already built.** `sections(for:in:)` is pure and the
 /// shelf comes from `PinnedReferenceResolver` — a manifest walk, a canvas read
