@@ -499,6 +499,7 @@ struct ProjectWindow: View {
             detailSegment: $detailSegment,
             persona: $persona,
             restoreOutcome: $restoreOutcome,
+            assistant: assistant,
             mcpBanner: mcpBanner,
             treeState: treeState))
         .modifier(CheckpointModifier(
@@ -824,6 +825,10 @@ struct ProjectWindow: View {
         /// What ⌘⌥Z has to say when it cannot restore a deletion whole, or
         /// when a restore gave back less than was deleted (RULING-40/42).
         @Binding var restoreOutcome: String?
+        /// **The studied pin**, for the ⌘⌥-letter handler alone: a keystroke
+        /// naming a pane is an act, and an act ends a study even when the pane
+        /// it names is the one already selected.
+        let assistant: AssistantColumnModel
         let mcpBanner: MCPBannerModel
         /// The tree's disclosure/selection state (stage-3a Task 4) — held here
         /// too, since Task 8, for the find-match handler's scroll request. An
@@ -837,6 +842,16 @@ struct ProjectWindow: View {
                     guard let raw = note.userInfo?[MaughamEvent.detailSegmentKey] as? String,
                           let seg = DetailSegment(rawValue: raw) else { return }
                     showInspector = true     // ensure pane is visible
+                    // **The keystroke ends a study, even when it names the pane
+                    // already selected** — Denver's fix-round-1 ruling. A
+                    // studied reference stands IN PLACE OF the pane picker, so
+                    // ⌘⌥E is precisely what a writer presses to get the shelf
+                    // back; leaving it to `detailSegment`'s `.onChange` made it
+                    // inert, because the value it writes is the one already
+                    // there. The picker's own no-op snap is NOT a keystroke and
+                    // keeps the study — that half stays with `.onChange`
+                    // (`AssistantColumnModifier.paneChangeEndsTheStudy`).
+                    assistant.dismiss()
                     detailSegment = seg
                 }
                 .onKeyWindowCommand(.maughamTidyAllFilenames, window: window) { _ in

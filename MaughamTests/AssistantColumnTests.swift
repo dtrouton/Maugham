@@ -798,13 +798,19 @@ final class AssistantColumnTests: XCTestCase {
         }
     }
 
-    /// **Re-selecting the pane already showing keeps the study.** SwiftUI does
-    /// not fire `.onChange` on an equal value and `DetailPaneToggle`'s snap
-    /// writes `segment` only when it actually snaps — so the dismiss needs no
-    /// guard of its own. This pins the implementation's spelling: a chain that
-    /// dismissed on every *write* rather than every *change* would take the
-    /// study away on a picker no-op.
-    func test_reSelectingTheSameSegmentKeepsTheStudy() async throws {
+    /// **The picker's own no-op snap keeps the study.**
+    ///
+    /// Narrowed by Denver's fix-round-1 ruling, which split what used to be one
+    /// case in two: a **keystroke** naming the pane already selected is an act
+    /// and ends the study (⌘⌥E is precisely what a writer presses to get the
+    /// shelf back, and it was inert) — that half is
+    /// `AltitudeKeyspaceTests`-shaped and lives at the handler, asserted by
+    /// `test_theKeystrokeEndsAStudyEvenWhenItNamesThePaneAlreadyShowing`.
+    /// `DetailPaneToggle`'s snap is NOT a keystroke: it writes `segment` only
+    /// when it actually snaps, so the no-op case never reaches the chain at
+    /// all, and this pins that the chain does not dismiss on a WRITE of an
+    /// equal value.
+    func test_theNoOpSnapKeepsTheStudy() async throws {
         let probe = StudyChainProbe(showInspector: true)
         probe.detailSegment = .references
         mountChain(probe)
@@ -815,28 +821,181 @@ final class AssistantColumnTests: XCTestCase {
         await settleChain()
 
         XCTAssertNotNil(probe.assistant.studied,
-                        "asking for the pane already selected is not a newer "
-                        + "act, and must not end the study")
+                        "a write of the value already there is not a newer act")
     }
 
-    /// A persona change is the recorded exception: it hides the column and
-    /// KEEPS what is studied, so ⌘2 back restores exactly what was up. Asserted
-    /// through the same mounted chain as the three dismisses above, so the
-    /// distinction is measured on the delivery path rather than promised in a
-    /// comment beside them.
-    func test_aPersonaChangeHidesTheColumnWithoutEndingTheStudy() async throws {
+    /// **A persona change is the recorded exception, driven the way ⌘1–⌘4
+    /// actually drives it.**
+    ///
+    /// The first version of this test moved `probe.persona` alone and was green
+    /// while the app was broken — the recorded "one test must model the real
+    /// delivery path" defect, found by review. `PersonaModifier` writes
+    /// `persona`, `detailSegment` and `showInspector` in ONE pass
+    /// (`ProjectWindow.swift`), and `change.segment` is the destination
+    /// persona's remembered pane — a different segment on essentially every
+    /// switch, since Plan's registry does not contain `.references` at all. So
+    /// the pane write is what the study has to survive, and this test makes it.
+    func test_aPersonaSwitchHidesTheColumnWithoutEndingTheStudy() async throws {
         let probe = StudyChainProbe(showInspector: true)
+        probe.detailSegment = .references
         mountChain(probe)
         probe.assistant.study(aPin())
         await settleChain()
 
+        // ⌘1 — Plan, and Plan's own pane, together.
         probe.persona = .plan
+        probe.detailSegment = .inbox
         await settleChain()
 
-        XCTAssertNotNil(probe.assistant.studied)
+        XCTAssertNotNil(probe.assistant.studied,
+                        "leaving Author must HIDE the column and keep what is "
+                        + "up (spec §3.2) — the pane moved because the persona "
+                        + "moved it, which is not the writer asking for a pane")
         XCTAssertFalse(
             AssistantColumn.isPresented(studied: probe.assistant.studied,
+                                        persona: probe.persona, isNoChromeOn: false),
+            "and it is off screen while they are in Plan")
+
+        // ⌘2 — back, and Author's remembered pane with it. The RETURN leg is
+        // the one a presented-ness guard would have got wrong.
+        probe.persona = .author
+        probe.detailSegment = .references
+        await settleChain()
+
+        XCTAssertNotNil(probe.assistant.studied,
+                        "switching back restores exactly what was up — "
+                        + "`AssistantColumn.isPresented`'s own promise")
+        XCTAssertTrue(
+            AssistantColumn.isPresented(studied: probe.assistant.studied,
                                         persona: probe.persona, isNoChromeOn: false))
+    }
+
+    /// The rule itself, asked over the product of its inputs rather than only
+    /// down the two paths the mounted tests drive.
+    ///
+    /// The fourth row is the one that separates this rule from a presented-ness
+    /// guard: a persona change that lands BACK on a studying persona moves the
+    /// pane too, and a guard reading `isPresented` with the new persona would
+    /// say "present, so dismiss" and take the study away on the return leg.
+    func test_thePaneRuleIsAskedOverTheProductOfItsInputs() {
+        typealias Pair = AssistantColumnModifier.PersonaPane
+        let cases: [(String, Pair, Pair, Bool)] = [
+            ("the writer asked for another pane",
+             Pair(persona: .author, pane: .references),
+             Pair(persona: .author, pane: .diagnostics), true),
+            ("the picker wrote the pane already showing",
+             Pair(persona: .author, pane: .references),
+             Pair(persona: .author, pane: .references), false),
+            ("⌘1 out of Author, taking the pane with it",
+             Pair(persona: .author, pane: .references),
+             Pair(persona: .plan, pane: .inbox), false),
+            ("⌘2 back into Author, taking the pane with it",
+             Pair(persona: .plan, pane: .inbox),
+             Pair(persona: .author, pane: .references), false),
+            ("a persona change that happened to keep the pane",
+             Pair(persona: .author, pane: .inspector),
+             Pair(persona: .review, pane: .inspector), false),
+        ]
+        for (what, old, new, wanted) in cases {
+            XCTAssertEqual(
+                AssistantColumnModifier.paneChangeEndsTheStudy(from: old, to: new),
+                wanted, what)
+        }
+    }
+
+    // MARK: - Contract: what the study column costs the pane it replaces
+
+    /// **A pane the writer asked for while studying still reaches
+    /// `ui-state.json`** — fix-round 1, review Important 2.
+    ///
+    /// `DetailPaneToggle`'s `.onChange(of: segment)` is the only writer of
+    /// `UIState.detailSegment`, and it cannot fire for a change that predates
+    /// its own mount. The study column unmounts that view, so ⌘⌥D while
+    /// studying went: segment written → the study dismissed → the toggle
+    /// mounted FRESH on `.diagnostics` with nothing left to observe, and the
+    /// project reopened on the pane before the one the writer chose. The mount
+    /// now persists what it mounted with.
+    ///
+    /// Driven at the seam rather than through the window: what the defect is
+    /// about is a CONDITIONAL mount arriving with the change already applied,
+    /// which is exactly what mounting the view on a segment nobody has
+    /// persisted reproduces.
+    func test_aFreshlyMountedPanePersistsThePaneItMountedWith() async throws {
+        let (url, store) = try await makeProject()
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+        defer { withExtendedLifetime(ds) {} }
+        ds.updateUIState { $0.detailSegment = .inspector }
+        await settleChain()
+        XCTAssertEqual(ds.uiState.detailSegment, .inspector, "premise")
+
+        // The writer's ⌘⌥D landed while a reference was up: the segment is
+        // already `.diagnostics` when this view first appears.
+        var segment: DetailSegment = .diagnostics
+        var subject: BinderSubject? = .item("ch-1")
+        mount(AnyView(DetailPaneToggle(
+            store: store,
+            segment: Binding(get: { segment }, set: { segment = $0 }),
+            selectedSubject: Binding(get: { subject }, set: { subject = $0 }),
+            activeManuscriptItemId: "ch-1",
+            persona: .author,
+            projectURL: url,
+            activeDocId: "ch-1",
+            documentStore: ds) { Color.clear }
+            .frame(width: 320, height: 480)))
+        await settleChain()
+
+        XCTAssertEqual(ds.uiState.detailSegment, .diagnostics,
+                       "the pane the writer asked for never reached ui-state, "
+                       + "so the project would reopen on the previous one")
+    }
+
+    /// **A ⌘⌥-letter naming the pane already selected still ends the study** —
+    /// Denver's fix-round-1 ruling. The study stands IN PLACE OF the References
+    /// pane, so ⌘⌥E is the keystroke a writer presses to get the shelf back,
+    /// and leaving it to `detailSegment`'s `.onChange` made it inert: the value
+    /// the handler writes is the one already there.
+    ///
+    /// A source census rather than a mounted assertion, because the handler
+    /// lives inside `SessionAndNavigationModifier` on a `ProjectWindow` no test
+    /// can reach — the same reason `ReferencesPaneTests`' assembly census is a
+    /// census. The planted offender below is what keeps it honest.
+    func test_theKeystrokeEndsAStudyEvenWhenItNamesThePaneAlreadyShowing() throws {
+        XCTAssertTrue(
+            Self.setDetailSegmentHandlerDismissesTheStudy(in: try Self.projectWindowSource()),
+            "the `.maughamSetDetailSegment` handler must call `assistant.dismiss()`: "
+            + "it writes a segment that is often the one already selected, so "
+            + "`.onChange` cannot see it, and ⌘⌥E over a studied reference does "
+            + "nothing at all")
+    }
+
+    /// The planted offender: without it the census could be reading nothing.
+    func test_theKeystrokeCensusCanSeeTheHandlerLoseItsDismiss() throws {
+        let stripped = try Self.projectWindowSource()
+            .replacingOccurrences(of: "assistant.dismiss()", with: "// removed")
+        XCTAssertFalse(Self.setDetailSegmentHandlerDismissesTheStudy(in: stripped),
+                       "the census cannot see the dismiss go — it is not reading "
+                       + "the handler")
+    }
+
+    private static func projectWindowSource() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Views/ProjectWindow.swift")
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Does the `.maughamSetDetailSegment` handler dismiss? Read as the body
+    /// between that handler's opening line and the next `.onKeyWindowCommand`,
+    /// so a `dismiss()` somewhere else in a 4,000-line file cannot answer for
+    /// it.
+    private static func setDetailSegmentHandlerDismissesTheStudy(in source: String) -> Bool {
+        guard let start = source.range(of: ".onKeyWindowCommand(.maughamSetDetailSegment") else {
+            return false
+        }
+        let rest = source[start.upperBound...]
+        let end = rest.range(of: ".onKeyWindowCommand(")?.lowerBound ?? rest.endIndex
+        return rest[..<end].contains("assistant.dismiss()")
     }
 
     // MARK: - Fixtures

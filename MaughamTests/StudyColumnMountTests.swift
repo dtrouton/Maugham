@@ -68,7 +68,7 @@ final class StudyColumnMountTests: XCTestCase {
         try skipUnlessThisDisplayCanMountTheWindowFloor()
         let (url, store) = try await makeProject()
         let probe = StudyProbe()
-        let (_, split) = try await mount(probe, store: store, projectRoot: url)
+        let (window, split) = try await mount(probe, store: store, projectRoot: url)
 
         let before = probe.proseWidth
         XCTAssertGreaterThan(before, 0,
@@ -85,6 +85,17 @@ final class StudyColumnMountTests: XCTestCase {
                        + "\(before)pt")
         XCTAssertEqual(split.arrangedSubviews.count, 3,
                        "and it must not have minted a fourth column to do it")
+
+        // **The presentation check the doc comment promises**, added in
+        // fix-round 1: without it a prose width that did not move BECAUSE the
+        // study never presented passes this test, and the sibling that would
+        // have caught that skips wherever no assistive client attaches. Last,
+        // so the measurement above still runs in that environment before this
+        // line skips out.
+        XCTAssertTrue(
+            try strings(in: window).contains(where: { $0.contains(AssistantColumn.closeLabel) }),
+            "the width did not move because the study never presented — this "
+            + "test would otherwise pass on a column that does nothing")
     }
 
     /// The other half: the right column really swaps its contents. Studying puts

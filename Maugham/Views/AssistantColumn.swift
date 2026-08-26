@@ -466,20 +466,63 @@ struct AssistantColumnModifier: ViewModifier {
             // but the studied pin itself survives, so ⌘2 back restores it. See
             // `AssistantColumn.isPresented`'s doc comment for the ruling.
             .onChange(of: persona) { _, _ in syncEscape() }
-            // The three dismisses: **the newest act wins.** None of them needs a
-            // guard against its own no-op, because `onChange` does not fire on
-            // an equal value — `DetailPaneToggle`'s snap writes `segment` only
-            // when it actually snaps, so re-selecting the pane already showing
-            // leaves the study alone
-            // (`AssistantColumnTests.test_reSelectingTheSameSegmentKeepsTheStudy`).
+            // **The newest act wins**, over three signals. A document change
+            // and a subject change end the study unconditionally: the shelf is
+            // per-document, and a writer asking about something else is asking
+            // about something else.
             .onChange(of: activeDocId) { _, _ in assistant.dismiss() }
-            .onChange(of: detailSegment) { _, _ in assistant.dismiss() }
             .onChange(of: selectedSubject) { _, _ in assistant.dismiss() }
+            // **The pane, watched BESIDE the persona rather than on its own** —
+            // fix-round 1, and the whole of review Important 1.
+            //
+            // Every writer of `persona` writes `detailSegment` in the same pass
+            // (`PersonaModifier`, `TreeTravel`, the palette wall's door), and
+            // `change.segment` is the destination persona's REMEMBERED pane —
+            // a different segment on essentially every switch, since Plan's
+            // registry does not contain `.references` at all. Watching the pane
+            // alone therefore took the study away on ⌘1, and on ⌘2 back, which
+            // is exactly what spec §3.2 and `AssistantColumn.isPresented`'s own
+            // doc comment promise it will not do.
+            //
+            // One `.onChange` over the pair, so the handler can see what ELSE
+            // moved in the same pass; the rule itself is
+            // `paneChangeEndsTheStudy`, a static a test can ask over the
+            // product of its inputs rather than only down the path a mounted
+            // harness happens to drive.
+            .onChange(of: PersonaPane(persona: persona, pane: detailSegment)) { old, new in
+                guard Self.paneChangeEndsTheStudy(from: old, to: new) else { return }
+                assistant.dismiss()
+            }
             .onDisappear { escape.stop() }
     }
 
     private func syncEscape() {
         escape.sync(model: assistant, window: window, persona: persona,
                     isNoChromeOn: isNoChromeOn)
+    }
+
+    /// The window's persona and its right-hand pane, as one value, because the
+    /// question the dismiss rule asks is about the two of them together.
+    struct PersonaPane: Equatable {
+        let persona: Persona
+        let pane: DetailSegment
+    }
+
+    /// **Does this pane change end the study?** Yes when the writer changed the
+    /// pane; no when the PERSONA changed it.
+    ///
+    /// A persona change hides the column and keeps what is up (spec §3.2), so
+    /// ⌘2 back restores exactly what was there — and every persona writer moves
+    /// the pane in the same pass, which is why "the persona is unchanged" is
+    /// what separates the writer's act from the persona's.
+    ///
+    /// **This is not a presented-ness guard, and that distinction is the fix.**
+    /// Asking `AssistantColumn.isPresented` with the new persona correctly
+    /// skips the way OUT of Author — the column is not on screen under Plan —
+    /// but not the way BACK: on ⌘2 the persona studies again, the pane moves to
+    /// Author's remembered one, `isPresented` is true, and the study dies on
+    /// the return leg instead of the departure. The pair is what sees both.
+    static func paneChangeEndsTheStudy(from old: PersonaPane, to new: PersonaPane) -> Bool {
+        old.persona == new.persona && old.pane != new.pane
     }
 }

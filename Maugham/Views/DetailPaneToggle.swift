@@ -184,7 +184,7 @@ struct DetailPaneToggle<Inspector: View>: View {
                 segment = snapped
                 return
             }
-            store.documentStore?.updateUIState { $0.detailSegment = newValue }
+            persistSegment(newValue)
         }
         .task {
             // Populate the inbox count so the unread badge is live from window
@@ -197,6 +197,25 @@ struct DetailPaneToggle<Inspector: View>: View {
         // See "Two snaps, two lists" below; this is NOT `coerceSegmentIntoView`.
         .onAppear {
             snapSegmentIntoPicker()
+            // **A fresh mount persists what it mounted with** — fix-round 1,
+            // review Important 2.
+            //
+            // `.onChange(of: segment)` below is the only writer of
+            // `UIState.detailSegment`, and it cannot fire for a change that
+            // predates this view's mount. This view mounts CONDITIONALLY, and
+            // there are now two ordinary ways to reach it with the writer's
+            // pane already in place and unpersisted: a ⌘⌥-letter that reveals a
+            // hidden column (the case the snap's own doc comment describes),
+            // and — since the study column took this column — a ⌘⌥-letter
+            // pressed while a reference is being studied, which dismisses the
+            // study and mounts this view fresh on the requested pane. Left
+            // alone the project reopens on the pane BEFORE the one the writer
+            // asked for.
+            //
+            // Idempotent by construction: it writes the value already selected,
+            // and where the snap moved it, `.onChange` writes the snapped value
+            // over this one in the same pass.
+            persistSegment(segment)
         }
         // Belt to `PersonaModifier`'s braces: that modifier already runs
         // `Persona.coerce(_:)` on a persona change, but only this view knows
@@ -238,6 +257,13 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// cannot fire — the change predates the mount — but `.onAppear` does.
     /// Coercing here threw the requested pane away and persisted the wrong
     /// one to `UIState` (whole-branch review, Critical 1).
+    /// **The one writer of `UIState.detailSegment`.** Two callers — the mount
+    /// and the change — because a conditional mount can arrive with a change
+    /// already applied; see `.onAppear`.
+    private func persistSegment(_ value: DetailSegment) {
+        store.documentStore?.updateUIState { $0.detailSegment = value }
+    }
+
     private func snapSegmentIntoPicker() {
         let snapped = Self.mountSelection(segment, persona: persona)
         if snapped != segment { segment = snapped }
