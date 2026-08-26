@@ -2405,8 +2405,8 @@ struct ProjectWindow: View {
                 // Denver ruled against the fourth column it used to be, having
                 // written beside one.
                 //
-                // **The census this arm carries**: delete these three lines and
-                // every token in `AssistantColumn.swift` is still present,
+                // **The census this arm carries**: delete the branch and every
+                // token in `AssistantColumn.swift` is still present,
                 // `AssistantColumnTests` is still green — its predicate, Escape
                 // and resolution tests are all about values — and clicking a pin
                 // puts nothing on screen. `StudyColumnMountTests` is what
@@ -2434,9 +2434,10 @@ struct ProjectWindow: View {
     /// The right column's own resize affordance, on its leading edge.
     ///
     /// **A gutter in the layout rather than an overlay over the pane**, for a
-    /// measured reason: a `contentShape`d strip laid *over* the pane swallows every click
-    /// in the leftmost 8pt of every row, list and control in the column, for the
-    /// whole height of the window, and it does it silently. Eight points of
+    /// measured reason: a `contentShape`d strip laid *over* the pane swallows
+    /// every click in the leftmost 8pt of every row, list and control in the
+    /// column, for the whole height of the window, and it does it silently.
+    /// Eight points of
     /// layout is the cheaper mistake. It is deliberately not drawn — the split
     /// view's own divider is still there and is still the seam a writer aims at;
     /// this sits just inside it, and the resize cursor on hover is what says so.
