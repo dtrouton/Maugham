@@ -228,12 +228,17 @@ enum CanvasCapture {
     /// joined. And `flush()` rather than `scheduleSave()`: this call returns to a
     /// writer who has been told the capture left the inbox, and the canvas has no
     /// op log behind it — a quit inside the 750 ms debounce would lose it.
+    ///
+    /// **Throws `CanvasStore.SidecarRefused` on the sidecar route when the file is
+    /// present and this build cannot read it** (issue #33): that empty scene is
+    /// somebody else's whole arrangement, and saving one card over it is the loss
+    /// this refusal exists to prevent.
     @discardableResult
     static func send(_ content: Content,
                      _ placement: Placement,
                      captureID: String,
                      store: ProjectStore,
-                     projectRoot: URL) -> CanvasNodeID {
+                     projectRoot: URL) throws -> CanvasNodeID {
         let model: CanvasModel? = CanvasClaudeWrite.liveModel(of: store)
         if let model {
             let landing = plan(content, placement, captureID: captureID, in: model.scene)
@@ -252,7 +257,7 @@ enum CanvasCapture {
         // drag is unreachable from the keyboard and unavailable in another
         // persona. `CanvasClaudeWrite`'s second arm, for its reasons.
         let sidecar = CanvasStore(projectRoot: projectRoot)
-        let loaded = sidecar.load()
+        let loaded = try sidecar.loadForTransientWrite()
         var scene = loaded.scene
         var scraps = loaded.scraps
         let landing = plan(content, placement, captureID: captureID, in: scene)
@@ -263,6 +268,15 @@ enum CanvasCapture {
         // ever fire its debounce.
         sidecar.save(scene: scene, scraps: scraps)
         return landing.node.id
+    }
+
+    /// Asked by `InboxStore.sendToCanvas` BEFORE it copies a picture into the
+    /// well: a refusal that only `send` could raise would strand that copy in
+    /// `canvas_assets/` on every attempt (issue #33). With a canvas open there is
+    /// nothing to ask — the live model is the writer's own act from this build.
+    static func refuseUnlessWritable(store: ProjectStore, projectRoot: URL) throws {
+        guard CanvasClaudeWrite.liveModel(of: store) == nil else { return }
+        _ = try CanvasStore(projectRoot: projectRoot).loadForTransientWrite()
     }
 
     // MARK: - Telling the writer

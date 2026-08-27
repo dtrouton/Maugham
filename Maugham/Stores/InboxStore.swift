@@ -461,6 +461,13 @@ final class InboxStore {
         _ entry: InboxEntry, projectStore: ProjectStore,
         placement: CanvasCapture.Placement
     ) async throws -> CanvasNodeID {
+        // **Before every mutating step, including the copy** (issue #33). A
+        // sidecar this build cannot read holds somebody's whole arrangement, and
+        // `CanvasCapture.send` would refuse it too — but by then the picture is
+        // already in `canvas_assets/`, referenced by no node and enumerated by
+        // nothing, which is a stranded file on every attempt.
+        try CanvasCapture.refuseUnlessWritable(
+            store: projectStore, projectRoot: projectStore.url)
         let content: CanvasCapture.Content
         // Set only for `.image`: see the ordering note above.
         var originalToRemove: URL?
@@ -505,8 +512,8 @@ final class InboxStore {
             content = .picture(path: try await projectStore.ingestCanvasAsset(fileURL: asset))
             originalToRemove = asset
         }
-        let node = CanvasCapture.send(content, placement, captureID: entry.id,
-                                      store: projectStore, projectRoot: projectStore.url)
+        let node = try CanvasCapture.send(content, placement, captureID: entry.id,
+                                          store: projectStore, projectRoot: projectStore.url)
         // Throwing flip (S8's lesson, one sibling over): the card is already on the
         // canvas, so a swallowed status-write failure would leave the entry `.new`
         // and a retry would land a second card.
