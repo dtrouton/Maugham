@@ -57,6 +57,52 @@ final class TestWindowTests: XCTestCase {
         XCTAssertEqual(window.alphaValue, 0)
     }
 
+    /// The default class swallows the no-responder beep — a keystroke sent at
+    /// nothing, which the suites do on purpose, must not be audible.
+    func test_theDefaultWindowIsSilent() {
+        let window = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 50, height: 50))
+        windows.append(window)
+        XCTAssertTrue(type(of: window) == SilentTestWindow.self,
+                      "the fixture's default window class must be SilentTestWindow")
+        let mounted = TestWindow.mount(Text("hi"), size: CGSize(width: 50, height: 50))
+        windows.append(mounted)
+        XCTAssertTrue(type(of: mounted) == SilentTestWindow.self)
+    }
+
+    /// A sheet is its own child window at full alpha, whatever its parent's.
+    /// `TestHost`'s sweep conceals it as it begins — the first hidden gate
+    /// floated `DesignGateTests`' "Finalize this design" dialog over the
+    /// developer's desktop.
+    func test_aSheetOnAMadeWindowIsConcealedToo() async {
+        let parent = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 300, height: 200))
+        windows.append(parent)
+        let sheet = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100),
+                                    present: .unshown)
+        // Undo the fixture's own conceal so only the sweep can hide it.
+        sheet.alphaValue = 1
+        parent.beginSheet(sheet, completionHandler: { _ in })
+        let hidden = await RunLoopPump.until(deadline: 2) { sheet.alphaValue == 0 }
+        XCTAssertTrue(hidden, "the sweep must conceal a sheet as it begins")
+        XCTAssertTrue(parent.attachedSheet === sheet, "premise: the sheet did attach")
+        parent.endSheet(sheet)
+    }
+
+    /// An alert panel is a window the fixture never built — `NSAlert` makes
+    /// its own — so only the sweep can hide it.
+    func test_anAlertPanelTheFixtureNeverBuiltIsConcealed() async {
+        let parent = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 300, height: 200))
+        windows.append(parent)
+        let alert = NSAlert()
+        alert.messageText = "Finalize this design?"
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: parent, completionHandler: { _ in })
+        let hidden = await RunLoopPump.until(deadline: 2) {
+            parent.attachedSheet.map { $0.alphaValue == 0 } ?? false
+        }
+        XCTAssertTrue(hidden, "the sweep must conceal an alert panel it did not build")
+        if let panel = parent.attachedSheet { parent.endSheet(panel) }
+    }
+
     func test_theSubclassAskedForIsTheOneBuilt() {
         let window = TestWindow.make(SilentTestWindow.self,
                                      contentRect: CGRect(x: 0, y: 0, width: 50, height: 50))
