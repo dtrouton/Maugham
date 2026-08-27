@@ -20,15 +20,15 @@ final class TestWindowTests: XCTestCase {
         let window = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 200, height: 120))
         windows.append(window)
 
-        // Live: on a screen, ordered in, not occluded — the premises SwiftUI
-        // layout, `onAppear` and `TimelineView` read. Occlusion is reported
-        // back by the window server a turn or two after ordering in.
+        // Live: on a screen and ordered in — the premises SwiftUI layout,
+        // `onAppear` and `TimelineView` read. `occlusionState` is deliberately
+        // NOT asserted: it is a fact about the machine, not the fixture — a
+        // full-screen app or an opaque window covering this display occludes
+        // every window on it, alpha or not. Measured 2026-08-27: two gates read
+        // `.visible` here and a third did not, with every mounted suite
+        // (TimelineView-driven canvas included) green in all three.
         XCTAssertTrue(window.isVisible)
         XCTAssertNotNil(window.screen)
-        let visible = await RunLoopPump.until(deadline: 2) {
-            window.occlusionState.contains(.visible)
-        }
-        XCTAssertTrue(visible, "an alpha-0 window must still count as visible to the window server")
 
         // Invisible: drawn at alpha 0, deaf to the real mouse, out of Mission
         // Control and the Window menu, no appearance animation.
