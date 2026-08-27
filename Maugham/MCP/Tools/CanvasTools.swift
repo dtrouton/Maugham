@@ -440,7 +440,9 @@ public enum AddCanvasScrapsTool: MCPTool {
         let params = try decodeParams(Params.self, from: paramsJSON)
         let entry = try resolveProject(params.project_id, in: registry)
 
-        // ---- Everything is validated before anything is written. ----
+        // ---- What follows is validation — decided from the call alone, and
+        // ---- complete before anything is written. It is not this call's only
+        // ---- refusal, though: see the note below, where `apply` asks one more. ----
 
         guard !params.scraps.isEmpty else {
             throw MCPError.toolError(payload: .init(
@@ -497,7 +499,9 @@ public enum AddCanvasScrapsTool: MCPTool {
         }
         let connections = try validated(params.connect ?? [], against: params.scraps.count)
 
-        // ---- Nothing above can fail from here on. ----
+        // ---- Validation is complete. One refusal is left, and it is the write's
+        // ---- own: a sidecar this build cannot read (#33). Nothing here mutates
+        // ---- anything until `apply`, and `apply` asks before it touches the file.
 
         // The shared discriminator, so a `list_canvas` and an `add_canvas_scraps` in
         // the same breath cannot address two different scenes — and so the plan is
@@ -510,7 +514,26 @@ public enum AddCanvasScrapsTool: MCPTool {
                                           regionLabel: params.region_label,
                                           connections: connections),
             in: read.scene)
-        try CanvasClaudeWrite.apply(plan, store: entry.store, projectRoot: entry.url)
+        do {
+            try CanvasClaudeWrite.apply(plan, store: entry.store, projectRoot: entry.url)
+        } catch let refused as CanvasStore.SidecarRefused {
+            // **The one refusal this tool cannot validate for**, because it is a
+            // fact about a file rather than about the call (#33). It has to be
+            // said in the caller's own vocabulary: the read that preceded this
+            // write reported an EMPTY canvas — that is what an unreadable sidecar
+            // looks like to `list_canvas` — so a caller with no named error would
+            // reasonably read a silent failure as "the canvas is empty and adding
+            // to it is safe", which is exactly the belief that costs the writer
+            // their arrangement.
+            throw MCPError.toolError(payload: .init(
+                error: "canvas_sidecar_unreadable",
+                message: refused.errorDescription
+                    ?? "The canvas layout can't be read by this version of Maugham.",
+                hint: "Update Maugham on this Mac before adding to this canvas. "
+                    + "list_canvas shows only what this version can read, so the "
+                    + "empty scene it reported is not the writer's real layout.",
+                fields: ["project": .string(refused.projectName)]))
+        }
 
         // Project-scoped (ADR 0021), as every data event is: a window on another
         // project must not announce cards it did not receive. `maughamMCPNoteAdded`
