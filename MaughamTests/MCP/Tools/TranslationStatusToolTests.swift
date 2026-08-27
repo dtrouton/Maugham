@@ -474,4 +474,64 @@ final class TranslationStatusToolTests: XCTestCase {
 
         await h.documentStore.close()
     }
+
+    // MARK: - One unreadable chapter (issue #43, F-D)
+
+    /// **The call answers, and names what it could not read.** Chapter 2's
+    /// history file is present and unreadable; before this the whole call
+    /// escaped a raw `OpLogStore.ReadError`, so one bad file cost a Claude
+    /// session the translation status of a whole book. Now chapter 1's rows come
+    /// back, `unreadable_documents` says which chapter is missing and why, and
+    /// nothing pretends chapter 2 is untranslated.
+    func test_anUnreadableChapterIsNamedAndTheCallStillAnswers() async throws {
+        let h = try await makeHarness()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "uno")
+        try await seed(h, doc: h.doc2, paragraphId: h.doc2.sequence[0],
+                       language: "es", text: "dos")
+
+        // The unloadable-document primitive: a DIRECTORY squatting an op-log
+        // file path. Chapter 2 has to be closed first — an open document is read
+        // out of memory, and a squatted file under it would never be touched.
+        let docId = h.doc2.docId
+        await h.doc2.close()
+        h.documentStore.unregister(path: "manuscript/c2.md")
+        try FileManager.default.createDirectory(
+            at: OpLogStore.opLogFileURL(forDocId: docId,
+                                        deviceSlug: DeviceSlug.make(from: "bad"),
+                                        in: h.projectURL),
+            withIntermediateDirectories: true)
+
+        let result = try await status(h, ["project_id": h.projectId])
+
+        XCTAssertEqual(result.unreadable_documents.map(\.document_id), ["doc-2"])
+        let skipped = try XCTUnwrap(result.unreadable_documents.first)
+        XCTAssertEqual(skipped.title, "Chapter 2",
+                       "named as the manifest names it, not by id")
+        XCTAssertFalse(skipped.reason.isEmpty,
+                       "a skip with no reason on it is a silent skip with a label")
+
+        XCTAssertEqual(Set(result.rows.map(\.document_id)), ["doc-1"],
+                       "the readable chapter answers in full")
+        XCTAssertEqual(result.rows.first { $0.language == "es" }?.fresh, 1)
+
+        await h.documentStore.close()
+    }
+
+    /// The control: the same call over a book that reads cleanly reports the
+    /// field EMPTY rather than absent — the always-present-array shape
+    /// `write_translation`'s `warnings` set, so a reader never has to tell
+    /// "nothing failed" from "this build does not report failures".
+    func test_aReadableBookReportsNoUnreadableDocuments() async throws {
+        let h = try await makeHarness()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "uno")
+
+        let result = try await status(h, ["project_id": h.projectId])
+
+        XCTAssertEqual(result.unreadable_documents, [])
+        XCTAssertFalse(result.rows.isEmpty, "…over a book that has rows to report")
+
+        await h.documentStore.close()
+    }
 }

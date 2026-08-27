@@ -57,6 +57,12 @@ struct DepartmentPaneHost: View {
     var onShowProposal: (DesignProposalStore.Proposal) -> Void = { _ in }
 
     @State private var languages: [EditionStatus.LanguageRow] = []
+    /// **Every chapter the language walk could not open** (issue #43, F-D) —
+    /// drawn above the rows, because the rows it would have contributed are
+    /// missing and an empty desk over an unreadable book is a false claim about
+    /// the book. Derived in the same pass as `languages`, from the same value,
+    /// so the two cannot describe different walks.
+    @State private var unreadable: [EditionStatus.UnreadableDocument] = []
     /// Every design round this project has staged, newest first — the Design
     /// row's second line and its badge (Task 4). Derived off the body path
     /// because it reads `.maugham/design/proposals/`.
@@ -157,6 +163,7 @@ struct DepartmentPaneHost: View {
         return DepartmentPane(
             title: store.manifest.title,
             languages: languages,
+            unreadable: unreadable,
             design: designRow,
             openEditionBrief: { language in
                 Task { await present(language: language) }
@@ -569,17 +576,17 @@ struct DepartmentPaneHost: View {
     }
 
     private func derive() async {
-        do {
-            languages = try await EditionStatus.languageRows(
-                in: store, projectURL: projectURL)
-        } catch {
-            // The walk reads; it cannot damage anything by failing. The desk
-            // keeps whatever it last derived rather than blanking the rows the
-            // writer is reading, and says nothing — the notice line is for a
-            // refusal the writer ASKED for.
-            _departmentLog.error(
-                "could not derive the department's language rows: \(error, privacy: .public)")
-        }
+        // **No error arm, because the walk has no throw left in it** (issue #43,
+        // F-D). It used to have one, and what the `catch` did was keep whatever
+        // the desk last derived and say nothing — which on a first mount is an
+        // empty Languages section reading "No translations yet." over a book
+        // with four editions and one chapter Maugham could not open. A
+        // per-document failure is now a value: `report.unreadable`, drawn as its
+        // own line above the rows.
+        let report = await EditionStatus.languageRows(
+            in: store, projectURL: projectURL)
+        languages = report.rows
+        unreadable = report.unreadable
         do {
             // Newest first, and tolerant of a folder it cannot read — the
             // store's own posture. Same failure policy as the walk above: the

@@ -257,8 +257,24 @@ public enum TranslationStatusTool: MCPTool {
         public let project_id: String
         public let document_id: String?
     }
+    /// **A manuscript document the walk could not open** (issue #43, F-D).
+    ///
+    /// The rows it would have contributed are genuinely absent from `rows`, and
+    /// this is what keeps that absence from reading as "nothing translated
+    /// here". `EditionStatus.UnreadableDocument` on the wire; the department
+    /// desk draws the same fact as a Couldn't-read line above its rows, off the
+    /// same derivation.
+    public struct UnreadableDocument: Codable, Equatable {
+        public let document_id: String
+        public let title: String
+        public let reason: String
+    }
     public struct Result: Codable, Equatable {
         public let rows: [Row]
+        /// Always present, `[]` when every document read cleanly — the
+        /// always-present-array precedent `write_translation`'s and `compile`'s
+        /// `warnings` set, so a reader never has to tell "absent" from "none".
+        public let unreadable_documents: [UnreadableDocument]
     }
 
     public static let method = "translation_status"
@@ -274,6 +290,10 @@ public enum TranslationStatusTool: MCPTool {
         "translator asks a query against it, even before any translation file exists for " +
         "it — that row's coverage counts are all zero (nothing to derive yet) with " +
         "`open_queries` real, distinct from a language that has files but nothing missing. " +
+        "`unreadable_documents` (always present, empty when the whole book read cleanly) " +
+        "names every document this call could not open, with the reason — its rows are " +
+        "missing from `rows` rather than zero, so read it before concluding a chapter is " +
+        "untranslated. " +
         "Use it to see how much of a book is translated and where retranslation is due. " +
         "See get_help topic 'translation-pass' for the translation workflow."
     public static let inputSchemaJSON =
@@ -299,10 +319,17 @@ public enum TranslationStatusTool: MCPTool {
         // "how far along is the Spanish edition" with no way for a writer to
         // tell which one is wrong. The tool's job is the wire form on either
         // side, exactly as `write_translation`'s is.
-        let rows = try await EditionStatus.documentRows(
+        //
+        // **It no longer throws for one document** (issue #43, F-D): a chapter
+        // whose history file is present and unreadable used to escape a raw
+        // `OpLogStore.ReadError` out of this handler, so a whole book's
+        // translation status became one failed call. It now degrades to an
+        // entry in `unreadable_documents`, which is the same fact the desk
+        // draws — one derivation, one degrade.
+        let report = await EditionStatus.documentRows(
             documentIds: docIds, store: entry.store, projectURL: entry.url)
 
-        return try JSONEncoder().encode(Result(rows: rows.map {
+        return try JSONEncoder().encode(Result(rows: report.rows.map {
             Row(document_id: $0.documentId,
                 language: $0.language,
                 translator: $0.translator,
@@ -312,6 +339,10 @@ public enum TranslationStatusTool: MCPTool {
                 verbatim: $0.verbatim,
                 orphans: $0.orphans,
                 open_queries: $0.openQueries)
+        }, unreadable_documents: report.unreadable.map {
+            UnreadableDocument(document_id: $0.documentId,
+                               title: $0.title,
+                               reason: $0.reason)
         }))
     }
 }

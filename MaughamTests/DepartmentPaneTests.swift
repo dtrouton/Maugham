@@ -111,8 +111,8 @@ final class DepartmentPaneTests: XCTestCase {
             body: "Translation query (es) — tú or usted throughout?",
             toolArgs: #"{"language":"es","role_id":"role-es"}"#)
 
-        let desk = try await EditionStatus.languageRows(
-            in: h.projectStore, projectURL: h.projectURL)
+        let desk = await EditionStatus.languageRows(
+            in: h.projectStore, projectURL: h.projectURL).rows
         let tool = try await self.toolRows(h)
 
         XCTAssertEqual(desk.map(\.language), ["es", "fr"],
@@ -145,6 +145,51 @@ final class DepartmentPaneTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    // MARK: - …and they degrade alike (issue #43, F-D)
+
+    /// **One derivation means one DEGRADE.** With chapter 2's history file
+    /// present and unreadable, the desk and `translation_status` name the same
+    /// chapter with the same reason, and both still report chapter 1's Spanish
+    /// coverage. A desk that degraded on its own — or a tool that went on
+    /// throwing — would be the disagreement `EditionStatus` exists to prevent,
+    /// arriving through the failure path instead of the happy one.
+    ///
+    /// The control is `test_theDesksRowsAreTranslationStatusOwnNumbers` above:
+    /// the same fixture with nothing broken, where both name nothing.
+    func test_theDeskAndTheToolNameTheSameUnreadableChapter() async throws {
+        let h = try await makeProject()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "uno")
+        try await seed(h, doc: h.doc2, paragraphId: h.doc2.sequence[0],
+                       language: "es", text: "dos")
+        try await breakChapterTwo(h)
+
+        let desk = await EditionStatus.languageRows(
+            in: h.projectStore, projectURL: h.projectURL)
+        let tool = try await toolResult(h)
+
+        XCTAssertEqual(desk.unreadable.map(\.documentId), ["doc-2"])
+        XCTAssertEqual(tool.unreadable_documents.map(\.document_id),
+                       desk.unreadable.map(\.documentId),
+                       "the desk names \(desk.unreadable.map(\.documentId)) and the "
+                       + "tool names \(tool.unreadable_documents.map(\.document_id)) "
+                       + "\u{2014} two answers to one question")
+        XCTAssertEqual(tool.unreadable_documents.first?.title,
+                       desk.unreadable.first?.title)
+        XCTAssertEqual(tool.unreadable_documents.first?.reason,
+                       desk.unreadable.first?.reason)
+        XCTAssertEqual(desk.unreadable.first?.title, "Chapter 2")
+        XCTAssertFalse(desk.unreadable.first?.reason.isEmpty ?? true)
+
+        XCTAssertEqual(desk.rows.map(\.language), ["es"],
+                       "the readable chapter's edition is still on the desk")
+        XCTAssertEqual(desk.rows.first?.fresh, 1, "chapter 1's own paragraph")
+        XCTAssertEqual(tool.rows.map(\.document_id), ["doc-1"],
+                       "and the tool reports no rows for the chapter it skipped")
+
+        await h.documentStore.close()
+    }
+
     /// **Looking at the desk must not mint a translator** (the read rule in
     /// `ProjectStore+ProductionRoles.swift`, which names "a desk row"
     /// explicitly). The preset name is printed; the manifest is not touched, on
@@ -161,8 +206,8 @@ final class DepartmentPaneTests: XCTestCase {
         let manifestURL = h.projectURL.appendingPathComponent("project.maugham.json")
         let before = try Data(contentsOf: manifestURL)
 
-        let rows = try await EditionStatus.languageRows(
-            in: h.projectStore, projectURL: h.projectURL)
+        let rows = await EditionStatus.languageRows(
+            in: h.projectStore, projectURL: h.projectURL).rows
 
         XCTAssertEqual(rows.first { $0.language == "es" }?.translator, "Cortázar")
         XCTAssertEqual(try Data(contentsOf: manifestURL), before,
@@ -182,8 +227,8 @@ final class DepartmentPaneTests: XCTestCase {
         let minted = try await h.projectStore.translatorRole(for: "es")
         try await h.projectStore.renameProductionRole(id: minted.id, to: "Alejandra")
 
-        let rows = try await EditionStatus.languageRows(
-            in: h.projectStore, projectURL: h.projectURL)
+        let rows = await EditionStatus.languageRows(
+            in: h.projectStore, projectURL: h.projectURL).rows
         XCTAssertEqual(rows.first { $0.language == "es" }?.translator, "Alejandra")
 
         await h.documentStore.close()
@@ -203,8 +248,8 @@ final class DepartmentPaneTests: XCTestCase {
         let minted = try await h.projectStore.translatorRole(for: "pt-br")
         try await h.projectStore.renameProductionRole(id: minted.id, to: "Ana")
 
-        let rows = try await EditionStatus.languageRows(
-            in: h.projectStore, projectURL: h.projectURL)
+        let rows = await EditionStatus.languageRows(
+            in: h.projectStore, projectURL: h.projectURL).rows
 
         let row = try XCTUnwrap(rows.first { $0.language == "pt-br" },
                                 "naming a translator started an edition the desk "
@@ -231,8 +276,8 @@ final class DepartmentPaneTests: XCTestCase {
                        language: "es", text: "uno")
         _ = try await h.projectStore.translatorRole(for: "ES")
 
-        let rows = try await EditionStatus.languageRows(
-            in: h.projectStore, projectURL: h.projectURL)
+        let rows = await EditionStatus.languageRows(
+            in: h.projectStore, projectURL: h.projectURL).rows
 
         XCTAssertEqual(rows.map(\.language), ["es"],
                        "one Spanish edition, however its tag is capitalised, and "
@@ -314,8 +359,8 @@ final class DepartmentPaneTests: XCTestCase {
         try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
                        language: "xx", text: "uno")
 
-        let rows = try await EditionStatus.languageRows(
-            in: h.projectStore, projectURL: h.projectURL)
+        let rows = await EditionStatus.languageRows(
+            in: h.projectStore, projectURL: h.projectURL).rows
         let xx = try XCTUnwrap(rows.first { $0.language == "xx" })
         XCTAssertNil(xx.translator, "no preset, nothing stored — nothing honest")
         XCTAssertEqual(DepartmentDesk.translatorLine(xx.translator),
@@ -478,6 +523,57 @@ final class DepartmentPaneTests: XCTestCase {
                        + "captured the wrong row's tag would open the first")
     }
 
+    // MARK: - The unreadable chapter, on screen (issue #43, F-D)
+
+    /// **A chapter that would not open is named on the desk, and "No
+    /// translations yet." yields to it.** Read off the mounted tree, because
+    /// this test is about what a writer sees rather than about which strings
+    /// exist: an empty Languages section over a book Maugham could not read is
+    /// the false claim F-D is about, and it is false in the exact case where
+    /// there is nothing else on the section to contradict it.
+    ///
+    /// The disable experiment: draw `noLanguagesYet` unconditionally and the
+    /// second assertion fails while the first still passes — the line alone is
+    /// not the fix.
+    func test_anUnreadableChapterIsNamedAndTheEmptyStateYieldsToIt() async throws {
+        let window = mount(rows: [], unreadable: [
+            EditionStatus.UnreadableDocument(
+                documentId: "doc-2", title: "Chapter 2",
+                reason: "The manuscript\u{2019}s history file can\u{2019}t be read."),
+        ])
+        _ = try await scrollersSettling(in: window)
+
+        let texts = try axTexts(in: window)
+        XCTAssertFalse(texts.isEmpty,
+                       "the hosted desk published no text at all, so this test "
+                       + "could not fail for the reason it exists")
+        let named = DepartmentDesk.couldNotRead("Chapter 2")
+        XCTAssertTrue(texts.contains { $0.contains(named) },
+                      "nothing on the desk reads \u{201C}\(named)\u{201D}. "
+                      + "Published: \(texts.sorted())")
+        XCTAssertTrue(texts.contains { $0.contains("history file") },
+                      "…and the failure's own sentence goes with it, so the "
+                      + "writer knows what to fix. Published: \(texts.sorted())")
+        XCTAssertFalse(texts.contains { $0.contains(DepartmentDesk.noLanguagesYet) },
+                       "\u{201C}\(DepartmentDesk.noLanguagesYet)\u{201D} is a claim "
+                       + "about the book, and a chapter that would not open is "
+                       + "exactly the case where Maugham cannot make it")
+    }
+
+    /// The control: nothing unreadable, no rows — the desk says what it has
+    /// always said, so the suppression above is the squat's doing and not a
+    /// section that lost its empty state.
+    func test_aReadableBookWithNoEditionsStillSaysSo() async throws {
+        let window = mount(rows: [], unreadable: [])
+        _ = try await scrollersSettling(in: window)
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0.contains(DepartmentDesk.noLanguagesYet) },
+                      "Published: \(texts.sorted())")
+        XCTAssertFalse(texts.contains { $0.contains("Couldn\u{2019}t read") },
+                       "nothing failed, so nothing is named")
+    }
+
     // MARK: - Census
 
     /// **The desk reads no store** (tripwire 4). Its values are assembled by the
@@ -513,12 +609,14 @@ final class DepartmentPaneTests: XCTestCase {
     }
 
     private func mount(rows: [EditionStatus.LanguageRow],
+                       unreadable: [EditionStatus.UnreadableDocument] = [],
                        width: CGFloat = 340,
                        openEditionBrief: @escaping (String) -> Void = { _ in }) -> NSWindow {
         let frame = CGRect(x: 0, y: 0, width: width, height: 600)
         let hosting = NSHostingView(rootView: AnyView(
             DepartmentPane(title: "The Project",
                            languages: rows,
+                           unreadable: unreadable,
                            openEditionBrief: openEditionBrief)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)))
         hosting.frame = frame
@@ -565,6 +663,22 @@ final class DepartmentPaneTests: XCTestCase {
         let registry: ProjectRegistry
         let doc1: Document
         let doc2: Document
+        let path2: String
+    }
+
+    /// **Make chapter 2 unreadable**, the way `ReadOnlyRecoveryTests` does it: a
+    /// DIRECTORY squatting an op-log file path, which is present and cannot be
+    /// read. Closing and unregistering it first is what puts it on the transient
+    /// load path — an OPEN document is read out of memory, and a squatted file
+    /// under it would never be touched.
+    private func breakChapterTwo(_ fixture: Fixture) async throws {
+        let docId = fixture.doc2.docId
+        await fixture.doc2.close()
+        fixture.documentStore.unregister(path: fixture.path2)
+        let squat = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: DeviceSlug.make(from: "bad"),
+            in: fixture.projectURL)
+        try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
     }
 
     private func makeProject() async throws -> Fixture {
@@ -612,7 +726,7 @@ final class DepartmentPaneTests: XCTestCase {
 
         return Fixture(projectURL: tmp, projectId: ProjectIdentifier.id(for: tmp),
                        projectStore: projectStore, documentStore: documentStore,
-                       registry: registry, doc1: doc1, doc2: doc2)
+                       registry: registry, doc1: doc1, doc2: doc2, path2: path2)
     }
 
     private func seed(_ fixture: Fixture, doc: Document, paragraphId: String,
@@ -643,12 +757,18 @@ final class DepartmentPaneTests: XCTestCase {
     /// `translation_status`' own answer over the same fixture — the other half
     /// of the agreement.
     private func toolRows(_ fixture: Fixture) async throws -> [TranslationStatusTool.Row] {
+        try await toolResult(fixture).rows
+    }
+
+    /// The tool's whole answer, for the halves of the agreement that are not
+    /// rows — `unreadable_documents` (issue #43, F-D).
+    private func toolResult(_ fixture: Fixture) async throws -> TranslationStatusTool.Result {
         let params = try JSONSerialization.data(
             withJSONObject: ["project_id": fixture.projectId])
         let out = try await TranslationStatusTool.handle(
             paramsJSON: params, registry: fixture.registry)
         return try JSONDecoder().decode(
-            TranslationStatusTool.Result.self, from: out).rows
+            TranslationStatusTool.Result.self, from: out)
     }
 
     private static var appSourceDir: URL {

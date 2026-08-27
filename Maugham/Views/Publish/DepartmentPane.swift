@@ -38,6 +38,17 @@ struct DepartmentPane: View {
     /// anything here: a desk and a tool disagreeing about how far along an
     /// edition is gives the writer no way to find out which is wrong.
     let languages: [EditionStatus.LanguageRow]
+    /// **Every chapter the language walk could not open** (issue #43, F-D),
+    /// named above the rows.
+    ///
+    /// A standing line rather than the `notice` channel above: `notice` is for a
+    /// refusal the writer just asked for and clears on the next attempt, and
+    /// this is a fact about the book that is true until the file is readable
+    /// again. The rows this chapter would have contributed are missing from
+    /// `languages`, so without the line an unreadable chapter reads as an
+    /// untranslated one — and a book whose every chapter failed reads as a book
+    /// with no editions, which is why `noLanguagesYet` yields to it below.
+    var unreadable: [EditionStatus.UnreadableDocument] = []
     /// **The Design row, whole** (Task 4) — who designs this book, what the
     /// newest round produced, what a round in flight is doing, and whether
     /// either verb may be pressed.
@@ -205,10 +216,25 @@ struct DepartmentPane: View {
                     designRow
                 }
                 section(DepartmentDesk.languagesHeading) {
+                    // **Above the rows, one line per chapter that would not
+                    // open** (issue #43, F-D) — because what is below is
+                    // incomplete by exactly these chapters, and the writer
+                    // cannot tell that from the rows themselves.
+                    ForEach(unreadable, id: \.documentId) { document in
+                        PublishNoticeLine(
+                            headline: DepartmentDesk.couldNotRead(document.title),
+                            detail: document.reason)
+                    }
                     if languages.isEmpty {
-                        Text(DepartmentDesk.noLanguagesYet)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+                        // **"No translations yet." is a claim about the book,
+                        // and a failed read cannot support it.** With a chapter
+                        // unreadable the honest empty state is the line above:
+                        // Maugham does not know what editions this book has.
+                        if unreadable.isEmpty {
+                            Text(DepartmentDesk.noLanguagesYet)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
                         addLanguageButton
                     } else {
                         // **Said once, above the rows it applies to.** Every Run
@@ -529,6 +555,18 @@ enum DepartmentDesk {
     /// section is always drawn, because the Design row above it always has
     /// something to offer (Task 4 retired the pane's empty state).
     static let noLanguagesYet = "No translations yet."
+
+    /// **What the desk says about a chapter it could not open** (issue #43,
+    /// F-D). Names the chapter as the writer's own tree names it; the failure's
+    /// own sentence goes underneath, as the detail.
+    ///
+    /// "Couldn't read" rather than "Error" or "Failed" for
+    /// `PublishCentreNotice`'s reason one column over: what the writer needs is
+    /// which of their chapters is missing from what they are looking at, not a
+    /// category of fault.
+    static func couldNotRead(_ title: String) -> String {
+        "Couldn\u{2019}t read \(title)"
+    }
 
     /// **The door to a first (or fourth) edition** (cast-management). The
     /// ellipsis is the platform's promise that a sheet follows rather than an
