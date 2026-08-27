@@ -927,9 +927,8 @@ final class ReviewBoardPaneTests: XCTestCase {
                        openNotes: [String: OpenNotesSummary] = [:],
                        unreadable: Set<String> = [],
                        width: CGFloat = 700) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: width, height: 600)
         let calls = self.calls
-        let hosting = NSHostingView(rootView: AnyView(
+        let window = TestWindow.mount(AnyView(
             ReviewBoardPane(title: "The Project", structure: structure, passes: passes,
                             openNotes: openNotes,
                             unreadableDocIds: unreadable,
@@ -944,13 +943,8 @@ final class ReviewBoardPaneTests: XCTestCase {
                             onRunRound: { piece, pass in
                                 calls.runs.append(BoardClick(piece: piece, pass: pass))
                             })
-                .frame(maxWidth: .infinity, maxHeight: .infinity)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)),
+            size: CGSize(width: width, height: 600))
         windows.append(window)
         pump(0.1)
         return window

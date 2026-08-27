@@ -206,15 +206,9 @@ final class CollectionProjectRowTests: XCTestCase {
 
     private func host(store: ProjectStore) async throws -> (NSWindow, BinderSubjectProbe) {
         let probe = BinderSubjectProbe()
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
-        let hosting = NSHostingView(
-            rootView: AnyView(CollectionPiecesProbeView(store: store, probe: probe)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(CollectionPiecesProbeView(store: store, probe: probe)),
+            size: CGSize(width: 320, height: 600))
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
         return (window, probe)

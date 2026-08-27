@@ -635,14 +635,7 @@ final class IntentStripTests: XCTestCase {
     // MARK: - Hosting (mirrors `InspectorIntentAffordanceTests`)
 
     private func mount(_ view: AnyView) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 720, height: 200)
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(view, size: CGSize(width: 720, height: 200))
         windows.append(window)
         pump()
         return window

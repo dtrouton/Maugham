@@ -390,15 +390,10 @@ final class TreeTrashDisclosureTests: XCTestCase {
     // MARK: - Mounting
 
     private func mountDisclosure(store: ProjectStore, box: TrashDisclosureBox) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 400)
-        let hosting = NSHostingView(rootView: AnyView(
-            TrashDisclosureProbeView(store: store, box: box)))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(TrashDisclosureProbeView(store: store, box: box)),
+            size: CGSize(width: 320, height: 400),
+            as: SilentTestWindow.self)
         windows.append(window)
         pump(0.15)
         return window
@@ -408,19 +403,17 @@ final class TreeTrashDisclosureTests: XCTestCase {
                              shell: ProjectWindow.BinderShell,
                              persona: Persona = .author,
                              keyed: Bool = false) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 700)
-        let hosting = NSHostingView(rootView: AnyView(
+        let view = AnyView(
             BinderToggleTrashProbeView(store: store, box: box, shell: shell,
-                                       persona: persona)))
-        hosting.frame = frame
+                                       persona: persona))
+        let size = CGSize(width: 320, height: 700)
+        // `keyed` mounts in a `KeyTestWindow`, which reports itself key, for the
+        // ⌘⌥Z test: `.maughamRestoreLastDeleted` is key-window scoped and a
+        // window hosted by `xcodebuild`'s test host never becomes key on its own
+        // — `TreeFindOverlayTests.host`'s reason exactly.
         let window: NSWindow = keyed
-            ? KeyTestWindow(contentRect: frame, styleMask: [.titled],
-                            backing: .buffered, defer: false)
-            : SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                               backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+            ? TestWindow.mount(view, size: size, as: KeyTestWindow.self)
+            : TestWindow.mount(view, size: size, as: SilentTestWindow.self)
         windows.append(window)
         // Set BEFORE the settling pump, not after: `.onKeyWindowCommand`'s
         // closure captures whatever `box.window` was at the body evaluation it
@@ -430,14 +423,6 @@ final class TreeTrashDisclosureTests: XCTestCase {
         box.window = window
         pump(0.2)
         return window
-    }
-
-    /// A window that reports itself key, for the ⌘⌥Z test —
-    /// `TreeFindOverlayTests.KeyTestWindow`'s twin, needed for the same
-    /// reason: `.maughamRestoreLastDeleted` is key-window scoped and a window
-    /// hosted by `xcodebuild`'s test host never becomes key on its own.
-    private final class KeyTestWindow: SilentTestWindow {
-        override var isKeyWindow: Bool { true }
     }
 
     private func waitForTable(in window: NSWindow) async throws -> NSTableView {

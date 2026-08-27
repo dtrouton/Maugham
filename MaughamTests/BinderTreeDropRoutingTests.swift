@@ -661,15 +661,9 @@ final class BinderTreeDropRoutingTests: XCTestCase {
     private func mountCollection(
         store: ProjectStore, probe: BinderSubjectProbe
     ) async throws -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 800)
-        let hosting = NSHostingView(rootView: AnyView(
-            DropRoutingProbeView(store: store, probe: probe)))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(DropRoutingProbeView(store: store, probe: probe)),
+            size: CGSize(width: 320, height: 800), as: SilentTestWindow.self)
         windows.append(window)
         pump(0.3)
         return window

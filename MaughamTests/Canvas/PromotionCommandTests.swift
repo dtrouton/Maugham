@@ -103,27 +103,25 @@ final class PromotionCommandTests: XCTestCase {
 
     // MARK: - The real delivery path
 
-    /// A real `NSWindow` that reports itself key.
-    ///
-    /// **The OS will not grant key status in this test host, and that is
-    /// measured rather than assumed.** `MaughamEventLivenessTests` already
-    /// records it ("Key-window STATUS is not reliably grantable in a headless
-    /// test host"); re-measured 2026-07-28 for this test —
-    /// `NSApp.setActivationPolicy(.regular)` + `activate(ignoringOtherApps:)` +
-    /// `makeKeyAndOrderFront` + `makeKey`, then three seconds of run loop, and
-    /// `NSApp.isActive` was still false and `isKeyWindow` still false while
-    /// `canBecomeKey` was true. The host app is never frontmost under
-    /// `xcodebuild`.
-    ///
-    /// So the ONE fact the host cannot supply is substituted, and nothing else
-    /// is: this is a real `NSWindow`, `EventReceiverContext.forWindow` reads
-    /// `isKeyWindow` off it through the real property, and `shouldDeliver` makes
-    /// the real decision. **Do not replace it with a hand-built
-    /// `EventReceiverContext`** — that skips `forWindow` and its liveness read,
-    /// which are half of what the drop rule is made of.
-    private final class KeyStubWindow: NSWindow {
-        override var isKeyWindow: Bool { true }
-    }
+    // The key arm of both tests below is a shared `KeyTestWindow` — a real
+    // `NSWindow` that reports itself key.
+    //
+    // **The OS will not grant key status in this test host, and that is
+    // measured rather than assumed.** `MaughamEventLivenessTests` already
+    // records it ("Key-window STATUS is not reliably grantable in a headless
+    // test host"); re-measured 2026-07-28 for this test —
+    // `NSApp.setActivationPolicy(.regular)` + `activate(ignoringOtherApps:)` +
+    // key-and-order-front + `makeKey`, then three seconds of run loop, and
+    // `NSApp.isActive` was still false and `isKeyWindow` still false while
+    // `canBecomeKey` was true. The host app is never frontmost under
+    // `xcodebuild`.
+    //
+    // So the ONE fact the host cannot supply is substituted, and nothing else
+    // is: this is a real `NSWindow`, `EventReceiverContext.forWindow` reads
+    // `isKeyWindow` off it through the real property, and `shouldDeliver` makes
+    // the real decision. **Do not replace it with a hand-built
+    // `EventReceiverContext`** — that skips `forWindow` and its liveness read,
+    // which are half of what the drop rule is made of.
 
     /// A `.keyWindow` post is delivered to the key window's receivers and to no
     /// others. Driven through REAL `NSWindow`s because the drop rule is about
@@ -133,17 +131,11 @@ final class PromotionCommandTests: XCTestCase {
     /// the unsubstituted half: a real window that does not hold key status drops
     /// the command, which is precisely the v0.24.0 shape.
     func test_theCommandReachesTheKeyWindowAndOnlyTheKeyWindow() {
-        let key = KeyStubWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
-                                styleMask: [.titled], backing: .buffered, defer: false)
-        let other = SilentTestWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
-                             styleMask: [.titled], backing: .buffered, defer: false)
-        // Test-owned windows. Without this, `close()` over-releases under ARC and
-        // takes the whole test process down — measured: the runner reported
-        // "Restarting after unexpected exit, crash, or test timeout".
-        key.isReleasedWhenClosed = false
-        other.isReleasedWhenClosed = false
-        key.makeKeyAndOrderFront(nil)
-        other.orderFront(nil)
+        let key = TestWindow.make(KeyTestWindow.self,
+                                  contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                                  present: .key)
+        let other = TestWindow.make(SilentTestWindow.self,
+                                    contentRect: NSRect(x: 0, y: 0, width: 300, height: 200))
         defer { key.close(); other.close() }
         XCTAssertFalse(other.isKeyWindow, "the control arm must really not be key")
 
@@ -174,12 +166,14 @@ final class PromotionCommandTests: XCTestCase {
     /// the receiver can be green while nothing reaches it.
     func test_theProductionReceiverFiresOnTheRealPostAndOnlyForTheKeyWindow() {
         var keyFired = 0, otherFired = 0
-        let key = KeyStubWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
-                                styleMask: [.titled], backing: .buffered, defer: false)
-        let other = SilentTestWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
-                             styleMask: [.titled], backing: .buffered, defer: false)
-        key.isReleasedWhenClosed = false
-        other.isReleasedWhenClosed = false
+        // Built unshown, and shown below once both hosts are in them — the
+        // presentation order the mounting note under the post depends on.
+        let key = TestWindow.make(KeyTestWindow.self,
+                                  contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                                  present: .unshown)
+        let other = TestWindow.make(SilentTestWindow.self,
+                                    contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                                    present: .unshown)
         defer { key.close(); other.close() }
 
         let keyHost = NSHostingView(rootView: AnyView(
@@ -192,8 +186,8 @@ final class PromotionCommandTests: XCTestCase {
         otherHost.frame = keyHost.frame
         key.contentView?.addSubview(keyHost)
         other.contentView?.addSubview(otherHost)
-        key.makeKeyAndOrderFront(nil)
-        other.orderFront(nil)
+        TestWindow.present(key, as: .key)
+        TestWindow.present(other)
         // Let SwiftUI mount both hosts so their `.onReceive` subscriptions exist
         // before the post — an unmounted view is subscribed to nothing, and that
         // false negative would look exactly like a broken command.

@@ -1312,14 +1312,9 @@ final class DetailColumnWidthTests: XCTestCase {
 
     private func mount(_ probe: DetailColumnProbe,
                        windowWidth: CGFloat = 1200) async throws -> (NSWindow, NSSplitView) {
-        let frame = CGRect(x: 0, y: 0, width: windowWidth, height: 700)
-        let hosting = NSHostingView(rootView: AnyView(DetailColumnHarness(probe: probe)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled, .resizable],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(AnyView(DetailColumnHarness(probe: probe)),
+                                      size: CGSize(width: windowWidth, height: 700),
+                                      styleMask: [.titled, .resizable])
         windows.append(window)
         await pump(1.0)
 

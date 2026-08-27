@@ -1577,14 +1577,9 @@ final class PublishPreviewCentreTests: XCTestCase {
             hostLife: life, shape: shape, canvasModel: CanvasModel())
             .environment(preferences)
 
-        let frame = CGRect(x: 0, y: 0, width: 900, height: 700)
-        let hosting = NSHostingView(rootView: AnyView(root))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(AnyView(root),
+                                      size: CGSize(width: 900, height: 700),
+                                      as: SilentTestWindow.self)
         windows.append(window)
         pump(0.1)
         return Mount(window: window, box: box, hostLife: life)
@@ -1594,15 +1589,10 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// visible `NSWindow` or ADR 0021's liveness guard drops the post.
     private func mountRefreshProbe(projectURL: URL,
                                    box: PublishCentreProbeBox) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 400, height: 300)
-        let hosting = NSHostingView(rootView: AnyView(
-            PublishRefreshProbeView(projectURL: projectURL, box: box)))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(AnyView(
+            PublishRefreshProbeView(projectURL: projectURL, box: box)),
+            size: CGSize(width: 400, height: 300),
+            as: SilentTestWindow.self)
         windows.append(window)
         pump(0.1)
         return window

@@ -194,15 +194,14 @@ final class TreeTravelReceiverTests: XCTestCase {
 
         let probe = TreeTravelProbe(persona: persona, detailSegment: detailSegment,
                                     documentStore: ds)
-        let frame = CGRect(x: 0, y: 0, width: 200, height: 200)
-        let hosting = NSHostingView(rootView: AnyView(TreeTravelReceiverProbeView(probe: probe)))
-        hosting.frame = frame
-        let window = TreeTravelKeyTestWindow(
-            contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        // Built unshown so `reportsKey` is set before the window is ordered in,
+        // exactly as it was when this suite made its own window.
+        let window: KeyTestWindow = TestWindow.mount(
+            AnyView(TreeTravelReceiverProbeView(probe: probe)),
+            size: CGSize(width: 200, height: 200), as: KeyTestWindow.self,
+            present: .unshown)
         window.reportsKey = makeKey
-        window.contentView = hosting
-        if makeKey { window.makeKeyAndOrderFront(nil) } else { window.orderFront(nil) }
-        hosting.layoutSubtreeIfNeeded()
+        TestWindow.present(window, as: makeKey ? .key : .front)
         windows.append(window)
         await pumpUntil(deadline: 5) { probe.window != nil }
         return probe
@@ -624,15 +623,10 @@ final class TreeTravelRowMountingTests: XCTestCase {
         let treeState = treeState ?? BinderTreeSectionsState()
         let probe = TreeTravelProbe(persona: persona, detailSegment: .inbox,
                                     documentStore: store.documentStore)
-        let frame = CGRect(x: 0, y: 0, width: 420, height: 700)
-        let hosting = NSHostingView(rootView: AnyView(
-            BinderTravelProbeView(store: store, probe: probe, treeState: treeState)))
-        hosting.frame = frame
-        let window = TreeTravelKeyTestWindow(contentRect: frame, styleMask: [.titled],
-                                             backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.makeKeyAndOrderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window: KeyTestWindow = TestWindow.mount(
+            AnyView(BinderTravelProbeView(store: store, probe: probe, treeState: treeState)),
+            size: CGSize(width: 420, height: 700), as: KeyTestWindow.self,
+            present: .key)
         windows.append(window)
         let table = try await pumpUntilTable(in: window)
         return (window, probe, table)
@@ -643,15 +637,10 @@ final class TreeTravelRowMountingTests: XCTestCase {
     ) async throws -> (NSWindow, TreeTravelProbe, NSTableView) {
         let probe = TreeTravelProbe(persona: persona, detailSegment: .inbox,
                                     documentStore: store.documentStore)
-        let frame = CGRect(x: 0, y: 0, width: 420, height: 700)
-        let hosting = NSHostingView(rootView: AnyView(
-            CollectionPiecesTravelProbeView(store: store, probe: probe)))
-        hosting.frame = frame
-        let window = TreeTravelKeyTestWindow(contentRect: frame, styleMask: [.titled],
-                                             backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.makeKeyAndOrderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window: KeyTestWindow = TestWindow.mount(
+            AnyView(CollectionPiecesTravelProbeView(store: store, probe: probe)),
+            size: CGSize(width: 420, height: 700), as: KeyTestWindow.self,
+            present: .key)
         windows.append(window)
         let table = try await pumpUntilTable(in: window)
         return (window, probe, table)
@@ -667,15 +656,10 @@ final class TreeTravelRowMountingTests: XCTestCase {
     ) async throws -> (NSWindow, TreeTravelProbe, NSTableView) {
         let probe = TreeTravelProbe(persona: persona, detailSegment: .inbox,
                                     documentStore: store.documentStore)
-        let frame = CGRect(x: 0, y: 0, width: 420, height: 700)
-        let hosting = NSHostingView(rootView: AnyView(
-            SceneNavigatorTravelProbeView(store: store, probe: probe)))
-        hosting.frame = frame
-        let window = TreeTravelKeyTestWindow(contentRect: frame, styleMask: [.titled],
-                                             backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.makeKeyAndOrderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window: KeyTestWindow = TestWindow.mount(
+            AnyView(SceneNavigatorTravelProbeView(store: store, probe: probe)),
+            size: CGSize(width: 420, height: 700), as: KeyTestWindow.self,
+            present: .key)
         windows.append(window)
         let table = try await pumpUntilTable(in: window)
         return (window, probe, table)
@@ -757,17 +741,28 @@ final class TreeTravelRowMountingTests: XCTestCase {
     /// drag-disambiguation loop — the click was never delivered at all. The
     /// window's own `isKeyWindow` override does not buy its way past this;
     /// AppKit reads the real key status, and there is no key window in an
-    /// inactive app. Nor can the premise be forced: `NSApp.activate` was called
-    /// 40 times across 40 seconds against a locked screen, and an external
-    /// `open` of the host bundle was tried alongside it — `isActive` never
-    /// flipped.
+    /// inactive app. Nor can the premise be forced: activating the host was
+    /// asked for 40 times across 40 seconds against a locked screen, and an
+    /// external `open` of the host bundle was tried alongside it — `isActive`
+    /// never flipped.
     ///
-    /// So the click first ASKS for the premise — `NSApp.activate()`, which
-    /// costs nothing when the host is already active and is granted whenever
-    /// the front app yields — and then, if the click demonstrably did not land,
-    /// skips BY NAME. A named skip beats five 5.7-second poll-deadline burns
-    /// that turn a whole gate red for a reason that has nothing to do with the
-    /// code under test.
+    /// So the click first ASKS for the premise, and asking is `TestWindow`'s
+    /// job — ``TestWindow/activate(_:deadline:)`` is the one sanctioned way,
+    /// and it does nothing unless the run OPTED IN with
+    /// `MAUGHAM_ALLOW_ACTIVATION=1`. **A gate must never take the writer's
+    /// keyboard**: activating the host steals focus mid-sentence from whoever
+    /// is using the Mac, so a plain local run does not ask at all. CI, where
+    /// the host is the only app, sets `TEST_RUNNER_MAUGHAM_ALLOW_ACTIVATION=1`.
+    /// Measured 2026-08-27, and not what the paragraph above predicts: on the
+    /// headless gate's `.accessory` host the click lands WITHOUT activation
+    /// (`NSApp.isActive` false, another app frontmost, all five clicks green),
+    /// so a local run gets these tests anyway; the earlier measurements were
+    /// on a `.regular` host, and which change buys it — the policy or the
+    /// hidden window — is not isolated. Where the click demonstrably does not
+    /// land (the locked screen) and the host is inactive, the test still skips
+    /// BY NAME. A named skip beats five
+    /// 5.7-second poll-deadline burns that turn a whole gate red for a reason
+    /// that has nothing to do with the code under test.
     ///
     /// **The skip is decided AFTERWARDS, on a measurement, never on
     /// `NSApp.isActive` alone.** Reading the flag up front and skipping on it
@@ -794,11 +789,7 @@ final class TreeTravelRowMountingTests: XCTestCase {
     /// tracking loop — bypasses the watcher entirely and would prove nothing
     /// about travel.
     private func askForTheClickPremise(_ window: NSWindow) async {
-        let app = NSApplication.shared
-        guard !app.isActive else { return }
-        app.activate()
-        window.makeKeyAndOrderFront(nil)
-        _ = await pumpUntil(deadline: 1) { app.isActive }
+        _ = await TestWindow.activate(window)
     }
 
     /// Raised after the click, never before — see ``askForTheClickPremise``.
@@ -818,7 +809,12 @@ final class TreeTravelRowMountingTests: XCTestCase {
             + "synthetic mouseDown aimed at a window that is not really key, so "
             + "this test's delivery premise cannot hold here. It runs whenever "
             + "the host can activate: an unlocked Mac whose front app yields, "
-            + "and CI, where the host is the only app.")
+            + "and CI, where the host is the only app. A local run never asks "
+            + "for activation on its own — taking the writer's keyboard is not "
+            + "a gate's to take — but usually clicks anyway on the headless "
+            + "accessory host (measured 2026-08-27), so check the lock state "
+            + "first; to force activation here, set "
+            + "TEST_RUNNER_MAUGHAM_ALLOW_ACTIVATION=1.")
     }
 
     /// `clicks: 2` sends the pair AppKit itself would: two down/up pairs with
@@ -831,8 +827,8 @@ final class TreeTravelRowMountingTests: XCTestCase {
         let inWindow = table.convert(point, to: nil)
         let app = NSApplication.shared
         // **The queue has to be QUIET before the pair goes in** — this helper's
-        // premise, and until 2026-08-12 an assumed one. `hostBinder` calls
-        // `makeKeyAndOrderFront`, and ordering a window front leaves AppKit's
+        // premise, and until 2026-08-12 an assumed one. `hostBinder` presents
+        // its window as key, and ordering a window front leaves AppKit's
         // own `appKitDefined` (type 13) traffic for the PREVIOUSLY key window in
         // `NSApp`'s queue. Post the click on top of that and the drain below
         // dequeues the mouseDown first, `-[NSTableView mouseDown:]` opens its
@@ -1175,15 +1171,6 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
 }
 
 // MARK: - Probe + hosting views
-
-/// A window that reports itself key on demand — `.maughamTreeTravel` is
-/// `.keyWindow` scoped (ADR 0021), so a window that never becomes key never
-/// receives it. `PaletteWallDoorTests.KeyTestWindow`'s own reasoning, widened
-/// with a flag so `TreeTravelReceiverTests` can drive the negative case too.
-private final class TreeTravelKeyTestWindow: SilentTestWindow {
-    var reportsKey = true
-    override var isKeyWindow: Bool { reportsKey }
-}
 
 /// Holds the three values `TreeTravelModifier` reads and writes, outside the
 /// view — `BinderSubjectProbe`'s own shape, widened for the persona and

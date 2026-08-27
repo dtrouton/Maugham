@@ -162,15 +162,9 @@ final class ProjectAltitudePaneTests: XCTestCase {
 
     private func hostPane(store: ProjectStore, layout: OutlineLayout, title: String,
                           windowWidth: CGFloat = 520) async throws -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: windowWidth, height: 600)
-        let hosting = NSHostingView(
-            rootView: AnyView(AltitudeProbeView(store: store, initialLayout: layout, title: title)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(AltitudeProbeView(store: store, initialLayout: layout, title: title)),
+            size: CGSize(width: windowWidth, height: 600))
         windows.append(window)
         pump()
         return window

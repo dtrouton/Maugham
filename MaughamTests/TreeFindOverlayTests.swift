@@ -443,28 +443,18 @@ final class TreeFindOverlayTests: XCTestCase {
         return store
     }
 
-    /// **A window that reports itself key**, because `.maughamCloseFind` is
-    /// key-window scoped and a window hosted by `xcodebuild`'s test host never
-    /// becomes key even after `activate` + `makeKeyAndOrderFront`
-    /// (`StatementMountFixture`'s measurement, 2026-08-01). Everything else on
-    /// the path stays production: the real post, the real `shouldDeliver`
-    /// filter, the real receiver helper and the real `applyCloseFind`.
-    ///
-    /// `SilentTestWindow` for its own reason — this suite sends real key events
-    /// and a declined one beeps.
-    private final class KeyTestWindow: SilentTestWindow {
-        override var isKeyWindow: Bool { true }
-    }
-
+    /// Hosted in a `KeyTestWindow` — **a window that reports itself key** —
+    /// because `.maughamCloseFind` is key-window scoped and a window hosted by
+    /// `xcodebuild`'s test host never becomes key even after `activate` +
+    /// `makeKeyAndOrderFront` (`StatementMountFixture`'s measurement,
+    /// 2026-08-01). Everything else on the path stays production: the real post,
+    /// the real `shouldDeliver` filter, the real receiver helper and the real
+    /// `applyCloseFind`. It is a `SilentTestWindow` for its own reason — this
+    /// suite sends real key events and a declined one beeps.
     private func host(_ box: FindOverlayBox, _ view: some View) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(view))
-        hosting.frame = frame
-        let window = KeyTestWindow(contentRect: frame, styleMask: [.titled],
-                                   backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(AnyView(view),
+                                      size: CGSize(width: 320, height: 600),
+                                      as: KeyTestWindow.self)
         windows.append(window)
         box.window = window
         pump(0.15)

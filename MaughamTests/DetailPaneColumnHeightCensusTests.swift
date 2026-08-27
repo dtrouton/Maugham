@@ -444,16 +444,9 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
     }
 
     private func host(_ view: AnyView) async throws -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 1200, height: windowHeight)
-        let hosting = NSHostingView(
-            rootView: AnyView(view.environment(UserPreferences())))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame,
-                              styleMask: [.titled, .resizable],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(AnyView(view.environment(UserPreferences())),
+                                      size: CGSize(width: 1200, height: windowHeight),
+                                      styleMask: [.titled, .resizable])
         windows.append(window)
         await waitOut(1.0)
         return window

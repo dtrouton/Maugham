@@ -780,14 +780,9 @@ final class ProjectAltitudeCentreTests: XCTestCase {
             canvasModel: CanvasModel())
             .environment(preferences)
 
-        let frame = CGRect(x: 0, y: 0, width: 900, height: 700)
-        let hosting = NSHostingView(rootView: AnyView(root))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(AnyView(root),
+                                      size: CGSize(width: 900, height: 700),
+                                      as: SilentTestWindow.self)
         windows.append(window)
         pump(0.1)
         return Mount(window: window, probe: probe, hostLife: life)

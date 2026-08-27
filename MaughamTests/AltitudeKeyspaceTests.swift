@@ -245,24 +245,13 @@ final class AltitudeKeyspaceTests: XCTestCase {
 
     // MARK: - Hosting
 
-    /// A window that reports itself key — `TreeFindOverlayTests.KeyTestWindow`'s
-    /// twin, needed for the same reason: every command here is key-window
-    /// scoped and a window hosted by `xcodebuild`'s test host never becomes key
-    /// on its own.
-    private final class KeyTestWindow: SilentTestWindow {
-        override var isKeyWindow: Bool { true }
-    }
-
     private func mount(store: ProjectStore, box: AltitudeKeyspaceProbeBox) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 700)
-        let hosting = NSHostingView(rootView: AnyView(
-            AltitudeKeyspaceProbeView(store: store, box: box)))
-        hosting.frame = frame
-        let window = KeyTestWindow(contentRect: frame, styleMask: [.titled],
-                                   backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        // `KeyTestWindow` reports itself key: every command here is key-window
+        // scoped, and a window hosted by `xcodebuild`'s test host never becomes
+        // key on its own.
+        let window = TestWindow.mount(
+            AnyView(AltitudeKeyspaceProbeView(store: store, box: box)),
+            size: CGSize(width: 320, height: 700), as: KeyTestWindow.self)
         windows.append(window)
         // Set BEFORE the settling pump — `.onKeyWindowCommand`'s closure
         // captures whatever `box.window` was at the body evaluation it was

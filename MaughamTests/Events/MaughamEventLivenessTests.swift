@@ -14,12 +14,9 @@ import SwiftUI
 final class MaughamEventLivenessTests: XCTestCase {
 
     private func makeWindow() -> NSWindow {
-        let w = NSWindow(
+        TestWindow.make(
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        w.isReleasedWhenClosed = false
-        w.orderFront(nil)
-        return w
+            styleMask: [.titled, .closable], present: .front)
     }
 
     func test_isLive_openWindow_true_closedWindow_false() {

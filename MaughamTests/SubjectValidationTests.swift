@@ -634,15 +634,9 @@ final class SubjectValidationTests: XCTestCase {
     // MARK: - Hosting and driving
 
     private func host(_ harness: SubjectValidationHarness) async throws {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 240)
-        let hosting = NSHostingView(
-            rootView: AnyView(SubjectValidationProbeView(harness: harness)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(SubjectValidationProbeView(harness: harness)),
+            size: CGSize(width: 320, height: 240))
         windows.append(window)
         // Let the first body pass run, so `.onChange` has an old value to
         // compare against rather than an arrival. Fixed: the probe is a
