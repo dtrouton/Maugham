@@ -97,20 +97,26 @@ final class CanvasStoreTests: XCTestCase {
             at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
 
         try #"{"schemaVersion":999,"nodes":[]}"#.write(to: file, atomically: true, encoding: .utf8)
+        var before = try Data(contentsOf: file)
         XCTAssertThrowsError(try CanvasStore(projectRoot: root).loadForTransientWrite()) { error in
             guard let refused = error as? CanvasStore.SidecarRefused else {
                 return XCTFail("expected SidecarRefused, got \(error)")
             }
             XCTAssertEqual(refused.projectName, root.lastPathComponent)
         }
+        XCTAssertEqual(try Data(contentsOf: file), before,
+                       "a refused write must never touch the file it refused to overwrite")
 
         try "not json at all".write(to: file, atomically: true, encoding: .utf8)
+        before = try Data(contentsOf: file)
         XCTAssertThrowsError(try CanvasStore(projectRoot: root).loadForTransientWrite()) { error in
             guard let refused = error as? CanvasStore.SidecarRefused else {
                 return XCTFail("expected SidecarRefused, got \(error)")
             }
             XCTAssertEqual(refused.projectName, root.lastPathComponent)
         }
+        XCTAssertEqual(try Data(contentsOf: file), before,
+                       "damaged bytes are left exactly as damaged as they were found")
     }
 
     func test_loadForTransientWriteReturnsTheSceneWhenTheSidecarIsAbsentOrDecoded() throws {
