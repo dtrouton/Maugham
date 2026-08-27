@@ -208,7 +208,18 @@ enum SinceLastRound {
         /// Minted by THIS round. A finding the model re-raised is not among
         /// them — the mint's fingerprint dedupe refuses a second copy of a
         /// note already open (`RoundFingerprint.stringValue`), so a re-raise
-        /// stays exactly one note and is counted once, as persisting.
+        /// stays exactly one note and is counted once.
+        ///
+        /// **Where that one note is counted depends on the lane it lives in.**
+        /// A re-raise of a note open in THIS lane is `persisting` above — the
+        /// note is in the queue the writer is working, and they can see it. A
+        /// re-raise of one open in ANOTHER pass's lane is in none of these
+        /// three counts and cannot be: this whole computation reads only its
+        /// own lane (decision 1), by design. That case is carried on the run
+        /// instead — `CompilerRun.openInOtherLanes`, recorded by the mint
+        /// itself — and `RoundNarrative.sinceLastRoundLine` appends it to the
+        /// sentence as "also open in other lanes" (#42 F-H). It is not derived
+        /// here, and nothing here changes to accommodate it.
         let new: Int
     }
 

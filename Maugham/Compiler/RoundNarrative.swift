@@ -43,6 +43,16 @@ enum RoundNarrative {
     /// **"Since round N−1: X resolved · Y persisting · Z new"**, or `nil` when
     /// this run is not a round that can be compared.
     ///
+    /// **A fourth clause joins it when the round engaged a finding the writer
+    /// is holding in another pass's lane** (#42 F-H) — "· 1 also open in
+    /// another lane". The three counts above are lane-local by construction
+    /// (`SinceLastRound`'s decision 1) and the mint refuses a cross-lane
+    /// re-raise, so that case fell between them and left the round reading
+    /// three zeroes. The number is not derived here: it is `CompilerRun`'s
+    /// `openInOtherLanes`, recorded by the mint at the one place fingerprints
+    /// are already compared. Zero — and a record from before the field existed
+    /// — appends nothing, so the sentence a writer already knows is unchanged.
+    ///
     /// Pure and static on `driftNote`'s mould, and for the same reason: the
     /// sentence is the pane's, the arithmetic is not. `SinceLastRound.compute`
     /// is the ONE spelling of the three counts.
@@ -97,8 +107,14 @@ enum RoundNarrative {
         let outcome = SinceLastRound.compute(
             annotations: annotations, lane: run.passId, currentRound: round,
             previousRoundAt: previous.at)
-        return "Since round \(previousNumber): \(outcome.resolved) resolved "
+        let line = "Since round \(previousNumber): \(outcome.resolved) resolved "
             + "\u{00b7} \(outcome.persisting) persisting \u{00b7} \(outcome.new) new"
+        // The pair is kept adjacent on purpose: one place to read, so a later
+        // edit to either half cannot drift from the other.
+        guard let elsewhere = run.openInOtherLanes, elsewhere > 0 else { return line }
+        return line + (elsewhere == 1
+            ? " \u{00b7} 1 also open in another lane"
+            : " \u{00b7} \(elsewhere) also open in other lanes")
     }
 
     /// **"Fresh eyes · round N"** — what a cold read (⌘⇧R) says about itself,

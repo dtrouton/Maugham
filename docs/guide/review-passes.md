@@ -104,7 +104,9 @@ run is a numbered **round** in that pass's own count. The report leads with
 the distance travelled: *"Since round 4: 2 resolved · 1 persisting · 1 new"*
 — counted from your own queue: notes from an earlier round of this pass
 that you've settled since the last one, notes from an earlier round still
-open in front of you, and notes this round raised. Round numbers are per pass, but the memory is the document's, not
+open in front of you, and notes this round raised. A note you're holding in
+another pass's lane is counted separately — *"1 also open in another lane"* —
+since the three counts read only the pass the round was run in. Round numbers are per pass, but the memory is the document's, not
 any one pass's: Maugham remembers a document's last six finished checks,
 across every pass it's been worked through. Run enough checks in other
 passes and a pass you haven't touched in a while ages out of that memory —

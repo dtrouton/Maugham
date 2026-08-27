@@ -128,6 +128,31 @@ reread — same question, one comma moved — can mint a duplicate the dedupe
 can't see. Neither residual gets machinery; the writer disposes the
 duplicate the way they dispose any other settled note.
 
+**A refusal in ANOTHER lane is counted and said aloud** (#42 F-H). The mint
+refuses a finding already open whichever pass raised it — one finding is one
+note, and the lane it was first raised in does not make it two — but the
+since-line's three counts are lane-local by construction
+(`SinceLastRound.compute` filters on `reviewPassId == passId`), so a Line
+round that re-raised a question standing in the Structural lane used to read
+"0 resolved · 0 persisting · 0 new": a check that engaged the piece, reported
+as one that found nothing in it. The mint now answers a
+`CompilerOrchestrator.MintOutcome` — `minted` beside `openInOtherLanes`, the
+count of DISTINCT findings whose fingerprint matched an open note stamped with
+a different `reviewPassId` than the round's own — and
+`RoundNarrative.sinceLastRoundLine` appends "· 1 also open in another lane" /
+"· N also open in other lanes" when it is above zero. **A match in the round's
+OWN lane is deliberately not counted**: that is the *persisting* case, already
+on the line, and counting it twice would tell the writer one finding is two.
+The number is produced at the one place fingerprints are already compared
+(`CompilerEnvironment+Project`'s mint loop, whose `taken` set became a
+fingerprint→lane map for exactly this) rather than by a second scan that could
+disagree with the mint about what it refused; it rides `CompilerRun`
+additive-optional, so an older sidecar decodes to nil and the sentence is
+byte-for-byte what it was. **Scope, stated honestly: this counts NOTES.** The
+mint only ever sees `SectionedOutcome.mintable` — continuity questions and
+reader reports — so a conformance strain re-raised across lanes stays
+report-side and takes no part in the number.
+
 **Fresh Eyes briefs NO dispositions at all**
 (`CompilerOrchestrator.beginRun`, the private continuation `runRequested`
 hands off to after the burst-flush hop: `let dispositions = freshEyes ? [] :

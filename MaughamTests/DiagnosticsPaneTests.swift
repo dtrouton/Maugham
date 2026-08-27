@@ -75,14 +75,15 @@ final class DiagnosticsPaneTests: XCTestCase {
                          truncatedReader: Int? = nil,
                          passId: String? = nil, round: Int? = nil,
                          freshEyes: Bool? = nil,
-                         mintedNotes: Int? = nil) -> CompilerRun {
+                         mintedNotes: Int? = nil,
+                         openInOtherLanes: Int? = nil) -> CompilerRun {
         let wholeSecond = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         return CompilerRun(id: ULID.generate(), at: wholeSecond, model: model,
                            lastOpId: lastOpId, deltaSummary: "1 new, 0 revised \u{00b6}",
                            intentSnapshot: nil, droppedDangling: droppedDangling,
                            clauseStatuses: clauseStatuses, truncatedReader: truncatedReader,
                            passId: passId, round: round, freshEyes: freshEyes,
-                           mintedNotes: mintedNotes)
+                           mintedNotes: mintedNotes, openInOtherLanes: openInOtherLanes)
     }
 
     private func makeClause(
@@ -1218,6 +1219,60 @@ final class DiagnosticsPaneTests: XCTestCase {
                                      resolvedAt: filed.addingTimeInterval(60)),
                 ]),
             "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 1 new")
+    }
+
+    /// **Nothing standing in another lane changes nothing** (#42 F-H). Zero and
+    /// a record written before the field existed are the same answer, and both
+    /// leave the sentence a writer already knows byte-for-byte what it was.
+    func test_sinceLastRoundLine_saysNothingAboutOtherLanesWhenThereIsNothingToSay() {
+        for run in [makeRun(passId: "line", round: 2),
+                    makeRun(passId: "line", round: 2, openInOtherLanes: 0)] {
+            XCTAssertEqual(
+                RoundNarrative.sinceLastRoundLine(
+                    history: [makeRoundRecord(round: 1)], run: run, annotations: []),
+                "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
+        }
+    }
+
+    /// **A finding the writer is holding in another pass is said aloud** (#42
+    /// F-H) — the three counts are lane-local, and without the clause a round
+    /// that re-raised a question open in the Structural lane read as three
+    /// zeroes. Singular and plural, because one is the common case and reading
+    /// "1 also open in other lanes" would make the writer doubt the count.
+    func test_sinceLastRoundLine_saysWhatIsOpenInAnotherLane() {
+        XCTAssertEqual(
+            RoundNarrative.sinceLastRoundLine(
+                history: [makeRoundRecord(round: 1)],
+                run: makeRun(passId: "line", round: 2, openInOtherLanes: 1),
+                annotations: []),
+            "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new "
+            + "\u{00b7} 1 also open in another lane")
+        XCTAssertEqual(
+            RoundNarrative.sinceLastRoundLine(
+                history: [makeRoundRecord(round: 1)],
+                run: makeRun(passId: "line", round: 2, openInOtherLanes: 2),
+                annotations: []),
+            "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new "
+            + "\u{00b7} 2 also open in other lanes")
+    }
+
+    /// **It is appended, not substituted.** The lane-local counts keep their
+    /// own meaning beside it: a writer reading "1 persisting · 1 also open in
+    /// another lane" is holding two findings, one of them from here.
+    func test_sinceLastRoundLine_keepsItsThreeCountsBesideTheOtherLaneClause() {
+        let filed = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(
+            RoundNarrative.sinceLastRoundLine(
+                history: [makeRoundRecord(round: 1, at: filed)],
+                run: makeRun(passId: "line", round: 2, openInOtherLanes: 1),
+                annotations: [
+                    makeCompilerNote(round: 2),
+                    makeCompilerNote(round: 1),
+                    makeCompilerNote(round: 1, status: .stetted,
+                                     resolvedAt: filed.addingTimeInterval(60)),
+                ]),
+            "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 1 new "
+            + "\u{00b7} 1 also open in another lane")
     }
 
     /// **The record it measures FROM is the record it counts from.** The

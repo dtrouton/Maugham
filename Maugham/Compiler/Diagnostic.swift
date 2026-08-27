@@ -172,12 +172,36 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// duplicate of one already open.
     var mintedNotes: Int?
 
+    /// **How many findings this run raised that the writer is already holding
+    /// in ANOTHER pass's lane** (#42 F-H) — distinct findings whose fingerprint
+    /// matched an open compiler note stamped with a different `reviewPassId`
+    /// than this run's own, counted by the mint at the one place it already
+    /// compares fingerprints.
+    ///
+    /// **It exists because the since-line's three counts are lane-local and
+    /// this case falls between them.** `SinceLastRound` reads only notes in the
+    /// round's own lane, and the dedupe mints nothing for a cross-lane
+    /// re-raise, so a Line round that engaged a question open in Structural
+    /// read "0 resolved · 0 persisting · 0 new" — a check that did engage the
+    /// piece, reported as one that found nothing in it. A match in the round's
+    /// OWN lane is not counted here: that is the *persisting* case, already on
+    /// the line, and counting it twice would say one finding is two.
+    ///
+    /// **Notes only.** The mint sees `SectionedOutcome.mintable` — continuity
+    /// questions and reader reports — so a conformance strain re-raised across
+    /// lanes is report-side and takes no part in this number.
+    ///
+    /// `nil` is "no mint has happened", exactly as for `mintedNotes`: a preview
+    /// and every record written before this field existed. `0` is a finished
+    /// run that found nothing standing in another lane.
+    var openInOtherLanes: Int?
+
     init(id: String, at: Date, model: String, lastOpId: String?,
          deltaSummary: String, intentSnapshot: String?, droppedDangling: Int = 0,
          clauseStatuses: [DiagnosticIngest.ClauseStatus]? = nil,
          truncatedReader: Int? = nil, passId: String? = nil, round: Int? = nil,
          freshEyes: Bool? = nil, intentDriftVerdict: String? = nil,
-         mintedNotes: Int? = nil) {
+         mintedNotes: Int? = nil, openInOtherLanes: Int? = nil) {
         self.id = id
         self.at = at
         self.model = model
@@ -192,6 +216,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
         self.freshEyes = freshEyes
         self.intentDriftVerdict = intentDriftVerdict
         self.mintedNotes = mintedNotes
+        self.openInOtherLanes = openInOtherLanes
     }
 
     /// Hand-written for one field: a sidecar written before `droppedDangling`
@@ -225,5 +250,6 @@ struct CompilerRun: Codable, Equatable, Sendable {
         intentDriftVerdict = try c.decodeIfPresent(
             String.self, forKey: .intentDriftVerdict)
         mintedNotes = try c.decodeIfPresent(Int.self, forKey: .mintedNotes)
+        openInOtherLanes = try c.decodeIfPresent(Int.self, forKey: .openInOtherLanes)
     }
 }

@@ -316,7 +316,13 @@ final class CompilerRunCommandTests: XCTestCase {
                 mintAnnotations: { notes, context in
                     mints.value.append((notes, context))
                     if let holdMint { await holdMint.hold("") }
-                    return notes.count
+                    // No document behind this harness, so there is no queue to
+                    // dedupe against: every note is minted and none of them
+                    // matched anything standing in another lane. The cross-lane
+                    // count has its own harness (`makeLiveDocumentHarness`),
+                    // which runs the production closure.
+                    return CompilerOrchestrator.MintOutcome(
+                        minted: notes.count, openInOtherLanes: 0)
                 },
                 recordFacts: { recorded.value += $0 },
                 pinnedListing: pinnedListing,
@@ -4408,12 +4414,26 @@ final class CompilerRunCommandTests: XCTestCase {
         try await fx.document.flushBurstNow()
         fx.orchestrator.runRequested(docId: "ch-1")
         await awaitSends(2, on: runner)
+        await awaitRound(2, on: fx)
         await awaitNothingMinted()
 
         XCTAssertEqual(
             fx.document.annotations(filter: AnnotationFilter(statuses: [.open])).count, 2,
             "the same two findings were minted a second time \u{2014} the writer "
             + "now has two copies of a question they have not answered")
+
+        // **The control for #42 F-H.** A re-raise in the round's OWN lane is
+        // already spoken for: the note is in the queue the writer is working,
+        // and the line calls it *persisting*. Counting it a second time as
+        // "also open in another lane" would say one finding is two.
+        XCTAssertEqual(fx.diagnostics.lastRun(docId: "ch-1")?.openInOtherLanes, 0)
+        XCTAssertEqual(
+            RoundNarrative.sinceLastRoundLine(
+                history: fx.diagnostics.roundHistory(docId: "ch-1"),
+                run: fx.diagnostics.lastRun(docId: "ch-1"),
+                annotations: fx.document.annotations(filter: AnnotationFilter(statuses: nil))),
+            "Since round 1: 0 resolved \u{00b7} 2 persisting \u{00b7} 0 new",
+            "a same-lane re-raise adds no clause to the line")
     }
 
     /// **The load-bearing path.** \u{2318}\u{21e7}R is briefed on no prior round
@@ -4775,6 +4795,99 @@ final class CompilerRunCommandTests: XCTestCase {
                 run: fx.diagnostics.lastRun(docId: "ch-1"),
                 annotations: queue),
             "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 0 new")
+    }
+
+    /// Poll until the standing run for `ch-1` is one this test has not seen
+    /// before. **`awaitRound` cannot serve a test that switches lanes**: round
+    /// numbers are per pass, so a Structural round 1 and a Line round 1 are
+    /// both `round == 1` and the wait would fall through the instant the
+    /// keystroke was pressed. The run's own id is what actually changes.
+    private func awaitRunAfter(
+        _ previous: String?, on fx: LiveDocumentHarness
+    ) async -> CompilerRun? {
+        let deadline = Date().addingTimeInterval(5)
+        while fx.diagnostics.lastRun(docId: "ch-1")?.id == previous, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return fx.diagnostics.lastRun(docId: "ch-1")
+    }
+
+    /// **A finding already open in another lane is counted, not silently
+    /// dropped** (#42 F-H). Structural raises a question and mints it; the
+    /// writer moves the piece to Line, and Line's rounds keep finding the same
+    /// thing. The mint refuses a second copy — one finding is one note, and
+    /// which lane raised it first does not make it two — so the Line lane's own
+    /// counts are all zero and, without this, the report read "0 resolved
+    /// \u{00b7} 0 persisting \u{00b7} 0 new" over a round that engaged the
+    /// question every time.
+    ///
+    /// The lane is what makes it a different case from a same-lane re-raise:
+    /// that one is already spoken for as *persisting*, and the writer can see
+    /// the note in the queue they are working. A note in another pass's lane is
+    /// one they cannot see from here at all.
+    func test_aFindingRaisedAgainInAnotherLaneIsCountedOnTheSinceLine() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+
+        // Round 1 of Structural raises it, and Perkins signs the one note.
+        setActivePass("structural", on: fx)
+        runner.nextEvent = .resultText(
+            oneQuestion("Has anyone said how long yet?", about: pid))
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(1, on: fx.document)
+        let structuralRun = await awaitRunAfter(nil, on: fx)
+        let structural = try XCTUnwrap(structuralRun)
+        XCTAssertEqual(structural.passId, "structural")
+        XCTAssertEqual(structural.round, 1)
+        XCTAssertEqual(structural.openInOtherLanes, 0,
+                       "control: nothing was open anywhere when it minted")
+
+        // The writer moves the piece to the Line pass and writes on.
+        setActivePass("line", on: fx)
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+        runner.nextEvent = .resultText(
+            oneQuestion("How long has the fog been sitting there?", about: pid))
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(2, on: runner)
+        let lineOneRun = await awaitRunAfter(structural.id, on: fx)
+        let lineOne = try XCTUnwrap(lineOneRun)
+        XCTAssertEqual(lineOne.passId, "line")
+        XCTAssertEqual(lineOne.round, 1, "the Line lane starts its own count")
+        XCTAssertEqual(lineOne.mintedNotes, 0, "the dedupe refused a second copy")
+        XCTAssertEqual(lineOne.openInOtherLanes, 1,
+                       "the round engaged a question open in the Structural "
+                       + "lane and recorded nothing about it")
+
+        // Round 2 of Line, still finding the same thing — the first round of a
+        // lane has nothing behind it, so this is the first round that draws a
+        // line at all.
+        fx.document.setFullText(
+            "The fog came.\n\nIt stayed for three days.\n\nThen it lifted.")
+        runner.nextEvent = .resultText(
+            oneQuestion("Is the fog's duration ever established?", about: pid))
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(3, on: runner)
+        let lineTwoRun = await awaitRunAfter(lineOne.id, on: fx)
+        let lineTwo = try XCTUnwrap(lineTwoRun)
+        XCTAssertEqual(lineTwo.round, 2)
+        await awaitNothingMinted()
+
+        let queue = fx.document.annotations(filter: AnnotationFilter(statuses: nil))
+        let notes = queue.filter(\.isCompilerAuthored)
+        XCTAssertEqual(notes.count, 1,
+                       "one finding is one note across lanes; got \(notes.map(\.body))")
+        XCTAssertEqual(notes.first?.reviewPassId, "structural",
+                       "\u{2026}and it stays in the lane that raised it")
+
+        XCTAssertEqual(
+            RoundNarrative.sinceLastRoundLine(
+                history: fx.diagnostics.roundHistory(docId: "ch-1"),
+                run: fx.diagnostics.lastRun(docId: "ch-1"),
+                annotations: queue),
+            "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new "
+            + "\u{00b7} 1 also open in another lane")
     }
 
     /// **A Cancel inside the mint window leaves the stale finish nothing to

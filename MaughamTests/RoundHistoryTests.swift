@@ -147,6 +147,47 @@ final class RoundHistoryTests: XCTestCase {
                        "the standing run is the newest round in its lane")
     }
 
+    /// **The cross-lane count is additive-optional like every stamp before it**
+    /// (#42 F-H). A sidecar written by a build that had never heard of
+    /// `openInOtherLanes` decodes with nil — which the since-line reads as
+    /// nothing to say — and one carrying it round-trips the value.
+    ///
+    /// From a raw fixture rather than a re-encode, on the P3 tolerance test's
+    /// reasoning: the hand-written decoder does not fall back to a property's
+    /// default, so a missing `decodeIfPresent` line would throw here and the
+    /// writer would be told their document was never checked.
+    func test_aSidecarWithoutTheCrossLaneCountDecodesAsNil_andOneWithItRoundTrips() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let url = DiagnosticsStore.sidecarURL(
+            projectRoot: project, docId: "docNoLanes", device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            {"clauseHistory":[],"diagnostics":[],\
+            "run":{"at":"2026-08-15T09:00:00Z","deltaSummary":"1 new, 0 revised",\
+            "droppedDangling":0,"id":"01JRUN","lastOpId":"op1","mintedNotes":2,\
+            "model":"sonnet","passId":"pass-line","round":2}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: "docNoLanes")
+        let old = try XCTUnwrap(store.lastRun(docId: "docNoLanes"),
+                                "the record must still load")
+        XCTAssertEqual(old.mintedNotes, 2, "control: its neighbour still decodes")
+        XCTAssertNil(old.openInOtherLanes)
+
+        var run = makeRun(passId: "pass-line", round: 3)
+        run.openInOtherLanes = 2
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: "docLanes")
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: "docLanes")
+        let reread = try XCTUnwrap(reopened.lastRun(docId: "docLanes"))
+        XCTAssertEqual(reread.openInOtherLanes, 2)
+        XCTAssertEqual(reread, run, "the whole record, not only the new field")
+    }
+
     /// **The field is legacy on the way in and empty on the way out** (M4 P1
     /// Task 5). The decode above is what keeps a sidecar written before this
     /// milestone readable; this is the other direction, read as raw JSON rather

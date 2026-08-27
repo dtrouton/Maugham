@@ -134,7 +134,11 @@ new"*. The three counts come off your queue, not off what Claude happened to
 repeat: *resolved* is what you've settled from an earlier round, *persisting*
 is what's still open from an earlier one, and *new* is what this round
 raised. A finding Claude raises again in different words is not a new note —
-it's the one already in your queue. Round numbers are per pass, but the
+it's the one already in your queue — and if that note lives in another pass's
+lane, the line says so: *"1 also open in another lane"*. Without that clause a
+round that engaged a question you're already holding in Structural would read
+as three zeroes, because the three counts only ever look at the pass the round
+was run in. Round numbers are per pass, but the
 memory behind them is the document's, not any one pass's: Maugham remembers a document's last six
 finished checks, across every pass. Once enough later checks stack up behind
 a round — six, counting the one still standing — it ages out of memory, so a
