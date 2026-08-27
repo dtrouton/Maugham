@@ -266,8 +266,17 @@ public final class Document {
     /// existed** — the four single-note decline tests are the proof — and the
     /// plural lives on the same line as the singular so the two cannot drift
     /// apart. A verb added here without a plural won't compile.
+    ///
+    /// The first four are REFUSALS — the undo declined to act because the note
+    /// drifted. `stetRestore` is the odd one and belongs here anyway: the stet
+    /// undo's second half (#41 A2, putting back the resolution the stet
+    /// displaced) FAILED after the reopen had landed, so the writer's note is
+    /// open again with its earlier accept/reject/archive missing. That reads
+    /// from the queue exactly like the pre-A2 defect, and a defect the writer
+    /// cannot tell from a bug is one they will report as a bug — so it says so
+    /// rather than reaching `documentLog` alone.
     internal enum UndoDecline: Hashable, CaseIterable {
-        case annotationEdit, acceptNote, stet, triage
+        case annotationEdit, acceptNote, stet, triage, stetRestore
 
         /// One sentence for however many notes of this verb declined. A batch
         /// that ALSO undid some notes says nothing about them: the queue has
@@ -284,6 +293,8 @@ public final class Document {
                 "Couldn't undo stetting \(count) notes — they changed on another device."
             case .triage:
                 "Couldn't undo \(count) triage marks — they changed on another device."
+            case .stetRestore:
+                "Couldn't put back \(count) notes' earlier resolutions — they're open again."
             }
         }
 
@@ -297,6 +308,8 @@ public final class Document {
                 "Couldn't undo stetting the note — it changed on another device."
             case .triage:
                 "Couldn't undo the triage mark — it changed on another device."
+            case .stetRestore:
+                "Couldn't put back the note's earlier resolution — it's open again."
             }
         }
     }
@@ -993,6 +1006,10 @@ public final class Document {
     ///
     /// `opStore.projectURL` is the project root, not this doc's file, so the
     /// scope matches what `RewindModifier` subscribes with.
+    internal func notifyWriter(_ message: String) {
+        MaughamEvent.postNotice(message, projectURL: opStore.projectURL)
+    }
+
     /// An annotation undo refused at fire time (RULING-22). Never posts in the
     /// moment — it accumulates, and one report at the boundary spends whatever
     /// the burst declined (`_declinedUndosSinceLastReport`).
@@ -1029,10 +1046,6 @@ public final class Document {
             guard let n = counts[decline], n > 0 else { continue }
             notifyWriter(decline.sentence(count: n))
         }
-    }
-
-    internal func notifyWriter(_ message: String) {
-        MaughamEvent.postNotice(message, projectURL: opStore.projectURL)
     }
 
     public func flushBurstNow() async throws {

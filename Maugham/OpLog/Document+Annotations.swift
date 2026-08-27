@@ -822,6 +822,19 @@ extension Document {
     /// same place: the obligation is the UNDO's, and the undo is the Mac's —
     /// `AnnotationInverse.reopenOp` is cross-surface (tripwire 19) and the
     /// phone's Reopen means "reopen this", which is what it already does.
+    ///
+    /// **And when the re-apply fails, it says so** (`declineUndo(.stetRestore)`,
+    /// #41's final review): the reopen has landed, so the note is in the queue
+    /// open with its earlier resolution missing — indistinguishable, from the
+    /// writer's side, from the defect this fixed. A failure the writer can't
+    /// tell from a bug is one they will report as a bug.
+    ///
+    /// **A coalesced bulk stet can never span differing priors**, which is what
+    /// makes the A2×A1 interaction a non-case: `AnnotationBulkActions.applies`
+    /// gates `.stet` on `annotation.status == .open`, so every note the bulk
+    /// bar stets has the same (absent) prior and the restore switch's `.open`
+    /// arm breaks for all of them. A stet OVER a resolution arrives one row at
+    /// a time.
     public func stetAnnotation(
         id: String, userResponse: String? = nil,
         undoManager: UndoManager? = nil
@@ -887,7 +900,17 @@ extension Document {
                             kind: kind, sourceAnnotationId: id,
                             userResponse: priorResponse)
                     } catch {
+                        // LOUD, through the same accumulator as the refusals
+                        // above (RULING-22, #41's final review). The reopen
+                        // landed and this second op did not, so the note is
+                        // sitting in the queue OPEN with its accept/reject/
+                        // archive missing — which is precisely what the
+                        // pre-A2 defect looked like from the writer's side.
+                        // Logging it and saying nothing leaves them to
+                        // rediscover a fixed bug on their own; the sentence
+                        // names the state they are actually in.
                         documentLog.error("stetAnnotation undo: restoring the prior \(String(describing: priorStatus), privacy: .public) status for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — the note is back but open")
+                        doc.declineUndo(.stetRestore)
                     }
                 case .open, .stetted, nil:
                     break
