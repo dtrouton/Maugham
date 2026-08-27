@@ -82,7 +82,8 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
             : .prose
         let text: String
         if let language {
-            text = try translatedDisplayText(forDocId: item.id, path: path, language: language)
+            text = try translatedDisplayText(
+                forDocId: item.id, path: path, language: language, mode: mode)
         } else {
             // ADR 0018 open-doc rule: an OPEN doc's live `Document` is the
             // freshest source — the op log lags an actively-edited doc by the
@@ -111,8 +112,15 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
     /// the blank-line block separator that `stripAnchors(materialize())` yields.
     /// Consequence: an all-verbatim (identity) translation reproduces the
     /// source-language AST exactly — pinned by `ASTTranslationSubstitutionTests`.
+    ///
+    /// A fountain piece's entries go through `TranslatedFountainStructure`
+    /// first, so the source paragraph's element — not whatever the translated
+    /// line happens to re-parse as — is what the emitter renders (a Cyrillic
+    /// slugline is a scene heading, not a cue). `TranslationCoverage` reads the
+    /// same preserved text for its drift warning.
     private func translatedDisplayText(
-        forDocId docId: String, path: String, language: String
+        forDocId docId: String, path: String, language: String,
+        mode: ProjectAST.Mode
     ) throws -> String {
         let sequence: [String]
         let paragraphs: [String: String]
@@ -133,8 +141,15 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
         // never drops a block; un-gated stale/missing compiles are refused
         // upstream, so a mixed-language render can only reach here under
         // `allow_stale`.
-        return derived.entries
-            .map { $0.translatedText ?? $0.sourceText }
-            .joined(separator: "\n\n")
+        switch mode {
+        case .fountain:
+            return derived.entries
+                .map(TranslatedFountainStructure.displayText(for:))
+                .joined(separator: "\n\n")
+        case .prose:
+            return derived.entries
+                .map { $0.translatedText ?? $0.sourceText }
+                .joined(separator: "\n\n")
+        }
     }
 }

@@ -513,9 +513,13 @@ final class RepublisherTests: XCTestCase {
                 rec, forDocId: item.id, deviceSlug: slug, in: projectURL)
         }
         // Scene heading: identity translation (fully covered, no gap).
-        // Action block: ALL-CAPS character cue + dialogue — the drift.
+        // Action block: translated as THREE lines against the source's two,
+        // so `TranslatedFountainStructure` cannot align it and the ALL-CAPS
+        // first line re-parses as a cue — residual drift, the kind the
+        // warning still reports (a two-line translation would be preserved
+        // as action and warn about nothing, `TranslationCoverageGateTests`).
         try await fresh(ids[0], doc.paragraphs[ids[0]] ?? "")
-        try await fresh(ids[1], "EL CAPITÁN\nPreparen a los hombres.")
+        try await fresh(ids[1], "EL CAPITÁN\nPreparen\na los hombres.")
 
         // Edition identity (spec 2026-07-23): seed a source publication so the
         // consumer's language ("es") compile renders it rather than minting a

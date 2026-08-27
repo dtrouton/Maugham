@@ -238,12 +238,17 @@ extension DesignerOrchestrator.Environment {
         guard let walker = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles])
+            options: [])
         else { return [] }
 
         let rootPath = root.standardizedFileURL.path + "/"
         var files: [DesignerBriefing.Inputs.TemplateFile] = []
         while let item = walker.nextObject() as? URL {
+            // Dotfiles by name, never by the `hidden` flag (`DotfileScan`).
+            if DotfileScan.isDotfile(item) {
+                walker.skipDescendants()
+                continue
+            }
             let absolute = item.standardizedFileURL.path
             guard absolute.hasPrefix(rootPath) else { continue }
             let relative = String(absolute.dropFirst(rootPath.count))

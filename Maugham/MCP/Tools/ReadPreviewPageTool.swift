@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 import PDFKit
 import AppKit
 
@@ -49,10 +50,14 @@ public enum ReadPreviewPageTool: MCPTool {
         // error (staleness would be silent otherwise), not fall back to the
         // stale PDF.
         let keys: [URLResourceKey] = [.contentModificationDateKey]
+        // By name, never by the `hidden` flag (`DotfileScan`): a synced
+        // Documents folder flags files under `.maugham/` behind Maugham's
+        // back, and `.skipsHiddenFiles` would then hide every preview.
         let contents = (try? fm.contentsOfDirectory(
             at: previewDir, includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles])) ?? []
+            options: [])) ?? []
         let previews: [(url: URL, mtime: Date, ext: String)] = contents.compactMap { url in
+            guard !DotfileScan.isDotfile(url) else { return nil }
             let ext = url.pathExtension.lowercased()
             guard ext == "pdf" || ext == "epub" else { return nil }
             let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey])

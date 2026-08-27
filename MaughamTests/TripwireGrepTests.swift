@@ -256,6 +256,55 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - No `.skipsHiddenFiles` in a production scan
+
+    /// Recurrence-tripper: `.skipsHiddenFiles` honours the BSD `hidden` FLAG
+    /// as well as a dot-prefixed name, and something outside Maugham sets
+    /// that flag on files under `.maugham/` in a synced Documents folder
+    /// (2026-08-27: `read_preview_page` reported no preview over a directory
+    /// holding two). Skip dotfiles by NAME — `DotfileScan.isDotfile` — and
+    /// nothing else. Comments may name the option; code may not pass it.
+    func test_noSkipsHiddenFilesInProductionScans() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            patterns: [".skipsHiddenFiles"],
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        )
+        XCTAssertTrue(offenders.isEmpty,
+            "A production directory scan passes `.skipsHiddenFiles`, which also "
+            + "drops files carrying the BSD `hidden` flag — a flag a sync daemon "
+            + "sets under `.maugham/` behind Maugham's back. Pass `options: []` "
+            + "and skip by name with `DotfileScan.isDotfile` (and `skipDescendants()` "
+            + "for an enumerator). Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Control for the census above: the SAME grep, over a planted file,
+    /// catches the code line and lets the comment line through.
+    func test_noSkipsHiddenFilesInProductionScans_seesAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-hidden-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        // `.skipsHiddenFiles` would hide the preview — a comment, allowed
+        let contents = try? fm.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles])
+        """.write(to: tmp.appendingPathComponent("BadScan.swift"),
+                 atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: [".skipsHiddenFiles"],
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        )
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly the code line, got:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("options:") == true, offenders.description)
+    }
+
     // MARK: - Palette write coordination tripwire (A1-High)
 
     /// The forbidden raw-write call shape for palette card writes. Matches

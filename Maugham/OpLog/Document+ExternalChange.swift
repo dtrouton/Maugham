@@ -275,9 +275,11 @@ extension Document {
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: dir,
             includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]) else { return [] }
+            options: []) else { return [] }
         let matches = entries.filter { entry in
             let name = entry.lastPathComponent
+            // By name, never by the `hidden` flag (`DotfileScan`).
+            guard !name.hasPrefix(".") else { return false }
             guard name.hasPrefix(prefix) else { return false }
             // An extensionless doc must not match a candidate that carries an
             // extension (e.g. `c1` should not dedup against `c1.md`).

@@ -78,6 +78,38 @@ final class TripwirePhoneGrepTest: XCTestCase {
             "Self-check: the planted \"Maugham\" literal should be caught.")
     }
 
+    /// Mirrors the Mac's `test_noSkipsHiddenFilesInProductionScans`:
+    /// `.skipsHiddenFiles` honours the BSD `hidden` FLAG as well as a dot-
+    /// prefixed name, and the synced `.maugham/` tree the phone reads gets that
+    /// flag set behind Maugham's back (2026-08-27) — an op-log file it reached
+    /// would drop out of the cold-launch download. Skip by NAME via
+    /// `DotfileScan.isDotfile` (MaughamCore) and nothing else.
+    func test_noSkipsHiddenFilesInPhoneScans() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
+            return XCTFail("could not enumerate \(sourceDir.path)")
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("//") { continue }
+                if trimmed.contains(".skipsHiddenFiles") {
+                    offenders.append("\(url.lastPathComponent):\(index + 1): \(trimmed)")
+                }
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A phone directory scan passes `.skipsHiddenFiles`, which also drops "
+            + "files carrying the BSD `hidden` flag. Pass `options: []` and skip by "
+            + "name with `DotfileScan.isDotfile`. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
     /// Self-check: prove the op-log filename tripwire FIRES on a planted
     /// `hasPrefix("d_")` call. Writes a synthetic Swift file into a temp dir and
     /// confirms the grep pattern matches it.

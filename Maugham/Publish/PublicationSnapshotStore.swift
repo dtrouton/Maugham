@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 public actor PublicationSnapshotStore {
 
@@ -136,10 +137,15 @@ public actor PublicationSnapshotStore {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
             includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]) else { return [] }
+            options: []) else { return [] }
         var out: [PublicationSnapshot.File] = []
         let rootPath = try root.standardizedFileURL.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath ?? root.path
         while let url = enumerator.nextObject() as? URL {
+            // Dotfiles by name, never by the `hidden` flag (`DotfileScan`).
+            if DotfileScan.isDotfile(url) {
+                enumerator.skipDescendants()
+                continue
+            }
             // Foundation's atomic-write temp (`<name>.sb-<hex>-<random>`) is
             // another writer's EMISSION.md refresh mid-rename (a concurrent
             // compile or a preview). Skip it by NAME before any stat or read —
