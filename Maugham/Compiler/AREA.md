@@ -767,8 +767,13 @@ the translator's rows are. See `Maugham/Stores/AREA.md`'s own
   preview began (keyed on the `previewing` Set, never on the shadow's
   nil-ness — a cold document's first preview captures nothing, and a `??`
   fallthrough there would read the run's own half-report as the previous
-  round). `latestRound(forPass:docId:)` — the one reader both `beginRun`'s
-  minting and the pane's `sinceLastRoundLine` go through — checks the standing
+  round). `latestRound(forPass:docId:)` reads `byDoc` directly, never that
+  shadow (R1, #42) — its two readers are `beginRun`'s round mint, reached only
+  when `runRequested` finds `!isRunning`, and the Review cockpit strip
+  (`AnnotationsPane.cockpitRound`), both of which need "which round is this
+  lane on, the one in flight included" rather than the round before it —
+  `sinceLastRoundLine` (`RoundNarrative.swift`) never calls it; it reads the
+  run's own `round` and the ring directly. It checks the standing
   run first (newest of all, and not yet in the ring) and only then walks the
   ring newest-first for a record matching that `passId`; a lane
   whose records have all aged out of the shared ring answers `nil`, same as a

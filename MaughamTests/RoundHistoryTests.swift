@@ -638,6 +638,50 @@ final class RoundHistoryTests: XCTestCase {
                      "a lane nothing has ever run in")
     }
 
+    /// **`latestRound` answers the round IN FLIGHT; `standingRound` answers
+    /// the round BEFORE it** (R1, #42) — pinned by asking both while a
+    /// preview stands in for a run that has not finished.
+    ///
+    /// `replace` a round 1, then `preview` a round 2 with no matching
+    /// `replace`: `latestRound` reads `byDoc` directly and sees round 2 (the
+    /// preview), because it answers "which round is this lane on, the one in
+    /// flight included" — what the round mint and the Review cockpit strip
+    /// both need. `standingRound` reads through the shadow
+    /// (`finishedContent`) and still sees round 1, because it answers "what
+    /// did the round BEFORE this one say" — a preview's own half-report is
+    /// not that answer, or a round would be briefed against itself.
+    ///
+    /// Had `latestRound` gone through the shadow instead (the alternative R1
+    /// rejected), it would have read `standingRound`'s value here too —
+    /// round 1 — one behind the run actually streaming.
+    ///
+    /// `discardPreview` drops the preview untouched, and both readers agree
+    /// again: round 1, the last run that actually finished.
+    ///
+    /// A real project root, per `test_anAbandonedPreviewLeavesTheFinishedRunToBeFiled`'s
+    /// note above: `discardPreview` puts the standing answer back by
+    /// re-reading the sidecar the finished run wrote, so the read-back needs
+    /// somewhere real to read from.
+    func test_latestRound_answersTheRoundInFlightWhileAPreviewStands() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docMidPreview"
+
+        store.replace(run: makeRun(passId: "line", round: 1), diagnostics: [], docId: docId)
+        store.preview(run: makeRun(passId: "line", round: 2), diagnostics: [], docId: docId)
+
+        XCTAssertEqual(store.latestRound(forPass: "line", docId: docId), 2,
+                       "the round in flight, included")
+        XCTAssertEqual(store.standingRound(docId: docId)?.record.round, 1,
+                       "the round before it — the shadow, not the preview")
+
+        store.discardPreview(docId: docId)
+
+        XCTAssertEqual(store.latestRound(forPass: "line", docId: docId), 1,
+                       "the preview is gone; both readers agree again")
+        XCTAssertEqual(store.standingRound(docId: docId)?.record.round, 1)
+    }
+
     func test_latestRound_isNilWhenNothingHasEverRun() {
         let store = DiagnosticsStore(
             projectRoot: URL(fileURLWithPath: "/tmp/unused"),

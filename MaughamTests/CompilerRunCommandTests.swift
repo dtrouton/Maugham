@@ -3050,6 +3050,51 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(finished.round, 1)
     }
 
+    /// **The mint is never reached while a run stands** — R1's other half
+    /// (#42). `runRequested`'s `!isRunning` refusal is what a second ⌘R hits
+    /// BEFORE `beginRun`'s `latestRound(forPass:docId:)` call, and that is
+    /// what keeps a run from numbering itself against itself: this run's own
+    /// preview is already standing content by the time the second press
+    /// arrives (`DiagnosticsStore.byDoc`, the same store `latestRound` reads
+    /// directly, never the preview shadow — see its doc comment), so a mint
+    /// that got past the guard would read that preview back and file the
+    /// answer as the round after itself.
+    ///
+    /// Pinned on round numbers before and after the refused press, per the
+    /// task brief — `runner.sends.count` alone (the existing refusal test's
+    /// assertion) shows the runner was never asked again, not that the round
+    /// arithmetic was untouched.
+    func test_theMintNeverAsksLatestRoundWhileARunIsStanding() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // the turn stays open
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+        streamingRun(runner: runner, harness: harness)
+
+        // Close a section so the preview is standing in the store at round 1
+        // — exactly what a second mint, if the guard let one through, would
+        // read back and count itself against.
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        XCTAssertEqual(harness.diagnostics.latestRound(forPass: "line", docId: docId), 1,
+                       "the first run's own preview is standing")
+
+        harness.orchestrator.runRequested(docId: docId)
+        settle()
+
+        XCTAssertEqual(runner.sends.count, 1, "the second ⌘R must not reach the runner")
+        XCTAssertEqual(harness.diagnostics.latestRound(forPass: "line", docId: docId), 1,
+                       "unchanged by the refused press — a mint that got through would "
+                       + "have read this same preview back and produced round 2")
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+
+        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(finished.round, 1, "the run that actually ran is still round 1 — "
+                       + "the refused press minted nothing to collide with it")
+    }
+
     // MARK: - The board chip's round waits for the piece to open (M4 P2 Task 4)
 
     /// The path the editor mounts a chapter at, for the tests below that need
