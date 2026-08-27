@@ -38,6 +38,17 @@ public struct PublishConfig: Codable, Equatable, Sendable {
     /// lowercase BCP-47-ish tag (e.g. "fr", "pt-br"). Empty for a
     /// single-language project. See `effectiveMetadata(language:)`.
     public var languageOverrides: [String: LanguageOverride]
+    /// Named publishing configurations layered over the book-level config
+    /// (spec §3), keyed by imprint name. Empty for a project with none.
+    /// See `resolved(imprint:)`.
+    public var imprints: [String: Imprint]
+    /// Top-level template filename, replaced by an imprint's own `template`
+    /// on resolution. `"template.tex"` by default.
+    public var template: String
+    /// The name of the imprint this config was `resolved(imprint:)` from.
+    /// `nil` means the book. Set ONLY by `resolved(imprint:)` — never
+    /// written directly.
+    public var imprint: String?
 
     public struct Metadata: Codable, Equatable, Sendable {
         public var title: String
@@ -272,6 +283,41 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         }
     }
 
+    /// A named publishing configuration layered over the book-level config
+    /// (spec §3). `resolved(imprint:)` applies it: `template` replaces;
+    /// `sections`, when present, is an ALLOWLIST (absent means inherit the
+    /// project's map); `metadata`/`outputs`/`cover` are RFC 7396 merge-patch
+    /// fragments (`null` deletes); `nextVersion` is the imprint's own counter.
+    public struct Imprint: Codable, Equatable, Sendable {
+        public var template: String?
+        public var sections: [String: Section]?
+        public var metadata: [String: JSONValue]?
+        public var outputs: [String: JSONValue]?
+        public var cover: [String: JSONValue]?
+        public var nextVersion: String?
+
+        public init(
+            template: String? = nil,
+            sections: [String: Section]? = nil,
+            metadata: [String: JSONValue]? = nil,
+            outputs: [String: JSONValue]? = nil,
+            cover: [String: JSONValue]? = nil,
+            nextVersion: String? = nil
+        ) {
+            self.template = template
+            self.sections = sections
+            self.metadata = metadata
+            self.outputs = outputs
+            self.cover = cover
+            self.nextVersion = nextVersion
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case template, sections, metadata, outputs, cover
+            case nextVersion = "next_version"
+        }
+    }
+
     public init(
         schemaVersion: Int = 1,
         metadata: Metadata = .init(),
@@ -281,7 +327,10 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         epubOverrides: EPUBOverrides = .init(),
         nextVersion: String = "0.1",
         activeLabelHint: String? = nil,
-        languageOverrides: [String: LanguageOverride] = [:]
+        languageOverrides: [String: LanguageOverride] = [:],
+        imprints: [String: Imprint] = [:],
+        template: String = "template.tex",
+        imprint: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.metadata = metadata
@@ -292,6 +341,9 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         self.nextVersion = nextVersion
         self.activeLabelHint = activeLabelHint
         self.languageOverrides = languageOverrides
+        self.imprints = imprints
+        self.template = template
+        self.imprint = imprint
     }
 
     /// F1: the piece ids whose section carries `include == false`. These are
@@ -341,6 +393,13 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         try c.encode(nextVersion, forKey: .nextVersion)
         try c.encodeAlways(activeLabelHint, forKey: .activeLabelHint)
         try c.encode(languageOverrides, forKey: .languageOverrides)
+        if !imprints.isEmpty {
+            try c.encode(imprints, forKey: .imprints)
+        }
+        if template != "template.tex" {
+            try c.encode(template, forKey: .template)
+        }
+        try c.encodeIfPresent(imprint, forKey: .imprint)
     }
 
     // Explicit top-level decoder: the synthesized `init(from:)` would throw
@@ -361,6 +420,9 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         activeLabelHint = try c.decodeIfPresent(String.self, forKey: .activeLabelHint)
         languageOverrides = try c.decodeIfPresent(
             [String: LanguageOverride].self, forKey: .languageOverrides) ?? [:]
+        imprints = try c.decodeIfPresent([String: Imprint].self, forKey: .imprints) ?? [:]
+        template = try c.decodeIfPresent(String.self, forKey: .template) ?? "template.tex"
+        imprint = try c.decodeIfPresent(String.self, forKey: .imprint)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -373,5 +435,8 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         case nextVersion = "next_version"
         case activeLabelHint = "active_label_hint"
         case languageOverrides = "language_overrides"
+        case imprints
+        case template
+        case imprint
     }
 }

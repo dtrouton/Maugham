@@ -54,6 +54,53 @@ final class PublishConfigLanguageTests: XCTestCase {
         XCTAssertEqual(config.sections["p_abc123"]?.startOn, .recto)
     }
 
+    // MARK: - Task 1: imprints/template/imprint decode-tolerant + resolved-only encode
+
+    func testOldConfig_withoutImprints_decodesToEmptyAndReencodesIdentically() throws {
+        let config = PublishConfig(
+            schemaVersion: 1,
+            metadata: .init(title: "Test Book", author: "Author"),
+            outputs: .init(),
+            cover: .init(),
+            sections: [:],
+            epubOverrides: .init(),
+            nextVersion: "0.1",
+            activeLabelHint: nil
+        )
+        let json = try JSONEncoder().encode(config)
+        let s = String(data: json, encoding: .utf8) ?? ""
+        XCTAssertFalse(s.contains("\"imprints\""), "should not encode empty imprints: \(s)")
+        XCTAssertFalse(s.contains("\"template\""), "should not encode default template: \(s)")
+        XCTAssertFalse(s.contains("\"imprint\""), "should not encode nil imprint: \(s)")
+
+        let decoded = try JSONDecoder().decode(PublishConfig.self, from: json)
+        XCTAssertEqual(decoded.imprints, [:])
+        XCTAssertEqual(decoded.template, "template.tex")
+        XCTAssertNil(decoded.imprint)
+
+        let reencoded = try JSONEncoder().encode(decoded)
+        let redecoded = try JSONDecoder().decode(PublishConfig.self, from: reencoded)
+        XCTAssertEqual(redecoded, decoded)
+    }
+
+    func testResolvedFields_encodeOnlyWhenSet() throws {
+        let cfg = PublishConfig(
+            metadata: .init(title: "T", author: "A"),
+            template: "special.tex",
+            imprint: "x"
+        )
+        let data = try JSONEncoder().encode(cfg)
+        let s = String(data: data, encoding: .utf8) ?? ""
+        XCTAssertTrue(s.contains("\"template\":\"special.tex\""), "expected explicit template: \(s)")
+        XCTAssertTrue(s.contains("\"imprint\":\"x\""), "expected explicit imprint: \(s)")
+
+        let defaultCfg = PublishConfig(metadata: .init(title: "T", author: "A"))
+        let defaultData = try JSONEncoder().encode(defaultCfg)
+        let defaultS = String(data: defaultData, encoding: .utf8) ?? ""
+        XCTAssertFalse(defaultS.contains("\"template\""), "default template should not encode: \(defaultS)")
+        XCTAssertFalse(defaultS.contains("\"imprint\""), "nil imprint should not encode: \(defaultS)")
+    }
+
     func testLanguageOverrides_roundTrip() throws {
         var cfg = PublishConfig(metadata: .init(title: "Book", author: "A"))
         cfg.languageOverrides["fr"] = .init(metadata: ["title": "Livre"])

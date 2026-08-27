@@ -67,6 +67,68 @@ final class PublishConfigTests: XCTestCase {
         XCTAssertEqual(config.sections["p_abc123"]?.titleOverride, "Opening")
     }
 
+    // MARK: - Task 1: Imprint round-trip
+
+    func testImprints_roundTrip() throws {
+        let json = """
+        {
+          "schema_version": 1,
+          "metadata": {
+            "title": "Test", "subtitle": null, "author": "A", "copyright": null,
+            "isbn": null, "publisher": null, "year": null, "language": "en", "keywords": []
+          },
+          "outputs": {
+            "directory": "Exports",
+            "filename_template": "{title}-v{version}{label_suffix}.{ext}",
+            "sanitize_spaces": false,
+            "formats_enabled": ["pdf"]
+          },
+          "cover": { "path": "cover.jpg", "epub_specific_path": null },
+          "sections": {},
+          "epub_overrides": { "metadata": {}, "cover": null },
+          "next_version": "0.1",
+          "active_label_hint": null,
+          "imprints": {
+            "special-glb": {
+              "template": "templates/special-glb.tex",
+              "sections": { "doc-2c6051f2": {} },
+              "metadata": { "title": "Good Luck Babe", "subtitle": null },
+              "cover": { "path": "covers/glb-cover.jpg" },
+              "outputs": { "filename_template": "{title}-{imprint}-v{version}{language}{label_suffix}.{ext}" },
+              "next_version": "0.1"
+            }
+          }
+        }
+        """
+        let config = try JSONDecoder().decode(PublishConfig.self, from: Data(json.utf8))
+        let imprint = try XCTUnwrap(config.imprints["special-glb"])
+        XCTAssertEqual(imprint.template, "templates/special-glb.tex")
+        XCTAssertEqual(imprint.sections?["doc-2c6051f2"], PublishConfig.Section())
+        XCTAssertEqual(imprint.metadata?["title"], .string("Good Luck Babe"))
+        XCTAssertEqual(imprint.metadata?["subtitle"], .null)
+        XCTAssertEqual(imprint.cover?["path"], .string("covers/glb-cover.jpg"))
+        XCTAssertEqual(
+            imprint.outputs?["filename_template"],
+            .string("{title}-{imprint}-v{version}{language}{label_suffix}.{ext}"))
+        XCTAssertEqual(imprint.nextVersion, "0.1")
+
+        let data = try JSONEncoder().encode(config)
+        let back = try JSONDecoder().decode(PublishConfig.self, from: data)
+        XCTAssertEqual(back, config)
+    }
+
+    func testImprint_partialEntry_decodesWithNilsNotDefaults() throws {
+        struct Wrapper: Decodable { let imprints: [String: PublishConfig.Imprint] }
+        let json = """
+        {"imprints":{"x":{"template":"t.tex"}}}
+        """
+        let wrapper = try JSONDecoder().decode(Wrapper.self, from: Data(json.utf8))
+        let imprint = try XCTUnwrap(wrapper.imprints["x"])
+        XCTAssertEqual(imprint.template, "t.tex")
+        XCTAssertNil(imprint.sections)
+        XCTAssertNil(imprint.nextVersion)
+    }
+
     func testStartOn_decodesAllValues() throws {
         for raw in ["any", "recto", "verso"] {
             let json = "{\"title_override\": null, \"start_on\": \"\(raw)\", \"include_in_toc\": true}"
