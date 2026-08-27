@@ -75,6 +75,55 @@ final class CanvasStoreTests: XCTestCase {
                        "which is the whole point: a refused sidecar is not written over")
     }
 
+    /// Same rule, two named readers (issue #33): a repair is withheld because
+    /// nobody asked for it, a transient write is refused because somebody did
+    /// — but both stand on the one `isWritable` fact, so they can never
+    /// disagree about which `SidecarState` case is safe to write over.
+    func test_theTransientPredicateAgreesWithTheRepairPredicateOnEveryCase() {
+        for state in [CanvasStore.SidecarState.decoded, .absent, .refused] {
+            XCTAssertEqual(state.acceptsATransientWrite, state.acceptsARepairWrite,
+                           "\(state) must agree")
+        }
+        XCTAssertFalse(CanvasStore.SidecarState.refused.acceptsATransientWrite)
+        XCTAssertTrue(CanvasStore.SidecarState.decoded.acceptsATransientWrite)
+        XCTAssertTrue(CanvasStore.SidecarState.absent.acceptsATransientWrite)
+    }
+
+    /// `loadForTransientWrite` is the one place a write made with no canvas
+    /// open asks permission before it happens (issue #33).
+    func test_loadForTransientWriteThrowsOnANewerSchemaAndOnDamagedBytes() throws {
+        let file = root.appendingPathComponent(CanvasStore.sidecarRelativePath)
+        try FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        try #"{"schemaVersion":999,"nodes":[]}"#.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try CanvasStore(projectRoot: root).loadForTransientWrite()) { error in
+            guard let refused = error as? CanvasStore.SidecarRefused else {
+                return XCTFail("expected SidecarRefused, got \(error)")
+            }
+            XCTAssertEqual(refused.projectName, root.lastPathComponent)
+        }
+
+        try "not json at all".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try CanvasStore(projectRoot: root).loadForTransientWrite()) { error in
+            guard let refused = error as? CanvasStore.SidecarRefused else {
+                return XCTFail("expected SidecarRefused, got \(error)")
+            }
+            XCTAssertEqual(refused.projectName, root.lastPathComponent)
+        }
+    }
+
+    func test_loadForTransientWriteReturnsTheSceneWhenTheSidecarIsAbsentOrDecoded() throws {
+        let absent = try CanvasStore(projectRoot: root).loadForTransientWrite()
+        XCTAssertEqual(absent.sidecar, .absent)
+        XCTAssertTrue(absent.scene.isEmpty)
+
+        CanvasStore(projectRoot: root).save(scene: sampleScene(), scraps: [:])
+        let decoded = try CanvasStore(projectRoot: root).loadForTransientWrite()
+        XCTAssertEqual(decoded.sidecar, .decoded)
+        XCTAssertEqual(decoded.scene, sampleScene())
+    }
+
     func test_sidecarAndScrapsLandAtTheirDocumentedPaths() {
         CanvasStore(projectRoot: root).save(scene: sampleScene(),
                                             scraps: [CanvasNodeID("s1"): "x"])

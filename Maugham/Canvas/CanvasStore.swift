@@ -84,12 +84,25 @@ final class CanvasStore {
         /// newer build. The layout in it is not ours to overwrite.
         case refused
 
+        private var isWritable: Bool { self != .refused }
+
         /// Whether a repair made at load time may be WRITTEN back.
         ///
         /// The rule has one home because it is the whole point of the enum: an
         /// arrangement this build cannot read is one it must not stamp over
         /// merely because the writer looked at the canvas.
-        var acceptsARepairWrite: Bool { self != .refused }
+        var acceptsARepairWrite: Bool { isWritable }
+
+        /// Whether a write made with NO canvas open — Send to Canvas with the Plan
+        /// persona closed, `add_canvas_scraps` with no live model, craft-intent
+        /// adoption re-pointing marks — may be written back.
+        ///
+        /// The same answer as the repair's, for a different reason. A repair is
+        /// withheld because nobody asked for it; a transient write is REFUSED
+        /// because somebody did, and has to be told: an inbox entry must not flip
+        /// to promoted for a card that landed in a file about to be discarded, and
+        /// a tool call must fail rather than report success (issue #33).
+        var acceptsATransientWrite: Bool { isWritable }
     }
 
     /// What a load found. **A struct rather than the pair**, so a reader cannot
@@ -119,6 +132,27 @@ final class CanvasStore {
             return Loaded(scene: CanvasScene(), scraps: scraps, sidecar: .refused)
         }
         return Loaded(scene: dto.scene, scraps: scraps, sidecar: .decoded)
+    }
+
+    /// The sidecar is there and this build cannot read it — a newer build's
+    /// schema, or damaged bytes — so a write made with no canvas open is
+    /// refused rather than allowed to replace somebody's whole arrangement.
+    struct SidecarRefused: Error, LocalizedError, Equatable {
+        /// The project's folder name, for the sentence.
+        let projectName: String
+        var errorDescription: String? {
+            "The canvas layout in “\(projectName)” was saved by a newer version of Maugham, or is damaged, and this version won't overwrite it. Update Maugham to add to this canvas."
+        }
+    }
+
+    /// The one place a transient write asks permission. Loads, and throws
+    /// `SidecarRefused` when the sidecar is present and unreadable.
+    func loadForTransientWrite() throws -> Loaded {
+        let loaded = load()
+        guard loaded.sidecar.acceptsATransientWrite else {
+            throw SidecarRefused(projectName: projectRoot.lastPathComponent)
+        }
+        return loaded
     }
 
     func save(scene: CanvasScene, scraps: [CanvasNodeID: String]) {
