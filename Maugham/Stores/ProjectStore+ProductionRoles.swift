@@ -51,10 +51,39 @@ extension ProjectStore {
     /// as `"translator:"`, which the decoder deliberately reads back as
     /// `.unknown` — so a row minted from a blank tag stops matching any language
     /// on the next load and the next ask mints another one, for ever.
+    ///
+    /// Throws `.languageTagInvalid` for a tag that is not a language tag even
+    /// once lowercased (issue #43, F-F). **Tested lowercased, stored verbatim,
+    /// matched case-insensitively** — the three are one posture, not a
+    /// compromise: `ES` and `es-MX` are this seam's own well-formed tags (see
+    /// the case-insensitivity note above) and both still mint, while `../evil`
+    /// or `a b` is refused. The tag travels on into `editions/<lang>.md`, so
+    /// what this actually withholds is a path segment; the *canonical-spelling*
+    /// question belongs to the choke point that builds that filename
+    /// (`createStatement`), which is stricter on purpose.
+    ///
+    /// **The gate runs AFTER the find, matching `createStatement`'s policy, and
+    /// here that is what keeps a bad row REPAIRABLE.** A project carrying a
+    /// role under a never-valid tag — hand-edited, or written by a build
+    /// before this guard — is exactly the project whose writer needs to reach
+    /// it, and the desk's Rename goes `DepartmentPaneHost` → `nameTranslator` →
+    /// this verb. Gating first would refuse to hand back the row and leave the
+    /// writer no way to fix it from inside the app: a validation that turns a
+    /// recoverable state into a permanent one. The gate is over what this verb
+    /// *mints*, so an invalid tag with nothing stored still throws.
+    ///
+    /// Every shipped caller lowercases and validates before it gets here
+    /// (`DepartmentPaneHost.addLanguage`, `DepartmentCastSheet`), so this is a
+    /// guard the surfaces make unreachable rather than one they depend on —
+    /// which is the reason for putting it at the store: the next caller
+    /// inherits it instead of having to remember it.
     func translatorRole(for language: String) async throws -> ProductionRole {
         let tag = language.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tag.isEmpty else { throw ProjectStoreError.productionRoleLanguageEmpty }
         if let existing = manifest.storedTranslator(for: tag) { return existing }
+        guard TranslationRecord.isValidLanguageTag(tag.lowercased()) else {
+            throw ProjectStoreError.languageTagInvalid(language)
+        }
 
         let minted = ProductionRole(
             id: Self.newId(prefix: "role"),

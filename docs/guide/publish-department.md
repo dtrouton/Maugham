@@ -21,6 +21,12 @@ you start the edition yourself (below), as soon as a translator asks a
 question about that language, or as soon as a paragraph of it has been
 translated.
 
+If Maugham can't read one of your chapters — a history file that's there
+but won't open, an iCloud download that hasn't finished — the Languages
+section names that chapter above the rows and says why, and the rest of
+the book's editions still show. What's missing is that chapter's share of
+the counts, not the whole desk.
+
 ## Starting an edition
 
 **Add Language…**, at the foot of the Languages section, is how a book

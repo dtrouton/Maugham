@@ -65,6 +65,35 @@ public enum ProjectStoreError: Error, Equatable {
     /// no-opped — a rename that silently changes nothing is the writer typing a
     /// name into a surface that keeps showing the old one.
     case productionRoleMissing(id: String)
+    /// A language tag that is not a language tag — `TranslationRecord`
+    /// `.isValidLanguageTag`'s rule, the same one the translation files and the
+    /// MCP write tools already hold to. Carries the tag **as it arrived**, so a
+    /// message can show the writer what was rejected rather than a normalised
+    /// echo of it.
+    ///
+    /// **The two choke points that throw this apply the rule at different
+    /// strengths, and the difference is deliberate.**
+    /// `translatorRole(for:)` tests the tag *lowercased*: a role is matched
+    /// case-insensitively (`storedTranslator(for:)`) and normalised on read
+    /// (`EditionStatus.storedTranslatorLanguages`), so `ES` and `es-MX` are
+    /// well-formed there and only something no lowercasing could rescue —
+    /// `../evil`, `a b` — is refused. `createStatement(.editionBrief(lang))`
+    /// tests it *verbatim*, because the tag is spelled into the filename
+    /// `editions/<lang>.md` and every reader looks for the lowercase spelling:
+    /// an `editions/EN.md` would be a brief the writer wrote and no session
+    /// ever found again. A path character is refused at both, which is the
+    /// point — the tag would otherwise reach `appendingPathComponent`.
+    case languageTagInvalid(String)
+    /// A statement's project-relative path did not resolve inside the project
+    /// (`SafeRelativePath.PathError`, whose description is carried in `reason`).
+    ///
+    /// The last gate rather than the first: every kind's path is minted from
+    /// the §2.2 table, and the one segment a caller supplies — a document's
+    /// slug — is already sanitized by `Slugifier`. This catches the kind that
+    /// forgets, and it is refused rather than clamped because a statement
+    /// written to a *corrected* path is a file the manifest row would then
+    /// point at by luck.
+    case statementPathUnsafe(relativePath: String, reason: String)
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
@@ -110,6 +139,10 @@ extension ProjectStoreError: LocalizedError {
             return "A name can’t be empty."
         case .productionRoleMissing(let id):
             return "The role “\(id)” could not be found."
+        case .languageTagInvalid(let tag):
+            return "“\(tag)” isn’t a language tag. Use a code like “es” or “pt-br”."
+        case .statementPathUnsafe(let relativePath, let reason):
+            return "“\(relativePath)” isn’t a place inside this project: \(reason)"
         }
     }
 }

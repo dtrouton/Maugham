@@ -554,4 +554,180 @@ final class DocSyncTests: XCTestCase {
             declared: declared).isEmpty,
             "Self-check: correct figures must not fire, or the guard is a wall.")
     }
+
+    // MARK: - Test 5: the round ring's memory (a constant-plus-one, stated in prose) vs the docs
+
+    /// Every doc that states how many finished checks the round ring
+    /// remembers. `DiagnosticsStore.roundHistoryDepth` is the RING's depth,
+    /// but a round is filed into the ring only when SUPERSEDED
+    /// (`DiagnosticsStore.swift:216-217`) — so what a document actually
+    /// remembers is the ring plus the standing run, `roundHistoryDepth + 1`.
+    /// That number drifted TWICE inside one milestone (M3): `33af6f3` fixed
+    /// CLAUDE.md, `docs/guide/compiler.md` and `docs/guide/review-passes.md`
+    /// (all three now say six) and missed `Maugham/Compiler/AREA.md` and
+    /// `docs/roadmap.md` (both still said five, or named the bare ring as the
+    /// memory). This array is the census of every doc that states it — add a
+    /// doc here the moment it starts stating the ring's memory, or it can
+    /// drift a third time with nothing to catch it.
+    static let roundRingDocs: [String] = [
+        "CLAUDE.md",
+        "Maugham/Compiler/AREA.md",
+        "docs/guide/compiler.md",
+        "docs/guide/review-passes.md",
+        "docs/roadmap.md",
+    ]
+
+    /// `spelled(_:)`'s backing table, kept private so `spelled` is the only
+    /// forward path — `roundRingMismatch` reverse-looks-up a stale digit from
+    /// it (the bare "N-deep ring of finished checks" pattern needs the digit
+    /// form, and the function only receives the spelled word).
+    private static let numberWords: [Int: String] = [
+        1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
+        7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
+    ]
+
+    /// `1` → `"one"` … `12` → `"twelve"`. The round ring's depth is a small
+    /// sidecar constant by its own doc comment's reasoning — a table this
+    /// size will outlast it; a depth needing a 13th entry is a sign the
+    /// constant itself should be revisited, so this fails loudly rather than
+    /// guessing.
+    static func spelled(_ n: Int) -> String {
+        guard let word = numberWords[n] else {
+            preconditionFailure("spelled(_:) has no entry for \(n) (table covers 1...12) — extend numberWords.")
+        }
+        return word
+    }
+
+    /// Extracts the `N` from `DiagnosticsStore.swift`'s
+    /// `static let roundHistoryDepth = N`.
+    static func roundHistoryDepth(fromSource text: String) -> Int? {
+        guard let regex = try? NSRegularExpression(pattern: #"static let roundHistoryDepth = (\d+)"#) else {
+            return nil
+        }
+        let ns = text as NSString
+        guard let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) else {
+            return nil
+        }
+        return Int(ns.substring(with: match.range(at: 1)))
+    }
+
+    /// Whether `doc` states the round ring's memory correctly — `nil` when it
+    /// does, else a sentence naming `path` and which way it is wrong.
+    ///
+    /// Correct means `doc` names `remembered` (e.g. "six") immediately next
+    /// to "finished checks" or "later checks" — case-insensitive, because
+    /// CLAUDE.md capitalises SIX — and carries none of `stale`'s three stale
+    /// shapes: `stale` + "finished checks", `stale` + "later checks", or the
+    /// bare digit form "N-deep ring of finished checks" (`Maugham/Compiler/
+    /// AREA.md`'s pre-fix wording — naming the RING as the memory, rather
+    /// than the ring plus the standing run).
+    ///
+    /// CLAUDE.md's "5-deep `rounds` ring PLUS the standing run" does **not**
+    /// match the bare pattern — "ring" there is followed by "PLUS", not "of
+    /// finished checks" — so the calibration-notation form (`roundHistoryDepth
+    /// (5)`, which correctly names the ring's own depth) stays legal
+    /// everywhere it's quoted, including in the fixed AREA.md text.
+    ///
+    /// **Whitespace is normalized first.** Prose in these docs wraps at the
+    /// column, and Markdown treats a wrap's newline as a plain space — but a
+    /// literal substring search doesn't. `docs/guide/compiler.md` wraps
+    /// exactly between "six" and "finished checks", and collapsing every run
+    /// of whitespace (newlines included) to one space is what lets the
+    /// correct doc read as correct instead of "no such sentence."
+    static func roundRingMismatch(in doc: String, path: String, remembered: String, stale: String) -> String? {
+        let normalized = doc.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        let lowered = normalized.lowercased()
+        let rememberedLower = remembered.lowercased()
+        let staleLower = stale.lowercased()
+
+        let hasCorrect = lowered.contains("\(rememberedLower) finished checks")
+            || lowered.contains("\(rememberedLower) later checks")
+
+        let staleDigit = numberWords.first { $0.value == staleLower }?.key
+        let hasBareStaleRing = staleDigit.map { lowered.contains("\($0)-deep ring of finished checks") } ?? false
+        let hasStale = lowered.contains("\(staleLower) finished checks")
+            || lowered.contains("\(staleLower) later checks")
+            || hasBareStaleRing
+
+        if hasStale {
+            return "\(path) says \(stale), should say \(remembered) — the document remembers "
+                + "\(remembered) finished checks (the ring plus the standing run, filed in only "
+                + "when superseded)."
+        }
+        if !hasCorrect {
+            return "\(path) no longer states how many checks the document remembers "
+                + "(expected \"\(remembered) finished checks\" or \"\(remembered) later checks\")."
+        }
+        return nil
+    }
+
+    /// The number that drifted twice in one milestone, derived from source —
+    /// never a test literal, or this guard would be checking itself.
+    func test_everyDocStatesTheRoundRingsMemoryAsTheConstantPlusTheStandingRun() throws {
+        let source = try readFile("Maugham/Compiler/DiagnosticsStore.swift")
+        guard let depth = Self.roundHistoryDepth(fromSource: source) else {
+            XCTFail("Could not find \"static let roundHistoryDepth = N\" in "
+                + "Maugham/Compiler/DiagnosticsStore.swift — source structure changed?")
+            return
+        }
+        let remembered = Self.spelled(depth + 1)
+        let stale = Self.spelled(depth)
+
+        var mismatches: [String] = []
+        for path in Self.roundRingDocs {
+            let doc = try readFile(path)
+            if let mismatch = Self.roundRingMismatch(in: doc, path: path, remembered: remembered, stale: stale) {
+                mismatches.append(mismatch)
+            }
+        }
+
+        XCTAssertTrue(mismatches.isEmpty,
+            "The round ring's memory (roundHistoryDepth (\(depth)) plus the standing run = "
+            + "\(remembered) finished checks) drifted twice inside one milestone (M3) — "
+            + "`33af6f3` fixed CLAUDE.md, docs/guide/compiler.md and docs/guide/"
+            + "review-passes.md and missed these:\n" + mismatches.joined(separator: "\n"))
+    }
+
+    /// Self-check: the parser fires on the two stale shapes and on a doc that
+    /// states nothing at all, and does NOT fire on the correct, case-varied
+    /// control — the exact set `33af6f3` needed to have caught D1/D2.
+    func test_theRoundRingCheckWouldFireOnPlantedOffenders() throws {
+        let remembered = "six"
+        let stale = "five"
+
+        let offenders: [(label: String, text: String, expectedToFire: Bool)] = [
+            ("stale spelled-out", "The document remembers five finished checks in Line, "
+                + "so a Structural round is pushed out by five later checks.", true),
+            ("stale bare digit ring", "capped at `roundHistoryDepth` (5) — the document's "
+                + "5-deep ring of finished checks.", true),
+            ("no ring sentence", "This paragraph never mentions how many checks the round "
+                + "ring remembers at all.", true),
+            ("correct control", "Maugham remembers a document's last SIX finished checks, "
+                + "across every pass.", false),
+        ]
+
+        let fired = offenders.filter {
+            Self.roundRingMismatch(in: $0.text, path: "x", remembered: remembered, stale: stale) != nil
+        }.map(\.label)
+        let expectedToFire = offenders.filter(\.expectedToFire).map(\.label)
+
+        XCTAssertEqual(Set(fired), Set(expectedToFire),
+            "Self-check: expected exactly the two stale plants and the ring-sentence-free "
+            + "plant to fire, and the SIX-carrying control to pass unfired. Fired: \(fired), "
+            + "expected: \(expectedToFire).")
+
+        // Named individually too, so a future edit that silently narrows the
+        // check (e.g. only ever firing on the FIRST offender) still fails —
+        // the Set comparison above alone can't distinguish "found none of
+        // these" from "found the wrong ones" when both sets happen to differ
+        // in the same way from `expectedToFire`.
+        XCTAssertNotNil(Self.roundRingMismatch(in: offenders[0].text, path: "x", remembered: remembered, stale: stale),
+            "Self-check: 'five finished checks' must fire as stale.")
+        XCTAssertNotNil(Self.roundRingMismatch(in: offenders[1].text, path: "x", remembered: remembered, stale: stale),
+            "Self-check: the bare '5-deep ring of finished checks' phrasing must fire as stale.")
+        XCTAssertNotNil(Self.roundRingMismatch(in: offenders[2].text, path: "x", remembered: remembered, stale: stale),
+            "Self-check: a doc with no ring sentence at all must fire as missing.")
+        XCTAssertNil(Self.roundRingMismatch(in: offenders[3].text, path: "x", remembered: remembered, stale: stale),
+            "Self-check: 'last SIX finished checks' (case-insensitive) must NOT fire.")
+    }
 }

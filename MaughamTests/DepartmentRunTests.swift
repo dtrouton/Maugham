@@ -1866,6 +1866,7 @@ final class DepartmentRunTests: XCTestCase {
         let window = TestWindow.mount(
             AnyView(DepartmentPane(title: "The Project",
                                    languages: rows,
+                                   unreadable: [],
                                    design: design,
                                    notice: notice,
                                    runTarget: target,
@@ -1892,6 +1893,7 @@ final class DepartmentRunTests: XCTestCase {
         let window = TestWindow.mount(
             AnyView(DepartmentPane(title: "The Project",
                                    languages: rows,
+                                   unreadable: [],
                                    design: design,
                                    renameTranslator: renameTranslator,
                                    renameDesigner: renameDesigner)

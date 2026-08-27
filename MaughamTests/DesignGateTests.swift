@@ -1404,6 +1404,7 @@ final class DesignGateTests: XCTestCase {
             designerName: "Tschichold", proposals: proposals,
             runState: .idle, session: .free, hasOpenProposalRound: false)
         return mount(AnyView(DepartmentPane(title: "The Project", languages: [],
+                                            unreadable: [],
                                             design: row,
                                             showProposal: showProposal)),
                      width: 340)
