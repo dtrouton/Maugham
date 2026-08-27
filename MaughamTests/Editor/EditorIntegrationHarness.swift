@@ -66,11 +66,9 @@ final class EditorIntegrationHarness {
         self.scrollView = sv
         self.textView = tv
 
-        let win = NSWindow(
+        self.window = TestWindow.make(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
-            styleMask: [.titled], backing: .buffered, defer: false)
-        win.contentView = sv
-        self.window = win
+            contentView: sv, present: .unshown)
 
         // Binding whose setter mirrors what EditorHost does today: store
         // the new value. The Document refactor will change this body but
@@ -137,11 +135,9 @@ final class EditorIntegrationHarness {
         self.scrollView = sv
         self.textView = tv
 
-        let win = NSWindow(
+        self.window = TestWindow.make(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
-            styleMask: [.titled], backing: .buffered, defer: false)
-        win.contentView = sv
-        self.window = win
+            contentView: sv, present: .unshown)
 
         let coord = EditorCoordinator(
             text: boundText,

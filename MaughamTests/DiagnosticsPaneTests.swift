@@ -3394,14 +3394,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     // MARK: - Hosting
 
     private func mount(_ view: AnyView) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 420, height: 700)
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(view, size: CGSize(width: 420, height: 700))
         windows.append(window)
         pump()
         return window

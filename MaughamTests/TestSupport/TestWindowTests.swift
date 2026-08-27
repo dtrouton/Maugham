@@ -1,0 +1,93 @@
+import AppKit
+import SwiftUI
+import XCTest
+@testable import Maugham
+
+/// `TestWindow` is the bundle's one window fixture; these pin the two facts
+/// every other mounted suite now inherits from it — the window is live for
+/// SwiftUI and invisible to the developer — and the activation gate.
+@MainActor
+final class TestWindowTests: XCTestCase {
+    private var windows: [NSWindow] = []
+
+    override func tearDown() {
+        windows.forEach { $0.orderOut(nil) }
+        windows.removeAll()
+        super.tearDown()
+    }
+
+    func test_aMadeWindowIsLiveForSwiftUIAndInvisibleToTheDeveloper() async {
+        let window = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 200, height: 120))
+        windows.append(window)
+
+        // Live: on a screen, ordered in, not occluded — the premises SwiftUI
+        // layout, `onAppear` and `TimelineView` read. Occlusion is reported
+        // back by the window server a turn or two after ordering in.
+        XCTAssertTrue(window.isVisible)
+        XCTAssertNotNil(window.screen)
+        let visible = await RunLoopPump.until(deadline: 2) {
+            window.occlusionState.contains(.visible)
+        }
+        XCTAssertTrue(visible, "an alpha-0 window must still count as visible to the window server")
+
+        // Invisible: drawn at alpha 0, deaf to the real mouse, out of Mission
+        // Control and the Window menu, no appearance animation.
+        XCTAssertEqual(window.alphaValue, 0)
+        XCTAssertTrue(window.ignoresMouseEvents)
+        XCTAssertTrue(window.collectionBehavior.contains(.transient))
+        XCTAssertTrue(window.collectionBehavior.contains(.ignoresCycle))
+        XCTAssertTrue(window.isExcludedFromWindowsMenu)
+        XCTAssertEqual(window.animationBehavior, .none)
+    }
+
+    func test_mountLaysTheViewOutAtTheAskedSizeAndFiresOnAppear() async {
+        final class Probe { var appeared = false }
+        let probe = Probe()
+        let window = TestWindow.mount(
+            Text("hello").onAppear { probe.appeared = true },
+            size: CGSize(width: 320, height: 240))
+        windows.append(window)
+
+        let deadline = Date().addingTimeInterval(2)
+        while !probe.appeared, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertTrue(probe.appeared, "onAppear never fired — the hidden window is not live")
+        XCTAssertEqual(window.contentView?.frame.size, CGSize(width: 320, height: 240))
+        XCTAssertEqual(window.alphaValue, 0)
+    }
+
+    func test_theSubclassAskedForIsTheOneBuilt() {
+        let window = TestWindow.make(SilentTestWindow.self,
+                                     contentRect: CGRect(x: 0, y: 0, width: 50, height: 50))
+        windows.append(window)
+        XCTAssertTrue(type(of: window) == SilentTestWindow.self)
+        XCTAssertEqual(window.alphaValue, 0)
+    }
+
+    /// The host is `.accessory` — `TestHost` switched it at launch — so no
+    /// Dock tile and no ⌘-tab entry for any of the worker processes.
+    func test_theHostIsAnAccessoryApp() {
+        XCTAssertTrue(TestHost.isActive, "TestHost must recognise an XCTest host")
+        XCTAssertEqual(NSApplication.shared.activationPolicy(), .accessory)
+    }
+
+    /// Without `MAUGHAM_ALLOW_ACTIVATION=1`, `activate` never takes the
+    /// keyboard: an inactive host stays inactive and the call says so. With it
+    /// (CI), the call asks and reports what it got.
+    func test_activationIsRefusedUnlessTheRunOptsIn() async {
+        let window = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 50, height: 50))
+        windows.append(window)
+        let wasActive = NSApplication.shared.isActive
+        let result = await TestWindow.activate(window, deadline: 0.2)
+        if TestWindow.activationAllowed {
+            XCTAssertEqual(result, NSApplication.shared.isActive)
+        } else {
+            XCTAssertEqual(result, wasActive,
+                "activate must not change the host's active state without opt-in")
+            if !wasActive {
+                XCTAssertFalse(NSApplication.shared.isActive)
+            }
+        }
+    }
+}

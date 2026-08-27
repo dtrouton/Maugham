@@ -350,10 +350,10 @@ final class CanvasUndoTests: XCTestCase {
     @discardableResult
     private func host(_ view: NSView) -> NSWindow {
         let frame = CGRect(x: 0, y: 0, width: 240, height: 100)
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = NSView(frame: frame)
-        window.contentView?.addSubview(view)
+        let container = NSView(frame: frame)
+        container.addSubview(view)
+        let window = TestWindow.make(SilentTestWindow.self, contentRect: frame,
+                                     contentView: container, present: .unshown)
         view.layoutSubtreeIfNeeded()
         windows.append(window)
         return window

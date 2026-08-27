@@ -22,10 +22,9 @@ final class CanvasEscapeMonitorTests: XCTestCase {
     }
 
     private func makeWindow() -> NSWindow {
-        let w = SilentTestWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 200),
-                         styleMask: [.titled], backing: .buffered, defer: false)
+        let w = TestWindow.make(SilentTestWindow.self,
+                                contentRect: CGRect(x: 0, y: 0, width: 300, height: 200))
         windows.append(w)
-        w.orderFront(nil)
         return w
     }
 

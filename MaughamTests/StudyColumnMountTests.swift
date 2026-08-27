@@ -240,15 +240,10 @@ final class StudyColumnMountTests: XCTestCase {
 
     private func mount(_ probe: StudyProbe, store: ProjectStore,
                        projectRoot: URL) async throws -> (NSWindow, NSSplitView) {
-        let frame = CGRect(x: 0, y: 0, width: 980, height: 700)
-        let hosting = NSHostingView(rootView: AnyView(
-            StudyColumnHarness(probe: probe, store: store, projectRoot: projectRoot)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled, .resizable],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(StudyColumnHarness(probe: probe, store: store, projectRoot: projectRoot)),
+            size: CGSize(width: 980, height: 700),
+            styleMask: [.titled, .resizable])
         windows.append(window)
         await pump(1.0)
 

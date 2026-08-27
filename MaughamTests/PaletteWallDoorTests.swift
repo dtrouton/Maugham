@@ -639,26 +639,13 @@ final class PaletteWallDoorTests: XCTestCase {
 
     // MARK: - Hosting and driving
 
-    /// **A window that reports itself key**, `TreeFindOverlayTests.KeyTestWindow`'s
-    /// reason verbatim: `.maughamCloseFind` is key-window scoped and this suite
-    /// sends real key events, which beep against a window that never becomes key.
-    private final class KeyTestWindow: SilentTestWindow {
-        override var isKeyWindow: Bool { true }
-    }
-
     private func hostTree(
         store: ProjectStore, paletteWallTravels: Bool, onOpenPaletteWall: @escaping () -> Void
     ) async throws -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 800)
-        let hosting = NSHostingView(rootView: AnyView(DoorProbeView(
-            store: store, paletteWallTravels: paletteWallTravels,
-            onOpenPaletteWall: onOpenPaletteWall)))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(DoorProbeView(store: store, paletteWallTravels: paletteWallTravels,
+                                  onOpenPaletteWall: onOpenPaletteWall)),
+            size: CGSize(width: 320, height: 800), as: SilentTestWindow.self)
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
         pump(0.2)
@@ -670,15 +657,9 @@ final class PaletteWallDoorTests: XCTestCase {
     private func hostTravelProbe(
         store: ProjectStore, box: WallPersonaBox
     ) async throws -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 800)
-        let hosting = NSHostingView(rootView: AnyView(
-            TravelProbeView(store: store, box: box)))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(AnyView(TravelProbeView(store: store, box: box)),
+                                      size: CGSize(width: 320, height: 800),
+                                      as: SilentTestWindow.self)
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
         pump(0.2)
@@ -696,14 +677,11 @@ final class PaletteWallDoorTests: XCTestCase {
     }
 
     private func hostKeyWindow(_ view: some View) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(view))
-        hosting.frame = frame
-        let window = KeyTestWindow(contentRect: frame, styleMask: [.titled],
-                                   backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        // `KeyTestWindow` because `.maughamCloseFind` is key-window scoped and
+        // this suite sends real key events, which beep against a window that
+        // never becomes key.
+        let window = TestWindow.mount(AnyView(view), size: CGSize(width: 320, height: 600),
+                                      as: KeyTestWindow.self)
         windows.append(window)
         pump(0.15)
         return window

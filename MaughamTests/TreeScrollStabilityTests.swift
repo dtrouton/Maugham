@@ -294,11 +294,9 @@ final class TreeScrollStabilityTests: XCTestCase {
                 .environment(BackupCoordinator())))
         hosting.sizingOptions = [.minSize]
         hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame,
-                                      styleMask: [.titled, .resizable],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
+        let window = TestWindow.make(SilentTestWindow.self, contentRect: frame,
+                                     styleMask: [.titled, .resizable],
+                                     contentView: hosting)
         hosting.layoutSubtreeIfNeeded()
         windows.append(window)
         _ = await pumpUntil(deadline: 20) {
@@ -401,11 +399,9 @@ final class TreeScrollStabilityTests: XCTestCase {
                 .frame(width: width)))
         hosting.sizingOptions = [.minSize]
         hosting.frame = CGRect(x: 0, y: 0, width: width, height: 900)
-        let window = SilentTestWindow(
-            contentRect: hosting.frame, styleMask: [.titled, .resizable],
-            backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
+        let window = TestWindow.make(
+            SilentTestWindow.self, contentRect: hosting.frame,
+            styleMask: [.titled, .resizable], contentView: hosting)
         hosting.layoutSubtreeIfNeeded()
         windows.append(window)
         pump(1.0)
@@ -488,11 +484,8 @@ final class TreeScrollStabilityTests: XCTestCase {
                 .frame(width: 320)))
         ruler.sizingOptions = [.intrinsicContentSize]
         ruler.frame = CGRect(x: 0, y: 0, width: 320, height: 900)
-        let rulerWindow = SilentTestWindow(
-            contentRect: ruler.frame, styleMask: [.titled],
-            backing: .buffered, defer: false)
-        rulerWindow.contentView = ruler
-        rulerWindow.orderFront(nil)
+        let rulerWindow = TestWindow.make(
+            SilentTestWindow.self, contentRect: ruler.frame, contentView: ruler)
         windows.append(rulerWindow)
         pump(0.8)
         let idealWithoutNudge = ruler.intrinsicContentSize.height
@@ -521,10 +514,8 @@ final class TreeScrollStabilityTests: XCTestCase {
         hosting.frame = frame
         let container = NSView(frame: frame)
         container.addSubview(hosting)
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = container
-        window.orderFront(nil)
+        let window = TestWindow.make(SilentTestWindow.self, contentRect: frame,
+                                     contentView: container)
         container.layoutSubtreeIfNeeded()
         windows.append(window)
         _ = await pumpUntil(deadline: 20) {
@@ -583,10 +574,8 @@ final class TreeScrollStabilityTests: XCTestCase {
         hosting.frame = frame
         let container = NSView(frame: frame)
         container.addSubview(hosting)
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = container
-        window.orderFront(nil)
+        let window = TestWindow.make(SilentTestWindow.self, contentRect: frame,
+                                     contentView: container)
         container.layoutSubtreeIfNeeded()
         windows.append(window)
         _ = await pumpUntil(deadline: 20) {
@@ -736,16 +725,12 @@ final class TreeScrollStabilityTests: XCTestCase {
                        documentStore: DocumentStore,
                        treeState: BinderTreeSectionsState,
                        probe: BinderSubjectProbe) async throws -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 1100, height: 420)
-        let hosting = NSHostingView(rootView: AnyView(TreeScrollProbeView(
-            store: store, documentStore: documentStore,
-            treeState: treeState, probe: probe)))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(TreeScrollProbeView(
+                store: store, documentStore: documentStore,
+                treeState: treeState, probe: probe)),
+            size: CGSize(width: 1100, height: 420),
+            as: SilentTestWindow.self)
         windows.append(window)
         _ = await pumpUntil(deadline: 10) { self.firstTableView(in: window) != nil }
         pump(0.4)
@@ -755,19 +740,15 @@ final class TreeScrollStabilityTests: XCTestCase {
     private func mountProjectWindow(
         url: URL, registry: ProjectRegistry
     ) async throws -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 1200, height: 500)
-        let hosting = NSHostingView(rootView: AnyView(
-            ProjectWindow(url: url)
-                .environment(UserPreferences())
-                .environment(registry)
-                .environment(BackupCoordinator())))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame,
-                                      styleMask: [.titled, .resizable],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(
+                ProjectWindow(url: url)
+                    .environment(UserPreferences())
+                    .environment(registry)
+                    .environment(BackupCoordinator())),
+            size: CGSize(width: 1200, height: 500),
+            as: SilentTestWindow.self,
+            styleMask: [.titled, .resizable])
         windows.append(window)
         _ = await pumpUntil(deadline: 20) {
             (self.firstTableView(in: window)?.numberOfRows ?? 0) > 30

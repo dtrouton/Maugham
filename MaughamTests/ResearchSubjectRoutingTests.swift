@@ -777,14 +777,9 @@ final class ResearchSubjectRoutingTests: XCTestCase {
             canvasLoads: counter)
             .environment(preferences)
 
-        let frame = CGRect(x: 0, y: 0, width: 1200, height: 800)
-        let hosting = NSHostingView(rootView: AnyView(root))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(AnyView(root),
+                                      size: CGSize(width: 1200, height: 800),
+                                      as: SilentTestWindow.self)
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
         // The palette section loads its cards from disk once per manifest

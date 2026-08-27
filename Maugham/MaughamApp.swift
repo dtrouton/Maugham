@@ -27,6 +27,10 @@ struct MaughamApp: App {
                "MAUGHAM_DEV_BUILD not set but bundle id is \(Bundle.main.bundleIdentifier ?? "nil")")
         #endif
 
+        // A test host keeps out of the Dock and off ⌘-tab — see `TestHost`.
+        // Before any window exists, so the policy is in force for the first one.
+        TestHost.applyActivationPolicyIfHosting()
+
         // Best-effort: post a notification on app termination so any open
         // ProjectWindow can synchronously flush its DocumentStore. This is
         // belt-and-suspenders alongside .onDisappear.

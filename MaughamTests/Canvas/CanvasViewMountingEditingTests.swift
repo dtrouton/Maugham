@@ -974,12 +974,12 @@ final class CanvasViewMountingEditingTests: CanvasViewMountingCase {
         XCTAssertTrue(events.hasEscapeMonitorInstalled,
                       "precondition: the monitor is installed, or nothing below is "
                       + "about scope")
-        let other = CanvasHostWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 200),
-                                     styleMask: [.titled], backing: .buffered, defer: false)
-        windows.append(other)
         // The OTHER window is the key one — the writer clicked into their second
         // project and pressed Escape there, which is the whole scenario.
-        other.makeKeyAndOrderFront(nil)
+        let other = TestWindow.make(CanvasHostWindow.self,
+                                    contentRect: CGRect(x: 0, y: 0, width: 200, height: 200),
+                                    present: .key)
+        windows.append(other)
 
         NSApp.sendEvent(escapeKeyEvent(for: other))
         pump(0.3)

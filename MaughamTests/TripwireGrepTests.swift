@@ -972,6 +972,92 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check expected the planted set to disagree with the real one.")
     }
 
+    // MARK: - Test windows are presented by the fixture only
+
+    /// The tokens by which a test presents a window on its own. The first
+    /// three are construction tokens — every `NSWindow`/`NSPanel` designated
+    /// initialiser (and every subclass's) has to pass `backing:` and `defer:`,
+    /// whatever the class is called, so a new file-private subclass can't slip
+    /// past a class-name grep. (`backing:` alone is too broad: the canvas
+    /// raster helpers take a `backing: NSColor?`.) The three ordering calls
+    /// are the presentation tokens.
+    static let windowPresentationTokens = [
+        "backing: .buffered", "defer: false)", "defer: true)",
+        "orderFront(", "makeKeyAndOrderFront(", "orderFrontRegardless",
+    ]
+
+    private static func isWindowPresentationProse(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+    }
+
+    /// Recurrence-tripper: fifty-six test files each built and ordered front
+    /// their own visible window at the screen's origin, and across seven
+    /// parallel workers that made every gate paint over the developer's
+    /// screen (2026-08-27). `TestWindow` (MaughamTests/TestSupport) is the one
+    /// place a window is constructed and presented — hidden, mouse-ignoring,
+    /// out of Mission Control — and this guard is what keeps a fifty-seventh
+    /// hand-rolled mount from reopening it.
+    func test_noWindowIsPresentedOutsideTheTestWindowFixture() throws {
+        let testsDir = repoRoot.appendingPathComponent("MaughamTests", isDirectory: true)
+        let offenders = try grepSwift(
+            in: testsDir,
+            patterns: Self.windowPresentationTokens,
+            allowed: ["TestWindow.swift", "TripwireGrepTests.swift"],
+            excludeLine: Self.isWindowPresentationProse)
+        XCTAssertTrue(offenders.isEmpty,
+            "A test constructs or presents an NSWindow on its own. Every test "
+            + "window goes through `TestWindow.make`/`.mount` (hidden, mouse-"
+            + "ignoring, out of Mission Control) so a gate never paints over the "
+            + "developer's screen; pass your window subclass as `type` if the "
+            + "suite needs one. A window that must be built by hand is presented "
+            + "with `TestWindow.present`, and its construction is accounted for "
+            + "in this test's allow-list. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: the guard fires on a planted construction, a planted
+    /// `orderFront`, and a planted subclass with a name no grep would know —
+    /// and stays quiet on prose.
+    func test_theTestWindowGuardFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-testwindow-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        final class SomeSuite: XCTestCase {
+            private final class QuietWindow: NSWindow {}
+            func test_x() {
+                let w = QuietWindow(contentRect: .zero, styleMask: [.titled],
+                                    backing: .buffered, defer: false)
+                w.orderFront(nil)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SomeSuite.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        /// Prose naming makeKeyAndOrderFront( and backing: is not a mount.
+        final class Innocent: XCTestCase {
+            func test_y() { let w = TestWindow.make(contentRect: .zero); w.orderOut(nil) }
+        }
+        """.write(to: tmp.appendingPathComponent("Innocent.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: Self.windowPresentationTokens,
+            excludeLine: Self.isWindowPresentationProse)
+        let files = Set(offenders.map { String($0.prefix(while: { $0 != ":" })) })
+        XCTAssertEqual(files, ["SomeSuite.swift"],
+            "Self-check: the guard must see the planted construction and "
+            + "orderFront, and must not count the doc comment or the fixture "
+            + "call. Found: \(offenders)")
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check: one construction line and one orderFront line. Found: \(offenders)")
+    }
+
     // MARK: - applyExternalText call-site census (tripwire 7)
 
     /// A line is exempt when it's the function's own definition (`func

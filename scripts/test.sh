@@ -23,6 +23,20 @@
 # 2.75 min on the first parallel run, → ~90s after the canvas-mounting class
 # split. MaughamCore's 465 package tests are hosted by no scheme, so both
 # modes run them explicitly via swift test (~6 s).
+#
+# THE GATE IS HEADLESS (2026-08-27). Every worker is an `.accessory` app
+# (`TestHost`, no Dock tile, no ⌘-tab entry) and every mounted-view test
+# builds its window through `TestWindow` (MaughamTests/TestSupport) — real,
+# on screen for SwiftUI's purposes, drawn at alpha 0 and deaf to the mouse.
+# Nothing here should be visible while it runs, and nothing takes your
+# keyboard: the host never activates itself unless the run opts in with
+# MAUGHAM_ALLOW_ACTIVATION=1 (CI does; the runner has nobody to interrupt).
+# Measured 2026-08-27: the click-driving suites (TreeTravelTests) land their
+# clicks on the inactive accessory host anyway, so a plain local gate runs
+# them too; they skip BY NAME only where the click measurably fails (a locked
+# screen). To force activation here regardless:
+#
+#   TEST_RUNNER_MAUGHAM_ALLOW_ACTIVATION=1 ./scripts/test.sh full
 
 set -euo pipefail
 cd "$(dirname "$0")/.."

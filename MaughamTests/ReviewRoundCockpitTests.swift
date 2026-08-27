@@ -1121,14 +1121,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// icon fallback's `Image(systemName:)` labels are not asserted anywhere to
     /// read as their filter's word and a test built on that would be fragile.
     private func mount(_ view: AnyView, width: CGFloat = 320) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: width, height: 700)
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(view, size: CGSize(width: width, height: 700))
         windows.append(window)
         pump()
         return window

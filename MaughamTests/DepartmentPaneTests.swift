@@ -515,18 +515,12 @@ final class DepartmentPaneTests: XCTestCase {
     private func mount(rows: [EditionStatus.LanguageRow],
                        width: CGFloat = 340,
                        openEditionBrief: @escaping (String) -> Void = { _ in }) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: width, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(
-            DepartmentPane(title: "The Project",
-                           languages: rows,
-                           openEditionBrief: openEditionBrief)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(DepartmentPane(title: "The Project",
+                                   languages: rows,
+                                   openEditionBrief: openEditionBrief)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)),
+            size: CGSize(width: width, height: 600))
         windows.append(window)
         pump(0.1)
         return window

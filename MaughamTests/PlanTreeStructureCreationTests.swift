@@ -205,15 +205,9 @@ final class PlanTreeStructureCreationTests: XCTestCase {
     // MARK: - Hosting and pressing
 
     private func host(store: ProjectStore, persona: Persona) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(
-            StructureCreationProbeView(store: store, persona: persona)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(StructureCreationProbeView(store: store, persona: persona)),
+            size: CGSize(width: 320, height: 600))
         windows.append(window)
         pump(0.25)
         return window
