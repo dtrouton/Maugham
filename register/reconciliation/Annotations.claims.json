@@ -934,5 +934,22 @@
    "property_test": null
   },
   "fix_history": "Carried as a known shape in docs/superpowers/notes/2026-08-15-m3-handoff.md ('Two PRE-EXISTING shapes'), surfaced three times, ruled and fixed 2026-08-18 on fix/m4-denver-rulings-2026-08-18. Production tests: MaughamTests/AnnotationAcceptNoteUndoTests.swift (the verb, all three textless kinds, the redo cycle, the loud drift decline, the shielded prior action, the suggestion control) + DiagnosticsPaneTests.test_undoAfterGotItReopensTheNoteAndTheRowReturns (the mounted delivery path)"
+ },
+ {
+  "claim_id": "M5-AN-060",
+  "scope": "Document.stetAnnotation ⌘Z",
+  "kind": "POSTCONDITION",
+  "statement": "undo re-opens and re-applies the resolution the stet displaced (accept with reply / reject / archive); an open note just reopens. `stetAnnotation` now captures the prior status and userResponse from an UNFILTERED query before appending `.annotationStet`, and its undo closure appends the compensating `annotationReopen` and then a status-only lifecycle op restoring it — `withdrawReviewerAnnotation`'s shape, in the same place and for the same reason. Before this it ended in a bare `reopenAnnotation(id:)`, which only ever yields `.open`: a stet placed over an ACCEPTED note and then ⌘Z'd dropped the accept AND the reply the writer typed into Reply…, so one ⌘Z took two of their decisions. `AnnotationInverse.reopenOp` and `reopenAnnotation(id:)` are untouched (tripwire 19, cross-surface; M5-AN-034/040 pin them). A `.stetted` prior cannot occur — the undo only runs past a guard asserting the note is `.stetted` now, and a stet over a stet drifting back is that guard's business",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/AnnotationStetTests.swift: test_undoOfAStetOverAnAcceptedNoteRestoresTheAcceptAndItsReply, test_undoOfAStetOverARejectedNoteRestoresTheReject, test_undoOfAStetOverAnOpenNoteStillJustReopens (the control), test_theRowsStetReachesAnAcceptedNote (the reachability census), test_redoReStetsWithItsReply_andTheCycleReArms (unchanged)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-22); issue #41 A2",
+  "reachability": "LIVE — with show-resolved on, the queue's row for an accepted comment draws its dispositions (`AnnotationRow.showsReopen` is false for `.accepted`), Stet among them: accept a note with Reply…, stet it, press ⌘Z",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed — the defect and its fix land in the same branch (issue #41 A2, commit ce487146d499d0425a42b4696646be86e97b7dfd). M5-AN-036 is the same defect one verb over, fixed 2026-08-09; stet was the fourth resolution and did not get withdraw's capture when it landed in M3 P2 Task 2"
  }
 ]
