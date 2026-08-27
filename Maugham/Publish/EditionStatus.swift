@@ -81,7 +81,15 @@ enum EditionStatus {
     struct UnreadableDocument: Equatable, Sendable {
         let documentId: String
         let title: String
-        /// The underlying error's own sentence — `localizedDescription`.
+        /// The underlying error's own sentence.
+        ///
+        /// **Not plain `localizedDescription`**, because the most likely error
+        /// here is an `MCPError`, which conforms to `Error` and not to
+        /// `LocalizedError` — so Foundation answers "The operation couldn't be
+        /// completed. (Maugham.MCPError error 3.)" for it. A reason a writer
+        /// cannot act on is the same silent skip with a label that F-D exists
+        /// to stop, so the catch site asks `MCPError` for its own `message`
+        /// first. See `documentRows`.
         let reason: String
     }
 
@@ -207,7 +215,18 @@ enum EditionStatus {
                     // arrives here.
                     title: TreeWalk.find(id: documentId, in: store.manifest.structure)?
                         .title ?? documentId,
-                    reason: error.localizedDescription))
+                    // **`MCPError` is not a `LocalizedError`**, so
+                    // `localizedDescription` renders it as "The operation
+                    // couldn't be completed. (Maugham.MCPError error 3.)" —
+                    // and `MCPError.invalidArgument` is precisely what a
+                    // manifest row with no path throws
+                    // (`withAnnotationDocument`). Naming the chapter and then
+                    // saying nothing usable about it is the labelled silent
+                    // skip this degrade exists to replace, so its own `message`
+                    // comes first; every other error class keeps
+                    // `localizedDescription`, which for them is a real
+                    // sentence (`OpLogStore.ReadError`).
+                    reason: (error as? MCPError)?.message ?? error.localizedDescription))
             }
         }
         return DocumentReport(rows: rows, unreadable: unreadable)

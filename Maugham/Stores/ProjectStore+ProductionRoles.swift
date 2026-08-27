@@ -62,6 +62,16 @@ extension ProjectStore {
     /// question belongs to the choke point that builds that filename
     /// (`createStatement`), which is stricter on purpose.
     ///
+    /// **The gate runs AFTER the find, matching `createStatement`'s policy, and
+    /// here that is what keeps a bad row REPAIRABLE.** A project carrying a
+    /// role under a never-valid tag — hand-edited, or written by a build
+    /// before this guard — is exactly the project whose writer needs to reach
+    /// it, and the desk's Rename goes `DepartmentPaneHost` → `nameTranslator` →
+    /// this verb. Gating first would refuse to hand back the row and leave the
+    /// writer no way to fix it from inside the app: a validation that turns a
+    /// recoverable state into a permanent one. The gate is over what this verb
+    /// *mints*, so an invalid tag with nothing stored still throws.
+    ///
     /// Every shipped caller lowercases and validates before it gets here
     /// (`DepartmentPaneHost.addLanguage`, `DepartmentCastSheet`), so this is a
     /// guard the surfaces make unreachable rather than one they depend on —
@@ -70,10 +80,10 @@ extension ProjectStore {
     func translatorRole(for language: String) async throws -> ProductionRole {
         let tag = language.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tag.isEmpty else { throw ProjectStoreError.productionRoleLanguageEmpty }
+        if let existing = manifest.storedTranslator(for: tag) { return existing }
         guard TranslationRecord.isValidLanguageTag(tag.lowercased()) else {
             throw ProjectStoreError.languageTagInvalid(language)
         }
-        if let existing = manifest.storedTranslator(for: tag) { return existing }
 
         let minted = ProductionRole(
             id: Self.newId(prefix: "role"),

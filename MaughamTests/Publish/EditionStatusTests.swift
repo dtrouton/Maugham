@@ -104,6 +104,43 @@ final class EditionStatusTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    /// **A named chapter with an unusable reason is the labelled silent skip
+    /// this degrade exists to replace** (issue #43, whole-branch review).
+    ///
+    /// A manifest `.document` row with **no path** is the second error class
+    /// F-D degrades — `withAnnotationDocument` throws `MCPError.invalidArgument`
+    /// for it — and `MCPError` conforms to `Error`, not `LocalizedError`. So a
+    /// bare `localizedDescription` renders it as Foundation's fallback, "The
+    /// operation couldn't be completed. (Maugham.MCPError error 3.)": a
+    /// sentence naming a chapter the writer is told to repair while saying
+    /// nothing whatever about what is wrong with it.
+    ///
+    /// The disable experiment: drop the `(error as? MCPError)?.message` arm in
+    /// `documentRows` and the first assertion fails with that exact string.
+    func test_aPathlessChapterDegradesWithAReasonTheWriterCanActOn() async throws {
+        let h = try await makeProject(pathlessThirdChapter: true)
+
+        let report = await EditionStatus.languageRows(
+            in: h.projectStore, projectURL: h.projectURL)
+
+        let skipped = try XCTUnwrap(report.unreadable.first { $0.documentId == "doc-3" })
+        XCTAssertEqual(skipped.title, "Chapter 3")
+        XCTAssertFalse(
+            skipped.reason.localizedCaseInsensitiveContains("operation couldn't be completed"),
+            "Foundation's fallback for a non-LocalizedError says nothing the "
+            + "writer can act on; got \(skipped.reason.debugDescription)")
+        XCTAssertEqual(skipped.reason, MCPError.invalidArgument(
+            "document_id not found in project manifest: doc-3").message,
+            "the reason must be MCPError's own message")
+
+        // The control: the rest of the book is untouched by the degrade.
+        XCTAssertEqual(report.unreadable.map(\.documentId), ["doc-3"])
+        let es = try XCTUnwrap(report.rows.first { $0.language == "es" })
+        XCTAssertEqual(es.fresh, 2, "both readable chapters still counted")
+
+        await h.documentStore.close()
+    }
+
     // MARK: - The fixture
 
     /// Two manuscript chapters, both with one Spanish paragraph written.
@@ -121,7 +158,14 @@ final class EditionStatusTests: XCTestCase {
         let doc2Id: String
     }
 
-    private func makeProject() async throws -> Fixture {
+    /// `pathlessThirdChapter` adds a manifest `.document` row carrying **no
+    /// path** — the second thing F-D degrades, and the one the fixture can
+    /// express directly because `StructureItem.path` is `String?` with a `nil`
+    /// default. It needs no file and no op log: the failure is that there is
+    /// nowhere to load it from.
+    private func makeProject(
+        pathlessThirdChapter: Bool = false
+    ) async throws -> Fixture {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("EST-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -141,7 +185,9 @@ final class EditionStatusTests: XCTestCase {
             structure: [
                 StructureItem(id: "doc-1", title: "Chapter 1", type: .document, path: path1),
                 StructureItem(id: "doc-2", title: "Chapter 2", type: .document, path: path2),
-            ],
+            ] + (pathlessThirdChapter
+                 ? [StructureItem(id: "doc-3", title: "Chapter 3", type: .document)]
+                 : []),
             research: [])
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

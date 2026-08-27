@@ -64,7 +64,8 @@ public enum SafeRelativePath {
     /// distinction matters should re-verify after resolving: call
     /// `resolvingSymlinksInPath()` on the returned URL and re-check
     /// containment immediately before the actual read/write/move. None of
-    /// the five call sites this helper currently guards need that — they
+    /// its call sites need that (count them with a grep rather than trusting
+    /// a number here) — they
     /// all operate within a project tree the user already has local write
     /// access to, so planting such a symlink requires the same access this
     /// check exists to withhold from an untrusted sidecar value. The A5

@@ -48,7 +48,12 @@ struct DepartmentPane: View {
     /// `languages`, so without the line an unreadable chapter reads as an
     /// untranslated one — and a book whose every chapter failed reads as a book
     /// with no editions, which is why `noLanguagesYet` yields to it below.
-    var unreadable: [EditionStatus.UnreadableDocument] = []
+    ///
+    /// **No default**, so a new mount site has to say what it knows about
+    /// unreadable chapters rather than inheriting silence. The whole defect
+    /// F-D fixes is a surface that omitted this fact and read as an honest
+    /// answer; a defaulted `[]` is that omission spelled as a convenience.
+    var unreadable: [EditionStatus.UnreadableDocument]
     /// **The Design row, whole** (Task 4) — who designs this book, what the
     /// newest round produced, what a round in flight is doing, and whether
     /// either verb may be pressed.
