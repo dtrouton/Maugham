@@ -57,6 +57,12 @@ struct DepartmentPaneHost: View {
     var onShowProposal: (DesignProposalStore.Proposal) -> Void = { _ in }
 
     @State private var languages: [EditionStatus.LanguageRow] = []
+    /// **Every chapter the language walk could not open** (issue #43, F-D) —
+    /// drawn above the rows, because the rows it would have contributed are
+    /// missing and an empty desk over an unreadable book is a false claim about
+    /// the book. Derived in the same pass as `languages`, from the same value,
+    /// so the two cannot describe different walks.
+    @State private var unreadable: [EditionStatus.UnreadableDocument] = []
     /// Every design round this project has staged, newest first — the Design
     /// row's second line and its badge (Task 4). Derived off the body path
     /// because it reads `.maugham/design/proposals/`.
@@ -157,6 +163,7 @@ struct DepartmentPaneHost: View {
         return DepartmentPane(
             title: store.manifest.title,
             languages: languages,
+            unreadable: unreadable,
             design: designRow,
             openEditionBrief: { language in
                 Task { await present(language: language) }
@@ -299,6 +306,21 @@ struct DepartmentPaneHost: View {
         EditionStatus.translatorName(for: language, in: manifest) == nil
     }
 
+    /// Whether `tag` already has a home on this book — a row the desk has
+    /// derived OR a translator the manifest already stores. Both, because the
+    /// derived rows can lag the manifest by one `derive()` and Confirm carries
+    /// a NAME: a miss here is not a duplicate row, it is `nameTranslator`
+    /// renaming somebody the writer did not mean to rename (issue #43, F-G).
+    /// Drivable without mounting anything (`DepartmentPaneTests`).
+    static func languageAlreadyOnTheDesk(
+        _ tag: String, derived: [EditionStatus.LanguageRow], manifest: ProjectManifest
+    ) -> Bool {
+        let onARow = derived.contains {
+            $0.language.caseInsensitiveCompare(tag) == .orderedSame
+        }
+        return onARow || manifest.storedTranslator(for: tag) != nil
+    }
+
     // MARK: - The cast sheet (P4 Task 9, widened by cast-management)
 
     /// **Open the sheet on an edition the book does not have yet.**
@@ -384,7 +406,10 @@ struct DepartmentPaneHost: View {
     /// never the hazard; renaming somebody the writer had not meant to rename
     /// was — Confirm carries a name, and for a language that already has one
     /// this act would overwrite it silently. The row's own Rename verb is where
-    /// that decision belongs.
+    /// that decision belongs. **The check is a union of the desk's derived rows
+    /// and the manifest's own stored translators** (issue #43, F-G) — `derive()`
+    /// can lag a mint by one pass, and a manifest-only match is exactly the
+    /// case where a rename would land unannounced.
     ///
     /// Nothing is said on success: the row appearing in the section this button
     /// sits under IS the answer, and the notice slot is for what the writer
@@ -396,13 +421,23 @@ struct DepartmentPaneHost: View {
             notice = DepartmentCastCopy.unusableTag(tag)
             return
         }
-        if let existing = languages.first(where: {
-            $0.language.caseInsensitiveCompare(language) == .orderedSame
-        }) {
-            notice = DepartmentCastCopy.alreadyOnTheDesk(language: existing.language)
+        if Self.languageAlreadyOnTheDesk(
+            language, derived: languages, manifest: store.manifest) {
+            let spelling = languages.first(where: {
+                $0.language.caseInsensitiveCompare(language) == .orderedSame
+            })?.language ?? storedTranslatorTag(for: language) ?? language
+            notice = DepartmentCastCopy.alreadyOnTheDesk(language: spelling)
             return
         }
         Task { _ = await nameTranslator(language: language, name: name) }
+    }
+
+    /// The manifest's own spelling of a stored translator's tag, for the
+    /// notice line when nothing has been derived for it yet.
+    private func storedTranslatorTag(for language: String) -> String? {
+        guard case .translator(let tag) = store.manifest.storedTranslator(
+            for: language)?.role else { return nil }
+        return tag
     }
 
     /// **Mint-then-rename, the one visible act** — `ProjectStore
@@ -569,17 +604,17 @@ struct DepartmentPaneHost: View {
     }
 
     private func derive() async {
-        do {
-            languages = try await EditionStatus.languageRows(
-                in: store, projectURL: projectURL)
-        } catch {
-            // The walk reads; it cannot damage anything by failing. The desk
-            // keeps whatever it last derived rather than blanking the rows the
-            // writer is reading, and says nothing — the notice line is for a
-            // refusal the writer ASKED for.
-            _departmentLog.error(
-                "could not derive the department's language rows: \(error, privacy: .public)")
-        }
+        // **No error arm, because the walk has no throw left in it** (issue #43,
+        // F-D). It used to have one, and what the `catch` did was keep whatever
+        // the desk last derived and say nothing — which on a first mount is an
+        // empty Languages section reading "No translations yet." over a book
+        // with four editions and one chapter Maugham could not open. A
+        // per-document failure is now a value: `report.unreadable`, drawn as its
+        // own line above the rows.
+        let report = await EditionStatus.languageRows(
+            in: store, projectURL: projectURL)
+        languages = report.rows
+        unreadable = report.unreadable
         do {
             // Newest first, and tolerant of a folder it cannot read — the
             // store's own posture. Same failure policy as the walk above: the

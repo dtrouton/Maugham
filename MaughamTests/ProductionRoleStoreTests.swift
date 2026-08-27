@@ -156,6 +156,96 @@ final class ProductionRoleStoreTests: XCTestCase {
                        "a refusal must leave nothing behind")
     }
 
+    /// **A tag that is still not a language tag once lowercased is refused at
+    /// the store rather than by each caller** (issue #43, F-F). Every shipped
+    /// caller lowercases and validates upstream today — `DepartmentPaneHost`
+    /// `.addLanguage` and `DepartmentCastSheet` both do — so this guard is
+    /// unreachable through the surfaces as they stand. That is the reason it
+    /// belongs here and not there: the tag flows on into `editions/<lang>.md`,
+    /// where a path character would escape the folder, and the next caller to
+    /// arrive inherits the refusal instead of having to remember the rule.
+    ///
+    /// **Case is NOT what this gate is about.** The tag is lowercased before it
+    /// is tested and stored verbatim afterwards, so `ES` and `es-MX` mint
+    /// exactly as they always have — `test_theTagsCaseDoesNotMintASecondTranslator`
+    /// and `test_aRegionalTagIsItsOwnTranslator` pin that and are untouched.
+    /// This refuses only what no amount of lowercasing makes into a tag. A tag
+    /// that is empty *once trimmed* keeps its own older, more specific refusal
+    /// (`test_anEmptyLanguageIsRefusedAndMintsNothing`, above): that guard runs
+    /// first and this one never sees a blank.
+    func test_aTagThatIsNotALanguageTagIsRefusedAndMintsNothing() async throws {
+        let (url, store) = try await loadedNovel(named: "InvalidLanguageTag")
+        let before = try manifestState(of: url)
+
+        for tag in ["../evil", "en/../../x", "a b", "e", "toolongprimary"] {
+            do {
+                _ = try await store.translatorRole(for: tag)
+                XCTFail("expected a refusal for \(tag.debugDescription)")
+            } catch let error as ProjectStoreError {
+                XCTAssertEqual(error, .languageTagInvalid(tag),
+                               "the refusal must name the tag as it arrived")
+            }
+        }
+
+        XCTAssertTrue(store.manifest.productionRoles.isEmpty,
+                      "a refused tag must mint nobody")
+        XCTAssertEqual(try manifestState(of: url), before,
+                       "a refusal must leave nothing behind")
+    }
+
+    /// **A role already stored under a never-valid tag is still returned — and
+    /// therefore still RENAMEABLE** (issue #43, whole-branch review). The gate
+    /// runs after the find, matching `createStatement`'s policy.
+    ///
+    /// The project this protects is the one that needs it most: a manifest
+    /// hand-edited, or written by a build without the guard, carrying a tag no
+    /// lowercasing rescues. The desk's Rename reaches this verb
+    /// (`DepartmentPaneHost` → `nameTranslator` → `translatorRole`), so gating
+    /// before the find would refuse to hand the row back and leave the writer
+    /// no way to repair it from inside the app — a validation that turns a
+    /// recoverable state into a permanent one.
+    func test_aStoredRoleUnderAnInvalidTagIsStillFoundSoItCanBeRenamed() async throws {
+        let (_, store) = try await loadedNovel(named: "LegacyBadTag")
+        let legacy = ProductionRole(
+            id: "role-legacy", role: .translator(language: "a b"), name: "Ana")
+        store.manifest.productionRoles = [legacy]
+
+        let found = try await store.translatorRole(for: "a b")
+
+        XCTAssertEqual(found.id, legacy.id, "the stored row must come back, not a refusal")
+        XCTAssertEqual(store.manifest.productionRoles.count, 1, "and nothing new is minted")
+
+        // …and the writer can now actually repair it.
+        try await store.renameProductionRole(id: found.id, to: "Beatriz")
+        XCTAssertEqual(store.manifest.productionRoles.first?.name, "Beatriz")
+    }
+
+    /// The control for the test above: the SAME never-valid tag with nothing
+    /// stored under it still throws. The find is what rescues a legacy row —
+    /// the gate is otherwise exactly as strict as it was.
+    func test_anInvalidTagWithNoStoredRoleStillThrows() async throws {
+        let (_, store) = try await loadedNovel(named: "NoLegacyRow")
+
+        do {
+            _ = try await store.translatorRole(for: "a b")
+            XCTFail("expected a refusal with nothing stored")
+        } catch let error as ProjectStoreError {
+            XCTAssertEqual(error, .languageTagInvalid("a b"))
+        }
+        XCTAssertTrue(store.manifest.productionRoles.isEmpty)
+    }
+
+    /// The control: a well-formed tag still mints, so the gate above is refusing
+    /// its offenders rather than everything.
+    func test_aWellFormedTagStillMints() async throws {
+        let (_, store) = try await loadedNovel(named: "ValidTagStillMints")
+
+        let role = try await store.translatorRole(for: "fr")
+        XCTAssertEqual(role.role, ProductionRole.Role.translator(language: "fr"))
+        XCTAssertEqual(role.name, "Baudelaire")
+        XCTAssertEqual(store.manifest.productionRoles.count, 1)
+    }
+
     // MARK: - The designer is already there
 
     /// **The disable-experiment target.** `designerRole()` is a READ: it answers
