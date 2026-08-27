@@ -129,6 +129,27 @@ final class PublishConfigTests: XCTestCase {
         XCTAssertNil(imprint.nextVersion)
     }
 
+    func testJSONValue_decodeOrderDisambiguatesScalars() throws {
+        // Review finding: JSONValue.init(from:) tries Bool before Double
+        // before String — nothing pinned that Foundation's JSONDecoder (backed
+        // by NSNumber via JSONSerialization) actually keeps a JSON number OUT
+        // of .bool and a JSON bool OUT of .number. This is the evidence.
+        let json = """
+        {"a":1,"b":true,"c":"1","d":null,"e":[1,true],"f":{"g":2.5}}
+        """
+        let dict = try JSONDecoder().decode([String: JSONValue].self, from: Data(json.utf8))
+        XCTAssertEqual(dict["a"], .number(1))
+        XCTAssertEqual(dict["b"], .bool(true))
+        XCTAssertEqual(dict["c"], .string("1"))
+        XCTAssertEqual(dict["d"], .null)
+        XCTAssertEqual(dict["e"], .array([.number(1), .bool(true)]))
+        XCTAssertEqual(dict["f"], .object(["g": .number(2.5)]))
+
+        let data = try JSONEncoder().encode(dict)
+        let back = try JSONDecoder().decode([String: JSONValue].self, from: data)
+        XCTAssertEqual(back, dict)
+    }
+
     func testStartOn_decodesAllValues() throws {
         for raw in ["any", "recto", "verso"] {
             let json = "{\"title_override\": null, \"start_on\": \"\(raw)\", \"include_in_toc\": true}"
