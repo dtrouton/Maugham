@@ -334,12 +334,38 @@ final class PublishConfigImprintValidationTests: XCTestCase {
         XCTAssertTrue(errs.isEmpty, "the same allowlist over a project that has ab12: \(errs)")
     }
 
-    func test_projectAware_missingBookTemplate_isRefused() throws {
+    /// A NAMED template is a claim the writer made, so it is held to it.
+    func test_projectAware_missingNonDefaultBookTemplate_isRefused() throws {
         try write("templates/special-glb.tex", into: publishDir)
+        var cfg = specExample()
+        cfg.template = "house-style.tex"
+        let errs = PublishConfigValidator.validate(
+            cfg, publishDir: publishDir, pieceIDs: ["ab12"])
+        XCTAssertTrue(errs.contains { $0.field == "template" },
+                      "a template the writer named must exist, got \(fields(errs))")
+
+        try write("house-style.tex", into: publishDir)
+        XCTAssertTrue(
+            PublishConfigValidator.validate(
+                cfg, publishDir: publishDir, pieceIDs: ["ab12"]).isEmpty,
+            "once written, the named template passes")
+    }
+
+    /// The control for the same rule, and the reason it is narrowed: a config
+    /// write is not where a writer should learn that the starter's own
+    /// `template.tex` is missing. `PublishStarter.installIfMissing` swallows its
+    /// error by design, so a project can legitimately be in this state — and
+    /// refusing here would lock it out of `set_publish_config` entirely, for
+    /// every key, publishing-related or not. A missing default is met at
+    /// compile pre-flight instead.
+    func test_projectAware_missingDefaultBookTemplate_isNotAConfigWriteError() throws {
+        try write("templates/special-glb.tex", into: publishDir)
+        // Deliberately no template.tex on disk; cfg.template is the default.
         let errs = PublishConfigValidator.validate(
             specExample(), publishDir: publishDir, pieceIDs: ["ab12"])
-        XCTAssertTrue(errs.contains { $0.field == "template" },
-                      "the book's own template must exist too, got \(fields(errs))")
+        XCTAssertFalse(errs.contains { $0.field == "template" },
+                       "a missing default template must not refuse a config write, got \(fields(errs))")
+        XCTAssertTrue(errs.isEmpty, "and nothing else fires either: \(errs)")
     }
 
     /// One rule set: the project-aware door runs the pure rules as well, so a

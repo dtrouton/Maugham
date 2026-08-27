@@ -109,6 +109,11 @@ public enum PublishConfigValidator {
 
     // MARK: - Imprints (spec `2026-08-27-imprints-and-bilingual-editions-design` §3)
 
+    /// The starter's template, read off `PublishConfig`'s own default rather
+    /// than restated — a fourth copy of the literal would be a fourth place to
+    /// drift from `PublishConfig.init`/`encode(to:)`/`init(from:)`.
+    private static let defaultTemplate = PublishConfig().template
+
     /// Every character an imprint name may hold: `^[a-z0-9-]+$`. A name reaches
     /// filenames (`{imprint}`) and the publication catalog's key, so it is held
     /// to a slug the way a language tag is.
@@ -204,9 +209,19 @@ public enum PublishConfigValidator {
         var errs: [ValidationError] = []
         let pieces = Set(pieceIDs)
 
-        if let err = templateExistenceError(
+        // The book's own template is checked for existence ONLY when the writer
+        // named a non-default one. A config write is not the place to discover
+        // that `template.tex` is missing: a project whose starter install failed
+        // silently (`PublishStarter.installIfMissing` swallows its error by
+        // design) would otherwise be unable to patch ANY config key, publishing
+        // or not. A named template is a different claim — the writer says this
+        // file exists, so the validator holds them to it. A missing default is
+        // still met, loudly, at compile pre-flight.
+        if cfg.template != defaultTemplate,
+           let err = templateExistenceError(
             cfg.template, field: "template", publishDir: publishDir,
-            remedy: "call initialize_publish_template to install the starter files") {
+            remedy: "write it with write_publish_file, or drop the `template` key "
+                + "to use the starter's template.tex") {
             errs.append(err)
         }
 
