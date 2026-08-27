@@ -352,6 +352,60 @@ final class DepartmentPaneTests: XCTestCase {
             EditionStatus.storedTranslatorLanguages(in: manifest), ["pt-br"])
     }
 
+    // MARK: - Add Language's dedupe is a union (issue #43, F-G)
+
+    /// A row the desk has already drawn is a home, with or without a stored
+    /// role behind it.
+    func test_languageAlreadyOnTheDesk_derivedRowAlone_isTrue() {
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [], research: [])
+        let derived = [EditionStatus.LanguageRow(
+            language: "es", translator: nil, fresh: 1, stale: 0, missing: 0,
+            openQueries: 0)]
+
+        XCTAssertTrue(DepartmentPaneHost.languageAlreadyOnTheDesk(
+            "es", derived: derived, manifest: manifest))
+    }
+
+    /// A translator the manifest already stores is a home even when `derive()`
+    /// has not caught up with a row for it yet — the exact staleness window
+    /// that let Confirm's name silently rename somebody (issue #43, F-G).
+    func test_languageAlreadyOnTheDesk_manifestAlone_isTrue() {
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [], research: [],
+            productionRoles: [ProductionRole(
+                id: "role-1", role: .translator(language: "es"), name: "Cortázar")])
+
+        XCTAssertTrue(DepartmentPaneHost.languageAlreadyOnTheDesk(
+            "es", derived: [], manifest: manifest))
+    }
+
+    /// Neither side knows the language — it is genuinely new, and Add Language
+    /// must be free to mint it.
+    func test_languageAlreadyOnTheDesk_neither_isFalse() {
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [], research: [])
+
+        XCTAssertFalse(DepartmentPaneHost.languageAlreadyOnTheDesk(
+            "es", derived: [], manifest: manifest))
+    }
+
+    /// The match is case-insensitive on both sides, matching
+    /// `storedTranslator(for:)`.
+    func test_languageAlreadyOnTheDesk_caseInsensitive_isTrue() {
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [], research: [],
+            productionRoles: [ProductionRole(
+                id: "role-1", role: .translator(language: "es"), name: "Cortázar")])
+
+        XCTAssertTrue(DepartmentPaneHost.languageAlreadyOnTheDesk(
+            "ES", derived: [], manifest: manifest))
+    }
+
     /// An unlisted, unminted language has nobody to name, and the row says so
     /// in words rather than leaving the line blank.
     func test_anUnlistedLanguageHasNobodyToName() async throws {

@@ -306,6 +306,21 @@ struct DepartmentPaneHost: View {
         EditionStatus.translatorName(for: language, in: manifest) == nil
     }
 
+    /// Whether `tag` already has a home on this book — a row the desk has
+    /// derived OR a translator the manifest already stores. Both, because the
+    /// derived rows can lag the manifest by one `derive()` and Confirm carries
+    /// a NAME: a miss here is not a duplicate row, it is `nameTranslator`
+    /// renaming somebody the writer did not mean to rename (issue #43, F-G).
+    /// Drivable without mounting anything (`DepartmentPaneTests`).
+    static func languageAlreadyOnTheDesk(
+        _ tag: String, derived: [EditionStatus.LanguageRow], manifest: ProjectManifest
+    ) -> Bool {
+        let onARow = derived.contains {
+            $0.language.caseInsensitiveCompare(tag) == .orderedSame
+        }
+        return onARow || manifest.storedTranslator(for: tag) != nil
+    }
+
     // MARK: - The cast sheet (P4 Task 9, widened by cast-management)
 
     /// **Open the sheet on an edition the book does not have yet.**
@@ -391,7 +406,10 @@ struct DepartmentPaneHost: View {
     /// never the hazard; renaming somebody the writer had not meant to rename
     /// was — Confirm carries a name, and for a language that already has one
     /// this act would overwrite it silently. The row's own Rename verb is where
-    /// that decision belongs.
+    /// that decision belongs. **The check is a union of the desk's derived rows
+    /// and the manifest's own stored translators** (issue #43, F-G) — `derive()`
+    /// can lag a mint by one pass, and a manifest-only match is exactly the
+    /// case where a rename would land unannounced.
     ///
     /// Nothing is said on success: the row appearing in the section this button
     /// sits under IS the answer, and the notice slot is for what the writer
@@ -403,13 +421,23 @@ struct DepartmentPaneHost: View {
             notice = DepartmentCastCopy.unusableTag(tag)
             return
         }
-        if let existing = languages.first(where: {
-            $0.language.caseInsensitiveCompare(language) == .orderedSame
-        }) {
-            notice = DepartmentCastCopy.alreadyOnTheDesk(language: existing.language)
+        if Self.languageAlreadyOnTheDesk(
+            language, derived: languages, manifest: store.manifest) {
+            let spelling = languages.first(where: {
+                $0.language.caseInsensitiveCompare(language) == .orderedSame
+            })?.language ?? storedTranslatorTag(for: language) ?? language
+            notice = DepartmentCastCopy.alreadyOnTheDesk(language: spelling)
             return
         }
         Task { _ = await nameTranslator(language: language, name: name) }
+    }
+
+    /// The manifest's own spelling of a stored translator's tag, for the
+    /// notice line when nothing has been derived for it yet.
+    private func storedTranslatorTag(for language: String) -> String? {
+        guard case .translator(let tag) = store.manifest.storedTranslator(
+            for: language)?.role else { return nil }
+        return tag
     }
 
     /// **Mint-then-rename, the one visible act** — `ProjectStore
