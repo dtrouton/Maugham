@@ -51,9 +51,28 @@ extension ProjectStore {
     /// as `"translator:"`, which the decoder deliberately reads back as
     /// `.unknown` — so a row minted from a blank tag stops matching any language
     /// on the next load and the next ask mints another one, for ever.
+    ///
+    /// Throws `.languageTagInvalid` for a tag that is not a language tag even
+    /// once lowercased (issue #43, F-F). **Tested lowercased, stored verbatim,
+    /// matched case-insensitively** — the three are one posture, not a
+    /// compromise: `ES` and `es-MX` are this seam's own well-formed tags (see
+    /// the case-insensitivity note above) and both still mint, while `../evil`
+    /// or `a b` is refused. The tag travels on into `editions/<lang>.md`, so
+    /// what this actually withholds is a path segment; the *canonical-spelling*
+    /// question belongs to the choke point that builds that filename
+    /// (`createStatement`), which is stricter on purpose.
+    ///
+    /// Every shipped caller lowercases and validates before it gets here
+    /// (`DepartmentPaneHost.addLanguage`, `DepartmentCastSheet`), so this is a
+    /// guard the surfaces make unreachable rather than one they depend on —
+    /// which is the reason for putting it at the store: the next caller
+    /// inherits it instead of having to remember it.
     func translatorRole(for language: String) async throws -> ProductionRole {
         let tag = language.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tag.isEmpty else { throw ProjectStoreError.productionRoleLanguageEmpty }
+        guard TranslationRecord.isValidLanguageTag(tag.lowercased()) else {
+            throw ProjectStoreError.languageTagInvalid(language)
+        }
         if let existing = manifest.storedTranslator(for: tag) { return existing }
 
         let minted = ProductionRole(

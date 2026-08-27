@@ -201,11 +201,43 @@ extension ProjectStore {
     /// same discipline (`ProjectStore+CraftIntent.swift`) and it is worth
     /// keeping: a chapter's intent quietly written into the book's file is the
     /// same class of loss as writing it into a second file nobody reads.
+    ///
+    /// Two more refusals guard the PATH this mints (issue #43, F-F), and both
+    /// are here rather than at the callers because a path is the store's own
+    /// business:
+    ///
+    /// - `.languageTagInvalid` for an edition brief whose tag is not a language
+    ///   tag **verbatim** — stricter than `translatorRole(for:)`, which tests
+    ///   the lowercased tag, because this one is spelling a filename.
+    ///   `editions/EN.md` is a brief every lowercase-tagged reader
+    ///   (`read_edition_brief`, the translator briefing, the desk) would miss,
+    ///   and `editions/../../x.md` is not in the project at all.
+    /// - `.statementPathUnsafe` for any kind whose minted path does not resolve
+    ///   inside the project. The table's paths are constants and the one
+    ///   caller-supplied segment is `Slugifier`-sanitized, so this is the gate
+    ///   that catches the kind added later — the containment check the rest of
+    ///   the store already runs on untrusted segments (`SafeRelativePath`).
+    ///
+    /// A refusal costs nothing: both throw before the directory is created and
+    /// before the manifest row is appended, so nothing reaches disk.
+    ///
+    /// **Both run AFTER the find, and that order is deliberate.** A project that
+    /// already carries a brief under an odd tag — minted before this gate, or by
+    /// a hand-edited manifest — still gets it handed back. The gate is over what
+    /// this verb CREATES; refusing to return a statement the manifest already
+    /// holds would take the writer's existing words away to protect a file that
+    /// is already there.
     @discardableResult
     public func createStatement(
         kind: Statement.Kind, scope: Statement.Scope
     ) async throws -> Statement {
         if let existing = statement(kind: kind, scope: scope) { return existing }
+
+        if case .editionBrief(let language) = kind {
+            guard TranslationRecord.isValidLanguageTag(language) else {
+                throw ProjectStoreError.languageTagInvalid(language)
+            }
+        }
 
         let slug = try documentSlug(for: scope)
         guard let candidate = StatementConvention.newPath(
@@ -215,7 +247,14 @@ extension ProjectStore {
         }
         let relativePath = vacantStatementPath(basedOn: candidate)
 
-        let fileURL = url.appendingPathComponent(relativePath)
+        let fileURL: URL
+        do {
+            fileURL = try SafeRelativePath.resolve(relativePath, under: url)
+        } catch let error as SafeRelativePath.PathError {
+            throw ProjectStoreError.statementPathUnsafe(
+                relativePath: relativePath,
+                reason: error.errorDescription ?? "\(error)")
+        }
         do {
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
