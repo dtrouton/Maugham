@@ -156,6 +156,54 @@ final class ReadPreviewPageToolTests: XCTestCase {
                        "a newer preview must become the new resolution target")
     }
 
+    // MARK: - The BSD `hidden` flag is not Maugham's to honour
+
+    /// 2026-08-27: a synced Documents folder flagged every file under
+    /// `.maugham/` `UF_HIDDEN` behind Maugham's back, and `.skipsHiddenFiles`
+    /// then answered "No preview output" over a directory holding two
+    /// previews. The tool skips by NAME only (`DotfileScan`).
+    func testHiddenFlaggedPreview_isStillFound() async throws {
+        let url = try writePDF(named: "preview-0.1-pdf-sr.pdf", in: previewDir)
+        var values = URLResourceValues()
+        values.isHidden = true
+        var flagged = url
+        try flagged.setResourceValues(values)
+        XCTAssertEqual(try url.resourceValues(forKeys: [.isHiddenKey]).isHidden, true,
+                       "premise: the flag must actually be set")
+
+        let resp = try await call(#"{"project_id":"\#(pid!)","page_number":1}"#)
+        XCTAssertEqual(resp["preview_filename"] as? String, "preview-0.1-pdf-sr.pdf",
+                       "a preview the OS flags hidden is still the latest preview")
+    }
+
+    /// A genuinely dot-prefixed entry (an editor's swap file, a sync
+    /// sidecar) is still skipped, and by its name.
+    func testDotPrefixedEntry_isSkippedByName() async throws {
+        try writePDF(named: "preview-0.1-pdf.pdf", in: previewDir,
+                     mtime: Date(timeIntervalSinceNow: -100))
+        try writePDF(named: ".preview-0.1-pdf.pdf.icloud", in: previewDir, mtime: Date())
+        let resp = try await call(#"{"project_id":"\#(pid!)","page_number":1}"#)
+        XCTAssertEqual(resp["preview_filename"] as? String, "preview-0.1-pdf.pdf")
+    }
+
+    /// The language-suffixed name `PreviewCompiler` writes for an edition
+    /// preview resolves like any other, newest by mtime in either direction.
+    func testLanguageSuffixedPreview_ordersByMtimeWithTheSourcePreview() async throws {
+        try writePDF(named: "preview-0.1-pdf.pdf", in: previewDir,
+                     mtime: Date(timeIntervalSinceNow: -3600))
+        try writePDF(named: "preview-0.1-pdf-sr.pdf", in: previewDir,
+                     mtime: Date(timeIntervalSinceNow: -60))
+        var resp = try await call(#"{"project_id":"\#(pid!)","page_number":1}"#)
+        XCTAssertEqual(resp["preview_filename"] as? String, "preview-0.1-pdf-sr.pdf")
+
+        // A later source-language preview wins back.
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date()],
+            ofItemAtPath: previewDir.appendingPathComponent("preview-0.1-pdf.pdf").path)
+        resp = try await call(#"{"project_id":"\#(pid!)","page_number":1}"#)
+        XCTAssertEqual(resp["preview_filename"] as? String, "preview-0.1-pdf.pdf")
+    }
+
     // MARK: - EPUB is not rasterizable
 
     func testLatestPreviewIsEPUB_throwsClearly() async throws {

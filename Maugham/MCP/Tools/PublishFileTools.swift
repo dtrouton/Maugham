@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 // MARK: - Shared path validation
 
@@ -95,10 +96,16 @@ public enum ListPublishFilesTool: MCPTool {
            let enumerator = FileManager.default.enumerator(
             at: publishRoot,
             includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]) {
+            options: []) {
             let rootPath = publishRoot.standardizedFileURL.path + "/"
             let iso = ISO8601DateFormatter()
             while let item = enumerator.nextObject() as? URL {
+                // Dotfiles by name; the `hidden` FLAG is not Maugham's to
+                // honour under `.maugham/` (`DotfileScan`).
+                if DotfileScan.isDotfile(item) {
+                    enumerator.skipDescendants()
+                    continue
+                }
                 let abs = item.standardizedFileURL.path
                 guard abs.hasPrefix(rootPath) else { continue }
                 let res = try? item.resourceValues(forKeys: [

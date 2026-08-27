@@ -67,10 +67,11 @@ final class ProjectsBrowser {
         let fm = FileManager.default
         let children: [URL]
         do {
+            // Dotfiles by name, never by the `hidden` flag (`DotfileScan`).
             children = try fm.contentsOfDirectory(
                 at: root,
                 includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles])
+                options: []).filter { !DotfileScan.isDotfile($0) }
         } catch {
             // The root itself is unreadable (bad bookmark, evicted root, perms).
             // Surface it, clear projects, and bail — nothing to list.

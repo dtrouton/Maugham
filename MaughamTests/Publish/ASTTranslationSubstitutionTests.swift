@@ -261,6 +261,58 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
             "source body must be replaced, got \(text)")
     }
 
+    // MARK: - real translation: fountain structure is the SOURCE's
+
+    /// The Serbian preview bug (2026-08-27): a Cyrillic slugline re-parses as
+    /// a character cue, and the emitter trusted the re-parse. The source
+    /// paragraph's element is authoritative — the translated edition's AST
+    /// must carry a scene heading, with the translated words, and the cue +
+    /// dialogue that follow it must keep their roles too.
+    func test_realTranslation_cyrillicSlugline_isASceneHeadingNotACue() async throws {
+        let body = """
+        EXT. TERRACE - DAY
+
+        GRACE
+        Morning, everyone.
+
+        CUT TO:
+        """
+        let fx = try await makeFixture(fileName: "scene.fountain", body: body)
+        XCTAssertEqual(fx.doc.sequence.count, 3, "fixture must be heading + block + transition")
+
+        let translations = ["ЕКСТ. ТЕРАСА - ДАН", "ГРЕЈС\nДобро јутро свима.", "РЕЗ НА:"]
+        let slug = DeviceSlug.make(from: "test-mac")
+        for (id, text) in zip(fx.doc.sequence, translations) {
+            let source = fx.doc.paragraphs[id] ?? ""
+            let rec = TranslationRecord(
+                paragraphId: id, language: "sr", text: text,
+                sourceHash: TranslationHash.hash(source), verbatim: false)
+            try await TranslationStore.append(
+                rec, forDocId: fx.docId, deviceSlug: slug, in: fx.store.url)
+        }
+
+        let ast = try ProjectASTBuilder.build(
+            from: ProjectStoreASTSource(projectStore: fx.store, language: "sr"))
+        let nodes = try XCTUnwrap(ast.sections.first?.nodes)
+        let shape = nodes.map { node -> String in
+            guard case .fountain(let f) = node else { return "prose" }
+            switch f {
+            case .sceneHeading(let s, _): return "heading(\(s))"
+            case .character(let s): return "character(\(s))"
+            case .dialogue(let i): return "dialogue(\(Self.flatten(inlines: i)))"
+            case .transition(let s): return "transition(\(s))"
+            case .action(let i): return "action(\(Self.flatten(inlines: i)))"
+            default: return "other"
+            }
+        }
+        XCTAssertEqual(shape, [
+            "heading(ЕКСТ. ТЕРАСА - ДАН)",
+            "character(ГРЕЈС)",
+            "dialogue(Добро јутро свима.)",
+            "transition(РЕЗ НА:)",
+        ], "the translated edition must keep the source's structure with the translated words")
+    }
+
     // MARK: - plain-text flatteners (assert translated text, ignore inline shape)
 
     private static func flatten(inlines: [ProjectAST.Inline]) -> String {

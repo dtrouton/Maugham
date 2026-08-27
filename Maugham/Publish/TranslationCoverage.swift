@@ -197,16 +197,22 @@ enum TranslationCoverage {
 
     /// Tokenize source vs substituted display text (anchors stripped, matching
     /// what the emitter renders) and return a warning naming the piece + first
-    /// divergent line index + both element names, or nil if the element
-    /// sequences match. Entries are assumed fully covered, so
-    /// `translatedText ?? sourceText` is the translated text.
+    /// divergent line index + both element names (+ how many more lines
+    /// drift), or nil if the element sequences match. The substituted text is
+    /// the SAME structure-preserved text `ProjectStoreASTSource` hands the
+    /// emitter (`TranslatedFountainStructure.displayText(for:)`), so a warning
+    /// here is residual drift the output actually carries — a paragraph whose
+    /// translation has a different line count than its source, or an element
+    /// Fountain has no forced marker for — never a drift the emitter already
+    /// corrected. Entries are assumed fully covered.
     private static func fountainDrift(
         title: String, entries: [TranslatedDocument.Entry]
     ) -> String? {
         let sourceText = MarkdownDisplayFilter.stripAnchors(
             entries.map(\.sourceText).joined(separator: "\n\n"))
         let subText = MarkdownDisplayFilter.stripAnchors(
-            entries.map { $0.translatedText ?? $0.sourceText }.joined(separator: "\n\n"))
+            entries.map(TranslatedFountainStructure.displayText(for:))
+                .joined(separator: "\n\n"))
         // Two uncached FountainTokenizer parses per fully-covered fountain
         // piece, on every gated compile. Accepted: tectonic dominates compile
         // cost by orders of magnitude, so re-parsing here isn't worth a cache.
@@ -215,10 +221,17 @@ enum TranslationCoverage {
         if sourceLines == subLines { return nil }
 
         let n = min(sourceLines.count, subLines.count)
-        for i in 0..<n where sourceLines[i] != subLines[i] {
+        let divergent = (0..<n).filter { sourceLines[$0] != subLines[$0] }
+            + Array(n..<max(sourceLines.count, subLines.count))
+        if let i = divergent.first, i < n {
+            // One warning per piece, but it says how much of the piece it
+            // stands for — a first-hit alone read as a single bad line over a
+            // body where every slugline had drifted.
+            let more = divergent.count - 1
             return "\(title): fountain element drift at line \(i) — "
                 + "source \(elementName(sourceLines[i])), "
                 + "translated \(elementName(subLines[i]))"
+                + (more > 0 ? " (and \(more) more line\(more == 1 ? "" : "s"))" : "")
         }
         // Same prefix, differing length.
         let i = n

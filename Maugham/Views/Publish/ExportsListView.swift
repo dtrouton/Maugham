@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 import AppKit
 
 /// Binder footer section listing files in the project's `Exports/` directory.
@@ -112,8 +113,9 @@ extension ExportsListView {
             let urls = (try? FileManager.default.contentsOfDirectory(
                 at: exports,
                 includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
-                options: [.skipsHiddenFiles])) ?? []
+                options: [])) ?? []
             return urls
+                .filter { !DotfileScan.isDotfile($0) }
                 .filter { ["pdf", "epub"].contains($0.pathExtension.lowercased()) }
                 .map { url in
                     let mod = (try? url.resourceValues(

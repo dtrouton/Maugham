@@ -73,13 +73,17 @@ struct ColdLaunchDownloader {
             .appendingPathComponent(".maugham", isDirectory: true)
             .appendingPathComponent("ops", isDirectory: true)
         let fm = FileManager.default
+        // Dotfiles by name, never by the `hidden` flag (`DotfileScan`): the
+        // synced tree flags files under `.maugham/` behind Maugham's back,
+        // and an op-log file dropped here is a document the phone never sees.
         guard let entries = try? fm.contentsOfDirectory(
             at: opsDir,
             includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles])
+            options: [])
         else { return [] }
         return entries.filter { url in
-            OpLogStore.docId(fromOpLogFilename: url.lastPathComponent) != nil
+            !DotfileScan.isDotfile(url)
+                && OpLogStore.docId(fromOpLogFilename: url.lastPathComponent) != nil
         }
     }
 }

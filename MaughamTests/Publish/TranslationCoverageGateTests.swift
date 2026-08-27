@@ -239,25 +239,16 @@ final class TranslationCoverageGateTests: XCTestCase {
         XCTAssertTrue(message.contains("no translation layer for 'es'"), message)
     }
 
-    // MARK: - Scenario 4: fountain ALL-CAPS action→character drift
+    // MARK: - Scenario 4: fountain element drift
 
-    func test_fountainDrift_allCapsActionToCharacter_warns() async throws {
-        // Hand-built fountain project: scene heading + a two-line action block.
-        let body = """
-        INT. WAR ROOM - DAY
-
-        The captain nods slowly.
-        Ready the men now.
-        """
+    private func freshlyCovered(
+        body: String, translations: [String]
+    ) async throws -> TranslationCoverage.Report {
         let (store, docID, doc) = try await makeFountainFixture(body: body)
-        XCTAssertEqual(doc.sequence.count, 2,
-            "fixture must be scene heading + one action block paragraph")
-        let ids = doc.sequence
-
-        // Fully cover the piece. Scene heading: identity. Action block: a
-        // translation that reads as an ALL-CAPS character cue + dialogue.
+        XCTAssertEqual(doc.sequence.count, translations.count,
+            "fixture paragraph count must match the translations supplied")
         let slug = DeviceSlug.make(from: "test-mac")
-        func fresh(_ id: String, _ text: String) async throws {
+        for (id, text) in zip(doc.sequence, translations) {
             let rec = TranslationRecord(
                 paragraphId: id, language: "es", text: text,
                 sourceHash: TranslationHash.hash(doc.paragraphs[id] ?? ""),
@@ -265,17 +256,75 @@ final class TranslationCoverageGateTests: XCTestCase {
             try await TranslationStore.append(
                 rec, forDocId: docID, deviceSlug: slug, in: store.url)
         }
-        try await fresh(ids[0], doc.paragraphs[ids[0]] ?? "")
-        try await fresh(ids[1], "EL CAPITÁN\nPreparen a los hombres.")
-
         let report = try TranslationCoverage.check(projectStore: store, language: "es")
         XCTAssertFalse(report.isBlocked, "piece must be fully covered for drift to run")
+        return report
+    }
+
+    /// The case this test used to WARN about — an action block whose
+    /// translation opens ALL-CAPS and re-parses as a cue — is now carried
+    /// across by `TranslatedFountainStructure` (the source element wins), so
+    /// the emitter renders action and there is nothing to warn about. A
+    /// warning that fired over corrected output would send the translator
+    /// chasing a drift the book does not have.
+    func test_fountainDrift_allCapsActionToCharacter_isPreservedAndSilent() async throws {
+        let body = """
+        INT. WAR ROOM - DAY
+
+        The captain nods slowly.
+        Ready the men now.
+        """
+        let report = try await freshlyCovered(
+            body: body,
+            translations: ["INT. WAR ROOM - DAY", "EL CAPITÁN\nPreparen a los hombres."])
+        XCTAssertEqual(report.fountainDriftWarnings, [],
+            "structure the emitter preserves must not be reported as drift")
+    }
+
+    /// The Serbian shape: every slugline Cyrillic. Fully preserved — zero
+    /// warnings, because zero of the output is affected.
+    func test_fountainDrift_cyrillicSluglines_areSilent() async throws {
+        let body = """
+        EXT. TERRACE - DAY
+
+        GRACE
+        Morning.
+
+        INT. BAR - NIGHT
+        """
+        let report = try await freshlyCovered(
+            body: body,
+            translations: ["ЕКСТ. ТЕРАСА - ДАН", "ГРЕЈС\nДобро јутро.", "ИНТ. БАР - НОЋ"])
+        XCTAssertEqual(report.fountainDriftWarnings, [])
+    }
+
+    /// Residual drift — a translation whose line count differs from its
+    /// source paragraph cannot be aligned, so the re-parse stands and the
+    /// warning must say so: the piece, the first line, both elements, and how
+    /// many MORE lines drift (the first sighting was one warning over a body
+    /// where ~45 sluglines had drifted, and it read as a single bad line).
+    func test_fountainDrift_unalignable_warnsOnceWithACount() async throws {
+        let body = """
+        EXT. TERRACE - DAY
+
+        GRACE
+        Morning.
+
+        INT. BAR - NIGHT
+        """
+        // Both sluglines translated as TWO lines: unalignable, so both drift
+        // (heading → cue, and a second line the source never had).
+        let report = try await freshlyCovered(
+            body: body,
+            translations: ["ЕКСТ. ТЕРАСА - ДАН\nдруга", "ГРЕЈС\nДобро јутро.", "ИНТ. БАР - НОЋ\nдруга"])
         XCTAssertEqual(report.fountainDriftWarnings.count, 1,
-            "expected exactly one drift warning, got \(report.fountainDriftWarnings)")
+            "one warning per piece, got \(report.fountainDriftWarnings)")
         let warning = try XCTUnwrap(report.fountainDriftWarnings.first)
         XCTAssertTrue(warning.contains("Scene"), "warning must name the piece: \(warning)")
-        XCTAssertTrue(warning.contains("action"), "warning must name the source element: \(warning)")
-        XCTAssertTrue(warning.contains("character"), "warning must name the drifted element: \(warning)")
+        XCTAssertTrue(warning.contains("source scene heading"), warning)
+        XCTAssertTrue(warning.contains("translated character"), warning)
+        XCTAssertTrue(warning.contains("more line"),
+            "warning must say how much of the piece drifts beyond the first line: \(warning)")
     }
 
     // MARK: - Scenario 5: fully-fresh compile passes clean
