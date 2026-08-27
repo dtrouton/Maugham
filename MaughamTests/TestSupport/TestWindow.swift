@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import XCTest
+@testable import Maugham
 
 /// The one way a test builds a window.
 ///
@@ -23,8 +24,21 @@ import XCTest
 /// rejected in the same session — AppKit clamps a titled window's origin back
 /// onto the screen, so "off-screen" silently meant "visible".
 ///
-/// The process-level half — no Dock tile, no ⌘-tab entry — is
-/// `TestHost.applyActivationPolicyIfHosting()` in the app, not here.
+/// The process-level half is `TestHost` in the app, not here: no Dock tile,
+/// no ⌘-tab entry, and a sweep that conceals every window the host shows
+/// that this fixture never built — a sheet (its own child window at full
+/// alpha, whatever its parent's; `DesignGateTests`' "Finalize this design"
+/// dialog floated over the developer's desktop the first evening the gate
+/// ran hidden), an alert panel, a popover, the app's own Welcome scene.
+///
+/// ## Silent by default
+///
+/// The default window class is `SilentTestWindow`, not `NSWindow`: AppKit
+/// beeps once for every keystroke no responder claims, and the suites send
+/// plenty of those on purpose (Escape at nothing, ⌫ with no selection). The
+/// first hidden gate turned that from noise under the window-flashing into
+/// the only thing the developer could hear. A suite has no reason to ask for
+/// a plain `NSWindow`, and none does.
 ///
 /// ## Activation is opt-in
 ///
@@ -54,15 +68,15 @@ enum TestWindow {
 
     /// Make a window of `type`, hidden, and present it as asked.
     ///
-    /// `type` is the window class a suite needs — `SilentTestWindow` when it
-    /// synthesises key events, `KeyTestWindow` when it must read as key without
+    /// `type` is the window class a suite needs — `SilentTestWindow` (the
+    /// default) for anything, `KeyTestWindow` when it must read as key without
     /// the app being active, `CanvasHostWindow`, a suite's own subclass — so
     /// each suite keeps its override while the presentation is the fixture's.
     /// `isReleasedWhenClosed` is always `false`: every window here is owned by
     /// Swift, and a `close()` under ARC otherwise over-releases.
     @discardableResult
     static func make<W: NSWindow>(
-        _ type: W.Type = NSWindow.self,
+        _ type: W.Type = SilentTestWindow.self,
         contentRect: CGRect,
         styleMask: NSWindow.StyleMask = [.titled],
         deferred: Bool = false,
@@ -85,7 +99,7 @@ enum TestWindow {
     static func mount<W: NSWindow>(
         _ view: some View,
         size: CGSize,
-        as type: W.Type = NSWindow.self,
+        as type: W.Type = SilentTestWindow.self,
         styleMask: NSWindow.StyleMask = [.titled],
         present presentation: Presentation = .front
     ) -> W {
@@ -132,13 +146,11 @@ enum TestWindow {
         return app.isActive
     }
 
-    /// The hidden-window configuration. Idempotent.
+    /// The hidden-window configuration — `TestHost`'s, applied here at
+    /// construction rather than on the window's first update, so a fixture
+    /// window is never drawn even for a frame. Idempotent.
     static func conceal(_ window: NSWindow) {
-        window.alphaValue = 0
-        window.ignoresMouseEvents = true
-        window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
-        window.isExcludedFromWindowsMenu = true
-        window.animationBehavior = .none
+        TestHost.conceal(window)
     }
 }
 
