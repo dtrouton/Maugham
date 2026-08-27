@@ -126,4 +126,83 @@ final class PublishConfigStoreTests: XCTestCase {
         XCTAssertEqual(section2.startOn, .recto,          "startOn must be updated to .recto")
         XCTAssertEqual(section2.includeInToc, true,       "includeInToc must still be true")
     }
+
+    // MARK: - additionalValidation (imprints P1, Task 3)
+    //
+    // `set_publish_config` needs a rule the pure validator cannot express — a
+    // template that exists, an allowlist id the project actually has — so
+    // `applyPatch` takes a second, project-aware pass. Its contract is the
+    // same as the pure one's: a non-empty result means the errors come back
+    // and NOTHING is written.
+
+    func test_applyPatch_additionalValidationRefuses_andTheFileIsByteIdentical() async throws {
+        let store = PublishConfigStore(projectURL: tmp)
+        try await store.save(PublishConfig(metadata: .init(title: "Good", author: "Y")))
+        let url = tmp.appendingPathComponent(".maugham/publish/config.json")
+        let before = try Data(contentsOf: url)
+
+        let patch = #"{"metadata":{"title":"Updated"}}"#
+        let result = try await store.applyPatch(Data(patch.utf8)) { _ in
+            [.init(field: "imprints.x.template", message: "no such template")]
+        }
+
+        XCTAssertEqual(result.errors.map(\.field), ["imprints.x.template"])
+        XCTAssertEqual(try Data(contentsOf: url), before,
+                       "a refused patch must leave the config file byte-identical")
+    }
+
+    func test_applyPatch_additionalValidationPasses_andTheFileChanges() async throws {
+        let store = PublishConfigStore(projectURL: tmp)
+        try await store.save(PublishConfig(metadata: .init(title: "Good", author: "Y")))
+        let url = tmp.appendingPathComponent(".maugham/publish/config.json")
+        let before = try Data(contentsOf: url)
+
+        let patch = #"{"metadata":{"title":"Updated"}}"#
+        let result = try await store.applyPatch(Data(patch.utf8)) { _ in [] }
+
+        XCTAssertTrue(result.errors.isEmpty, "got \(result.errors)")
+        XCTAssertNotEqual(try Data(contentsOf: url), before,
+                          "an accepted patch must reach disk")
+        let reloaded = try await store.load()
+        XCTAssertEqual(reloaded?.metadata.title, "Updated")
+    }
+
+    /// The extra pass sees the MERGED config, not the one on disk — otherwise
+    /// it would judge the state the patch is replacing.
+    func test_applyPatch_additionalValidationSeesTheMergedConfig() async throws {
+        let store = PublishConfigStore(projectURL: tmp)
+        try await store.save(PublishConfig(metadata: .init(title: "Good", author: "Y")))
+
+        let seen = Mutex<String?>(nil)
+        _ = try await store.applyPatch(Data(#"{"metadata":{"title":"Updated"}}"#.utf8)) { cfg in
+            seen.set(cfg.metadata.title)
+            return []
+        }
+        XCTAssertEqual(seen.get(), "Updated")
+    }
+
+    /// The pure rules run FIRST, and a config they refuse never reaches the
+    /// project-aware pass — which is what keeps the same rule from being
+    /// reported twice (the project-aware validator runs the pure rules itself).
+    func test_applyPatch_pureFailureShortCircuitsTheExtraPass() async throws {
+        let store = PublishConfigStore(projectURL: tmp)
+        try await store.save(PublishConfig(metadata: .init(title: "Good", author: "Y")))
+
+        let ran = Mutex<Bool>(false)
+        let result = try await store.applyPatch(Data(#"{"metadata":{"title":""}}"#.utf8)) { _ in
+            ran.set(true)
+            return []
+        }
+        XCTAssertEqual(result.errors.map(\.field), ["metadata.title"])
+        XCTAssertFalse(ran.get(), "the extra pass must not run over a config the pure rules refused")
+    }
+}
+
+/// Minimal box so a `@Sendable` validation closure can report back into a test.
+private final class Mutex<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+    init(_ value: Value) { self.value = value }
+    func get() -> Value { lock.lock(); defer { lock.unlock() }; return value }
+    func set(_ newValue: Value) { lock.lock(); value = newValue; lock.unlock() }
 }
