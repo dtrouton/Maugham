@@ -393,11 +393,15 @@ struct InboxPane: View {
     ///
     /// The `Task { do … catch { promoteError = … } }` shape is this file's, and
     /// the alert it feeds says "Couldn't promote" — the right frame for every
-    /// refusal this can produce, each of them shared with the palette sibling:
-    /// a capture with nothing in it, an asset that has gone missing, and (M1A
-    /// Task 12) an asset that is not a picture. The last reads well in the alert
-    /// because `ImagePasteHandler.ImagePasteError` is a `LocalizedError` and
-    /// names the file. **Read the throwing calls rather than counting here.**
+    /// refusal this can produce. Most are shared with the palette sibling: a
+    /// capture with nothing in it, an asset that has gone missing, and (M1A
+    /// Task 12) an asset that is not a picture — the last reads well in the
+    /// alert because `ImagePasteHandler.ImagePasteError` is a `LocalizedError`
+    /// and names the file. **One is not shared** (issue #33):
+    /// `CanvasStore.SidecarRefused` is a hazard unique to this route — the
+    /// palette sibling never touches `.maugham/canvas.json` — and it too is a
+    /// `LocalizedError`, naming the project instead of a file. **Read the
+    /// throwing calls rather than counting here.**
     private func sendToCanvas(_ entry: InboxEntry) {
         audio.stop()
         Task {

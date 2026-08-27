@@ -795,6 +795,10 @@ final class InboxToCanvasTests: XCTestCase {
         f.url.appendingPathComponent(CanvasStore.sidecarRelativePath)
     }
 
+    private func scrapsURL(_ f: Fixture) -> URL {
+        f.url.appendingPathComponent(CanvasStore.scrapsRelativePath)
+    }
+
     /// The well's name derived the way production derives it — from `canvas.md`
     /// itself — rather than spelled, so this test follows the scraps file if it
     /// ever moves.
@@ -803,26 +807,33 @@ final class InboxToCanvasTests: XCTestCase {
     }
 
     /// Seed a refused sidecar with the writer's words beside it, and hand back
-    /// the bytes every refusal test compares against. `CanvasModelTests` seeds
-    /// its load-time twin the same way.
-    private func seedUnreadableSidecar(_ f: Fixture, _ json: String) throws -> Data {
+    /// the bytes of BOTH files every refusal test compares against.
+    /// `CanvasModelTests` and `CanvasClaudeWriteTests` seed their load-time and
+    /// MCP-write twins the same way.
+    ///
+    /// `canvas.md` is in the comparison because it is *content* (spec §3.2): the
+    /// sidecar can be deleted without losing a word, so a refusal that still
+    /// rewrote the scraps file would cost the writer the one thing the sidecar's
+    /// loss does not — and `CanvasStore.writeNow` writes canvas.md FIRST, so it
+    /// is the constitution-relevant half of "wrote anyway."
+    private func seedUnreadableSidecar(_ f: Fixture, _ json: String) throws -> (sidecar: Data, scraps: Data) {
         let sidecar = sidecarURL(f)
         try FileManager.default.createDirectory(
             at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
         try json.write(to: sidecar, atomically: true, encoding: .utf8)
         try "\(ScrapText.banner)\n\n## futr\n\nA layout from a build we do not have.\n"
-            .write(to: f.url.appendingPathComponent(CanvasStore.scrapsRelativePath),
-                   atomically: true, encoding: .utf8)
-        return try Data(contentsOf: sidecar)
+            .write(to: scrapsURL(f), atomically: true, encoding: .utf8)
+        return (try Data(contentsOf: sidecar), try Data(contentsOf: scrapsURL(f)))
     }
 
-    /// Send, and assert the three things a refusal owes the writer: it is *told*
+    /// Send, and assert the four things a refusal owes the writer: it is *told*
     /// (a `SidecarRefused` naming the project, which is what the pane's
-    /// "Couldn't promote" alert reads out), the file on disk is **byte-identical**
-    /// to what was there before, and the entry is still `.new` in the manifest —
-    /// so the capture is retryable once the writer updates Maugham, rather than
-    /// gone from the pane and nowhere else.
-    private func assertRefused(_ f: Fixture, entryID: String, sidecarBefore: Data,
+    /// "Couldn't promote" alert reads out), both canvas files on disk are
+    /// **byte-identical** to what was there before, and the entry is still
+    /// `.new` in the manifest — so the capture is retryable once the writer
+    /// updates Maugham, rather than gone from the pane and nowhere else.
+    private func assertRefused(_ f: Fixture, entryID: String,
+                               before: (sidecar: Data, scraps: Data),
                                file: StaticString = #filePath, line: UInt = #line) async throws {
         let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == entryID },
                                   file: file, line: line)
@@ -842,9 +853,13 @@ final class InboxToCanvasTests: XCTestCase {
                     file: file, line: line)
         }
 
-        XCTAssertEqual(try Data(contentsOf: sidecarURL(f)), sidecarBefore,
+        XCTAssertEqual(try Data(contentsOf: sidecarURL(f)), before.sidecar,
                        "the other build's arrangement is byte-identical on disk — a "
                        + "refusal that still wrote is the whole defect",
+                       file: file, line: line)
+        XCTAssertEqual(try Data(contentsOf: scrapsURL(f)), before.scraps,
+                       "…and canvas.md is untouched too: the words are content, and "
+                       + "a refused call may not add anything to them",
                        file: file, line: line)
 
         // Read the status back off DISK rather than trusting the in-memory
@@ -871,7 +886,7 @@ final class InboxToCanvasTests: XCTestCase {
         let before = try seedUnreadableSidecar(f, Self.sidecarFromANewerBuild)
         try await seed(f, [textEntry("t20", "a thought worth keeping")])
 
-        try await assertRefused(f, entryID: "t20", sidecarBefore: before)
+        try await assertRefused(f, entryID: "t20", before: before)
     }
 
     /// **Before the copy.** The refusal has to be raised by `sendToCanvas` itself
@@ -891,7 +906,7 @@ final class InboxToCanvasTests: XCTestCase {
         let original = try seedImageAsset(f, name: "p20.png")
         try await seed(f, [photoEntry("p20", filename: "p20.png")])
 
-        try await assertRefused(f, entryID: "p20", sidecarBefore: before)
+        try await assertRefused(f, entryID: "p20", before: before)
 
         let well = f.url.appendingPathComponent(canvasAssetWellName)
         let ingested = (try? FileManager.default.contentsOfDirectory(atPath: well.path)) ?? []
@@ -912,7 +927,7 @@ final class InboxToCanvasTests: XCTestCase {
         let before = try seedUnreadableSidecar(f, "not json at all")
         try await seed(f, [textEntry("t21", "another thought")])
 
-        try await assertRefused(f, entryID: "t21", sidecarBefore: before)
+        try await assertRefused(f, entryID: "t21", before: before)
     }
 
 }

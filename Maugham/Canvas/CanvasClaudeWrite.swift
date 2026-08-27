@@ -121,10 +121,11 @@ enum CanvasClaudeWrite {
         }
 
         let sidecar = CanvasStore(projectRoot: projectRoot)
-        // **The first statement on this route, and before any mutation** — Task 1's
-        // one door, never a second `!= .refused` spelled here. A sidecar this build
-        // cannot read loads as an empty scene, and everything below would then
-        // stamp that emptiness back over somebody's whole arrangement (#33).
+        // **The first statement on this route, and before any mutation** —
+        // `CanvasStore.loadForTransientWrite()`'s one door (#33), never a second
+        // `!= .refused` spelled here. A sidecar this build cannot read loads as an
+        // empty scene, and everything below would then stamp that emptiness back
+        // over somebody's whole arrangement.
         let loaded = try sidecar.loadForTransientWrite()
         var scene = loaded.scene
         var scraps = loaded.scraps

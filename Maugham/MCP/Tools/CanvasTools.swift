@@ -440,7 +440,9 @@ public enum AddCanvasScrapsTool: MCPTool {
         let params = try decodeParams(Params.self, from: paramsJSON)
         let entry = try resolveProject(params.project_id, in: registry)
 
-        // ---- Everything is validated before anything is written. ----
+        // ---- What follows is validation — decided from the call alone, and
+        // ---- complete before anything is written. It is not this call's only
+        // ---- refusal, though: see the note below, where `apply` asks one more. ----
 
         guard !params.scraps.isEmpty else {
             throw MCPError.toolError(payload: .init(
