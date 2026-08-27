@@ -339,22 +339,8 @@ final class AnnotationStetTests: XCTestCase {
             id: cid, userResponse: "it stands", undoManager: um)
         XCTAssertEqual(annotation(doc, cid)?.status, .stetted)
 
-        let fm = FileManager.default
-        let opsDirectory = projectURL.appendingPathComponent(".maugham/ops")
-        let logs = try fm.contentsOfDirectory(
-            at: opsDirectory, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "jsonl" }
-        XCTAssertFalse(logs.isEmpty, "premise: this doc has an op log on disk")
-        let originals: [(URL, NSNumber)] = try logs.map {
-            ($0, try XCTUnwrap(
-                fm.attributesOfItem(atPath: $0.path)[.posixPermissions] as? NSNumber))
-        }
-        defer {
-            for (url, mode) in originals {
-                try? fm.setAttributes(
-                    [.posixPermissions: mode], ofItemAtPath: url.path)
-            }
-        }
+        let originals = try opLogModes(in: projectURL)
+        defer { restoreModes(originals) }
 
         var lockedAfterTheReopen = false
         let armed = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
@@ -362,10 +348,7 @@ final class AnnotationStetTests: XCTestCase {
         ) { _ in
             guard !lockedAfterTheReopen else { return }
             lockedAfterTheReopen = true
-            for (url, _) in originals {
-                try? fm.setAttributes(
-                    [.posixPermissions: 0o400], ofItemAtPath: url.path)
-            }
+            lockForWriting(originals)
         }
         defer { NotificationCenter.default.removeObserver(armed) }
 
@@ -382,6 +365,48 @@ final class AnnotationStetTests: XCTestCase {
         XCTAssertEqual(annotation(doc, cid)?.status, .open,
                        "the sentence is true: the reopen stands, the accept did not "
                        + "come back")
+    }
+
+    /// **The other side of that sentence: when the REOPEN fails, nothing is
+    /// said** (Denver's ruling on the final review). The note never left
+    /// `.stetted`, so "it's open again" would be a lie about the queue the
+    /// writer is looking at — and there is nothing to be sorry about either,
+    /// because nothing moved: no resolution was displaced-and-not-put-back.
+    /// The restore waits on the reopen, and this branch leaves a failed reopen
+    /// exactly as loud as it has always been (the log alone).
+    ///
+    /// Forcing it is the easy direction — lock the op-log files BEFORE ⌘Z and
+    /// the first append is the one that fails.
+    func test_aFailedReopenRestoresNothingAndSaysNothing() async throws {
+        let (projectURL, docURL) = try makeTestProject(
+            prefix: "Stet-ReopenFails", initialMd: "A single paragraph.\n")
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let cid = try await doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "is this too florid?")
+        try await doc.acceptAnnotation(id: cid, userResponse: "yes — cut it")
+        let um = UndoManager()
+        try await doc.stetAnnotation(
+            id: cid, userResponse: "it stands", undoManager: um)
+        XCTAssertEqual(annotation(doc, cid)?.status, .stetted)
+        let opsBefore = doc._opLogMirror.count
+
+        let originals = try opLogModes(in: projectURL)
+        defer { restoreModes(originals) }
+        lockForWriting(originals)
+
+        let said = await notices {
+            um.undo()
+            await doc.awaitPendingUndoWork()
+        }
+
+        XCTAssertEqual(said, [], "nothing moved, so there is nothing to say")
+        XCTAssertEqual(annotation(doc, cid)?.status, .stetted,
+                       "the note never left .stetted — which is why the "
+                       + "open-again sentence would have been false")
+        XCTAssertEqual(doc._opLogMirror.count, opsBefore,
+                       "and no op landed: neither the reopen nor the restore")
     }
 
     /// **The fact that makes the restores above reachable.** A2 is not a theoretical
@@ -734,5 +759,44 @@ final class AnnotationStetTests: XCTestCase {
 
         XCTAssertEqual(preview.annotationsToReopen, 0,
             "the note was stetted before it was archived, so a restore does not reopen it")
+    }
+}
+
+// MARK: - Failing an op-log append on purpose
+
+/// The two tests above that force an append to fail share these. They are FILE
+/// SCOPE rather than methods because one of them runs inside a `@Sendable`
+/// NotificationCenter observer block, which cannot capture a `@MainActor` test
+/// case.
+///
+/// **It is the FILE's permission that matters here, not the directory's.**
+/// `JSONLAppendStore.append` opens an existing log with
+/// `FileHandle(forWritingTo:)` and only writes a new file when none exists — so
+/// the `0o500`-on-the-ops-directory idiom used elsewhere in this suite blocks
+/// file CREATION and would let both of these appends straight through.
+private func opLogModes(in projectURL: URL) throws -> [(URL, NSNumber)] {
+    let fm = FileManager.default
+    let logs = try fm.contentsOfDirectory(
+        at: projectURL.appendingPathComponent(".maugham/ops"),
+        includingPropertiesForKeys: nil)
+        .filter { $0.pathExtension == "jsonl" }
+    XCTAssertFalse(logs.isEmpty, "premise: this doc has an op log on disk")
+    return try logs.map {
+        ($0, try XCTUnwrap(
+            fm.attributesOfItem(atPath: $0.path)[.posixPermissions] as? NSNumber))
+    }
+}
+
+private func lockForWriting(_ modes: [(URL, NSNumber)]) {
+    for (url, _) in modes {
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o400], ofItemAtPath: url.path)
+    }
+}
+
+private func restoreModes(_ modes: [(URL, NSNumber)]) {
+    for (url, mode) in modes {
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: mode], ofItemAtPath: url.path)
     }
 }

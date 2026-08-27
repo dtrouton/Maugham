@@ -880,7 +880,20 @@ extension Document {
                     doc.declineUndo(.stet)
                     return
                 }
-                try? await doc.reopenAnnotation(id: id)
+                // The restore below — and therefore the sentence it may have to
+                // say — WAIT on this having landed (#41's final review). If the
+                // reopen itself fails the note is still `.stetted`, and
+                // "it's open again" would be a lie about the queue the writer
+                // is looking at; nothing was displaced-and-not-put-back,
+                // because nothing moved at all. That case keeps the log-only
+                // behaviour it has always had — a failed reopen is not
+                // something this branch changed.
+                do {
+                    try await doc.reopenAnnotation(id: id)
+                } catch {
+                    documentLog.error("stetAnnotation undo: the reopen for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — the note is still stetted, so nothing is restored and nothing is said")
+                    return
+                }
 
                 // …and put back what the stet displaced. `.open`/nil needs no
                 // second op — that is what the reopen already leaves. A
