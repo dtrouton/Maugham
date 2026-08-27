@@ -141,6 +141,314 @@ final class AnnotationStetTests: XCTestCase {
             "the stet op survives its own undo")
     }
 
+    /// **The control for the two restores below** (#41 A2). A stet placed over
+    /// an OPEN note displaced no resolution, so its undo has nothing to put
+    /// back and must append the reopen ALONE. The restore is a SECOND op; run
+    /// unconditionally it would settle every reopened note `.accepted` — undo
+    /// inventing a resolution nobody chose, which is the same failure the
+    /// restore exists to prevent from the other direction.
+    func test_undoOfAStetOverAnOpenNoteStillJustReopens() async throws {
+        let h = try await makeHarness(prefix: "Stet-UndoOpenControl")
+        let cid = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "note")
+        let um = UndoManager()
+
+        try await h.doc.stetAnnotation(id: cid, undoManager: um)
+        let opsAfterStet = h.doc._opLogMirror.count
+
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .open)
+        XCTAssertEqual(h.doc._opLogMirror.count, opsAfterStet + 1,
+                       "exactly one op — the reopen. Nothing was re-applied over it")
+        XCTAssertEqual(h.doc._opLogMirror.suffix(1).map(\.kind),
+                       [.annotationReopen])
+    }
+
+    // MARK: - ⌘Z over a note that was ALREADY resolved (#41 A2)
+
+    /// **Undoing a stet puts back the resolution it displaced.** Stet refuses
+    /// nothing on the way in — the deriver's latest-lifecycle-op-wins rule
+    /// settles a stet over an earlier resolution — and the queue's row OFFERS
+    /// Stet on an accepted comment (`AnnotationRow.showsReopen` is `false` for
+    /// `.accepted`, so with show-resolved on the row draws its dispositions,
+    /// Stet among them; `test_theRowsStetReachesAnAcceptedNote` pins that).
+    /// Press it, change your mind, press ⌘Z: before the fix the note came back
+    /// `.open` and the reply the writer typed into **Reply…** was gone. One
+    /// ⌘Z had taken two of their decisions — M5-AN-036's shape, arriving at
+    /// the fourth resolution.
+    func test_undoOfAStetOverAnAcceptedNoteRestoresTheAcceptAndItsReply() async throws {
+        let h = try await makeHarness(prefix: "Stet-UndoOverAccept")
+        let cid = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "is this too florid?")
+        // The textless accept arm — "Got it" / "Reply…" with the writer's own
+        // words. Nothing is spliced, so the reply is all there is to lose.
+        try await h.doc.acceptAnnotation(id: cid, userResponse: "yes — cut it")
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .accepted)
+        let um = UndoManager()
+
+        try await h.doc.stetAnnotation(
+            id: cid, userResponse: "second thoughts: it stands", undoManager: um)
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .stetted)
+        let opsAfterStet = h.doc._opLogMirror.count
+
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .accepted,
+                       "not .open — the accept the stet displaced is back")
+        XCTAssertEqual(annotation(h.doc, cid)?.userResponse, "yes — cut it",
+                       "and back WHOLE: the writer's Reply… text returns with it")
+        // ADR 0023: two compensating ops, appended in order. Nothing truncated.
+        XCTAssertEqual(
+            h.doc._opLogMirror.suffix(2).map(\.kind),
+            [.annotationReopen, .claudeAccept],
+            "the reopen clears the stet; the accept re-applies what it displaced")
+        XCTAssertEqual(h.doc._opLogMirror.count, opsAfterStet + 2)
+        XCTAssertTrue(
+            h.doc._opLogMirror.contains { $0.kind == .annotationStet },
+            "the stet op survives its own undo")
+    }
+
+    /// The same claim for a rejection, whose written reason is the thing a
+    /// writer would most notice losing. `.rejected → .claudeReject`, carrying
+    /// the reason forward — `withdrawReviewerAnnotation`'s arms, exactly.
+    func test_undoOfAStetOverARejectedNoteRestoresTheReject() async throws {
+        let h = try await makeHarness(prefix: "Stet-UndoOverReject")
+        let cid = try await h.doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: h.pid,
+            body: "tighten this", suggestedText: "A paragraph.")
+        try await h.doc.rejectAnnotation(
+            id: cid, userResponse: "the rhythm needs the extra beat")
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .rejected)
+        let um = UndoManager()
+
+        try await h.doc.stetAnnotation(id: cid, undoManager: um)
+        let opsAfterStet = h.doc._opLogMirror.count
+
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .rejected)
+        XCTAssertEqual(annotation(h.doc, cid)?.userResponse,
+                       "the rhythm needs the extra beat",
+                       "a reject returns with its reason (M5-AN-036's fidelity rule)")
+        XCTAssertEqual(
+            h.doc._opLogMirror.suffix(2).map(\.kind),
+            [.annotationReopen, .claudeReject])
+        XCTAssertEqual(h.doc._opLogMirror.count, opsAfterStet + 2)
+    }
+
+    /// The third arm of the restore switch. An ARCHIVED note is one the writer
+    /// set aside unread; stetting it says something different ("read, and the
+    /// words stand"), and ⌘Z must put the setting-aside back rather than
+    /// leaving the note open in a queue the writer had deliberately cleared it
+    /// from. `.archived → .claudeArchive`, the switch's remaining arm.
+    func test_undoOfAStetOverAnArchivedNoteRestoresTheArchive() async throws {
+        let h = try await makeHarness(prefix: "Stet-UndoOverArchive")
+        let cid = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "for later")
+        try await h.doc.archiveAnnotation(id: cid)
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .archived)
+        let um = UndoManager()
+
+        try await h.doc.stetAnnotation(id: cid, undoManager: um)
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .stetted)
+        let opsAfterStet = h.doc._opLogMirror.count
+
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .archived,
+                       "not .open — the archive the stet displaced is back")
+        XCTAssertEqual(
+            h.doc._opLogMirror.suffix(2).map(\.kind),
+            [.annotationReopen, .claudeArchive])
+        XCTAssertEqual(h.doc._opLogMirror.count, opsAfterStet + 2)
+    }
+
+    /// **The prior is re-captured on every pass, not remembered from the
+    /// first.** ⌘Z restores the accept; ⇧⌘Z re-stets by calling
+    /// `stetAnnotation` FORWARD, which reads the live status (`.accepted`
+    /// again) and captures it afresh; so the second ⌘Z restores the accept and
+    /// its reply exactly as the first did. A registration that closed over the
+    /// first pass's capture would pass a single cycle and fail here — and
+    /// silently, since a `.open` note looks like an ordinary reopen.
+    func test_theStetCycleRestoresTheAcceptEveryTimeNotJustOnce() async throws {
+        let h = try await makeHarness(prefix: "Stet-CycleRecapture")
+        let cid = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "is this too florid?")
+        try await h.doc.acceptAnnotation(id: cid, userResponse: "yes — cut it")
+        let um = UndoManager()
+
+        try await h.doc.stetAnnotation(
+            id: cid, userResponse: "second thoughts: it stands", undoManager: um)
+
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .accepted)
+        XCTAssertEqual(annotation(h.doc, cid)?.userResponse, "yes — cut it")
+
+        XCTAssertTrue(um.canRedo)
+        um.redo()
+        await h.doc.awaitPendingUndoWork()
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .stetted)
+        XCTAssertEqual(annotation(h.doc, cid)?.userResponse,
+                       "second thoughts: it stands",
+                       "the redo forwards the writer's own stet reply")
+
+        XCTAssertTrue(um.canUndo, "the forward re-stet re-registered undo")
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .accepted,
+                       "the second ⌘Z restores the accept too — the redo's own "
+                       + "capture, not the first pass's")
+        XCTAssertEqual(annotation(h.doc, cid)?.userResponse, "yes — cut it",
+                       "with the reply, still")
+    }
+
+    /// **When the re-apply fails, the writer hears it** (RULING-22, #41's
+    /// final review). The reopen lands and the second op does not, so the note
+    /// sits in the queue OPEN with its accept gone — which from the queue is
+    /// indistinguishable from the pre-A2 defect. Logging that and saying
+    /// nothing leaves the writer to report a fixed bug.
+    ///
+    /// **Forcing exactly that half-failure.** Both ops go through
+    /// `opStore.append`, so a lock taken before ⌘Z would fail the REOPEN too
+    /// and the note would stay `.stetted` — a different case, and one where
+    /// "it's open again" would be a lie. The window between them is the
+    /// `.maughamAnnotationsChanged` post: `appendAnnotationOpInternal` posts it
+    /// synchronously at the END of a successful append, so an observer armed
+    /// just before `um.undo()` fires INSIDE the undo closure, after the reopen
+    /// has landed in the log and before the restore's append opens the file.
+    /// Making the op-log files read-only there fails the second op only — and
+    /// `lockedAfterTheReopen` is asserted, so a test that armed but never fired
+    /// cannot pass by taking a shortcut through a different failure.
+    func test_aFailedRestoreOfThePriorResolutionSaysSoRatherThanOnlyLogging() async throws {
+        let (projectURL, docURL) = try makeTestProject(
+            prefix: "Stet-RestoreFails", initialMd: "A single paragraph.\n")
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let cid = try await doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "is this too florid?")
+        try await doc.acceptAnnotation(id: cid, userResponse: "yes — cut it")
+        let um = UndoManager()
+        try await doc.stetAnnotation(
+            id: cid, userResponse: "it stands", undoManager: um)
+        XCTAssertEqual(annotation(doc, cid)?.status, .stetted)
+
+        let originals = try opLogModes(in: projectURL)
+        defer { restoreModes(originals) }
+
+        var lockedAfterTheReopen = false
+        let armed = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamAnnotationsChanged, object: nil, queue: nil
+        ) { _ in
+            guard !lockedAfterTheReopen else { return }
+            lockedAfterTheReopen = true
+            lockForWriting(originals)
+        }
+        defer { NotificationCenter.default.removeObserver(armed) }
+
+        let said = await notices {
+            um.undo()
+            await doc.awaitPendingUndoWork()
+        }
+
+        XCTAssertTrue(lockedAfterTheReopen,
+                      "premise: the reopen landed and armed the lock — without "
+                      + "this the test could pass off a different failure")
+        XCTAssertEqual(said, [
+            "Couldn't put back the note's earlier resolution — it's open again."])
+        XCTAssertEqual(annotation(doc, cid)?.status, .open,
+                       "the sentence is true: the reopen stands, the accept did not "
+                       + "come back")
+    }
+
+    /// **The other side of that sentence: when the REOPEN fails, nothing is
+    /// said** (Denver's ruling on the final review). The note never left
+    /// `.stetted`, so "it's open again" would be a lie about the queue the
+    /// writer is looking at — and there is nothing to be sorry about either,
+    /// because nothing moved: no resolution was displaced-and-not-put-back.
+    /// The restore waits on the reopen, and this branch leaves a failed reopen
+    /// exactly as loud as it has always been (the log alone).
+    ///
+    /// Forcing it is the easy direction — lock the op-log files BEFORE ⌘Z and
+    /// the first append is the one that fails.
+    func test_aFailedReopenRestoresNothingAndSaysNothing() async throws {
+        let (projectURL, docURL) = try makeTestProject(
+            prefix: "Stet-ReopenFails", initialMd: "A single paragraph.\n")
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let cid = try await doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "is this too florid?")
+        try await doc.acceptAnnotation(id: cid, userResponse: "yes — cut it")
+        let um = UndoManager()
+        try await doc.stetAnnotation(
+            id: cid, userResponse: "it stands", undoManager: um)
+        XCTAssertEqual(annotation(doc, cid)?.status, .stetted)
+        let opsBefore = doc._opLogMirror.count
+
+        let originals = try opLogModes(in: projectURL)
+        defer { restoreModes(originals) }
+        lockForWriting(originals)
+
+        let said = await notices {
+            um.undo()
+            await doc.awaitPendingUndoWork()
+        }
+
+        XCTAssertEqual(said, [], "nothing moved, so there is nothing to say")
+        XCTAssertEqual(annotation(doc, cid)?.status, .stetted,
+                       "the note never left .stetted — which is why the "
+                       + "open-again sentence would have been false")
+        XCTAssertEqual(doc._opLogMirror.count, opsBefore,
+                       "and no op landed: neither the reopen nor the restore")
+    }
+
+    /// **The fact that makes the restores above reachable.** A2 is not a theoretical
+    /// arm of a permissive verb: with show-resolved on, the queue's row for an
+    /// ACCEPTED comment draws its dispositions — `AnnotationRow.showsReopen` is
+    /// `false` for `.accepted`, so the `else` branch runs — and every
+    /// `dispositions` arm offers `stetButton`. Both are `private` to
+    /// `AnnotationRow`, and a row's verbs are only observable mounted, so this
+    /// is a SOURCE census in the idiom the two censuses below already use in
+    /// this file — the same technique for the same reason: nothing else binds
+    /// the claim.
+    func test_theRowsStetReachesAnAcceptedNote() throws {
+        let pane = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // MaughamTests/
+            .deletingLastPathComponent()   // repo root
+            .appendingPathComponent("Maugham/Views/AnnotationsPane.swift")
+        let text = try String(contentsOf: pane, encoding: .utf8)
+        let flat = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+
+        XCTAssertTrue(
+            flat.contains("private var showsReopen: Bool { switch annotation.status"
+                          + " { case .archived, .rejected, .stetted: return true"
+                          + " case .open, .accepted: return false } }"),
+            "an accepted row does NOT swap its verbs for Reopen — it draws "
+            + "`dispositions`, which is how Stet reaches a resolved note")
+
+        let builder = try XCTUnwrap(
+            flat.range(of: "private func dispositions(useIcons: Bool) -> some View {"),
+            "control: the row's disposition builder is still named this")
+        let body = String(flat[builder.upperBound...])
+        let commentArm = try XCTUnwrap(
+            body.range(of: "case .comment:").flatMap { start in
+                body.range(of: "case .suggestedChange:").map {
+                    String(body[start.upperBound..<$0.lowerBound])
+                }
+            },
+            "control: the comment arm is still the first of the four")
+        XCTAssertTrue(commentArm.contains("stetButton("),
+                      "an accepted COMMENT's row offers Stet — the reachable "
+                      + "path A2's undo has to be right about")
+    }
+
     /// ⇧⌘Z re-stets carrying the original reply, and the redo forwards the LIVE
     /// undo manager so the pair re-arms — ⌘Z/⇧⌘Z cycles indefinitely rather
     /// than dying after one round (reject's precedent).
@@ -451,5 +759,44 @@ final class AnnotationStetTests: XCTestCase {
 
         XCTAssertEqual(preview.annotationsToReopen, 0,
             "the note was stetted before it was archived, so a restore does not reopen it")
+    }
+}
+
+// MARK: - Failing an op-log append on purpose
+
+/// The two tests above that force an append to fail share these. They are FILE
+/// SCOPE rather than methods because one of them runs inside a `@Sendable`
+/// NotificationCenter observer block, which cannot capture a `@MainActor` test
+/// case.
+///
+/// **It is the FILE's permission that matters here, not the directory's.**
+/// `JSONLAppendStore.append` opens an existing log with
+/// `FileHandle(forWritingTo:)` and only writes a new file when none exists — so
+/// the `0o500`-on-the-ops-directory idiom used elsewhere in this suite blocks
+/// file CREATION and would let both of these appends straight through.
+private func opLogModes(in projectURL: URL) throws -> [(URL, NSNumber)] {
+    let fm = FileManager.default
+    let logs = try fm.contentsOfDirectory(
+        at: projectURL.appendingPathComponent(".maugham/ops"),
+        includingPropertiesForKeys: nil)
+        .filter { $0.pathExtension == "jsonl" }
+    XCTAssertFalse(logs.isEmpty, "premise: this doc has an op log on disk")
+    return try logs.map {
+        ($0, try XCTUnwrap(
+            fm.attributesOfItem(atPath: $0.path)[.posixPermissions] as? NSNumber))
+    }
+}
+
+private func lockForWriting(_ modes: [(URL, NSNumber)]) {
+    for (url, _) in modes {
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o400], ofItemAtPath: url.path)
+    }
+}
+
+private func restoreModes(_ modes: [(URL, NSNumber)]) {
+    for (url, mode) in modes {
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: mode], ofItemAtPath: url.path)
     }
 }
