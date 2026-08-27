@@ -289,9 +289,14 @@ extension ProjectStore {
     /// **Never throws and never blocks the adoption.** A canvas that cannot be
     /// read leaves marks dangling, which is exactly today's behaviour; a
     /// migration that failed because of it would cost the writer their prose.
+    /// **A sidecar this build cannot read is therefore a silent return** (issue
+    /// #33): it is a transient write with no canvas open, so re-pointing into it
+    /// would save an empty scene over somebody's whole arrangement — and leaving
+    /// those marks as they are is the dangling case this comment already accepts.
     private func repointCanvasMarks(from oldIDs: [String], to newID: String) {
         let canvas = CanvasStore(projectRoot: url)
-        var scene = canvas.load().scene
+        guard let loaded = try? canvas.loadForTransientWrite() else { return }
+        var scene = loaded.scene
         var moved = 0
         for oldID in oldIDs { moved += scene.repointMarks(from: oldID, to: newID) }
         guard moved > 0 else { return }

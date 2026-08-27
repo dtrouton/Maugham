@@ -333,9 +333,14 @@ final class CanvasModel {
         // below would otherwise stamp a current-schema sidecar over somebody's
         // whole arrangement 750 ms after the writer merely OPENED the canvas.
         // The words are still surfaced, in memory, where they can be read; the
-        // file survives being looked at, and is only replaced if the writer
-        // actually edits from this build (which is their own act, in their own
-        // undo bracket, and is a save this branch did not invent).
+        // file survives being looked at — until any write reaches THIS attached
+        // model, and not only the writer's own. `loaded.sidecar` is read here and
+        // nowhere retained, so `scheduleSave`/`flush`/`save` write unconditionally
+        // from this point on: a later edit is the writer's own act, in their own
+        // undo bracket, but `add_canvas_scraps`'s attached route and a Send to
+        // Canvas landing on a live model flush over the very same file just as
+        // readily — Claude's act and a capture's act, neither the writer's edit.
+        // Recorded as issue #44, a follow-up this branch did not build.
         if repaired && loaded.sidecar.acceptsARepairWrite { scheduleSave() }
     }
 

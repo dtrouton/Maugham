@@ -151,6 +151,8 @@ A typed note and a voice memo become an ordinary **scrap** carrying their words 
 
 **The capture leaves the Inbox.** It is one move rather than a copy, and the row is gone from triage afterwards. A voice memo with no transcript yet is refused and stays put: transcribe it first (Edit Transcript…, or Transcribe Again) and send it then. If anything goes wrong part-way, the capture stays in the Inbox and nothing is lost.
 
+**Failing-loudly:** if the project's canvas was last saved by a newer version of Maugham — or its file is damaged — sending a capture to it refuses rather than saving over your layout, with an alert that tells you why: *"The canvas layout in […] was saved by a newer version of Maugham, or is damaged, and this version won't overwrite it. Update Maugham to add to this canvas."* The capture stays in the Inbox, unsent and untouched, ready to try again once you've updated.
+
 **One ⌘Z takes the send back** — the card and its words together — but only while the canvas is the thing you are looking at. Send from another persona and there is no canvas on screen to undo on; the card is simply there when you next open Plan. Either way the Inbox row does not come back: delete the card and the capture is gone.
 
 #### What Claude can put on the canvas

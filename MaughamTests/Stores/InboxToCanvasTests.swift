@@ -500,9 +500,18 @@ final class InboxToCanvasTests: XCTestCase {
     /// command is reachable with the pane closed, from another persona and from
     /// the keyboard, so it must write the sidecar when no canvas is attached —
     /// exactly as `CanvasClaudeWrite`'s second arm does.
+    ///
+    /// **It is also the control for the refusals at the foot of this file**
+    /// (issue #33): with no `canvas.json` there is nothing to lose, so the send
+    /// goes through, the sidecar is created and the entry flips to `.promoted`.
+    /// An implementation that simply refused every send with no canvas open
+    /// would pass all three refusal tests and fail this one.
     func test_theCommandWritesTheSidecarWhenNoCanvasIsOpen() async throws {
         let f = try await openProject("PersonaClosed")
         XCTAssertNil(f.store.liveCanvas, "precondition: nobody has this canvas open")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: sidecarURL(f).path),
+            "precondition: no sidecar at all, so there is no arrangement to lose")
         try await seed(f, [textEntry("t8", "written while the persona was closed")])
         let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "t8" })
 
@@ -770,6 +779,155 @@ final class InboxToCanvasTests: XCTestCase {
                      + "and the send take the sidecar arm")
         try await assertImageRetryConverges(f, entryID: "p8", filename: "p8.png")
         withExtendedLifetime(f.documentStore) {}
+    }
+
+    // MARK: - A sidecar this build cannot read (issue #33)
+
+    /// A sidecar from a build we do not have: present, holding somebody's whole
+    /// arrangement, and undecodable here. `CanvasStore.load` answers it with an
+    /// EMPTY scene — which is exactly what makes the sidecar route dangerous with
+    /// no canvas open, because a send would then save that empty scene plus one
+    /// card over every region, line, position, mark and binding in the file.
+    private static let sidecarFromANewerBuild =
+        #"{"schemaVersion":999,"nodes":[{"id":"futr","kind":"scrap","x":10,"y":10,"width":240,"z":3}]}"#
+
+    private func sidecarURL(_ f: Fixture) -> URL {
+        f.url.appendingPathComponent(CanvasStore.sidecarRelativePath)
+    }
+
+    private func scrapsURL(_ f: Fixture) -> URL {
+        f.url.appendingPathComponent(CanvasStore.scrapsRelativePath)
+    }
+
+    /// The well's name derived the way production derives it — from `canvas.md`
+    /// itself — rather than spelled, so this test follows the scraps file if it
+    /// ever moves.
+    private var canvasAssetWellName: String {
+        ((CanvasStore.scrapsRelativePath as NSString).deletingPathExtension) + "_assets"
+    }
+
+    /// Seed a refused sidecar with the writer's words beside it, and hand back
+    /// the bytes of BOTH files every refusal test compares against.
+    /// `CanvasModelTests` and `CanvasClaudeWriteTests` seed their load-time and
+    /// MCP-write twins the same way.
+    ///
+    /// `canvas.md` is in the comparison because it is *content* (spec §3.2): the
+    /// sidecar can be deleted without losing a word, so a refusal that still
+    /// rewrote the scraps file would cost the writer the one thing the sidecar's
+    /// loss does not — and `CanvasStore.writeNow` writes canvas.md FIRST, so it
+    /// is the constitution-relevant half of "wrote anyway."
+    private func seedUnreadableSidecar(_ f: Fixture, _ json: String) throws -> (sidecar: Data, scraps: Data) {
+        let sidecar = sidecarURL(f)
+        try FileManager.default.createDirectory(
+            at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try json.write(to: sidecar, atomically: true, encoding: .utf8)
+        try "\(ScrapText.banner)\n\n## futr\n\nA layout from a build we do not have.\n"
+            .write(to: scrapsURL(f), atomically: true, encoding: .utf8)
+        return (try Data(contentsOf: sidecar), try Data(contentsOf: scrapsURL(f)))
+    }
+
+    /// Send, and assert the four things a refusal owes the writer: it is *told*
+    /// (a `SidecarRefused` naming the project, which is what the pane's
+    /// "Couldn't promote" alert reads out), both canvas files on disk are
+    /// **byte-identical** to what was there before, and the entry is still
+    /// `.new` in the manifest — so the capture is retryable once the writer
+    /// updates Maugham, rather than gone from the pane and nowhere else.
+    private func assertRefused(_ f: Fixture, entryID: String,
+                               before: (sidecar: Data, scraps: Data),
+                               file: StaticString = #filePath, line: UInt = #line) async throws {
+        let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == entryID },
+                                  file: file, line: line)
+        do {
+            _ = try await f.inbox.sendToCanvas(
+                entry, projectStore: f.store, placement: .loose)
+            XCTFail("a send onto a sidecar this build cannot read must be refused — "
+                    + "saving over it costs every region, line, position, mark and "
+                    + "binding the other build put there",
+                    file: file, line: line)
+        } catch let refusal as CanvasStore.SidecarRefused {
+            XCTAssertEqual(refusal.projectName, f.url.lastPathComponent,
+                           "the alert names the project it is about",
+                           file: file, line: line)
+        } catch {
+            XCTFail("expected CanvasStore.SidecarRefused, got \(error)",
+                    file: file, line: line)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: sidecarURL(f)), before.sidecar,
+                       "the other build's arrangement is byte-identical on disk — a "
+                       + "refusal that still wrote is the whole defect",
+                       file: file, line: line)
+        XCTAssertEqual(try Data(contentsOf: scrapsURL(f)), before.scraps,
+                       "…and canvas.md is untouched too: the words are content, and "
+                       + "a refused call may not add anything to them",
+                       file: file, line: line)
+
+        // Read the status back off DISK rather than trusting the in-memory
+        // collapse: `entries` is `.new`-only, so an entry a freshly loaded store
+        // still lists is an entry that never flipped.
+        let fresh = InboxStore(projectURL: f.url, deviceId: "mac")
+        await fresh.refresh()
+        XCTAssertTrue(fresh.entries.contains { $0.id == entryID },
+                      "the entry stays `.new`, so the writer can update Maugham and "
+                      + "retry; a `.promoted` row here is the capture lost against a "
+                      + "card that was never written",
+                      file: file, line: line)
+    }
+
+    /// **The defect, in its plainest form** (issue #33). With the Plan persona
+    /// closed the send takes the sidecar route, and that route used to `load()` a
+    /// newer build's file as an empty scene and `save()` its own scene straight
+    /// back over it — destroying the writer's whole arrangement to add one card.
+    func test_aTextCaptureIsRefusedWhenTheSidecarIsUnreadable_andTheFileIsUntouched() async throws {
+        let f = try await openProject("RefusedText")
+        XCTAssertNil(f.store.liveCanvas,
+                     "precondition: nobody has this canvas open, so the send takes "
+                     + "the sidecar route")
+        let before = try seedUnreadableSidecar(f, Self.sidecarFromANewerBuild)
+        try await seed(f, [textEntry("t20", "a thought worth keeping")])
+
+        try await assertRefused(f, entryID: "t20", before: before)
+    }
+
+    /// **Before the copy.** The refusal has to be raised by `sendToCanvas` itself
+    /// and not merely by `CanvasCapture.send`, because the picture is ingested
+    /// into the well two statements earlier: a refusal only `send` could raise
+    /// would strand a copy in `canvas_assets/` on every single attempt, and
+    /// nothing enumerates that well but the nodes — so each one is invisible for
+    /// ever.
+    ///
+    /// Disable experiment: delete the `refuseUnlessWritable` call at the top of
+    /// `sendToCanvas` and the well fills up while the sidecar assertion — the one
+    /// the text twin already makes — stays green.
+    func test_aPhotographIsRefusedBeforeItIsCopiedIntoTheWell() async throws {
+        let f = try await openProject("RefusedPhoto")
+        XCTAssertNil(f.store.liveCanvas, "precondition: the sidecar route")
+        let before = try seedUnreadableSidecar(f, Self.sidecarFromANewerBuild)
+        let original = try seedImageAsset(f, name: "p20.png")
+        try await seed(f, [photoEntry("p20", filename: "p20.png")])
+
+        try await assertRefused(f, entryID: "p20", before: before)
+
+        let well = f.url.appendingPathComponent(canvasAssetWellName)
+        let ingested = (try? FileManager.default.contentsOfDirectory(atPath: well.path)) ?? []
+        XCTAssertTrue(ingested.isEmpty,
+                      "nothing was copied into the well — a refusal raised after the "
+                      + "ingest leaves a file no node will ever reference. "
+                      + "found: \(ingested)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: original.path),
+                      "and the inbox original is still the inbox's, ready for the retry")
+    }
+
+    /// Damaged bytes are the same case as a newer schema — present, unreadable,
+    /// and not ours to stamp over. A backup or a later repair may still recover
+    /// what is in there.
+    func test_aDamagedSidecarRefusesTheSameWay() async throws {
+        let f = try await openProject("RefusedDamaged")
+        XCTAssertNil(f.store.liveCanvas, "precondition: the sidecar route")
+        let before = try seedUnreadableSidecar(f, "not json at all")
+        try await seed(f, [textEntry("t21", "another thought")])
+
+        try await assertRefused(f, entryID: "t21", before: before)
     }
 
 }
