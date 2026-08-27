@@ -518,6 +518,37 @@ final class TranslationStatusToolTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    /// **A `document_id` the manifest does not hold still fails loudly** — the
+    /// catalogue's unknown-id rule, which #43's degrade must not quietly soften.
+    /// The degrade is for a document the manifest LISTS that will not open; a
+    /// made-up id is a caller's mistake, and reporting it as an unreadable
+    /// chapter would send its author off to repair a file that was never there.
+    ///
+    /// The disable experiment: drop the manifest check in
+    /// `TranslationStatusTool.handle` and this call answers `rows: []` with the
+    /// typo sitting in `unreadable_documents` — which is what the second
+    /// assertion is here to catch.
+    func test_anUnknownDocumentIdStillRefusesByName() async throws {
+        let h = try await makeHarness()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "uno")
+
+        do {
+            let result = try await status(h, [
+                "project_id": h.projectId,
+                "document_id": "no-such-chapter",
+            ])
+            XCTFail("expected a refusal; got \(result.rows.count) rows and "
+                    + "unreadable_documents \(result.unreadable_documents)")
+        } catch let MCPError.invalidArgument(message) {
+            XCTAssertTrue(message.contains("no-such-chapter"),
+                          "the refusal must name the id the caller sent, not "
+                          + "just say no: \(message)")
+        }
+
+        await h.documentStore.close()
+    }
+
     /// The control: the same call over a book that reads cleanly reports the
     /// field EMPTY rather than absent — the always-present-array shape
     /// `write_translation`'s `warnings` set, so a reader never has to tell

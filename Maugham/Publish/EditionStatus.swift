@@ -165,11 +165,19 @@ enum EditionStatus {
     /// **A document that will not open is recorded and stepped over** (F-D). Any
     /// error class degrades that one document — an `OpLogStore.ReadError` for a
     /// history file that is present and unreadable, an `MCPError.invalidArgument`
-    /// for a manifest row with no path or an id the manifest does not hold — and
-    /// its rows are simply missing from the answer, with `unreadable` saying
-    /// which chapter and why. Nothing is written here, so there is nothing a
-    /// half-finished walk can damage; the only thing at stake is whether the two
-    /// readers tell the writer the truth about the rest of the book.
+    /// for a manifest row with no path — and its rows are simply missing from the
+    /// answer, with `unreadable` saying which chapter and why. Nothing is written
+    /// here, so there is nothing a half-finished walk can damage; the only thing
+    /// at stake is whether the two readers tell the writer the truth about the
+    /// rest of the book.
+    ///
+    /// **This degrade is for documents the MANIFEST lists.** Every id reaching
+    /// here comes from a manifest walk — `manuscriptDocumentIds` above, or the
+    /// one id `translation_status` was asked for, which that tool checks against
+    /// the manifest before calling. An id nobody's manifest holds is a caller's
+    /// mistake rather than a damaged chapter, and it fails loudly at the tool;
+    /// were it recorded here instead, a typo would be reported to its author as
+    /// a chapter they should go and repair.
     static func documentRows(
         documentIds: [String], store: ProjectStore, projectURL: URL
     ) async -> DocumentReport {

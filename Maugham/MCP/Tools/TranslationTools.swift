@@ -309,8 +309,27 @@ public enum TranslationStatusTool: MCPTool {
         }
 
         // Which documents to report: the named one, or every manuscript leaf.
-        let docIds = params.document_id.map { [$0] }
-            ?? EditionStatus.manuscriptDocumentIds(in: entry.store.manifest)
+        //
+        // **An id the manifest does not hold is a CALLER error and still fails
+        // loudly** (issue #43, and AREA.md's rule for every tool in the
+        // catalogue). The degrade below is for a document the manifest LISTS
+        // that will not open; a made-up id is a different thing said in the same
+        // field, and answering it with rows: [] plus an entry naming it would
+        // tell a caller their typo is a damaged chapter. Checked against the
+        // manifest alone, which is one spelling and sufficient: a document the
+        // editor has open is in the manifest too. Whole-book walks are
+        // unaffected — every id in them came from the manifest.
+        let docIds: [String]
+        if let documentId = params.document_id {
+            guard TreeWalk.find(id: documentId, in: entry.store.manifest.structure) != nil
+            else {
+                throw MCPError.invalidArgument(
+                    "document_id not found in project manifest: \(documentId)")
+            }
+            docIds = [documentId]
+        } else {
+            docIds = EditionStatus.manuscriptDocumentIds(in: entry.store.manifest)
+        }
 
         // **The union, the coverage derivation and the open-query filter are
         // `EditionStatus`'s** (publish-department P4 Task 2) — they were this
