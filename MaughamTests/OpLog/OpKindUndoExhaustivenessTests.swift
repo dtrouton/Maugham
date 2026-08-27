@@ -70,7 +70,14 @@ final class OpKindUndoExhaustivenessTests: XCTestCase {
             // `.stetted` arm Task 1 added to the factory. Same mechanism as
             // reject and archive; the registrar landed in M3 P2 Task 2, so
             // this arm no longer names a factory with no writer.
-            return .inverseCovered(mechanism: "AnnotationInverse.reopenOp via Document.reopenAnnotation, registered by Document.stetAnnotation")
+            //
+            // TWO appended ops, not one, since #41 A2: a stet may be placed
+            // over an already-resolved note (the queue's row offers Stet on an
+            // accepted comment), so after the reopen the undo re-applies the
+            // displaced resolution as a status-only lifecycle op —
+            // withdrawReviewerAnnotation's shape. An open note still gets the
+            // reopen alone.
+            return .inverseCovered(mechanism: "AnnotationInverse.reopenOp via Document.reopenAnnotation, registered by Document.stetAnnotation — plus, when the stet displaced a resolution, a status-only lifecycle op (claudeAccept / claudeReject / claudeArchive) via Document.appendLifecycleOp restoring it")
 
         case .annotationTriage:
             // Triage is its own inverse's kind, the way annotationEdit is:

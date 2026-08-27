@@ -141,6 +141,145 @@ final class AnnotationStetTests: XCTestCase {
             "the stet op survives its own undo")
     }
 
+    /// **The control for the two restores below** (#41 A2). A stet placed over
+    /// an OPEN note displaced no resolution, so its undo has nothing to put
+    /// back and must append the reopen ALONE. The restore is a SECOND op; run
+    /// unconditionally it would settle every reopened note `.accepted` — undo
+    /// inventing a resolution nobody chose, which is the same failure the
+    /// restore exists to prevent from the other direction.
+    func test_undoOfAStetOverAnOpenNoteStillJustReopens() async throws {
+        let h = try await makeHarness(prefix: "Stet-UndoOpenControl")
+        let cid = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "note")
+        let um = UndoManager()
+
+        try await h.doc.stetAnnotation(id: cid, undoManager: um)
+        let opsAfterStet = h.doc._opLogMirror.count
+
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .open)
+        XCTAssertEqual(h.doc._opLogMirror.count, opsAfterStet + 1,
+                       "exactly one op — the reopen. Nothing was re-applied over it")
+        XCTAssertEqual(h.doc._opLogMirror.suffix(1).map(\.kind),
+                       [.annotationReopen])
+    }
+
+    // MARK: - ⌘Z over a note that was ALREADY resolved (#41 A2)
+
+    /// **Undoing a stet puts back the resolution it displaced.** Stet refuses
+    /// nothing on the way in — the deriver's latest-lifecycle-op-wins rule
+    /// settles a stet over an earlier resolution — and the queue's row OFFERS
+    /// Stet on an accepted comment (`AnnotationRow.showsReopen` is `false` for
+    /// `.accepted`, so with show-resolved on the row draws its dispositions,
+    /// Stet among them; `test_theRowsStetReachesAnAcceptedNote` pins that).
+    /// Press it, change your mind, press ⌘Z: before the fix the note came back
+    /// `.open` and the reply the writer typed into **Reply…** was gone. One
+    /// ⌘Z had taken two of their decisions — M5-AN-036's shape, arriving at
+    /// the fourth resolution.
+    func test_undoOfAStetOverAnAcceptedNoteRestoresTheAcceptAndItsReply() async throws {
+        let h = try await makeHarness(prefix: "Stet-UndoOverAccept")
+        let cid = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "is this too florid?")
+        // The textless accept arm — "Got it" / "Reply…" with the writer's own
+        // words. Nothing is spliced, so the reply is all there is to lose.
+        try await h.doc.acceptAnnotation(id: cid, userResponse: "yes — cut it")
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .accepted)
+        let um = UndoManager()
+
+        try await h.doc.stetAnnotation(
+            id: cid, userResponse: "second thoughts: it stands", undoManager: um)
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .stetted)
+        let opsAfterStet = h.doc._opLogMirror.count
+
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .accepted,
+                       "not .open — the accept the stet displaced is back")
+        XCTAssertEqual(annotation(h.doc, cid)?.userResponse, "yes — cut it",
+                       "and back WHOLE: the writer's Reply… text returns with it")
+        // ADR 0023: two compensating ops, appended in order. Nothing truncated.
+        XCTAssertEqual(
+            h.doc._opLogMirror.suffix(2).map(\.kind),
+            [.annotationReopen, .claudeAccept],
+            "the reopen clears the stet; the accept re-applies what it displaced")
+        XCTAssertEqual(h.doc._opLogMirror.count, opsAfterStet + 2)
+        XCTAssertTrue(
+            h.doc._opLogMirror.contains { $0.kind == .annotationStet },
+            "the stet op survives its own undo")
+    }
+
+    /// The same claim for a rejection, whose written reason is the thing a
+    /// writer would most notice losing. `.rejected → .claudeReject`, carrying
+    /// the reason forward — `withdrawReviewerAnnotation`'s arms, exactly.
+    func test_undoOfAStetOverARejectedNoteRestoresTheReject() async throws {
+        let h = try await makeHarness(prefix: "Stet-UndoOverReject")
+        let cid = try await h.doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: h.pid,
+            body: "tighten this", suggestedText: "A paragraph.")
+        try await h.doc.rejectAnnotation(
+            id: cid, userResponse: "the rhythm needs the extra beat")
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .rejected)
+        let um = UndoManager()
+
+        try await h.doc.stetAnnotation(id: cid, undoManager: um)
+        let opsAfterStet = h.doc._opLogMirror.count
+
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+
+        XCTAssertEqual(annotation(h.doc, cid)?.status, .rejected)
+        XCTAssertEqual(annotation(h.doc, cid)?.userResponse,
+                       "the rhythm needs the extra beat",
+                       "a reject returns with its reason (M5-AN-036's fidelity rule)")
+        XCTAssertEqual(
+            h.doc._opLogMirror.suffix(2).map(\.kind),
+            [.annotationReopen, .claudeReject])
+        XCTAssertEqual(h.doc._opLogMirror.count, opsAfterStet + 2)
+    }
+
+    /// **The fact that makes the two above reachable.** A2 is not a theoretical
+    /// arm of a permissive verb: with show-resolved on, the queue's row for an
+    /// ACCEPTED comment draws its dispositions — `AnnotationRow.showsReopen` is
+    /// `false` for `.accepted`, so the `else` branch runs — and every
+    /// `dispositions` arm offers `stetButton`. Both are `private` to
+    /// `AnnotationRow`, and a row's verbs are only observable mounted, so this
+    /// is a SOURCE census in the idiom the two censuses below already use in
+    /// this file — the same technique for the same reason: nothing else binds
+    /// the claim.
+    func test_theRowsStetReachesAnAcceptedNote() throws {
+        let pane = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // MaughamTests/
+            .deletingLastPathComponent()   // repo root
+            .appendingPathComponent("Maugham/Views/AnnotationsPane.swift")
+        let text = try String(contentsOf: pane, encoding: .utf8)
+        let flat = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+
+        XCTAssertTrue(
+            flat.contains("private var showsReopen: Bool { switch annotation.status"
+                          + " { case .archived, .rejected, .stetted: return true"
+                          + " case .open, .accepted: return false } }"),
+            "an accepted row does NOT swap its verbs for Reopen — it draws "
+            + "`dispositions`, which is how Stet reaches a resolved note")
+
+        let builder = try XCTUnwrap(
+            flat.range(of: "private func dispositions(useIcons: Bool) -> some View {"),
+            "control: the row's disposition builder is still named this")
+        let body = String(flat[builder.upperBound...])
+        let commentArm = try XCTUnwrap(
+            body.range(of: "case .comment:").flatMap { start in
+                body.range(of: "case .suggestedChange:").map {
+                    String(body[start.upperBound..<$0.lowerBound])
+                }
+            },
+            "control: the comment arm is still the first of the four")
+        XCTAssertTrue(commentArm.contains("stetButton("),
+                      "an accepted COMMENT's row offers Stet — the reachable "
+                      + "path A2's undo has to be right about")
+    }
+
     /// ⇧⌘Z re-stets carrying the original reply, and the redo forwards the LIVE
     /// undo manager so the pair re-arms — ⌘Z/⇧⌘Z cycles indefinitely rather
     /// than dying after one round (reject's precedent).

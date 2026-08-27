@@ -801,21 +801,45 @@ extension Document {
     ///
     /// Like reject, it refuses nothing on the way in: the deriver's
     /// latest-lifecycle-op-wins rule settles a stet over an earlier
-    /// resolution. Which notes the queue OFFERS Stet on is the pane's business.
+    /// resolution. Which notes the queue OFFERS Stet on is the pane's business
+    /// — and the pane's answer is that it offers Stet on a RESOLVED note too:
+    /// `AnnotationRow.showsReopen` is `false` for `.accepted`, so with
+    /// show-resolved on an accepted comment draws its dispositions and Stet is
+    /// among them.
+    ///
+    /// So the permissiveness on the way in has an obligation on the way out
+    /// (#41 A2): the UNDO restores what the stet displaced. "Undo Stet
+    /// Annotation" must undo ONE decision — before this it reopened to `.open`
+    /// and the accept underneath, with the reply the writer typed into
+    /// **Reply…**, was gone; one ⌘Z took two of their decisions (RULING-22,
+    /// M5-AN-036's shape at the fourth resolution). The capture-and-re-apply
+    /// below is `withdrawReviewerAnnotation`'s, for the same reason and in the
+    /// same place: the obligation is the UNDO's, and the undo is the Mac's —
+    /// `AnnotationInverse.reopenOp` is cross-surface (tripwire 19) and the
+    /// phone's Reopen means "reopen this", which is what it already does.
     public func stetAnnotation(
         id: String, userResponse: String? = nil,
         undoManager: UndoManager? = nil
     ) async throws {
+        // Captured BEFORE the append, from an UNFILTERED query — the default
+        // `[.open]` filter hides every status this restore is about
+        // (M5-AN-002).
+        let prior = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
+        let priorStatus = prior?.status
+        let priorResponse = prior?.userResponse
+
         try await appendLifecycleOp(
             kind: .annotationStet,
             sourceAnnotationId: id,
             userResponse: userResponse)
 
-        // ⌘Z: undo reopens (annotationReopen → .open); redo re-stets,
-        // forwarding the original userResponse AND the LIVE undo manager so
-        // ⇧⌘Z re-arms a fresh undo pair (reject's precedent — indefinite
-        // ⌘Z/⇧⌘Z cycling; `[weak undoManager]` because NSUndoManager retains
-        // the closure).
+        // ⌘Z: undo reopens (annotationReopen → .open) and then puts back the
+        // resolution the stet was sitting on top of — a status-only lifecycle
+        // op, withdraw's shape. Redo re-stets, forwarding the original
+        // userResponse AND the LIVE undo manager so ⇧⌘Z re-arms a fresh undo
+        // pair (reject's precedent — indefinite ⌘Z/⇧⌘Z cycling;
+        // `[weak undoManager]` because NSUndoManager retains the closure).
         OpUndoRegistrar.register(
             undoManager, actionName: "Stet Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
@@ -836,6 +860,30 @@ extension Document {
                     return
                 }
                 try? await doc.reopenAnnotation(id: id)
+
+                // …and put back what the stet displaced. `.open`/nil needs no
+                // second op — that is what the reopen already leaves. A
+                // `.stetted` prior cannot occur: this closure only runs past a
+                // guard that says the note is `.stetted` NOW, and a stet over a
+                // stet would have had to drift back, which is the guard's
+                // business rather than this switch's.
+                switch priorStatus {
+                case .accepted, .rejected, .archived:
+                    let kind: OpKind = switch priorStatus {
+                    case .rejected: .claudeReject
+                    case .archived: .claudeArchive
+                    default:        .claudeAccept
+                    }
+                    do {
+                        try await doc.appendLifecycleOp(
+                            kind: kind, sourceAnnotationId: id,
+                            userResponse: priorResponse)
+                    } catch {
+                        documentLog.error("stetAnnotation undo: restoring the prior \(String(describing: priorStatus), privacy: .public) status for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — the note is back but open")
+                    }
+                case .open, .stetted, nil:
+                    break
+                }
             },
             redo: { [weak undoManager] doc in
                 try? await doc.stetAnnotation(
