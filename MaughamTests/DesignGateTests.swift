@@ -1404,21 +1404,16 @@ final class DesignGateTests: XCTestCase {
             designerName: "Tschichold", proposals: proposals,
             runState: .idle, session: .free, hasOpenProposalRound: false)
         return mount(AnyView(DepartmentPane(title: "The Project", languages: [],
+                                            unreadable: [],
                                             design: row,
                                             showProposal: showProposal)),
                      width: 340)
     }
 
     private func mount(_ view: AnyView, width: CGFloat) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: width, height: 640)
-        let hosting = NSHostingView(rootView: AnyView(
-            view.frame(maxWidth: .infinity, maxHeight: .infinity)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(view.frame(maxWidth: .infinity, maxHeight: .infinity)),
+            size: CGSize(width: width, height: 640))
         windows.append(window)
         pump(0.1)
         return window

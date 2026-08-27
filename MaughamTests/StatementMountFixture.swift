@@ -296,8 +296,8 @@ final class StatementMountFixture: RunLoopPumping {
     /// The pane beside the manuscript editor — the arrangement the writer gets,
     /// and the first time two `EditorSurface`s have been alive at once.
     ///
-    /// `key: true` hosts it in an `AlwaysKeyWindow` — see that type for why the
-    /// one OS fact this harness cannot produce is forced rather than skipped.
+    /// `key: true` hosts it in a `KeyTestWindow` — see `mount(_:key:)` for why
+    /// the one OS fact this harness cannot produce is forced rather than skipped.
     @discardableResult
     func hostBesideAManuscriptEditor(kind: Statement.Kind, key: Bool = false) async -> NSWindow {
         let window = await mount(
@@ -313,16 +313,26 @@ final class StatementMountFixture: RunLoopPumping {
         return window
     }
 
+    /// `key: true` mounts in a `KeyTestWindow`, which reports itself key.
+    ///
+    /// **The one OS fact this harness cannot produce.** `MaughamEvent.shouldDeliver`
+    /// gates every `.keyWindow`-scoped post on `context.isWindowKey`, which
+    /// `EventReceiverContext.forWindow` reads straight off `NSWindow.isKeyWindow` —
+    /// and a window hosted by `xcodebuild`'s test host never becomes key, even after
+    /// `NSApplication.activate` + `makeKeyAndOrderFront` (measured 2026-08-01). So a
+    /// `.keyWindow` post reaches NOTHING in a unit test, and a delivery test written
+    /// against a real window either skips or passes vacuously.
+    ///
+    /// Overriding that one property leaves the whole rest of the path production:
+    /// the real `MaughamEvent.post`, the real `NotificationCenter`, the real
+    /// `shouldDeliver` filter, the real `receiverContext`, and the coordinator's own
+    /// registered closure. Nothing about the assertion is stubbed — only the
+    /// window's answer to "are you key".
     private func mount(_ view: AnyView, key: Bool = false) async -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 700, height: 700)
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame = frame
-        let windowType = key ? AlwaysKeyWindow.self : NSWindow.self
-        let window = windowType.init(contentRect: frame, styleMask: [.titled],
-                                     backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let size = CGSize(width: 700, height: 700)
+        let window: NSWindow = key
+            ? TestWindow.mount(view, size: size, as: KeyTestWindow.self)
+            : TestWindow.mount(view, size: size)
         windows.append(window)
         pump()
         await pumpUntil(deadline: 5) { self.firstTextView(in: window) != nil }
@@ -445,25 +455,6 @@ private struct TwoEditorProbeView: View {
             }
         }
     }
-}
-
-/// A window that reports itself key.
-///
-/// **The one OS fact this harness cannot produce.** `MaughamEvent.shouldDeliver`
-/// gates every `.keyWindow`-scoped post on `context.isWindowKey`, which
-/// `EventReceiverContext.forWindow` reads straight off `NSWindow.isKeyWindow` —
-/// and a window hosted by `xcodebuild`'s test host never becomes key, even after
-/// `NSApplication.activate` + `makeKeyAndOrderFront` (measured 2026-08-01). So a
-/// `.keyWindow` post reaches NOTHING in a unit test, and a delivery test written
-/// against a real window either skips or passes vacuously.
-///
-/// Overriding this one property leaves the whole rest of the path production:
-/// the real `MaughamEvent.post`, the real `NotificationCenter`, the real
-/// `shouldDeliver` filter, the real `receiverContext`, and the coordinator's own
-/// registered closure. Nothing about the assertion is stubbed — only the
-/// window's answer to "are you key".
-private final class AlwaysKeyWindow: NSWindow {
-    override var isKeyWindow: Bool { true }
 }
 
 /// The two columns that share the window's subject, with the subject held

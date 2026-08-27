@@ -18,10 +18,10 @@ final class ScrapLayoutTests: XCTestCase {
     /// does anything, and the spike's harness failures were all missing windows.
     @discardableResult
     private func host(_ editor: NSTextView) -> NSWindow {
-        let window = SilentTestWindow(contentRect: editor.frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = NSView(frame: editor.frame)
-        window.contentView?.addSubview(editor)
+        let content = NSView(frame: editor.frame)
+        content.addSubview(editor)
+        let window = TestWindow.make(SilentTestWindow.self, contentRect: editor.frame,
+                                     contentView: content, present: .unshown)
         editor.layoutSubtreeIfNeeded()
         return window
     }

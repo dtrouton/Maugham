@@ -405,14 +405,8 @@ final class BinderTreeIndentationTests: XCTestCase {
     }
 
     private func mount(_ root: AnyView) async throws -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 900)
-        let hosting = NSHostingView(rootView: root)
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(root, size: CGSize(width: 320, height: 900),
+                                      as: SilentTestWindow.self)
         windows.append(window)
         await pumpUntil(deadline: 5) { self.outlineView(in: window) != nil }
         // The palette section loads its cards from disk once per manifest

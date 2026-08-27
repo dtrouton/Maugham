@@ -302,13 +302,6 @@ class CanvasViewMountingCase: XCTestCase {
 
     @discardableResult
     func host(_ view: CanvasView) -> CanvasHostWindow {
-        let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame = frame
-        let window = CanvasHostWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        windows.append(window)
         // The timeline that drives the straighten only advances when the window
         // is producing frames.
         //
@@ -316,8 +309,9 @@ class CanvasViewMountingCase: XCTestCase {
         // `NSApp.sendEvent(_:)` routes a key event to the KEY window and drops it
         // when there is none, so with `orderFront` alone every assertion about an
         // Escape REACHING this window is vacuously true.
-        window.makeKeyAndOrderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(view, size: CGSize(width: 800, height: 600),
+                                      as: CanvasHostWindow.self, present: .key)
+        windows.append(window)
         pump()
         return window
     }
@@ -327,16 +321,11 @@ class CanvasViewMountingCase: XCTestCase {
     /// to a key monitor: a real AppKit text responder in the window the dim is in.
     @discardableResult
     func hostBesideARenameField(_ view: CanvasView) -> CanvasHostWindow {
-        let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
-        let hosting = NSHostingView(rootView: CanvasBesideARenameField(canvas: view))
-        hosting.frame = frame
-        let window = CanvasHostWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        windows.append(window)
         // Key for the reason `host` records.
-        window.makeKeyAndOrderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(CanvasBesideARenameField(canvas: view),
+                                      size: CGSize(width: 800, height: 600),
+                                      as: CanvasHostWindow.self, present: .key)
+        windows.append(window)
         pump()
         return window
     }
@@ -348,18 +337,13 @@ class CanvasViewMountingCase: XCTestCase {
     func hostSwitchable(subject: MutableSubject,
                                 root: URL,
                                 selectTheProjectRow: @escaping () -> Void) -> CanvasHostWindow {
-        let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
-        let hosting = NSHostingView(rootView: CanvasWithASwitchableSubject(
-            subject: subject, model: makeModel(), root: root,
-            selectTheProjectRow: selectTheProjectRow))
-        hosting.frame = frame
-        let window = CanvasHostWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        windows.append(window)
         // Key for the reason `host` records.
-        window.makeKeyAndOrderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(CanvasWithASwitchableSubject(
+            subject: subject, model: makeModel(), root: root,
+            selectTheProjectRow: selectTheProjectRow),
+                                      size: CGSize(width: 800, height: 600),
+                                      as: CanvasHostWindow.self, present: .key)
+        windows.append(window)
         pump()
         return window
     }

@@ -166,6 +166,14 @@ jobs:
             tectonic-bundle-${{ runner.os }}-
 
       - name: Run Mac tests
+        # The click-driving suites (TreeTravelTests) need the test host to be
+        # the ACTIVE app, and activation is opt-in (`TestWindow.activate`)
+        # because a local gate must never take the developer's keyboard. The
+        # runner has no developer, so CI opts in. Locally they usually click anyway
+        # on the inactive accessory host (measured 2026-08-27) and skip by name only
+        # where the click measurably fails, e.g. a locked screen.
+        env:
+          TEST_RUNNER_MAUGHAM_ALLOW_ACTIVATION: "1"
         run: |
           xcodebuild \
             -project Maugham.xcodeproj \

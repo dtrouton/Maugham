@@ -791,7 +791,7 @@ final class AssistantColumnTests: XCTestCase {
     /// (`CanvasEscapeMonitor`'s own doc records the measurement).
     func test_aRealEscapeThroughTheApplicationReachesTheColumnFirst() throws {
         let window = makeWindow()
-        window.makeKeyAndOrderFront(nil)
+        TestWindow.present(window, as: .key)
         let arbiter = WindowEscapeArbiter.arbiter(for: window)
         let escape = AssistantColumnEscape()
         let model = AssistantColumnModel()
@@ -1157,14 +1157,7 @@ final class AssistantColumnTests: XCTestCase {
     // MARK: - Hosting
 
     private func mount(_ view: AnyView) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 360, height: 520)
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(view, size: CGSize(width: 360, height: 520))
         windows.append(window)
         pump()
         return window
@@ -1174,9 +1167,9 @@ final class AssistantColumnTests: XCTestCase {
     /// `tearDown` empties it — a window outliving its test keeps an arbiter
     /// entry alive in the shared table.
     private func makeWindow() -> NSWindow {
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 200),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = NSView(frame: .zero)
+        let window = TestWindow.make(
+            contentRect: CGRect(x: 0, y: 0, width: 200, height: 200),
+            contentView: NSView(frame: .zero), present: .unshown)
         windows.append(window)
         return window
     }

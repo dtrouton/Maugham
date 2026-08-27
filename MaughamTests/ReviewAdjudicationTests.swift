@@ -372,17 +372,12 @@ final class ReviewAdjudicationTests: XCTestCase {
 
     private func hostCentre(store: ProjectStore, itemID: String, readOnly: Bool) async throws -> NSWindow {
         let documentStore = try XCTUnwrap(store.documentStore)
-        let frame = CGRect(x: 0, y: 0, width: 700, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(
+        let window = TestWindow.mount(AnyView(
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: itemID, previewVisible: false, readOnly: readOnly)
-                .environment(makePreferences())))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+                .environment(makePreferences())),
+            size: CGSize(width: 700, height: 600),
+            as: SilentTestWindow.self)
         windows.append(window)
         pump(0.3)
         return window
@@ -390,16 +385,11 @@ final class ReviewAdjudicationTests: XCTestCase {
 
     private func hostWall(store: ProjectStore, selectedCardId: String,
                           persona: Persona) async throws -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 700, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(
+        let window = TestWindow.mount(AnyView(
             PaletteWallCentre(store: store, selectedPaletteCardId: .constant(selectedCardId),
-                              onClose: {}, persona: persona)))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+                              onClose: {}, persona: persona)),
+            size: CGSize(width: 700, height: 600),
+            as: SilentTestWindow.self)
         windows.append(window)
         pump(0.3)
         return window

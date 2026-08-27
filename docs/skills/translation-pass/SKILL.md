@@ -26,7 +26,10 @@ would pass the translation-coverage gate before committing to a full compile.
    shows up as soon as you or the writer opens a query against it, even
    before any translation exists — coverage reads all-zero, `open_queries`
    real. Start every pass here — it's the honest state of the work, not your
-   memory of it.
+   memory of it. A chapter Maugham could not read appears in
+   `unreadable_documents` with the reason; its coverage is **unknown, not
+   zero**, so don't treat it as untranslated and don't count it toward a
+   total — say which chapter is unreadable and let the writer repair it.
 2. **Work the gap, not the whole document.** `read_translation` with
    `status=stale` or `status=missing` returns exactly the paragraphs that
    need attention, each paired with its current source text. Retranslate

@@ -97,14 +97,8 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
             .environment(UserPreferences(
                 defaults: UserDefaults(suiteName: "PassOrderNudgeVerbs-\(UUID())")!))
 
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 700)
-        let hosting = NSHostingView(rootView: AnyView(view))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(AnyView(view),
+                                      size: CGSize(width: 320, height: 700))
         windows.append(window)
         pump()
         return window

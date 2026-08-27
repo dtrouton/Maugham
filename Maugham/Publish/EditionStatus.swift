@@ -75,6 +75,47 @@ enum EditionStatus {
         var id: String { language }
     }
 
+    /// A manuscript document the walk could not open. Its rows are missing
+    /// from the report and this says so; nothing else about the book is
+    /// affected (issue #43, F-D).
+    struct UnreadableDocument: Equatable, Sendable {
+        let documentId: String
+        let title: String
+        /// The underlying error's own sentence.
+        ///
+        /// **Not plain `localizedDescription`**, because the most likely error
+        /// here is an `MCPError`, which conforms to `Error` and not to
+        /// `LocalizedError` — so Foundation answers "The operation couldn't be
+        /// completed. (Maugham.MCPError error 3.)" for it. A reason a writer
+        /// cannot act on is the same silent skip with a label that F-D exists
+        /// to stop, so the catch site asks `MCPError` for its own `message`
+        /// first. See `documentRows`.
+        let reason: String
+    }
+
+    /// **The desk's whole answer, degrades included** (issue #43, F-D).
+    ///
+    /// A pair rather than a bare array because the two halves are one reading:
+    /// a caller holding `rows` alone cannot tell a book with one edition from a
+    /// book with four whose other three chapters would not open, and that is
+    /// exactly the false claim this milestone is about. Both readers take the
+    /// whole value — the desk draws a line per entry above its rows, the tool
+    /// reports `unreadable_documents` beside them — so the two cannot degrade
+    /// differently.
+    struct Report: Equatable, Sendable {
+        var rows: [LanguageRow]
+        var unreadable: [UnreadableDocument]
+    }
+
+    /// `documentRows`' own answer, in the per-`(document, language)` shape
+    /// `translation_status` reports. The same pair for the same reason: the
+    /// tool's wire form carries both halves, and folding to `Report` must not
+    /// be the only way to learn a chapter was skipped.
+    struct DocumentReport: Equatable, Sendable {
+        var rows: [DocumentRow]
+        var unreadable: [UnreadableDocument]
+    }
+
     /// Every manuscript leaf — the same walk `ProjectStoreASTSource` does,
     /// skipping collection references, which are another project's documents.
     static func manuscriptDocumentIds(in manifest: ProjectManifest) -> [String] {
@@ -84,14 +125,23 @@ enum EditionStatus {
     }
 
     /// The desk's whole answer for a project: every language it has an edition
-    /// in, summed over every manuscript document.
+    /// in, summed over every manuscript document — plus every document the walk
+    /// could not open.
+    ///
+    /// **Nothing here throws** (issue #43, F-D). Every failure this derivation
+    /// can meet is one document's, and one document's failure is recorded and
+    /// stepped over inside `documentRows`; there is no work outside that loop
+    /// left to fail. So a caller has no error arm to get wrong, which is what
+    /// retired the desk's own — a `catch` that kept stale rows and said nothing.
     static func languageRows(
         in store: ProjectStore, projectURL: URL
-    ) async throws -> [LanguageRow] {
-        languageRows(from: try await documentRows(
+    ) async -> Report {
+        let documents = await documentRows(
             documentIds: manuscriptDocumentIds(in: store.manifest),
-            store: store, projectURL: projectURL),
-            in: store.manifest)
+            store: store, projectURL: projectURL)
+        return Report(
+            rows: languageRows(from: documents.rows, in: store.manifest),
+            unreadable: documents.unreadable)
     }
 
     /// One row per `(document, language)` over the documents named.
@@ -101,81 +151,152 @@ enum EditionStatus {
     /// falls back to the op-log derivation, which is the same split every other
     /// translation path takes.
     ///
-    /// A document with neither a translation file nor an open query for any
-    /// language contributes nothing — the project-wide walk would otherwise
-    /// report a row of zeroes for every untranslated chapter in the book. (For
-    /// a single named document the skip is the same statement: its language set
-    /// is empty, so the loop below emits nothing either way. An unknown id
-    /// still fails loudly, in `withAnnotationDocument`.)
+    /// **A document contributes nothing only when it has NO reason to** — no
+    /// translation file, no open query, and no stored translator anywhere in the
+    /// book (issue #43, F-E). The first two are facts about this document; the
+    /// third is a fact about the project, so once the writer has named a single
+    /// translator, every manuscript document contributes a zero row for that
+    /// language and none of them is skipped. What the skip prevents is a row of
+    /// zeroes for every untranslated chapter in a book that has named nobody at
+    /// all. (For a single named document the skip is the same statement: its
+    /// language set is empty, so the loop below emits nothing either way.)
+    ///
+    /// **The per-document open above is unconditional, and it dates from P2's
+    /// QUERY widening rather than from the role union.** Reading open questions
+    /// is what put a `withAnnotationDocument` load on every document, including
+    /// the ones with nothing translated into them — before that, a document with
+    /// no translation file was skipped before anything opened it. The role union
+    /// (cast-management, 2026-08-21) widened which documents produce ROWS, not
+    /// which ones are opened; a sweep that reads the two together concludes the
+    /// wrong provenance, and issue #43 was filed carrying exactly that reading.
+    ///
+    /// **A document that will not open is recorded and stepped over** (F-D). Any
+    /// error class degrades that one document — an `OpLogStore.ReadError` for a
+    /// history file that is present and unreadable, an `MCPError.invalidArgument`
+    /// for a manifest row with no path — and its rows are simply missing from the
+    /// answer, with `unreadable` saying which chapter and why. Nothing is written
+    /// here, so there is nothing a half-finished walk can damage; the only thing
+    /// at stake is whether the two readers tell the writer the truth about the
+    /// rest of the book.
+    ///
+    /// **This degrade is for documents the MANIFEST lists.** Every id reaching
+    /// here comes from a manifest walk — `manuscriptDocumentIds` above, or the
+    /// one id `translation_status` was asked for, which that tool checks against
+    /// the manifest before calling. An id nobody's manifest holds is a caller's
+    /// mistake rather than a damaged chapter, and it fails loudly at the tool;
+    /// were it recorded here instead, a typo would be reported to its author as
+    /// a chapter they should go and repair.
     static func documentRows(
         documentIds: [String], store: ProjectStore, projectURL: URL
-    ) async throws -> [DocumentRow] {
+    ) async -> DocumentReport {
         var rows: [DocumentRow] = []
+        var unreadable: [UnreadableDocument] = []
         // A fact about the BOOK rather than about any one document, so it is
         // read once rather than per chapter — and it is why an edition the
         // writer has only just named reports a row for every manuscript
         // document instead of none at all.
         let roleLanguages = storedTranslatorLanguages(in: store.manifest)
         for documentId in documentIds {
-            // Languages with an actual translation file — a cheap filename scan.
-            let fileLanguages = Set(
-                TranslationStore.languages(forDocId: documentId, in: projectURL))
-
-            // Open translator questions for this document, resolved the
-            // open/closed way `list_annotations` (and `TranslationReviewPane`'s
-            // own filter) do, so every surface's count matches. Fetched once
-            // per document; also the source of query-first languages.
-            let openQuestions = try await withAnnotationDocument(
-                store: store, projectURL: projectURL, documentId: documentId
-            ) { document in
-                document.annotations(filter: AnnotationFilter(
-                    kinds: [.query, .craftNote], statuses: [.open]))
+            do {
+                // All of this chapter's rows or none of them: a document that
+                // failed halfway would otherwise leave the languages it got
+                // through in the answer and the rest out of it, which reads as a
+                // chapter PARTLY translated on the strength of where the failure
+                // happened to land.
+                rows += try await documentRows(
+                    documentId: documentId, roleLanguages: roleLanguages,
+                    store: store, projectURL: projectURL)
+            } catch {
+                unreadable.append(UnreadableDocument(
+                    documentId: documentId,
+                    // The writer's own name for the chapter. The id is what a
+                    // desk line falls back to when the manifest holds no row to
+                    // read a title off — itself one of the ways a document
+                    // arrives here.
+                    title: TreeWalk.find(id: documentId, in: store.manifest.structure)?
+                        .title ?? documentId,
+                    // **`MCPError` is not a `LocalizedError`**, so
+                    // `localizedDescription` renders it as "The operation
+                    // couldn't be completed. (Maugham.MCPError error 3.)" —
+                    // and `MCPError.invalidArgument` is precisely what a
+                    // manifest row with no path throws
+                    // (`withAnnotationDocument`). Naming the chapter and then
+                    // saying nothing usable about it is the labelled silent
+                    // skip this degrade exists to replace, so its own `message`
+                    // comes first; every other error class keeps
+                    // `localizedDescription`, which for them is a real
+                    // sentence (`OpLogStore.ReadError`).
+                    reason: (error as? MCPError)?.message ?? error.localizedDescription))
             }
-            // The tag does the discriminating: an untagged craft note has a nil
-            // `language` and belongs to no edition.
-            let queryLanguages = Set(openQuestions.compactMap(\.language))
-            let languages = editionLanguages(
-                files: fileLanguages, queries: queryLanguages, roles: roleLanguages)
-            if languages.isEmpty { continue }
+        }
+        return DocumentReport(rows: rows, unreadable: unreadable)
+    }
 
-            for language in languages {
-                let openQueryCount = openQuestions.filter { $0.language == language }.count
-                let translator = translatorName(for: language, in: store.manifest)
-                guard fileLanguages.contains(language) else {
-                    // A language reached through a query or a role alone: no
-                    // translation file yet, so there is no coverage to derive —
-                    // report it absent rather than "every paragraph missing",
-                    // which would conflate "not started" with "started and
-                    // incomplete". The two file-less arms answer alike on
-                    // purpose; a role-only edition that reported the whole book
-                    // as missing would be a third coverage policy saying the
-                    // same thing in a more alarming way.
-                    rows.append(DocumentRow(
-                        documentId: documentId, language: language,
-                        translator: translator,
-                        fresh: 0, stale: 0, missing: 0, verbatim: 0, orphans: 0,
-                        openQueries: openQueryCount))
-                    continue
-                }
-                let state = try currentParagraphState(
-                    documentId: documentId, store: store,
-                    documentStore: store.documentStore, projectURL: projectURL)
-                let derived = TranslationDeriver.derive(
-                    records: TranslationStore.loadMerged(
-                        forDocId: documentId, language: language, in: projectURL),
-                    sequence: state.sequence,
-                    paragraphs: state.paragraphs,
-                    language: language)
+    /// One document's rows, throwing if either of its two reads refuses — the
+    /// half of the walk that is allowed to fail, so the walk itself can be the
+    /// half that never does.
+    private static func documentRows(
+        documentId: String, roleLanguages: [String],
+        store: ProjectStore, projectURL: URL
+    ) async throws -> [DocumentRow] {
+        // Languages with an actual translation file — a cheap filename scan.
+        let fileLanguages = Set(
+            TranslationStore.languages(forDocId: documentId, in: projectURL))
+
+        // Open translator questions for this document, resolved the
+        // open/closed way `list_annotations` (and `TranslationReviewPane`'s
+        // own filter) do, so every surface's count matches. Fetched once
+        // per document; also the source of query-first languages.
+        let openQuestions = try await withAnnotationDocument(
+            store: store, projectURL: projectURL, documentId: documentId
+        ) { document in
+            document.annotations(filter: AnnotationFilter(
+                kinds: [.query, .craftNote], statuses: [.open]))
+        }
+        // The tag does the discriminating: an untagged craft note has a nil
+        // `language` and belongs to no edition.
+        let queryLanguages = Set(openQuestions.compactMap(\.language))
+        let languages = editionLanguages(
+            files: fileLanguages, queries: queryLanguages, roles: roleLanguages)
+
+        var rows: [DocumentRow] = []
+        for language in languages {
+            let openQueryCount = openQuestions.filter { $0.language == language }.count
+            let translator = translatorName(for: language, in: store.manifest)
+            guard fileLanguages.contains(language) else {
+                // A language reached through a query or a role alone: no
+                // translation file yet, so there is no coverage to derive —
+                // report it absent rather than "every paragraph missing",
+                // which would conflate "not started" with "started and
+                // incomplete". The two file-less arms answer alike on
+                // purpose; a role-only edition that reported the whole book
+                // as missing would be a third coverage policy saying the
+                // same thing in a more alarming way.
                 rows.append(DocumentRow(
                     documentId: documentId, language: language,
                     translator: translator,
-                    fresh: derived.freshCount,
-                    stale: derived.staleCount,
-                    missing: derived.missingCount,
-                    verbatim: derived.verbatimCount,
-                    orphans: derived.orphans.count,
+                    fresh: 0, stale: 0, missing: 0, verbatim: 0, orphans: 0,
                     openQueries: openQueryCount))
+                continue
             }
+            let state = try currentParagraphState(
+                documentId: documentId, store: store,
+                documentStore: store.documentStore, projectURL: projectURL)
+            let derived = TranslationDeriver.derive(
+                records: TranslationStore.loadMerged(
+                    forDocId: documentId, language: language, in: projectURL),
+                sequence: state.sequence,
+                paragraphs: state.paragraphs,
+                language: language)
+            rows.append(DocumentRow(
+                documentId: documentId, language: language,
+                translator: translator,
+                fresh: derived.freshCount,
+                stale: derived.staleCount,
+                missing: derived.missingCount,
+                verbatim: derived.verbatimCount,
+                orphans: derived.orphans.count,
+                openQueries: openQueryCount))
         }
         return rows
     }

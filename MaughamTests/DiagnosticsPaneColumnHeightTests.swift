@@ -340,18 +340,12 @@ final class DiagnosticsPaneColumnHeightTests: XCTestCase {
         store: ProjectStore, detailWidth: Double,
         @ViewBuilder detail: @escaping () -> Detail
     ) async throws -> (NSWindow, NSSplitView, NSTableView) {
-        let frame = CGRect(x: 0, y: 0, width: 1200, height: windowHeight)
-        let hosting = NSHostingView(rootView: AnyView(
-            ThreeColumnHarness(store: store, probe: BinderSubjectProbe(),
-                               detailWidth: detailWidth, detail: detail)
-                .environment(UserPreferences())))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame,
-                              styleMask: [.titled, .resizable],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(ThreeColumnHarness(store: store, probe: BinderSubjectProbe(),
+                                       detailWidth: detailWidth, detail: detail)
+                .environment(UserPreferences())),
+            size: CGSize(width: 1200, height: windowHeight),
+            styleMask: [.titled, .resizable])
         windows.append(window)
         _ = await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
         await waitOut(0.8)

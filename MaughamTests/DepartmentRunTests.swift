@@ -1863,26 +1863,21 @@ final class DepartmentRunTests: XCTestCase {
                 runState: runState, lastRun: nil)
         }
 
-        let frame = CGRect(x: 0, y: 0, width: 340, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(
-            DepartmentPane(title: "The Project",
-                           languages: rows,
-                           design: design,
-                           notice: notice,
-                           runTarget: target,
-                           runs: runs,
-                           runTranslation: runTranslation,
-                           cancelRun: cancelRun,
-                           runDesign: runDesign,
-                           requestDesignChanges: requestDesignChanges,
-                           cancelDesignRun: cancelDesignRun)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(DepartmentPane(title: "The Project",
+                                   languages: rows,
+                                   unreadable: [],
+                                   design: design,
+                                   notice: notice,
+                                   runTarget: target,
+                                   runs: runs,
+                                   runTranslation: runTranslation,
+                                   cancelRun: cancelRun,
+                                   runDesign: runDesign,
+                                   requestDesignChanges: requestDesignChanges,
+                                   cancelDesignRun: cancelDesignRun)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)),
+            size: CGSize(width: 340, height: 600))
         windows.append(window)
         pump(0.1)
         return window
@@ -1895,20 +1890,15 @@ final class DepartmentRunTests: XCTestCase {
         design: DepartmentDesignRow = DepartmentDesignRow(),
         renameTranslator: @escaping (String) -> Void = { _ in },
         renameDesigner: @escaping () -> Void = { }) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 340, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(
-            DepartmentPane(title: "The Project",
-                           languages: rows,
-                           design: design,
-                           renameTranslator: renameTranslator,
-                           renameDesigner: renameDesigner)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(DepartmentPane(title: "The Project",
+                                   languages: rows,
+                                   unreadable: [],
+                                   design: design,
+                                   renameTranslator: renameTranslator,
+                                   renameDesigner: renameDesigner)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)),
+            size: CGSize(width: 340, height: 600))
         windows.append(window)
         pump(0.1)
         return window
@@ -1928,16 +1918,10 @@ final class DepartmentRunTests: XCTestCase {
         ask: DepartmentCastPrompt.Ask,
         onConfirm: @escaping (DepartmentCastAnswer) -> Void = { _ in },
         onCancel: @escaping () -> Void = { }) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 380, height: 260)
-        let hosting = NSHostingView(rootView: AnyView(
-            DepartmentCastSheet(prompt: DepartmentCastPrompt(ask: ask),
-                                onConfirm: onConfirm, onCancel: onCancel)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(DepartmentCastSheet(prompt: DepartmentCastPrompt(ask: ask),
+                                        onConfirm: onConfirm, onCancel: onCancel)),
+            size: CGSize(width: 380, height: 260))
         windows.append(window)
         pump(0.1)
         return window
@@ -2119,24 +2103,19 @@ final class DepartmentRunTests: XCTestCase {
     /// The real host over a `TranslatorFixture`'s project — Task 4's own
     /// `mountHost`, one orchestrator over.
     private func mountTranslatorHost(_ fixture: TranslatorFixture) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 340, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(
-            DepartmentPaneHost(store: fixture.projectStore,
-                               documentStore: fixture.documentStore,
-                               projectURL: fixture.projectURL,
-                               subject: .item("doc-1"),
-                               translator: fixture.translator,
-                               // The window passes its log the same way; a desk
-                               // without one draws no report line at all, and a
-                               // test watching for one would wait for ever.
-                               runLog: fixture.runLog)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(DepartmentPaneHost(store: fixture.projectStore,
+                                       documentStore: fixture.documentStore,
+                                       projectURL: fixture.projectURL,
+                                       subject: .item("doc-1"),
+                                       translator: fixture.translator,
+                                       // The window passes its log the same way; a
+                                       // desk without one draws no report line at
+                                       // all, and a test watching for one would
+                                       // wait for ever.
+                                       runLog: fixture.runLog)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)),
+            size: CGSize(width: 340, height: 600))
         windows.append(window)
         pump(0.1)
         return window
@@ -2236,19 +2215,13 @@ final class DepartmentRunTests: XCTestCase {
     /// are all the production ones.
     private func mountHost(_ fixture: DesignFixture,
                            designer: DesignerOrchestrator) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 340, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(
-            DepartmentPaneHost(store: fixture.projectStore,
-                               documentStore: fixture.documentStore,
-                               projectURL: fixture.projectURL,
-                               designer: designer)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(DepartmentPaneHost(store: fixture.projectStore,
+                                       documentStore: fixture.documentStore,
+                                       projectURL: fixture.projectURL,
+                                       designer: designer)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)),
+            size: CGSize(width: 340, height: 600))
         windows.append(window)
         pump(0.1)
         return window

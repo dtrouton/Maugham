@@ -542,7 +542,7 @@ final class StatementEditorMountTests: XCTestCase {
         // The window must report itself key, or `MaughamEvent.shouldDeliver`
         // filters the post out for BOTH editors and this test passes without
         // exercising anything. A test-host window never becomes key for real —
-        // see `AlwaysKeyWindow`, which forces that one fact and leaves the rest
+        // see `KeyTestWindow` (TestSupport/TestWindow.swift), which forces that one fact and leaves the rest
         // of the delivery path production.
         XCTAssertTrue(window.isKeyWindow,
                       "the hosting window does not report itself key, so a "

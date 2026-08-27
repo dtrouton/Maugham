@@ -549,18 +549,12 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     async throws -> (NSWindow, BinderSubjectProbe) {
         let probe = BinderSubjectProbe()
         probe.subject = subject
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
-        let hosting = NSHostingView(
-            rootView: AnyView(
+        let window = TestWindow.mount(
+            AnyView(
                 BinderShellProbeView(store: store, probe: probe, script: script,
                                      persona: persona,
-                                     findActive: findActive)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+                                     findActive: findActive)),
+            size: CGSize(width: 320, height: 600))
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
         return (window, probe)

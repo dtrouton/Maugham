@@ -382,14 +382,8 @@ final class SectionChevronTests: XCTestCase {
 
     /// A window over a view with no project behind it — the control's fixture.
     private func mountBare(_ root: AnyView) throws -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 400)
-        let hosting = NSHostingView(rootView: root)
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(root, size: CGSize(width: 320, height: 400),
+                                      as: SilentTestWindow.self)
         windows.append(window)
         return window
     }
@@ -397,15 +391,10 @@ final class SectionChevronTests: XCTestCase {
     private func mountTree() async throws -> Mount {
         let store = try await novel()
         let state = BinderTreeSectionsState()
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(
-            ChevronProbeView(store: store, treeState: state)))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(ChevronProbeView(store: store, treeState: state)),
+            size: CGSize(width: 320, height: 600),
+            as: SilentTestWindow.self)
         windows.append(window)
         await pumpUntil(deadline: 5) { self.sectionHeaders(in: window).count == 2 }
         // The palette section loads its cards from disk once per manifest

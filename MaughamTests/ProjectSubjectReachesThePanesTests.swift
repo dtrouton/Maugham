@@ -74,16 +74,10 @@ final class ProjectSubjectReachesThePanesTests: XCTestCase {
     private func hostOutline(store: ProjectStore,
                              probe: BinderSubjectProbe,
                              layout: OutlineLayout) async throws -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 520, height: 600)
-        let hosting = NSHostingView(
-            rootView: AnyView(OutlineProbeView(store: store, probe: probe,
-                                               layout: layout)))
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(
+            AnyView(OutlineProbeView(store: store, probe: probe,
+                                     layout: layout)),
+            size: CGSize(width: 520, height: 600))
         windows.append(window)
         pump()
         return window

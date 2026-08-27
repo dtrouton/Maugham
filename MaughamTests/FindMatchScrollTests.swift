@@ -204,22 +204,12 @@ final class FindMatchScrollTests: XCTestCase {
 
     // MARK: - Hosting
 
-    /// A window that reports itself key — `TreeFindOverlayTests.KeyTestWindow`'s
-    /// twin, needed for the same reason: `.maughamFindMatchSelected` and
-    /// `.maughamCloseFind` are both key-window scoped.
-    private final class KeyTestWindow: SilentTestWindow {
-        override var isKeyWindow: Bool { true }
-    }
-
     private func host(_ box: FindMatchScrollBox, _ view: some View) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 600)
-        let hosting = NSHostingView(rootView: AnyView(view))
-        hosting.frame = frame
-        let window = KeyTestWindow(contentRect: frame, styleMask: [.titled],
-                                   backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        // `KeyTestWindow` because `.maughamFindMatchSelected` and
+        // `.maughamCloseFind` are both key-window scoped.
+        let window = TestWindow.mount(AnyView(view),
+                                      size: CGSize(width: 320, height: 600),
+                                      as: KeyTestWindow.self)
         windows.append(window)
         box.window = window
         pump(0.15)

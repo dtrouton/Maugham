@@ -270,13 +270,43 @@ struct PublishCentreNoticeBanner: View {
     let notice: PublishCentreNotice
 
     var body: some View {
+        PublishNoticeLine(headline: notice.headline, detail: notice.detail,
+                          symbol: notice.symbol, tint: notice.tint)
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .allowsHitTesting(false)
+    }
+}
+
+/// **The house shape for "Maugham couldn't read this"** — a symbol, a headline
+/// and the failure's own sentence under it, in a bordered card.
+///
+/// Extracted from `PublishCentreNoticeBanner` when Publish grew a second place
+/// to say it (issue #43, F-D: the department desk names a chapter whose history
+/// file it could not open). Plain strings rather than `PublishCentreNotice`,
+/// because the desk's line is about one document rather than about the centre
+/// column's two ways of having no book — and two hand-built cards that looked
+/// almost alike would be the writer learning the same signal twice.
+///
+/// The banner keeps its own outer frame, `allowsHitTesting(false)` and padding:
+/// those are about standing over the altitude view, which is that surface's
+/// concern and not this shape's.
+struct PublishNoticeLine: View {
+    let headline: String
+    let detail: String
+    /// Defaults to the warning triangle, which is what every caller so far is:
+    /// something present that cannot be read.
+    var symbol: String = "exclamationmark.triangle.fill"
+    var tint: Color = .orange
+
+    var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: notice.symbol)
-                .foregroundStyle(notice.tint)
+            Image(systemName: symbol)
+                .foregroundStyle(tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text(notice.headline)
+                Text(headline)
                     .font(.callout.weight(.medium))
-                Text(notice.detail)
+                Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -288,11 +318,8 @@ struct PublishCentreNoticeBanner: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8)
             .strokeBorder(Color.secondary.opacity(0.25)))
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(notice.headline). \(notice.detail)")
+        .accessibilityLabel("\(headline). \(detail)")
     }
 }
 

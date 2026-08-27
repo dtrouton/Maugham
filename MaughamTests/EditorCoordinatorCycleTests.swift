@@ -89,12 +89,11 @@ final class EditorCoordinatorCycleTests: XCTestCase {
         // (rather than flake) when it isn't granted — the scope semantics are
         // pinned deterministically in MaughamEvent(Liveness)Tests either way.
         let tv = makeTextView(text: "INT. KITCHEN - DAY\n\nLarry sits.\n\nINT. ROOFTOP - NIGHT")
-        let w = NSWindow(
+        let w = TestWindow.make(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        w.isReleasedWhenClosed = false
-        w.contentView = tv
-        w.makeKeyAndOrderFront(nil)
+            styleMask: [.titled, .closable],
+            contentView: tv,
+            present: .key)
         defer { w.close() }
         let coord = makeCoordinator(textView: tv, mode: ScreenplayMode())
         try XCTSkipUnless(w.isKeyWindow,

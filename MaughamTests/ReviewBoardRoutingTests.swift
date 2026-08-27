@@ -956,14 +956,9 @@ final class ReviewBoardRoutingTests: XCTestCase {
             hostLife: life, shape: shape, canvasModel: CanvasModel())
             .environment(preferences)
 
-        let frame = CGRect(x: 0, y: 0, width: 900, height: 700)
-        let hosting = NSHostingView(rootView: AnyView(root))
-        hosting.frame = frame
-        let window = SilentTestWindow(contentRect: frame, styleMask: [.titled],
-                                      backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(AnyView(root),
+                                      size: CGSize(width: 900, height: 700),
+                                      as: SilentTestWindow.self)
         windows.append(window)
         pump(0.1)
         return Mount(window: window, box: box, hostLife: life)

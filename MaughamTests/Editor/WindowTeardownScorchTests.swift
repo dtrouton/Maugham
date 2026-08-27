@@ -79,10 +79,9 @@ final class WindowTeardownScorchTests: XCTestCase {
         let tv = makeMaughamTextView()
         let coord = makeCoordinator(for: tv)
 
-        let window = NSWindow(
+        let window = TestWindow.make(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
-            styleMask: [.titled], backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false  // test-owned window (see cycle tests)
+            deferred: true, present: .unshown)
 
         tv.viewWillMove(toWindow: window)
 

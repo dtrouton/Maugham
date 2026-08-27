@@ -1376,14 +1376,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// fixture's own hosting is private and is about the pane. Torn down with
     /// the test class rather than the fixture.
     private func mountBare(_ view: AnyView) -> NSWindow {
-        let frame = CGRect(x: 0, y: 0, width: 320, height: 120)
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame = frame
-        let window = NSWindow(contentRect: frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        window.orderFront(nil)
-        hosting.layoutSubtreeIfNeeded()
+        let window = TestWindow.mount(view, size: CGSize(width: 320, height: 120))
         bareWindows.append(window)
         return window
     }

@@ -322,13 +322,17 @@ final class CanvasEventViewTests: XCTestCase {
     /// the override is not that, and the override reads only `locationInWindow`
     /// and `clickCount`.
     func test_aClickTakesFirstResponderSoTheKeyboardReachesTheCanvas() throws {
-        let window = SilentTestWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        // Built before it is shown, and shown only once the view is in it: the
+        // ordering below is what makes AppKit's initial-first-responder pass see
+        // this view at all, which is the premise the parking line is about.
+        let window = TestWindow.make(SilentTestWindow.self,
+                                     contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+                                     present: .unshown)
         windows.append(window)
         let v = view()
         v.frame = window.contentLayoutRect
         window.contentView?.addSubview(v)
-        window.orderFront(nil)
+        TestWindow.present(window)
         // Park focus off the view first. AppKit makes the only
         // `acceptsFirstResponder` subview the initial first responder when the
         // window is shown, so without this the precondition is already satisfied
