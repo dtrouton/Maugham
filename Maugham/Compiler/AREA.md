@@ -756,8 +756,10 @@ the translator's rows are. See `Maugham/Stores/AREA.md`'s own
   each of those two call sites.
 - **The round ring is the DOCUMENT's, not any one pass's.** `FileContent.rounds`
   is one array per `docId`, capped at `roundHistoryDepth` (5) — every pass
-  files into the same ring, so five finished checks in Line push a Structural
-  round out of it exactly as five more Structural checks would. It is written
+  files into the same ring. The document actually remembers six finished
+  checks — the ring plus the standing run, which is filed into the ring only
+  when superseded — so a Structural round is pushed out once six later checks
+  (in any lane) stack up behind it. It is written
   only by `replace`, and only for the run being SUPERSEDED — `RoundRecord(run:)`
   is built from `finishedContent(docId:)`, which reads the
   in-memory `byDoc` entry directly except while a preview is standing in for
