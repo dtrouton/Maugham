@@ -145,10 +145,27 @@ OWN lane is deliberately not counted**: that is the *persisting* case, already
 on the line, and counting it twice would tell the writer one finding is two.
 The number is produced at the one place fingerprints are already compared
 (`CompilerEnvironment+Project`'s mint loop, whose `taken` set became a
-fingerprint→lane map for exactly this) rather than by a second scan that could
-disagree with the mint about what it refused; it rides `CompilerRun`
+fingerprint→**set of lanes** map for exactly this) rather than by a second scan
+that could disagree with the mint about what it refused; it rides `CompilerRun`
 additive-optional, so an older sidecar decodes to nil and the sentence is
-byte-for-byte what it was. **Scope, stated honestly: this counts NOTES.** The
+byte-for-byte what it was.
+
+**A set of lanes and not one lane, because ONE FINGERPRINT CAN BE HELD BY TWO
+OPEN NOTES**, and the shape is reachable through nothing but the writer's own
+verbs: only open notes block, so a Structural note that is rejected stops
+blocking, a Line round re-raises the finding and mints a second note under the
+same fingerprint, and Reopen on the first leaves both open in different lanes.
+`reopenAnnotation` has no fingerprint-collision guard and should not grow one —
+reopening is the writer taking a note back, not a claim about any other note.
+A single-valued map keeps whichever of the two the annotation order happened to
+leave last, so the round in the OTHER lane reads a foreign lane back and reports
+its own persisting note as "also open in another lane" — the same finding
+counted twice in one sentence ("1 persisting · 1 also open in another lane"),
+which is the exact string the review fix's test produces when falsified.
+**Own-lane presence wins**: cross-lane means NO note holding the fingerprint is
+in this round's lane. And the count stays per FINDING, not per matched note —
+two notes holding one fingerprint are one thing the writer is holding, which is
+what the sentence says. **Scope, stated honestly: this counts NOTES.** The
 mint only ever sees `SectionedOutcome.mintable` — continuity questions and
 reader reports — so a conformance strain re-raised across lanes stays
 report-side and takes no part in the number.

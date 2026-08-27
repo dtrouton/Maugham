@@ -4890,6 +4890,145 @@ final class CompilerRunCommandTests: XCTestCase {
             + "\u{00b7} 1 also open in another lane")
     }
 
+    /// **One fingerprint, two OPEN notes, two lanes — and a round in EITHER of
+    /// those lanes must not count its own persisting note as somebody else's**
+    /// (review fix, #42).
+    ///
+    /// The state is reachable through nothing but the writer's own verbs,
+    /// which is why it needs pinning: only OPEN notes block the mint, so a
+    /// rejected note stops blocking, the next lane's round mints a second note
+    /// under the same fingerprint, and Reopen puts the first one back.
+    /// `reopenAnnotation` has no fingerprint-collision guard and should not
+    /// grow one — reopening is the writer taking a note back, not a claim
+    /// about any other note.
+    ///
+    /// **Both holding lanes are asserted, and that is what makes this a
+    /// falsifier rather than a coincidence.** A single-valued fingerprint→lane
+    /// map keeps exactly one of the two, and which one it keeps is an accident
+    /// of the order `annotations(filter:)` happens to return: whichever it
+    /// kept, the round in the OTHER lane would read a foreign lane back and
+    /// report its own persisting note as "also open in another lane" — counted
+    /// twice, once on each side of the same sentence. Asserting only one of the
+    /// two lanes would pass on the broken code half the time.
+    ///
+    /// The third round is the mirror: a lane holding neither counts ONE, not
+    /// two. Two notes, one finding.
+    func test_aFindingOpenInTwoLanesAtOnceIsCountedOnceAndNeverFromItsOwnLane() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        let fingerprint = "continuity\u{1f}the fog\u{1f}\(pid)\u{1f}"
+
+        // Structural round 1 raises the finding and mints it.
+        setActivePass("structural", on: fx)
+        runner.nextEvent = .resultText(
+            oneQuestion("Has anyone said how long yet?", about: pid))
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(1, on: fx.document)
+        let structuralOneRecord = await awaitRunAfter(nil, on: fx)
+        let structuralOne = try XCTUnwrap(structuralOneRecord)
+        let first = try XCTUnwrap(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open])).first)
+        XCTAssertEqual(first.compilerFingerprint, fingerprint,
+                       "precondition: the fixture's fingerprint is the one spelling")
+
+        // The writer rejects it, so nothing open holds the fingerprint any more.
+        try await fx.document.rejectAnnotation(id: first.id)
+        XCTAssertEqual(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open])).count, 0,
+            "precondition: the dedupe has nothing left to refuse against")
+
+        // A Line round raises the same finding and mints a SECOND note under
+        // the same fingerprint — correctly, on the rule that a resolved note
+        // does not block a finding coming back.
+        setActivePass("line", on: fx)
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+        runner.nextEvent = .resultText(
+            oneQuestion("How long has the fog been sitting there?", about: pid))
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(2, on: runner)
+        await awaitOpenNotes(1, on: fx.document)
+        let lineOneRecord = await awaitRunAfter(structuralOne.id, on: fx)
+        let lineOne = try XCTUnwrap(lineOneRecord)
+        XCTAssertEqual(lineOne.mintedNotes, 1, "precondition: the Line lane minted its own")
+
+        // …and the writer takes the first one back. Two open notes, one
+        // fingerprint, two lanes — the state this test exists for.
+        try await fx.document.reopenAnnotation(id: first.id)
+        let open = fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+        XCTAssertEqual(open.count, 2)
+        XCTAssertEqual(Set(open.compactMap(\.compilerFingerprint)), [fingerprint])
+        XCTAssertEqual(Set(open.map(\.reviewPassId)), ["structural", "line"])
+
+        // **Structural round 2: its own lane holds one of the two.**
+        setActivePass("structural", on: fx)
+        fx.document.setFullText(
+            "The fog came.\n\nIt stayed for three days.\n\nThen it lifted.")
+        runner.nextEvent = .resultText(
+            oneQuestion("Is the fog's duration ever established?", about: pid))
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(3, on: runner)
+        let structuralTwoRecord = await awaitRunAfter(lineOne.id, on: fx)
+        let structuralTwo = try XCTUnwrap(structuralTwoRecord)
+        await awaitNothingMinted()
+        XCTAssertEqual(structuralTwo.round, 2)
+        XCTAssertEqual(structuralTwo.openInOtherLanes, 0,
+                       "the Structural lane holds one of the two notes, so the "
+                       + "finding is not open somewhere this writer cannot see")
+        XCTAssertEqual(
+            RoundNarrative.sinceLastRoundLine(
+                history: fx.diagnostics.roundHistory(docId: "ch-1"),
+                run: structuralTwo,
+                annotations: fx.document.annotations(filter: AnnotationFilter(statuses: nil))),
+            "Since round 1: 0 resolved \u{00b7} 1 persisting \u{00b7} 0 new",
+            "counted once, as persisting, with no cross-lane clause beside it")
+
+        // **Line round 2: so does its own lane.** The other half of the same
+        // claim — and the half that fails whenever the single-valued map kept
+        // "structural" rather than "line".
+        setActivePass("line", on: fx)
+        fx.document.setFullText(
+            "The fog came.\n\nIt stayed for three days.\n\nThen it lifted.\n\nBriefly.")
+        runner.nextEvent = .resultText(
+            oneQuestion("Does the piece ever fix the fog's duration?", about: pid))
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(4, on: runner)
+        let lineTwoRecord = await awaitRunAfter(structuralTwo.id, on: fx)
+        let lineTwo = try XCTUnwrap(lineTwoRecord)
+        await awaitNothingMinted()
+        XCTAssertEqual(lineTwo.round, 2)
+        XCTAssertEqual(lineTwo.openInOtherLanes, 0,
+                       "the Line lane holds the other of the two notes")
+        XCTAssertEqual(
+            RoundNarrative.sinceLastRoundLine(
+                history: fx.diagnostics.roundHistory(docId: "ch-1"),
+                run: lineTwo,
+                annotations: fx.document.annotations(filter: AnnotationFilter(statuses: nil))),
+            "Since round 1: 0 resolved \u{00b7} 1 persisting \u{00b7} 0 new")
+
+        // **The mirror: a lane holding neither counts ONE, not two.** Both open
+        // notes match, and they are one finding.
+        setActivePass("proof", on: fx)
+        fx.document.setFullText(
+            "The fog came.\n\nIt stayed for three days.\n\nThen it lifted.\n\n"
+            + "Briefly.\n\nNobody wrote it down.")
+        runner.nextEvent = .resultText(
+            oneQuestion("Is the duration established anywhere?", about: pid))
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(5, on: runner)
+        let proofRecord = await awaitRunAfter(lineTwo.id, on: fx)
+        let proof = try XCTUnwrap(proofRecord)
+        await awaitNothingMinted()
+        XCTAssertEqual(proof.openInOtherLanes, 1,
+                       "two notes hold this fingerprint, but they are one "
+                       + "finding \u{2014} the count is of findings, which is "
+                       + "what the sentence it feeds says")
+        XCTAssertEqual(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open])).count, 2,
+            "and no round minted a third copy")
+    }
+
     /// **A Cancel inside the mint window leaves the stale finish nothing to
     /// write** (M4 P1 review, Minor 6).
     ///
