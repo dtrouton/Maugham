@@ -21,7 +21,7 @@ import Foundation
 /// | | attached | otherwise |
 /// |---|---|---|
 /// | read | the model's `scene` and `scraps` | `CanvasStore.load()` |
-/// | write | `mutateFromInspector`, then the bump, then `flush()` | `load()` → `apply` → `save` |
+/// | write | `mutateFromInspector`, then the bump, then `flush()` | `loadForTransientWrite()` → `apply` → `save` |
 ///
 /// **Nothing here is `async`, deliberately.** `CanvasClaudePlacement.apply` takes
 /// an `inout CanvasScene`, and an `inout` cannot cross a suspension point — that is
@@ -74,10 +74,14 @@ enum CanvasClaudeWrite {
     /// hold a plan across anything that could write to the canvas in between.
     ///
     /// `throws` because both callers are throwing MCP handlers and the sidecar
-    /// route is a disk write. Nothing throws today — `CanvasStore` swallows its own
-    /// I/O errors, the same way every other writer of the sidecar does — and the
-    /// signature is the one the tools are written against rather than one they
-    /// would have to change to report a failure this layer starts detecting.
+    /// route is a disk write. **It throws `CanvasStore.SidecarRefused` on that
+    /// route when the file is present and this build cannot read it** (issue #33):
+    /// `load()` answers such a file with an EMPTY scene, so the write used to save
+    /// that empty scene plus Claude's cards over every region, line, position, mark
+    /// and binding another build put there — and answer "added". Nothing else
+    /// throws: `CanvasStore` still swallows its own I/O errors, the way every other
+    /// writer of the sidecar does. The live-model arm cannot refuse, because a
+    /// model attached by this build is this build's own act.
     static func apply(_ plan: CanvasClaudePlacement.Plan,
                       store: ProjectStore,
                       projectRoot: URL) throws {
@@ -117,7 +121,11 @@ enum CanvasClaudeWrite {
         }
 
         let sidecar = CanvasStore(projectRoot: projectRoot)
-        let loaded = sidecar.load()
+        // **The first statement on this route, and before any mutation** — Task 1's
+        // one door, never a second `!= .refused` spelled here. A sidecar this build
+        // cannot read loads as an empty scene, and everything below would then
+        // stamp that emptiness back over somebody's whole arrangement (#33).
+        let loaded = try sidecar.loadForTransientWrite()
         var scene = loaded.scene
         var scraps = loaded.scraps
         CanvasClaudePlacement.apply(plan, to: &scene)

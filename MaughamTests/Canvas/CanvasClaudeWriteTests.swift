@@ -152,9 +152,17 @@ final class CanvasClaudeWriteTests: XCTestCase {
 
     /// Nobody has the Plan persona open: the sidecar is the canvas, and a fresh
     /// store reads back what was written.
+    ///
+    /// **It is also the control for the two refusals at the foot of this file**
+    /// (issue #33): with no `canvas.json` there is nothing to lose, so the write
+    /// goes through. An implementation that simply refused every write with no
+    /// canvas open would pass both refusal tests and fail this one.
     func test_aClosedCanvasIsWrittenToTheSidecar() async throws {
         let (store, projectRoot) = try await project("Closed")
         XCTAssertNil(store.liveCanvas, "precondition: no window is showing this canvas")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: sidecarURL(projectRoot).path),
+            "precondition: no sidecar at all, so there is no arrangement to lose")
 
         let read = CanvasClaudeWrite.readScene(store: store, projectRoot: projectRoot)
         XCTAssertFalse(read.fromOpenCanvas, "precondition: the read came off disk")
@@ -387,5 +395,108 @@ final class CanvasClaudeWriteTests: XCTestCase {
                       "the writer's first run is underneath, still its own step: "
                       + "three arrivals, three steps, three names. found: "
                       + model.undoManager.undoMenuItemTitle)
+    }
+
+    // MARK: - A sidecar this build cannot read (issue #33)
+
+    /// A sidecar from a build we do not have: present, holding somebody's whole
+    /// arrangement, and undecodable here. `CanvasStore.load` answers it with an
+    /// EMPTY scene — which is what made the sidecar route dangerous, because
+    /// `apply` then saved that empty scene plus Claude's cards straight back over
+    /// every region, line, position, mark and binding in the file.
+    private static let sidecarFromANewerBuild =
+        #"{"schemaVersion":999,"nodes":[{"id":"futr","kind":"scrap","x":10,"y":10,"width":240,"z":3}]}"#
+
+    private func sidecarURL(_ projectRoot: URL) -> URL {
+        projectRoot.appendingPathComponent(CanvasStore.sidecarRelativePath)
+    }
+
+    private func scrapsURL(_ projectRoot: URL) -> URL {
+        projectRoot.appendingPathComponent(CanvasStore.scrapsRelativePath)
+    }
+
+    /// Seed a refused sidecar with the writer's words beside it, and hand back the
+    /// bytes of BOTH files. `CanvasModelTests` and `InboxToCanvasTests` seed their
+    /// twins the same way.
+    ///
+    /// `canvas.md` is in the comparison because it is *content* (spec §3.2): the
+    /// sidecar can be deleted without losing a word, so a refusal that still
+    /// rewrote the scraps file would cost the writer the one thing the sidecar's
+    /// loss does not.
+    private func seedUnreadableSidecar(
+        _ projectRoot: URL, _ json: String
+    ) throws -> (sidecar: Data, scraps: Data) {
+        let sidecar = sidecarURL(projectRoot)
+        try FileManager.default.createDirectory(
+            at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try json.write(to: sidecar, atomically: true, encoding: .utf8)
+        try "\(ScrapText.banner)\n\n## futr\n\nA layout from a build we do not have.\n"
+            .write(to: scrapsURL(projectRoot), atomically: true, encoding: .utf8)
+        return (try Data(contentsOf: sidecar), try Data(contentsOf: scrapsURL(projectRoot)))
+    }
+
+    /// Plan a batch against whatever `readScene` reports, apply it, and assert the
+    /// two things a refusal owes the writer: it is *told* — a `SidecarRefused`
+    /// naming the project, which is the sentence every caller reads out — and both
+    /// canvas files are **byte-identical** to what was there before.
+    private func assertRefusedAndUntouched(
+        _ store: ProjectStore, _ projectRoot: URL,
+        before: (sidecar: Data, scraps: Data),
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let read = CanvasClaudeWrite.readScene(store: store, projectRoot: projectRoot)
+        XCTAssertFalse(read.fromOpenCanvas,
+                       "precondition: the read came off disk, so the write takes "
+                       + "the sidecar route", file: file, line: line)
+        let plan = CanvasClaudePlacement.plan(request(["a card worth losing nothing for"]),
+                                              in: read.scene)
+
+        XCTAssertThrowsError(
+            try CanvasClaudeWrite.apply(plan, store: store, projectRoot: projectRoot),
+            "a write onto a sidecar this build cannot read must be refused — saving "
+            + "over it costs every region, line, position, mark and binding the "
+            + "other build put there",
+            file: file, line: line
+        ) { error in
+            guard let refusal = error as? CanvasStore.SidecarRefused else {
+                return XCTFail("expected CanvasStore.SidecarRefused, got \(error)",
+                               file: file, line: line)
+            }
+            XCTAssertEqual(refusal.projectName, projectRoot.lastPathComponent,
+                           "the refusal names the project it is about",
+                           file: file, line: line)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: sidecarURL(projectRoot)), before.sidecar,
+                       "the other build's arrangement is byte-identical on disk — a "
+                       + "refusal that still wrote is the whole defect",
+                       file: file, line: line)
+        XCTAssertEqual(try Data(contentsOf: scrapsURL(projectRoot)), before.scraps,
+                       "…and canvas.md is untouched too: the words are content, and "
+                       + "a refused call may not add Claude's to them",
+                       file: file, line: line)
+    }
+
+    /// **The defect, in its plainest form** (issue #33). Nobody has the Plan
+    /// persona open, so the write takes the sidecar route — and that route used to
+    /// `load()` a newer build's file as an empty scene and `save()` its own scene
+    /// straight back over it, destroying the writer's whole arrangement to add
+    /// three cards.
+    func test_aClosedCanvasWithAnUnreadableSidecarRefusesTheWrite() async throws {
+        let (store, projectRoot) = try await project("RefusedNewerSchema")
+        XCTAssertNil(store.liveCanvas, "precondition: nobody is showing this canvas")
+        let before = try seedUnreadableSidecar(projectRoot, Self.sidecarFromANewerBuild)
+
+        try assertRefusedAndUntouched(store, projectRoot, before: before)
+    }
+
+    /// Damaged bytes are the same case: present, unreadable, and not ours to stamp
+    /// over. A backup or a later repair may still recover it.
+    func test_aDamagedSidecarRefusesTheWriteToo() async throws {
+        let (store, projectRoot) = try await project("RefusedDamaged")
+        XCTAssertNil(store.liveCanvas, "precondition: nobody is showing this canvas")
+        let before = try seedUnreadableSidecar(projectRoot, "not json at all")
+
+        try assertRefusedAndUntouched(store, projectRoot, before: before)
     }
 }

@@ -1182,4 +1182,82 @@ final class CanvasToolsTests: XCTestCase {
         }
         assertNothingWasWritten(at: repeated.url)
     }
+
+    // MARK: - add_canvas_scraps: a sidecar this build cannot read (issue #33)
+
+    /// A sidecar from a build we do not have: present, holding somebody's whole
+    /// arrangement, and undecodable here. `CanvasStore.load` answers it with an
+    /// EMPTY scene, which is what made the sidecar route dangerous — the tool then
+    /// saved that empty scene plus its own cards straight back over every region,
+    /// line, position, mark and binding in the file, and answered "added".
+    ///
+    /// The same bytes `CanvasClaudeWriteTests` and `InboxToCanvasTests` seed.
+    private static let sidecarFromANewerBuild =
+        #"{"schemaVersion":999,"nodes":[{"id":"futr","kind":"scrap","x":10,"y":10,"width":240,"z":3}]}"#
+
+    /// **The refusal the caller can act on** (issue #33). With no canvas open the
+    /// tool takes the sidecar route, and a file this build cannot read is not the
+    /// empty canvas `list_canvas` reported it as — so the refusal has to say that
+    /// in the caller's own vocabulary rather than fail silently or, worse, succeed.
+    ///
+    /// Both canvas files are compared byte for byte rather than asserted absent:
+    /// `assertNothingWasWritten` cannot serve here, because the whole premise is
+    /// that a file the writer cares about is already on disk.
+    func test_addCanvasScrapsRefusesAnUnreadableSidecarWithANamedError() async throws {
+        let (url, store, registry, id) = try await registeredProject("RefusedSidecar")
+        XCTAssertNil(store.liveCanvas,
+                     "precondition: nobody has this canvas open, so the tool takes "
+                     + "the sidecar route")
+
+        let sidecar = url.appendingPathComponent(CanvasStore.sidecarRelativePath)
+        let scraps = url.appendingPathComponent(CanvasStore.scrapsRelativePath)
+        try FileManager.default.createDirectory(
+            at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Self.sidecarFromANewerBuild.write(to: sidecar, atomically: true, encoding: .utf8)
+        try "\(ScrapText.banner)\n\n## futr\n\nA layout from a build we do not have.\n"
+            .write(to: scraps, atomically: true, encoding: .utf8)
+        let sidecarBefore = try Data(contentsOf: sidecar)
+        let scrapsBefore = try Data(contentsOf: scraps)
+
+        // An inverted expectation: the banner announces cards that arrived, so a
+        // post over a refused call would take the writer to a region that was
+        // never written.
+        let posted = expectation(description: "the canvas announced an arrival")
+        posted.isInverted = true
+        let token = MaughamEvent.observe(
+            .maughamCanvasNodesAdded,
+            context: { EventReceiverContext(kind: .project(id: id),
+                                            isWindowLive: true, isWindowKey: false) },
+            handler: { _ in posted.fulfill() })
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        do {
+            _ = try await add(registry, id, scraps: ["a thought", "and another"])
+            XCTFail("expected a refusal: adding to a sidecar this build cannot read "
+                    + "saves an empty scene over the writer's whole arrangement")
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "canvas_sidecar_unreadable",
+                           "the caller routes on the code, so a new failure that "
+                           + "wears an existing one's name is unactionable")
+            XCTAssertEqual(payload.fields["project"], .string(url.lastPathComponent),
+                           "the refusal names the project it is about — a writer "
+                           + "with two projects open has to know which one to update")
+            let hint = try XCTUnwrap(payload.hint)
+            XCTAssertFalse(hint.isEmpty)
+            XCTAssertTrue(hint.contains("list_canvas"),
+                          "the hint has to correct what the caller has already been "
+                          + "told: list_canvas reported an empty canvas, and that "
+                          + "reading is exactly what makes adding to it look safe. "
+                          + "got: \(hint)")
+        }
+
+        await fulfillment(of: [posted], timeout: 0.2)
+
+        XCTAssertEqual(try Data(contentsOf: sidecar), sidecarBefore,
+                       "the other build's arrangement is byte-identical on disk — a "
+                       + "refusal that still wrote is the whole defect")
+        XCTAssertEqual(try Data(contentsOf: scraps), scrapsBefore,
+                       "…and canvas.md is untouched too: the words are content, and "
+                       + "the sidecar's loss is meant to cost none of them")
+    }
 }
