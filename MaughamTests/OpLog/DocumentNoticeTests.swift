@@ -2,15 +2,20 @@ import XCTest
 import MaughamCore
 @testable import Maugham
 
-/// The `Document`'s one writer-facing channel, and the three occasions that
-/// need it.
+/// The `Document`'s one writer-facing channel, and the classes of occasion
+/// that need it — a count would go stale (the verbs grow), so: a **rewind
+/// undo's** drift decline (RULING-7 / M4-RW-026), an **annotation undo's**
+/// drift decline (RULING-22 / M5-AN-019, one mechanism over however many
+/// verbs), and the **sweep's** batched summary (RULING-32 / M5-AN-041, the
+/// report the writer is owed after the fact).
 ///
-/// All three used to end at `documentLog` and nowhere else. Two are declines —
-/// a ⌘Z the document refuses because it drifted (RULING-7 / M4-RW-026,
-/// RULING-22 / M5-AN-019) — and one is a report the writer is owed after the
-/// fact (RULING-32 / M5-AN-041, the typing sweep's batched summary). The
-/// declines themselves are correct and stay; what these tests pin is that the
-/// writer hears about them.
+/// All of them used to end at `documentLog` and nowhere else. The declines
+/// themselves are correct and stay; what these tests pin is that the writer
+/// hears about them — and, since the toast holds ONE sentence, that a thing
+/// which can happen N times per writer action arrives as one sentence carrying
+/// N. This file pins the SINGLE-occurrence wording of each, byte for byte;
+/// `AnnotationBulkActionsTests` pins the aggregate a coalesced ⌘Z spends
+/// (#41 A1).
 ///
 /// The channel is `.maughamDocumentNotice`, project-scoped, rendered by
 /// `RewindModifier`'s toast. `MaughamEventLivenessTests` owns the scope filter;

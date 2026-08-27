@@ -239,6 +239,68 @@ public final class Document {
     /// Per-instance, never persisted; a close() flush reports whatever is left.
     internal var _sweptSinceLastReport: Int = 0
 
+    /// What the annotation undos have DECLINED since the last report
+    /// (RULING-22), counted per verb — the sweep's shape above (RULING-32),
+    /// applied to the same problem one column over.
+    ///
+    /// One ⌘Z over a bulk action fires one undo closure PER NOTE
+    /// (`NSUndoManager.groupsByEvent` folds a batch's registrations into a
+    /// single event group, pinned by `AnnotationBulkActionsTests`), and each
+    /// closure re-checks its own note before it acts. So a batch two of whose
+    /// notes drifted used to post the SINGULAR sentence twice into a toast slot
+    /// that holds one: the writer read "Couldn't undo stetting the note",
+    /// which was false about the number and silent about the notes that did
+    /// come back. Accumulate quietly, spend one sentence at the boundary.
+    /// Per-instance, never persisted.
+    internal var _declinedUndosSinceLastReport: [UndoDecline: Int] = [:]
+
+    /// The scheduled spend of `_declinedUndosSinceLastReport` — see
+    /// `declineUndo(_:)` for why one main-actor hop IS the burst boundary here.
+    /// Nil whenever nothing is owed. Awaited by `awaitPendingUndoWork()`.
+    internal var _undoDeclineReportTask: Task<Void, Never>?
+
+    /// The annotation undos that can decline at fire time (RULING-22), and
+    /// what each of them says.
+    ///
+    /// **The singular is byte-identical to what each site posted before this
+    /// existed** — the four single-note decline tests are the proof — and the
+    /// plural lives on the same line as the singular so the two cannot drift
+    /// apart. A verb added here without a plural won't compile.
+    internal enum UndoDecline: Hashable, CaseIterable {
+        case annotationEdit, acceptNote, stet, triage
+
+        /// One sentence for however many notes of this verb declined. A batch
+        /// that ALSO undid some notes says nothing about them: the queue has
+        /// the reopened rows in it, and a decline that spends its clause
+        /// counting successes buries what the writer needs to act on.
+        func sentence(count: Int) -> String {
+            guard count > 1 else { return singular }
+            return switch self {
+            case .annotationEdit:
+                "Couldn't undo \(count) annotation edits — they changed on another device."
+            case .acceptNote:
+                "Couldn't undo accepting \(count) notes — they changed on another device."
+            case .stet:
+                "Couldn't undo stetting \(count) notes — they changed on another device."
+            case .triage:
+                "Couldn't undo \(count) triage marks — they changed on another device."
+            }
+        }
+
+        private var singular: String {
+            switch self {
+            case .annotationEdit:
+                "Couldn't undo the annotation edit — it changed on another device."
+            case .acceptNote:
+                "Couldn't undo accepting the note — it changed on another device."
+            case .stet:
+                "Couldn't undo stetting the note — it changed on another device."
+            case .triage:
+                "Couldn't undo the triage mark — it changed on another device."
+            }
+        }
+    }
+
     /// One-shot: the next external buffer apply (`applyExternalText`) was
     /// produced by a document-local mutation that registered its own
     /// UndoManager action (accept/revert of a suggestion) — the editor must
@@ -268,8 +330,16 @@ public final class Document {
 
     /// Test seam: await the async revert/re-accept triggered by the last
     /// undo/redo, if any. No-op when nothing is pending.
+    ///
+    /// The decline report (`declineUndo`) is awaited AFTER the work hop and
+    /// not instead of it: the closure schedules the report as it declines, so
+    /// the task to wait on does not exist until the hop has run. Reading the
+    /// property here rather than capturing it above is what makes one call
+    /// enough for a single decline — which is why the single-note tests need
+    /// no `settle` loop.
     public func awaitPendingUndoWork() async {
         await _lastUndoWorkTask?.value
+        await _undoDeclineReportTask?.value
     }
 
     /// Keyframe floor (ADR 0016 / growth spec §4.1 rule 2): emit an explicit
@@ -923,6 +993,44 @@ public final class Document {
     ///
     /// `opStore.projectURL` is the project root, not this doc's file, so the
     /// scope matches what `RewindModifier` subscribes with.
+    /// An annotation undo refused at fire time (RULING-22). Never posts in the
+    /// moment — it accumulates, and one report at the boundary spends whatever
+    /// the burst declined (`_declinedUndosSinceLastReport`).
+    ///
+    /// **The boundary is one main-actor hop after the last of the batch's undo
+    /// closures.** `NSUndoManager.undo()` runs every closure in the event group
+    /// SYNCHRONOUSLY, and each hops its op-log append into a fresh
+    /// `Task { @MainActor }` (`OpUndoRegistrar`) — so by the time the FIRST
+    /// decline runs, every sibling's task is already enqueued on this actor,
+    /// and the report task created here is enqueued behind all of them. A
+    /// declining closure never suspends (the drift re-check is a synchronous
+    /// read of the derived projection), so every decline in the burst has
+    /// landed in the dictionary before the report runs. No timer, no debounce,
+    /// nothing to tune: the hop IS the boundary, and it is the same one
+    /// `awaitPendingUndoWork()` lets a test stand on.
+    internal func declineUndo(_ decline: UndoDecline) {
+        _declinedUndosSinceLastReport[decline, default: 0] += 1
+        guard _undoDeclineReportTask == nil else { return }
+        _undoDeclineReportTask = Task { @MainActor [weak self] in
+            self?.reportDeclinedUndos()
+        }
+    }
+
+    /// Spend the burst's declines: one sentence per verb that declined, in
+    /// `UndoDecline`'s own order so a batch spanning two verbs says the same
+    /// two sentences in the same order every time (a dictionary's is not
+    /// stable). One deliberate click is one verb, so two sentences is the rare
+    /// case — and two honest ones beat one that names neither verb.
+    private func reportDeclinedUndos() {
+        _undoDeclineReportTask = nil
+        let counts = _declinedUndosSinceLastReport
+        _declinedUndosSinceLastReport = [:]
+        for decline in UndoDecline.allCases {
+            guard let n = counts[decline], n > 0 else { continue }
+            notifyWriter(decline.sentence(count: n))
+        }
+    }
+
     internal func notifyWriter(_ message: String) {
         MaughamEvent.postNotice(message, projectURL: opStore.projectURL)
     }

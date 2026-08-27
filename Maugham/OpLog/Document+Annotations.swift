@@ -329,9 +329,12 @@ extension Document {
                     // but the Edit menu said "Undo Edit Annotation" and the
                     // writer pressed it. Declining to `documentLog` and to
                     // nobody else is the control not doing what it says.
+                    //
+                    // Through `declineUndo` rather than `notifyWriter` (#41
+                    // A1): one ⌘Z can fire this closure once per note, and the
+                    // sentence is spent once for the whole burst.
                     documentLog.error("editReviewerAnnotation undo: \(id, privacy: .public) drifted since edit — ignoring")
-                    doc.notifyWriter(
-                        "Couldn't undo the annotation edit — it changed on another device.")
+                    doc.declineUndo(.annotationEdit)
                     return
                 }
                 let revert = AnnotationInverse.editRevertOp(
@@ -612,9 +615,11 @@ extension Document {
                     let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
                         .first { $0.id == id }
                     guard live?.status == .accepted else {
+                        // `declineUndo`, not `notifyWriter` (#41 A1): a bulk
+                        // accept coalesces into ONE ⌘Z, so this closure runs
+                        // once per note and the burst says it once.
                         documentLog.error("acceptAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.status), privacy: .public)) — ignoring")
-                        doc.notifyWriter(
-                            "Couldn't undo accepting the note — it changed on another device.")
+                        doc.declineUndo(.acceptNote)
                         return
                     }
                     try? await doc.reopenAcceptedTextlessAnnotation(id: id)
@@ -854,9 +859,12 @@ extension Document {
                 let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
                     .first { $0.id == id }
                 guard live?.status == .stetted else {
+                    // `declineUndo`, not `notifyWriter` (#41 A1): the bulk
+                    // bar's Stet registers one of these per note and
+                    // `groupsByEvent` folds them into one ⌘Z, so the burst
+                    // spends one sentence carrying the count.
                     documentLog.error("stetAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.status), privacy: .public)) — ignoring")
-                    doc.notifyWriter(
-                        "Couldn't undo stetting the note — it changed on another device.")
+                    doc.declineUndo(.stet)
                     return
                 }
                 try? await doc.reopenAnnotation(id: id)
@@ -978,9 +986,10 @@ extension Document {
                 let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
                     .first { $0.id == id }
                 guard let live, live.triage == mark else {
+                    // `declineUndo`, not `notifyWriter` (#41 A1): bulk triage
+                    // marks a whole selection, so one ⌘Z fires this per note.
                     documentLog.error("triageAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.triage), privacy: .public)) — ignoring")
-                    doc.notifyWriter(
-                        "Couldn't undo the triage mark — it changed on another device.")
+                    doc.declineUndo(.triage)
                     return
                 }
                 let revert = AnnotationInverse.triageRevertOp(
