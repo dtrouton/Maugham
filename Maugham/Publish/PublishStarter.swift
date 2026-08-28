@@ -85,6 +85,13 @@ public enum PublishStarter {
         // inference times out on .compactMap { tuple }.max(by: ...).
         var highest: VersionTuple? = nil
         for pub in publications {
+            // M1 (whole-branch review): the counter being reconciled is the
+            // BOOK's `next_version`, and an imprint counts its own versions —
+            // a special edition at 3.7 beside a book at 0.1 is the ordinary
+            // case, not a corner. Only the book's own rows are its high-water
+            // mark. (An imprint's counter lives in `imprints.<name>
+            // .next_version` and is advanced by its own compiles.)
+            guard pub.imprint == nil else { continue }
             guard let parsed = parseVersion(pub.version) else { continue }
             if let h = highest {
                 if VersionTuple.isLess(h, parsed) { highest = parsed }

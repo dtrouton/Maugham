@@ -25,6 +25,11 @@ public struct Publication: Codable, Equatable, Sendable {
     /// whether a republish should re-run the coverage gate in allow-stale
     /// mode (Task 9 F1 round 3) or block unconditionally.
     public let allowStale: Bool
+    /// The name of the imprint this publication was compiled from, when the
+    /// compile resolved an imprint (`PublishConfig.resolved(imprint:pieceIDs:)`).
+    /// `nil` for a book-level compile (and for any record written before this
+    /// field existed — `decodeIfPresent`, same pattern as `language`).
+    public let imprint: String?
 
     public init(
         publicationID: String,
@@ -39,7 +44,8 @@ public struct Publication: Codable, Equatable, Sendable {
         maughamVersion: String,
         tectonicVersion: String,
         language: String? = nil,
-        allowStale: Bool = false
+        allowStale: Bool = false,
+        imprint: String? = nil
     ) {
         self.publicationID = publicationID
         self.version = version
@@ -54,6 +60,7 @@ public struct Publication: Codable, Equatable, Sendable {
         self.tectonicVersion = tectonicVersion
         self.language = language
         self.allowStale = allowStale
+        self.imprint = imprint
     }
 
     enum CodingKeys: String, CodingKey {
@@ -68,6 +75,7 @@ public struct Publication: Codable, Equatable, Sendable {
         case tectonicVersion = "tectonic_version"
         case language
         case allowStale = "allow_stale"
+        case imprint
     }
 
     public init(from decoder: Decoder) throws {
@@ -85,6 +93,7 @@ public struct Publication: Codable, Equatable, Sendable {
         tectonicVersion = try c.decode(String.self, forKey: .tectonicVersion)
         language = try c.decodeIfPresent(String.self, forKey: .language)
         allowStale = try c.decodeIfPresent(Bool.self, forKey: .allowStale) ?? false
+        imprint = try c.decodeIfPresent(String.self, forKey: .imprint)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -102,5 +111,6 @@ public struct Publication: Codable, Equatable, Sendable {
         try c.encode(tectonicVersion, forKey: .tectonicVersion)
         try c.encodeIfPresent(language, forKey: .language)
         try c.encode(allowStale, forKey: .allowStale)
+        try c.encodeIfPresent(imprint, forKey: .imprint)
     }
 }

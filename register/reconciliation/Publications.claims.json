@@ -117,14 +117,14 @@
     "claim_id": "M7-PB-008",
     "scope": "PDFCompiler/EPUBCompiler — the destination delete",
     "kind": "POSTCONDITION",
-    "statement": "the compile path refuses an occupied destination by default, the republish path's own refusal in one shared spelling (RULING-8, fixed 21f7682c) — a template without {version} can no longer let a later compile replace an earlier record's bytes; previews opt into replacement explicitly because their filenames are reused by design",
+    "statement": "the compile path refuses an occupied destination by default, the republish path's own refusal in one shared spelling (RULING-8, fixed 21f7682c) — a later compile cannot replace an earlier record's bytes; previews opt into replacement explicitly because their filenames are reused by design",
     "source": {
       "type": "CHARACTERIZATION",
       "ref": "PublicationsCharacterization.test_anOccupiedDestinationRefusesAndTheEarlierRecordsBytesSurvive"
     },
     "warrant": "HIGH",
     "intent": "UNKNOWN",
-    "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile after set_publish_config removes {version} from filename_template",
+    "reachability": "LIVE — MCP `compile` (CompileTool) -> CompileOrchestrator.compile whenever the resolved output path is already occupied (a hand-placed export, or a record whose catalog row was lost). NB the {version}-less filename_template route this claim was excavated through closed with imprints P1 Task 6: the compile validates its config at pre-flight, so such a template is refused before the compilers run",
     "evidence": {
       "property_test": null
     }

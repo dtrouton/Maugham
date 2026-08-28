@@ -188,4 +188,77 @@ final class PublishConfigToolsTests: XCTestCase {
         XCTAssertTrue(goodWarnings.isEmpty,
                       "real piece id must produce no warnings; got: \(goodWarnings)")
     }
+
+    // MARK: - Imprint validation at the door (imprints P1, Task 3)
+    //
+    // `set_publish_config` is where a bad imprint gets refused before it can
+    // reach a compile. The tool hands `applyPatch` the project-aware validator,
+    // so the two rules the pure pass cannot know — does this template exist,
+    // is this allowlist id a piece of THIS project — are answered here.
+
+    private func configBytes() throws -> Data {
+        try Data(contentsOf: projectURL.appendingPathComponent(".maugham/publish/config.json"))
+    }
+
+    private func realPieceID() async throws -> String {
+        let store = try await ProjectStore.load(from: projectURL)
+        let docs = ProjectStoreASTSource(projectStore: store).publishablePieces()
+        return try XCTUnwrap(docs.first?.id, "novel project must have a publishable piece")
+    }
+
+    func test_setPublishConfig_imprintWithAnUnknownPieceInItsAllowlist_isRefusedAndNotSaved() async throws {
+        let before = try configBytes()
+        let patch = #"{"imprints":{"special-glb":{"template":"template.tex","sections":{"doc-deadbeef":{}}}}}"#
+        let data = try await SetPublishConfigTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(projectID!)","patch":\#(patch)}"#.utf8),
+            registry: registry)
+        let resp = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let errs = try XCTUnwrap(resp["errors"] as? [[String: Any]])
+        XCTAssertTrue(errs.contains { $0["field"] as? String == "imprints.special-glb.sections.doc-deadbeef" },
+                      "expected the allowlist id to be refused, got \(errs)")
+        XCTAssertEqual(try configBytes(), before, "a refused patch must not reach disk")
+    }
+
+    func test_setPublishConfig_imprintNamingARealPieceAndAnExistingTemplate_isAcceptedAndSaved() async throws {
+        let pieceID = try await realPieceID()
+        let before = try configBytes()
+        let patch = #"{"imprints":{"special-glb":{"template":"template.tex","sections":{"\#(pieceID)":{}},"next_version":"0.1"}}}"#
+        let data = try await SetPublishConfigTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(projectID!)","patch":\#(patch)}"#.utf8),
+            registry: registry)
+        let resp = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let errs = try XCTUnwrap(resp["errors"] as? [[String: Any]])
+        XCTAssertTrue(errs.isEmpty, "the control must be accepted, got \(errs)")
+        XCTAssertNotEqual(try configBytes(), before, "an accepted patch must reach disk")
+
+        let persisted = try await PublishConfigStore(projectURL: projectURL).load()
+        XCTAssertEqual(persisted?.imprints["special-glb"]?.template, "template.tex")
+        XCTAssertEqual(persisted?.imprints["special-glb"]?.sections?.keys.sorted(), [pieceID])
+    }
+
+    func test_setPublishConfig_imprintTemplateThatIsNotOnDisk_isRefusedAndNotSaved() async throws {
+        let pieceID = try await realPieceID()
+        let before = try configBytes()
+        let patch = #"{"imprints":{"special-glb":{"template":"templates/nope.tex","sections":{"\#(pieceID)":{}}}}}"#
+        let data = try await SetPublishConfigTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(projectID!)","patch":\#(patch)}"#.utf8),
+            registry: registry)
+        let resp = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let errs = try XCTUnwrap(resp["errors"] as? [[String: Any]])
+        XCTAssertTrue(errs.contains { $0["field"] as? String == "imprints.special-glb.template" },
+                      "expected the missing template to be refused, got \(errs)")
+        XCTAssertEqual(try configBytes(), before, "a refused patch must not reach disk")
+    }
+
+    func test_setPublishConfig_imprintNameThatIsNotSlugCase_isRefused() async throws {
+        let pieceID = try await realPieceID()
+        let patch = #"{"imprints":{"Special":{"template":"template.tex","sections":{"\#(pieceID)":{}}}}}"#
+        let data = try await SetPublishConfigTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(projectID!)","patch":\#(patch)}"#.utf8),
+            registry: registry)
+        let resp = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let errs = try XCTUnwrap(resp["errors"] as? [[String: Any]])
+        XCTAssertTrue(errs.contains { $0["field"] as? String == "imprints.Special" },
+                      "expected the name to be refused, got \(errs)")
+    }
 }

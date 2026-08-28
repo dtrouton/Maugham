@@ -35,7 +35,7 @@ public enum GetPublishConfigTool: MCPTool {
 public enum SetPublishConfigTool: MCPTool {
     public static let method = "set_publish_config"
     public static let description =
-    "Apply a JSON Merge Patch (RFC 7396) to the project's PublishConfig. null values delete keys, objects merge recursively, all else replaces. Validates the merged result; if errors exist, returns them and does NOT persist. To ship a subset edition, patch `sections.<docId>.include` to false for each piece to omit — excluded pieces are dropped from compile/republish output and from the translation coverage gate (default true, so an absent flag keeps a piece included)."
+    "Apply a JSON Merge Patch (RFC 7396) to the project's PublishConfig. null values delete keys, objects merge recursively, all else replaces. Validates the merged result; if errors exist, returns them and does NOT persist. Validation covers `imprints`: a name must match [a-z0-9-]+, an imprint's `template` must be a relative path that exists under .maugham/publish/, and its `sections` allowlist must be non-empty and name only pieces of this project (an entry with include:false is refused — drop the entry instead). To ship a subset edition, patch `sections.<docId>.include` to false for each piece to omit — excluded pieces are dropped from compile/republish output and from the translation coverage gate (default true, so an absent flag keeps a piece included)."
     public static let inputSchemaJSON = """
     {"type":"object","properties":{
        "project_id":{"type":"string"},
@@ -55,7 +55,21 @@ public enum SetPublishConfigTool: MCPTool {
         let entry = try resolveProject(projectID, in: registry)
         let patchData = try JSONSerialization.data(withJSONObject: patchObj, options: [])
         let cfgStore = PublishConfigStore(projectURL: entry.url)
-        let result = try await cfgStore.applyPatch(patchData)
+
+        // The project-aware pass: an imprint's template must exist inside this
+        // project's publish tree, and its allowlist must name pieces this
+        // project can actually render. `publishablePieces()` is the one
+        // spelling of the latter — the same list `ProjectStoreASTSource` builds
+        // the AST from, so a config the validator accepts is one the compile
+        // path can resolve (`PublishConfig.resolved(imprint:pieceIDs:)` takes
+        // the same ids).
+        let publishDir = entry.url
+            .appendingPathComponent(".maugham/publish", isDirectory: true)
+        let pieceIDs = ProjectStoreASTSource(projectStore: entry.store)
+            .publishablePieces().map(\.id)
+        let result = try await cfgStore.applyPatch(patchData) { cfg in
+            PublishConfigValidator.validate(cfg, publishDir: publishDir, pieceIDs: pieceIDs)
+        }
 
         // Warn about section keys that don't match any piece in the project.
         let validIDs = Set(ProjectStore.collectDocuments(in: entry.store.manifest.structure).map(\.id))

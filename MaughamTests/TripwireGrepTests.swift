@@ -4819,4 +4819,247 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertFalse(sites.contains { $0.contains("must NOT be counted") },
             "Self-check: a prose mention in a comment is not a call site.")
     }
+
+    // MARK: - Imprint identity resolves once, at the door (imprints P1 Task 8)
+
+    /// Files where imprint identity legitimately lives: the config/model
+    /// that holds it (`PublishConfig.swift`), the one resolver
+    /// (`PublishConfig+Imprints.swift`'s `resolved(imprint:pieceIDs:)`), the
+    /// publication record and mint-gate key that carry it forward
+    /// (`Publication.swift`, `PublishMintGate.swift`), the two callers that
+    /// resolve it (`CompileOrchestrator.swift`, `Republisher.swift`), the
+    /// preview compiler that resolves for its own subset render
+    /// (`PreviewCompiler.swift`), the validator that walks `config.imprints`
+    /// (`PublishConfigValidator.swift`), and the three MCP tool files whose
+    /// wire params carry `imprint` as a request field (`CompileTools.swift`,
+    /// `PublicationTools.swift`, `PublishConfigTools.swift`). Every other
+    /// production file reads the RESOLVED config (`config.imprint`,
+    /// `config.template`) instead of taking imprint as an argument of its
+    /// own — `PDFCompiler.swift` and `OutputFilenameBuilder.swift` do exactly
+    /// that, and are the census's live proof it does not fire on a read.
+    private static let filesAllowedToDeclareImprint: Set<String> = [
+        "PublishConfig.swift", "PublishConfig+Imprints.swift", "Publication.swift",
+        "PublishMintGate.swift", "Republisher.swift", "CompileOrchestrator.swift",
+        "PreviewCompiler.swift", "PublishConfigValidator.swift", "CompileTools.swift",
+        "PublicationTools.swift", "PublishConfigTools.swift",
+    ]
+
+    /// Matches BOTH Swift parameter-label shapes for `imprint`, each followed
+    /// by an explicit type annotation: the same-name shape
+    /// (`imprint: String`, a stored property or a plain-labeled parameter)
+    /// and the label-plus-internal-name shape
+    /// (`imprint name: String?`, exactly how `PublishConfig+Imprints.swift`'s
+    /// own `resolved(imprint name: String?, pieceIDs:)` reads — the shape
+    /// the substring check this replaced could not see, since no `:`
+    /// immediately follows `imprint` there). The negative lookbehind refuses
+    /// `.imprint` (member access) and a word character immediately before
+    /// (so `reimprint:`, were such a thing to exist, does not match); the
+    /// trailing `(String|Imprint)` is what distinguishes a DECLARATION from
+    /// a call site, which passes a VALUE instead
+    /// (`imprint: config.imprint`, `imprint: nil`, `imprint: imprint`,
+    /// `imprint: requestedImprint`) and never a bare type name — so this does
+    /// not fire on `loaded.resolved(imprint: imprint, pieceIDs: pieceIDs)`.
+    /// A local read with no type annotation (`let imprint = config.imprint`,
+    /// as `OutputFilenameBuilder.swift` does) also does not match: there is
+    /// no `:` immediately after `imprint` there, only `=`.
+    private static let imprintParameterRegex = try! NSRegularExpression(
+        pattern: #"(?<![\w.])imprint(\s+[A-Za-z_]\w*)?\s*:\s*(String|Imprint)\b"#)
+
+    /// True when `line` declares `imprint` as a stored property or a
+    /// function/init parameter — see `imprintParameterRegex`'s doc comment
+    /// for the two shapes matched and why a call site or an untyped local
+    /// read is not one of them.
+    private static func declaresImprintParameter(_ line: String) -> Bool {
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        return imprintParameterRegex.firstMatch(in: line, range: range) != nil
+    }
+
+    /// Census (a): no function/init signature or stored property outside the
+    /// resolution door declares `imprint` as its own parameter or field.
+    /// Constraint 1 ("resolved(imprint:pieceIDs:) is the one door") is a
+    /// design intention until something greps it; this makes it enforceable
+    /// — a new compiler, emitter, gate or snapshot that takes `imprint` as
+    /// its own argument (rather than reading it off the resolved config) is
+    /// the same shape of hazard as a defaulted `mintGate:` parameter
+    /// (`PublishMintGateTests`' census): it compiles, and it quietly forgets
+    /// to go through resolution.
+    func test_noImprintDeclarationOutsideTheResolutionDoor() throws {
+        let publishDir = sourceDir.appendingPathComponent("Publish", isDirectory: true)
+        let mcpToolsDir = sourceDir
+            .appendingPathComponent("MCP", isDirectory: true)
+            .appendingPathComponent("Tools", isDirectory: true)
+
+        var offenders: [String] = []
+        for dir in [publishDir, mcpToolsDir] {
+            offenders += try grepSwift(
+                in: dir,
+                patterns: [],
+                allowed: Self.filesAllowedToDeclareImprint,
+                excludeLine: { Self.isCommentLine($0) },
+                extraOffender: Self.declaresImprintParameter)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A file outside the resolution door declares `imprint` as its own "
+            + "parameter or stored property. Imprint identity resolves ONCE, "
+            + "at PublishConfig.resolved(imprint:pieceIDs:) — every compiler, "
+            + "emitter, gate and snapshot downstream reads it off the resolved "
+            + "config (config.imprint / config.template) instead of taking it "
+            + "as an argument of its own. If this file genuinely belongs at "
+            + "the door, add it to filesAllowedToDeclareImprint. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: the census fires on both planted parameter-declaration
+    /// shapes — same-name (`imprint: String?`) and label-plus-internal-name
+    /// (`imprint name: String?`, `PublishConfig+Imprints.swift`'s own
+    /// `resolved(imprint name:)` shape) — and lets a same-shaped call site
+    /// through, in a file outside the allowed set.
+    func test_imprintDeclarationCensusFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-imprint-declaration-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct RogueEmitter {
+            // A call site is allowed — it passes a VALUE, not a type:
+            func resolveFirst(_ config: PublishConfig, requestedImprint: String?) throws {
+                let resolved = try config.resolved(imprint: requestedImprint, pieceIDs: [])
+                emit(imprint: resolved.imprint, to: "x")
+            }
+
+            // A same-name parameter declaration — forbidden:
+            func emit(imprint: String?, to path: String) {}
+
+            // A label-plus-internal-name parameter declaration — forbidden,
+            // and the shape a bare `imprint:` substring check cannot see:
+            func relay(imprint name: String?) {}
+        }
+        """.write(to: tmp.appendingPathComponent("RogueEmitter.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: [],
+            excludeLine: { Self.isCommentLine($0) },
+            extraOffender: Self.declaresImprintParameter)
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check expected exactly the two planted parameter "
+            + "declarations, with the call site and the `resolved.imprint` "
+            + "read left alone. Got:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("func emit(imprint: String?") },
+            "Self-check: the same-name declaration should be caught. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("func relay(imprint name: String?") },
+            "Self-check: the label-plus-internal-name declaration should be "
+            + "caught. Got:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// The line containing `index`, by scanning back to the nearest `\n`
+    /// (or the start of `text`) and forward to the next `\n` (or the end).
+    private func line(containing index: String.Index, in text: String) -> Substring {
+        let lineStart = text[..<index].lastIndex(of: "\n").map(text.index(after:)) ?? text.startIndex
+        let lineEnd = text[index...].firstIndex(of: "\n") ?? text.endIndex
+        return text[lineStart..<lineEnd]
+    }
+
+    /// Walks every `Publication(` construction in `dir` to its own closing
+    /// paren (never the first `)`, since several arguments are themselves
+    /// parenthesized calls — `Date()`, `relativePath(outputPath, from:)`),
+    /// skips one whose OWN line is a comment (so a doc-comment example
+    /// showing `Publication(...)` usage can't register as a phantom site),
+    /// and reports which real sites omit `imprint:`.
+    private func publicationConstructionOffenders(in dir: URL) throws -> (sites: Int, offenders: [String]) {
+        let files = FileManager.default.enumerator(
+            at: dir, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "swift" } ?? []
+
+        var offenders: [String] = []
+        var sites = 0
+        let constructor = "Publication("
+        for file in files {
+            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            var search = text.startIndex..<text.endIndex
+            while let found = text.range(of: constructor, range: search) {
+                search = found.upperBound..<text.endIndex
+                guard !Self.isCommentLine(String(line(containing: found.lowerBound, in: text))) else {
+                    continue
+                }
+                var depth = 1
+                var args = ""
+                for ch in text[found.upperBound...] {
+                    if ch == "(" { depth += 1 }
+                    if ch == ")" {
+                        depth -= 1
+                        if depth == 0 { break }
+                    }
+                    args.append(ch)
+                }
+                sites += 1
+                if !args.contains("imprint:") {
+                    offenders.append("\(file.lastPathComponent): Publication( without imprint:")
+                }
+            }
+        }
+        return (sites, offenders)
+    }
+
+    /// Census (b): every production `Publication(` construction passes
+    /// `imprint:` — the "reach every sink" lesson (memory/feedback_census_
+    /// over_warning.md). `imprint` is the mint key's fourth component (Task
+    /// 5) and a `Publication.swift` model field (Task 3) defaulted to `nil`
+    /// in its initializer, so a construction site that forgets `imprint:`
+    /// still compiles and silently mints as book-level — the same hazard
+    /// shape `PublishMintGateTests`' `mintGate:` census guards for the two
+    /// compiler-construction sites.
+    func test_everyProductionPublicationConstructionCarriesItsImprint() throws {
+        let (sites, offenders) = try publicationConstructionOffenders(in: sourceDir)
+        XCTAssertEqual(sites, 2,
+            "expected exactly the two production construction sites "
+            + "(CompileOrchestrator, Republisher); found \(sites)")
+        XCTAssertTrue(offenders.isEmpty,
+            "every production Publication(...) construction must carry "
+            + "imprint: (the mint key's fourth component). Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: the census fires on a planted `Publication(` construction
+    /// missing `imprint:`.
+    func test_publicationConstructionCensusFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-publication-imprint-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct RoguePublisher {
+            func finish() throws {
+                let pub = Publication(
+                    publicationID: "pub-1",
+                    version: "0.1",
+                    label: nil,
+                    format: .pdf,
+                    outputPath: relativePath(outputPath, from: projectURL),
+                    snapshotID: "s",
+                    checkpointID: "",
+                    republishedFrom: nil,
+                    compiledAt: Date(),
+                    maughamVersion: "1",
+                    tectonicVersion: "1",
+                    language: nil,
+                    allowStale: false)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("RoguePublisher.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let (sites, offenders) = try publicationConstructionOffenders(in: tmp)
+        XCTAssertEqual(sites, 1, "Self-check expected exactly the one planted construction site.")
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected the planted construction, missing imprint:, "
+            + "to fire. Got:\n" + offenders.joined(separator: "\n"))
+    }
 }

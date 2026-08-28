@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Resolves a template/style/piece filename to its language-suffixed variant
 /// when that variant exists on disk, otherwise the base name.
@@ -32,6 +33,33 @@ enum LanguageSuffixedFile {
 
         let candidate = dir.appendingPathComponent(suffixed)
         return FileManager.default.fileExists(atPath: candidate.path) ? suffixed : filename
+    }
+
+    /// The inverse of the naming above, on the NAME alone: `template.es.tex` →
+    /// `template.tex`; `template.tex` → itself. Exactly one component before
+    /// the extension is removed, and only when it is a language tag by
+    /// `TranslationRecord.isValidLanguageTag` — the same test `resolve` names
+    /// its variants with — so `special.v2.tex` keeps its `v2`: a version
+    /// marker is not an edition.
+    ///
+    /// Deliberately filesystem-free. Its caller
+    /// (`PublishConfigValidator`'s template-basename rule) asks what a name
+    /// COULD collide with, which is a question about names rather than about
+    /// which variants happen to be on disk today.
+    ///
+    /// It inherits the tag test's own imprecision — `chapter.one.tex` strips
+    /// to `chapter.tex`, because `one` matches the tag grammar — and that is
+    /// the point: `resolve` would treat that same file as the `one` edition of
+    /// `chapter.tex`, so the two agree about what is a variant.
+    static func strippingLanguageSuffix(_ filename: String) -> String {
+        let ns = filename as NSString
+        let ext = ns.pathExtension
+        guard !ext.isEmpty else { return filename }
+        let base = ns.deletingPathExtension as NSString
+        let candidate = base.pathExtension
+        guard !candidate.isEmpty,
+              TranslationRecord.isValidLanguageTag(candidate) else { return filename }
+        return "\(base.deletingPathExtension).\(ext)"
     }
 
     /// Rewrites each section's `styleFile` to its language-suffixed variant when

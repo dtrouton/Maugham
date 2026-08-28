@@ -112,6 +112,12 @@ public struct Republisher {
         effective.nextVersion = newVersion
 
         let language = prior?.language
+        // Task 5: an imprint is part of what a republish reproduces. The
+        // snapshot's config already carries `imprint` (and the imprint's own
+        // `template`), so the COMPILE needs nothing from here — but the mint
+        // key and the new catalog row are identity, and identity is read off
+        // the prior publication, exactly as `language` is.
+        let imprint = prior?.imprint
         // Round 3: `republish` has no `allow_stale` parameter of its own — it
         // replays whichever gate mode the ORIGINAL compile used. `false` for
         // a strictly-gated edition and for any publication compiled before
@@ -122,7 +128,10 @@ public struct Republisher {
         // language-effective (Task 7 Rule 1), so its `include` flags are exactly
         // those the original compile used — wrap the live source with the same
         // excluded set. An empty set is a pass-through (pre-F1 snapshots).
-        let excludedSectionIDs = snap.config.excludedSectionIDs
+        // C1: for an imprint that named an allowlist, "the same excluded set"
+        // is not the frozen exclusions — see `excludedSections`.
+        let excludedSectionIDs = try Self.excludedSections(
+            inSnapshot: snap.config, liveSource: astSource)
         let emitSource = IncludeFilteredASTSource(
             base: astSource, excludedSectionIDs: excludedSectionIDs)
 
@@ -136,14 +145,15 @@ public struct Republisher {
         // above mutates anything) so the refusal terminates a job the way
         // every other republish failure does.
         let mintKey = PublishMintGate.Key(
-            version: newVersion, language: language, format: format)
+            version: newVersion, language: language, format: format,
+            imprint: imprint)
         guard await mintGate.reserve(mintKey) else {
             let langLabel = language ?? "source"
             let diag = TectonicLogParser.Diagnostic(
                 level: .error, file: nil, line: nil,
-                message: "Publication v\(newVersion) (\(langLabel), \(format.rawValue)) is already compiling; wait for it to finish.",
+                message: "Publication v\(newVersion) (\(langLabel), \(format.rawValue)) \(CompileOrchestrator.placeOf(imprint)) is already compiling; wait for it to finish.",
                 contextLines: [
-                    "Another compile of the (version, language, format) triple '\(newVersion)/\(langLabel)/\(format.rawValue)' is in flight in this app.",
+                    "Another compile of the (version, language, format) triple '\(newVersion)/\(langLabel)/\(format.rawValue)' \(CompileOrchestrator.placeOf(imprint)) is in flight in this app.",
                     "Poll it with compile_status, or republish once it finishes."
                 ])
             await jobManager.fail(
@@ -164,6 +174,7 @@ public struct Republisher {
                 snap: snap, format: format, label: label, jobID: jobID,
                 effective: effective, newVersion: newVersion,
                 priorVersion: priorVersion, language: language,
+                imprint: imprint,
                 allowStale: allowStale, emitSource: emitSource,
                 excludedSectionIDs: excludedSectionIDs, stage: stage,
                 progress: progress)
@@ -202,6 +213,7 @@ public struct Republisher {
         newVersion: String,
         priorVersion: String?,
         language: String?,
+        imprint: String?,
         allowStale: Bool,
         emitSource: ProjectASTBuilder.Source,
         excludedSectionIDs: Set<String>,
@@ -326,7 +338,8 @@ public struct Republisher {
             maughamVersion: maughamVersion,
             tectonicVersion: tectonicVersion,
             language: language,
-            allowStale: allowStale)
+            allowStale: allowStale,
+            imprint: imprint)
         try await publicationStore.append(pub)
         progress.record("the catalog row: v\(newVersion) \(format.rawValue) (\(pub.publicationID))")
 
@@ -347,6 +360,43 @@ public struct Republisher {
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
                                   warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)
+    }
+
+    // MARK: - What a republish leaves out
+
+    /// The piece ids this republish must not render.
+    ///
+    /// The book's `sections` map is a DENYLIST — a piece with no entry is
+    /// included — so reproducing the frozen `include: false` ids against the
+    /// live tree is exactly right for it: a chapter written since the compile
+    /// joins a republished book the same way it joins a fresh one.
+    ///
+    /// C1 (whole-branch review): an imprint that named a `sections` ALLOWLIST
+    /// is the opposite, and reproducing its frozen exclusions silently widens
+    /// the edition. Resolution MATERIALIZES the allowlist (`PublishConfig
+    /// +Imprints.swift`), so the frozen config names only the pieces that
+    /// existed when it compiled — a piece added afterwards is in neither the
+    /// allowlist nor the materialized `include: false` set, and a denylist
+    /// built from the latter lets it through. Complement the frozen allowlist
+    /// against the LIVE tree instead: what the imprint renders stays exactly
+    /// what it named. (A piece the allowlist named that has since been deleted
+    /// simply is not in the live tree, so it renders in neither set — correct:
+    /// the piece is gone.)
+    ///
+    /// An imprint that named no `sections` of its own INHERITS the book's map
+    /// and is therefore a denylist too — which is why this asks the frozen
+    /// config's own imprint layer (still carried on a resolved config) rather
+    /// than merely whether `imprint` is set.
+    static func excludedSections(
+        inSnapshot config: PublishConfig,
+        liveSource: ProjectASTBuilder.Source
+    ) throws -> Set<String> {
+        guard let name = config.imprint,
+              config.imprints[name]?.sections != nil else {
+            return config.excludedSectionIDs
+        }
+        let named = Set(config.sections.filter { $0.value.include }.keys)
+        return Set(try liveSource.orderedPieces().map(\.pieceID)).subtracting(named)
     }
 
     // MARK: - Minting the republish version

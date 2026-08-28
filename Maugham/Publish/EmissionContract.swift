@@ -220,6 +220,20 @@ public enum EmissionContract {
     a sanctioned restyle hook, same class as `\\pieceheading` above — a \
     dedicated per-purpose command, not a shared kernel one — so restyle it \
     directly rather than reaching into kernel commands to fake the effect.
+
+    **Imprint templates are not style files.** An imprint's own template \
+    (spec 2026-08-27 §3) is a full template — a peer of the book's \
+    `template.tex`, not a per-piece hook — so the prohibitions above \
+    (`\\usepackage` only in the preamble, no `\\geometry` change) do **not** \
+    apply to it: an imprint template may load its own packages and set its \
+    own page geometry, exactly as `template.tex` may. Two facts to build one \
+    against: tectonic's `--outdir` is **flat** and names its output by the \
+    template's own **basename**, which is why an imprint's template basename \
+    (language suffix stripped) must differ from the book's and from every \
+    other imprint's; and tectonic resolves `\\input` **relative to the \
+    template's own directory**, so a template at `templates/special.tex` \
+    reaches the shared preamble with `\\input{../preamble}`, not \
+    `\\input{preamble}`.
     """
 
     static let fontsConvention = """

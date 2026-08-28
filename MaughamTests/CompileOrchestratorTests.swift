@@ -104,6 +104,10 @@ final class CompileOrchestratorTests: XCTestCase {
         case .failed(let errs, let log):
             XCTAssertFalse(errs.isEmpty, "expected structured error in errors[]")
             XCTAssertTrue(errs.contains { $0.message.contains("0.1") && $0.message.lowercased().contains("already exists") })
+            // I2: with per-imprint counters the book's 0.1 and an imprint's
+            // 0.1 coexist, so the refusal has to say WHOSE 0.1 this is.
+            XCTAssertTrue(errs.contains { $0.message.contains("on the book") },
+                          "the refusal must name the book: \(errs.map(\.message))")
             XCTAssertTrue(log.contains("version_collision"))
         case .completed, .dryRunPassed, .cancelled:
             XCTFail("expected .failed due to version collision; got \(result)")
@@ -400,28 +404,30 @@ final class CompileOrchestratorTests: XCTestCase {
         _ store: PublicationStore,
         version: String = "0.1",
         format: PublishConfig.Format = .pdf,
-        compiledAt: Date = Date()
+        compiledAt: Date = Date(),
+        imprint: String? = nil
     ) async throws {
         try await store.append(Publication(
-            publicationID: "pub-src-\(version)-\(format.rawValue)",
+            publicationID: "pub-src-\(imprint ?? "book")-\(version)-\(format.rawValue)",
             version: version, label: nil, format: format,
             outputPath: "Exports/src-\(version).\(format.rawValue)",
             snapshotID: "snap-src", checkpointID: "",
             republishedFrom: nil, compiledAt: compiledAt,
             maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0",
-            language: nil))
+            language: nil, imprint: imprint))
     }
 
     private func makeOrch(
         _ configStore: PublishConfigStore, _ pubStore: PublicationStore,
-        _ mintGate: PublishMintGate = PublishMintGate()
+        _ mintGate: PublishMintGate = PublishMintGate(),
+        jobManager: CompileJobManager = CompileJobManager()
     ) -> CompileOrchestrator {
         CompileOrchestrator(
             projectURL: tmp, astSource: OneSrc(),
             configStore: configStore,
             publicationStore: pubStore,
             snapshotStore: PublicationSnapshotStore(projectURL: tmp),
-            jobManager: CompileJobManager(),
+            jobManager: jobManager,
             mintGate: mintGate,
             maughamVersion: "0.0.0-test",
             tectonicVersion: "n/a")
@@ -854,6 +860,9 @@ final class CompileOrchestratorTests: XCTestCase {
                       "got: \(errs.map(\.message))")
         XCTAssertTrue(errs.contains { $0.message.contains("0.1") && $0.message.contains("epub") },
                       "the refusal must name the triple: \(errs.map(\.message))")
+        // I2: and where that triple lives, since an imprint may hold its own.
+        XCTAssertTrue(errs.contains { $0.message.contains("on the book") },
+                      "the refusal must name the book: \(errs.map(\.message))")
         XCTAssertTrue(log.contains("mint_in_flight"), log)
 
         let minted = try await pubStore.load()
@@ -1032,10 +1041,17 @@ final class CompileOrchestratorTests: XCTestCase {
     /// the first record's bytes and point that record's catalog row at the
     /// wrong edition. Whatever is at the destination, it is not this job's to
     /// destroy.
+    /// Task 6 note: this used to force the collision with a `{version}`-less
+    /// `filename_template`, which a compile now refuses outright — the
+    /// pre-flight validates the config, and a template missing `{version}`
+    /// could never have been written through `set_publish_config` either. The
+    /// destination is occupied the way it can still legitimately happen: a
+    /// file sitting where the next compile would write (a hand-placed export,
+    /// a record whose catalog row was lost).
     func test_anOccupiedDestinationRefusesRatherThanReplacingAnEarlierRecordsBytes() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
         var config = PublishConfig(metadata: .init(title: "Occ", author: "T"))
-        config.outputs.filenameTemplate = "{title}.{ext}"
+        config.outputs.filenameTemplate = "{title}-v{version}.{ext}"
         try await configStore.save(config)
         let pubStore = PublicationStore(projectURL: tmp)
         struct Src: ProjectASTBuilder.Source {
@@ -1051,10 +1067,13 @@ final class CompileOrchestratorTests: XCTestCase {
             jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
 
-        guard case .completed(let first, _) = try await orch.compile(format: .epub, label: nil)
+        guard case .completed = try await orch.compile(format: .epub, label: nil)
         else { return XCTFail("first compile failed") }
-        let firstURL = tmp.appendingPathComponent(first.outputPath)
-        let firstBytes = try Data(contentsOf: firstURL)
+
+        // The destination the NEXT compile (v0.2) would take is already held.
+        let occupied = tmp.appendingPathComponent("Exports/Occ-v0.2.epub")
+        let occupiedBytes = Data("an earlier record's bytes".utf8)
+        try occupiedBytes.write(to: occupied)
 
         let outcome = try await orch.compile(format: .epub, label: nil)
         guard case .failed(let errors, _) = outcome else {
@@ -1062,8 +1081,8 @@ final class CompileOrchestratorTests: XCTestCase {
         }
         XCTAssertTrue(errors.first?.message.contains("refusing to overwrite") == true,
                       "found: \(String(describing: errors.first?.message))")
-        XCTAssertEqual(try Data(contentsOf: firstURL), firstBytes,
-                       "the first record's bytes are untouched")
+        XCTAssertEqual(try Data(contentsOf: occupied), occupiedBytes,
+                       "the occupant's bytes are untouched")
         let catalog = try await pubStore.load()
         XCTAssertEqual(catalog.count, 1, "and no second row was minted over them")
     }
@@ -1160,6 +1179,452 @@ final class CompileOrchestratorTests: XCTestCase {
         XCTAssertTrue(exports.isEmpty, "nothing landed — the refusal came before any mutation")
         let inFlight = await jobs.allInProgress()
         XCTAssertTrue(inFlight.isEmpty, "the job is terminal")
+    }
+
+    // MARK: - Imprints (P1 Task 6): resolution at the door, identity below it
+    //
+    // An imprint is a named publishing configuration inside one project. The
+    // orchestrator resolves it ONCE — `PublishConfig.resolved(imprint:pieceIDs:)`
+    // — and everything downstream reads a plain `PublishConfig` that never
+    // learns an imprint existed. What the orchestrator keeps for itself is
+    // IDENTITY: an imprint's publications are its own, so the pin, the
+    // latest-source resolution, the collision guard and the mint key are all
+    // scoped by imprint, and the counter a source compile advances is the
+    // imprint's own rather than the book's.
+
+    /// A project with one imprint, `special`, counting its own versions from
+    /// 1.0 while the book counts from 0.1. Nothing here names an allowlist, so
+    /// the whole (one-piece) book is in every edition.
+    private func imprintConfig(
+        template: String? = nil,
+        imprintNextVersion: String? = "1.0",
+        sections: [String: PublishConfig.Section]? = nil,
+        bookNextVersion: String = "0.1"
+    ) -> PublishConfig {
+        PublishConfig(
+            metadata: .init(title: "Orch", author: "T"),
+            nextVersion: bookNextVersion,
+            imprints: ["special": .init(
+                template: template,
+                sections: sections,
+                metadata: ["title": .string("Orch, Special Edition")],
+                nextVersion: imprintNextVersion)])
+    }
+
+    /// Acceptance 2. A source compile under `special` mints
+    /// `(special, "1.0", nil, pdf)`, advances the IMPRINT's counter to 1.1,
+    /// leaves the book's alone, and freezes the resolved config — imprint and
+    /// its own template — into the snapshot a republish reproduces from.
+    func testImprint_sourceCompile_mintsUnderTheImprintAndBumpsOnlyItsCounter() async throws {
+        try await TectonicProbe.requireReady()
+
+        // The imprint compiles through its OWN template (Task 5 reads
+        // `config.template`): a copy of the starter's, under a distinct
+        // basename — which is what the validator's basename rule is for, and
+        // what keeps the two out of one another's `build/` intermediates.
+        // (Kept beside the starter rather than in a subdirectory: the
+        // template `\input`s `preamble.tex` by bare name, which tectonic
+        // resolves against the template's own directory.)
+        let publish = tmp.appendingPathComponent(".maugham/publish", isDirectory: true)
+        let starter = try Data(contentsOf: publish.appendingPathComponent("template.tex"))
+        try starter.write(to: publish.appendingPathComponent("special.tex"))
+
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig(template: "special.tex"))
+        let pubStore = PublicationStore(projectURL: tmp)
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .pdf, label: nil, imprint: "special")
+        guard case .completed(let pub, _) = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+        XCTAssertEqual(pub.imprint, "special",
+                       "the catalog row records the imprint it compiled under")
+        XCTAssertEqual(pub.version, "1.0",
+                       "an imprint mints at ITS OWN next_version, not the book's")
+        XCTAssertNil(pub.language)
+        XCTAssertEqual(pub.format, .pdf)
+
+        let after = try await configStore.load()
+        XCTAssertEqual(after?.imprints["special"]?.nextVersion, "1.1",
+                       "the bump lands on the imprint's own counter")
+        XCTAssertEqual(after?.nextVersion, "0.1",
+                       "and never on the book's")
+
+        // The snapshot froze the RESOLVED config, which is what lets a
+        // republish reproduce the imprint (Task 5 reads `prior?.imprint`).
+        let snap = try PublicationSnapshotStore(projectURL: tmp).load(id: pub.snapshotID)
+        XCTAssertEqual(snap.config.imprint, "special")
+        XCTAssertEqual(snap.config.template, "special.tex")
+    }
+
+    /// The converse half of acceptance 2: a BOOK compile of the same project
+    /// advances the book's counter and leaves the imprint's where it was.
+    func testImprint_bookCompile_leavesTheImprintsCounterAlone() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig())
+        let jobs = CompileJobManager()
+
+        let result = try await makeOrch(
+            configStore, PublicationStore(projectURL: tmp), jobManager: jobs)
+            .compile(format: .epub, label: nil)
+        guard case .completed(let pub, _) = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+        XCTAssertNil(pub.imprint, "a book compile records no imprint")
+        XCTAssertEqual(pub.version, "0.1")
+
+        let after = try await configStore.load()
+        XCTAssertEqual(after?.nextVersion, "0.2")
+        XCTAssertEqual(after?.imprints["special"]?.nextVersion, "1.0",
+                       "the imprint's counter is not the book's to advance")
+
+        // The control for the refusal below: a compile that RAN registered a
+        // job, so an empty job manager there means something, not nothing.
+        let seen = await jobs.all()
+        XCTAssertEqual(seen.count, 1, "a compile that starts registers a job")
+    }
+
+    /// A name this project never defined is a caller's typo, not a compile —
+    /// so nothing is registered as having started.
+    func testImprint_unknownName_refusesBeforeTheJobManagerSeesAJob() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig())
+        let jobs = CompileJobManager()
+
+        let result = try await makeOrch(
+            configStore, PublicationStore(projectURL: tmp), jobManager: jobs)
+            .compile(format: .epub, label: nil, imprint: "speshal")
+        guard case .failed(let errors, let excerpt) = result else {
+            return XCTFail("expected failed, got \(result)")
+        }
+        XCTAssertEqual(excerpt, "unknown_imprint: speshal")
+        let message = errors.map(\.message).joined(separator: "\n")
+        XCTAssertTrue(message.contains("unknown imprint 'speshal'"),
+                      "the refusal carries the error's own sentence, got \(message)")
+        XCTAssertTrue(message.contains("special"),
+                      "and names what this project does define, got \(message)")
+
+        let seen = await jobs.all()
+        XCTAssertTrue(seen.isEmpty,
+                      "a typo starts no compile, so it leaves no job behind: \(seen)")
+    }
+
+    /// The pin is scoped: a version that exists only under another imprint is
+    /// not this compile's to render, and the refusal says where it does live.
+    func testImprint_pinnedVersionUnderAnotherImprint_isRefusedByName() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig())
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(
+            pubStore, version: "1.0", format: .pdf, imprint: "special")
+
+        let refused = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es", version: "1.0")
+        guard case .failed(let errors, let excerpt) = refused else {
+            return XCTFail("expected failed, got \(refused)")
+        }
+        XCTAssertEqual(excerpt, "no_source_version: 1.0/es")
+        let context = errors.flatMap(\.contextLines).joined(separator: "\n")
+        XCTAssertTrue(
+            context.contains("version '1.0' exists under imprint 'special', not the book"),
+            "the refusal must name where v1.0 actually lives, got \(context)")
+
+        // The control: the same pin, asked for by the imprint that owns it.
+        let accepted = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es", version: "1.0",
+                     imprint: "special")
+        guard case .completed(let pub, _) = accepted else {
+            return XCTFail("expected completed, got \(accepted)")
+        }
+        XCTAssertEqual(pub.version, "1.0")
+        XCTAssertEqual(pub.language, "es")
+        XCTAssertEqual(pub.imprint, "special")
+    }
+
+    /// And the same refusal in the other direction — the book's version is not
+    /// an imprint's to render either.
+    func testImprint_pinnedVersionOnTheBook_isRefusedForAnImprintByName() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig())
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "1.0", format: .pdf)
+
+        let refused = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es", version: "1.0",
+                     imprint: "special")
+        guard case .failed(let errors, _) = refused else {
+            return XCTFail("expected failed, got \(refused)")
+        }
+        let context = errors.flatMap(\.contextLines).joined(separator: "\n")
+        XCTAssertTrue(
+            context.contains("version '1.0' exists on the book, not under imprint 'special'"),
+            "the refusal must name the book as where v1.0 lives, got \(context)")
+    }
+
+    /// Latest-source resolution is scoped too: an edition under an imprint
+    /// renders that imprint's most recent source, not the book's — even when
+    /// the book's is newer.
+    func testImprint_latestSourceResolutionIsPerImprint() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig())
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(
+            pubStore, version: "1.0", format: .pdf,
+            compiledAt: Date(timeIntervalSinceNow: -1000), imprint: "special")
+        try await seedSourcePublication(pubStore, version: "0.9", format: .pdf)
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es", imprint: "special")
+        guard case .completed(let pub, _) = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+        XCTAssertEqual(pub.version, "1.0",
+                       "the imprint's own source, not the book's more recent 0.9")
+        XCTAssertEqual(pub.imprint, "special")
+    }
+
+    /// The refusing half of the same predicate: the book's source publications
+    /// do not make an imprint compilable.
+    func testImprint_editionWithNoSourceUnderThatImprint_refuses() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig())
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "0.1", format: .pdf)
+
+        let refused = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es", imprint: "special")
+        guard case .failed(_, let excerpt) = refused else {
+            return XCTFail("expected failed, got \(refused)")
+        }
+        XCTAssertEqual(excerpt, "no_source_publication: es")
+
+        // The control: the book, whose source that publication IS.
+        let accepted = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es")
+        guard case .completed(let pub, _) = accepted else {
+            return XCTFail("expected completed, got \(accepted)")
+        }
+        XCTAssertEqual(pub.version, "0.1")
+        XCTAssertNil(pub.imprint)
+    }
+
+    /// The collision guard is per imprint: the book and an imprint may both
+    /// hold v0.1 of the same format, because they are different publications.
+    func testImprint_collisionGuardIsPerImprint() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig(imprintNextVersion: "0.1"))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let orch = makeOrch(configStore, pubStore)
+
+        guard case .completed(let book, _) =
+                try await orch.compile(format: .epub, label: nil) else {
+            return XCTFail("the book's 0.1 must compile")
+        }
+        XCTAssertEqual(book.version, "0.1")
+
+        guard case .completed(let special, _) =
+                try await orch.compile(format: .epub, label: nil, imprint: "special") else {
+            return XCTFail("the imprint's own 0.1 is a different publication")
+        }
+        XCTAssertEqual(special.version, "0.1")
+        XCTAssertEqual(special.imprint, "special")
+
+        // The control: WITHIN one imprint the guard still fires. Put the
+        // counter back and ask for the same triple again.
+        var reset = try await configStore.load()!
+        reset.imprints["special"]?.nextVersion = "0.1"
+        try await configStore.save(reset)
+        let refused = try await orch.compile(format: .epub, label: nil, imprint: "special")
+        guard case .failed(let errors, let excerpt) = refused else {
+            return XCTFail("expected a collision refusal, got \(refused)")
+        }
+        XCTAssertEqual(excerpt, "version_collision: 0.1/source/epub")
+        // I2 (whole-branch review): the excerpt's triple is ambiguous now that
+        // the book holds a v0.1/source/epub too — the sentence the writer
+        // reads must say which of the two it is refusing.
+        XCTAssertTrue(
+            errors.contains { $0.message.contains("under imprint 'special'") },
+            "the refusal must name the imprint: \(errors.map(\.message))")
+        XCTAssertTrue(
+            errors.flatMap(\.contextLines).contains { $0.contains("under imprint 'special'") },
+            "and so must the triple's context line: "
+            + "\(errors.flatMap(\.contextLines))")
+    }
+
+    /// The mint gate's key carries the imprint, so a book compile in flight
+    /// does not hold an imprint's identical triple.
+    func testImprint_mintGateKeyIsPerImprint() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig())
+        let pubStore = PublicationStore(projectURL: tmp)
+        let gate = PublishMintGate()
+
+        // The BOOK's 1.0/epub is in flight…
+        let held = await gate.reserve(
+            .init(version: "1.0", language: nil, format: .epub, imprint: nil))
+        XCTAssertTrue(held)
+
+        // …which says nothing about the IMPRINT's own 1.0/epub.
+        guard case .completed(let pub, _) = try await makeOrch(configStore, pubStore, gate)
+            .compile(format: .epub, label: nil, imprint: "special") else {
+            return XCTFail("a book's reservation must not block an imprint")
+        }
+        XCTAssertEqual(pub.version, "1.0")
+
+        // The control: with the IMPRINT's own key held, the same compile is
+        // refused. Its counter is 1.1 after the compile above.
+        let heldImprint = await gate.reserve(
+            .init(version: "1.1", language: nil, format: .epub, imprint: "special"))
+        XCTAssertTrue(heldImprint)
+        let refused = try await makeOrch(configStore, pubStore, gate)
+            .compile(format: .epub, label: nil, imprint: "special")
+        guard case .failed(let errors, let excerpt) = refused else {
+            return XCTFail("expected an in-flight refusal, got \(refused)")
+        }
+        XCTAssertEqual(excerpt, "mint_in_flight: 1.1/source/epub")
+        // I2: spec §6 — the mint-gate refusal names the imprint.
+        XCTAssertTrue(
+            errors.contains { $0.message.contains("under imprint 'special'") },
+            "the refusal must name the imprint: \(errors.map(\.message))")
+        XCTAssertTrue(
+            errors.flatMap(\.contextLines).contains { $0.contains("under imprint 'special'") },
+            "and so must the triple's context line: "
+            + "\(errors.flatMap(\.contextLines))")
+    }
+
+    /// `dry_run` under an imprint answers the question and mutates nothing —
+    /// no publication, and neither counter moves.
+    func testImprint_dryRun_reportsWithoutMintingOrBumping() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig())
+        let pubStore = PublicationStore(projectURL: tmp)
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, dryRun: true, imprint: "special")
+        guard case .dryRunPassed = result else {
+            return XCTFail("expected dryRunPassed, got \(result)")
+        }
+        let pubs = try await pubStore.load()
+        XCTAssertTrue(pubs.isEmpty, "a dry run mints nothing, got \(pubs)")
+        let after = try await configStore.load()
+        XCTAssertEqual(after?.imprints["special"]?.nextVersion, "1.0",
+                       "the imprint's counter must not move on a dry run")
+        XCTAssertEqual(after?.nextVersion, "0.1")
+    }
+
+    /// The pre-flight reads the piece list only when it can change an answer.
+    /// With no imprints there is no allowlist to materialize and no allowlist
+    /// id to validate, so an ordinary compile derives its manuscript exactly
+    /// once — the emitters' own read — instead of twice.
+    ///
+    /// `test_aCancelledCompileDoesNotPublish` leans on this as well: its
+    /// source blocks on a one-shot semaphore, so a second read would hang the
+    /// suite rather than fail it.
+    func testImprint_thePieceListIsReadOnlyWhenAnImprintCouldNeedIt() async throws {
+        final class Counter: @unchecked Sendable { var reads = 0 }
+        struct CountingSrc: ProjectASTBuilder.Source {
+            let counter: Counter
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                counter.reads += 1
+                return [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hi.")]
+            }
+        }
+        func compileCountingReads(_ cfg: PublishConfig) async throws -> Int {
+            let dir = tmp.appendingPathComponent("count-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try await PublishStarter.install(into: dir, force: false)
+            let configStore = PublishConfigStore(projectURL: dir)
+            try await configStore.save(cfg)
+            let counter = Counter()
+            let orch = CompileOrchestrator(
+                projectURL: dir, astSource: CountingSrc(counter: counter),
+                configStore: configStore,
+                publicationStore: PublicationStore(projectURL: dir),
+                snapshotStore: PublicationSnapshotStore(projectURL: dir),
+                jobManager: CompileJobManager(),
+                maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+            guard case .completed = try await orch.compile(format: .epub, label: nil)
+            else {
+                XCTFail("the compile must succeed for the count to mean anything")
+                return -1
+            }
+            return counter.reads
+        }
+
+        let plain = try await compileCountingReads(
+            PublishConfig(metadata: .init(title: "Orch", author: "T")))
+        XCTAssertEqual(plain, 1, "a project with no imprints pays for one read")
+
+        // The control: with an imprint in the config the pre-flight does need
+        // the list, and reads it.
+        let withImprint = try await compileCountingReads(imprintConfig())
+        XCTAssertEqual(withImprint, 2,
+                       "an imprint's allowlist is materialized against the real "
+                        + "piece ids, so the pre-flight reads them")
+    }
+
+    // MARK: - Compile-time config validation (Task 6)
+
+    /// The config-write door deliberately does not check that the DEFAULT
+    /// `template.tex` exists — a project whose starter install failed silently
+    /// must still be able to patch any config key. The compile is where that
+    /// gets met, as a Maugham refusal rather than a tectonic error.
+    func testCompile_missingDefaultTemplate_refusesAPDFAtPreFlight() async throws {
+        let template = tmp.appendingPathComponent(".maugham/publish/template.tex")
+        try FileManager.default.removeItem(at: template)
+
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Orch", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+
+        let refused = try await makeOrch(configStore, pubStore)
+            .compile(format: .pdf, label: nil)
+        guard case .failed(let errors, let excerpt) = refused else {
+            return XCTFail("expected failed, got \(refused)")
+        }
+        XCTAssertTrue(excerpt.hasPrefix("invalid_config:"),
+                      "expected a config refusal, got \(excerpt)")
+        XCTAssertTrue(errors.map(\.message).joined().contains("template.tex"),
+                      "the refusal must name the missing template, got \(errors)")
+        let pubs = try await pubStore.load()
+        XCTAssertTrue(pubs.isEmpty, "nothing was minted")
+
+        // The control: an EPUB of the same project is emitted without LaTeX,
+        // so a missing template.tex is not its problem.
+        guard case .completed = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil) else {
+            return XCTFail("an EPUB must not need template.tex")
+        }
+    }
+
+    /// The compile validates the RESOLVED config, and its `pieceIDs` are this
+    /// project's own — which is what makes an imprint allowlist naming a piece
+    /// that does not exist a refusal rather than a silently empty book.
+    func testImprint_allowlistNamingNoPiece_refusesAtCompile() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig(
+            sections: ["nope": PublishConfig.Section()]))
+        let pubStore = PublicationStore(projectURL: tmp)
+
+        let refused = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, imprint: "special")
+        guard case .failed(let errors, let excerpt) = refused else {
+            return XCTFail("expected failed, got \(refused)")
+        }
+        XCTAssertTrue(excerpt.contains("imprints.special.sections.nope"),
+                      "expected the offending field in the excerpt, got \(excerpt)")
+        XCTAssertTrue(errors.map(\.message).joined().contains("nope"),
+                      "the refusal must name the id, got \(errors)")
+
+        // The control: the same allowlist naming the piece this project has.
+        try await configStore.save(imprintConfig(
+            sections: ["p1": PublishConfig.Section()]))
+        guard case .completed(let pub, _) = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, imprint: "special") else {
+            return XCTFail("an allowlist naming a real piece must compile")
+        }
+        XCTAssertEqual(pub.imprint, "special")
     }
 
 }

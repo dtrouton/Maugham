@@ -10,9 +10,10 @@ final class PublishMintGateTests: XCTestCase {
     private func key(
         _ version: String = "0.1",
         _ language: String? = nil,
-        _ format: PublishConfig.Format = .epub
+        _ format: PublishConfig.Format = .epub,
+        _ imprint: String? = nil
     ) -> PublishMintGate.Key {
-        PublishMintGate.Key(version: version, language: language, format: format)
+        PublishMintGate.Key(version: version, language: language, format: format, imprint: imprint)
     }
 
     func test_secondReservationOfTheSameTripleRefuses() async {
@@ -59,6 +60,22 @@ final class PublishMintGateTests: XCTestCase {
         await gate.release(key())
         let reserved = await gate.reserve(key())
         XCTAssertTrue(reserved)
+    }
+
+    /// Imprint is a fourth component of the identity: two keys differing
+    /// only by imprint (same version/language/format) reserve independently
+    /// — a writer can compile the book and a special edition of the same
+    /// version at once — and a repeat of either refuses on its own.
+    func test_differentImprintsReserveIndependently() async {
+        let gate = PublishMintGate()
+        let book = await gate.reserve(key("0.1", nil, .pdf, nil))
+        let special = await gate.reserve(key("0.1", nil, .pdf, "special-edition"))
+        XCTAssertTrue(book)
+        XCTAssertTrue(special, "imprint differs")
+        let repeatedBook = await gate.reserve(key("0.1", nil, .pdf, nil))
+        let repeatedSpecial = await gate.reserve(key("0.1", nil, .pdf, "special-edition"))
+        XCTAssertFalse(repeatedBook, "the book's own triple is already in flight")
+        XCTAssertFalse(repeatedSpecial, "the imprint's own triple is already in flight")
     }
 
     /// A release of one triple must not free another.

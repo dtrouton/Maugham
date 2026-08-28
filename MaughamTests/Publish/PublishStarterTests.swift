@@ -101,6 +101,49 @@ final class PublishStarterTests: XCTestCase {
                        "expected 0.3 (max(0.1, 0.2) + 1); got \(cfg?.nextVersion ?? "nil")")
     }
 
+    /// M1 (whole-branch review). The counter this reconciles is the BOOK's,
+    /// and an imprint counts its own versions — often much higher, since a
+    /// special edition may be at 3.7 while the book is at 0.1. Reading the
+    /// catalog unscoped pushed the book's `next_version` past a publication
+    /// that was never the book's.
+    func testInstall_reconcilesAgainstTheBooksPublicationsOnly() async throws {
+        try await PublishStarter.install(into: tmp, force: false)
+
+        let pubStore = await PublicationStore(projectURL: tmp)
+        try await pubStore.append(Publication(
+            publicationID: "pub-imprint-3.7", version: "3.7", label: nil,
+            format: .pdf, outputPath: "Exports/Untitled-v3.7-special.pdf",
+            snapshotID: "snap-3.7", checkpointID: "", republishedFrom: nil,
+            compiledAt: Date(), maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0", language: nil, imprint: "special"))
+
+        try await PublishStarter.install(into: tmp, force: true)
+
+        let cfg = try await PublishConfigStore(projectURL: tmp).load()
+        XCTAssertEqual(cfg?.nextVersion, "0.1",
+                       "an imprint's 3.7 is not the book's; the book's counter must "
+                        + "stay where it was, got \(cfg?.nextVersion ?? "nil")")
+    }
+
+    /// Its CONTROL: the same publication, compiled by the book, does move the
+    /// counter — so the filter above is scoping the read, not disabling it.
+    func testInstall_reconcilesAgainstTheBooksOwnPublication() async throws {
+        try await PublishStarter.install(into: tmp, force: false)
+
+        let pubStore = await PublicationStore(projectURL: tmp)
+        try await pubStore.append(Publication(
+            publicationID: "pub-book-3.7", version: "3.7", label: nil,
+            format: .pdf, outputPath: "Exports/Untitled-v3.7.pdf",
+            snapshotID: "snap-3.7", checkpointID: "", republishedFrom: nil,
+            compiledAt: Date(), maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0", language: nil, imprint: nil))
+
+        try await PublishStarter.install(into: tmp, force: true)
+
+        let cfg = try await PublishConfigStore(projectURL: tmp).load()
+        XCTAssertEqual(cfg?.nextVersion, "3.8")
+    }
+
     func testInstall_doesNotRewindNextVersion_whenStarterDefaultIsHigher() async throws {
         // Edge: if (hypothetically) the freshly-written default config had
         // a HIGHER next_version than max(publications), the high-water-mark

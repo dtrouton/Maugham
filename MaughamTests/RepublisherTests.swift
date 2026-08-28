@@ -1,5 +1,6 @@
 import XCTest
 import MaughamCore
+import PDFKit
 @testable import Maugham
 
 @MainActor
@@ -1183,5 +1184,358 @@ final class RepublisherTests: XCTestCase {
         } catch RepublishError.invalidSnapshotConfig(let msg) {
             XCTAssertTrue(msg.contains("filename_template"), msg)
         }
+    }
+
+    // MARK: - Task 5: republish carries the imprint
+
+    /// A republish of an imprint publication must mint an imprint publication:
+    /// the same `imprint` on the new catalog row, and the imprint's own
+    /// template compiled again — not the book's.
+    ///
+    /// Seeded by hand rather than through the orchestrator: `CompileOrchestrator`
+    /// grows its `imprint:` parameter in Task 6, so this test writes the
+    /// prior `Publication(imprint:)` and captures the snapshot itself. The
+    /// snapshot's config is built the way production will build it — through
+    /// `PublishConfig.resolved(imprint:pieceIDs:)`, the one setter of
+    /// `config.imprint` — so nothing here hand-assembles a shape the compile
+    /// path would not produce.
+    ///
+    /// The template half is proved by making the BOOK's `template.tex`
+    /// uncompilable before the snapshot is captured. The snapshot freezes both
+    /// files, `Republisher` stages both, and the republish can only succeed by
+    /// compiling `special.tex` — the imprint's. A republish that reached for
+    /// the book's template would fail on `\undefined_command_xyz`.
+    func testRepublish_carriesTheImprintAndCompilesItsTemplate() async throws {
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
+
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello.")]
+            }
+        }
+
+        let publish = tmp.appendingPathComponent(".maugham/publish", isDirectory: true)
+        // The imprint's own template: a copy of the starter, valid.
+        let starter = try String(
+            contentsOf: publish.appendingPathComponent("template.tex"), encoding: .utf8)
+        try starter.write(to: publish.appendingPathComponent("special.tex"),
+                          atomically: true, encoding: .utf8)
+        // The book's template, now uncompilable.
+        try "\\undefined_command_xyz".write(
+            to: publish.appendingPathComponent("template.tex"),
+            atomically: true, encoding: .utf8)
+
+        let book = PublishConfig(
+            metadata: .init(title: "Imprints", author: "T"),
+            imprints: ["aldine": .init(template: "special.tex")])
+        let imprintConfig = try book.resolved(imprint: "aldine", pieceIDs: ["p1"])
+        XCTAssertEqual(imprintConfig.template, "special.tex")
+        XCTAssertEqual(imprintConfig.imprint, "aldine")
+
+        // The prior publication + its snapshot, as a Task 6 compile will leave them.
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let snap = try snapStore.capture(
+            config: imprintConfig, maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+        try snapStore.save(snap)
+        XCTAssertTrue(snap.publishFiles.contains { $0.relativePath == "special.tex" },
+                      "the snapshot must hold the imprint template; it held: "
+                      + snap.publishFiles.map(\.relativePath).sorted().joined(separator: ", "))
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await pubStore.append(Publication(
+            publicationID: "pub-aldine", version: "0.1", label: nil, format: .pdf,
+            outputPath: "Exports/imprints-v0.1-aldine.pdf", snapshotID: snap.snapshotID,
+            checkpointID: "", republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0",
+            language: nil, allowStale: false, imprint: "aldine"))
+
+        let r = Republisher(
+            projectURL: tmp, astSource: Src(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+        let outcome = try await r.republish(
+            snapshotID: snap.snapshotID, format: .pdf, label: nil)
+
+        switch outcome {
+        case .completed(let pub, _):
+            XCTAssertEqual(pub.imprint, "aldine",
+                           "the republished row must carry the prior's imprint")
+            XCTAssertEqual(pub.republishedFrom, "0.1")
+            // The imprint reached the filename too (Task 4's builder reads
+            // `config.imprint`, which the snapshot's resolved config carries).
+            XCTAssertTrue(pub.outputPath.contains("aldine"),
+                          "the republished output should name its imprint: \(pub.outputPath)")
+            // And the artifact is real: it could only have been produced by
+            // special.tex, because template.tex in this snapshot does not compile.
+            let out = tmp.appendingPathComponent(pub.outputPath)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: out.path),
+                          "no artifact at \(pub.outputPath)")
+            let pdf = PDFDocument(url: out)
+            XCTAssertGreaterThan(pdf?.pageCount ?? 0, 0,
+                                 "the republished artifact is not a PDF with pages")
+        case .failed(let errors, let log):
+            XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(600))")
+        case .dryRunPassed:
+            XCTFail("republish never produces dry_run_passed")
+        case .cancelled:
+            XCTFail("nothing cancelled this republish")
+        }
+    }
+
+    // MARK: - C1: an imprint's rendered set is an allowlist, at republish too
+
+    /// A project that grows between the compile and the republish.
+    private struct GrowingSrc: ProjectASTBuilder.Source {
+        let pieces: [String]
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            pieces.map {
+                .init(pieceID: $0, title: $0.uppercased(), mode: .prose,
+                      displayText: "Text of \($0).")
+            }
+        }
+    }
+
+    /// Every `data-piece-id` an EPUB's section documents carry.
+    private func pieceIDs(inEPUBAt url: URL) throws -> Set<String> {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        proc.arguments = ["-p", url.path, "OEBPS/*.xhtml"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        try proc.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+        let xhtml = String(data: data, encoding: .utf8) ?? ""
+        let pattern = try NSRegularExpression(pattern: #"data-piece-id="([^"]+)""#)
+        let range = NSRange(xhtml.startIndex..<xhtml.endIndex, in: xhtml)
+        return Set(pattern.matches(in: xhtml, range: range).compactMap {
+            Range($0.range(at: 1), in: xhtml).map { String(xhtml[$0]) }
+        })
+    }
+
+    /// C1 (whole-branch review). An imprint's `sections` is an ALLOWLIST, and
+    /// resolution MATERIALIZES it — the frozen config names only the pieces
+    /// that existed when it compiled. A piece added afterwards is in neither
+    /// the allowlist nor the materialized `include:false` set, so reproducing
+    /// the frozen exclusions as a denylist against the live tree lets it into
+    /// an edition that never named it. The republish of an imprint derives its
+    /// exclusions the other way round: everything live the allowlist does not
+    /// name.
+    func test_republishOfAnImprintDoesNotGainAPieceAddedSinceTheCompile() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Grown", author: "T"))
+        cfg.imprints = ["aldine": .init(sections: ["p1": .init()])]
+        try await configStore.save(cfg)
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let atCompile = GrowingSrc(pieces: ["p1", "p2"])
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: atCompile,
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(
+            format: .epub, label: nil, imprint: "aldine")
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("the imprint's first compile failed: \(initial)")
+        }
+        XCTAssertEqual(try pieceIDs(inEPUBAt: tmp.appendingPathComponent(initialPub.outputPath)),
+                       ["p1"], "fixture: the compile itself renders only the allowlist")
+
+        // The writer adds a chapter. It is not in the imprint's allowlist.
+        let afterwards = GrowingSrc(pieces: ["p1", "p2", "p3"])
+        let r = Republisher(
+            projectURL: tmp, astSource: afterwards,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed(let pub, _) = outcome else {
+            return XCTFail("the imprint republish failed: \(outcome)")
+        }
+        XCTAssertEqual(pub.imprint, "aldine")
+        XCTAssertEqual(
+            try pieceIDs(inEPUBAt: tmp.appendingPathComponent(pub.outputPath)), ["p1"],
+            "the republished imprint must render exactly what its allowlist names "
+            + "— a piece added since the compile was never in this edition")
+    }
+
+    /// The CONTROL, and the reason this is not simply "republish renders the
+    /// frozen set": the BOOK's `sections` map is a denylist — absent means
+    /// included — so a chapter written since the compile joins a republished
+    /// book, exactly as it joins a fresh compile. Only the excluded one stays
+    /// out.
+    func test_republishOfTheBookDoesGainAPieceAddedSinceTheCompile() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Grown", author: "T"))
+        cfg.sections["p2"] = .init(include: false)
+        try await configStore.save(cfg)
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1", "p2"]),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("the book's first compile failed: \(initial)")
+        }
+
+        let r = Republisher(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1", "p2", "p3"]),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed(let pub, _) = outcome else {
+            return XCTFail("the book republish failed: \(outcome)")
+        }
+        XCTAssertNil(pub.imprint)
+        XCTAssertEqual(
+            try pieceIDs(inEPUBAt: tmp.appendingPathComponent(pub.outputPath)), ["p1", "p3"],
+            "the book's map is a denylist: the excluded piece stays out and the "
+            + "new one comes in")
+    }
+
+    /// The third case the derivation has to keep right: an imprint that names
+    /// NO `sections` of its own inherits the book's map, which is a denylist —
+    /// so it behaves like the book, and a new piece joins it. This is why the
+    /// derivation asks the frozen config's own imprint layer rather than
+    /// merely whether an imprint is set.
+    func test_republishOfAnImprintWithNoAllowlistInheritsTheBooksDenylist() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Grown", author: "T"))
+        cfg.sections["p2"] = .init(include: false)
+        cfg.imprints = ["plain": .init(metadata: ["title": .string("Grown, Plain")])]
+        try await configStore.save(cfg)
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1", "p2"]),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(
+            format: .epub, label: nil, imprint: "plain")
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("the inheriting imprint's compile failed: \(initial)")
+        }
+
+        let r = Republisher(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1", "p2", "p3"]),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed(let pub, _) = outcome else {
+            return XCTFail("the inheriting imprint's republish failed: \(outcome)")
+        }
+        XCTAssertEqual(pub.imprint, "plain")
+        XCTAssertEqual(
+            try pieceIDs(inEPUBAt: tmp.appendingPathComponent(pub.outputPath)), ["p1", "p3"],
+            "an imprint with no allowlist of its own inherits the book's denylist, "
+            + "so the new piece joins it too")
+    }
+
+    /// I2 (whole-branch review). A republish mints a triple too, and its
+    /// in-flight refusal is the third of the three that used to name only
+    /// `(version, language, format)` — ambiguous the moment an imprint holds a
+    /// version of its own. A scripted suffix makes the minted version, and so
+    /// the gate key, known in advance.
+    func test_aRepublishRefusedByTheGateNamesTheImprint() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Held", author: "T"))
+        cfg.imprints = ["aldine": .init(metadata: ["title": .string("Held, Aldine")])]
+        try await configStore.save(cfg)
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        guard case .completed(let initialPub, _) = try await orch.compile(
+            format: .epub, label: nil, imprint: "aldine") else {
+            return XCTFail("the imprint's compile must succeed to be republished")
+        }
+
+        let gate = PublishMintGate()
+        var r = Republisher(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(), mintGate: gate,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        r.mintSuffix = { "abcd" }
+        let held = await gate.reserve(.init(
+            version: "\(initialPub.version)-rabcd", language: nil, format: .epub,
+            imprint: "aldine"))
+        XCTAssertTrue(held, "fixture: the triple this republish will mint is in flight")
+
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .failed(let errors, let excerpt) = outcome else {
+            return XCTFail("expected an in-flight refusal, got \(outcome)")
+        }
+        XCTAssertTrue(excerpt.hasPrefix("mint_in_flight:"), excerpt)
+        XCTAssertTrue(
+            errors.contains { $0.message.contains("under imprint 'aldine'") },
+            "the refusal must name the imprint: \(errors.map(\.message))")
+        XCTAssertTrue(
+            errors.flatMap(\.contextLines).contains { $0.contains("under imprint 'aldine'") },
+            "and so must the triple's context line: \(errors.flatMap(\.contextLines))")
+    }
+
+    /// Its control: the same refusal for a BOOK republish says "on the book"
+    /// rather than naming an imprint that is not there.
+    func test_aRepublishOfTheBookRefusedByTheGateNamesTheBook() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Held", author: "T")))
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        guard case .completed(let initialPub, _) = try await orch.compile(
+            format: .epub, label: nil) else {
+            return XCTFail("the book's compile must succeed to be republished")
+        }
+
+        let gate = PublishMintGate()
+        var r = Republisher(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(), mintGate: gate,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        r.mintSuffix = { "abcd" }
+        _ = await gate.reserve(.init(
+            version: "\(initialPub.version)-rabcd", language: nil, format: .epub,
+            imprint: nil))
+
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .failed(let errors, _) = outcome else {
+            return XCTFail("expected an in-flight refusal, got \(outcome)")
+        }
+        XCTAssertTrue(
+            errors.contains { $0.message.contains("on the book") },
+            "the refusal must name the book: \(errors.map(\.message))")
     }
 }

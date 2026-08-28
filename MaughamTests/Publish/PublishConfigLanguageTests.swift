@@ -54,6 +54,53 @@ final class PublishConfigLanguageTests: XCTestCase {
         XCTAssertEqual(config.sections["p_abc123"]?.startOn, .recto)
     }
 
+    // MARK: - Task 1: imprints/template/imprint decode-tolerant + resolved-only encode
+
+    func testOldConfig_withoutImprints_decodesToEmptyAndReencodesIdentically() throws {
+        let config = PublishConfig(
+            schemaVersion: 1,
+            metadata: .init(title: "Test Book", author: "Author"),
+            outputs: .init(),
+            cover: .init(),
+            sections: [:],
+            epubOverrides: .init(),
+            nextVersion: "0.1",
+            activeLabelHint: nil
+        )
+        let json = try JSONEncoder().encode(config)
+        let s = String(data: json, encoding: .utf8) ?? ""
+        XCTAssertFalse(s.contains("\"imprints\""), "should not encode empty imprints: \(s)")
+        XCTAssertFalse(s.contains("\"template\""), "should not encode default template: \(s)")
+        XCTAssertFalse(s.contains("\"imprint\""), "should not encode nil imprint: \(s)")
+
+        let decoded = try JSONDecoder().decode(PublishConfig.self, from: json)
+        XCTAssertEqual(decoded.imprints, [:])
+        XCTAssertEqual(decoded.template, "template.tex")
+        XCTAssertNil(decoded.imprint)
+
+        let reencoded = try JSONEncoder().encode(decoded)
+        let redecoded = try JSONDecoder().decode(PublishConfig.self, from: reencoded)
+        XCTAssertEqual(redecoded, decoded)
+    }
+
+    func testResolvedFields_encodeOnlyWhenSet() throws {
+        let cfg = PublishConfig(
+            metadata: .init(title: "T", author: "A"),
+            template: "special.tex",
+            imprint: "x"
+        )
+        let data = try JSONEncoder().encode(cfg)
+        let s = String(data: data, encoding: .utf8) ?? ""
+        XCTAssertTrue(s.contains("\"template\":\"special.tex\""), "expected explicit template: \(s)")
+        XCTAssertTrue(s.contains("\"imprint\":\"x\""), "expected explicit imprint: \(s)")
+
+        let defaultCfg = PublishConfig(metadata: .init(title: "T", author: "A"))
+        let defaultData = try JSONEncoder().encode(defaultCfg)
+        let defaultS = String(data: defaultData, encoding: .utf8) ?? ""
+        XCTAssertFalse(defaultS.contains("\"template\""), "default template should not encode: \(defaultS)")
+        XCTAssertFalse(defaultS.contains("\"imprint\""), "nil imprint should not encode: \(defaultS)")
+    }
+
     func testLanguageOverrides_roundTrip() throws {
         var cfg = PublishConfig(metadata: .init(title: "Book", author: "A"))
         cfg.languageOverrides["fr"] = .init(metadata: ["title": "Livre"])
@@ -144,6 +191,56 @@ final class PublishConfigLanguageTests: XCTestCase {
         let cfg = PublishConfig(metadata: .init(title: "Book", author: "A"))
         let name = OutputFilenameBuilder.make(config: cfg, format: .epub, label: "galley", language: "de")
         XCTAssertEqual(name, "Book-v0.1-galley-de.epub")
+    }
+
+    // MARK: - {imprint} filename token (Task 4)
+    //
+    // Same shape as {language}: substituted when present, dangling separator
+    // stripped when absent, and a template lacking the token gets an
+    // auto-suffix collision guard so an imprint's compile can't overwrite
+    // the book's own file.
+
+    func testFilename_imprintTokenSubstituted() {
+        var cfg = PublishConfig(
+            metadata: .init(title: "Book", author: "A"), imprint: "special-edition")
+        cfg.outputs.filenameTemplate = "{title}-{imprint}-v{version}.{ext}"
+        let name = OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "Book-special-edition-v0.1.pdf")
+    }
+
+    func testFilename_imprintTokenEmptyWhenNil() {
+        var cfg = PublishConfig(metadata: .init(title: "Book", author: "A"))
+        cfg.outputs.filenameTemplate = "{title}-v{version}-{imprint}.{ext}"
+        let name = OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "Book-v0.1.pdf", "the book's own compile drops the dangling separator")
+    }
+
+    func testFilename_imprintAutoSuffix_whenTemplateLacksImprintToken() {
+        // Default template has no {imprint}; an imprint's compile must not
+        // collide with the book's own file — insert -<imprint> before the
+        // extension.
+        let cfg = PublishConfig(
+            metadata: .init(title: "Book", author: "A"), imprint: "special-edition")
+        let name = OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "Book-v0.1-special-edition.pdf")
+    }
+
+    func testFilename_noImprintAutoSuffix_whenImprintNil() {
+        // The control: the book's own filename is unaffected by the guard.
+        let cfg = PublishConfig(metadata: .init(title: "Book", author: "A"))
+        let name = OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "Book-v0.1.pdf")
+    }
+
+    func testFilename_guardOrder_imprintThenLanguage() {
+        // Both guards fire on a template with neither token: the imprint
+        // guard runs first (nearer the version), the language guard second
+        // (nearer the extension) — "Title-v0.1-special-sr.pdf".
+        var cfg = PublishConfig(
+            metadata: .init(title: "Title", author: "A"), imprint: "special")
+        cfg.nextVersion = "0.1"
+        let name = OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: "sr")
+        XCTAssertEqual(name, "Title-v0.1-special-sr.pdf")
     }
 
     // MARK: - Publication decode tolerance

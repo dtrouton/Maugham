@@ -86,6 +86,42 @@ final class LanguageSuffixedFileTests: XCTestCase {
             "template.tex")
     }
 
+    /// Task 5: the compiler hands `config.template` to the resolver, not the
+    /// literal `"template.tex"`, so an imprint's own template takes the
+    /// language suffix by exactly the same rule the book's does.
+    func test_imprintTemplatePick() throws {
+        try touch("special.sr.tex", in: tmp)
+        XCTAssertEqual(
+            LanguageSuffixedFile.resolve("special.tex", language: "sr", under: tmp),
+            "special.sr.tex",
+            "an imprint template suffixes like any other")
+        XCTAssertEqual(
+            LanguageSuffixedFile.resolve("special.tex", language: nil, under: tmp),
+            "special.tex",
+            "the source edition of an imprint keeps the base name")
+        XCTAssertEqual(
+            LanguageSuffixedFile.resolve("special.tex", language: "de", under: tmp),
+            "special.tex",
+            "a language with no variant beside it falls back to the base")
+    }
+
+    /// A template may live in a subdirectory (`templates/special.tex`); the
+    /// suffix still goes before the extension and the directory is preserved,
+    /// and existence is checked at the joined path.
+    func test_imprintTemplateInASubdirectory() throws {
+        let templates = tmp.appendingPathComponent("templates", isDirectory: true)
+        try FileManager.default.createDirectory(at: templates, withIntermediateDirectories: true)
+        try touch("special.sr.tex", in: templates)
+        XCTAssertEqual(
+            LanguageSuffixedFile.resolve("templates/special.tex", language: "sr", under: tmp),
+            "templates/special.sr.tex",
+            "the suffix goes before the extension, inside the subdirectory")
+        XCTAssertEqual(
+            LanguageSuffixedFile.resolve("templates/special.tex", language: "de", under: tmp),
+            "templates/special.tex",
+            "an absent variant in a subdirectory falls back to the base path")
+    }
+
     func test_cssPick() throws {
         try touch("styles.es.css", in: tmp)
         XCTAssertEqual(

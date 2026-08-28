@@ -347,4 +347,170 @@ final class CompileToolsTests: XCTestCase {
         XCTAssertNotNil(props?["language"], "preview schema must declare language")
         XCTAssertNotNil(props?["allow_stale"], "preview schema must declare allow_stale")
     }
+
+    // MARK: - Task 7: compile / preview_compile speak imprint
+
+    /// Seeds two imprints on the fixture's real config. `special` patches the
+    /// metadata title so the resolved config is visible in what the compile
+    /// produces; `other` exists only so the refusal below has a list to name.
+    @discardableResult
+    private func seedImprints() async throws -> PublishConfig {
+        let stores = PublishingStores.sharedFor(
+            projectID: pid, projectURL: projectURL)
+        let loaded = try await stores.configStore.load()
+        var cfg = try XCTUnwrap(loaded)
+        cfg.imprints = [
+            "special": .init(metadata: ["title": .string("Special Edition")]),
+            "other": .init()
+        ]
+        try await stores.configStore.save(cfg)
+        return cfg
+    }
+
+    /// The tool's `imprint` reaches the orchestrator: the record it mints says
+    /// so, and the file it wrote wears the imprint's own resolved title and the
+    /// `-special` collision suffix. EPUB, so no tectonic is needed.
+    func testCompile_imprint_threadsThroughToTheRecordAndTheFilename() async throws {
+        try await seedImprints()
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","imprint":"special","wait_seconds":120}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "completed",
+                       "unexpected response: \(resp ?? [:])")
+
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        let pubs = try await stores.publicationStore.load()
+        XCTAssertEqual(pubs.count, 1)
+        XCTAssertEqual(pubs.first?.imprint, "special",
+                       "the record must remember which imprint compiled it")
+        let path = try XCTUnwrap(pubs.first?.outputPath)
+        // The starter config leaves `sanitize_spaces` false, so the imprint's
+        // title reaches the filename with its space intact.
+        XCTAssertTrue(path.contains("Special Edition"),
+                      "the imprint's metadata patch must have reached the filename "
+                      + "— got: \(path)")
+        XCTAssertTrue(path.hasSuffix("-special.epub"),
+                      "and the collision guard must have suffixed it — got: \(path)")
+    }
+
+    /// CONTROL for the test above: the same project compiled as the book mints
+    /// a record with no imprint and a filename with no suffix, so neither
+    /// assertion above can be passing on something the book does anyway.
+    func testCompile_withoutImprint_mintsABookRecord() async throws {
+        try await seedImprints()
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","wait_seconds":120}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "completed",
+                       "unexpected response: \(resp ?? [:])")
+
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        let pubs = try await stores.publicationStore.load()
+        XCTAssertNil(pubs.first?.imprint)
+        let path = try XCTUnwrap(pubs.first?.outputPath)
+        XCTAssertFalse(path.contains("Special Edition"))
+        XCTAssertFalse(path.contains("-special"))
+    }
+
+    /// An unknown name refuses at the orchestrator's door, and the surface that
+    /// carries the sentence is the tool's ORDINARY failed shape — the `.failed`
+    /// outcome through `CompileResponseEncoder.encodeOutcome`, not a thrown
+    /// `MCPError`. Pinned here because the two are indistinguishable from the
+    /// call site and only one of them is what a caller actually reads.
+    func testCompile_unknownImprint_returnsTheFailedShapeWithTheKnownList() async throws {
+        try await seedImprints()
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","imprint":"nope","wait_seconds":30}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "failed",
+                       "unexpected response: \(resp ?? [:])")
+        let errors = resp?["errors"] as? [[String: Any]]
+        let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
+        XCTAssertTrue(message.contains("unknown imprint 'nope'"), "got: \(message)")
+        XCTAssertTrue(message.contains("other, special"),
+                      "the refusal must list the names this project does define, "
+                      + "sorted — got: \(message)")
+        XCTAssertEqual(resp?["log_excerpt"] as? String, "unknown_imprint: nope")
+
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        let pubs = try await stores.publicationStore.load()
+        XCTAssertTrue(pubs.isEmpty, "nothing was compiled — no record, no bump")
+    }
+
+    /// `preview_compile` refuses an unknown name through the same failed shape
+    /// (its `Result.errors` are rendered by `encodeFailed`), carrying the same
+    /// excerpt.
+    func testPreview_unknownImprint_returnsTheFailedShape() async throws {
+        try await seedImprints()
+        let data = try await PreviewCompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","imprint":"nope"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "failed",
+                       "unexpected response: \(resp ?? [:])")
+        let errors = resp?["errors"] as? [[String: Any]]
+        let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
+        XCTAssertTrue(message.contains("unknown imprint 'nope'"), "got: \(message)")
+        XCTAssertEqual(resp?["log_excerpt"] as? String, "unknown_imprint: nope")
+        XCTAssertEqual(resp?["log_path"] as? String, "build/compile.log")
+    }
+
+    /// And `preview_compile` threads a KNOWN name through to the preview's own
+    /// filename, so an imprint preview never lands on the book's.
+    func testPreview_imprint_threadsThroughToTheFilename() async throws {
+        try await seedImprints()
+        let data = try await PreviewCompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","imprint":"special"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "completed",
+                       "unexpected response: \(resp ?? [:])")
+        let path = try XCTUnwrap(resp?["output_path"] as? String)
+        XCTAssertTrue(path.hasSuffix("preview-0.1-epub-special.epub"), "got: \(path)")
+    }
+
+    // MARK: - Task 7: schema + params round-trip
+
+    func testSchema_compile_declaresImprint() throws {
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(CompileTool.inputSchemaJSON.utf8)) as? [String: Any]
+        let props = try XCTUnwrap(obj?["properties"] as? [String: Any])
+        let imprint = try XCTUnwrap(props["imprint"] as? [String: Any],
+                                    "compile schema must declare imprint")
+        XCTAssertEqual(imprint["type"] as? String, "string")
+        XCTAssertTrue((imprint["description"] as? String ?? "").contains("Omit for the book."),
+                      "got: \(String(describing: imprint["description"]))")
+    }
+
+    func testSchema_preview_declaresImprint() throws {
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(PreviewCompileTool.inputSchemaJSON.utf8)) as? [String: Any]
+        let props = try XCTUnwrap(obj?["properties"] as? [String: Any])
+        let imprint = try XCTUnwrap(props["imprint"] as? [String: Any],
+                                    "preview_compile schema must declare imprint")
+        XCTAssertEqual(imprint["type"] as? String, "string")
+    }
+
+    /// A schema key nothing decodes is a lie in the catalogue: both `Params`
+    /// must actually read `imprint` off the wire.
+    func testParams_bothToolsDecodeImprint() throws {
+        let json = Data(#"{"project_id":"p","format":"epub","imprint":"special"}"#.utf8)
+        XCTAssertEqual(
+            try JSONDecoder().decode(CompileTool.Params.self, from: json).imprint, "special")
+        XCTAssertEqual(
+            try JSONDecoder().decode(PreviewCompileTool.Params.self, from: json).imprint,
+            "special")
+    }
+
+    /// Both tools' descriptions state the publication key the same way. Two
+    /// spellings of one key is how a caller comes to believe an imprint's 0.1
+    /// and the book's are the same publication.
+    func testDescription_compile_statesTheFourPartKey() {
+        XCTAssertTrue(
+            CompileTool.description.contains("(imprint, version, language, format)"),
+            "compile's description must state the widened key")
+    }
 }
