@@ -1229,7 +1229,7 @@ final class DepartmentRunTests: XCTestCase {
         let window = mountTranslatorHost(fixture)
         _ = try await scrollersSettling(in: window)
 
-        press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
+        try await pressRowControl(labelled: DepartmentRunState.runTitle, in: window)
 
         let sheet = await attachedSheetWindow(of: window)
         let sheetWindow = try XCTUnwrap(sheet, "Run on an unnamed edition must show the "
@@ -1257,7 +1257,7 @@ final class DepartmentRunTests: XCTestCase {
         let window = mountTranslatorHost(fixture)
         _ = try await scrollersSettling(in: window)
 
-        press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
+        try await pressRowControl(labelled: DepartmentRunState.runTitle, in: window)
         let sheet = await attachedSheetWindow(of: window)
         let sheetWindow = try XCTUnwrap(sheet)
         press(try axButtons(labelled: DepartmentCastCopy.cancelTitle, in: sheetWindow)[0])
@@ -1288,7 +1288,7 @@ final class DepartmentRunTests: XCTestCase {
         let window = mountTranslatorHost(fixture)
         _ = try await scrollersSettling(in: window)
 
-        press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
+        try await pressRowControl(labelled: DepartmentRunState.runTitle, in: window)
         let sheet = await attachedSheetWindow(of: window)
         let sheetWindow = try XCTUnwrap(sheet)
         let field = try XCTUnwrap(textField(placeholder: DepartmentCastCopy.placeholder,
@@ -1325,7 +1325,7 @@ final class DepartmentRunTests: XCTestCase {
         let window = mountTranslatorHost(fixture)
         _ = try await scrollersSettling(in: window)
 
-        press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
+        try await pressRowControl(labelled: DepartmentRunState.runTitle, in: window)
 
         _ = await pumpUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
         XCTAssertFalse(fixture.runner.sends.isEmpty,
@@ -1360,9 +1360,16 @@ final class DepartmentRunTests: XCTestCase {
         let window = mountTranslatorHost(fixture)
         _ = try await scrollersSettling(in: window)
 
+        // Premise first: the row must be on screen before it can be pressed,
+        // and there must be exactly one of it.
+        let drewOne = await pumpUntil(deadline: 5) {
+            ((try? self.axButtons(labelled: DepartmentRunState.runTitle,
+                                  in: window))?.count ?? 0) == 1
+        }
         let runs = try axButtons(labelled: DepartmentRunState.runTitle, in: window)
+        XCTAssertTrue(drewOne, "premise: the desk never drew this edition's Run")
         XCTAssertEqual(runs.count, 1, "one Run for the book's one edition")
-        press(runs[0])
+        try await pressRowControl(labelled: DepartmentRunState.runTitle, in: window)
 
         _ = await pumpUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
         XCTAssertFalse(fixture.runner.sends.isEmpty,
@@ -1399,7 +1406,7 @@ final class DepartmentRunTests: XCTestCase {
         let window = mountTranslatorHost(fixture)
         _ = try await scrollersSettling(in: window)
 
-        press(try axButtons(labelled: DepartmentRunState.runTitle, in: window)[0])
+        try await pressRowControl(labelled: DepartmentRunState.runTitle, in: window)
 
         _ = await pumpUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
         XCTAssertFalse(fixture.runner.sends.isEmpty,
@@ -1768,8 +1775,8 @@ final class DepartmentRunTests: XCTestCase {
         let window = mountTranslatorHost(fixture)
         _ = try await scrollersSettling(in: window)
 
-        press(try axButtons(labelled: DepartmentDesk.renameTitle(translator: "Cortázar"),
-                            in: window)[0])
+        try await pressRowControl(
+            labelled: DepartmentDesk.renameTitle(translator: "Cortázar"), in: window)
         let sheet = await attachedSheetWindow(of: window)
         let sheetWindow = try XCTUnwrap(sheet, "the row's rename opened no sheet")
         type("Alejandra", into: try XCTUnwrap(textField(
@@ -1852,8 +1859,8 @@ final class DepartmentRunTests: XCTestCase {
         let window = mountTranslatorHost(fixture)
         _ = try await scrollersSettling(in: window)
 
-        press(try axButtons(labelled: DepartmentDesk.renameTitle(translator: "Cortázar"),
-                            in: window)[0])
+        try await pressRowControl(
+            labelled: DepartmentDesk.renameTitle(translator: "Cortázar"), in: window)
         let sheet = await attachedSheetWindow(of: window)
         let sheetWindow = try XCTUnwrap(sheet)
         press(try axButtons(labelled: DepartmentCastCopy.cancelTitle,
@@ -1995,6 +2002,43 @@ final class DepartmentRunTests: XCTestCase {
         windows.append(window)
         pump(0.1)
         return window
+    }
+
+    /// **Wait for a control the desk DERIVES, then press it by name**
+    /// (imprints P3 Task 5's carry).
+    ///
+    /// `scrollersSettling` proves the desk mounted its sections; it proves
+    /// nothing about the language ROWS on them. Those come from
+    /// `DepartmentPaneHost.derive()`, which reads the manifest, the publish
+    /// config and every edition's translation file — and each suspension in it
+    /// is a runloop pass where the section is on screen and the row is not.
+    /// `axButtons(…)[0]` in that window does not fail, it CRASHES the whole
+    /// test class with "Array index out of range": measured on this branch,
+    /// ONE `await` added to `derive()` took all eight of the row-pressing cases
+    /// down at once, and a crash names no premise. This waits for the control
+    /// and, if it never arrives, fails with the reason.
+    ///
+    /// Verified 2026-08-28 by pointing one case at a label the desk never
+    /// draws: `XCTAssertFalse failed - premise: the desk drew no "NEVER DRAWN"
+    /// in 1.0s …  Published buttons: ["Add Language…", "Compile…", …]`.
+    private func pressRowControl(labelled label: String, in window: NSWindow,
+                                 deadline: TimeInterval = 5,
+                                 file: StaticString = #filePath,
+                                 line: UInt = #line) async throws {
+        var buttons: [AnyObject] = []
+        _ = await pumpUntil(deadline: deadline) {
+            buttons = (try? self.axButtons(labelled: label, in: window)) ?? []
+            return !buttons.isEmpty
+        }
+        XCTAssertFalse(
+            buttons.isEmpty,
+            "premise: the desk drew no \"\(label)\" in \(deadline)s — its rows "
+            + "are derived, and this test presses one before asserting anything "
+            + "about it. Published buttons: "
+            + "\((try? axButtonLabels(in: window))?.sorted() ?? [])",
+            file: file, line: line)
+        guard let first = buttons.first else { return }
+        press(first)
     }
 
     private func scrollersSettling(in window: NSWindow,
