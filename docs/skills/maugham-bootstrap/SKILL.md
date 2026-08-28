@@ -80,6 +80,20 @@ template controls the seam between them by defining its own `MaughamBody`
 environment (`EMISSION.md`'s "Multi-language bodies" section) — the default
 just starts each half on a fresh page.
 
+Every paragraph the emitter renders carries an anchor, `p-<tag>-<¶id>` —
+`\hypertarget{p-en-k3wq}{}` in LaTeX, `id="p-en-k3wq"` in XHTML — and it is
+the first artifact-side id a template can rely on: before it, nothing in a
+compiled book could be addressed back to a paragraph. A multi-language
+compile uses it to cross-link scene headings between bodies
+(`\MaughamCrossLink`, wrapping the mode command rather than being wrapped by
+it — read `EMISSION.md`'s "Cross-body links" section before writing or
+redefining one), and `\MaughamCrossLink` is redefinable the same way
+`\MaughamBody` is, if your template wants the link styled differently than a
+plain `\hyperlink`. Two `\providecommand` fallbacks (`\hypertarget`,
+`\MaughamCrossLink`) sit in every body's own prologue, so a preamble with no
+`hyperref` still compiles — the anchors set nothing and the links set
+un-linked, rather than failing.
+
 ## Translating into a language
 
 Before you translate a paragraph into a language, call `read_edition_brief`
