@@ -84,13 +84,106 @@ public struct CompileOrchestrator {
         language: String? = nil,
         allowStale: Bool = false,
         dryRun: Bool = false,
-        version: String? = nil
+        version: String? = nil,
+        imprint: String? = nil
     ) async throws -> Outcome {
-        let jobID = await jobManager.register(phase: .renderingBody)
+        // Imprint resolution runs at the DOOR, and it is the only
+        // imprint-awareness in the pipeline: everything below reads an
+        // ordinary `PublishConfig` and never learns an imprint existed
+        // (spec §3).
+        let publishDir = projectURL.appendingPathComponent(
+            ".maugham/publish", isDirectory: true)
 
-        guard let config = try await configStore.load() else {
+        guard let loaded = try await configStore.load() else {
+            let jobID = await jobManager.register(phase: .renderingBody)
             await jobManager.fail(jobID: jobID, errors: [], logExcerpt: "no config")
             return .failed(errors: [], logExcerpt: "no config")
+        }
+
+        // Is this a name this project knows? Asked BEFORE the job is
+        // registered and before a word of the manuscript is read, because it
+        // needs neither: an unknown name is a caller's typo rather than a
+        // compile, nothing started, and `compile_status` must not grow a job
+        // for a compile that never began. (Every refusal below this point got
+        // as far as reading the project, and each of those registers-then-
+        // fails.) It reads the same dictionary `resolved(imprint:pieceIDs:)`
+        // reads and raises the same error type, so there is one answer to the
+        // question rather than two.
+        if let imprint, loaded.imprints[imprint] == nil {
+            let error = PublishConfig.UnknownImprint(
+                requested: imprint, known: Array(loaded.imprints.keys))
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: error.errorDescription ?? "unknown imprint '\(imprint)'",
+                contextLines: [
+                    "Nothing was compiled — no export, no snapshot, no version bump."
+                ])
+            return .failed(errors: [diag], logExcerpt: "unknown_imprint: \(imprint)")
+        }
+
+        let jobID = await jobManager.register(phase: .renderingBody)
+
+        // `loaded` is kept beside `config` on purpose: the RESOLVED config is
+        // what this compile renders and mints under, but the version bump at
+        // the far end writes the ORIGINAL back — an imprint's counter lives
+        // inside its own entry, and saving the resolved config would flatten
+        // the imprint's overrides onto the book.
+        let config: PublishConfig
+        let pieceIDs: [String]
+        do {
+            // The piece ids an imprint's `sections` allowlist is materialized
+            // against (Task 2), and the same list the validator holds that
+            // allowlist to. Read only when it can change an answer: with no
+            // imprints in the config there is no allowlist to materialize and
+            // no allowlist id to check, and reading it anyway would derive
+            // every manuscript a second time on every ordinary compile — the
+            // emitters below do it once already.
+            pieceIDs = loaded.imprints.isEmpty
+                ? []
+                : try astSource.orderedPieces().map(\.pieceID)
+            config = try loaded.resolved(imprint: imprint, pieceIDs: pieceIDs)
+        } catch {
+            // RULING-54 for the read (an unreadable op log refuses the compile
+            // rather than publishing a book missing a chapter), and
+            // `ImprintResolutionFailure` for a merge-patch fragment that
+            // leaves a block undecodable. Both end the same way the AST
+            // build's own throw does — a terminal job and a `.failed`
+            // outcome — rather than escaping with the job stranded
+            // .inProgress (RULING-52's shape).
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: String(describing: error),
+                contextLines: [
+                    "Nothing was compiled — no export, no snapshot, no version bump."
+                ])
+            await jobManager.fail(
+                jobID: jobID, errors: [diag],
+                logExcerpt: "thrown_before_start: \(error)")
+            return .failed(
+                errors: [diag], logExcerpt: "thrown_before_start: \(error)")
+        }
+
+        // Compile pre-flight validation, on the resolved config. This is the
+        // stricter door (`validateForCompile`): a config WRITE deliberately
+        // does not check that the default `template.tex` is on disk, because a
+        // project whose starter install failed silently must still be able to
+        // patch its config — but a compile through a template that isn't there
+        // must refuse in Maugham's own words rather than as a tectonic error.
+        let configErrors = PublishConfigValidator.validateForCompile(
+            config, publishDir: publishDir, pieceIDs: pieceIDs, format: format)
+        if !configErrors.isEmpty {
+            let diags = configErrors.map {
+                TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: "\($0.field): \($0.message)",
+                    contextLines: [
+                        "Nothing was compiled — no export, no snapshot, no version bump."
+                    ])
+            }
+            let excerpt = "invalid_config: "
+                + configErrors.map(\.field).joined(separator: ", ")
+            await jobManager.fail(jobID: jobID, errors: diags, logExcerpt: excerpt)
+            return .failed(errors: diags, logExcerpt: excerpt)
         }
 
         // The edition-effective config: base config with its metadata folded
@@ -102,8 +195,10 @@ public struct CompileOrchestrator {
         // manuscript/translation content — `astSource` still reads the live
         // ProjectStore on republish, so a translated edition is re-gated
         // separately in `Republisher.republish` (Task 9 F1), not here.
-        // The post-compile version bump below saves the ORIGINAL `config`, never
-        // `effective`, so a translated compile can't overwrite the shared config.
+        // The post-compile version bump below saves `loaded` — the config as it
+        // came off disk — never `effective` and never the imprint-resolved
+        // `config`, so neither a translated nor an imprint compile can
+        // overwrite the shared config.
         var effective = config
         effective.metadata = config.effectiveMetadata(language: language)
 
@@ -116,9 +211,6 @@ public struct CompileOrchestrator {
         // whole publish tree (including any `.es.tex` piece files), and it
         // freezes `effective`, so the frozen config's suffixed names match the
         // frozen tree.
-        let publishDir = projectURL.appendingPathComponent(
-            ".maugham/publish", isDirectory: true)
-
         effective = LanguageSuffixedFile.resolvingStyleFiles(
             in: effective, language: language, publishDir: publishDir)
 
@@ -187,9 +279,13 @@ public struct CompileOrchestrator {
             // latest-source branch below guards against (T1 review). Pin the
             // ORIGINAL version; the edition compiles the CURRENT manuscript
             // either way (republish is the snapshot-reproduction path).
+            // Scoped by imprint (Task 6): an imprint's publications are its
+            // own, so a version the BOOK holds is not an imprint's to render
+            // and vice versa. Without this, an imprint edition would pin — and
+            // mint at — a version belonging to another edition line entirely.
             guard existingPublications.contains(where: {
                 $0.language == nil && $0.republishedFrom == nil
-                    && $0.version == version
+                    && $0.version == version && $0.imprint == imprint
             }) else {
                 // T1 re-review: when the pinned version exists ONLY as a
                 // republished record, "no publication exists at vX" would be
@@ -198,9 +294,18 @@ public struct CompileOrchestrator {
                 let existenceLine: String
                 if let repub = existingPublications.first(where: {
                     $0.language == nil && $0.republishedFrom != nil
-                        && $0.version == version
+                        && $0.version == version && $0.imprint == imprint
                 }), let original = repub.republishedFrom {
                     existenceLine = "v\(version) is a republished record (republished_from: \(original)) — republished versions aren't pinnable as edition sources; pin the original v\(original), or use republish to reproduce the snapshot."
+                } else if let elsewhere = existingPublications.first(where: {
+                    $0.language == nil && $0.republishedFrom == nil
+                        && $0.version == version && $0.imprint != imprint
+                }) {
+                    // The version EXISTS — under another edition line. Saying
+                    // "no publication exists at v1.0" to a writer looking at
+                    // one in list_publications would be literally false, so
+                    // name where it actually lives.
+                    existenceLine = "version '\(version)' exists \(Self.placeOf(elsewhere.imprint)), not \(Self.notPlaceOf(imprint)) — an edition renders a source version of its own imprint."
                 } else {
                     existenceLine = "No source-language publication (language == nil) exists at v\(version)."
                 }
@@ -226,16 +331,22 @@ public struct CompileOrchestrator {
             // the most recent, resolving to it would mint the edition at that
             // mangled version, fragmenting the (version, language, format)
             // family (T1 review).
+            // Scoped by imprint for the same reason the pin above is: the
+            // latest source of THIS edition line, never whatever happens to be
+            // the newest row in the catalog.
             let sources = existingPublications.filter {
                 $0.language == nil && $0.republishedFrom == nil
+                    && $0.imprint == imprint
             }
             guard let latest = sources.max(by: { $0.compiledAt < $1.compiledAt }) else {
                 let diag = TectonicLogParser.Diagnostic(
                     level: .error, file: nil, line: nil,
-                    message: "no source publication exists — compile the source edition first (or pass version to pin one) before rendering the \(language!) edition.",
+                    message: "no source publication exists\(imprint.map { " under imprint '\($0)'" } ?? "") — compile the source edition first (or pass version to pin one) before rendering the \(language!) edition.",
                     contextLines: [
                         "An edition is a rendering of a source version; it no longer mints its own.",
-                        "Compile without a language to create the source edition, then retry."
+                        imprint.map {
+                            "Compile without a language under imprint '\($0)' to create its source edition, then retry."
+                        } ?? "Compile without a language to create the source edition, then retry."
                     ])
                 await jobManager.fail(
                     jobID: jobID, errors: [diag],
@@ -265,10 +376,13 @@ public struct CompileOrchestrator {
         // Republished records share a version deliberately but always carry a
         // distinct `-r…` version string, so they never match this triple
         // (republish path untouched).
+        // Scoped by imprint (Task 6): the book and an imprint may each hold
+        // a v0.1 pdf, because those are two different publications.
         if existingPublications.contains(where: {
             $0.version == effectiveVersion
                 && $0.language == language
                 && $0.format == format
+                && $0.imprint == imprint
         }) {
             let langLabel = language ?? "source"
             let diag = TectonicLogParser.Diagnostic(
@@ -309,7 +423,8 @@ public struct CompileOrchestrator {
         // run that never reserved must never release, or it would hand back the
         // in-flight compile's reservation.
         let mintKey = PublishMintGate.Key(
-            version: effectiveVersion, language: language, format: format)
+            version: effectiveVersion, language: language, format: format,
+            imprint: imprint)
         if !dryRun {
             guard await mintGate.reserve(mintKey) else {
                 let langLabel = language ?? "source"
@@ -344,7 +459,8 @@ public struct CompileOrchestrator {
             let outcome = try await compileReserved(
                 format: format, label: label, language: language,
                 allowStale: allowStale, dryRun: dryRun, jobID: jobID,
-                config: config, effective: effective,
+                config: config, loaded: loaded, imprint: imprint,
+                effective: effective,
                 effectiveVersion: effectiveVersion,
                 emitSource: emitSource, excludedSectionIDs: excludedSectionIDs,
                 progress: progress)
@@ -381,6 +497,8 @@ public struct CompileOrchestrator {
         dryRun: Bool,
         jobID: String,
         config: PublishConfig,
+        loaded: PublishConfig,
+        imprint: String?,
         effective: PublishConfig,
         effectiveVersion: String,
         emitSource: ProjectASTBuilder.Source,
@@ -519,7 +637,8 @@ public struct CompileOrchestrator {
             maughamVersion: maughamVersion,
             tectonicVersion: tectonicVersion,
             language: language,
-            allowStale: allowStale)
+            allowStale: allowStale,
+            imprint: imprint)
         // TODO: transactional commit. If `configStore.save` throws after
         // `publicationStore.append` succeeds, the next compile reuses the same
         // version → two Publications at the same version. Swapping order moves
@@ -543,14 +662,33 @@ public struct CompileOrchestrator {
         // Bump version in config — source compiles only. A language edition is
         // a rendering of an existing source version and must never advance the
         // source version counter (spec 2026-07-23). Saving the ORIGINAL
-        // `config` (never `effective`) keeps a translated compile from
-        // overwriting the shared config.
+        // `loaded` config (never `effective`, and never the imprint-RESOLVED
+        // `config` — which has the imprint's overrides flattened onto the book)
+        // keeps a translated or imprint compile from overwriting the shared
+        // config.
+        //
+        // Task 6: an imprint counts its own versions, so the bump lands inside
+        // its entry and never at the top level. The value bumped is the
+        // RESOLVED counter — the imprint's own when it declares one, the
+        // inherited book's when it does not — but where it is WRITTEN is the
+        // imprint's entry either way, which is what turns an inherited counter
+        // into the imprint's own on its first compile. Optional-chained rather
+        // than force-unwrapped: resolution above already proved the entry
+        // exists, and a crash would be a poor way to say otherwise.
         if language == nil {
-            var nextConfig = config
-            nextConfig.nextVersion = PublishConfigValidator.bumpedNextVersion(
+            var nextConfig = loaded
+            let bumped = PublishConfigValidator.bumpedNextVersion(
                 from: config.nextVersion)
-            try await configStore.save(nextConfig)
-            progress.record("next_version advanced to \(nextConfig.nextVersion)")
+            if let imprint {
+                nextConfig.imprints[imprint]?.nextVersion = bumped
+                try await configStore.save(nextConfig)
+                progress.record(
+                    "next_version for imprint '\(imprint)' advanced to \(bumped)")
+            } else {
+                nextConfig.nextVersion = bumped
+                try await configStore.save(nextConfig)
+                progress.record("next_version advanced to \(bumped)")
+            }
         }
 
         // Gate warnings (allow_stale fallbacks + fountain drift) ride alongside
@@ -560,6 +698,17 @@ public struct CompileOrchestrator {
             jobID: jobID, outputPath: outputPath,
             warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)
+    }
+
+    /// Where a publication lives, for a refusal that has to name it. Two
+    /// spellings because both halves of the sentence need one: "version '1.0'
+    /// exists under imprint 'special', not the book".
+    private static func placeOf(_ imprint: String?) -> String {
+        imprint.map { "under imprint '\($0)'" } ?? "on the book"
+    }
+
+    private static func notPlaceOf(_ imprint: String?) -> String {
+        imprint.map { "under imprint '\($0)'" } ?? "the book"
     }
 
     private func relativePath(_ abs: String, from root: URL) -> String {
