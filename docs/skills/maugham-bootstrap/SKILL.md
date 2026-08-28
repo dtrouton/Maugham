@@ -75,6 +75,11 @@ per-piece style file; give its filename a distinct basename from the book's
 and every other imprint's, and read `EMISSION.md`'s "Imprint templates are
 not style files" section for the `\input`-path rule before authoring one.
 
+A `languages` compile renders more than one body into the same document; a
+template controls the seam between them by defining its own `MaughamBody`
+environment (`EMISSION.md`'s "Multi-language bodies" section) — the default
+just starts each half on a fresh page.
+
 ## Translating into a language
 
 Before you translate a paragraph into a language, call `read_edition_brief`
