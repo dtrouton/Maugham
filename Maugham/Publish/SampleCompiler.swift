@@ -29,6 +29,23 @@ import Foundation
 /// (Nothing is lost: `DesignerReport` refuses `config.json` at parse, so a
 /// proposal can never change what that copy says.)
 ///
+/// **A sample sets the EDITION's text.** A round briefed on a language is
+/// handed a source already bound to it, and `language:` must be threaded
+/// through to `PreviewCompiler` as well — since P2 the preview builds its
+/// bodies through `BodyPlan`, which rebinds even a single body, so a preview
+/// asked for no language rebinds a pre-bound source back to the source text
+/// and the gate shows English under a caveat promising the edition
+/// (`DesignGateView.caveat`). The two must agree, and the argument is what
+/// makes them.
+///
+/// **A sample is always `allowStale`.** That is this type's own contract, not
+/// the compile door's: a design round is about typesetting, and the writer is
+/// looking at what the edition IS right now — source-text fallbacks and their
+/// `[tag]` warnings included — rather than being refused a look at their
+/// templates because a paragraph went untranslated this morning. (The gate's
+/// zero-layer guard still refuses unconditionally; an edition with no
+/// translation records at all has no text to set.)
+///
 /// **Failure is a value, not an error.** A tectonic failure, a project with no
 /// publish tree, a staged path that escapes the scratch — each rides out on
 /// `Outcome.failed` with its cause (RULING-7's shape), because a design round
@@ -58,13 +75,14 @@ enum SampleCompiler {
         selection: SamplePageSelection.Selection,
         projectURL: URL,
         astSource: ProjectASTBuilder.Source,
+        language: String?,
         jobManager: CompileJobManager,
         maughamVersion: String,
         tectonicVersion: String
     ) async throws -> Outcome {
         let outcome = await run(
             proposal: proposal, selection: selection, projectURL: projectURL,
-            astSource: astSource, jobManager: jobManager,
+            astSource: astSource, language: language, jobManager: jobManager,
             maughamVersion: maughamVersion, tectonicVersion: tectonicVersion)
         try DesignProposalStore(projectURL: projectURL)
             .recordSampleResult(id: proposal.id, sampleResult(outcome))
@@ -76,6 +94,7 @@ enum SampleCompiler {
         selection: SamplePageSelection.Selection,
         projectURL: URL,
         astSource: ProjectASTBuilder.Source,
+        language: String?,
         jobManager: CompileJobManager,
         maughamVersion: String,
         tectonicVersion: String
@@ -108,7 +127,11 @@ enum SampleCompiler {
                 configStore: PublishConfigStore(projectURL: scratch),
                 jobManager: jobManager,
                 maughamVersion: maughamVersion,
-                tectonicVersion: tectonicVersion
+                tectonicVersion: tectonicVersion,
+                // The edition this round is for, and the sample's own
+                // allow-stale contract — see the type's own note.
+                language: language,
+                allowStale: true
             ).preview(
                 format: .pdf, sectionIDs: selection.pieceIds,
                 maxPages: selection.maxPages)

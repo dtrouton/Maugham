@@ -1749,6 +1749,68 @@ final class RepublisherTests: XCTestCase {
                       "the source body reads the source text: \(body)")
     }
 
+    /// A snapshot with no frozen `config.json` cannot say which of its language
+    /// tags is the book's own — `snap.config` is the first body's
+    /// language-FOLDED one and answers wrongly for every translated edition —
+    /// so a republish refuses rather than guessing. Loudly, naming the file, in
+    /// the same throwing shape the snapshot load and the config validation use.
+    ///
+    /// Disable experiment: restore the silent
+    /// `?? snap.config.metadata.language` fallback and this fails on no throw.
+    func test_republishRefusesASnapshotMissingItsFrozenConfig() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, languages: ["en", "sr"]) else {
+            return XCTFail("fixture: the bilingual compile must complete")
+        }
+
+        let fresh = try snapStore.load(id: first.snapshotID)
+        XCTAssertTrue(fresh.publishFiles.contains { $0.relativePath == "config.json" },
+                      "fixture: a captured snapshot carries the unfolded config")
+        try snapStore.save(PublicationSnapshot(
+            snapshotID: fresh.snapshotID, createdAt: fresh.createdAt,
+            publishFiles: fresh.publishFiles.filter { $0.relativePath != "config.json" },
+            config: fresh.config,
+            maughamVersion: fresh.maughamVersion,
+            tectonicVersion: fresh.tectonicVersion,
+            languages: fresh.languages))
+
+        do {
+            _ = try await repubRepublisher(pubStore, snapStore)
+                .republish(snapshotID: first.snapshotID, format: .epub, label: nil)
+            XCTFail("a snapshot with no config.json must refuse, not guess")
+        } catch let error as RepublishError {
+            let sentence = error.errorDescription ?? ""
+            XCTAssertTrue(sentence.contains("config.json"),
+                          "the refusal must name the file: \(sentence)")
+        }
+    }
+
+    /// Its control: the same snapshot, untouched, republishes. Without it the
+    /// refusal above could pass on a republish that had started refusing
+    /// everything.
+    func test_republishOfASnapshotWithItsFrozenConfig_stillRepublishes() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, languages: ["en", "sr"]) else {
+            return XCTFail("fixture: the bilingual compile must complete")
+        }
+        guard case .completed(let again, _) = try await repubRepublisher(
+            pubStore, snapStore)
+            .republish(snapshotID: first.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("an intact snapshot must republish")
+        }
+        XCTAssertEqual(again.language, "en+sr")
+    }
+
     private func epub(_ pub: Publication) -> URL {
         tmp.appendingPathComponent(pub.outputPath)
     }

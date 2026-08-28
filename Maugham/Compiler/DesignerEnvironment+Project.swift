@@ -374,6 +374,11 @@ extension DesignerOrchestrator.Environment {
                     selection: selection,
                     projectURL: projectURL,
                     astSource: astSource,
+                    // The same edition the source above is bound to. Both
+                    // halves are needed: the binding chooses the text, and
+                    // `language:` is what stops `BodyPlan` rebinding it back
+                    // to the source book (`SampleCompiler`'s own note).
+                    language: context.language,
                     // The project's ONE job manager — the same one a real
                     // compile and a preview contend on, so a sample in flight
                     // is visible to `compile_status` rather than running in a

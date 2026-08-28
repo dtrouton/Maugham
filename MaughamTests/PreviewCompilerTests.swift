@@ -898,4 +898,87 @@ final class PreviewCompilerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.outputPath),
                       "no preview at \(result.outputPath)")
     }
+
+    /// The gate runs once per TRANSLATED body, and reports EVERY blocked tongue
+    /// rather than the first: a writer who has to preview once per language to
+    /// learn the second one's gaps is being sent round the loop for nothing.
+    ///
+    /// Three bodies — the source (never gated), a covered `sr`, and an `es` with
+    /// no records at all. The refusal must name `es` and must NOT name `sr`,
+    /// which is what makes it a per-tongue verdict rather than a blanket one.
+    func test_languages_theGateJudgesEachTongueAndNamesTheOneThatFailed() async throws {
+        let fx = try await makeLangFixture(content: """
+        First paragraph.
+
+        Second paragraph.
+        """)
+        for id in fx.doc.sequence {
+            try await TranslationStore.append(
+                TranslationRecord(
+                    paragraphId: id, language: "sr", text: "Prevedeni.",
+                    sourceHash: TranslationHash.hash(fx.doc.paragraphs[id] ?? ""),
+                    verbatim: false),
+                forDocId: fx.docID, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                in: fx.projectURL)
+        }
+
+        let result = try await PreviewCompiler(
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store),
+            configStore: fx.stores.configStore, jobManager: fx.stores.jobManager,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
+            languages: ["en", "sr", "es"]
+        ).preview(format: .epub, sectionIDs: nil, maxPages: nil)
+
+        XCTAssertFalse(result.errors.isEmpty, "an untranslated tongue must block")
+        let message = result.errors.map(\.message).joined(separator: "\n")
+        XCTAssertTrue(message.contains("[es]"),
+                      "the blocked tongue must be named: \(message)")
+        XCTAssertFalse(message.contains("[sr]"),
+                       "and a tongue that PASSED must not be: \(message)")
+        XCTAssertTrue(result.outputPath.isEmpty, "got: \(result.outputPath)")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: fx.projectURL
+                    .appendingPathComponent(PreviewCompiler.previewSubpath).path),
+            "a blocked preview writes no output")
+    }
+
+    /// Its control: cover `es` too and the same three-body preview lands.
+    /// Without it the refusal above could pass on a preview that had started
+    /// refusing every multi-tongue request.
+    func test_languages_everyTongueCovered_previewsAllThreeBodies() async throws {
+        let fx = try await makeLangFixture(content: """
+        First paragraph.
+
+        Second paragraph.
+        """)
+        for tag in ["sr", "es"] {
+            for id in fx.doc.sequence {
+                try await TranslationStore.append(
+                    TranslationRecord(
+                        paragraphId: id, language: tag, text: "Prevedenina\(tag).",
+                        sourceHash: TranslationHash.hash(fx.doc.paragraphs[id] ?? ""),
+                        verbatim: false),
+                    forDocId: fx.docID, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                    in: fx.projectURL)
+            }
+        }
+
+        let result = try await PreviewCompiler(
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store),
+            configStore: fx.stores.configStore, jobManager: fx.stores.jobManager,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
+            languages: ["en", "sr", "es"]
+        ).preview(format: .epub, sectionIDs: nil, maxPages: nil)
+
+        XCTAssertTrue(result.errors.isEmpty,
+                      "a fully covered set must preview: \(result.errors.map(\.message))")
+        let entries = try epubEntryNames(inEPUBAt: URL(fileURLWithPath: result.outputPath))
+        for tag in ["en", "sr", "es"] {
+            XCTAssertTrue(entries.contains("OEBPS/section-\(tag)-001.xhtml"),
+                          "body '\(tag)' is missing from \(entries)")
+        }
+    }
 }

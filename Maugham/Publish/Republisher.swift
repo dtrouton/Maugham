@@ -7,10 +7,19 @@ public enum RepublishError: Error, LocalizedError {
     /// `outputs.directory` or `filenameTemplate`). Fail loudly rather than
     /// writing output files outside the allowed roots (finding 1.5).
     case invalidSnapshotConfig(String)
+    /// P2 (Task 6): the snapshot's frozen, UNFOLDED `config.json` could not be
+    /// read. It is the only thing that says which of the record's language tags
+    /// is the book's own — `snap.config` is the first body's language-FOLDED
+    /// config and answers that question wrongly for every translated edition —
+    /// so a republish without it cannot know what it is reproducing. Refused
+    /// rather than guessed: the silent fallback would republish the Spanish
+    /// edition as the English book under the Spanish name.
+    case unreadableSnapshotConfig(String)
 
     public var errorDescription: String? {
         switch self {
         case .invalidSnapshotConfig(let msg): return msg
+        case .unreadableSnapshotConfig(let msg): return msg
         }
     }
 }
@@ -133,11 +142,34 @@ public struct Republisher {
         // the translation the source and republish the Spanish edition as the
         // English book under the Spanish name. The snapshot's own frozen
         // `config.json` is the unfolded article; it was extracted into `stage`
-        // just above, so ask it there. A snapshot without one (nothing
-        // production writes) falls back to `snap.config`.
-        let stagedConfig = try? await PublishConfigStore(projectURL: stage).load()
-        let sourceTag = stagedConfig?.metadata.language
-            ?? snap.config.metadata.language
+        // just above, so ask it there — and REFUSE when it is not there or will
+        // not decode, in the same throwing shape the snapshot load and the
+        // config validation above use. There is no honest fallback: guessing
+        // with `snap.config` is precisely the wrong answer for every translated
+        // edition, and a republish that quietly reproduces the wrong book is
+        // worse than one that says it cannot.
+        let stagedConfig: PublishConfig
+        do {
+            guard let loaded = try await PublishConfigStore(projectURL: stage).load()
+            else {
+                throw RepublishError.unreadableSnapshotConfig(
+                    "This snapshot carries no config.json, so there is no record "
+                    + "of which language the book itself is written in — and "
+                    + "without that a republish cannot tell a translated edition "
+                    + "from the source. Republish from a snapshot taken by this "
+                    + "version of Maugham, or compile the edition afresh.")
+            }
+            stagedConfig = loaded
+        } catch let error as RepublishError {
+            throw error
+        } catch {
+            throw RepublishError.unreadableSnapshotConfig(
+                "This snapshot's config.json could not be read (\(error)), so "
+                + "there is no record of which language the book itself is "
+                + "written in — and without that a republish cannot tell a "
+                + "translated edition from the source.")
+        }
+        let sourceTag = stagedConfig.metadata.language
         let recordedTags = snap.languages
             ?? prior?.language.map { $0.split(separator: "+").map(String.init) }
         let set = try LanguageSet(
