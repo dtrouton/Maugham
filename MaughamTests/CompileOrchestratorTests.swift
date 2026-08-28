@@ -1181,6 +1181,79 @@ final class CompileOrchestratorTests: XCTestCase {
         XCTAssertTrue(inFlight.isEmpty, "the job is terminal")
     }
 
+    // MARK: - Whose compile this is: `onJobRegistered`
+
+    /// **A caller learns the id of ITS OWN job, and can act on it.**
+    ///
+    /// `compile` does not return until the compile is over, so before this hook
+    /// existed there was no moment at which a caller could be told which job it
+    /// had started. The only way to find one was `allInProgress()`, which
+    /// answers for the whole project — one `CompileJobManager` serves this
+    /// orchestrator, `PreviewCompiler` and the designer's `SampleCompiler`
+    /// alike — and "the newest job in flight" is a different compile as often
+    /// as it is your own. `DeskCompileRunner.cancel()` is the caller this was
+    /// built for.
+    ///
+    /// Disable experiment: delete the `onJobRegistered(jobID)` line in
+    /// `CompileOrchestrator.compile` and this fails with `XCTAssertEqual
+    /// failed: ("[]") is not equal to ("1 id")` on the first assertion.
+    func test_theCallerIsToldWhichJobItsOwnCompileRegistered() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Own", author: "T")))
+        let jobs = CompileJobManager()
+
+        // A foreign job on the SAME manager, registered before the compile —
+        // the control that says the hook reports this compile's job and not
+        // simply whatever the manager holds.
+        let foreign = await jobs.register(phase: .renderingBody)
+
+        let announced = IDBox()
+        let outcome = try await makeOrch(configStore, PublicationStore(projectURL: tmp),
+                                         jobManager: jobs)
+            .compile(format: .epub, label: nil,
+                     onJobRegistered: { announced.append($0) })
+
+        guard case .completed = outcome else {
+            return XCTFail("expected a completed compile, got \(outcome)")
+        }
+        XCTAssertEqual(announced.values.count, 1,
+                       "exactly one id per compile: \(announced.values)")
+        let own = try XCTUnwrap(announced.values.first)
+        XCTAssertNotEqual(own, foreign,
+                          "the hook must report THIS compile's job, not a "
+                          + "stranger's on the same manager")
+        guard case .completed = await jobs.get(jobID: own)?.status else {
+            return XCTFail("the announced id must be this compile's job — its "
+                           + "record is \(String(describing: await jobs.get(jobID: own)?.status))")
+        }
+    }
+
+    /// A refusal that never registers a job announces nothing — there is no job
+    /// to cancel, and a caller told about one would aim at a stranger's.
+    func test_anUnknownImprintAnnouncesNoJobAtAll() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(imprintConfig())
+        let announced = IDBox()
+        let outcome = try await makeOrch(configStore, PublicationStore(projectURL: tmp))
+            .compile(format: .epub, label: nil, imprint: "nope",
+                     onJobRegistered: { announced.append($0) })
+
+        guard case .failed(_, let excerpt) = outcome else {
+            return XCTFail("expected the door's refusal, got \(outcome)")
+        }
+        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.unknownImprintLogExcerpt), excerpt)
+        XCTAssertEqual(announced.values, [],
+                       "nothing registered, so nothing to announce")
+    }
+
+    /// A `@Sendable` sink for the hook, which is called off this test's actor.
+    private final class IDBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [String] = []
+        func append(_ id: String) { lock.lock(); storage.append(id); lock.unlock() }
+        var values: [String] { lock.lock(); defer { lock.unlock() }; return storage }
+    }
+
     // MARK: - Imprints (P1 Task 6): resolution at the door, identity below it
     //
     // An imprint is a named publishing configuration inside one project. The

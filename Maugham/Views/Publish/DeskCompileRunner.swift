@@ -62,6 +62,21 @@ final class DeskCompileRunner {
     /// compile does nothing rather than crashing.
     private var stores: PublishingStores?
 
+    /// **The id of the job THIS desk's compile registered**, and the only job
+    /// its Cancel will ever touch.
+    ///
+    /// Not `@MainActor` state, because the orchestrator hands the id over from
+    /// its own executor the moment it registers — hopping to the main actor to
+    /// store it would leave a window in which the writer's Cancel finds nothing
+    /// to cancel and silently does nothing. A lock is the cheapest thing that
+    /// closes it.
+    private let ownJob = JobIDHolder()
+
+    /// The job the desk's compile in flight registered, or `nil` when the desk
+    /// has none. `nonisolated` so a test (and `cancel`'s own detached work) can
+    /// read it without a hop; the holder is what makes that safe.
+    nonisolated var currentJobID: String? { ownJob.get() }
+
     // MARK: - Verbs
 
     /// **Press Compile.** Returns immediately; the state carries the rest.
@@ -89,6 +104,7 @@ final class DeskCompileRunner {
             maughamVersion: PublishToolchain.maughamVersion,
             tectonicVersion: PublishToolchain.tectonicVersion)
 
+        ownJob.set(nil)
         state = DepartmentCompileState(
             phase: .running(format: request.format,
                             languages: request.languages,
@@ -109,7 +125,9 @@ final class DeskCompileRunner {
                     allowStale: request.allowStale,
                     dryRun: false,
                     version: nil,
-                    imprint: request.imprint)
+                    imprint: request.imprint,
+                    // The desk learns which job is its own — see `ownJob`.
+                    onJobRegistered: { [ownJob] in ownJob.set($0) })
                 settled = DepartmentCompileState.settled(after: outcome)
             } catch {
                 // `compile` throws for the things that are not outcomes at all
@@ -122,15 +140,23 @@ final class DeskCompileRunner {
         }
     }
 
-    /// **Stop the compile.**
+    /// **Stop the compile — this one, and never anybody else's.**
     ///
-    /// The same verb `CompileCancelTool` performs, minus the id: an MCP caller
-    /// is handed a `job_id` and gives it back, and the desk has no id to give,
-    /// so it asks the job manager which job is in flight. The NEWEST one, as
-    /// `CompileTool` reads the same list when its wait elapses — a desk compile
-    /// and an MCP compile of the same project cannot both be minting anyway
-    /// (`PublishMintGate` refuses the second), so the in-flight list is
-    /// effectively this one press.
+    /// The same verb `CompileCancelTool` performs, with the id the orchestrator
+    /// handed back at registration rather than one a caller supplied.
+    ///
+    /// **It used to take `allInProgress().last`, and that was a real bug.** One
+    /// `CompileJobManager` serves the whole project: `PreviewCompiler` (every
+    /// `preview_compile` Claude runs) and the designer's `SampleCompiler`
+    /// register on it too, and neither passes through the mint gate that would
+    /// otherwise make "the newest in-flight job" a synonym for "this press". A
+    /// writer who pressed Compile…, watched Claude run a preview, and then
+    /// pressed Cancel cancelled the PREVIEW — while the book they meant to stop
+    /// went on and published itself under a button whose help says nothing is
+    /// published.
+    ///
+    /// With no job of its own it does nothing, which is the honest answer both
+    /// before the first press and after a compile has settled.
     ///
     /// Cancelling sets the token the orchestrator polls at its one checkpoint,
     /// after the render and before the snapshot: nothing durable is committed
@@ -138,17 +164,41 @@ final class DeskCompileRunner {
     /// .settled(after:)` draws as an idle desk with a sentence rather than as a
     /// failure.
     func cancel() {
-        guard let stores else { return }
-        Task {
-            guard let job = await stores.jobManager.allInProgress().last else { return }
-            _ = await stores.jobManager.cancel(jobID: job.jobID)
-        }
+        guard let stores, let jobID = ownJob.get() else { return }
+        Task { _ = await stores.jobManager.cancel(jobID: jobID) }
     }
 
     // MARK: -
 
     private func finish(with settled: DepartmentCompileState) {
         task = nil
+        // The desk has no compile of its own any more, so its Cancel has
+        // nothing to aim at. Left set, a press after the compile had settled
+        // would ask the manager to cancel a terminal job — harmless today
+        // (`CompileJobManager.cancel` answers `.alreadyCompleted`) and exactly
+        // the kind of aim a later id-reuse would turn into the bug this file
+        // just fixed.
+        ownJob.set(nil)
         state = settled
+    }
+}
+
+/// **A job id that two executors can share.** The orchestrator writes it from
+/// wherever it is running; the desk reads it on the main actor, and a test
+/// reads it from a runloop pump. `NSLock` rather than an actor because both
+/// sides need the answer synchronously — an `await` here is the window that
+/// makes a Cancel pressed a millisecond after Compile do nothing.
+private final class JobIDHolder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: String?
+
+    func set(_ id: String?) {
+        lock.lock(); defer { lock.unlock() }
+        value = id
+    }
+
+    func get() -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return value
     }
 }

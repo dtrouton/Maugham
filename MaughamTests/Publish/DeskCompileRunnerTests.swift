@@ -224,35 +224,122 @@ final class DeskCompileRunnerTests: XCTestCase {
 
     // MARK: - Cancel
 
-    /// **The writer's cancel reaches the job the project has in flight**, which
-    /// is the verb `CompileCancelTool` performs with an id a caller handed it:
-    /// look the job up through `allInProgress()`, cancel it by id.
+    /// **The writer's cancel reaches THE DESK'S OWN job**, which is the verb
+    /// `CompileCancelTool` performs with an id a caller handed it — here, the
+    /// id the orchestrator hands back through `onJobRegistered`.
     ///
-    /// Deterministic by construction rather than by luck: the compile that
-    /// taught the runner which project it is on has already SETTLED before the
-    /// job under test is registered, so there is nothing racing the assertion —
-    /// exactly one job is in flight when `cancel()` runs, and it is this one.
+    /// The premise is asserted rather than assumed: the desk must have learned
+    /// an id, and that id must be a job the manager really has in flight.
+    ///
+    /// Disable experiment: put `cancel()` back to
+    /// `allInProgress().last` and this still passes (one job, so the newest IS
+    /// this one) — which is exactly why it needs the negative below it. The two
+    /// together are the pin.
     func test_cancelCancelsTheJobTheProjectHasInFlight() async throws {
         let runner = DeskCompileRunner()
+        XCTAssertNil(runner.currentJobID,
+                     "premise: a desk that has pressed nothing owns no job")
         runner.start(book(), projectStore: store, projectURL: projectURL)
-        await settle(runner)
-        let idle = await stores.jobManager.allInProgress()
-        XCTAssertTrue(idle.isEmpty, "premise: nothing is in flight to begin with")
 
-        let jobID = await stores.jobManager.register(phase: .renderingBody)
+        let learned = await pumpUntil(deadline: 10) { runner.currentJobID != nil }
+        XCTAssertTrue(learned, "the desk never learned the id of its own compile's job")
+        let own = try XCTUnwrap(runner.currentJobID)
+        let inFlight = await stores.jobManager.allInProgress().map(\.jobID)
+        XCTAssertTrue(inFlight.contains(own),
+                      "premise: the id the desk owns must be a job the manager "
+                      + "really has in flight \u{2014} in flight: \(inFlight)")
+
         runner.cancel()
 
         var status: CompileJob.Status?
-        let landed = await pumpUntil(deadline: 10) { true }
-        XCTAssertTrue(landed)
         let deadline = Date().addingTimeInterval(10)
         repeat {
-            status = await stores.jobManager.get(jobID: jobID)?.status
+            status = await stores.jobManager.get(jobID: own)?.status
             if case .cancelled = status { break }
-            await pumpUntil(deadline: 0.05) { false }
+            await waitOut(0.05)
         } while Date() < deadline
         if case .cancelled = status {} else {
-            XCTFail("cancel must reach the in-flight job — got \(String(describing: status))")
+            XCTFail("cancel must reach the desk's own in-flight job — got "
+                    + "\(String(describing: status))")
+        }
+        await settle(runner)
+        XCTAssertNil(runner.currentJobID,
+                     "a settled desk owns no job, so a later press of Cancel "
+                     + "has nothing to aim at")
+    }
+
+    /// **The desk's Cancel never takes somebody else's compile with it** —
+    /// the branch's one Critical, and the reason `onJobRegistered` exists.
+    ///
+    /// One `CompileJobManager` serves the whole project. `PreviewCompiler`
+    /// (every `preview_compile` Claude runs) and the designer's
+    /// `SampleCompiler` register on it and pass through no mint gate, so
+    /// "the newest job in flight" — which is what `cancel()` used to take —
+    /// is as likely to be Claude's preview as the writer's own book. The
+    /// consequence was not a stuck button: the preview died, the BOOK went on
+    /// and published itself, under a Cancel whose help says nothing is
+    /// published.
+    ///
+    /// The foreign job is registered AFTER the press, which is precisely the
+    /// ordering `allInProgress().last` gets wrong.
+    ///
+    /// Disable experiment: restore
+    /// `guard let job = await stores.jobManager.allInProgress().last else { return }`
+    /// and this fails with `the desk's Cancel took a foreign job with it —
+    /// got Optional(cancelled)`. The control is the test directly above: the
+    /// desk's OWN job really is cancelled by the same press, so this is not a
+    /// Cancel that has simply stopped working.
+    func test_aForeignJobOnTheSharedManagerIsNotTheDesksToCancel() async throws {
+        let runner = DeskCompileRunner()
+        runner.start(book(), projectStore: store, projectURL: projectURL)
+        let learned = await pumpUntil(deadline: 10) { runner.currentJobID != nil }
+        XCTAssertTrue(learned, "premise: the desk knows which job is its own")
+        let own = try XCTUnwrap(runner.currentJobID)
+
+        // A preview compile, or a designer sample: somebody else's job on the
+        // same shared manager, newer than the desk's.
+        let foreign = await stores.jobManager.register(phase: .renderingBody)
+        XCTAssertNotEqual(own, foreign)
+        let newest = await stores.jobManager.allInProgress().last?.jobID
+        XCTAssertEqual(newest, foreign,
+                       "premise: the foreign job is the NEWEST in flight — the "
+                       + "one the old `allInProgress().last` would have taken")
+
+        runner.cancel()
+        await settle(runner)
+        // A generous wait after the settle, so a cancel that merely arrived
+        // late still fails this rather than passing on timing.
+        await waitOut(0.3)
+
+        let foreignStatus = await stores.jobManager.get(jobID: foreign)?.status
+        guard case .inProgress = foreignStatus else {
+            return XCTFail("the desk's Cancel took a foreign job with it — got "
+                           + "\(String(describing: foreignStatus))")
+        }
+    }
+
+    /// **A Cancel with no compile of its own does nothing** — before the first
+    /// press, and again once one has settled. Not a crash and not somebody
+    /// else's job: nothing.
+    func test_aCancelWithNoCompileOfItsOwnTouchesNothing() async throws {
+        let runner = DeskCompileRunner()
+        let foreign = await stores.jobManager.register(phase: .renderingBody)
+
+        runner.cancel()          // before any press: no stores, no job
+        await waitOut(0.2)
+        XCTAssertNil(runner.currentJobID)
+
+        runner.start(book(), projectStore: store, projectURL: projectURL)
+        await settle(runner)
+        XCTAssertNil(runner.currentJobID, "the settled desk released its job")
+
+        runner.cancel()          // after the compile ended: an id it no longer has
+        await waitOut(0.2)
+
+        let status = await stores.jobManager.get(jobID: foreign)?.status
+        guard case .inProgress = status else {
+            return XCTFail("a desk with no compile of its own cancelled "
+                           + "something — got \(String(describing: status))")
         }
     }
 

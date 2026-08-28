@@ -99,7 +99,8 @@ public struct CompileOrchestrator {
         allowStale: Bool = false,
         dryRun: Bool = false,
         version: String? = nil,
-        imprint: String? = nil
+        imprint: String? = nil,
+        onJobRegistered: @Sendable (String) -> Void = { _ in }
     ) async throws -> Outcome {
         // Imprint resolution runs at the DOOR, and it is the only
         // imprint-awareness in the pipeline: everything below reads an
@@ -228,6 +229,17 @@ public struct CompileOrchestrator {
         }
 
         let jobID = await jobManager.register(phase: .renderingBody)
+        // **Whose compile this is.** One `CompileJobManager` serves the whole
+        // project — this orchestrator, `PreviewCompiler`, and the designer's
+        // sample compiles all register on it — so "the job in flight" is not a
+        // question the manager can answer for any particular caller. A caller
+        // that means to cancel its OWN compile has to be told which job that
+        // is, and this is the only moment anyone can be told: `compile` does
+        // not return until the compile is over. `DeskCompileRunner` is why it
+        // exists (its Cancel used to take `allInProgress().last`, which is
+        // whichever job registered most recently — Claude's preview, as often
+        // as the writer's own book).
+        onJobRegistered(jobID)
 
         // Compile pre-flight validation, on the resolved config. This is the
         // stricter door (`validateForCompile`): a config WRITE deliberately
