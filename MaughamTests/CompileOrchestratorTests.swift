@@ -104,6 +104,10 @@ final class CompileOrchestratorTests: XCTestCase {
         case .failed(let errs, let log):
             XCTAssertFalse(errs.isEmpty, "expected structured error in errors[]")
             XCTAssertTrue(errs.contains { $0.message.contains("0.1") && $0.message.lowercased().contains("already exists") })
+            // I2: with per-imprint counters the book's 0.1 and an imprint's
+            // 0.1 coexist, so the refusal has to say WHOSE 0.1 this is.
+            XCTAssertTrue(errs.contains { $0.message.contains("on the book") },
+                          "the refusal must name the book: \(errs.map(\.message))")
             XCTAssertTrue(log.contains("version_collision"))
         case .completed, .dryRunPassed, .cancelled:
             XCTFail("expected .failed due to version collision; got \(result)")
@@ -856,6 +860,9 @@ final class CompileOrchestratorTests: XCTestCase {
                       "got: \(errs.map(\.message))")
         XCTAssertTrue(errs.contains { $0.message.contains("0.1") && $0.message.contains("epub") },
                       "the refusal must name the triple: \(errs.map(\.message))")
+        // I2: and where that triple lives, since an imprint may hold its own.
+        XCTAssertTrue(errs.contains { $0.message.contains("on the book") },
+                      "the refusal must name the book: \(errs.map(\.message))")
         XCTAssertTrue(log.contains("mint_in_flight"), log)
 
         let minted = try await pubStore.load()
@@ -1429,10 +1436,20 @@ final class CompileOrchestratorTests: XCTestCase {
         reset.imprints["special"]?.nextVersion = "0.1"
         try await configStore.save(reset)
         let refused = try await orch.compile(format: .epub, label: nil, imprint: "special")
-        guard case .failed(_, let excerpt) = refused else {
+        guard case .failed(let errors, let excerpt) = refused else {
             return XCTFail("expected a collision refusal, got \(refused)")
         }
         XCTAssertEqual(excerpt, "version_collision: 0.1/source/epub")
+        // I2 (whole-branch review): the excerpt's triple is ambiguous now that
+        // the book holds a v0.1/source/epub too — the sentence the writer
+        // reads must say which of the two it is refusing.
+        XCTAssertTrue(
+            errors.contains { $0.message.contains("under imprint 'special'") },
+            "the refusal must name the imprint: \(errors.map(\.message))")
+        XCTAssertTrue(
+            errors.flatMap(\.contextLines).contains { $0.contains("under imprint 'special'") },
+            "and so must the triple's context line: "
+            + "\(errors.flatMap(\.contextLines))")
     }
 
     /// The mint gate's key carries the imprint, so a book compile in flight
@@ -1462,10 +1479,18 @@ final class CompileOrchestratorTests: XCTestCase {
         XCTAssertTrue(heldImprint)
         let refused = try await makeOrch(configStore, pubStore, gate)
             .compile(format: .epub, label: nil, imprint: "special")
-        guard case .failed(_, let excerpt) = refused else {
+        guard case .failed(let errors, let excerpt) = refused else {
             return XCTFail("expected an in-flight refusal, got \(refused)")
         }
         XCTAssertEqual(excerpt, "mint_in_flight: 1.1/source/epub")
+        // I2: spec §6 — the mint-gate refusal names the imprint.
+        XCTAssertTrue(
+            errors.contains { $0.message.contains("under imprint 'special'") },
+            "the refusal must name the imprint: \(errors.map(\.message))")
+        XCTAssertTrue(
+            errors.flatMap(\.contextLines).contains { $0.contains("under imprint 'special'") },
+            "and so must the triple's context line: "
+            + "\(errors.flatMap(\.contextLines))")
     }
 
     /// `dry_run` under an imprint answers the question and mutates nothing —

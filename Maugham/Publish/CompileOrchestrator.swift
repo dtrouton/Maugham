@@ -392,9 +392,9 @@ public struct CompileOrchestrator {
             let diag = TectonicLogParser.Diagnostic(
                 level: .error,
                 file: nil, line: nil,
-                message: "Publication v\(effectiveVersion) (\(langLabel), \(format.rawValue)) already exists; refusing to compile a colliding edition.",
+                message: "Publication v\(effectiveVersion) (\(langLabel), \(format.rawValue)) already exists \(Self.placeOf(imprint)); refusing to compile a colliding edition.",
                 contextLines: [
-                    "The (version, language, format) triple '\(effectiveVersion)/\(langLabel)/\(format.rawValue)' matches an existing Publication.",
+                    "The (version, language, format) triple '\(effectiveVersion)/\(langLabel)/\(format.rawValue)' matches an existing Publication \(Self.placeOf(imprint)).",
                     language == nil
                         ? "Bump next_version via set_publish_config, or compile a different format/language to complete the family."
                         : "This edition already exists; compile a different format, or a new source version.",
@@ -435,9 +435,9 @@ public struct CompileOrchestrator {
                 let diag = TectonicLogParser.Diagnostic(
                     level: .error,
                     file: nil, line: nil,
-                    message: "Publication v\(effectiveVersion) (\(langLabel), \(format.rawValue)) is already compiling; wait for it to finish.",
+                    message: "Publication v\(effectiveVersion) (\(langLabel), \(format.rawValue)) \(Self.placeOf(imprint)) is already compiling; wait for it to finish.",
                     contextLines: [
-                        "Another compile of the (version, language, format) triple '\(effectiveVersion)/\(langLabel)/\(format.rawValue)' is in flight in this app.",
+                        "Another compile of the (version, language, format) triple '\(effectiveVersion)/\(langLabel)/\(format.rawValue)' \(Self.placeOf(imprint)) is in flight in this app.",
                         "Poll it with compile_status, or compile a different format/language."
                     ])
                 await jobManager.fail(
@@ -707,7 +707,14 @@ public struct CompileOrchestrator {
     /// Where a publication lives, for a refusal that has to name it. Two
     /// spellings because both halves of the sentence need one: "version '1.0'
     /// exists under imprint 'special', not the book".
-    private static func placeOf(_ imprint: String?) -> String {
+    ///
+    /// I2 (whole-branch review): not private, because `Republisher`'s own
+    /// mint-gate refusal is the third sentence that has to say this — with
+    /// per-imprint counters the book's v0.1 and an imprint's v0.1 are two
+    /// publications, so a refusal naming only the (version, language, format)
+    /// triple names neither. One spelling for all three rather than a second
+    /// vocabulary for the same fact.
+    static func placeOf(_ imprint: String?) -> String {
         imprint.map { "under imprint '\($0)'" } ?? "on the book"
     }
 

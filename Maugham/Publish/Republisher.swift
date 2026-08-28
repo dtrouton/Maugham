@@ -151,9 +151,9 @@ public struct Republisher {
             let langLabel = language ?? "source"
             let diag = TectonicLogParser.Diagnostic(
                 level: .error, file: nil, line: nil,
-                message: "Publication v\(newVersion) (\(langLabel), \(format.rawValue)) is already compiling; wait for it to finish.",
+                message: "Publication v\(newVersion) (\(langLabel), \(format.rawValue)) \(CompileOrchestrator.placeOf(imprint)) is already compiling; wait for it to finish.",
                 contextLines: [
-                    "Another compile of the (version, language, format) triple '\(newVersion)/\(langLabel)/\(format.rawValue)' is in flight in this app.",
+                    "Another compile of the (version, language, format) triple '\(newVersion)/\(langLabel)/\(format.rawValue)' \(CompileOrchestrator.placeOf(imprint)) is in flight in this app.",
                     "Poll it with compile_status, or republish once it finishes."
                 ])
             await jobManager.fail(

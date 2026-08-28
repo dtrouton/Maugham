@@ -1448,4 +1448,94 @@ final class RepublisherTests: XCTestCase {
             "an imprint with no allowlist of its own inherits the book's denylist, "
             + "so the new piece joins it too")
     }
+
+    /// I2 (whole-branch review). A republish mints a triple too, and its
+    /// in-flight refusal is the third of the three that used to name only
+    /// `(version, language, format)` — ambiguous the moment an imprint holds a
+    /// version of its own. A scripted suffix makes the minted version, and so
+    /// the gate key, known in advance.
+    func test_aRepublishRefusedByTheGateNamesTheImprint() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Held", author: "T"))
+        cfg.imprints = ["aldine": .init(metadata: ["title": .string("Held, Aldine")])]
+        try await configStore.save(cfg)
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        guard case .completed(let initialPub, _) = try await orch.compile(
+            format: .epub, label: nil, imprint: "aldine") else {
+            return XCTFail("the imprint's compile must succeed to be republished")
+        }
+
+        let gate = PublishMintGate()
+        var r = Republisher(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(), mintGate: gate,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        r.mintSuffix = { "abcd" }
+        let held = await gate.reserve(.init(
+            version: "\(initialPub.version)-rabcd", language: nil, format: .epub,
+            imprint: "aldine"))
+        XCTAssertTrue(held, "fixture: the triple this republish will mint is in flight")
+
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .failed(let errors, let excerpt) = outcome else {
+            return XCTFail("expected an in-flight refusal, got \(outcome)")
+        }
+        XCTAssertTrue(excerpt.hasPrefix("mint_in_flight:"), excerpt)
+        XCTAssertTrue(
+            errors.contains { $0.message.contains("under imprint 'aldine'") },
+            "the refusal must name the imprint: \(errors.map(\.message))")
+        XCTAssertTrue(
+            errors.flatMap(\.contextLines).contains { $0.contains("under imprint 'aldine'") },
+            "and so must the triple's context line: \(errors.flatMap(\.contextLines))")
+    }
+
+    /// Its control: the same refusal for a BOOK republish says "on the book"
+    /// rather than naming an imprint that is not there.
+    func test_aRepublishOfTheBookRefusedByTheGateNamesTheBook() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Held", author: "T")))
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        guard case .completed(let initialPub, _) = try await orch.compile(
+            format: .epub, label: nil) else {
+            return XCTFail("the book's compile must succeed to be republished")
+        }
+
+        let gate = PublishMintGate()
+        var r = Republisher(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(), mintGate: gate,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        r.mintSuffix = { "abcd" }
+        _ = await gate.reserve(.init(
+            version: "\(initialPub.version)-rabcd", language: nil, format: .epub,
+            imprint: nil))
+
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .failed(let errors, _) = outcome else {
+            return XCTFail("expected an in-flight refusal, got \(outcome)")
+        }
+        XCTAssertTrue(
+            errors.contains { $0.message.contains("on the book") },
+            "the refusal must name the book: \(errors.map(\.message))")
+    }
 }
