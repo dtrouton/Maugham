@@ -350,7 +350,12 @@ extension ProjectStore {
     /// the open that another process can write into while the save runs. So the
     /// question is asked again with nothing left between it and `removeItem`.
     /// A picture that landed in that window puts the row back, restores the
-    /// stamp, saves again, and refuses.
+    /// stamp, saves again, and refuses. **If that second save also fails the
+    /// refusal still stands, and it says so at error level**: disk has already
+    /// lost the row and cannot be given it back, so memory and disk disagree
+    /// until the next save settles it — which is a worse state than an empty
+    /// statement but a better one than a photograph whose statement was deleted,
+    /// and the only one in this verb that no return value can describe.
     ///
     /// The removal is a direct `removeItem` rather than the typed mover
     /// (tripwire 14) because it is the exact inverse of `createStatement`'s own
@@ -406,13 +411,30 @@ extension ProjectStore {
         // Asked again, with nothing between here and the removal: see the
         // doc-comment's "asked TWICE". A picture that arrived during the save
         // must keep its statement, so the row goes back on disk as well as in
-        // memory — best-effort, because a second save that also fails leaves the
-        // writer's photograph and its statement's FILE both intact, which is the
-        // half of the state that matters, and losing the row is what a reload
-        // would then heal or the writer re-declare.
+        // memory.
         guard !statementWellHoldsAnything(statement) else {
             reinstate(statement, at: row, stampedAt: previouslyModified)
-            try? await saveManifest()
+            do {
+                try await saveManifest()
+            } catch {
+                // **The double failure, said out loud.** The first save
+                // succeeded, so disk has already lost the row; this one failed,
+                // so it cannot be put back. We still refuse — a photograph
+                // outlives a manifest row, and the writer's file and well are
+                // untouched — but memory and disk now disagree, and the next
+                // save of anything else will quietly settle it whichever way
+                // that save happens to go. Nothing else in this verb can tell
+                // the writer, so the log does.
+                //
+                // Composed as a plain `String` first: `OSLogMessage` is a
+                // string LITERAL type and cannot be built up with `+`.
+                let complaint = "Statement rollback refused after its row was "
+                    + "already dropped from disk: \(statement.id) in \(url.path). "
+                    + "The manifest on disk is MISSING a row that memory still "
+                    + "holds; the statement's file and its pictures well are both "
+                    + "intact. Re-save failed: \(error.localizedDescription)"
+                projectStoreLog.error("\(complaint, privacy: .public)")
+            }
             return false
         }
 
