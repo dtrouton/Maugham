@@ -21,10 +21,29 @@ public enum MarkdownBlock: Equatable, Sendable {
 /// solo image → paragraph.
 public enum MarkdownBlockParser {
     public static func parse(_ text: String) -> [MarkdownBlock] {
+        parseWithLineRanges(text).map(\.block)
+    }
+
+    /// `parse` plus each block's half-open span of SOURCE LINE indices — the
+    /// lines the block consumed, counting from 0 in `text.components(separatedBy:
+    /// "\n")`. Blank lines between blocks belong to no block, so the ranges are
+    /// ordered and non-overlapping but do not cover every line (pinned by
+    /// `MarkdownBlockParserTests.test_lineRangesTileEveryFixture`).
+    ///
+    /// Additive by construction: `parse` IS this function's `.block` projection,
+    /// so no `MarkdownBlock` case is widened — seven pattern-match sites across
+    /// publish, the editor and the phone would break if one were.
+    ///
+    /// The publish AST builder needs the spans to hang each paragraph's `¶id`
+    /// on the first node that paragraph produced.
+    public static func parseWithLineRanges(
+        _ text: String
+    ) -> [(block: MarkdownBlock, lines: Range<Int>)] {
         let lines = text.components(separatedBy: "\n")
-        var blocks: [MarkdownBlock] = []
+        var blocks: [(block: MarkdownBlock, lines: Range<Int>)] = []
         var i = 0
         while i < lines.count {
+            let blockStart = i
             let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
 
             // Fence FIRST of all — its interior suppresses every other rule,
@@ -41,7 +60,8 @@ public enum MarkdownBlockParser {
                     rawLines.append(lines[i])
                     i += 1
                 }
-                blocks.append(.fence(lines: rawLines, info: info.isEmpty ? nil : info))
+                blocks.append((.fence(lines: rawLines, info: info.isEmpty ? nil : info),
+                               blockStart..<i))
                 continue
             }
 
@@ -50,14 +70,16 @@ public enum MarkdownBlockParser {
             // Thematic break BEFORE heading check — a bare `###` is an
             // ornament, not an H3.
             if isThematicBreakLine(trimmed) {
-                blocks.append(.thematicBreak); i += 1; continue
+                i += 1
+                blocks.append((.thematicBreak, blockStart..<i)); continue
             }
 
             // ATX heading: `#`..`######` then required whitespace then
             // non-empty content. 7+ `#` falls through to paragraph.
             if let (level, content) = parseHeading(trimmed) {
-                blocks.append(.heading(level: level, text: content))
-                i += 1; continue
+                i += 1
+                blocks.append((.heading(level: level, text: content), blockStart..<i))
+                continue
             }
 
             // Blockquote: consecutive `>`-prefixed lines, marker-stripped and
@@ -71,7 +93,8 @@ public enum MarkdownBlockParser {
                     quoteLines.append(stripQuoteMarker(lines[i]))
                     i += 1
                 }
-                blocks.append(.blockquote(blocks: parse(quoteLines.joined(separator: "\n"))))
+                blocks.append((.blockquote(blocks: parse(quoteLines.joined(separator: "\n"))),
+                               blockStart..<i))
                 continue
             }
 
@@ -90,7 +113,8 @@ public enum MarkdownBlockParser {
                     rawLines.append(lines[i])
                     i += 1
                 }
-                blocks.append(.table(header: header, rows: rows, rawLines: rawLines))
+                blocks.append((.table(header: header, rows: rows, rawLines: rawLines),
+                               blockStart..<i))
                 continue
             }
 
@@ -117,7 +141,7 @@ public enum MarkdownBlockParser {
                     items[items.count - 1].append(lines[i])
                     i += 1
                 }
-                blocks.append(.list(ordered: ordered, items: items))
+                blocks.append((.list(ordered: ordered, items: items), blockStart..<i))
                 continue
             }
 
@@ -125,8 +149,10 @@ public enum MarkdownBlockParser {
             // reference — never a remote URL. Checked before paragraph
             // accumulation so it isn't swallowed as prose.
             if let (altText, path) = matchSoloImage(trimmed) {
-                blocks.append(.soloImage(altText: altText, path: path, rawLine: lines[i]))
-                i += 1; continue
+                let image = MarkdownBlock.soloImage(
+                    altText: altText, path: path, rawLine: lines[i])
+                i += 1
+                blocks.append((image, blockStart..<i)); continue
             }
 
             // Paragraph: gather consecutive raw lines until a blank line
@@ -152,7 +178,7 @@ public enum MarkdownBlockParser {
                 paraLines.append(lines[i])
                 i += 1
             }
-            blocks.append(.paragraph(lines: paraLines))
+            blocks.append((.paragraph(lines: paraLines), blockStart..<i))
         }
         return blocks
     }

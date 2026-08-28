@@ -9,12 +9,23 @@ public enum ProjectASTBuilder {
         public let mode: ProjectAST.Mode
         public let displayText: String
 
+        /// The piece's op-log paragraphs in `sequence` order, `(¶id, text)`.
+        /// OPTIONAL and purely additive: `displayText` remains the only input to
+        /// parsing, so a nil here is exactly the build this type has always
+        /// produced, with `Section.anchors == [:]`. When present the builder
+        /// re-derives the paragraph join, checks it against what it actually
+        /// parsed, and uses the line spans to hang each `¶id` on the first node
+        /// that paragraph produced.
+        public let paragraphs: [(id: String, text: String)]?
+
         public init(pieceID: String, title: String,
-                    mode: ProjectAST.Mode, displayText: String) {
+                    mode: ProjectAST.Mode, displayText: String,
+                    paragraphs: [(id: String, text: String)]? = nil) {
             self.pieceID = pieceID
             self.title = title
             self.mode = mode
             self.displayText = displayText
+            self.paragraphs = paragraphs
         }
     }
 
@@ -35,26 +46,105 @@ public enum ProjectASTBuilder {
     // MARK: - section assembly
 
     private static func buildSection(from piece: PieceRef) -> ProjectAST.Section {
+        // `stripped` is what is parsed, exactly as before — the anchor pass
+        // below only READS the same string to place ids, it never steers the
+        // parse. `starts[n]` is the first source line of node n in `stripped`.
+        let stripped = MarkdownDisplayFilter.stripAnchors(piece.displayText)
         let nodes: [ProjectAST.Node]
+        let starts: [Int]
         switch piece.mode {
         case .prose:
-            nodes = parseProse(piece.displayText)
+            let parsed = parseProse(stripped)
+            nodes = parsed.nodes
+            starts = parsed.starts
         case .fountain:
-            nodes = parseFountain(piece.displayText)
+            let parsed = parseFountain(stripped)
+            nodes = parsed.nodes
+            starts = parsed.starts
         }
         return .init(pieceID: piece.pieceID, title: piece.title,
-                     mode: piece.mode, nodes: nodes)
+                     mode: piece.mode, nodes: nodes,
+                     anchors: anchors(for: piece, starts: starts, stripped: stripped))
+    }
+
+    // MARK: - anchors
+
+    /// Node index → `¶id`, computed from the paragraph spans — never from a
+    /// re-parse, and never at the cost of a different node.
+    ///
+    /// The reconciliation is deliberately strict. `displayText` is supposed to
+    /// be the paragraphs joined with the blank-line block separator (that is
+    /// what `Materializer` writes and what the translated path joins), so the
+    /// builder re-derives that join and requires `stripAnchors(joined)` to equal
+    /// the very string it parsed. If a source ever hands paragraphs that don't
+    /// reconstitute its own display text, there is no honest alignment to be
+    /// had — a guessed one would silently point a cross-link at the wrong
+    /// paragraph — so the answer is no anchors at all.
+    ///
+    /// The one coordinate wrinkle: `stripAnchors` trims the WHOLE text's outer
+    /// whitespace, so if paragraph 0 opens with a blank line the parsed text
+    /// begins one or more lines later than the join does. That shift is measured
+    /// off the join itself (the leading whitespace-only lines the trim ate) and
+    /// reconciled against the parsed line count — if the two don't agree, the
+    /// mapping is unknown and again the answer is no anchors.
+    private static func anchors(
+        for piece: PieceRef, starts: [Int], stripped: String
+    ) -> [Int: String] {
+        guard let paragraphs = piece.paragraphs, !paragraphs.isEmpty else { return [:] }
+
+        let joined = paragraphs.map(\.text).joined(separator: "\n\n")
+        guard MarkdownDisplayFilter.stripAnchors(joined) == stripped else { return [:] }
+
+        let joinedLines = joined.components(separatedBy: "\n")
+        var leading = 0
+        while leading < joinedLines.count,
+              joinedLines[leading].trimmingCharacters(in: .whitespaces).isEmpty {
+            leading += 1
+        }
+        var end = joinedLines.count
+        while end > leading,
+              joinedLines[end - 1].trimmingCharacters(in: .whitespaces).isEmpty {
+            end -= 1
+        }
+        guard end - leading == stripped.components(separatedBy: "\n").count else { return [:] }
+
+        // Paragraph k occupies [cursor, cursor + its line count) in the join;
+        // the +1 is the separator's blank line.
+        var spans: [(range: Range<Int>, id: String)] = []
+        var cursor = 0
+        for paragraph in paragraphs {
+            let lineCount = paragraph.text.components(separatedBy: "\n").count
+            spans.append((cursor..<(cursor + lineCount), paragraph.id))
+            cursor += lineCount + 1
+        }
+
+        var anchors: [Int: String] = [:]
+        var claimed = Set<Int>()
+        for (nodeIndex, start) in starts.enumerated() {
+            let line = start + leading
+            guard let k = spans.firstIndex(where: { $0.range.contains(line) }) else { continue }
+            guard !claimed.contains(k) else { continue }   // one id per paragraph, on its FIRST node
+            claimed.insert(k)
+            anchors[nodeIndex] = spans[k].id
+        }
+        return anchors
     }
 
     // MARK: - prose
 
-    private static func parseProse(_ text: String) -> [ProjectAST.Node] {
-        // Strip inline <!-- ¶XXXX --> anchors via the shared single source of
-        // truth, run the shared block parser (headings, blockquotes, scene
-        // breaks, lists, fences, multi-line paragraphs — plus the table/solo-
-        // image grammar publish degrades), then map each block to a ProseNode.
-        let stripped = MarkdownDisplayFilter.stripAnchors(text)
-        return mapProse(MarkdownBlockParser.parse(stripped)).map(ProjectAST.Node.prose)
+    /// `stripped` is the ALREADY anchor-stripped text (the caller does that
+    /// once so the anchor pass can measure against the same string).
+    private static func parseProse(
+        _ stripped: String
+    ) -> (nodes: [ProjectAST.Node], starts: [Int]) {
+        // Run the shared block parser (headings, blockquotes, scene breaks,
+        // lists, fences, multi-line paragraphs — plus the table/solo-image
+        // grammar publish degrades), then map each block to a ProseNode. The
+        // range-carrying entry point returns the same blocks `parse` does; the
+        // ranges are only read by the anchor pass.
+        let blocks = MarkdownBlockParser.parseWithLineRanges(stripped)
+        return (mapProse(blocks.map(\.block)).map(ProjectAST.Node.prose),
+                blocks.map { $0.lines.lowerBound })
     }
 
     /// Map shared `MarkdownBlock`s to publish `ProseNode`s. The block grammar
@@ -115,7 +205,9 @@ public enum ProjectASTBuilder {
 
     // MARK: - fountain
 
-    private static func parseFountain(_ text: String) -> [ProjectAST.Node] {
+    private static func parseFountain(
+        _ stripped: String
+    ) -> (nodes: [ProjectAST.Node], starts: [Int]) {
         // Strip inline <!-- ¶XXXX --> anchors via the shared single source of
         // truth, exactly as parseProse does — otherwise op-log join keys leak
         // into rendered screenplay output (ADR 0019). Then classify through the
@@ -124,9 +216,12 @@ public enum ProjectASTBuilder {
         // PDF/EPUB output classifies exactly as the on-screen editor does. This
         // omits author-only content (boneyard, notes, synopses, sections),
         // strips forced markers, and unlocks dual dialogue — none of which the
-        // former hand-rolled classifier could do (audit A1).
-        let stripped = MarkdownDisplayFilter.stripAnchors(text)
-        return FountainNodeMapper.map(FountainTokenizer().parse(stripped))
-            .map(ProjectAST.Node.fountain)
+        // former hand-rolled classifier could do (audit A1). Anchor stripping
+        // already happened in `buildSection`, so the anchor pass and the parse
+        // read the same string.
+        let mapped = FountainNodeMapper.mapWithFirstLines(
+            FountainTokenizer().parse(stripped))
+        return (mapped.map { ProjectAST.Node.fountain($0.node) },
+                mapped.map(\.firstLine))
     }
 }

@@ -169,4 +169,101 @@ final class FountainNodeMapperTests: XCTestCase {
         let nodes = map("INT. A - DAY\n")
         XCTAssertEqual(nodes, [.sceneHeading("INT. A - DAY", sceneNumber: nil)])
     }
+
+    // MARK: - first lines (P3 Task 1: the anchor seam)
+
+    private func mapWithLines(_ src: String) -> [(node: ProjectAST.FountainNode, firstLine: Int)] {
+        FountainNodeMapper.mapWithFirstLines(FountainTokenizer().parse(src))
+    }
+
+    /// Every shape the mapper handles, so the two pins below aren't resting on
+    /// action alone.
+    private static let firstLineCorpus: [String] = [
+        "INT. A - DAY\n\nShe crosses.\nShe stops.\n\nAARON\nMorning.\n",
+        "Title: My Play\nAuthor: Jane Doe\n\nINT. A - DAY\n\nAction.\n",
+        "ALICE\nHello.\n\nBOB ^\nHi.\n",
+        "~The moon is out\n\n> THE END <\n\n===\n",
+        "INT. A - DAY\n\n/* cut this */\n\nAction stays.\n\nCUT TO:\n",
+        "AARON\n(quietly)\nMorning.\n\nMore action.\n",
+        "",
+    ]
+
+    /// `map` must stay this function's `.node` projection — the additive mapper
+    /// is the implementation, not a second copy of the state machine.
+    func test_mapWithFirstLinesIsExactlyTheNodesOfMap() {
+        for src in Self.firstLineCorpus {
+            XCTAssertEqual(
+                map(src),
+                mapWithLines(src).map(\.node),
+                "map must stay the .node projection for \(src.debugDescription)")
+        }
+    }
+
+    /// The publish anchor map walks nodes in order against paragraph spans that
+    /// only ever advance, so a first line that went BACKWARDS would silently
+    /// hand a later node an earlier paragraph's ¶id.
+    func test_firstLinesAreNonDecreasing() {
+        for src in Self.firstLineCorpus {
+            let lines = mapWithLines(src).map(\.firstLine)
+            XCTAssertEqual(lines, lines.sorted(),
+                "first lines \(lines) must be non-decreasing for \(src.debugDescription)")
+            let lineCount = src.components(separatedBy: "\n").count
+            for line in lines {
+                XCTAssertGreaterThanOrEqual(line, 0)
+                XCTAssertLessThan(line, lineCount, "first line \(line) out of bounds")
+            }
+        }
+    }
+
+    /// A coalesced action run is ONE node spanning several source lines; it must
+    /// report the line the buffer STARTED on, not the line that flushed it —
+    /// the flush line is a blank or the next element and belongs to neither the
+    /// action's paragraph nor (necessarily) this one.
+    func test_actionBufferReportsItsStartLine() {
+        let mapped = mapWithLines("INT. A - DAY\n\nShe crosses.\nShe stops.\n\nCUT TO:\n")
+        XCTAssertEqual(mapped.map(\.node), [
+            .sceneHeading("INT. A - DAY", sceneNumber: nil),
+            .action("She crosses. She stops."),
+            .transition("CUT TO:"),
+        ])
+        XCTAssertEqual(mapped.map(\.firstLine), [0, 2, 5])
+    }
+
+    /// A cue and its speech are ONE op-log paragraph (no blank line between
+    /// them), so every node of the block reports the cue's line and the anchor
+    /// map lands one ¶id on the cue.
+    func test_characterBlockNodesAllReportTheBlocksFirstLine() {
+        let mapped = mapWithLines("INT. A - DAY\n\nAARON\n(quietly)\nMorning.\n")
+        XCTAssertEqual(mapped.map(\.node), [
+            .sceneHeading("INT. A - DAY", sceneNumber: nil),
+            .character("AARON"),
+            .parenthetical("(quietly)"),   // parens kept — emitter expects them
+            .dialogue("Morning."),
+        ])
+        XCTAssertEqual(mapped.map(\.firstLine), [0, 2, 2, 2])
+    }
+
+    /// A dual pair replaces the already-emitted left block with one node, so it
+    /// must inherit the LEFT block's line — the right cue's line would put the
+    /// pair inside the second speaker's paragraph.
+    func test_dualDialogueReportsTheLeftBlocksFirstLine() {
+        let mapped = mapWithLines("ALICE\nHello.\n\nBOB ^\nHi.\n")
+        XCTAssertEqual(mapped.count, 1)
+        guard case .dualDialogue = mapped[0].node else {
+            return XCTFail("expected a dual pair, got \(mapped[0].node)")
+        }
+        XCTAssertEqual(mapped[0].firstLine, 0)
+    }
+
+    /// The title page is its own leading node with no body line of its own; it
+    /// reports line 0 so the document's first paragraph (which IS the title
+    /// block) can anchor to it.
+    func test_titlePageNodeReportsLineZero() {
+        let mapped = mapWithLines("Title: My Play\nAuthor: Jane Doe\n\nINT. A - DAY\n")
+        guard case .titlePage = mapped[0].node else {
+            return XCTFail("expected a title page, got \(mapped[0].node)")
+        }
+        XCTAssertEqual(mapped[0].firstLine, 0)
+        XCTAssertEqual(mapped[1].firstLine, 3)
+    }
 }

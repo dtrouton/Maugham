@@ -123,4 +123,73 @@ final class MarkdownBlockParserTests: XCTestCase {
         XCTAssertEqual(MarkdownBlockParser.parse("text\n| a | b |\n|---|---|"),
             [.paragraph(lines: ["text", "| a | b |", "|---|---|"])])
     }
+
+    // MARK: - line ranges (P3 Task 1: the anchor seam)
+
+    /// Every block kind, so the range assertions below are not pinned on prose
+    /// alone. Kept in one place so a new block kind joins both tests at once.
+    private static let rangeCorpus: [String] = [
+        "line one\nline two\n\npara two",
+        "# Title\n\nbody text\n\n## Sub\nmore",
+        "---\n\nafter the break",
+        "> quoted one\n> quoted two\n\nplain",
+        "```swift\nlet x = 1\n\nlet y = 2\n```\n\ntrailing",
+        "- one\n- two\n  continued\n\n1. first\n2. second",
+        "| a | b |\n|---|---|\n| 1 | 2 |\n\nafter",
+        "![cover](./art/cover.png)\n\nprose after",
+        "\n\n   \nleading blanks then text\n\n\n",
+        "no trailing newline at all",
+        "```\nunterminated fence\nstill inside",
+    ]
+
+    /// `parse` must remain byte-equivalent to the new range-carrying entry
+    /// point's blocks — it IS that entry point's `.map(\.block)`, and this is
+    /// the pin that says so over every corpus fixture.
+    func test_parseIsExactlyTheBlocksOfParseWithLineRanges() {
+        for src in Self.rangeCorpus {
+            XCTAssertEqual(
+                MarkdownBlockParser.parse(src),
+                MarkdownBlockParser.parseWithLineRanges(src).map(\.block),
+                "parse must stay the .block projection of parseWithLineRanges for \(src.debugDescription)")
+        }
+    }
+
+    /// The ranges tile the input: each is non-empty, they are strictly ordered
+    /// and non-overlapping, they stay in bounds, and every line NOT covered by
+    /// one is whitespace-only (the parser skips blank lines between blocks and
+    /// nothing else). Without this the publish anchor map could place a ¶id on
+    /// the wrong node and no other test would notice.
+    func test_lineRangesTileEveryFixture() {
+        for src in Self.rangeCorpus {
+            let lineCount = src.components(separatedBy: "\n").count
+            let ranges = MarkdownBlockParser.parseWithLineRanges(src).map(\.lines)
+            var covered = Set<Int>()
+            var previousEnd = 0
+            for range in ranges {
+                XCTAssertFalse(range.isEmpty,
+                    "empty block range in \(src.debugDescription)")
+                XCTAssertGreaterThanOrEqual(range.lowerBound, previousEnd,
+                    "overlapping/unordered ranges \(ranges) in \(src.debugDescription)")
+                XCTAssertLessThanOrEqual(range.upperBound, lineCount,
+                    "range \(range) out of bounds (\(lineCount) lines) in \(src.debugDescription)")
+                previousEnd = range.upperBound
+                covered.formUnion(range)
+            }
+            let lines = src.components(separatedBy: "\n")
+            for (i, line) in lines.enumerated() where !covered.contains(i) {
+                XCTAssertTrue(
+                    line.trimmingCharacters(in: .whitespaces).isEmpty,
+                    "line \(i) (\(line.debugDescription)) is uncovered but not blank, in \(src.debugDescription)")
+            }
+        }
+    }
+
+    /// The concrete arithmetic the publish builder depends on, spelled out for
+    /// one fixture so a regression names the block rather than the corpus.
+    func test_lineRanges_areTheBlocksOwnSourceLines() {
+        let ranges = MarkdownBlockParser.parseWithLineRanges(
+            "# H\n\nprose one\nprose two\n\n```\nfenced\n```\n\n> quote")
+            .map(\.lines)
+        XCTAssertEqual(ranges, [0..<1, 2..<4, 5..<8, 9..<10])
+    }
 }
