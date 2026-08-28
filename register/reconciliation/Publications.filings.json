@@ -96,7 +96,7 @@
   "clause_that_reaches_it": "one refusal for one question on both paths",
   "why_in_scope": "PDFCompiler/EPUBCompiler refuse an occupied destination by default (shared OutputFilenameBuilder.occupiedDestinationRefusal — one spelling, matching republish); previews and the font spike opt into replacement explicitly because their filenames are reused by design",
   "intent_expressed_when": "not at all — the delete predates the republish guard and was never revisited",
-  "call_path": "MCP set_publish_config (template without {version}) then two compiles",
+  "call_path": "two compiles with a file already sitting at the second's destination (imprints P1 Task 6 closed the original {version}-less filename_template route: the compile now validates its config at pre-flight)",
   "violation_or_enhancement": "violation — the compile path owes the republish path's refusal (scoped so previews, which overwrite deliberately, keep overwriting)",
   "fix": {
    "commit": "21f7682c",

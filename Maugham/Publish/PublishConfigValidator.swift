@@ -107,6 +107,38 @@ public enum PublishConfigValidator {
         validate(cfg) + existenceErrors(cfg, publishDir: publishDir, pieceIDs: pieceIDs)
     }
 
+    /// The compile pre-flight's door (Task 6): everything the config-write
+    /// door asks, PLUS the one question that door deliberately does not — does
+    /// the template this compile will actually typeset through exist, even
+    /// when it is the starter's own `template.tex`?
+    ///
+    /// `existenceErrors` skips a DEFAULT template on purpose: a project whose
+    /// starter install failed silently (`PublishStarter.installIfMissing`
+    /// swallows its error by design) must still be able to patch any config
+    /// key. A compile is the other case entirely — without the template there
+    /// is nothing to typeset — so the miss is met here, in Maugham's own
+    /// words, rather than downstream as a tectonic error.
+    ///
+    /// Asked only of the format that would use the answer: an EPUB is emitted
+    /// without LaTeX, and refusing one for a missing `.tex` would be this
+    /// validator inventing a dependency the emitter does not have. A template
+    /// the writer NAMED is a claim they made and is checked either way, by
+    /// `validate(_:publishDir:pieceIDs:)` above.
+    public static func validateForCompile(
+        _ cfg: PublishConfig, publishDir: URL, pieceIDs: [String],
+        format: PublishConfig.Format
+    ) -> [ValidationError] {
+        var errs = validate(cfg, publishDir: publishDir, pieceIDs: pieceIDs)
+        if format == .pdf, cfg.template == defaultTemplate,
+           let err = templateExistenceError(
+            cfg.template, field: "template", publishDir: publishDir,
+            remedy: "reinstall the publish starter files, or write it with "
+                + "write_publish_file") {
+            errs.append(err)
+        }
+        return errs
+    }
+
     // MARK: - Imprints (spec `2026-08-27-imprints-and-bilingual-editions-design` §3)
 
     /// The starter's template, read off `PublishConfig`'s own default rather
@@ -170,6 +202,80 @@ public enum PublishConfigValidator {
                             + "IS the inclusion; drop the entry to leave the piece out"))
                 }
             }
+        }
+
+        errs.append(contentsOf: templateBasenameErrors(cfg))
+
+        return errs
+    }
+
+    /// Template BASENAMES must be distinct across the book's template and
+    /// every imprint's, however far apart their directories are.
+    ///
+    /// Tectonic's `--outdir` is FLAT and names its output after the template's
+    /// own basename (measured 2026-08-27, Task 5): `templates/a/special.tex`
+    /// and `templates/b/special.tex` both typeset into `build/special.pdf`, as
+    /// does an imprint template called `template.tex` in a subdirectory beside
+    /// the book's. Two such compiles running at once would read and overwrite
+    /// one another's intermediates, so distinct PATHS are not enough.
+    ///
+    /// Compared case-insensitively: `build/` sits on the writer's own volume,
+    /// and APFS is case-insensitive by default, so `Special.tex` and
+    /// `special.tex` are one file there.
+    ///
+    /// A language-suffixed variant (`special.sr.tex`) is NOT a second template
+    /// — it is the same one rendered in another language, picked per compile
+    /// by `LanguageSuffixedFile.resolve` — and it carries its own basename and
+    /// its own intermediate, so nothing here strips the suffix before
+    /// comparing.
+    ///
+    /// The book is seeded first and imprints are walked in name order, so the
+    /// error always lands on the later claimant and names the earlier owner.
+    private static func templateBasenameErrors(_ cfg: PublishConfig) -> [ValidationError] {
+        // The rule is about the config as WRITTEN — the book's declared
+        // template against each imprint's. A RESOLVED config (`imprint` set,
+        // which `resolved(imprint:pieceIDs:)` alone does) no longer holds that
+        // relationship: its `template` has already been replaced BY one of the
+        // imprints', so comparing the two would have that imprint colliding
+        // with itself. The compile door validates a resolved config, so
+        // without this guard every compile under an imprint that names a
+        // template would refuse itself.
+        guard cfg.imprint == nil else { return [] }
+
+        func basename(_ path: String) -> String {
+            (path as NSString).lastPathComponent
+        }
+
+        var owners: [String: (path: String, description: String)] = [:]
+        var errs: [ValidationError] = []
+
+        // A template whose *pure* path rule already failed is skipped — it has
+        // its own error, and a second one about its filename would be noise.
+        if templatePathError(cfg.template, field: "template") == nil {
+            owners[basename(cfg.template).lowercased()] =
+                (cfg.template, "the book's own template ('\(cfg.template)')")
+        }
+
+        for (name, imprint) in cfg.imprints.sorted(by: { $0.key < $1.key }) {
+            guard let template = imprint.template,
+                  templatePathError(template, field: "") == nil else { continue }
+            let key = basename(template).lowercased()
+            guard let owner = owners[key] else {
+                owners[key] = (template, "the template of imprint '\(name)' ('\(template)')")
+                continue
+            }
+            // The SAME path is the same file, deliberately shared — an imprint
+            // that changes only its metadata or its sections keeps the book's
+            // typography by naming the book's own template, and refusing that
+            // would refuse the commonest imprint there is. The hazard is two
+            // DIFFERENT templates answering to one filename.
+            guard owner.path != template else { continue }
+            errs.append(.init(
+                field: "imprints.\(name).template",
+                message: "template '\(template)' has the same filename as \(owner.description); "
+                    + "tectonic typesets every template into one flat build/ "
+                    + "directory, so the two would overwrite each other's "
+                    + "intermediates — give this one a distinct filename"))
         }
 
         return errs

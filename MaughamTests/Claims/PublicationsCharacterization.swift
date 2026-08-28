@@ -315,29 +315,41 @@ final class PublicationsCharacterization: XCTestCase {
     }
 
     /// M7-PB-008 — fixed under RULING-8 (2026-08-09): the compile path
-    /// refuses an occupied destination exactly as the republish path does,
-    /// so a template without {version} can no longer let a later compile
-    /// replace an earlier record's bytes. Previews keep overwriting their
-    /// own output — that half is deliberate and pinned in
+    /// refuses an occupied destination exactly as the republish path does, so
+    /// a later compile cannot replace an earlier record's bytes. Previews keep
+    /// overwriting their own output — that half is deliberate and pinned in
     /// `PreviewCompilerTests.testPreview_overwritesItsOwnPriorOutput`.
+    ///
+    /// The ROUTE changed with imprints P1 Task 6 and the claim did not: this
+    /// used to occupy the destination with a `{version}`-less
+    /// `filename_template`, which the compile now refuses at pre-flight (it
+    /// validates its config, and such a template could never have been written
+    /// through `set_publish_config` either). The destination is occupied the
+    /// way it can still legitimately happen — a file sitting where the next
+    /// compile would write: a hand-placed export, or a record whose catalog
+    /// row was lost.
     func test_anOccupiedDestinationRefusesAndTheEarlierRecordsBytesSurvive() async throws {
         let (orch, cfg, pubStore, _) = try await makeOrchestrator()
         var config = PublishConfig(metadata: .init(title: "Pin", author: "T"))
-        config.outputs.filenameTemplate = "{title}.{ext}"
+        config.outputs.filenameTemplate = "{title}-v{version}.{ext}"
         try await cfg.save(config)
 
-        guard case .completed(let first, _) = try await orch.compile(format: .epub, label: nil)
+        guard case .completed = try await orch.compile(format: .epub, label: nil)
         else { return XCTFail("first compile failed") }
-        let firstURL = tmp.appendingPathComponent(first.outputPath)
-        let firstBytes = try Data(contentsOf: firstURL)
+
+        // The destination the NEXT compile (v0.2) would take is already held.
+        let occupied = tmp.appendingPathComponent("Exports/Pin-v0.2.epub")
+        let occupiedBytes = Data("an earlier record's bytes".utf8)
+        try occupiedBytes.write(to: occupied)
 
         let outcome = try await orch.compile(format: .epub, label: nil)
         guard case .failed(let errors, _) = outcome else {
             return XCTFail("expected the occupied refusal, got \(outcome)")
         }
-        XCTAssertTrue(errors.first?.message.contains("refusing to overwrite") == true)
-        XCTAssertEqual(try Data(contentsOf: firstURL), firstBytes,
-                       "the first record's bytes survive — the catalog and the "
+        XCTAssertTrue(errors.first?.message.contains("refusing to overwrite") == true,
+                      "found: \(String(describing: errors.first?.message))")
+        XCTAssertEqual(try Data(contentsOf: occupied), occupiedBytes,
+                       "the occupant's bytes survive — the catalog and the "
                        + "disk keep agreeing")
         let catalog = try await pubStore.load()
         XCTAssertEqual(catalog.count, 1, "and no second row was minted")

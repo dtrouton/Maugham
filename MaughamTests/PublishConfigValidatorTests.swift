@@ -205,6 +205,84 @@ final class PublishConfigImprintValidationTests: XCTestCase {
                       "an imprint that names no template inherits the book's")
     }
 
+    // MARK: Template basenames are distinct (Task 6)
+    //
+    // Tectonic's `--outdir` is FLAT and names its output by the TEMPLATE's
+    // basename (measured 2026-08-27, Task 5), so two templates sharing a
+    // filename share their `build/` intermediates whatever directories they
+    // live in. Distinct PATHS are not enough; the basenames must differ.
+
+    func test_imprintTemplateSharingTheBooksBasename_isRefused() {
+        // Distinct paths, one basename: the book keeps the starter's
+        // `template.tex` and the imprint puts its own in a subdirectory. Both
+        // would typeset into `build/template.pdf`.
+        let cfg = specExample(imprint: specImprint(template: "templates/template.tex"))
+        let errs = PublishConfigValidator.validate(cfg)
+        XCTAssertTrue(errs.contains { $0.field == "imprints.special-glb.template" },
+                      "expected a basename clash with the book's template, got \(fields(errs))")
+        XCTAssertTrue(
+            errs.contains { $0.field == "imprints.special-glb.template"
+                && $0.message.contains("the book's own template") },
+            "the message must name the other owner, got \(errs.map(\.message))")
+    }
+
+    func test_twoImprintsSharingATemplateBasename_isRefused_namingTheOtherOwner() {
+        // Sorted, 'special-glb' is seen first and owns the basename; the
+        // clash is reported against the one that arrives second.
+        var cfg = specExample()
+        cfg.imprints["zz-other"] = PublishConfig.Imprint(
+            template: "elsewhere/special-glb.tex")
+        let errs = PublishConfigValidator.validate(cfg)
+        XCTAssertTrue(errs.contains { $0.field == "imprints.zz-other.template" },
+                      "expected a basename clash between two imprints, got \(fields(errs))")
+        XCTAssertTrue(
+            errs.contains { $0.field == "imprints.zz-other.template"
+                && $0.message.contains("imprint 'special-glb'") },
+            "the message must name the imprint that already owns it, got \(errs.map(\.message))")
+        XCTAssertFalse(errs.contains { $0.field == "imprints.special-glb.template" },
+                       "the first owner is not the offender, got \(fields(errs))")
+    }
+
+    /// APFS is case-insensitive by default, so `build/Template.pdf` and
+    /// `build/template.pdf` are one file on the writer's own volume.
+    func test_templateBasenamesDifferingOnlyByCase_areRefused() {
+        let cfg = specExample(imprint: specImprint(template: "templates/Template.tex"))
+        XCTAssertTrue(
+            PublishConfigValidator.validate(cfg).contains {
+                $0.field == "imprints.special-glb.template"
+            },
+            "a case-only difference is not a difference in build/")
+    }
+
+    /// The commonest imprint there is: one that keeps the book's typography by
+    /// naming the book's OWN template, and changes only its metadata or its
+    /// sections. The same path is the same file — there is nothing for it to
+    /// clobber but itself.
+    func test_imprintNamingTheBooksOwnTemplate_isAccepted() {
+        let cfg = specExample(imprint: specImprint(template: "template.tex"))
+        XCTAssertTrue(PublishConfigValidator.validate(cfg).isEmpty,
+                      "sharing the book's template is inheritance, not a clash: "
+                        + "\(fields(PublishConfigValidator.validate(cfg)))")
+    }
+
+    /// The control: the spec's own example already has two distinct basenames
+    /// (`template.tex`, `special-glb.tex`), and it must stay clean.
+    func test_distinctTemplateBasenames_areAccepted() {
+        XCTAssertTrue(PublishConfigValidator.validate(specExample()).isEmpty,
+                      "distinct basenames clash with nothing")
+    }
+
+    /// A language-suffixed variant is the SAME template rendered in another
+    /// language (`LanguageSuffixedFile.resolve` picks it per compile), not a
+    /// second template — and it lands at `build/template.sr.pdf`, its own
+    /// intermediate. Nothing here strips the suffix before comparing.
+    func test_languageSuffixedVariant_isNotABasenameClash() {
+        let cfg = specExample(imprint: specImprint(template: "templates/template.sr.tex"))
+        XCTAssertTrue(PublishConfigValidator.validate(cfg).isEmpty,
+                      "a language variant is not a second template: "
+                        + "\(fields(PublishConfigValidator.validate(cfg)))")
+    }
+
     // MARK: The allowlist
 
     func test_imprintSectionsPresentButEmpty_isRefused() {
@@ -366,6 +444,52 @@ final class PublishConfigImprintValidationTests: XCTestCase {
         XCTAssertFalse(errs.contains { $0.field == "template" },
                        "a missing default template must not refuse a config write, got \(fields(errs))")
         XCTAssertTrue(errs.isEmpty, "and nothing else fires either: \(errs)")
+    }
+
+    // MARK: - The compile door (Task 6)
+    //
+    // `validateForCompile` is the config-write door's stricter sibling: it
+    // asks the one question a write deliberately does not, and it asks it only
+    // of the format that would use the answer.
+
+    func test_compileDoor_missingDefaultTemplate_refusesAPDF() throws {
+        try write("templates/special-glb.tex", into: publishDir)
+        // Deliberately no template.tex on disk.
+        let errs = PublishConfigValidator.validateForCompile(
+            specExample(), publishDir: publishDir, pieceIDs: ["ab12"], format: .pdf)
+        XCTAssertTrue(errs.contains { $0.field == "template" },
+                      "a PDF compiles THROUGH the template; a missing one must be met "
+                        + "here rather than as a tectonic error, got \(fields(errs))")
+    }
+
+    func test_compileDoor_missingDefaultTemplate_doesNotRefuseAnEPUB() throws {
+        try write("templates/special-glb.tex", into: publishDir)
+        let errs = PublishConfigValidator.validateForCompile(
+            specExample(), publishDir: publishDir, pieceIDs: ["ab12"], format: .epub)
+        XCTAssertTrue(errs.isEmpty,
+                      "an EPUB is emitted without LaTeX; a missing template.tex is "
+                        + "not its problem, got \(fields(errs))")
+    }
+
+    /// The control for the same rule: once the starter's template is on disk,
+    /// the PDF door passes too.
+    func test_compileDoor_presentDefaultTemplate_isAccepted() throws {
+        try write("template.tex", into: publishDir)
+        try write("templates/special-glb.tex", into: publishDir)
+        let errs = PublishConfigValidator.validateForCompile(
+            specExample(), publishDir: publishDir, pieceIDs: ["ab12"], format: .pdf)
+        XCTAssertTrue(errs.isEmpty, "the same project, with its template: \(errs)")
+    }
+
+    /// And it carries everything the write door carries.
+    func test_compileDoor_carriesTheProjectAwareRules() throws {
+        try write("template.tex", into: publishDir)
+        try write("templates/special-glb.tex", into: publishDir)
+        let errs = PublishConfigValidator.validateForCompile(
+            specExample(), publishDir: publishDir, pieceIDs: ["cd34"], format: .epub)
+        XCTAssertTrue(errs.contains { $0.field == "imprints.special-glb.sections.ab12" },
+                      "an allowlist id that names no piece must be refused at the "
+                        + "compile door too, got \(fields(errs))")
     }
 
     /// One rule set: the project-aware door runs the pure rules as well, so a
