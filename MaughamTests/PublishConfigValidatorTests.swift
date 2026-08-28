@@ -272,14 +272,47 @@ final class PublishConfigImprintValidationTests: XCTestCase {
                       "distinct basenames clash with nothing")
     }
 
-    /// A language-suffixed variant is the SAME template rendered in another
-    /// language (`LanguageSuffixedFile.resolve` picks it per compile), not a
-    /// second template — and it lands at `build/template.sr.pdf`, its own
-    /// intermediate. Nothing here strips the suffix before comparing.
-    func test_languageSuffixedVariant_isNotABasenameClash() {
+    /// A language variant of the BOOK's template is the sharpest case in the
+    /// rule, and the raw-basename version of it got this backwards. The book's
+    /// `template.tex` compiled as its `sr` edition resolves through
+    /// `LanguageSuffixedFile.resolve` to `template.sr.tex` and typesets into
+    /// `build/template.sr.pdf` — exactly where an imprint template *named*
+    /// `templates/template.sr.tex` lands. Different basenames, one
+    /// intermediate.
+    func test_imprintTemplateNamingALanguageVariantOfTheBooks_isRefused() {
         let cfg = specExample(imprint: specImprint(template: "templates/template.sr.tex"))
+        let errs = PublishConfigValidator.validate(cfg)
+        XCTAssertTrue(errs.contains { $0.field == "imprints.special-glb.template" },
+                      "the book's sr edition already writes build/template.sr.pdf, "
+                        + "got \(fields(errs))")
+        XCTAssertTrue(
+            errs.contains { $0.field == "imprints.special-glb.template"
+                && $0.message.contains("the book's own template") },
+            "the message must name the other owner, got \(errs.map(\.message))")
+    }
+
+    /// The control, and the reason the rule compares STEMS rather than
+    /// collapsing everything: a variant of a *different* stem is a different
+    /// intermediate. `special.sr.tex` reduces to `special.tex`, which is not
+    /// the book's `template.tex`.
+    func test_languageVariantOfADifferentStem_isNotAClash() {
+        let cfg = specExample(imprint: specImprint(template: "templates/special.sr.tex"))
         XCTAssertTrue(PublishConfigValidator.validate(cfg).isEmpty,
-                      "a language variant is not a second template: "
+                      "a variant of its own stem clashes with nothing: "
+                        + "\(fields(PublishConfigValidator.validate(cfg)))")
+    }
+
+    /// And the stripping is a LANGUAGE test, not "drop the last dotted part":
+    /// `special.v2.tex` is a version marker, not the `v2` edition of
+    /// `special.tex`, so it does not reduce onto another imprint's
+    /// `special.tex`. (`TranslationRecord.isValidLanguageTag` is the one test,
+    /// shared with `LanguageSuffixedFile.resolve`.)
+    func test_aVersionMarkerIsNotALanguageVariant() {
+        var cfg = specExample(imprint: specImprint(template: "templates/special.v2.tex"))
+        cfg.imprints["zz-other"] = PublishConfig.Imprint(
+            template: "elsewhere/special.tex")
+        XCTAssertTrue(PublishConfigValidator.validate(cfg).isEmpty,
+                      "'v2' is not a language tag, so these are two stems: "
                         + "\(fields(PublishConfigValidator.validate(cfg)))")
     }
 

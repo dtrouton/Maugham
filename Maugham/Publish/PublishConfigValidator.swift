@@ -223,11 +223,14 @@ public enum PublishConfigValidator {
     /// and APFS is case-insensitive by default, so `Special.tex` and
     /// `special.tex` are one file there.
     ///
-    /// A language-suffixed variant (`special.sr.tex`) is NOT a second template
-    /// — it is the same one rendered in another language, picked per compile
-    /// by `LanguageSuffixedFile.resolve` — and it carries its own basename and
-    /// its own intermediate, so nothing here strips the suffix before
-    /// comparing.
+    /// Compared on the language-STRIPPED stem, not the raw basename, because a
+    /// template's language variants land in that same flat directory: the
+    /// book's `template.tex` compiled as its `sr` edition resolves through
+    /// `LanguageSuffixedFile.resolve` to `template.sr.tex` and typesets into
+    /// `build/template.sr.pdf`, which an imprint template *named*
+    /// `templates/template.sr.tex` would collide with. So a variant is not a
+    /// second template — it is the same one in another language — and two
+    /// declared templates that reduce to one stem are the clash.
     ///
     /// The book is seeded first and imprints are walked in name order, so the
     /// error always lands on the later claimant and names the earlier owner.
@@ -242,8 +245,9 @@ public enum PublishConfigValidator {
         // template would refuse itself.
         guard cfg.imprint == nil else { return [] }
 
-        func basename(_ path: String) -> String {
-            (path as NSString).lastPathComponent
+        func stem(_ path: String) -> String {
+            LanguageSuffixedFile.strippingLanguageSuffix(
+                (path as NSString).lastPathComponent)
         }
 
         var owners: [String: (path: String, description: String)] = [:]
@@ -252,14 +256,14 @@ public enum PublishConfigValidator {
         // A template whose *pure* path rule already failed is skipped — it has
         // its own error, and a second one about its filename would be noise.
         if templatePathError(cfg.template, field: "template") == nil {
-            owners[basename(cfg.template).lowercased()] =
+            owners[stem(cfg.template).lowercased()] =
                 (cfg.template, "the book's own template ('\(cfg.template)')")
         }
 
         for (name, imprint) in cfg.imprints.sorted(by: { $0.key < $1.key }) {
             guard let template = imprint.template,
                   templatePathError(template, field: "") == nil else { continue }
-            let key = basename(template).lowercased()
+            let key = stem(template).lowercased()
             guard let owner = owners[key] else {
                 owners[key] = (template, "the template of imprint '\(name)' ('\(template)')")
                 continue
@@ -272,8 +276,9 @@ public enum PublishConfigValidator {
             guard owner.path != template else { continue }
             errs.append(.init(
                 field: "imprints.\(name).template",
-                message: "template '\(template)' has the same filename as \(owner.description); "
-                    + "tectonic typesets every template into one flat build/ "
+                message: "template '\(template)' shares a build/ intermediate with "
+                    + "\(owner.description); tectonic typesets every template — and "
+                    + "every language variant of one — into one flat build/ "
                     + "directory, so the two would overwrite each other's "
                     + "intermediates — give this one a distinct filename"))
         }

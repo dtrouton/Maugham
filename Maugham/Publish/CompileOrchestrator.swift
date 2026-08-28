@@ -150,9 +150,13 @@ public struct CompileOrchestrator {
             // build's own throw does — a terminal job and a `.failed`
             // outcome — rather than escaping with the job stranded
             // .inProgress (RULING-52's shape).
+            // The SENTENCE, not a struct dump: both errors this can carry are
+            // `LocalizedError`s written to be read, and the unreadable-catalog
+            // refusal below already reports itself this way. The excerpt keeps
+            // the raw value — that half is diagnostic vocabulary, not prose.
             let diag = TectonicLogParser.Diagnostic(
                 level: .error, file: nil, line: nil,
-                message: String(describing: error),
+                message: error.localizedDescription,
                 contextLines: [
                     "Nothing was compiled — no export, no snapshot, no version bump."
                 ])
