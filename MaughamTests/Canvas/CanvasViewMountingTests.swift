@@ -853,6 +853,25 @@ class CanvasViewMountingCase: XCTestCase {
         pump()
     }
 
+    /// Hand the canvas a NEW item index the way the window does — `retarget`'s
+    /// shape one property over, and for the reason that one exists: a new `let`
+    /// on the same view, in the same place in the hierarchy, so the canvas's
+    /// `@State` survives it exactly as it does when the writer adds a research
+    /// item and `ProjectWindow` rebuilds the index in its own body.
+    ///
+    /// **This is the only way a test can reach the staleness #57 is about.** A
+    /// canvas hosted once with one index has a model whose callbacks were wired
+    /// against that index and nothing else; the bug is entirely in what happens
+    /// after the window hands down a second one.
+    @MainActor
+    func retarget(_ window: NSWindow, withItemIndex index: CanvasItemIndex) throws {
+        let hosting = try XCTUnwrap(window.contentView as? NSHostingView<CanvasView>,
+                                    "the window is not hosting a CanvasView, so there "
+                                    + "is no item index to change")
+        hosting.rootView.itemIndex = index
+        pump()
+    }
+
     // MARK: - ⌘Z, on the real surface
 
     /// One character at a time, at the end of the text, so every keystroke fires

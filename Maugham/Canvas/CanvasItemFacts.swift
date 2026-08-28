@@ -228,6 +228,15 @@ struct CanvasItemIndex: Equatable, Sendable {
     /// these facts do not read (a tag, a link, a caption) leaves it alone and
     /// the cache survives, which a counter on `ProjectStore` could not do.
     ///
+    /// **This says WHEN the facts must be re-resolved. It says nothing about WHO
+    /// holds the index they are resolved through, and that is a separate question
+    /// with its own answer** — `CanvasModel.itemIndex` (issue #57). `CanvasView`
+    /// is a struct whose model-held callbacks capture the view VALUE they were
+    /// wired from, so a fingerprint change noticed correctly by the view's own
+    /// `.onChange` still left every write arriving from another column resolving
+    /// against the index that view first appeared with. The two halves are wired
+    /// in the same place, in `CanvasView`, and neither is sufficient alone.
+    ///
     /// **Watch it, rather than the index itself.** `.onChange(of: index)`
     /// compiles and reads correctly and compares a whole dictionary — every
     /// entry, every title — on every body pass, which on this surface means every
