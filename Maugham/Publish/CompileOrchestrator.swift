@@ -82,6 +82,7 @@ public struct CompileOrchestrator {
         format: PublishConfig.Format,
         label: String?,
         language: String? = nil,
+        languages: [String]? = nil,
         allowStale: Bool = false,
         dryRun: Bool = false,
         version: String? = nil,
@@ -121,8 +122,6 @@ public struct CompileOrchestrator {
             return .failed(errors: [diag], logExcerpt: "unknown_imprint: \(imprint)")
         }
 
-        let jobID = await jobManager.register(phase: .renderingBody)
-
         // `loaded` is kept beside `config` on purpose: the RESOLVED config is
         // what this compile renders and mints under, but the version bump at
         // the far end writes the ORIGINAL back — an imprint's counter lives
@@ -160,12 +159,53 @@ public struct CompileOrchestrator {
                 contextLines: [
                     "Nothing was compiled — no export, no snapshot, no version bump."
                 ])
+            let jobID = await jobManager.register(phase: .renderingBody)
             await jobManager.fail(
                 jobID: jobID, errors: [diag],
                 logExcerpt: "thrown_before_start: \(error)")
             return .failed(
                 errors: [diag], logExcerpt: "thrown_before_start: \(error)")
         }
+
+        // The languages this compile renders, in order — one complete body
+        // each, all of them inside ONE publication (P2). `LanguageSet` is the
+        // single reconciliation of the legacy `language`, the new `languages`
+        // list and the "source" sentinel; the `sourceTag` is the RESOLVED
+        // config's, because an imprint may spell the book's own language
+        // differently from the book.
+        //
+        // The two things a set answers are NOT interchangeable, and everything
+        // below reads one or the other:
+        //   • `set.identity` — "en+sr", nil for a plain source compile — is the
+        //     edition's NAME: the collision guard, the mint key, the catalog
+        //     row, and the version branches' refusals.
+        //   • `set.singleTag` — the sole translated tag, nil the moment there
+        //     is more than one body — is what the compilers resolve
+        //     `template.<tag>.tex` and `styles.<tag>.css` against. A bilingual
+        //     document belongs to no single tongue's template, so it takes the
+        //     base ones.
+        //
+        // A combination that cannot resolve is a caller's typo, refused the way
+        // an unknown imprint is: before the job registers, because nothing
+        // started and `compile_status` must not grow a job for a compile that
+        // never began.
+        let set: LanguageSet
+        do {
+            set = try LanguageSet(language: language, languages: languages,
+                                  sourceTag: config.metadata.language)
+        } catch {
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: error.localizedDescription,
+                contextLines: [
+                    "Nothing was compiled — no export, no snapshot, no version bump."
+                ])
+            return .failed(
+                errors: [diag],
+                logExcerpt: "invalid_languages: \(error.localizedDescription)")
+        }
+
+        let jobID = await jobManager.register(phase: .renderingBody)
 
         // Compile pre-flight validation, on the resolved config. This is the
         // stricter door (`validateForCompile`): a config WRITE deliberately
@@ -195,42 +235,14 @@ public struct CompileOrchestrator {
             return .failed(errors: diags, logExcerpt: excerpt)
         }
 
-        // The edition-effective config: base config with its metadata folded
-        // to the language edition (dc:language set + language_overrides applied).
-        // `language == nil` leaves metadata untouched (single-language compile).
-        // Everything downstream — snapshot, compilers, filename, Publication —
-        // reads `effective`, so the snapshot freezes config/templates for
-        // `Republisher` (which reads snap.config). It does NOT freeze
-        // manuscript/translation content — `astSource` still reads the live
-        // ProjectStore on republish, so a translated edition is re-gated
-        // separately in `Republisher.republish` (Task 9 F1), not here.
-        // The post-compile version bump below saves `loaded` — the config as it
-        // came off disk — never `effective` and never the imprint-resolved
-        // `config`, so neither a translated nor an imprint compile can
-        // overwrite the shared config.
-        var effective = config
-        effective.metadata = config.effectiveMetadata(language: language)
-
-        // Task 10: resolve language-suffixed per-piece style files on the
-        // EFFECTIVE config before snapshot + emit. The emitter has no
-        // filesystem access, so existence-based resolution happens here. Only
-        // `effective` is rewritten — snapshot/compilers read it — while the
-        // shared config saved below stays on the base names. `language == nil`
-        // is a no-op. Republish stays consistent: the snapshot captures the
-        // whole publish tree (including any `.es.tex` piece files), and it
-        // freezes `effective`, so the frozen config's suffixed names match the
-        // frozen tree.
-        effective = LanguageSuffixedFile.resolvingStyleFiles(
-            in: effective, language: language, publishDir: publishDir)
-
-        // F1: compute the excluded set from the EFFECTIVE config (after the
-        // language fold above, so a language edition can't diverge the subset),
-        // then wrap the live source so the emitters — and every downstream
-        // record derived from them — see only the included pieces. An empty
-        // excluded set is a pass-through.
-        let excludedSectionIDs = effective.excludedSectionIDs
-        let emitSource = IncludeFilteredASTSource(
-            base: astSource, excludedSectionIDs: excludedSectionIDs)
+        // F1: the pieces this compile leaves out. Read off the RESOLVED config
+        // rather than a language-folded one: the two folds `BodyPlan` performs
+        // (`effectiveMetadata`, then `LanguageSuffixedFile.resolvingStyleFiles`)
+        // rewrite metadata and per-piece style names and touch `sections` in
+        // neither, so every body excludes the same pieces and a language
+        // edition still cannot diverge the subset. The same set wraps every
+        // body's source below; an empty one is a pass-through.
+        let excludedSectionIDs = config.excludedSectionIDs
 
         // Edition identity (spec 2026-07-23): a Publication is keyed on the
         // triple (version, language, format). Resolve the version THIS compile
@@ -262,8 +274,14 @@ public struct CompileOrchestrator {
             return .failed(errors: [diag], logExcerpt: "publications catalog unreadable")
         }
 
+        // How this edition is NAMED, everywhere below: the joined identity for
+        // a multi-body compile, the sole tag for one translated body, nil for
+        // the source. `langLabel` is its spelling in a sentence.
+        let identity = set.identity
+        let langLabel = identity ?? "source"
+
         let effectiveVersion: String
-        if language == nil {
+        if set.isSourceCompile {
             if let version {
                 let diag = TectonicLogParser.Diagnostic(
                     level: .error, file: nil, line: nil,
@@ -320,17 +338,17 @@ public struct CompileOrchestrator {
                 }
                 let diag = TectonicLogParser.Diagnostic(
                     level: .error, file: nil, line: nil,
-                    message: "no source v\(version) to render in \(language!) — compile the source edition first, then render its edition.",
+                    message: "no source v\(version) to render in \(langLabel) — compile the source edition first, then render its edition.",
                     contextLines: [
                         "A language edition pins an EXISTING source publication's version.",
                         existenceLine
                     ])
                 await jobManager.fail(
                     jobID: jobID, errors: [diag],
-                    logExcerpt: "no_source_version: \(version)/\(language!)")
+                    logExcerpt: "no_source_version: \(version)/\(langLabel)")
                 return .failed(
                     errors: [diag],
-                    logExcerpt: "no_source_version: \(version)/\(language!)")
+                    logExcerpt: "no_source_version: \(version)/\(langLabel)")
             }
             effectiveVersion = version
         } else {
@@ -350,7 +368,7 @@ public struct CompileOrchestrator {
             guard let latest = sources.max(by: { $0.compiledAt < $1.compiledAt }) else {
                 let diag = TectonicLogParser.Diagnostic(
                     level: .error, file: nil, line: nil,
-                    message: "no source publication exists\(imprint.map { " under imprint '\($0)'" } ?? "") — compile the source edition first (or pass version to pin one) before rendering the \(language!) edition.",
+                    message: "no source publication exists\(imprint.map { " under imprint '\($0)'" } ?? "") — compile the source edition first (or pass version to pin one) before rendering the \(langLabel) edition.",
                     contextLines: [
                         "An edition is a rendering of a source version; it no longer mints its own.",
                         imprint.map {
@@ -359,10 +377,10 @@ public struct CompileOrchestrator {
                     ])
                 await jobManager.fail(
                     jobID: jobID, errors: [diag],
-                    logExcerpt: "no_source_publication: \(language!)")
+                    logExcerpt: "no_source_publication: \(langLabel)")
                 return .failed(
                     errors: [diag],
-                    logExcerpt: "no_source_publication: \(language!)")
+                    logExcerpt: "no_source_publication: \(langLabel)")
             }
             effectiveVersion = latest.version
         }
@@ -376,7 +394,59 @@ public struct CompileOrchestrator {
         // construction: `effectiveVersion == config.nextVersion`). Runs BEFORE
         // snapshot capture so a republished edition reproduces the frozen
         // version — and its filename — exactly.
-        effective.nextVersion = effectiveVersion
+        var versioned = config
+        versioned.nextVersion = effectiveVersion
+
+        // One body per language, each bound to its own text and folded to its
+        // own config — the two folds this function used to perform inline now
+        // happen once per body, so a second body cannot inherit the first's
+        // metadata or its per-piece style files. Built from the VERSION-THREADED
+        // config (above) rather than the raw resolved one, because every body's
+        // interior renders `nextVersion`: `PDFCompiler` writes
+        // `build/metadata.<tag>.tex` — and `build/metadata.tex` itself — from
+        // the bodies' own configs.
+        //
+        // A source that cannot bind to a language is refused HERE and not at
+        // the door: `languages: ["en","sr"]` is a well-formed request, and
+        // whether this project's manuscript source can answer for two tongues
+        // is a property of the project, discovered on the way to compiling it.
+        // So it registers-then-fails like every other refusal past the door.
+        let plan: BodyPlan
+        do {
+            plan = try await BodyPlan.make(
+                set: set, resolved: versioned, source: astSource,
+                publishDir: publishDir,
+                wrap: { IncludeFilteredASTSource(
+                    base: $0, excludedSectionIDs: excludedSectionIDs) })
+        } catch {
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: error.localizedDescription,
+                contextLines: [
+                    "Nothing was compiled — no export, no snapshot, no version bump."
+                ])
+            await jobManager.fail(
+                jobID: jobID, errors: [diag],
+                logExcerpt: "not_rebindable: \(error.localizedDescription)")
+            return .failed(
+                errors: [diag],
+                logExcerpt: "not_rebindable: \(error.localizedDescription)")
+        }
+
+        // The edition-effective config: the FIRST body's. Everything that
+        // describes the publication as a whole — the snapshot, the compilers'
+        // document-level metadata, the filename, the catalog row — reads it, so
+        // a bilingual book is titled in its source language and each body
+        // retitles only inside its own half. The snapshot freezes it for
+        // `Republisher` (which reads snap.config); it does NOT freeze
+        // manuscript/translation content — `astSource` still reads the live
+        // ProjectStore on republish, so a translated edition is re-gated
+        // separately in `Republisher.republish` (Task 9 F1), not here.
+        // The post-compile version bump below saves `loaded` — the config as it
+        // came off disk — never `effective` and never the imprint-resolved
+        // `config`, so neither a translated nor an imprint compile can
+        // overwrite the shared config.
+        let effective = plan.first.config
 
         // Pre-compile collision guard: refuse only an exact (version, language,
         // format) match. For source compiles this is strictly weaker than the
@@ -389,18 +459,17 @@ public struct CompileOrchestrator {
         // a v0.1 pdf, because those are two different publications.
         if existingPublications.contains(where: {
             $0.version == effectiveVersion
-                && $0.language == language
+                && $0.language == identity
                 && $0.format == format
                 && $0.imprint == imprint
         }) {
-            let langLabel = language ?? "source"
             let diag = TectonicLogParser.Diagnostic(
                 level: .error,
                 file: nil, line: nil,
                 message: "Publication v\(effectiveVersion) (\(langLabel), \(format.rawValue)) already exists \(Self.placeOf(imprint)); refusing to compile a colliding edition.",
                 contextLines: [
                     "The (version, language, format) triple '\(effectiveVersion)/\(langLabel)/\(format.rawValue)' matches an existing Publication \(Self.placeOf(imprint)).",
-                    language == nil
+                    set.isSourceCompile
                         ? "Bump next_version via set_publish_config, or compile a different format/language to complete the family."
                         : "This edition already exists; compile a different format, or a new source version.",
                     "Or use republish if you want a new compile from a prior snapshot."
@@ -432,11 +501,10 @@ public struct CompileOrchestrator {
         // run that never reserved must never release, or it would hand back the
         // in-flight compile's reservation.
         let mintKey = PublishMintGate.Key(
-            version: effectiveVersion, language: language, format: format,
+            version: effectiveVersion, language: identity, format: format,
             imprint: imprint)
         if !dryRun {
             guard await mintGate.reserve(mintKey) else {
-                let langLabel = language ?? "source"
                 let diag = TectonicLogParser.Diagnostic(
                     level: .error,
                     file: nil, line: nil,
@@ -466,12 +534,12 @@ public struct CompileOrchestrator {
         let progress = DurableProgress()
         do {
             let outcome = try await compileReserved(
-                format: format, label: label, language: language,
+                format: format, label: label, set: set, plan: plan,
                 allowStale: allowStale, dryRun: dryRun, jobID: jobID,
                 config: config, loaded: loaded, imprint: imprint,
                 effective: effective,
                 effectiveVersion: effectiveVersion,
-                emitSource: emitSource, excludedSectionIDs: excludedSectionIDs,
+                excludedSectionIDs: excludedSectionIDs,
                 progress: progress)
             if !dryRun { await mintGate.release(mintKey) }
             return outcome
@@ -501,7 +569,8 @@ public struct CompileOrchestrator {
     private func compileReserved(
         format: PublishConfig.Format,
         label: String?,
-        language: String?,
+        set: LanguageSet,
+        plan: BodyPlan,
         allowStale: Bool,
         dryRun: Bool,
         jobID: String,
@@ -510,7 +579,6 @@ public struct CompileOrchestrator {
         imprint: String?,
         effective: PublishConfig,
         effectiveVersion: String,
-        emitSource: ProjectASTBuilder.Source,
         excludedSectionIDs: Set<String>,
         progress: DurableProgress
     ) async throws -> Outcome {
@@ -540,19 +608,39 @@ public struct CompileOrchestrator {
         // `compile` or `republish` decides block-vs-warn (Task 9 F1 round 5;
         // this used to be reimplemented in `Republisher.republish`, which let
         // the two drift apart).
+        //
+        // P2: once per TRANSLATED body. Every diagnostic is prefixed with the
+        // tag it belongs to — single-language compiles included, because one
+        // contract is cheaper to read than two — and every blocked tongue is
+        // reported, not just the first: a writer who has to compile once per
+        // language to learn the second one's gaps is being sent round the loop
+        // for nothing. The failure is WHOLE, so a tongue that passed
+        // contributes nothing to it: `gateWarnings` are collected but dropped
+        // on the blocked path, because nothing was compiled for them to be
+        // about.
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
-        if let language, let source = astSource as? ProjectStoreASTSource {
-            let report = try await TranslationCoverage.check(
-                projectStore: source.projectStore, language: language,
-                excludedSectionIDs: excludedSectionIDs)
-            switch TranslationCoverage.applyGate(
-                report: report, language: language, allowStale: allowStale
-            ) {
-            case .blocked(let errors, let logExcerpt):
-                await jobManager.fail(jobID: jobID, errors: errors, logExcerpt: logExcerpt)
-                return .failed(errors: errors, logExcerpt: logExcerpt)
-            case .passed(let warnings):
-                gateWarnings += warnings
+        if let source = astSource as? ProjectStoreASTSource {
+            var blocked: [TectonicLogParser.Diagnostic] = []
+            var blockedExcerpts: [String] = []
+            for tag in set.translatedTags {
+                let report = try await TranslationCoverage.check(
+                    projectStore: source.projectStore, language: tag,
+                    excludedSectionIDs: excludedSectionIDs)
+                switch TranslationCoverage.applyGate(
+                    report: report, language: tag, allowStale: allowStale
+                ) {
+                case .blocked(let errors, let logExcerpt):
+                    blocked += errors.map { Self.tagged($0, tag) }
+                    blockedExcerpts.append(logExcerpt)
+                case .passed(let warnings):
+                    gateWarnings += warnings.map { Self.tagged($0, tag) }
+                }
+            }
+            if !blocked.isEmpty {
+                let excerpt = blockedExcerpts.joined(separator: "; ")
+                await jobManager.fail(
+                    jobID: jobID, errors: blocked, logExcerpt: excerpt)
+                return .failed(errors: blocked, logExcerpt: excerpt)
             }
         }
 
@@ -574,7 +662,8 @@ public struct CompileOrchestrator {
         // Freeze the edition-effective config (see `effective` above).
         let snap = try snapshotStore.capture(
             config: effective, maughamVersion: maughamVersion,
-            tectonicVersion: tectonicVersion)
+            tectonicVersion: tectonicVersion,
+            languages: set.bodies.map { $0 ?? set.sourceTag })
 
         let outputPath: String
         let warnings: [TectonicLogParser.Diagnostic]
@@ -584,10 +673,10 @@ public struct CompileOrchestrator {
         switch format {
         case .pdf:
             let pdf = try PDFCompiler(
-                projectURL: projectURL, astSource: emitSource,
+                projectURL: projectURL, bodies: plan.bodies,
                 config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
-                language: language)
+                language: set.singleTag)
             let result = try await pdf.compile(label: label)
             outputPath = result.outputPath
             warnings = result.warnings
@@ -596,11 +685,11 @@ public struct CompileOrchestrator {
 
         case .epub:
             let epub = try EPUBCompiler(
-                projectURL: projectURL, astSource: emitSource,
+                projectURL: projectURL, bodies: plan.bodies,
                 config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,
-                language: language)
+                language: set.singleTag)
             let result = try await epub.compile(label: label)
             outputPath = result.outputPath
             warnings = result.warnings
@@ -645,7 +734,7 @@ public struct CompileOrchestrator {
             compiledAt: Date(),
             maughamVersion: maughamVersion,
             tectonicVersion: tectonicVersion,
-            language: language,
+            language: set.identity,
             allowStale: allowStale,
             imprint: imprint)
         // TODO: transactional commit. If `configStore.save` throws after
@@ -684,7 +773,7 @@ public struct CompileOrchestrator {
         // into the imprint's own on its first compile. Optional-chained rather
         // than force-unwrapped: resolution above already proved the entry
         // exists, and a crash would be a poor way to say otherwise.
-        if language == nil {
+        if set.isSourceCompile {
             var nextConfig = loaded
             let bumped = PublishConfigValidator.bumpedNextVersion(
                 from: config.nextVersion)
@@ -707,6 +796,20 @@ public struct CompileOrchestrator {
             jobID: jobID, outputPath: outputPath,
             warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)
+    }
+
+    /// A gate diagnostic, marked with the tongue it is about. The tag goes on
+    /// the MESSAGE and nowhere else: the context lines are the gate's own
+    /// remedy sentences, which read the same whichever language raised them,
+    /// and the `logExcerpt` is diagnostic vocabulary that already names its
+    /// language.
+    private static func tagged(
+        _ diagnostic: TectonicLogParser.Diagnostic, _ tag: String
+    ) -> TectonicLogParser.Diagnostic {
+        TectonicLogParser.Diagnostic(
+            level: diagnostic.level, file: diagnostic.file, line: diagnostic.line,
+            message: "[\(tag)] " + diagnostic.message,
+            contextLines: diagnostic.contextLines)
     }
 
     /// Where a publication lives, for a refusal that has to name it. Two

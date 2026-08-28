@@ -92,6 +92,20 @@ final class PublishMintGateTests: XCTestCase {
 
     // MARK: - Production call-site census
     //
+    /// P2: a bilingual compile's identity is a triple of its own. "sr" and
+    /// "en+sr" are two different documents, so one must never hold the other's
+    /// reservation — nor be refused by it.
+    func test_aJoinedIdentityIsItsOwnTriple() async {
+        let gate = PublishMintGate()
+        let sr = PublishMintGate.Key(version: "0.1", language: "sr", format: .epub)
+        let both = PublishMintGate.Key(version: "0.1", language: "en+sr", format: .epub)
+        XCTAssertNotEqual(sr, both)
+        let first = await gate.reserve(sr)
+        let second = await gate.reserve(both)
+        XCTAssertTrue(first, "the single-tongue edition reserves")
+        XCTAssertTrue(second, "and the bilingual one is not refused by it")
+    }
+
     // The gate is a DEFAULTED constructor parameter, so a production site that
     // forgets it still compiles — and silently gets a private gate that can
     // never see the other caller's reservation, which is exactly the bug this
