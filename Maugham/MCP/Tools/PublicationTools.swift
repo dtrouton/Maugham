@@ -291,8 +291,8 @@ public enum RepublishTool: MCPTool {
             snapshotStore: stores.snapshotStore,
             jobManager: stores.jobManager,
             mintGate: stores.mintGate,
-            maughamVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0",
-            tectonicVersion: "0.15.0")
+            maughamVersion: PublishToolchain.maughamVersion,
+            tectonicVersion: PublishToolchain.tectonicVersion)
         let outcome = try await republisher.republish(
             snapshotID: params.snapshotID,
             format: params.format ?? .pdf,

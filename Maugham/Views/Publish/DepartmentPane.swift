@@ -162,6 +162,42 @@ struct DepartmentPane: View {
     /// object, not two lookups that could differ.
     var showProposal: () -> Void = { }
 
+    /// **Every imprint this project defines**, sorted — the picker's rows, and
+    /// nothing more: an imprint's own contents are the config's business and
+    /// this pane never opens it.
+    ///
+    /// Empty is the ordinary case (most books are not published under an
+    /// imprint) and is drawn as one line saying where an imprint comes from,
+    /// rather than as a picker with a single row that cannot be changed.
+    var imprints: [String] = []
+    /// **Which imprint the desk is standing on** — `nil` is the book itself.
+    ///
+    /// A value in, a closure out, because the choice is PERSISTED: it lives in
+    /// the project's `UIState` so the writer who compiles the same special
+    /// edition all week does not re-pick it every morning, and writing it is
+    /// the host's.
+    var selectedImprint: String? = nil
+    var selectImprint: (String?) -> Void = { _ in }
+    /// **What the desk's own compile is doing** (`DeskCompileRunner.state`) —
+    /// every sentence and every availability decision as one value, so this
+    /// pane holds no orchestrator.
+    var compileRun: DepartmentCompileState = DepartmentCompileState()
+    /// Press Compile. The sheet below assembles the request; starting it
+    /// reaches the runner, which is the host's.
+    var runCompile: (DeskCompileRunner.Request) -> Void = { _ in }
+    /// Stop the compile in flight. Reachable only while `compileRun.isRunning`
+    /// — which is the STORED flag and never the phase, because a refusal
+    /// replaces the phase while the run it refused carries on, and a Cancel
+    /// that vanished in that moment would leave the writer no way to stop it.
+    var cancelCompile: () -> Void = { }
+    /// **The book's own language** (`metadata.language`) — the tag the compile
+    /// sheet offers checked, and the one `LanguageSet` substitutes back to the
+    /// untranslated body. Carried in rather than assumed "en", because a book
+    /// written in Spanish with an English edition has this the other way round
+    /// and the sheet would otherwise offer to compile the translation as the
+    /// source.
+    var bookLanguage: String = PublishConfig.Metadata().language
+
     /// **The writer's words for the next round**, and the pane's only mutable
     /// state.
     ///
@@ -172,6 +208,12 @@ struct DepartmentPane: View {
     /// Request Changes as the change request — because on this row they are the
     /// same sentence answered by two different sessions.
     @State private var direction = ""
+
+    /// **Whether the compile sheet is up** — the pane's second piece of local
+    /// state, on `direction`'s rule: it is this surface's own transient UI and
+    /// nothing outside reads it, so a `Binding` down from the host would put a
+    /// presentation flag on the derivation that walks every document.
+    @State private var showingCompileSheet = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -186,7 +228,36 @@ struct DepartmentPane: View {
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // **The compile sheet hangs on the desk, not on the pane.** Two
+            // `.sheet` modifiers on ONE view do not coexist in SwiftUI — the
+            // later declaration wins and the earlier one silently stops
+            // presenting, which took the cast sheet's every button with it
+            // (measured: `DepartmentRunTests`' rename and mint cases crashed
+            // on an empty button array). Each sheet gets a view of its own.
             desk
+                .sheet(isPresented: $showingCompileSheet) {
+                    DepartmentCompileSheet(
+                        // **The book's own language is never offered twice.**
+                        // The sheet draws it as its own checkbox ("The book's
+                        // own language (English)"); a translator role named for
+                        // the same tag — `Add Language…` with "en" on an
+                        // English book, which the desk accepts — put a second
+                        // box beside it, and checking both sent `["en", "en"]`
+                        // into `LanguageSet`, which refuses a duplicate and
+                        // fails the compile red for a request the sheet itself
+                        // made offerable. Case-insensitively, because a tag is
+                        // matched that way everywhere else on this desk.
+                        languages: languages.map(\.language).filter {
+                            $0.caseInsensitiveCompare(bookLanguage) != .orderedSame
+                        },
+                        bookLanguage: bookLanguage,
+                        imprint: selectedImprint,
+                        onCompile: { request in
+                            showingCompileSheet = false
+                            runCompile(request)
+                        },
+                        onCancel: { showingCompileSheet = false })
+                }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // **The cast sheet** (P4 Task 9). The `Binding`'s `set` is the only
@@ -202,10 +273,32 @@ struct DepartmentPane: View {
         }
     }
 
+    /// The book's name, and — when there is a choice to make — which imprint
+    /// the desk is standing on (spec §6).
+    ///
+    /// **The picker's home is the header** because what it changes is what the
+    /// whole desk is about: the language rows below are summed over the
+    /// imprint's own documents, and the Compile it feeds counts that imprint's
+    /// own versions. A control down among the rows would read as a property of
+    /// the rows.
     private var header: some View {
         HStack {
             Text(title).font(.headline)
-            Spacer()
+            Spacer(minLength: 6)
+            if !imprints.isEmpty {
+                Picker(DepartmentDesk.imprintLabel,
+                       selection: Binding(get: { selectedImprint },
+                                          set: { selectImprint($0) })) {
+                    Text(DepartmentDesk.bookImprintTitle).tag(String?.none)
+                    ForEach(imprints, id: \.self) { name in
+                        Text(name).tag(String?.some(name))
+                    }
+                }
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .fixedSize()
+                .help(DepartmentDesk.imprintHelp)
+            }
         }
         .padding(8)
     }
@@ -217,6 +310,28 @@ struct DepartmentPane: View {
     private var desk: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                // **Where an imprint comes from, for a project that has none.**
+                // Drawn instead of the picker rather than beside it: a picker
+                // with one unchangeable row is a control that can only refuse,
+                // and the honest answer to "why can't I pick one" is the
+                // sentence naming where imprints are declared.
+                //
+                // **Inside the scroller, not under the header.** A wrapping
+                // `Text` carrying `fixedSize(vertical: true)` OUTSIDE a
+                // `ScrollView` demands its full intrinsic height from the
+                // column, and this one is drawn for every project that has no
+                // imprints — which is most of them. Measured: it grew the whole
+                // split view to 1002pt in a 732pt window and took the binder
+                // and the writing column with it
+                // (`DetailPaneColumnHeightCensusTests`, the exact failure that
+                // census names in its own message).
+                if imprints.isEmpty {
+                    Text(DepartmentDesk.noImprintsYet)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 section(DepartmentDesk.designHeading) {
                     designRow
                 }
@@ -276,15 +391,64 @@ struct DepartmentPane: View {
     ///
     /// **Not `keyboardShortcut`ed**, on the language rows' own rule: the keys
     /// this window has left belong to the compiler, and a control the writer
-    /// presses once per edition has no claim on one.
+    /// presses once per edition has no claim on one. **Compile… inherits that
+    /// rule verbatim** — ⌘R is the compiler's in whichever window hosts this
+    /// pane, and a second command competing for it is what tripwire 21's
+    /// unscoped-broadcast family looks like one layer up.
     private var addLanguageButton: some View {
-        HStack {
-            Button(DepartmentDesk.addLanguageTitle) { addLanguage() }
-                .controlSize(.small)
-                .help(DepartmentDesk.addLanguageHelp)
-            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Button(DepartmentDesk.addLanguageTitle) { addLanguage() }
+                    .controlSize(.small)
+                    .help(DepartmentDesk.addLanguageHelp)
+                // **The desk's own press.** Until it existed, every book this
+                // app ever made was asked for by Claude over the MCP socket;
+                // this is the writer's own door to the same orchestrator.
+                Button(DepartmentDesk.compileTitle) { showingCompileSheet = true }
+                    .controlSize(.small)
+                    .disabled(compileRun.isRunning)
+                    .help(compileRun.isRunning
+                          ? DepartmentCompileState.alreadyRunning
+                          : DepartmentDesk.compileHelp)
+                Spacer(minLength: 0)
+            }
+            compileStatus
         }
         .padding(.top, 2)
+    }
+
+    /// **What the compile is doing, and the one way to stop it** — drawn
+    /// through the ONE channel `DepartmentCompileState.statusLine` is, beside
+    /// the button that starts it.
+    ///
+    /// **Cancel is gated on `isRunning` and never on the phase.** A second
+    /// press while one is running replaces the phase with a refusal and leaves
+    /// the run going; a Cancel that read the phase would disappear in exactly
+    /// that moment, taking the writer's only way to stop the compile with it.
+    /// The refusal sentence still says something is compiling — that is
+    /// `statusLine`'s own doing, not a second line here.
+    @ViewBuilder
+    private var compileStatus: some View {
+        if compileRun.statusLine != nil || compileRun.isRunning {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                if let status = compileRun.statusLine {
+                    Text(status)
+                        .font(.caption)
+                        // Red only for a failure, the cockpit's rule one
+                        // section up: a refusal and a cancel are not faults.
+                        .foregroundStyle(compileRun.isFailure
+                                         ? Color.red : Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if compileRun.isRunning {
+                    Button(DepartmentCompileState.cancelTitle) { cancelCompile() }
+                        .controlSize(.small)
+                        .accessibilityLabel(DepartmentDesk.cancelCompileLabel)
+                        .help(DepartmentDesk.cancelCompileHelp)
+                }
+            }
+        }
     }
 
     /// **The book's design: who makes it, where the last round stands, and the
@@ -580,6 +744,49 @@ enum DepartmentDesk {
 
     static let addLanguageHelp =
         "Start an edition in another language and say who translates it"
+
+    // MARK: - The imprint picker and the desk's own compile (imprints P3 Task 5)
+
+    /// The picker's label. Visible rather than `labelsHidden()`: a bare popup
+    /// reading "Book" beside a book's title says nothing about what it changes,
+    /// and this is the one control on the desk whose choice re-sums every row
+    /// under it.
+    static let imprintLabel = "Imprint"
+
+    /// **What `nil` is called.** The book itself — the thing every compile
+    /// before imprints existed produced, and the row a project lands on until
+    /// the writer picks otherwise.
+    static let bookImprintTitle = "Book"
+
+    static let imprintHelp =
+        "Which edition of this project the desk is about \u{2014} the book "
+        + "itself, or one of the imprints its config declares. An imprint has "
+        + "its own template, its own metadata and its own version count."
+
+    /// **What a project with no imprints is told, in place of the picker.**
+    /// It names the file, because that is the only place an imprint can be
+    /// declared and a writer who cannot find the door has no other clue.
+    static let noImprintsYet =
+        "This project has no imprints \u{2014} define one in config.json to "
+        + "compile a special edition."
+
+    /// The ellipsis is the platform's promise that a sheet follows: the format
+    /// and the editions are still to be chosen, and a press here compiles
+    /// nothing on its own.
+    static let compileTitle = "Compile\u{2026}"
+
+    static let compileHelp =
+        "Make the book \u{2014} choose a format and which editions go in it"
+
+    /// **Named rather than left as "Cancel"** — the desk can carry three
+    /// controls with that title at once (a translation round, a design round,
+    /// and this), and three identical labels in one tree are three controls a
+    /// VoiceOver user cannot tell apart.
+    static let cancelCompileLabel = "Cancel Compile"
+
+    static let cancelCompileHelp =
+        "Stop this compile. Nothing is published \u{2014} a compile that does "
+        + "not finish leaves no publication behind."
 
     // MARK: - A language row's words (Task 2)
 

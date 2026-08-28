@@ -55,6 +55,22 @@ public struct UIState: Codable, Equatable, Sendable {
     /// of the version skew read cleanly, which is what the constant is for.
     public var compilerModel: CompilerModelChoice
 
+    /// **Which imprint the Publish desk is standing on** (imprints P3 Task 5) —
+    /// `nil` for the book itself, which is what every project compiled as
+    /// before an imprint could be picked at all.
+    ///
+    /// **No schema bump**, for `compilerModel`'s reason one field up: one
+    /// additive key with a tolerated-missing default, so a file written without
+    /// it decodes to the book and an older build ignores a key it has never
+    /// heard of. Both directions of the version skew read cleanly.
+    ///
+    /// **A name rather than a resolved imprint.** What the writer picked is a
+    /// string the project's `config.json` defines, and a name whose imprint has
+    /// since been deleted must survive the round trip rather than being swept
+    /// here — the desk's picker is where a stale name falls back to the book,
+    /// because that is where the config is actually read.
+    public var publishImprint: String?
+
     /// Which review pass each piece was last looked at through
     /// (`ActivePassMemory`, M3-P1 Task 5).
     ///
@@ -132,7 +148,8 @@ public struct UIState: Codable, Equatable, Sendable {
         personaMemory: PersonaMemory = .empty,
         compilerModel: CompilerModelChoice = .standard,
         activePassMemory: ActivePassMemory = .empty,
-        detailColumnWidth: Double = UIState.defaultDetailColumnWidth
+        detailColumnWidth: Double = UIState.defaultDetailColumnWidth,
+        publishImprint: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.selectedSubject = selectedSubject
@@ -147,6 +164,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.activePassMemory = activePassMemory
         self.detailColumnWidth =
             UIState.clampedDetailColumnWidth(detailColumnWidth)
+        self.publishImprint = publishImprint
     }
 
     public static let empty = UIState()
@@ -157,7 +175,7 @@ public struct UIState: Codable, Equatable, Sendable {
              isNoChromeOn,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
              persona, personaMemory, compilerModel, activePassMemory,
-             detailColumnWidth
+             detailColumnWidth, publishImprint
     }
 
     /// Hand-written because `selectedSubject` is not stored the way it is
@@ -186,6 +204,7 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(compilerModel, forKey: .compilerModel)
         try c.encode(activePassMemory, forKey: .activePassMemory)
         try c.encode(detailColumnWidth, forKey: .detailColumnWidth)
+        try c.encodeIfPresent(publishImprint, forKey: .publishImprint)
     }
 
     public init(from decoder: Decoder) throws {
@@ -222,6 +241,8 @@ public struct UIState: Codable, Equatable, Sendable {
         self.detailColumnWidth = UIState.clampedDetailColumnWidth(
             (try? c.decode(Double.self, forKey: .detailColumnWidth))
                 ?? UIState.defaultDetailColumnWidth)
+        self.publishImprint =
+            (try? c.decodeIfPresent(String.self, forKey: .publishImprint)) ?? nil
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep), and `binderSegment` in shell-finish stage
         // 2b Task 7, when the binder strip died with `BinderSegment`, and

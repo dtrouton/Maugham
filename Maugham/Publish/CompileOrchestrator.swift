@@ -53,6 +53,28 @@ public struct CompileOrchestrator {
     /// `PublishingStores.mintGate` so every compile of a project contends on
     /// the same one (censused by `PublishMintGateTests`).
     public let mintGate: PublishMintGate
+    /// **How a caller's typo is told from a compile that went wrong.**
+    ///
+    /// An unknown imprint refuses at the door — before a job registers, before
+    /// a word of the manuscript is read — and it refuses through the ordinary
+    /// `.failed` shape, because that is the shape every caller already reads.
+    /// The excerpt is what carries the distinction, and a surface that wants to
+    /// draw the two differently (`DepartmentCompileState.settled(after:)` draws
+    /// this one as a refusal rather than a failure) reads THIS constant rather
+    /// than re-typing the prefix. `CompileToolsTests` pins the wire spelling
+    /// `"unknown_imprint: nope"`, so the prefix is part of the tool's contract
+    /// and not free to drift.
+    public static let unknownImprintLogExcerpt = "unknown_imprint: "
+
+    /// **The second constant of that kind**, and the same rule: a compile
+    /// refused because an identical one is already minting is not a fault. The
+    /// mint gate turned a press away — nothing was rendered, nothing was
+    /// written, and the writer's move is to wait rather than to read a log
+    /// (`PublishMintGate`, issue #25). `DepartmentCompileState.settled(after:)`
+    /// reads THIS rather than re-typing the prefix; `CompileToolsTests` pins
+    /// the wire spelling, so it is part of the tool's contract too.
+    public static let mintInFlightLogExcerpt = "mint_in_flight: "
+
     public let maughamVersion: String
     public let tectonicVersion: String
 
@@ -86,7 +108,8 @@ public struct CompileOrchestrator {
         allowStale: Bool = false,
         dryRun: Bool = false,
         version: String? = nil,
-        imprint: String? = nil
+        imprint: String? = nil,
+        onJobRegistered: @Sendable (String) -> Void = { _ in }
     ) async throws -> Outcome {
         // Imprint resolution runs at the DOOR, and it is the only
         // imprint-awareness in the pipeline: everything below reads an
@@ -119,7 +142,8 @@ public struct CompileOrchestrator {
                 contextLines: [
                     "Nothing was compiled — no export, no snapshot, no version bump."
                 ])
-            return .failed(errors: [diag], logExcerpt: "unknown_imprint: \(imprint)")
+            return .failed(errors: [diag],
+                           logExcerpt: Self.unknownImprintLogExcerpt + imprint)
         }
 
         // `loaded` is kept beside `config` on purpose: the RESOLVED config is
@@ -214,6 +238,17 @@ public struct CompileOrchestrator {
         }
 
         let jobID = await jobManager.register(phase: .renderingBody)
+        // **Whose compile this is.** One `CompileJobManager` serves the whole
+        // project — this orchestrator, `PreviewCompiler`, and the designer's
+        // sample compiles all register on it — so "the job in flight" is not a
+        // question the manager can answer for any particular caller. A caller
+        // that means to cancel its OWN compile has to be told which job that
+        // is, and this is the only moment anyone can be told: `compile` does
+        // not return until the compile is over. `DeskCompileRunner` is why it
+        // exists (its Cancel used to take `allInProgress().last`, which is
+        // whichever job registered most recently — Claude's preview, as often
+        // as the writer's own book).
+        onJobRegistered(jobID)
 
         // Compile pre-flight validation, on the resolved config. This is the
         // stricter door (`validateForCompile`): a config WRITE deliberately
@@ -534,13 +569,11 @@ public struct CompileOrchestrator {
                         "Another compile of the (version, language, format) triple '\(effectiveVersion)/\(langLabel)/\(format.rawValue)' \(Self.placeOf(imprint)) is in flight in this app.",
                         "Poll it with compile_status, or compile a different format/language."
                     ])
+                let excerpt = Self.mintInFlightLogExcerpt
+                    + "\(effectiveVersion)/\(langLabel)/\(format.rawValue)"
                 await jobManager.fail(
-                    jobID: jobID,
-                    errors: [diag],
-                    logExcerpt: "mint_in_flight: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
-                return .failed(
-                    errors: [diag],
-                    logExcerpt: "mint_in_flight: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
+                    jobID: jobID, errors: [diag], logExcerpt: excerpt)
+                return .failed(errors: [diag], logExcerpt: excerpt)
             }
         }
 

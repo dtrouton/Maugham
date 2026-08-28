@@ -16,11 +16,26 @@ public struct ProjectAST: Equatable, Sendable {
         public let mode: Mode
         public let nodes: [Node]
 
-        public init(pieceID: String, title: String, mode: Mode, nodes: [Node]) {
+        /// Node index → the op-log `¶id` of the paragraph that node came from.
+        /// SPARSE: a paragraph anchors only the FIRST node it produced, so a
+        /// cue-and-speech block (one paragraph, three nodes) contributes one
+        /// entry, and a paragraph that produced no node of its own — the tail
+        /// of a fence split by an internal blank line — contributes none.
+        ///
+        /// `[:]` when the source handed no paragraphs (`PieceRef.paragraphs ==
+        /// nil`) or when they could not be reconciled with `displayText`. The
+        /// emitters read it to mint `\hypertarget{p-<tag>-<id>}` / `id="p-<tag>-<id>"`
+        /// so a cross-link can point at a paragraph; the NODES are unaffected
+        /// by its presence or absence.
+        public let anchors: [Int: String]
+
+        public init(pieceID: String, title: String, mode: Mode, nodes: [Node],
+                    anchors: [Int: String] = [:]) {
             self.pieceID = pieceID
             self.title = title
             self.mode = mode
             self.nodes = nodes
+            self.anchors = anchors
         }
     }
 

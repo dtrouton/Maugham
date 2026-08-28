@@ -26,27 +26,55 @@ import MaughamCore
 public enum FountainNodeMapper {
 
     public static func map(_ script: FountainScript) -> [ProjectAST.FountainNode] {
-        var out: [ProjectAST.FountainNode] = []
+        mapWithFirstLines(script).map(\.node)
+    }
+
+    /// `map` plus, for each node, the index into `script.lines` of the FIRST
+    /// source line that node came from. `FountainTokenizer` emits exactly one
+    /// `FountainLine` per source line (blank lines included), so that index IS
+    /// the source line number — which is what the publish AST builder needs to
+    /// decide which op-log paragraph a node belongs to.
+    ///
+    /// Three of the mapper's nodes cover more than one line and the choice
+    /// matters:
+    /// - a coalesced `.action` reports the line its BUFFER started on, not the
+    ///   blank or element that flushed it;
+    /// - every node of a character block reports the CUE's line, because a cue
+    ///   and its speech carry no blank line between them and are therefore one
+    ///   op-log paragraph;
+    /// - a `.dualDialogue` reports the LEFT block's line, since it replaces
+    ///   already-emitted left-block nodes.
+    ///
+    /// Additive by construction: `map` IS this function's `.node` projection, so
+    /// no `FountainNode` case is widened.
+    public static func mapWithFirstLines(
+        _ script: FountainScript
+    ) -> [(node: ProjectAST.FountainNode, firstLine: Int)] {
+        var out: [(node: ProjectAST.FountainNode, firstLine: Int)] = []
 
         // Title page comes from the tokenizer's dedicated pre-pass, not the
-        // `.titlePage` body lines (which we skip below).
+        // `.titlePage` body lines (which we skip below). It has no body line of
+        // its own; line 0 is where its block begins.
         if let fields = script.titlePage, !fields.isEmpty {
-            out.append(.titlePage(fields.map {
+            out.append((.titlePage(fields.map {
                 ProjectAST.TitleField(key: $0.key, value: $0.value)
-            }))
+            }), 0))
         }
 
-        // Buffered run of consecutive action lines awaiting a flush.
+        // Buffered run of consecutive action lines awaiting a flush, and the
+        // line the run started on.
         var actionBuffer: [String] = []
+        var actionBufferStart = 0
         // The most recently appended character block (already in `out`), tracked
         // so a following dual-second cue can lift it into a `.dualDialogue`. Only
         // survives across blank lines — any emitted non-dual node clears it.
         var lastCharacterBlock: [ProjectAST.FountainNode]?
+        var lastCharacterBlockStart = 0
 
         func flushAction() {
             guard !actionBuffer.isEmpty else { return }
             let joined = actionBuffer.joined(separator: " ")
-            out.append(.action(FountainInline.parse(joined)))
+            out.append((.action(FountainInline.parse(joined)), actionBufferStart))
             actionBuffer = []
             lastCharacterBlock = nil
         }
@@ -68,61 +96,69 @@ public enum FountainNodeMapper {
                 if content.isEmpty {
                     flushAction()   // blank line: delimiter only
                 } else {
+                    if actionBuffer.isEmpty { actionBufferStart = i }
                     actionBuffer.append(content)
                 }
                 i += 1
 
             case .sceneHeading:
                 flushAction()
-                out.append(.sceneHeading(line.content, sceneNumber: line.sceneNumber))
+                out.append((.sceneHeading(line.content, sceneNumber: line.sceneNumber), i))
                 lastCharacterBlock = nil
                 i += 1
 
             case .transition:
                 flushAction()
-                out.append(.transition(line.content))
+                out.append((.transition(line.content), i))
                 lastCharacterBlock = nil
                 i += 1
 
             case .centered:
                 flushAction()
-                out.append(.centered(FountainInline.parse(line.content)))
+                out.append((.centered(FountainInline.parse(line.content)), i))
                 lastCharacterBlock = nil
                 i += 1
 
             case .lyric:
                 flushAction()
-                out.append(.lyric(FountainInline.parse(line.content)))
+                out.append((.lyric(FountainInline.parse(line.content)), i))
                 lastCharacterBlock = nil
                 i += 1
 
             case .pageBreak:
                 flushAction()
-                out.append(.pageBreak)
+                out.append((.pageBreak, i))
                 lastCharacterBlock = nil
                 i += 1
 
             case .character:
                 flushAction()
                 let isDual = line.isDualSecond
+                let blockStart = i
                 let (block, next) = consumeCharacterBlock(lines, from: i)
                 i = next
                 if isDual, let left = lastCharacterBlock {
                     // Lift the preceding block (its nodes are the tail of `out`)
-                    // and replace both with a dual-dialogue pair.
+                    // and replace both with a dual-dialogue pair. The pair takes
+                    // the LEFT block's line — the nodes it replaces.
                     out.removeLast(left.count)
-                    out.append(.dualDialogue(left: left, right: block))
+                    out.append((.dualDialogue(left: left, right: block),
+                                lastCharacterBlockStart))
                     lastCharacterBlock = nil
                 } else {
-                    out.append(contentsOf: block)
+                    out.append(contentsOf: block.map { ($0, blockStart) })
                     lastCharacterBlock = block
+                    lastCharacterBlockStart = blockStart
                 }
 
             case .dialogue, .parenthetical:
                 // Orphan dialogue/parenthetical with no preceding cue — treat as
                 // action text so nothing is silently dropped.
                 let content = stripInlineNotes(line)
-                if !content.isEmpty { actionBuffer.append(content) }
+                if !content.isEmpty {
+                    if actionBuffer.isEmpty { actionBufferStart = i }
+                    actionBuffer.append(content)
+                }
                 i += 1
             }
         }

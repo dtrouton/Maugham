@@ -80,6 +80,29 @@ template controls the seam between them by defining its own `MaughamBody`
 environment (`EMISSION.md`'s "Multi-language bodies" section) — the default
 just starts each half on a fresh page.
 
+Every paragraph the emitter renders carries an anchor, `p-<tag>-<¶id>` —
+`\hypertarget{p-en-k3wq}{}` in LaTeX, `id="p-en-k3wq"` in XHTML — and it is
+the first artifact-side id a template can rely on: before it, nothing in a
+compiled book could be addressed back to a paragraph. A multi-language
+compile uses it to cross-link scene headings between bodies
+(`\MaughamCrossLink`, wrapping the mode command rather than being wrapped by
+it — read `EMISSION.md`'s "Cross-body links" section before writing or
+redefining one). A slugline's `\scene` expands to something containing
+`\par`, so the wrap carries one inside it — fine under the bundled
+tectonic/XeTeX (measured), but a template that redefines `\scene` into
+something vertical-mode-hostile, or a pdfTeX engine instead of XeTeX, could
+break the link. `\MaughamCrossLink` is redefinable the same way
+`\MaughamBody` is, if your template wants the link styled differently than a
+plain `\hyperlink`. Two `\providecommand` fallbacks (`\hypertarget`,
+`\MaughamCrossLink`) sit in every body's own prologue, so a preamble that has
+never heard of either still compiles. The cross-link fallback **links wherever
+`hyperref` is loaded** — it tests `\ifdefined\hyperlink` at each use — which
+is what makes the links work in a project whose `preamble.tex` predates the
+command and will never be updated to define it; only a preamble without
+`hyperref` sets the slugline un-linked. A definition of your own still wins
+over the fallback, since both are `\providecommand` and the preamble is read
+first.
+
 ## Translating into a language
 
 Before you translate a paragraph into a language, call `read_edition_brief`

@@ -283,4 +283,220 @@ final class XHTMLBodyEmitterTests: XCTestCase {
         XCTAssertTrue(xhtml.contains("<div class=\"left\">"))
         XCTAssertTrue(xhtml.contains("<div class=\"right\">"))
     }
+
+    // MARK: - P3 Task 3: paragraph anchors
+
+    /// The control. `Section.anchors` is POPULATED here and the emit is
+    /// untagged, so this is the case that would silently change every existing
+    /// EPUB in the world if the tag were not really optional. Pinned as a
+    /// literal captured from `f15b8167` — BEFORE this task — rather than
+    /// against a re-render, so the emitter cannot agree with itself.
+    func test_anUntaggedEmitIsByteIdenticalToBeforeAnchorsExisted() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p_abc", title: "Chapter One", mode: .prose,
+                  nodes: [.paragraph("Hello.")], anchors: [0: "aaaa"])
+        ])
+        XCTAssertEqual(XHTMLBodyEmitter.emit(ast), """
+        <section class="prose" data-piece-id="p_abc">
+        <h1>Chapter One</h1>
+        <p>Hello.</p>
+        </section>
+        """)
+    }
+
+    /// The same fixture with a tag: the paragraph's own `¶id` lands on the
+    /// element that paragraph produced, as `p-<tag>-<¶id>`.
+    func test_aTaggedEmitPutsTheParagraphsIdOnItsParagraphElement() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p_abc", title: "Chapter One", mode: .prose,
+                  nodes: [.paragraph("Hello.")], anchors: [0: "aaaa"])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast, anchorTag: "en")
+        XCTAssertTrue(xhtml.contains(#"<p id="p-en-aaaa">Hello.</p>"#), xhtml)
+    }
+
+    /// Every block kind anchors on the FIRST element it emits — the container,
+    /// never the first child inside it — so a link always lands at the top of
+    /// what the paragraph produced.
+    func test_theAnchorLandsOnTheFirstElementOfEveryBlockKind() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .heading(level: 1, [.text("Head")]),
+                .blockquote([.paragraph([.text("Quoted.")])]),
+                .prose(.list(ordered: false, items: [[.text("one")]])),
+                .prose(.verbatim(["raw"])),
+                .sceneBreak,
+            ], anchors: [0: "aaaa", 1: "bbbb", 2: "cccc", 3: "dddd", 4: "eeee"])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast, anchorTag: "en")
+        XCTAssertTrue(xhtml.contains(#"<h2 id="p-en-aaaa">Head</h2>"#), xhtml)
+        XCTAssertTrue(xhtml.contains(#"<blockquote id="p-en-bbbb">"#), xhtml)
+        XCTAssertTrue(xhtml.contains(#"<ul id="p-en-cccc">"#), xhtml)
+        XCTAssertTrue(xhtml.contains(#"<p class="verbatim" id="p-en-dddd">raw</p>"#), xhtml)
+        XCTAssertTrue(xhtml.contains(#"<hr class="scene-break" id="p-en-eeee"/>"#), xhtml)
+    }
+
+    /// The fountain half of the same rule, including the two containers.
+    func test_theAnchorLandsOnTheFirstElementOfEveryFountainKind() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.sceneHeading("INT. ROOM - DAY", sceneNumber: nil)),
+                .fountain(.action("He waits.")),
+                .fountain(.character("AARON")),
+                .fountain(.dialogue("Hi.")),
+                .fountain(.parenthetical("softly")),
+                .fountain(.transition("CUT TO:")),
+                .fountain(.lyric("Hush now")),
+                .fountain(.centered("THE END")),
+                .fountain(.pageBreak),
+                .fountain(.titlePage([.init(key: "Title", value: "The Play")])),
+                .fountain(.dualDialogue(left: [.character("AARON")],
+                                        right: [.character("BETH")])),
+            ], anchors: [0: "aaaa", 1: "bbbb", 2: "cccc", 3: "dddd", 4: "eeee",
+                         5: "ffff", 6: "gggg", 7: "hhhh", 8: "jjjj", 9: "kkkk",
+                         10: "mmmm"])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast, anchorTag: "en")
+        for expected in [
+            #"<p class="scene-heading" id="p-en-aaaa">INT. ROOM - DAY</p>"#,
+            #"<p class="action" id="p-en-bbbb">He waits.</p>"#,
+            #"<p class="character" id="p-en-cccc">AARON</p>"#,
+            #"<p class="dialogue" id="p-en-dddd">Hi.</p>"#,
+            #"<p class="parenthetical" id="p-en-eeee">softly</p>"#,
+            #"<p class="transition" id="p-en-ffff">CUT TO:</p>"#,
+            #"<p class="lyric" id="p-en-gggg">Hush now</p>"#,
+            #"<p class="centered" id="p-en-hhhh">THE END</p>"#,
+            #"<hr class="page-break" id="p-en-jjjj"/>"#,
+            #"<header class="title-page" id="p-en-kkkk">"#,
+            #"<div class="dual-dialogue" id="p-en-mmmm">"#,
+        ] {
+            XCTAssertTrue(xhtml.contains(expected), "missing \(expected) in\n\(xhtml)")
+        }
+    }
+
+    /// A node's children are NOT the node: one paragraph, one id. A blockquote's
+    /// inner paragraph and a dual-dialogue's inner cue must carry none, or the
+    /// same `¶id` would appear twice in one document and stop being an id.
+    func test_anAnchorNeverReachesAChildOfTheNodeItAnchors() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .blockquote([.paragraph([.text("Quoted.")])]),
+            ], anchors: [0: "aaaa"])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast, anchorTag: "en")
+        XCTAssertEqual(xhtml.components(separatedBy: "p-en-aaaa").count - 1, 1, xhtml)
+        XCTAssertTrue(xhtml.contains("<p>Quoted.</p>"), xhtml)
+    }
+
+    /// The map is SPARSE: an unanchored node emits exactly what it always did,
+    /// beside an anchored sibling.
+    func test_anUnanchoredNodeCarriesNoId() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .paragraph("First."), .paragraph("Second."),
+            ], anchors: [0: "aaaa"])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast, anchorTag: "en")
+        XCTAssertTrue(xhtml.contains(#"<p id="p-en-aaaa">First.</p>"#), xhtml)
+        XCTAssertTrue(xhtml.contains("<p>Second.</p>"), xhtml)
+    }
+
+    // MARK: - P3 Task 3: cross-body links
+
+    private func screenplay(_ nodes: [ProjectAST.Node],
+                            anchors: [Int: String]) -> ProjectAST {
+        ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain,
+                  nodes: nodes, anchors: anchors)
+        ])
+    }
+
+    /// One other body: the slugline's TEXT becomes a link into that body's
+    /// section file, at the same paragraph's anchor there.
+    func test_aSluglineLinksToTheSameSluglineInTheOtherBody() {
+        let xhtml = XHTMLBodyEmitter.emit(
+            screenplay([.fountain(.sceneHeading("INT. ROOM - DAY", sceneNumber: nil))],
+                       anchors: [0: "aaaa"]),
+            anchorTag: "en", crossLinks: [(tag: "sr", href: "section-sr-002.xhtml")])
+        XCTAssertTrue(xhtml.contains(
+            #"<p class="scene-heading" id="p-en-aaaa">"#
+            + #"<a href="section-sr-002.xhtml#p-sr-aaaa">INT. ROOM - DAY</a></p>"#), xhtml)
+    }
+
+    /// The fragment names the TARGET body, never this one — a link to
+    /// `#p-en-aaaa` from the `en` body is a link to itself and goes nowhere.
+    func test_theLinksFragmentNamesTheTargetBodyNotThisOne() {
+        let xhtml = XHTMLBodyEmitter.emit(
+            screenplay([.fountain(.sceneHeading("INT. ROOM - DAY", sceneNumber: nil))],
+                       anchors: [0: "aaaa"]),
+            anchorTag: "en", crossLinks: [(tag: "sr", href: "section-sr-002.xhtml")])
+        XCTAssertFalse(xhtml.contains("href=\"section-sr-002.xhtml#p-en-aaaa\""), xhtml)
+    }
+
+    /// XHTML cannot nest `<a>` — where LaTeX wraps a second `\MaughamCrossLink`
+    /// around the first, XHTML emits ONE link around the text and a sibling
+    /// marker per further body.
+    func test_aSecondOtherBodyBecomesASiblingMarkerNotANestedLink() {
+        let xhtml = XHTMLBodyEmitter.emit(
+            screenplay([.fountain(.sceneHeading("INT. ROOM - DAY", sceneNumber: nil))],
+                       anchors: [0: "aaaa"]),
+            anchorTag: "en",
+            crossLinks: [(tag: "sr", href: "section-sr-002.xhtml"),
+                         (tag: "de", href: "section-de-002.xhtml")])
+        XCTAssertTrue(xhtml.contains(
+            #"<a href="section-sr-002.xhtml#p-sr-aaaa">INT. ROOM - DAY</a>"#
+            + #"<span class="cross-links">"#
+            + #"<a class="cross-link" href="section-de-002.xhtml#p-de-aaaa">→ DE</a>"#
+            + "</span>"), xhtml)
+        XCTAssertFalse(xhtml.contains("<a href=\"section-sr-002.xhtml#p-sr-aaaa\"><a"), xhtml)
+    }
+
+    /// The scene number is the heading's own furniture, not part of the link's
+    /// clickable text; the markers follow everything.
+    func test_aSceneNumberStaysOutsideTheLink() {
+        let xhtml = XHTMLBodyEmitter.emit(
+            screenplay([.fountain(.sceneHeading("INT. ROOM - DAY", sceneNumber: "4A"))],
+                       anchors: [0: "aaaa"]),
+            anchorTag: "en", crossLinks: [(tag: "sr", href: "section-sr-002.xhtml")])
+        XCTAssertTrue(xhtml.contains(
+            #"<a href="section-sr-002.xhtml#p-sr-aaaa">INT. ROOM - DAY</a>"#
+            + #"<span class="scene-number">4A</span>"#), xhtml)
+    }
+
+    /// Only a slugline links. Every other node still anchors — that is what
+    /// gives a link somewhere to land — but none of them becomes one.
+    func test_noOtherNodeKindLinksEvenWhenOtherBodiesExist() {
+        let xhtml = XHTMLBodyEmitter.emit(
+            screenplay([.fountain(.action("He waits.")),
+                        .fountain(.character("AARON")),
+                        .fountain(.dialogue("Hi."))],
+                       anchors: [0: "aaaa", 1: "bbbb", 2: "cccc"]),
+            anchorTag: "en", crossLinks: [(tag: "sr", href: "section-sr-002.xhtml")])
+        XCTAssertFalse(xhtml.contains("<a "), xhtml)
+        XCTAssertFalse(xhtml.contains("<a>"), xhtml)
+        XCTAssertTrue(xhtml.contains(#"<p class="action" id="p-en-aaaa">He waits.</p>"#), xhtml)
+    }
+
+    /// A slugline whose paragraph could not be identified has no id, so there
+    /// is no anchor to point at in the other body either: it emits plainly.
+    func test_anUnanchoredSluglineCannotLinkSoItDoesNot() {
+        let xhtml = XHTMLBodyEmitter.emit(
+            screenplay([.fountain(.sceneHeading("INT. ROOM - DAY", sceneNumber: nil))],
+                       anchors: [:]),
+            anchorTag: "en", crossLinks: [(tag: "sr", href: "section-sr-002.xhtml")])
+        XCTAssertEqual(xhtml.contains("<a "), false, xhtml)
+        XCTAssertTrue(xhtml.contains(#"<p class="scene-heading">INT. ROOM - DAY</p>"#), xhtml)
+    }
+
+    /// The single-body control: anchored, and not one link, because there is no
+    /// other body to link to.
+    func test_aBodyWithNoOthersAnchorsAndLinksNothing() {
+        let xhtml = XHTMLBodyEmitter.emit(
+            screenplay([.fountain(.sceneHeading("INT. ROOM - DAY", sceneNumber: nil))],
+                       anchors: [0: "aaaa"]),
+            anchorTag: "en")
+        XCTAssertTrue(xhtml.contains(
+            #"<p class="scene-heading" id="p-en-aaaa">INT. ROOM - DAY</p>"#), xhtml)
+        XCTAssertFalse(xhtml.contains("<a "), xhtml)
+    }
 }

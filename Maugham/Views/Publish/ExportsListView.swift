@@ -45,7 +45,22 @@ struct ExportsListView: View {
                             } label: {
                                 HStack {
                                     Image(systemName: entry.icon)
-                                    Text(entry.name).lineLimit(1).truncationMode(.middle)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(entry.name).lineLimit(1).truncationMode(.middle)
+                                        // The catalog record's own identity, when
+                                        // there is one — read off the RECORD
+                                        // rather than the filename (spec §6), so
+                                        // the imprint and languages show even
+                                        // when the file's own name says nothing
+                                        // about them.
+                                        if let record = entry.record {
+                                            Text(PublishPreviewCentre.parts(for: record)
+                                                .joined(separator: " \u{00B7} "))
+                                                .font(.caption2)
+                                                .foregroundStyle(.tertiary)
+                                                .lineLimit(1)
+                                        }
+                                    }
                                     Spacer()
                                     Text(entry.size)
                                         .font(.caption)
@@ -83,7 +98,9 @@ struct ExportsListView: View {
     }
 
     private func refresh() {
-        entries = Model(projectURL: projectURL).scan()
+        Task { @MainActor in
+            entries = await Model(projectURL: projectURL).scan()
+        }
     }
 }
 
@@ -95,6 +112,12 @@ extension ExportsListView {
         struct Entry: Identifiable {
             let url: URL
             let modified: Date
+            /// The catalog row this file's path matches, when there is one —
+            /// joined by `outputPath`, never by parsing the filename (spec §6):
+            /// a filename is written once at compile time and a writer can
+            /// rename the file on disk without touching what the catalog says
+            /// it is.
+            let record: Publication?
             var name: String { url.lastPathComponent }
             var icon: String {
                 url.pathExtension.lowercased() == "epub" ? "book" : "doc.richtext"
@@ -107,13 +130,22 @@ extension ExportsListView {
             var id: String { url.path }
         }
 
-        func scan() -> [Entry] {
+        /// **Reads the publications catalog once per scan, off the main path**
+        /// — `try?` so an unreadable catalog (RULING-54's own failure mode)
+        /// costs entries their secondary line and nothing else: every file
+        /// still lists by its bare name, and a corrupt device file must never
+        /// take this footer down.
+        @MainActor
+        func scan() async -> [Entry] {
             let exports = projectURL.appendingPathComponent("Exports", isDirectory: true)
             guard FileManager.default.fileExists(atPath: exports.path) else { return [] }
             let urls = (try? FileManager.default.contentsOfDirectory(
                 at: exports,
                 includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
                 options: [])) ?? []
+            let records = (try? await PublishingStores.sharedFor(
+                projectID: ProjectIdentifier.id(for: projectURL),
+                projectURL: projectURL).publicationStore.load()) ?? []
             return urls
                 .filter { !DotfileScan.isDotfile($0) }
                 .filter { ["pdf", "epub"].contains($0.pathExtension.lowercased()) }
@@ -121,7 +153,9 @@ extension ExportsListView {
                     let mod = (try? url.resourceValues(
                         forKeys: [.contentModificationDateKey]))?
                         .contentModificationDate ?? .distantPast
-                    return Entry(url: url, modified: mod)
+                    let relativePath = "Exports/\(url.lastPathComponent)"
+                    let record = records.first { $0.outputPath == relativePath }
+                    return Entry(url: url, modified: mod, record: record)
                 }
                 .sorted { $0.modified > $1.modified }   // most recently compiled first
         }

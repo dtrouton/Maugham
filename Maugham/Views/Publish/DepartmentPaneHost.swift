@@ -87,6 +87,26 @@ struct DepartmentPaneHost: View {
     /// writer leaves the pane mid-walk.
     @State private var refreshes = 0
 
+    /// **The desk's own compile** (imprints P3 Task 5), owned here rather than
+    /// by the window — unlike the translator and the designer above.
+    ///
+    /// Those two hold a WARM `claude -p` session whose only reaper is the
+    /// window (`DesignerOrchestrator.shutdown()`'s contract); this holds a
+    /// `Task` around an orchestrator, and a compile abandoned by a closing pane
+    /// is a job the shared `PublishingStores` still knows about — the same
+    /// place an MCP compile lives. So there is nothing here for a window to
+    /// tear down, and a `@State` runner keeps the press beside the surface that
+    /// draws it.
+    @State private var compileRunner = DeskCompileRunner()
+    /// Every imprint this project's `config.json` declares, sorted — the
+    /// picker's rows. Derived off the body path with the language rows,
+    /// because reading the config is disk work (tripwire 4).
+    @State private var imprints: [String] = []
+    /// `metadata.language`, for the compile sheet's "the book's own language"
+    /// row. Read in the same pass as `imprints`, from the same config, so the
+    /// two cannot describe different files.
+    @State private var bookLanguage = PublishConfig.Metadata().language
+
     /// What `openBrief(language:in:)` answered: the edition, and the statement
     /// the door found or made for it.
     struct OpenedBrief: Equatable, Identifiable {
@@ -112,17 +132,51 @@ struct DepartmentPaneHost: View {
     /// Design row is out of date. Reading the orchestrator's own state here
     /// registers the observation that makes it live, and the redundant re-derive
     /// when a round *starts* costs one proposals listing.
-    private struct ReloadKey: Equatable {
+    /// **Internal rather than private, so the joins are assertable.** Each
+    /// field here is a re-derive the desk depends on and none of them is
+    /// visible in what the pane draws; a join deleted by a later hand fails
+    /// nothing until a writer notices their rows describing the wrong book.
+    struct ReloadKey: Equatable {
         let manifestModified: Date
         let refreshes: Int
         let designRunState: DesignerOrchestrator.RunState?
         let designerBusy: Bool
+        /// **Which imprint the desk is standing on.** A change re-sums every
+        /// language row against that imprint's own documents, which is the
+        /// whole of what picking one does to this pane.
+        let imprint: String?
+        /// **`config.json`'s modification date** (imprints P3 Task 5) — the one
+        /// signal for a picker whose rows live in a file nothing posts an event
+        /// about. An imprint is declared by editing that file (by hand, or
+        /// through `set_publish_config`), and neither route touches the
+        /// manifest, the annotations or a design proposal; keyed on `refreshes`
+        /// alone, the picker would not offer the imprint the writer had just
+        /// written.
+        ///
+        /// **One `stat` per body pass, and no more.** Reading it registers no
+        /// observation, so it does not drive a redraw of its own — it is read
+        /// whenever this pane was going to lay out anyway, which is what makes
+        /// it cheap enough to sit on the body path at all. The cost of that:
+        /// an imprint written while the desk sits perfectly idle arrives on the
+        /// next pass rather than instantly.
+        let configModified: Date?
     }
 
-    private var reloadKey: ReloadKey {
+    var reloadKey: ReloadKey {
         ReloadKey(manifestModified: store.manifest.modified, refreshes: refreshes,
                   designRunState: designer?.runState,
-                  designerBusy: designer?.isRunning ?? false)
+                  designerBusy: designer?.isRunning ?? false,
+                  imprint: documentStore.uiState.publishImprint,
+                  configModified: Self.configModified(in: projectURL))
+    }
+
+    /// The publish config's modification date, or nil when there is no config
+    /// yet — which is itself a value the key can compare, so writing the first
+    /// one re-derives.
+    static func configModified(in projectURL: URL) -> Date? {
+        let url = PublishConfigStore.fileURL(in: projectURL)
+        return (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
     }
 
     var body: some View {
@@ -191,7 +245,24 @@ struct DepartmentPaneHost: View {
             // `nil` arm cannot be reached from the pane (`offersShow` is this
             // same emptiness), and doing nothing is the right answer if it ever
             // is: a Show for a round that no longer exists has nowhere to go.
-            showProposal: { if let newest = proposals.first { onShowProposal(newest) } })
+            showProposal: { if let newest = proposals.first { onShowProposal(newest) } },
+            imprints: imprints,
+            // Read straight off the store rather than mirrored into `@State`:
+            // `DocumentStore` is `@Observable`, so a write through
+            // `updateUIState` moves the picker with no event and no second
+            // copy of the choice to keep in agreement with the persisted one.
+            //
+            // …through `selection(persisted:among:)`, because a persisted name
+            // is not automatically a selection — see there.
+            selectedImprint: Self.selection(
+                persisted: documentStore.uiState.publishImprint, among: imprints),
+            selectImprint: { Self.select(imprint: $0, in: documentStore) },
+            compileRun: compileRunner.state,
+            runCompile: {
+                compileRunner.start($0, projectStore: store, projectURL: projectURL)
+            },
+            cancelCompile: { compileRunner.cancel() },
+            bookLanguage: bookLanguage)
         .task(id: reloadKey) { await derive() }
     }
 
@@ -611,8 +682,32 @@ struct DepartmentPaneHost: View {
         // with four editions and one chapter Maugham could not open. A
         // per-document failure is now a value: `report.unreadable`, drawn as its
         // own line above the rows.
+        // **The config, read once and answered from three times** (imprints P3
+        // Task 5): the picker's rows, the book's own language for the compile
+        // sheet, and — when an imprint is picked and declares a `sections`
+        // allowlist — which documents the language rows are summed over. Three
+        // reads of one file would be three chances to describe different
+        // versions of it inside one derivation.
+        //
+        // **Read through the store's `nonisolated` door, and that is not an
+        // optimization.** `PublishConfigStore` is an actor, and `await`ing it
+        // here puts a foreign-executor suspension in front of the language
+        // walk: measured on this branch, that alone was enough for eight
+        // mounted cases in `DepartmentRunTests` to press a row the desk had not
+        // drawn yet. `derive()` is MainActor-confined and already reads
+        // `DesignProposalStore.list()` synchronously three lines down; this
+        // read keeps that posture.
+        let config = (try? PublishConfigStore.read(in: projectURL)) ?? nil
+        let picked = documentStore.uiState.publishImprint
+        let manuscript = EditionStatus.manuscriptDocumentIds(in: store.manifest)
+        imprints = Self.imprintNames(in: config)
+        bookLanguage = Self.sourceLanguage(imprint: picked, in: config,
+                                           pieceIDs: manuscript)
+
         let report = await EditionStatus.languageRows(
-            in: store, projectURL: projectURL)
+            in: store, projectURL: projectURL,
+            documentIds: Self.scopedDocumentIds(manuscript, imprint: picked,
+                                                in: config))
         languages = report.rows
         unreadable = report.unreadable
         do {
@@ -634,6 +729,107 @@ struct DepartmentPaneHost: View {
             return
         }
         openBrief = opened
+    }
+
+    // MARK: - The imprint (Task 5)
+
+    /// **Remember which imprint the desk is standing on**, per project.
+    ///
+    /// A verb of its own rather than a closure body, so the write is drivable
+    /// without mounting anything — `openBrief` and `needsTranslatorName`'s
+    /// shape. `nil` clears it back to the book, which is what the picker's
+    /// first row sets.
+    @MainActor
+    static func select(imprint: String?, in documentStore: DocumentStore) {
+        documentStore.updateUIState { $0.publishImprint = imprint }
+    }
+
+    /// **The book's own language, as the compile will read it** — the tag the
+    /// sheet offers checked and the one `LanguageSet` substitutes back to the
+    /// untranslated body.
+    ///
+    /// **Resolved, and that is the whole point.** `CompileOrchestrator` builds
+    /// its `LanguageSet` with `sourceTag: config.metadata.language` off the
+    /// config it has already put through `resolved(imprint:pieceIDs:)` — and
+    /// says so in its own comment, "because an imprint may spell the book's own
+    /// language differently from the book". An imprint whose `metadata`
+    /// fragment carries `"language": "es"` therefore has `es` as its source
+    /// tag; a sheet reading the TOP-LEVEL `en` would offer "the book's own
+    /// language (English)", send `["en"]`, and `LanguageSet` would take that as
+    /// a TRANSLATED edition — a coverage refusal for a translation nobody ever
+    /// wrote.
+    ///
+    /// **Through `resolved` rather than by reading the fragment**, which is
+    /// Constraint 1's door (`PublishConfig+Imprints.swift`: "Resolution is the
+    /// ONE place imprint-awareness lives"). Reaching into
+    /// `imprints[name]?.metadata?["language"]` would be a second, hand-rolled
+    /// copy of an RFC 7396 merge patch, and the two would drift the first time
+    /// the merge learned anything.
+    ///
+    /// Anything `resolved` refuses — a name the config no longer defines, a
+    /// fragment that leaves `metadata` undecodable — falls back to the book's
+    /// own tag, which is `scopedDocumentIds`' fallback for the same case and
+    /// for the same reason.
+    static func sourceLanguage(imprint: String?, in config: PublishConfig?,
+                               pieceIDs: [String]) -> String {
+        guard let config else { return PublishConfig.Metadata().language }
+        let resolved = (try? config.resolved(imprint: imprint,
+                                             pieceIDs: pieceIDs)) ?? config
+        return resolved.metadata.language
+    }
+
+    /// Every imprint the project declares, sorted — the picker's rows, and
+    /// empty for a config that has none or a project with no config at all.
+    static func imprintNames(in config: PublishConfig?) -> [String] {
+        (config?.imprints.keys).map { $0.sorted() } ?? []
+    }
+
+    /// **Which documents the desk sums, given the imprint it is standing on.**
+    ///
+    /// An imprint's `sections` block is an ALLOWLIST (`PublishConfig
+    /// .resolved(imprint:pieceIDs:)` materializes every id it does not name as
+    /// `include: false`), so a desk standing on one must report the coverage of
+    /// what would actually be compiled: an edition is "3 missing" against the
+    /// whole novel and complete against the pamphlet cut from it.
+    ///
+    /// **Filtered against `all` rather than read out of the allowlist**, which
+    /// keeps the manifest's own order and silently drops an id the imprint
+    /// names but the book no longer holds — a stale entry in a hand-edited
+    /// config must not put a chapter that does not exist onto the desk.
+    ///
+    /// An imprint with NO `sections` inherits the book's own map, so it is the
+    /// whole book — the same answer a `nil` imprint gets, and a name the config
+    /// does not define falls back to it too: the picker's rows come from that
+    /// same config, so a stale `UIState` name is a choice the writer can no
+    /// longer see, and summing the whole book is the honest reading of it.
+    /// **Which imprint the picker is standing on, given what was persisted.**
+    ///
+    /// An imprint is declared by editing `config.json` by hand, so one can be
+    /// deleted out from under a `UIState.publishImprint` that names it. The
+    /// `Picker`'s selection then matched no tag it drew and it went BLANK — not
+    /// the imprint, not "Book", nothing, with no way to tell which of the two
+    /// the desk was actually about.
+    ///
+    /// `nil` is the honest answer, and it is the one the rest of the desk had
+    /// already reached on its own: `scopedDocumentIds` sums the whole book for a
+    /// name the config does not define, and `sourceLanguage` falls back to the
+    /// book's own tag. This makes the picker agree with them rather than
+    /// disagree in silence.
+    ///
+    /// The persisted value is deliberately NOT rewritten — a writer who
+    /// temporarily renamed an imprint gets their choice back when they rename it
+    /// back, and a `body` that wrote to the store would be a write on the draw
+    /// path.
+    static func selection(persisted: String?, among imprints: [String]) -> String? {
+        guard let persisted, imprints.contains(persisted) else { return nil }
+        return persisted
+    }
+
+    static func scopedDocumentIds(_ all: [String], imprint: String?,
+                                  in config: PublishConfig?) -> [String] {
+        guard let imprint,
+              let sections = config?.imprints[imprint]?.sections else { return all }
+        return all.filter { sections.keys.contains($0) }
     }
 
     /// **The door.** Find-or-create, then present.

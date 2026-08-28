@@ -9,12 +9,35 @@ public actor PublishConfigStore {
         self.projectURL = projectURL
     }
 
-    public var fileURL: URL {
+    public var fileURL: URL { Self.fileURL(in: projectURL) }
+
+    /// The config's path, spelled once. `nonisolated` and static because a
+    /// caller outside the actor may legitimately need the LOCATION without
+    /// reading the file — the department desk reads its modification date on a
+    /// body path to know when its imprint picker is stale — and a second
+    /// spelling of `.maugham/publish/config.json` is a path that can drift.
+    public nonisolated static func fileURL(in projectURL: URL) -> URL {
         projectURL.appendingPathComponent(".maugham/publish/config.json")
     }
 
-    public func load() throws -> PublishConfig? {
-        let url = fileURL
+    public func load() throws -> PublishConfig? { try Self.read(in: projectURL) }
+
+    /// **The same read, without the actor hop.**
+    ///
+    /// One implementation with two doors: `load()` above is the ordinary one,
+    /// and this is for a caller already pinned to another executor for whom a
+    /// hop is not free. The department desk is that caller — its `derive()` is
+    /// MainActor-confined and already reads `DesignProposalStore.list()`
+    /// synchronously, and putting a foreign-actor suspension in front of the
+    /// language walk measurably delayed the rows past the point a mounted test
+    /// pressed one (imprints P3 Task 5).
+    ///
+    /// **Safe to read outside the actor** because `save` above replaces the
+    /// file atomically: a concurrent writer gives this reader the whole old
+    /// document or the whole new one, never a torn one. What the actor protects
+    /// is read-modify-write ordering, and this does not write.
+    public nonisolated static func read(in projectURL: URL) throws -> PublishConfig? {
+        let url = fileURL(in: projectURL)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data = try Data(contentsOf: url)  // adr-0018-ok: publish config JSON read, not manuscript
         return try JSONDecoder().decode(PublishConfig.self, from: data)

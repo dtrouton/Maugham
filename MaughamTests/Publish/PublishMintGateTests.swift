@@ -157,8 +157,12 @@ final class PublishMintGateTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(sites, 2,
-                       "expected exactly the two production construction sites (CompileTools, PublicationTools); found \(sites)")
+        XCTAssertEqual(sites, 3,
+                       "expected exactly the three production construction sites "
+                       + "(CompileTools' compile, PublicationTools' republish, and "
+                       + "DeskCompileRunner — the Publish desk's own press, imprints "
+                       + "P3 Task 4, which is the first construction that is not an "
+                       + "MCP tool's); found \(sites)")
         XCTAssertTrue(offenders.isEmpty,
                       "every production construction must pass PublishingStores' shared gate:\n" +
                       offenders.joined(separator: "\n"))

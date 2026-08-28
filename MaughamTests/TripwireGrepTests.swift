@@ -344,6 +344,103 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - The toolchain has one home (imprints P3 Task 4)
+
+    /// The two versions every compile stamps into a `Publication`: the running
+    /// build's, and the bundled tectonic's.
+    private var toolchainPatterns: [String] {
+        ["CFBundleShortVersionString", "\"0.15.0\""]
+    }
+
+    /// The three areas that compile a book, and therefore the three that could
+    /// grow a fifth spelling of the toolchain's versions.
+    private var toolchainCensusDirs: [URL] {
+        // `Views/Publish` joined the list in imprints P3 Task 5, when
+        // `DeskCompileRunner` became the second production construction of
+        // `CompileOrchestrator` — a compile stamp is minted in this directory
+        // now, so a fifth spelling could grow here too.
+        ["Publish", "MCP", "Compiler", "Views/Publish"].map {
+            sourceDir.appendingPathComponent($0, isDirectory: true)
+        }
+    }
+
+    /// The files under those areas that legitimately read the build's version
+    /// for something that is NOT a compile stamp — named one by one rather than
+    /// pattern-matched, so a new file cannot join the list by accident.
+    ///
+    /// `MCPInitializeHandler` and `TestPingTool` report the app's version over
+    /// the wire (the MCP handshake and the ping), and `ListMaughamToolsTool`
+    /// stamps the catalogue listing. None of the three is a publication record,
+    /// and none of them can drift a compile's stamp. `PublishToolchain` is the
+    /// one home itself. (The About tab and the updater read the same key and
+    /// live outside these three directories entirely.)
+    private var toolchainAllowed: Set<String> {
+        ["PublishToolchain.swift",
+         "MCPInitializeHandler.swift",
+         "ListMaughamToolsTool.swift",
+         "TestPingTool.swift"]
+    }
+
+    /// **Tripwire: the toolchain's versions are spelled in exactly one place.**
+    ///
+    /// Before imprints P3 Task 4 there were FOUR — `CompileTools` twice,
+    /// `PublicationTools` once and `DesignerEnvironment+Project` once, the last
+    /// of which carried a comment admitting it was a fourth. A bumped tectonic
+    /// in three of the four is a catalog where two records made by the same
+    /// build disagree about what typeset them, and nothing reads back what a
+    /// record claims, so the drift is invisible until somebody debugs a book
+    /// with the wrong provenance in its stamp.
+    func test_theToolchainsVersionsAreSpelledInExactlyOnePlace() throws {
+        var offenders: [String] = []
+        for dir in toolchainCensusDirs {
+            offenders += try grepSwift(
+                in: dir,
+                patterns: toolchainPatterns,
+                allowed: toolchainAllowed,
+                excludeLine: { line in
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+                })
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A compile's toolchain versions have one home: `PublishToolchain"
+            + ".maughamVersion` and `PublishToolchain.tectonicVersion`. A second "
+            + "spelling under Publish/, MCP/, Compiler/ or Views/Publish/ is "
+            + "how two records "
+            + "made by the same build come to disagree about what made them. "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: it is not passing because the patterns
+    /// match nothing. A planted file carrying each spelling is caught.
+    func test_theToolchainCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-toolchain-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = tmp.appendingPathComponent("SecondCompileSite.swift")
+        try """
+        enum SecondCompileSite {
+            static let mauqham = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+            static let tectonic = "0.15.0"
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: toolchainPatterns,
+            allowed: toolchainAllowed,
+            excludeLine: { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+            })
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check: both spellings should be caught. Got:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - Meta-tests: tripwires fire on planted offenders (task 4.8 / test gap #14)
 
     /// Self-check: prove the op-log filename tripwire FIRES on a planted

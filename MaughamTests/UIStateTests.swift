@@ -228,4 +228,45 @@ final class UIStatePersonaTests: XCTestCase {
         XCTAssertEqual(UIState.loadOrEmpty(from: url).persona, .author,
                        "a newer schema must fall back to .empty, not adopt its values")
     }
+
+    // MARK: - The desk's imprint (imprints P3 Task 5)
+
+    /// **Which imprint the Publish desk is standing on, remembered per
+    /// project.** `nil` is the book itself, and it is the value a project that
+    /// has never had an imprint picked decodes to — so a writer who never
+    /// touches the picker compiles the book, which is what every version of
+    /// this app before P3 did.
+    func test_theDesksImprintIsNilForTheBookItself() {
+        XCTAssertNil(UIState.empty.publishImprint)
+    }
+
+    func test_publishImprint_roundTripsThroughEncoding() throws {
+        var state = UIState.empty
+        state.publishImprint = "special"
+        let decoded = try JSONDecoder().decode(
+            UIState.self, from: try JSONEncoder().encode(state))
+        XCTAssertEqual(decoded.publishImprint, "special")
+    }
+
+    /// **An older file has never heard of the key and decodes to the book** —
+    /// the tolerated-missing default every additive field on this type takes.
+    /// The fields it DOES carry come through beside it, which is what makes
+    /// this a skew test rather than a default test.
+    func test_decode_ofAStateWithoutAnImprint_isTheBookNotAFailure() throws {
+        let json = Data("""
+        {"schemaVersion":5,"isNoChromeOn":false,
+         "researchPreviewVisible":false,"detailSegment":"inspector",
+         "outlineLayout":"table","isReviewModeOn":false,"persona":"publish"}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(UIState.self, from: json)
+        XCTAssertNil(decoded.publishImprint)
+        XCTAssertEqual(decoded.persona, .publish,
+                       "the fields this build still has come through beside the "
+                       + "one it did not carry yet")
+    }
+
+    func test_currentSchemaVersion_didNotBumpForPublishImprint() {
+        // Additive key with a tolerated-missing default — see the property.
+        XCTAssertEqual(UIState.currentSchemaVersion, 5)
+    }
 }

@@ -47,3 +47,16 @@ section.screenplay div.dual-dialogue > div.right {
 }
 section.screenplay div.dual-dialogue p.character { margin-left: 0; text-align: center; }
 section.screenplay div.dual-dialogue p.dialogue { margin-left: 0; margin-right: 0; }
+
+/* Cross-body links (multi-language compiles): a slugline's sibling markers
+   pointing at the same scene in each other rendered language. */
+span.cross-links {
+  font-size: 0.75em;
+  color: #888;
+  margin-left: 0.5em;
+}
+a.cross-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}

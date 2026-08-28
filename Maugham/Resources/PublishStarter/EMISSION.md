@@ -30,6 +30,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 A plain sentence.
 
@@ -46,6 +48,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 \section*{Chapter Title}
 \addcontentsline{toc}{section}{Chapter Title}
@@ -62,6 +66,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 \begin{quote}
 A quote with \emph{italic} inside.
@@ -80,6 +86,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 \scenebreak
 \end{prose}
@@ -95,6 +103,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 Text with \emph{em}, \textbf{strong}, \_under\_, \texttt{code}.
 
@@ -111,6 +121,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 \end{prose}
 ```
@@ -125,6 +137,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 Both \textbf{\emph{kinds}} now.
 
@@ -141,6 +155,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 Cut \st{this clause} entirely.
 
@@ -157,6 +173,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 A literal *star* here.
 
@@ -173,6 +191,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 snake\_case stays flat.
 
@@ -190,6 +210,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 \begin{itemize}
 \item one
@@ -211,6 +233,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{prose}{Example}
 *not em*\newline `nor code`
 
@@ -229,6 +253,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{screenplay}{Example}
 \providecommand{\lyricline}[1]{\textit{#1}\par}
 \providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
@@ -252,6 +278,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{screenplay}{Example}
 \providecommand{\lyricline}[1]{\textit{#1}\par}
 \providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
@@ -277,6 +305,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{screenplay}{Example}
 \providecommand{\lyricline}[1]{\textit{#1}\par}
 \providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
@@ -296,6 +326,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{screenplay}{Example}
 \providecommand{\lyricline}[1]{\textit{#1}\par}
 \providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
@@ -315,6 +347,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{screenplay}{Example}
 \providecommand{\lyricline}[1]{\textit{#1}\par}
 \providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
@@ -336,6 +370,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{screenplay}{Example}
 \providecommand{\lyricline}[1]{\textit{#1}\par}
 \providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
@@ -355,6 +391,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{screenplay}{Example}
 \providecommand{\lyricline}[1]{\textit{#1}\par}
 \providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
@@ -379,6 +417,8 @@ emits:
 
 ```latex
 \providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
 \begin{screenplay}{Example}
 \providecommand{\lyricline}[1]{\textit{#1}\par}
 \providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
@@ -486,6 +526,81 @@ One `MaughamBody` line per rendered language, in the order the compile asked for
 ### `\input` paths and subdirectory templates
 
 The wrapper's `\input` arguments are relative to the **primary template's own directory**, not to `build/body.tex` and not to the working directory — the same rule that makes an imprint template at `templates/special.tex` reach the shared preamble with `\input{../preamble}`. Maugham writes the matching prefix into the wrapper itself (`\input{../build/body.en}` for a template one directory down), so a template author only ever writes their own partials' paths.
+
+## Paragraph anchors — `p-<tag>-<¶id>`
+
+Every node a paragraph in the op log produced carries that paragraph's `¶id` into **both** artifacts. This is the first artifact-side id a template can rely on: before it, nothing in a compiled PDF or EPUB could be addressed back to a paragraph.
+
+The name is `p-<tag>-<¶id>`:
+
+| Part | What it is |
+|---|---|
+| `<tag>` | the compiler's filename-safe **body tag** — the body's language tag (`en`, `sr`), or its ordinal when that tag cannot be a filename. It is what tells the halves of a bilingual book apart: the same paragraph id appears once per body. |
+| `<¶id>` | the op log's own 4-character id, drawn from `0-9a-hjkmnp-tv-z`. Safe both as a LaTeX argument and as an XML `id`. |
+
+**LaTeX** — a `\hypertarget` on its OWN line, immediately BEFORE the node's first line:
+
+```latex
+\hypertarget{p-en-k3wq}{}
+The paragraph's text, escaped.
+
+```
+
+The second argument is empty on purpose: a target marks a position, it typesets nothing. Never place it AFTER the text — a prose paragraph's own blank line (its `\par`) follows the text, and an anchor between the two would split the paragraph in half.
+
+**XHTML** — `id="p-en-k3wq"` on the node's FIRST element:
+
+```html
+<p id="p-en-k3wq">The paragraph's text.</p>
+```
+
+**Anchors are sparse.** A paragraph anchors only the first node it produced, so a cue-and-speech block (one paragraph, three fountain nodes) contributes one anchor, and a node whose paragraph could not be identified contributes none. A source that hands no paragraphs at all emits no anchors and is byte-identical to what it emitted before anchors existed.
+
+## Cross-body links — `\MaughamCrossLink`
+
+In a multi-language compile every **slugline** links to the same slugline in each of the other bodies, so a reader of a bilingual screenplay can jump from a scene to its translation. Only sluglines link; every other node still anchors, so a link has somewhere to land.
+
+**LaTeX** — the link WRAPS the mode command and is never wrapped by it. The starter's `\scene` applies `\MakeUppercase` to its argument, which would uppercase (and so break) a target passed inside it:
+
+```latex
+\MaughamCrossLink{p-sr-k3wq}{\scene{INT. ROOM - DAY}}
+```
+
+With more than one other body the wraps NEST, first other body outermost:
+
+```latex
+\MaughamCrossLink{p-sr-k3wq}{\MaughamCrossLink{p-de-k3wq}{\scene{INT. ROOM - DAY}}}
+```
+
+`\MaughamCrossLink{target}{content}` takes the anchor name and the content. The starter `preamble.tex` defines it as
+
+```latex
+\providecommand{\MaughamCrossLink}[2]{\hyperlink{#1}{#2}}
+```
+
+A template is free to define it as something else — a coloured link, a marginal marker, or nothing at all. Whatever it defines wins, because both definitions are `\providecommand` and the preamble is read first.
+
+A single-language compile passes no other bodies and emits neither form — a plain `\scene`.
+
+**XHTML** — an `<a>` around the slugline pointing at the first other body's section file, with a sibling marker link per further body:
+
+```html
+<a href="section-sr-002.xhtml#p-sr-k3wq">INT. ROOM - DAY</a>
+```
+
+### The prologue is one contract
+
+Every body opens with the same three lines — anchored or not, single-language or not:
+
+```latex
+\providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
+```
+
+They are unconditional so the emitted contract is one shape rather than four, and each degrades to its content: no `soul` and `\st` sets plainly, no `hyperref` and `\hypertarget{name}{}` sets nothing at all. `\providecommand` in the preamble AND in the body is what lets the preamble's definition win: it is read first, and the body's then no-ops. An existing project never receives starter updates, so this is the only thing standing between a `preamble.tex` written before cross-links existed and a failed compile.
+
+**The cross-link fallback links rather than degrading whenever it can.** Its `\ifdefined\hyperlink` test is decided at each use, not at load time, so a project whose preamble loads `hyperref` — every project the starter ever installed — gets working links from the body alone, with no `\MaughamCrossLink` definition of its own. Only a preamble without hyperref sets the slugline un-linked. A template that defines the command still wins over both.
 
 ## Recovery
 

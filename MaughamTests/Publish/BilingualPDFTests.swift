@@ -68,6 +68,38 @@ final class BilingualPDFTests: XCTestCase {
         }
     }
 
+    /// P3 Task 2. A screenplay that hands its op-log PARAGRAPHS as well as its
+    /// display text, so `ProjectASTBuilder` can hang a `¶id` on each node — the
+    /// premise every anchor in this file rests on. Two sluglines and two
+    /// actions; the ids are the SAME in both languages, which is exactly what
+    /// makes a cross-link resolvable (`p-en-aaaa` ↔ `p-sr-aaaa`).
+    private struct AnchoredScreenplay: LanguageRebindableSource {
+        let tag: String?
+        static let source: [(id: String, text: String)] = [
+            ("aaaa", "INT. ROOM - DAY"),
+            ("bbbb", "He waits by the window."),
+            ("cccc", "EXT. STREET - NIGHT"),
+            ("dddd", "She walks away."),
+        ]
+        static let translated: [(id: String, text: String)] = [
+            ("aaaa", "INT. SOBA - DAN"),
+            ("bbbb", "Ceka kraj prozora."),
+            ("cccc", "EXT. ULICA - VECE"),
+            ("dddd", "Ona odlazi."),
+        ]
+        /// Two `\\scene` nodes per body — the count the link census multiplies.
+        static let sluglinesPerBody = 2
+        var rows: [(id: String, text: String)] { tag == nil ? Self.source : Self.translated }
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            [.init(pieceID: "p1", title: "Opening", mode: .fountain,
+                   displayText: rows.map(\.text).joined(separator: "\n\n"),
+                   paragraphs: rows)]
+        }
+        func rebound(toLanguage tag: String?) -> ProjectASTBuilder.Source {
+            AnchoredScreenplay(tag: tag)
+        }
+    }
+
     private func baseConfig() -> PublishConfig {
         var cfg = PublishConfig(metadata: .init(title: "Base Title", author: "Tester"))
         cfg.metadata.language = "en"
@@ -110,6 +142,35 @@ final class BilingualPDFTests: XCTestCase {
         return out
     }
 
+    /// P3 Task 2. The anchored fixture's config: the piece is kept OUT of the
+    /// table of contents, because a ToC entry is itself a hyperref link and the
+    /// link census below counts cross-links. With no ToC entries the baseline
+    /// is a clean zero and the census measures only what this task emits.
+    private func anchoredConfig() -> PublishConfig {
+        var cfg = baseConfig()
+        cfg.sections = ["p1": .init(includeInToc: false)]
+        return cfg
+    }
+
+    private func anchoredTwoBodyPlan(_ cfg: PublishConfig) throws -> BodyPlan {
+        let set = try LanguageSet(language: nil, languages: ["source", "sr"], sourceTag: "en")
+        return try BodyPlan.make(
+            set: set, resolved: cfg, source: AnchoredScreenplay(tag: nil),
+            publishDir: publish, wrap: { $0 })
+    }
+
+    /// Every `Link` annotation in the PDF. hyperref renders `\hyperlink` as one,
+    /// and a `\hypertarget` as none — a target is a destination, not a link — so
+    /// this counts cross-links and nothing else.
+    private func linkAnnotationCount(at url: URL) -> Int {
+        guard let doc = PDFDocument(url: url) else { return -1 }
+        var count = 0
+        for i in 0..<doc.pageCount {
+            count += (doc.page(at: i)?.annotations ?? []).filter { $0.type == "Link" }.count
+        }
+        return count
+    }
+
     // MARK: - single body: the wrapper's shape
 
     func test_theWrapperIsTheGuardLineAndOneLinePerBody() async throws {
@@ -139,7 +200,12 @@ final class BilingualPDFTests: XCTestCase {
         let expected = LaTeXBodyEmitter.emit(
             try ProjectASTBuilder.build(from: piece), config: cfg)
         XCTAssertEqual(try contents("body.en.tex"), expected,
-            "the emitter is untouched by this task — body.<tag>.tex is its output verbatim")
+            "body.<tag>.tex is the emitter's output verbatim. P3 Task 2 note: the "
+            + "compiler now passes an anchorTag, and this stays an equality against "
+            + "the UNTAGGED emit because StarterPiece hands no paragraphs — an "
+            + "unanchored source emits the same bytes tagged or not. "
+            + "test_eachBodyIsAnchoredUnderItsOwnTagAndLinksToTheOthers is what "
+            + "pins the tagged case.")
     }
 
     // MARK: - single body: metadata.tex is byte-identical
@@ -407,5 +473,243 @@ final class BilingualPDFTests: XCTestCase {
         // filename is sanitised.
         let meta = try contents("metadata.tex")
         XCTAssertTrue(meta.contains("\\renewcommand{\\MaughamLanguage}{en US}"), meta)
+    }
+
+    // MARK: - P3 Task 2: the compiler tags every body and names the others
+
+    /// The wiring test, no compile needed: each body is emitted under its OWN
+    /// tag and told about every OTHER body — so `body.en.tex` targets `p-en-…`
+    /// and links to `p-sr-…`, and `body.sr.tex` is its mirror. A compiler that
+    /// passed its own tag as a cross-link would make every slugline link to
+    /// itself; a compiler that passed no tag would emit no anchors at all.
+    func test_eachBodyIsAnchoredUnderItsOwnTagAndLinksToTheOthers() async throws {
+        let cfg = anchoredConfig()
+        let compiler = try PDFCompiler(
+            projectURL: tmp, bodies: try anchoredTwoBodyPlan(cfg).bodies, config: cfg,
+            jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
+        _ = try await compiler.compile(label: nil)
+
+        let en = try contents("body.en.tex")
+        let sr = try contents("body.sr.tex")
+        XCTAssertTrue(en.contains("\\hypertarget{p-en-aaaa}{}\n\\MaughamCrossLink{p-sr-aaaa}{\\scene{INT. ROOM - DAY}}"), en)
+        XCTAssertTrue(en.contains("\\hypertarget{p-en-bbbb}{}\n\\action{He waits by the window.}"), en)
+        XCTAssertTrue(sr.contains("\\hypertarget{p-sr-aaaa}{}\n\\MaughamCrossLink{p-en-aaaa}{\\scene{INT. SOBA - DAN}}"), sr)
+        // Neither body links to itself.
+        XCTAssertFalse(en.contains("\\MaughamCrossLink{p-en-"), en)
+        XCTAssertFalse(sr.contains("\\MaughamCrossLink{p-sr-"), sr)
+        // One cross-link per slugline, not one per node.
+        XCTAssertEqual(en.components(separatedBy: "\\MaughamCrossLink{p-").count - 1,
+                       AnchoredScreenplay.sluglinesPerBody, en)
+    }
+
+    /// The single-body control for the same wiring: the compiler still tags the
+    /// body (the anchors are there for a template to link to) but has no other
+    /// body to name, so not one `\MaughamCrossLink` is emitted.
+    func test_aSingleBodyIsStillAnchoredAndCrossLinksNothing() async throws {
+        let cfg = anchoredConfig()
+        let compiler = try PDFCompiler(
+            projectURL: tmp, astSource: AnchoredScreenplay(tag: nil), config: cfg,
+            jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
+        _ = try await compiler.compile(label: nil)
+
+        let en = try contents("body.en.tex")
+        XCTAssertTrue(en.contains("\\hypertarget{p-en-aaaa}{}\n\\scene{INT. ROOM - DAY}"), en)
+        XCTAssertFalse(en.contains("\\MaughamCrossLink{p-"), en)
+    }
+
+    // MARK: - P3 Task 2: anchors cost no pages
+
+    /// Measured 2026-08-28 against the bundled tectonic, both numbers from this
+    /// very fixture and this very config: **4 pages** at BASE (`9a55484f`, the
+    /// emitter ignoring `Section.anchors` entirely — measured by having
+    /// `PDFCompiler` pass no tag) and **4 pages** with every paragraph anchored
+    /// and every slugline cross-linked. A `\hypertarget{…}{}` sets nothing and
+    /// `\hyperlink` sets its content unchanged, so neither can move the
+    /// pagination of a book already typeset — this is the test that says so.
+    func test_anchoringEveryParagraphCostsNoPages() async throws {
+        let cfg = anchoredConfig()
+        let compiler = try PDFCompiler(
+            projectURL: tmp, bodies: try anchoredTwoBodyPlan(cfg).bodies, config: cfg,
+            jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
+        let result = try await compiler.compile(label: nil)
+        XCTAssertTrue(result.errors.isEmpty,
+                      "tectonic reported errors: \(result.errors.map(\.message))\n\n\(result.logExcerpt)")
+        XCTAssertFalse(result.outputPath.isEmpty,
+                       "empty outputPath means tectonic exit code != 0.\n\n\(result.logExcerpt)")
+        let pdf = PDFDocument(url: URL(fileURLWithPath: result.outputPath))
+        XCTAssertEqual(pdf?.pageCount, 4,
+            "anchoring changed the fixture's pagination; it measured 4 pages at BASE, "
+            + "before the emitter had heard of anchors, and must still")
+    }
+
+    // MARK: - P3 Task 2: the links are really in the PDF
+
+    /// The end-to-end proof, through the starter's own `preamble.tex`: with
+    /// `\MaughamCrossLink` defined as `\hyperlink`, every slugline in every body
+    /// becomes a real PDF `Link` annotation pointing at the same scene in each
+    /// other body. Two bodies × two sluglines × one other body each = 4.
+    func test_everySluglineBecomesALinkAnnotationToEachOtherBody() async throws {
+        let cfg = anchoredConfig()
+        let plan = try anchoredTwoBodyPlan(cfg)
+        let compiler = try PDFCompiler(
+            projectURL: tmp, bodies: plan.bodies, config: cfg,
+            jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
+        let result = try await compiler.compile(label: nil)
+        XCTAssertTrue(result.errors.isEmpty,
+                      "tectonic reported errors: \(result.errors.map(\.message))\n\n\(result.logExcerpt)")
+        XCTAssertFalse(result.outputPath.isEmpty,
+                       "empty outputPath means tectonic exit code != 0.\n\n\(result.logExcerpt)")
+        // No undefined control sequence: the starter's preamble really does
+        // define what the body invokes.
+        XCTAssertFalse(result.logExcerpt.contains("Undefined control sequence"),
+                       result.logExcerpt)
+
+        let expected = plan.bodies.count
+            * AnchoredScreenplay.sluglinesPerBody
+            * (plan.bodies.count - 1)
+        XCTAssertEqual(linkAnnotationCount(at: URL(fileURLWithPath: result.outputPath)),
+                       expected,
+                       "each of \(plan.bodies.count) bodies must contribute "
+                       + "\(AnchoredScreenplay.sluglinesPerBody) linked sluglines "
+                       + "× \(plan.bodies.count - 1) other bodies")
+    }
+
+    /// The control for the census above, and the disable experiment for the
+    /// cross-link emission itself: the SAME fixture and the SAME starter
+    /// preamble compiled as ONE body carries zero `Link` annotations. (The
+    /// piece is out of the ToC precisely so this baseline is zero — a ToC entry
+    /// is a link too.) Deleting the `crossLinkTags` argument at
+    /// `PDFCompiler.swift`'s `LaTeXBodyEmitter.emit(ast, config: body.config,
+    /// anchorTag: tag, crossLinkTags: others)` makes the two-body test above
+    /// read zero as well, which is what this control distinguishes it from.
+    func test_aSingleBodyCarriesNoLinkAnnotationsAtAll() async throws {
+        let cfg = anchoredConfig()
+        let compiler = try PDFCompiler(
+            projectURL: tmp, astSource: AnchoredScreenplay(tag: nil), config: cfg,
+            jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
+        let result = try await compiler.compile(label: nil)
+        XCTAssertTrue(result.errors.isEmpty,
+                      "tectonic reported errors: \(result.errors.map(\.message))\n\n\(result.logExcerpt)")
+        XCTAssertEqual(linkAnnotationCount(at: URL(fileURLWithPath: result.outputPath)), 0,
+                       "a single-language compile has no other body to link to")
+    }
+
+    // MARK: - P3 Task 2: a preamble that never heard of hyperref
+
+    /// The prologue's whole reason to exist. `PublishStarter.installIfMissing`
+    /// never updates an existing project's files, so a book initialised before
+    /// P3 has a `preamble.tex` with no `\MaughamCrossLink` — and, if its author
+    /// dropped hyperref, no `\hypertarget` either. This writes exactly such a
+    /// preamble: minimal, no hyperref, no `soul`, no `MaughamBody`. The body's
+    /// own three `\providecommand` lines are all that stand between it and an
+    /// undefined control sequence.
+    func test_aPreambleWithoutHyperrefStillCompiles() async throws {
+        try """
+            % A deliberately minimal preamble: no hyperref, no soul, and no
+            % \\MaughamCrossLink — a project that predates every one of them.
+            \\providecommand{\\Title}{Untitled}
+            \\providecommand{\\Subtitle}{}
+            \\providecommand{\\Author}{}
+            \\providecommand{\\Copyright}{}
+            \\providecommand{\\Keywords}{}
+            \\providecommand{\\MaughamVersion}{0.1}
+            \\providecommand{\\MaughamLabel}{}
+            \\providecommand{\\MaughamLanguage}{en}
+            \\usepackage[utf8]{inputenc}
+            \\usepackage{geometry}
+            \\geometry{margin=1in}
+            \\newcommand{\\wikilink}[2]{\\textbf{#2}}
+            """.write(to: publish.appendingPathComponent("preamble.tex"),
+                      atomically: true, encoding: .utf8)
+
+        let cfg = anchoredConfig()
+        let compiler = try PDFCompiler(
+            projectURL: tmp, bodies: try anchoredTwoBodyPlan(cfg).bodies, config: cfg,
+            jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
+        let result = try await compiler.compile(label: nil)
+
+        XCTAssertTrue(result.errors.isEmpty,
+                      "a pre-P3 project failed to compile — the emitted providecommands "
+                      + "are what stand in for the preamble it will never receive: "
+                      + "\(result.errors.map(\.message))\n\n\(result.logExcerpt)")
+        XCTAssertFalse(result.outputPath.isEmpty,
+                       "empty outputPath means tectonic exit code != 0.\n\n\(result.logExcerpt)")
+        // It degraded rather than linked: no hyperref, so no annotations — and
+        // the sluglines still set.
+        let url = URL(fileURLWithPath: result.outputPath)
+        XCTAssertEqual(linkAnnotationCount(at: url), 0,
+                       "without hyperref the cross-link must degrade to its content")
+        let plain = pdfPlainText(at: url)
+        XCTAssertTrue(plain.contains("INT. ROOM - DAY"), plain)
+        XCTAssertTrue(plain.contains("INT. SOBA - DAN"), plain)
+    }
+
+    /// **A project that predates cross-links, but does load hyperref, LINKS.**
+    ///
+    /// This is the case the flat `{#2}` fallback got wrong, and it is the
+    /// COMMON one: `PublishStarter.installIfMissing` returns early for an
+    /// initialised project, so every book begun before this milestone keeps its
+    /// old `preamble.tex` forever — hyperref and all — and never receives the
+    /// starter's `\MaughamCrossLink` definition. Under the flat fallback those
+    /// projects emitted a cross-link for every slugline and rendered every one
+    /// of them dead, with nothing red anywhere to say so.
+    ///
+    /// The fixture is exactly that project: the starter's own preamble with the
+    /// `\MaughamCrossLink` line deleted and nothing else touched.
+    ///
+    /// Disable experiment: restore `LaTeXBodyEmitter`'s fallback to
+    /// `"\\providecommand{\\MaughamCrossLink}[2]{#2}"` and this fails with
+    /// `XCTAssertEqual failed: ("0") is not equal to ("4") - a preamble that
+    /// loads hyperref must link…`. The control is
+    /// `test_aPreambleWithoutHyperrefStillCompiles` directly above, which reads
+    /// 0 on the same fixture BECAUSE hyperref is absent — the two together are
+    /// what say the `\ifdefined` test is doing the work rather than the links
+    /// being unconditional.
+    func test_aPreambleThatLoadsHyperrefLinksWithNoCrossLinkDefinitionOfItsOwn() async throws {
+        let preambleURL = publish.appendingPathComponent("preamble.tex")
+        let starter = try String(contentsOf: preambleURL, encoding: .utf8)
+        let definition = "\\providecommand{\\MaughamCrossLink}[2]{\\hyperlink{#1}{#2}}"
+        XCTAssertTrue(starter.contains(definition),
+                      "premise: the starter defines the command this fixture strips")
+        let stripped = starter.components(separatedBy: "\n")
+            .filter { !$0.contains("\\providecommand{\\MaughamCrossLink}") }
+            .joined(separator: "\n")
+        XCTAssertFalse(stripped.contains("\\MaughamCrossLink}[2]{\\hyperlink"),
+                       "premise: the definition is really gone")
+        XCTAssertTrue(stripped.contains("hyperref"),
+                      "premise: hyperref is still loaded \u{2014} that is the "
+                      + "whole difference from the test above")
+        try stripped.write(to: preambleURL, atomically: true, encoding: .utf8)
+
+        let cfg = anchoredConfig()
+        let plan = try anchoredTwoBodyPlan(cfg)
+        let compiler = try PDFCompiler(
+            projectURL: tmp, bodies: plan.bodies, config: cfg,
+            jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
+        let result = try await compiler.compile(label: nil)
+        XCTAssertTrue(result.errors.isEmpty,
+                      "tectonic reported errors: \(result.errors.map(\.message))\n\n\(result.logExcerpt)")
+        XCTAssertFalse(result.logExcerpt.contains("Undefined control sequence"),
+                       result.logExcerpt)
+
+        let expected = plan.bodies.count
+            * AnchoredScreenplay.sluglinesPerBody
+            * (plan.bodies.count - 1)
+        XCTAssertEqual(linkAnnotationCount(at: URL(fileURLWithPath: result.outputPath)),
+                       expected,
+                       "a preamble that loads hyperref must link even with no "
+                       + "\\MaughamCrossLink definition of its own \u{2014} this "
+                       + "is every project that existed before the command did")
+    }
+
+    /// The starter really does ship the definition the test above strips —
+    /// pinned so the two cannot drift apart silently.
+    func test_theStarterPreambleDefinesTheCrossLinkAsAHyperlink() throws {
+        let preamble = try String(
+            contentsOf: publish.appendingPathComponent("preamble.tex"), encoding: .utf8)
+        XCTAssertTrue(
+            preamble.contains("\\providecommand{\\MaughamCrossLink}[2]{\\hyperlink{#1}{#2}}"),
+            "the starter preamble must define \\MaughamCrossLink, and with "
+            + "\\providecommand so a template of the project's own still wins:\n\(preamble)")
     }
 }

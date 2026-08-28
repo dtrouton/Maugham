@@ -136,9 +136,27 @@ enum EditionStatus {
     static func languageRows(
         in store: ProjectStore, projectURL: URL
     ) async -> Report {
+        await languageRows(in: store, projectURL: projectURL,
+                           documentIds: manuscriptDocumentIds(in: store.manifest))
+    }
+
+    /// **The same answer over a NAMED set of documents** (imprints P3 Task 5).
+    ///
+    /// An imprint whose `sections` block is an allowlist compiles a subset of
+    /// the book, and a desk standing on that imprint must sum the subset: an
+    /// edition is "3 missing" against the whole novel and complete against the
+    /// pamphlet cut from it, and the writer about to press Compile is asking
+    /// about the thing that will actually be compiled.
+    ///
+    /// Additive rather than a parameter with a default on the call above,
+    /// because the two are different questions and the whole-book one has a
+    /// caller (`translation_status`, the tool this desk must agree with) that
+    /// must never accidentally acquire a scope.
+    static func languageRows(
+        in store: ProjectStore, projectURL: URL, documentIds: [String]
+    ) async -> Report {
         let documents = await documentRows(
-            documentIds: manuscriptDocumentIds(in: store.manifest),
-            store: store, projectURL: projectURL)
+            documentIds: documentIds, store: store, projectURL: projectURL)
         return Report(
             rows: languageRows(from: documents.rows, in: store.manifest),
             unreadable: documents.unreadable)

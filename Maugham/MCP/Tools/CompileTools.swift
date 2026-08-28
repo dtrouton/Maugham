@@ -151,8 +151,8 @@ public enum CompileTool: MCPTool {
             snapshotStore: stores.snapshotStore,
             jobManager: stores.jobManager,
             mintGate: stores.mintGate,
-            maughamVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0",
-            tectonicVersion: "0.15.0")
+            maughamVersion: PublishToolchain.maughamVersion,
+            tectonicVersion: PublishToolchain.tectonicVersion)
 
         let wait = TimeInterval(params.waitSeconds ?? 60)
         let format = params.format
@@ -255,8 +255,8 @@ public enum PreviewCompileTool: MCPTool {
                 language: params.language),
             configStore: stores.configStore,
             jobManager: stores.jobManager,
-            maughamVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0",
-            tectonicVersion: "0.15.0",
+            maughamVersion: PublishToolchain.maughamVersion,
+            tectonicVersion: PublishToolchain.tectonicVersion,
             language: params.language,
             languages: params.languages,
             allowStale: params.allowStale ?? false)

@@ -27,6 +27,21 @@ section names that chapter above the rows and says why, and the rest of
 the book's editions still show. What's missing is that chapter's share of
 the counts, not the whole desk.
 
+### Which book the desk is about
+
+If your project declares **imprints** in `config.json` — a special edition
+with its own template, its own metadata and its own version count — the
+desk's header carries a picker: **Book**, then one row per imprint. What
+you pick is what the whole desk is about. An imprint that names its own
+`sections` publishes a subset of the book, and the language rows are summed
+over exactly that subset: the same Spanish edition can be three paragraphs
+short of the novel and complete for the pamphlet cut out of it.
+
+The choice is remembered per project, so if you spend a week on one special
+edition you pick it once. A project with no imprints gets one line saying
+so instead of a picker — an imprint is declared in `config.json`, not from
+this desk.
+
 ## Starting an edition
 
 **Add Language…**, at the foot of the Languages section, is how a book
@@ -95,6 +110,35 @@ verse passage, a block quote, a footnote, whatever's really there.
 Nothing from a round reaches your live templates on its own. When it's
 ready, the row shows which round it is, where it stands, and how long ago —
 press **Show** to open it.
+
+## Compiling from the desk
+
+**Compile…** at the foot of the Languages section makes the book. Until it
+existed the only way to publish from Maugham was to ask Claude for it; this
+is the same compile, asked for by you.
+
+The sheet asks three things:
+
+- **Format** — PDF or EPUB.
+- **Editions** — the book's own language is checked to begin with, and
+  every language on the desk gets a checkbox of its own. Check more than
+  one and you get a single volume with both bodies in it, in the order the
+  sheet lists them. Uncheck everything and Compile refuses: a compile with
+  no edition in it would make nothing.
+- **Allow stale translations** — off by default. A stale paragraph is one
+  whose source has changed underneath the translation, and leaving this off
+  is what stops one shipping unnoticed.
+
+Which imprint the compile is for is the picker's answer, shown at the top
+of the sheet and not asked again.
+
+One compile runs at a time. While it does, the desk says what it is
+compiling and offers **Cancel**; Compile… itself is greyed out, and
+hovering it says a compile is already running. A cancelled compile
+publishes nothing. When one lands, the line says the version, the imprint
+and the edition, and where the file is.
+
+Nothing already published is touched: every compile mints its own version.
 
 ## The gate
 
