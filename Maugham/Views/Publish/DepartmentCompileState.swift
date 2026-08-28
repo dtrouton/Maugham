@@ -186,22 +186,15 @@ struct DepartmentCompileState: Equatable {
 
     /// **What landed**, and where to find it.
     ///
-    /// Version, imprint and edition — the three things that tell one row of the
-    /// catalog from another since identity gained its fourth dimension (P1) —
-    /// then the one place the file actually is. Absent parts are dropped rather
-    /// than drawn empty: the plain book has no imprint and no language tag, and
-    /// "Compiled v0.2 ·  ·  — in Exports" is how a value type leaks into copy.
-    ///
-    /// TODO (Task 6): `PublishPreviewCentre.label(for:)` builds the same
-    /// version/language/compiled-at identity for the publication picker and is
-    /// due to grow the imprint in this same plan. When it does, both should read
-    /// one `parts(for:)`; until then this composes the shape locally rather
-    /// than depending on a function that has not been widened yet.
+    /// Version, imprint, edition and when it was compiled — read off
+    /// `PublishPreviewCentre.parts(for:)`, the one composition every surface
+    /// that names a book draws from (Task 6), so this line can never disagree
+    /// with the picker or the single-book header about the same publication.
+    /// Absent parts are dropped rather than drawn empty: the plain book has no
+    /// imprint and no language tag, and "Compiled v0.2 ·  ·  — in Exports" is
+    /// how a value type leaks into copy.
     static func completedLine(_ publication: Publication) -> String {
-        var parts = ["v\(publication.version)"]
-        if let imprint = publication.imprint { parts.append(imprint) }
-        if let language = publication.language { parts.append(language.uppercased()) }
-        return "Compiled " + parts.joined(separator: " \u{00B7} ")
+        "Compiled " + PublishPreviewCentre.parts(for: publication).joined(separator: " \u{00B7} ")
             + " \u{2014} in Exports"
     }
 }

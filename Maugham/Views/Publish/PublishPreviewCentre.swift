@@ -208,26 +208,26 @@ struct PublishPreviewCentre: View {
     }
 
     /// The single-publication header: what this column showed before there was
-    /// anything to choose between.
+    /// anything to choose between. Draws `parts(for:)` — the language part
+    /// keeps its capsule, everything else is a plain caption — so this and
+    /// `label(for:)` can never describe the same publication differently.
     @ViewBuilder
     private func stamp(for publication: Publication) -> some View {
         HStack(spacing: 8) {
-            Text("v\(publication.version)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            // Only when there is one: a source-language publication has no
-            // language tag, and an empty capsule beside every book would be
-            // chrome about nothing.
-            if let language = publication.language {
-                Text(language.uppercased())
-                    .font(.caption2)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Color.secondary.opacity(0.15), in: Capsule())
+            ForEach(Array(Self.parts(for: publication).enumerated()), id: \.offset) {
+                _, part in
+                if let language = publication.language, part == language.uppercased() {
+                    Text(part)
+                        .font(.caption2)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.15), in: Capsule())
+                } else {
+                    Text(part)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            Text(Self.compiled.string(from: publication.compiledAt))
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -236,20 +236,29 @@ struct PublishPreviewCentre: View {
         return "\(title), \(Self.label(for: shown))"
     }
 
-    /// One row of the menu, and the header's own sentence: version, language
-    /// when there is one, and when it was compiled.
-    ///
-    /// Those three no longer tell every pair of publications apart: identity
-    /// gained a fourth dimension with imprints (P1), so two rows from
-    /// different imprints at the same version, language and minute draw
-    /// identically here. The imprint joins the label in plan 3, which is where
-    /// the spec puts the naming surfaces; until then this picker is honest
-    /// about the book and ambiguous across imprints.
+    /// One row of the menu, and the header's own sentence: version, imprint
+    /// when there is one, language when there is one, and when it was
+    /// compiled — the full identity a publication carries as of the imprints
+    /// work (P1's `imprint`, P2's joined language identity). Built from
+    /// `parts(for:)`, so `stamp(for:)` draws the same sequence rather than a
+    /// hand-built twin of it.
     static func label(for publication: Publication) -> String {
+        parts(for: publication).joined(separator: " · ")
+    }
+
+    /// **The one composition of a publication's identity**, read off the
+    /// record rather than re-derived from a filename (spec §6): version,
+    /// imprint (when there is one), language (when there is one, already
+    /// uppercased — a joined `"en+sr"` reads as `"EN+SR"`), then when it was
+    /// compiled. `label(for:)`, `stamp(for:)` and
+    /// `DepartmentCompileState.completedLine` all draw from this, so no two
+    /// surfaces that name a book can disagree about what it's called.
+    static func parts(for publication: Publication) -> [String] {
         var parts = ["v\(publication.version)"]
+        if let imprint = publication.imprint { parts.append(imprint) }
         if let language = publication.language { parts.append(language.uppercased()) }
         parts.append(compiled.string(from: publication.compiledAt))
-        return parts.joined(separator: " · ")
+        return parts
     }
 
     private static let compiled: DateFormatter = {

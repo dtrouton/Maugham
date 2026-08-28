@@ -791,9 +791,14 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// before the picker existed, restored for the case that still has no
     /// control in it: four fragments swept past one arrow key at a time say less
     /// than the sentence they make together.
+    ///
+    /// Compiled with an imprint (plan 3's naming-surfaces work), so this also
+    /// pins that the imprint is IN the combined sentence — the header's whole
+    /// point is that a writer never has to piece the identity together
+    /// themselves.
     func test_aSingleBookHeaderReadsAsOneCombinedSentence() async throws {
         let store = try await novel()
-        let publication = try await compileOne(into: store)
+        let publication = try await compileOne(into: store, imprint: "special")
         let mount = try await host(store: store, persona: .publish, subject: .project,
                                    preview: .ready(newestFirst: [publication]))
         await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
@@ -802,15 +807,46 @@ final class PublishPreviewCentreTests: XCTestCase {
         // sentence as its VALUE — a predicate over the label alone finds
         // nothing here and would be equally silent over a header that never
         // combined at all.
-        let sentence = "\(store.manifest.title), v\(publication.version)"
+        let sentence = "\(store.manifest.title), \(PublishPreviewCentre.label(for: publication))"
         let elements = try axElements(in: mount.window,
                                       until: { Self.text(of: $0).contains(sentence) })
         XCTAssertTrue(
             elements.contains { Self.text(of: $0).contains(sentence) },
             "the single-publication header must combine into one element — the "
-            + "book's name and which printing it is belong in the same "
-            + "sentence. Elements: "
+            + "book's name, which printing it is, and its imprint belong in "
+            + "the same sentence. Elements: "
             + "\(elements.map { "\($0.role)|\($0.label)|\($0.value)" })")
+    }
+
+    // MARK: - The naming surfaces (plan 3): one parts(for:), one label
+
+    /// **The P1 comment's own prediction, now true.** Identity gained a
+    /// fourth dimension with imprints — two rows at the same version,
+    /// language and minute used to draw identically, because the label had
+    /// nowhere to put the difference. As of this plan it does.
+    func test_publicationsFromDifferentImprintsAtTheSameVersionDrawDifferentLabels() {
+        let compiledAt = Date()
+        let special = Self.publication(version: "1.0", outputPath: "Exports/a.pdf",
+                                       compiledAt: compiledAt, language: "en",
+                                       imprint: "special")
+        let other = Self.publication(version: "1.0", outputPath: "Exports/b.pdf",
+                                     compiledAt: compiledAt, language: "en",
+                                     imprint: "other")
+        XCTAssertNotEqual(
+            PublishPreviewCentre.label(for: special), PublishPreviewCentre.label(for: other),
+            "same version, language and minute — only the imprint differs, and "
+            + "the label must say so or the picker offers two indistinguishable rows")
+    }
+
+    /// **A joined language identity uppercases as a whole.** P2's `"en+sr"`
+    /// reads as `"EN+SR"`, not two separately-cased fragments.
+    func test_aJoinedLanguageIdentityReadsUppercasedInTheLabel() {
+        let joined = Self.publication(version: "1.0", outputPath: "Exports/a.pdf",
+                                      compiledAt: Date(), language: "en+sr")
+        XCTAssertTrue(
+            PublishPreviewCentre.label(for: joined).contains("EN+SR"),
+            "expected the joined identity uppercased as a whole, got: "
+            + PublishPreviewCentre.label(for: joined))
     }
 
     /// **…and the header with a CHOICE in it must not combine**, which is the
@@ -1736,13 +1772,14 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// One real compiled PDF in the project's own catalog — the fixture the
     /// mounted tests need, since `PDFPreview` opens the file for real.
     @discardableResult
-    private func compileOne(into store: ProjectStore) async throws -> Publication {
+    private func compileOne(into store: ProjectStore, imprint: String? = nil)
+    async throws -> Publication {
         try FileManager.default.createDirectory(
             at: store.url.appendingPathComponent("Exports", isDirectory: true),
             withIntermediateDirectories: true)
         let publications = PublicationStore(projectURL: store.url)
         return try await append(to: publications, in: store.url,
-                                version: "1.0", minutesAgo: 1)
+                                version: "1.0", imprint: imprint, minutesAgo: 1)
     }
 
     @discardableResult
@@ -1750,6 +1787,7 @@ final class PublishPreviewCentreTests: XCTestCase {
                         version: String,
                         format: PublishConfig.Format = .pdf,
                         language: String? = nil,
+                        imprint: String? = nil,
                         minutesAgo: Int) async throws -> Publication {
         let name = "Exports/book-\(version)-\(UUID().uuidString.prefix(4))"
             + (format == .pdf ? ".pdf" : ".epub")
@@ -1764,7 +1802,7 @@ final class PublishPreviewCentreTests: XCTestCase {
         let pub = Self.publication(
             version: version, format: format, outputPath: name,
             compiledAt: Date().addingTimeInterval(-Double(minutesAgo) * 60),
-            language: language)
+            language: language, imprint: imprint)
         try await store.append(pub)
         return pub
     }
@@ -1773,14 +1811,15 @@ final class PublishPreviewCentreTests: XCTestCase {
                             format: PublishConfig.Format = .pdf,
                             outputPath: String,
                             compiledAt: Date,
-                            language: String? = nil) -> Publication {
+                            language: String? = nil,
+                            imprint: String? = nil) -> Publication {
         Publication(
             publicationID: "pub-\(UUID().uuidString.prefix(8))",
             version: version, label: nil, format: format,
             outputPath: outputPath, snapshotID: "snap-\(version)",
             checkpointID: "ckpt-\(version)", republishedFrom: nil,
             compiledAt: compiledAt, maughamVersion: "test",
-            tectonicVersion: "test", language: language)
+            tectonicVersion: "test", language: language, imprint: imprint)
     }
 
     /// A real, openable one-page PDF. `PDFDocument(url:) != nil` is one of the

@@ -311,18 +311,35 @@ final class DeskCompileRunnerTests: XCTestCase {
         XCTAssertEqual(state.statusLine, "Compiling the book as EPUB\u{2026}")
     }
 
+    /// **Task 6 widened this line to draw `PublishPreviewCentre.parts(for:)`**,
+    /// which also appends when the compile happened — so this pins the parts
+    /// that identify the EDITION (version, imprint, language) in order, and
+    /// the wrapper text, rather than the exact compiled-at string (locale- and
+    /// clock-dependent, and already `parts(for:)`'s own concern to get right).
     func test_theCompletedLineNamesTheVersionTheImprintAndTheEdition() {
         let pub = Self.publication(version: "0.1", imprint: "special-glb", language: "en+sr")
-        XCTAssertEqual(DepartmentCompileState.completedLine(pub),
-                       "Compiled v0.1 \u{00B7} special-glb \u{00B7} EN+SR \u{2014} in Exports")
+        let line = DepartmentCompileState.completedLine(pub)
+        XCTAssertTrue(
+            line.hasPrefix("Compiled v0.1 \u{00B7} special-glb \u{00B7} EN+SR \u{00B7} "),
+            "expected version, imprint and edition in that order before the "
+            + "compiled date, got: \(line)")
+        XCTAssertTrue(line.hasSuffix("\u{2014} in Exports"),
+                      "expected the file location at the end, got: \(line)")
     }
 
     /// The book's own edition carries neither an imprint nor a language, and
-    /// the line must not grow empty separators for them.
+    /// the line must not grow empty separators for them — only the version and
+    /// the compiled date remain.
     func test_theCompletedLineOfThePlainBookIsJustItsVersion() {
         let pub = Self.publication(version: "0.2", imprint: nil, language: nil)
-        XCTAssertEqual(DepartmentCompileState.completedLine(pub),
-                       "Compiled v0.2 \u{2014} in Exports")
+        let line = DepartmentCompileState.completedLine(pub)
+        XCTAssertTrue(line.hasPrefix("Compiled v0.2 \u{00B7} "),
+                      "expected just the version before the compiled date — no "
+                      + "empty separators for the absent imprint/language, got: \(line)")
+        XCTAssertTrue(line.hasSuffix("\u{2014} in Exports"),
+                      "expected the file location at the end, got: \(line)")
+        XCTAssertFalse(line.contains("special-glb"),
+                       "the plain book must not carry the other test's imprint")
     }
 
     func test_anIdleDeskThatHasCompiledNothingSaysNothing() {
