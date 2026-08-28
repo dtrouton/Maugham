@@ -478,7 +478,7 @@ One `MaughamBody` line per rendered language, in the order the compile asked for
 |---|---|
 | `build/body.<tag>.tex` | one language's complete emitted body |
 | `build/metadata.<tag>.tex` | that language's `\renewcommand` metadata block |
-| `build/body.tex` | the wrapper above — the only file the template `\input`s |
+| `build/body.tex` | the wrapper above — the only BODY file the template inputs (it also `\InputIfFileExists{build/metadata}`) |
 | `build/metadata.tex` | **the FIRST body's** block |
 
 `build/metadata.tex` is what the template's `\InputIfFileExists{build/metadata}` reads before `\begin{document}`, so the title page, the running heads and hyperref's document properties are the **first** body's — a bilingual PDF is one book, titled in its source language. Each half's own block is re-input INSIDE its `MaughamBody` group, so a translated title applies to that half and is undone at its `\end{MaughamBody}`.

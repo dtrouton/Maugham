@@ -321,7 +321,7 @@ public enum EmissionContract {
     |---|---|
     | `build/body.<tag>.tex` | one language's complete emitted body |
     | `build/metadata.<tag>.tex` | that language's `\\renewcommand` metadata block |
-    | `build/body.tex` | the wrapper above — the only file the template `\\input`s |
+    | `build/body.tex` | the wrapper above — the only BODY file the template inputs (it also `\\InputIfFileExists{build/metadata}`) |
     | `build/metadata.tex` | **the FIRST body's** block |
 
     `build/metadata.tex` is what the template's \
