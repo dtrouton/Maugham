@@ -91,11 +91,13 @@ Say which body is the untranslated one with `"source"` in the list, or just name
 \renewenvironment{MaughamBody}[1]{\clearpage\input{frontmatter-#1}}{}
 ```
 
+`#1` is the language tag, so that line expects a `frontmatter-en.tex` and a `frontmatter-sr.tex` sitting beside the template — the starter `preamble.tex`'s own commented-out `MaughamBody` example shows the same pairing.
+
 The document-level title page, running heads and PDF metadata are always the **first** listed body's — a bilingual PDF is one book, titled in its source language, with the translated half's own title (if any) applying only inside its own `MaughamBody` group.
 
 **Per-body metadata comes from `language_overrides`**, the same config key that already drives a single translated edition's title, subtitle and the rest — nothing new to configure for a second language beyond what an ordinary `language: sr` compile would already need.
 
-**Not here yet:** a bilingual document has no way to link a paragraph in one half to its counterpart in the other — no `¶id` anchors, no cross-reference command — and there's no picker in the app for choosing which languages to compile; that's `languages` as an MCP parameter only, for now. Both are planned for a later milestone.
+**Not here yet:** a bilingual document has no way to link a paragraph in one half to its counterpart in the other — no `¶id` anchors, no cross-reference command; there's no picker in the app for choosing which languages to compile, so `languages` is an MCP parameter only, for now; and nothing in the app's own surfaces knows how to say "en+sr" yet — the Publish persona's compiled-book preview, the Exports footer, and the department desk's rows all still name a book by version and a single language. All of it is planned for a later milestone.
 
 ### Iterating on a subset of a book
 
