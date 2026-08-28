@@ -434,6 +434,23 @@ final class DiagnosticsStore {
     /// the passless lane (`nil`) resolves against passless records only, and
     /// since a passless run mints no round number this reader answers `nil`
     /// for it — an ordinary M2 run, not round 1 of nothing.
+    ///
+    /// **Reads `byDoc` directly, deliberately never the preview shadow
+    /// (`finishedContent`, which `standingRound` reads instead) — R1, #42.**
+    /// The two answer different questions and must, on purpose, disagree
+    /// while a preview stands: this reader answers "which round is this lane
+    /// on, the one in flight included", `standingRound` answers "what did the
+    /// round BEFORE this one say". Both callers need the in-flight answer —
+    /// `CompilerOrchestrator.beginRun`'s round mint, reached only when
+    /// `runRequested` finds `!isRunning` (so a run never numbers itself
+    /// against itself; `test_theMintNeverAsksLatestRoundWhileARunIsStanding`
+    /// pins the guard), and the Review cockpit strip
+    /// (`AnnotationsPane.cockpitRound`), which must say "round N" WHILE round
+    /// N is still streaming and whose "next round" tooltip
+    /// (`ReviewRoundCockpit`'s `runHelp`) names N+1. Routing either through
+    /// the shadow would leave both one round behind for the run's whole
+    /// duration. Pinned mid-preview by
+    /// `test_latestRound_answersTheRoundInFlightWhileAPreviewStands`.
     func latestRound(forPass passId: String?, docId: String) -> Int? {
         guard let content = byDoc[docId] else { return nil }
         if content.run.passId == passId, let round = content.run.round { return round }

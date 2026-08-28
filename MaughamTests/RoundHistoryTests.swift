@@ -147,6 +147,47 @@ final class RoundHistoryTests: XCTestCase {
                        "the standing run is the newest round in its lane")
     }
 
+    /// **The cross-lane count is additive-optional like every stamp before it**
+    /// (#42 F-H). A sidecar written by a build that had never heard of
+    /// `openInOtherLanes` decodes with nil — which the since-line reads as
+    /// nothing to say — and one carrying it round-trips the value.
+    ///
+    /// From a raw fixture rather than a re-encode, on the P3 tolerance test's
+    /// reasoning: the hand-written decoder does not fall back to a property's
+    /// default, so a missing `decodeIfPresent` line would throw here and the
+    /// writer would be told their document was never checked.
+    func test_aSidecarWithoutTheCrossLaneCountDecodesAsNil_andOneWithItRoundTrips() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let url = DiagnosticsStore.sidecarURL(
+            projectRoot: project, docId: "docNoLanes", device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            {"clauseHistory":[],"diagnostics":[],\
+            "run":{"at":"2026-08-15T09:00:00Z","deltaSummary":"1 new, 0 revised",\
+            "droppedDangling":0,"id":"01JRUN","lastOpId":"op1","mintedNotes":2,\
+            "model":"sonnet","passId":"pass-line","round":2}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: "docNoLanes")
+        let old = try XCTUnwrap(store.lastRun(docId: "docNoLanes"),
+                                "the record must still load")
+        XCTAssertEqual(old.mintedNotes, 2, "control: its neighbour still decodes")
+        XCTAssertNil(old.openInOtherLanes)
+
+        var run = makeRun(passId: "pass-line", round: 3)
+        run.openInOtherLanes = 2
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: "docLanes")
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: "docLanes")
+        let reread = try XCTUnwrap(reopened.lastRun(docId: "docLanes"))
+        XCTAssertEqual(reread.openInOtherLanes, 2)
+        XCTAssertEqual(reread, run, "the whole record, not only the new field")
+    }
+
     /// **The field is legacy on the way in and empty on the way out** (M4 P1
     /// Task 5). The decode above is what keeps a sidecar written before this
     /// milestone readable; this is the other direction, read as raw JSON rather
@@ -636,6 +677,50 @@ final class RoundHistoryTests: XCTestCase {
                        "the lane the writer left, remembered by the ring")
         XCTAssertNil(store.latestRound(forPass: "R", docId: docId),
                      "a lane nothing has ever run in")
+    }
+
+    /// **`latestRound` answers the round IN FLIGHT; `standingRound` answers
+    /// the round BEFORE it** (R1, #42) — pinned by asking both while a
+    /// preview stands in for a run that has not finished.
+    ///
+    /// `replace` a round 1, then `preview` a round 2 with no matching
+    /// `replace`: `latestRound` reads `byDoc` directly and sees round 2 (the
+    /// preview), because it answers "which round is this lane on, the one in
+    /// flight included" — what the round mint and the Review cockpit strip
+    /// both need. `standingRound` reads through the shadow
+    /// (`finishedContent`) and still sees round 1, because it answers "what
+    /// did the round BEFORE this one say" — a preview's own half-report is
+    /// not that answer, or a round would be briefed against itself.
+    ///
+    /// Had `latestRound` gone through the shadow instead (the alternative R1
+    /// rejected), it would have read `standingRound`'s value here too —
+    /// round 1 — one behind the run actually streaming.
+    ///
+    /// `discardPreview` drops the preview untouched, and both readers agree
+    /// again: round 1, the last run that actually finished.
+    ///
+    /// A real project root, per `test_anAbandonedPreviewLeavesTheFinishedRunToBeFiled`'s
+    /// note above: `discardPreview` puts the standing answer back by
+    /// re-reading the sidecar the finished run wrote, so the read-back needs
+    /// somewhere real to read from.
+    func test_latestRound_answersTheRoundInFlightWhileAPreviewStands() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docMidPreview"
+
+        store.replace(run: makeRun(passId: "line", round: 1), diagnostics: [], docId: docId)
+        store.preview(run: makeRun(passId: "line", round: 2), diagnostics: [], docId: docId)
+
+        XCTAssertEqual(store.latestRound(forPass: "line", docId: docId), 2,
+                       "the round in flight, included")
+        XCTAssertEqual(store.standingRound(docId: docId)?.record.round, 1,
+                       "the round before it — the shadow, not the preview")
+
+        store.discardPreview(docId: docId)
+
+        XCTAssertEqual(store.latestRound(forPass: "line", docId: docId), 1,
+                       "the preview is gone; both readers agree again")
+        XCTAssertEqual(store.standingRound(docId: docId)?.record.round, 1)
     }
 
     func test_latestRound_isNilWhenNothingHasEverRun() {

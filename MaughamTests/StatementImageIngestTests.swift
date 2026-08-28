@@ -64,14 +64,15 @@ final class StatementImageIngestTests: XCTestCase {
 
     /// The same derivation over a path alone, for the failure tests below: they
     /// need to know where the well WILL be before the statement that owns it
-    /// exists, and a second spelling of `<slug>_assets` here would be a copy of
-    /// the rule `ImagePasteHandler.destination` owns.
+    /// exists.
+    ///
+    /// **The production derivation, called — not copied.** This used to respell
+    /// `<slug>_assets` here, with a comment warning against a third spelling;
+    /// issue #35 gave `ImagePasteHandler` a `wellURL` of its own (the pure half
+    /// of `destination`, creating nothing) precisely so the guard, the saver and
+    /// this test cannot disagree about where a well is.
     private func well(besideStatementAt path: String, in projectURL: URL) -> URL {
-        let file = projectURL.appendingPathComponent(path)
-        return file
-            .deletingLastPathComponent()
-            .appendingPathComponent(
-                "\(file.deletingPathExtension().lastPathComponent)_assets")
+        ImagePasteHandler.wellURL(forNoteAt: path, in: projectURL)
     }
 
     /// The relative path a fresh novel mints a statement of this kind at, read

@@ -108,6 +108,10 @@ never a four-character token.
 
 A clean run says so plainly — *"Nothing to flag."* — even when every clause
 held: that is the good outcome the check exists to report, not an empty pane.
+It says *"Nothing new to flag."* instead when the check did raise something
+and every bit of it was already open in another pass's queue — nothing landed
+here and nothing landed in front of you, so a clean bill would be telling you
+the check found nothing when it found what you're already holding.
 
 **Drift is one line, not a note.** When a clause has strained the same way
 across three checks running, a line appears above the conformance summary —
@@ -134,7 +138,11 @@ new"*. The three counts come off your queue, not off what Claude happened to
 repeat: *resolved* is what you've settled from an earlier round, *persisting*
 is what's still open from an earlier one, and *new* is what this round
 raised. A finding Claude raises again in different words is not a new note —
-it's the one already in your queue. Round numbers are per pass, but the
+it's the one already in your queue — and if that note lives in another pass's
+lane, the line says so: *"1 was already open in another lane"*. Without that
+clause a round that engaged a question you're already holding in Structural
+would read as three zeroes, because the three counts only ever look at the pass the round
+was run in. Round numbers are per pass, but the
 memory behind them is the document's, not any one pass's: Maugham remembers a document's last six
 finished checks, across every pass. Once enough later checks stack up behind
 a round — six, counting the one still standing — it ages out of memory, so a
@@ -150,7 +158,9 @@ warm session and reads the whole piece cold, briefed on your intent, your
 rulings, and the bible, but deliberately not on anything an earlier round
 found. Its report says so where the since-last-round line would otherwise
 be: *"Fresh eyes"*, or *"Fresh eyes · round 3"* when it's also filed against
-a pass.
+a pass — and, when the cold read turned up something already open in another
+pass, *"Fresh eyes · round 3 · 1 was already open in another lane"*, since the
+line that would ordinarily carry that isn't there.
 
 ## Reading a piece for the first time
 

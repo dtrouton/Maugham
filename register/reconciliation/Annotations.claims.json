@@ -934,5 +934,39 @@
    "property_test": null
   },
   "fix_history": "Carried as a known shape in docs/superpowers/notes/2026-08-15-m3-handoff.md ('Two PRE-EXISTING shapes'), surfaced three times, ruled and fixed 2026-08-18 on fix/m4-denver-rulings-2026-08-18. Production tests: MaughamTests/AnnotationAcceptNoteUndoTests.swift (the verb, all three textless kinds, the redo cycle, the loud drift decline, the shielded prior action, the suggestion control) + DiagnosticsPaneTests.test_undoAfterGotItReopensTheNoteAndTheRowReturns (the mounted delivery path)"
+ },
+ {
+  "claim_id": "M5-AN-060",
+  "scope": "Document.stetAnnotation ⌘Z",
+  "kind": "POSTCONDITION",
+  "statement": "undo re-opens and re-applies the resolution the stet displaced (accept with reply / reject / archive); an open note just reopens. `stetAnnotation` now captures the prior status and userResponse from an UNFILTERED query before appending `.annotationStet`, and its undo closure appends the compensating `annotationReopen` and then a status-only lifecycle op restoring it — `withdrawReviewerAnnotation`'s shape, in the same place and for the same reason. Before this it ended in a bare `reopenAnnotation(id:)`, which only ever yields `.open`: a stet placed over an ACCEPTED note and then ⌘Z'd dropped the accept AND the reply the writer typed into Reply…, so one ⌘Z took two of their decisions. `AnnotationInverse.reopenOp` and `reopenAnnotation(id:)` are untouched (tripwire 19, cross-surface; M5-AN-034/040 pin them). A `.stetted` prior cannot occur — the undo only runs past a guard asserting the note is `.stetted` now, and a stet over a stet drifting back is that guard's business. AND THE FAILURE IS LOUD: if the reopen lands but the restoring lifecycle op throws, the note sits in the queue open with its earlier resolution missing — indistinguishable, from the writer's side, from the defect this claim is about — so the catch calls `declineUndo(.stetRestore)` (\"Couldn't put back the note's earlier resolution — it's open again.\") rather than reaching `documentLog` alone (RULING-22, #41's final review)",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/AnnotationStetTests.swift: test_undoOfAStetOverAnAcceptedNoteRestoresTheAcceptAndItsReply, test_undoOfAStetOverARejectedNoteRestoresTheReject, test_undoOfAStetOverAnOpenNoteStillJustReopens (the control), test_theRowsStetReachesAnAcceptedNote (the reachability census), test_redoReStetsWithItsReply_andTheCycleReArms (unchanged), test_undoOfAStetOverAnArchivedNoteRestoresTheArchive (the switch's third arm), test_theStetCycleRestoresTheAcceptEveryTimeNotJustOnce (the prior is re-captured on every redo, not closed over from the first pass), test_aFailedRestoreOfThePriorResolutionSaysSoRatherThanOnlyLogging (the loud failure, forced by locking the op-log files from inside the `.maughamAnnotationsChanged` post that fires between the two appends)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-22); issue #41 A2",
+  "reachability": "LIVE — with show-resolved on, the queue's row for an accepted comment draws its dispositions (`AnnotationRow.showsReopen` is false for `.accepted`), Stet among them: accept a note with Reply…, stet it, press ⌘Z",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed — the defect and its fix land in the same branch (issue #41 A2, commit ce487146d499d0425a42b4696646be86e97b7dfd). M5-AN-036 is the same defect one verb over, fixed 2026-08-09; stet was the fourth resolution and did not get withdraw's capture when it landed in M3 P2 Task 2. The loud-failure half landed in the branch's final-review wave, commit a8e2a30b8bb1d6eb7771878767bb000d0cbefc98 — the statement above covers both"
+ },
+ {
+  "claim_id": "M5-AN-061",
+  "scope": "Document.declineUndo — the annotation undos' drift declines",
+  "kind": "POSTCONDITION",
+  "statement": "One ⌘Z over a COALESCED batch reports its declines in ONE sentence carrying the count; a single decline reads exactly as it always has. The bulk bar registers one undo closure per note and `NSUndoManager.groupsByEvent` folds them into a single event group (pinned by `AnnotationBulkActionsTests`), and each closure re-checks its own note at fire time and declines out loud when it drifted (RULING-22, M5-AN-019's shape). Before this every declining closure called `notifyWriter` directly, so N drifted notes posted the SINGULAR sentence N times into a toast slot that renders one (`RewindModifier`'s `restoreToast = message`): the writer read 'Couldn't undo stetting the note' — false about the number, and silent about the notes that DID undo. The four decline sites (the annotation edit, the textless accept, the stet, the triage mark) now call `Document.declineUndo(_:)`, which accumulates per `UndoDecline` verb and spends one sentence a main-actor hop after the last of the batch's undo closures — RULING-32's sweep shape (`_sweptSinceLastReport`, spent at the burst boundary) applied to the same problem one column over. The boundary needs no timer: every sibling closure's task is enqueued before the report task is created, and a declining closure never suspends. Each verb's singular and plural sentences sit on adjacent lines in `UndoDecline`, and the singular is byte-identical to what each site posted before — the single-note decline tests are the proof. A batch that declined some notes and undid others says nothing about the successes: the queue holds the reopened rows. The accumulator has a FIFTH caller that is not a refusal: the A2 restore's failure (`UndoDecline.stetRestore`, M5-AN-060), which reports through the same boundary for the same reason — one ⌘Z, one sentence — and is why `UndoDecline` is the set of things an annotation undo can have to say rather than the set of verbs it can refuse",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/AnnotationBulkActionsTests.swift: test_oneUndoOverABatchWithTwoDriftedNotesSaysSoOnce, test_oneUndoOverABatchOfAcceptedNotesAggregatesToo (the arm the issue missed), test_oneUndoOverABatchWithOneDriftedNoteUsesTheSingleSentence, test_aCleanBatchUndoSaysNothing (the control); the byte-identical singular is held by MaughamTests/OpLog/DocumentNoticeTests.swift, MaughamTests/AnnotationStetTests.swift, MaughamTests/AnnotationTriageTests.swift and MaughamTests/AnnotationAcceptNoteUndoTests.swift, all unchanged"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-22, with RULING-32's shape); issue #41 A1",
+  "reachability": "LIVE — the Annotations pane's bulk bar over a multi-note selection: Stet (or Accept, or a triage mark) on several notes, a peer or the phone moves two of them (Reopen, or a stet over an accept) or the typing sweep archives their paragraphs, then ⌘Z",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed — the defect and its fix land in the same branch (issue #41 A1, commit 0405364f511000fa317628423147bb6f294fd787). M5-AN-041 is the same coalescing problem on the sweep's side, ruled RULING-32 and fixed 2026-08-09; this is that ruling's shape reused rather than a second mechanism"
  }
 ]

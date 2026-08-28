@@ -141,18 +141,33 @@ public enum ImagePasteHandler {
         return CGImageSourceGetType(source) != nil && CGImageSourceGetCount(source) > 0
     }
 
+    /// **Where a note's well IS — the whole derivation, and nothing else.**
+    /// `<slug>_assets/` beside the note, built from the note's own filename, so
+    /// the name is derived and never spelled (`Stores/AREA.md`). Creates
+    /// nothing: a reader asking *whether* a well holds anything must not bring
+    /// one into being by asking, which is why this is split out of `destination`
+    /// rather than left inside it. `destination` calls it and then creates.
+    ///
+    /// **This is the one derivation.** `ProjectStore.statementWellHoldsAnything`
+    /// (issue #35) and `StatementImageIngestTests` both call it; a second
+    /// spelling of `_assets` anywhere is a well that moves out from under the
+    /// guard the moment this rule changes.
+    static func wellURL(forNoteAt notePath: String, in projectURL: URL) -> URL {
+        let noteURL = projectURL.appendingPathComponent(notePath)
+        let noteSlug = noteURL.deletingPathExtension().lastPathComponent
+        return noteURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("\(noteSlug)_assets")
+    }
+
     /// Resolve the `<slug>_assets/` folder next to `notePath`, create it, and mint
     /// a deduped timestamp filename with the given extension. Single home for the
     /// naming/dedupe logic shared by the NSImage and file-URL entry points.
     private static func destination(
         forNoteAt notePath: String, in projectURL: URL, ext: String
     ) throws -> (assetsDir: URL, assetsDirName: String, fileURL: URL, filename: String) {
-        let noteURL = projectURL.appendingPathComponent(notePath)
-        let noteSlug = noteURL.deletingPathExtension().lastPathComponent
-        let assetsDirName = "\(noteSlug)_assets"
-        let assetsDir = noteURL
-            .deletingLastPathComponent()
-            .appendingPathComponent(assetsDirName)
+        let assetsDir = wellURL(forNoteAt: notePath, in: projectURL)
+        let assetsDirName = assetsDir.lastPathComponent
 
         try FileManager.default.createDirectory(
             at: assetsDir, withIntermediateDirectories: true)

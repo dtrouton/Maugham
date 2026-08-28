@@ -329,9 +329,12 @@ extension Document {
                     // but the Edit menu said "Undo Edit Annotation" and the
                     // writer pressed it. Declining to `documentLog` and to
                     // nobody else is the control not doing what it says.
+                    //
+                    // Through `declineUndo` rather than `notifyWriter` (#41
+                    // A1): one ⌘Z can fire this closure once per note, and the
+                    // sentence is spent once for the whole burst.
                     documentLog.error("editReviewerAnnotation undo: \(id, privacy: .public) drifted since edit — ignoring")
-                    doc.notifyWriter(
-                        "Couldn't undo the annotation edit — it changed on another device.")
+                    doc.declineUndo(.annotationEdit)
                     return
                 }
                 let revert = AnnotationInverse.editRevertOp(
@@ -612,9 +615,11 @@ extension Document {
                     let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
                         .first { $0.id == id }
                     guard live?.status == .accepted else {
+                        // `declineUndo`, not `notifyWriter` (#41 A1): a bulk
+                        // accept coalesces into ONE ⌘Z, so this closure runs
+                        // once per note and the burst says it once.
                         documentLog.error("acceptAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.status), privacy: .public)) — ignoring")
-                        doc.notifyWriter(
-                            "Couldn't undo accepting the note — it changed on another device.")
+                        doc.declineUndo(.acceptNote)
                         return
                     }
                     try? await doc.reopenAcceptedTextlessAnnotation(id: id)
@@ -801,21 +806,58 @@ extension Document {
     ///
     /// Like reject, it refuses nothing on the way in: the deriver's
     /// latest-lifecycle-op-wins rule settles a stet over an earlier
-    /// resolution. Which notes the queue OFFERS Stet on is the pane's business.
+    /// resolution. Which notes the queue OFFERS Stet on is the pane's business
+    /// — and the pane's answer is that it offers Stet on a RESOLVED note too:
+    /// `AnnotationRow.showsReopen` is `false` for `.accepted`, so with
+    /// show-resolved on an accepted comment draws its dispositions and Stet is
+    /// among them.
+    ///
+    /// So the permissiveness on the way in has an obligation on the way out
+    /// (#41 A2): the UNDO restores what the stet displaced. "Undo Stet
+    /// Annotation" must undo ONE decision — before this it reopened to `.open`
+    /// and the accept underneath, with the reply the writer typed into
+    /// **Reply…**, was gone; one ⌘Z took two of their decisions (RULING-22,
+    /// M5-AN-036's shape at the fourth resolution). The capture-and-re-apply
+    /// below is `withdrawReviewerAnnotation`'s, for the same reason and in the
+    /// same place: the obligation is the UNDO's, and the undo is the Mac's —
+    /// `AnnotationInverse.reopenOp` is cross-surface (tripwire 19) and the
+    /// phone's Reopen means "reopen this", which is what it already does.
+    ///
+    /// **And when the re-apply fails, it says so** (`declineUndo(.stetRestore)`,
+    /// #41's final review): the reopen has landed, so the note is in the queue
+    /// open with its earlier resolution missing — indistinguishable, from the
+    /// writer's side, from the defect this fixed. A failure the writer can't
+    /// tell from a bug is one they will report as a bug.
+    ///
+    /// **A coalesced bulk stet can never span differing priors**, which is what
+    /// makes the A2×A1 interaction a non-case: `AnnotationBulkActions.applies`
+    /// gates `.stet` on `annotation.status == .open`, so every note the bulk
+    /// bar stets has the same (absent) prior and the restore switch's `.open`
+    /// arm breaks for all of them. A stet OVER a resolution arrives one row at
+    /// a time.
     public func stetAnnotation(
         id: String, userResponse: String? = nil,
         undoManager: UndoManager? = nil
     ) async throws {
+        // Captured BEFORE the append, from an UNFILTERED query — the default
+        // `[.open]` filter hides every status this restore is about
+        // (M5-AN-002).
+        let prior = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
+        let priorStatus = prior?.status
+        let priorResponse = prior?.userResponse
+
         try await appendLifecycleOp(
             kind: .annotationStet,
             sourceAnnotationId: id,
             userResponse: userResponse)
 
-        // ⌘Z: undo reopens (annotationReopen → .open); redo re-stets,
-        // forwarding the original userResponse AND the LIVE undo manager so
-        // ⇧⌘Z re-arms a fresh undo pair (reject's precedent — indefinite
-        // ⌘Z/⇧⌘Z cycling; `[weak undoManager]` because NSUndoManager retains
-        // the closure).
+        // ⌘Z: undo reopens (annotationReopen → .open) and then puts back the
+        // resolution the stet was sitting on top of — a status-only lifecycle
+        // op, withdraw's shape. Redo re-stets, forwarding the original
+        // userResponse AND the LIVE undo manager so ⇧⌘Z re-arms a fresh undo
+        // pair (reject's precedent — indefinite ⌘Z/⇧⌘Z cycling;
+        // `[weak undoManager]` because NSUndoManager retains the closure).
         OpUndoRegistrar.register(
             undoManager, actionName: "Stet Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
@@ -830,12 +872,62 @@ extension Document {
                 let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
                     .first { $0.id == id }
                 guard live?.status == .stetted else {
+                    // `declineUndo`, not `notifyWriter` (#41 A1): the bulk
+                    // bar's Stet registers one of these per note and
+                    // `groupsByEvent` folds them into one ⌘Z, so the burst
+                    // spends one sentence carrying the count.
                     documentLog.error("stetAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.status), privacy: .public)) — ignoring")
-                    doc.notifyWriter(
-                        "Couldn't undo stetting the note — it changed on another device.")
+                    doc.declineUndo(.stet)
                     return
                 }
-                try? await doc.reopenAnnotation(id: id)
+                // The restore below — and therefore the sentence it may have to
+                // say — WAIT on this having landed (#41's final review). If the
+                // reopen itself fails the note is still `.stetted`, and
+                // "it's open again" would be a lie about the queue the writer
+                // is looking at; nothing was displaced-and-not-put-back,
+                // because nothing moved at all. That case keeps the log-only
+                // behaviour it has always had — a failed reopen is not
+                // something this branch changed.
+                do {
+                    try await doc.reopenAnnotation(id: id)
+                } catch {
+                    documentLog.error("stetAnnotation undo: the reopen for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — the note is still stetted, so nothing is restored and nothing is said")
+                    return
+                }
+
+                // …and put back what the stet displaced. `.open`/nil needs no
+                // second op — that is what the reopen already leaves. A
+                // `.stetted` prior cannot occur: this closure only runs past a
+                // guard that says the note is `.stetted` NOW, and a stet over a
+                // stet would have had to drift back, which is the guard's
+                // business rather than this switch's.
+                switch priorStatus {
+                case .accepted, .rejected, .archived:
+                    let kind: OpKind = switch priorStatus {
+                    case .rejected: .claudeReject
+                    case .archived: .claudeArchive
+                    default:        .claudeAccept
+                    }
+                    do {
+                        try await doc.appendLifecycleOp(
+                            kind: kind, sourceAnnotationId: id,
+                            userResponse: priorResponse)
+                    } catch {
+                        // LOUD, through the same accumulator as the refusals
+                        // above (RULING-22, #41's final review). The reopen
+                        // landed and this second op did not, so the note is
+                        // sitting in the queue OPEN with its accept/reject/
+                        // archive missing — which is precisely what the
+                        // pre-A2 defect looked like from the writer's side.
+                        // Logging it and saying nothing leaves them to
+                        // rediscover a fixed bug on their own; the sentence
+                        // names the state they are actually in.
+                        documentLog.error("stetAnnotation undo: restoring the prior \(String(describing: priorStatus), privacy: .public) status for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — the note is back but open")
+                        doc.declineUndo(.stetRestore)
+                    }
+                case .open, .stetted, nil:
+                    break
+                }
             },
             redo: { [weak undoManager] doc in
                 try? await doc.stetAnnotation(
@@ -930,9 +1022,10 @@ extension Document {
                 let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
                     .first { $0.id == id }
                 guard let live, live.triage == mark else {
+                    // `declineUndo`, not `notifyWriter` (#41 A1): bulk triage
+                    // marks a whole selection, so one ⌘Z fires this per note.
                     documentLog.error("triageAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.triage), privacy: .public)) — ignoring")
-                    doc.notifyWriter(
-                        "Couldn't undo the triage mark — it changed on another device.")
+                    doc.declineUndo(.triage)
                     return
                 }
                 let revert = AnnotationInverse.triageRevertOp(

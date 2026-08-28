@@ -498,13 +498,47 @@
   "violation_or_enhancement": "enhancement — the fix of a filed shape"
  },
  {
+  "claim_id": "M5-AN-060",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The Edit menu reads 'Undo Stet Annotation' — Maugham labelling an action with its subject — and the writer's expectation came from that wording. WHY_IT_VIOLATED: the undo ended in a bare `reopenAnnotation(id:)`, whose only outcome is `.open`, so a ⌘Z aimed at the stet also cancelled the accept, rejection or archive underneath it and discarded the reply the writer had typed into Reply… — one control reversing two of the writer's decisions, which is exactly R22's scope (the outcome differing from what the writer understood) and exactly M5-AN-036's shape one verb over. As of the fix the stet captures the status it was placed on and re-applies it after the reopen, so the note comes back as the writer left it. The verb stays permissive on the way IN — the deriver's latest-lifecycle-op-wins rule settles a stet over an earlier resolution, and M5-AN-035's parity with reject depends on that — which is why the obligation is filed against the undo rather than against the verb. RULING-8's sameness clause keeps `AnnotationInverse.reopenOp` out of it: 'reopen this' and 'undo my stet' are not the writer asking the same question, and answering both in the factory would break the phone's Reopen, which has no undo.",
+  "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z once, for one action",
+  "call_path": "AnnotationsPane row (show-resolved on, an accepted comment → `showsReopen` false → `dispositions` → Stet) / EditorHost margin card / the bulk bar → Document.stetAnnotation(id:userResponse:undoManager:) → OpUndoRegistrar.register → ⌘Z → Document.reopenAnnotation(id:) then Document.appendLifecycleOp restoring the prior status",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "ce487146d499d0425a42b4696646be86e97b7dfd",
+   "date": "2026-08-27",
+   "authorised_by": "RULING-22 — Denver 2026-08-08, 'Maugham should never surprise the writer'; issue #41 A2 scoped it",
+   "pinned_by": "MaughamTests/AnnotationStetTests.swift (the two restores, the open-note control, and the row census that makes it reachable)",
+   "note": "Same defect class as M5-AN-036, fixed the same way and in the same place. AnnotationInverse and reopenAnnotation(id:) deliberately untouched (tripwire 19, cross-surface; M5-AN-034/040 pin their narrowness)"
+  }
+ },
+ {
+  "claim_id": "M5-AN-061",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The writer pressed ⌘Z once, on a menu item naming the batch's verb, and the sentence Maugham answered with described ONE note. WHY_IT_VIOLATED: the expectation formed from that wording (‘my undo did not happen’, singular) differed from the outcome (two notes refused, one reopened), which is R22's stated scope exactly — the writer forms an expectation from what Maugham said and the outcome differs from it. It is M5-AN-019's decline one layer out: that claim made the refusal audible, this one makes it TRUE about how many. The shape is not invented here — RULING-32 already settled that a thing which can happen N times per writer action arrives as one quiet sentence carrying N, at a boundary rather than in the moment; R32's own scope is the typing sweep, so it is cited as the form the fix takes and R22 is the clause that reaches the case. The singular wording is unchanged on purpose: a one-note decline was already honest, and R22 is about the mismatch, not about rewriting sentences that never had one.",
+  "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z once, for one action",
+  "call_path": "AnnotationsPane bulk bar (Stet / Accept / a triage mark over a multi-note selection) → AnnotationBulkActions.perform → Document.stetAnnotation / acceptAnnotation / triageAnnotation (or editReviewerAnnotation from a row) → OpUndoRegistrar.register ×N → one ⌘Z → each closure's drift guard → Document.declineUndo(_:) → one Document.notifyWriter at the hop → MaughamEvent.postNotice → RewindModifier's toast",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "0405364f511000fa317628423147bb6f294fd787",
+   "date": "2026-08-27",
+   "authorised_by": "RULING-22 — Denver 2026-08-08, 'Maugham should never surprise the writer'; RULING-32 supplies the batched-at-the-boundary form; issue #41 A1 scoped it",
+   "pinned_by": "MaughamTests/AnnotationBulkActionsTests.swift (two drifted → the plural once; one drifted → the singular; a clean batch → silence; the accept arm aggregating too), with the four single-note decline suites unchanged and green as the byte-identity proof",
+   "note": "The rewind undo's decline (RULING-7, Document+RewindUndo.swift) deliberately still calls notifyWriter directly: one restore is one act and cannot coalesce"
+  }
+ },
+ {
   "_summary": {
-   "reached": 21,
-   "complies": 21,
+   "reached": 23,
+   "complies": 23,
    "violates": 0,
    "no_ruling": 37,
-   "total": 58,
-   "coverage": "36%",
+   "total": 60,
+   "coverage": "38%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
@@ -514,7 +548,9 @@
      "M5-AN-029",
      "M5-AN-031",
      "M5-AN-036",
-     "M5-AN-059"
+     "M5-AN-059",
+     "M5-AN-060",
+     "M5-AN-061"
     ],
     "RULING-24": [
      "M5-AN-021"

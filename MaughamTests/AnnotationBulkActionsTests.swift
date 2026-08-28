@@ -620,6 +620,142 @@ final class AnnotationBulkActionsTests: XCTestCase {
         XCTAssertNil(triage(h.doc, ids[2]))
     }
 
+    // MARK: - Integration: one ⌘Z over a batch, and what it says
+
+    /// `DocumentNoticeTests`' collector, local to this file because the batch
+    /// half of the story needs this file's harness (three notes, a real bulk
+    /// `perform`) where that file's tests need the single-note one. Same
+    /// channel, same key.
+    private func notices(
+        during body: () async throws -> Void
+    ) async rethrows -> [String] {
+        var seen: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
+                seen.append(m)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        try await body()
+        return seen
+    }
+
+    /// **#41 A1.** One ⌘Z over a coalesced batch fires one undo closure PER
+    /// note, and each re-checks its own note's live state before it acts
+    /// (RULING-22). Two of the three have moved on under the batch — a peer
+    /// pressed Reopen on them, which is exactly what `reopenAnnotation` is in
+    /// the pane and on the phone — so two closures decline and one undoes.
+    ///
+    /// Before this, each decline posted the SINGULAR sentence into a toast slot
+    /// that holds one: the writer saw "Couldn't undo stetting the note", which
+    /// was false about the number and silent about the one that did come back.
+    /// RULING-32's shape fixes it — accumulate quietly, spend ONE sentence at
+    /// the boundary — and the number is the honest part.
+    func test_oneUndoOverABatchWithTwoDriftedNotesSaysSoOnce() async throws {
+        let h = try await makeHarness(prefix: "Bulk-DeclineTwo")
+        let ids = try await threeComments(h)
+        let um = UndoManager()
+
+        _ = await AnnotationBulkActions.perform(
+            .stet, on: ids, in: h.doc, undoManager: um)
+        for id in ids { XCTAssertEqual(status(h.doc, id), .stetted) }
+
+        // The peer: two of the three are reopened out from under the batch.
+        // `reopenAnnotation` is the pane's Reopen and the phone's — a real
+        // second surface acting, not a synthetic op.
+        try await h.doc.reopenAnnotation(id: ids[0])
+        try await h.doc.reopenAnnotation(id: ids[1])
+        let reopensBefore = h.doc._opLogMirror
+            .filter { $0.kind == .annotationReopen }.count
+        XCTAssertEqual(reopensBefore, 2, "premise: the peer moved two of them")
+
+        let said = await notices {
+            um.undo()
+            await settle(h.doc)
+        }
+
+        XCTAssertEqual(said, [
+            "Couldn't undo stetting 2 notes — they changed on another device."],
+            "one sentence, once, with the number in it")
+        XCTAssertEqual(
+            h.doc._opLogMirror.filter { $0.kind == .annotationReopen }.count,
+            reopensBefore + 1,
+            "the third note DID undo — the decline is about the other two")
+        XCTAssertEqual(status(h.doc, ids[2]), .open)
+    }
+
+    /// One drifted note in a batch reads exactly as one drifted note has always
+    /// read. The aggregate is what a plural burst spends; a single decline is
+    /// byte-identical to the sentence the single-note tests pin.
+    func test_oneUndoOverABatchWithOneDriftedNoteUsesTheSingleSentence() async throws {
+        let h = try await makeHarness(prefix: "Bulk-DeclineOne")
+        let ids = try await threeComments(h)
+        let um = UndoManager()
+
+        _ = await AnnotationBulkActions.perform(
+            .stet, on: ids, in: h.doc, undoManager: um)
+        try await h.doc.reopenAnnotation(id: ids[0])
+
+        let said = await notices {
+            um.undo()
+            await settle(h.doc)
+        }
+
+        XCTAssertEqual(said, [
+            "Couldn't undo stetting the note — it changed on another device."])
+        for id in ids { XCTAssertEqual(status(h.doc, id), .open) }
+    }
+
+    /// The control: a batch nothing drifted under undoes in full and says
+    /// nothing at all. The report is a decline, not a receipt.
+    func test_aCleanBatchUndoSaysNothing() async throws {
+        let h = try await makeHarness(prefix: "Bulk-DeclineNone")
+        let ids = try await threeComments(h)
+        let um = UndoManager()
+
+        _ = await AnnotationBulkActions.perform(
+            .stet, on: ids, in: h.doc, undoManager: um)
+
+        let said = await notices {
+            um.undo()
+            await settle(h.doc)
+        }
+
+        XCTAssertEqual(said, [])
+        for id in ids { XCTAssertEqual(status(h.doc, id), .open) }
+    }
+
+    /// **The arm the issue missed.** Accepting a textless note registers its own
+    /// undo (Denver's 2026-08-18 ruling) and declines with its own sentence, so
+    /// a bulk accept coalesces and aggregates exactly as a bulk stet does.
+    /// Drifted here by a peer STETTING two of them — `reopenAnnotation` refuses
+    /// an accepted note by design (M5-AN-034), and Stet is what the pane offers
+    /// on a resolved row.
+    func test_oneUndoOverABatchOfAcceptedNotesAggregatesToo() async throws {
+        let h = try await makeHarness(prefix: "Bulk-DeclineAccept")
+        let ids = try await threeComments(h)
+        let um = UndoManager()
+
+        _ = await AnnotationBulkActions.perform(
+            .accept, on: ids, in: h.doc, undoManager: um)
+        for id in ids { XCTAssertEqual(status(h.doc, id), .accepted) }
+
+        try await h.doc.stetAnnotation(id: ids[0])
+        try await h.doc.stetAnnotation(id: ids[1])
+
+        let said = await notices {
+            um.undo()
+            await settle(h.doc)
+        }
+
+        XCTAssertEqual(said, [
+            "Couldn't undo accepting 2 notes — they changed on another device."])
+        XCTAssertEqual(status(h.doc, ids[2]), .open,
+                       "the third note DID undo")
+    }
+
     // MARK: - The verb has a face
 
     /// A verb with no production caller is the shape `RegionBinding.references`
