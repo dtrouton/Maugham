@@ -344,10 +344,18 @@ extension ProjectStore {
     ///   (tripwire 22), so a stale handle naming a path a *later* statement now
     ///   lives at removes nothing.
     ///
-    /// **The well is asked TWICE, and the second asking is the load-bearing
-    /// one.** `saveManifest` is an `await` — a suspension point by contract,
-    /// whatever today's callee happens to do — and the well is a directory in
-    /// the open that another process can write into while the save runs. So the
+    /// **The well is asked TWICE, and neither asking is the other's spare.**
+    /// The FIRST is what closes the in-process race this guard exists for: from
+    /// it to `removeItem` nothing suspends today — `saveManifest`'s `await`
+    /// reaches a `writeManifest` with no inner `await` of its own, so no other
+    /// main-actor work can interleave — which means the first check is the one
+    /// that actually stops the drop side's picture being orphaned. The SECOND
+    /// stands guard over what that argument rests on: `await` is a suspension
+    /// point by contract, so a `writeManifest` that one day does suspend
+    /// re-opens the window silently, and the well is a directory in the open
+    /// that another PROCESS can write into while the save runs — the
+    /// `NSFileCoordinator` shape
+    /// `test_rollbackRefusesAPictureThatLandedDuringItsOwnSave` forces. So the
     /// question is asked again with nothing left between it and `removeItem`.
     /// A picture that landed in that window puts the row back, restores the
     /// stamp, saves again, and refuses. **If that second save also fails the

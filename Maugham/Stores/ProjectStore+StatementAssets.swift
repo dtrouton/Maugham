@@ -22,9 +22,8 @@ import MaughamCore
 /// records that decision.
 ///
 /// **No naming, dedupe or timestamp scheme of its own**, and no literal:
-/// `ImagePasteHandler.destination(forNoteAt:in:ext:)` derives `<slug>_assets`
-/// from the file's own name, so handing it a `Statement.path` yields the well
-/// for free. Move a statement and the well follows it.
+/// `ImagePasteHandler.wellURL(forNoteAt:in:)` derives `<slug>_assets` from the
+/// file's own name, so handing it a `Statement.path` yields the well for free. Move a statement and the well follows it.
 ///
 /// **The ref this returns is the caller's to insert, and it must go in through
 /// the `Document`.** A statement's `.md` is derived output (hard invariant), so

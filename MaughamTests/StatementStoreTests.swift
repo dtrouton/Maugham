@@ -468,6 +468,12 @@ final class StatementStoreTests: XCTestCase {
         await reloaded.wordCountPopulationTask?.value
         XCTAssertEqual(reloaded.manifest.statements.map(\.id), [minted.id],
                        "the row is back on disk, not just in memory")
+
+        // Closed rather than left to deinit: `DocumentStore.open` registers a
+        // `ProjectFolderPresenter` process-wide, and a suite that leaves one
+        // standing hands every later coordinated write an extra presenter to
+        // message.
+        await documentStore.close()
     }
 
     /// **The control for both guards above**, in the three shapes an untouched
