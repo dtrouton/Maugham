@@ -514,6 +514,34 @@ final class CompileToolsTests: XCTestCase {
             "compile's description must state the widened key")
     }
 
+    /// I2 (whole-branch review). `compile`'s own prose must describe the
+    /// world `languages` made: what makes a compile a SOURCE compile is
+    /// whether its language SET contains the book's own tongue, not whether
+    /// the legacy `language` parameter is absent — and `version` is refused
+    /// for a source compile, not "without language". Both old sentences were
+    /// literally false for `languages: ["en","sr"]` on an `en` book, which is
+    /// a source compile that names two languages and mints at next_version.
+    ///
+    /// Disable experiment: restore "a source compile (no language)" /
+    /// "requires language … refused without language" and both halves fail.
+    func testDescription_compile_definesASourceCompileByItsLanguageSet() {
+        let d = CompileTool.description
+        XCTAssertFalse(d.contains("a source compile (no language)"),
+                       "the no-language definition is false under `languages`")
+        XCTAssertTrue(
+            d.contains("includes the book's own metadata.language"),
+            "the description must define a source compile by its language SET: \(d)")
+
+        let schema = CompileTool.inputSchemaJSON
+        XCTAssertFalse(schema.contains("refused without language"),
+                       "`version` is refused for a SOURCE compile, not for a "
+                       + "missing `language`")
+        XCTAssertFalse(schema.contains("Editions only (requires language)"),
+                       "an edition is a language set without the source; it "
+                       + "does not require the legacy `language` parameter")
+        XCTAssertTrue(schema.contains("refused for a source compile"), schema)
+    }
+
     // MARK: - P2 Task 7: compile / preview_compile speak `languages`
 
     private func sourceLanguageTag() async throws -> String {
