@@ -1743,10 +1743,13 @@ final class CompileOrchestratorTests: XCTestCase {
     }
 
     /// A one-tag list is the legacy `language:` argument — same record, same
-    /// filename, byte for byte. Pinned by compiling both, in two projects that
-    /// differ in nothing else.
+    /// filename, and the same TEXT. Pinned by compiling both, in two projects
+    /// that differ in nothing else, from an UNBOUND source: a single translated
+    /// body must be rebound to its tag like any other, or the book reads in the
+    /// source language under the translation's name.
     func test_languages_aSingleTranslatedTagIsTheLegacyLanguageArgument() async throws {
         var minted: [Publication] = []
+        var roots: [URL] = []
         for (name, asList) in [("legacy", false), ("aslist", true)] {
             let dir = try await makeSiblingProject(name)
             let configStore = PublishConfigStore(projectURL: dir)
@@ -1762,6 +1765,16 @@ final class CompileOrchestratorTests: XCTestCase {
                 return XCTFail("\(name) must complete, got \(outcome)")
             }
             minted.append(pub)
+            roots.append(dir)
+        }
+        for (pub, root) in zip(minted, roots) {
+            let body = try epubEntryText(
+                "OEBPS/section-001.xhtml",
+                inEPUBAt: root.appendingPathComponent(pub.outputPath))
+            XCTAssertTrue(body.contains(RebindableSrc.text(for: "sr")),
+                          "the sr edition must read the sr text: \(body)")
+            XCTAssertFalse(body.contains(RebindableSrc.text(for: nil)),
+                           "and not the source text under its name: \(body)")
         }
         XCTAssertEqual(minted[0].language, minted[1].language)
         XCTAssertEqual(minted[0].version, minted[1].version)
@@ -1891,6 +1904,33 @@ final class CompileOrchestratorTests: XCTestCase {
         let srCSS = try epubEntryText(
             "OEBPS/styles.css", inEPUBAt: tmp.appendingPathComponent(sr.outputPath))
         XCTAssertTrue(srCSS.contains("sronly"), srCSS)
+    }
+
+    /// `language: "en"` on a book whose `metadata.language` IS "en" is a SOURCE
+    /// compile, not a translated edition: `LanguageSet`'s substitution maps a
+    /// tag equal to the source tag (and the literal "source") to the source
+    /// body. So it mints from next_version, bumps it, records no language, and
+    /// never asks the translation gate anything. On the record because it is a
+    /// decision, not a fallout: the alternative — refusing, or looking for an
+    /// "en" translation layer of an English book — is what a reader might expect.
+    func test_languages_theSourceTagNamesTheSourceBody() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+
+        guard case .completed(let pub, _) = try await makeOrch(
+            configStore, pubStore, source: RebindableSrc(tag: nil))
+            .compile(format: .epub, label: nil, language: "en") else {
+            return XCTFail("naming the source language is a source compile")
+        }
+        XCTAssertNil(pub.language, "the record of a source compile names no language")
+        XCTAssertEqual(pub.version, "0.1", "minted from next_version")
+        let after = try await configStore.load()
+        XCTAssertEqual(after?.nextVersion, "0.2", "and bumped it, as a source compile does")
+        let body = try epubEntryText(
+            "OEBPS/section-001.xhtml", inEPUBAt: tmp.appendingPathComponent(pub.outputPath))
+        XCTAssertTrue(body.contains(RebindableSrc.text(for: nil)),
+                      "and it is the source body that was rendered: \(body)")
     }
 
     /// A bilingual document carries its IDENTITY in its name, so it lands

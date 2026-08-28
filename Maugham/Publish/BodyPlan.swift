@@ -73,11 +73,20 @@ public struct BodyPlan {
     ///   - resolved: the door's already-resolved config (imprint applied,
     ///     `nextVersion` threaded). Never mutated — each body gets its own fold
     ///     of it.
-    ///   - source: the live source. For a single body it is used AS GIVEN and
-    ///     never rebound, so a caller that already bound its source to the one
-    ///     language it is compiling — and every test source that knows nothing
-    ///     about languages — keeps working. For two or more bodies it must be
-    ///     a `LanguageRebindableSource`.
+    ///   - source: the live source. Every body is bound to its own language
+    ///     when the source can answer for one; a source that cannot is used AS
+    ///     GIVEN, which is what keeps every test source that knows nothing
+    ///     about languages driving a single-body compile. For two or more
+    ///     bodies it MUST be a `LanguageRebindableSource`.
+    ///
+    ///     A one-body plan rebinds too, deliberately. A caller that already
+    ///     bound its source to the language it is compiling gets the same value
+    ///     back (`ProjectStoreASTSource(language: "es")` rebound to `"es"`), so
+    ///     nothing changes for it — while an UNBOUND source handed
+    ///     `languages: ["es"]` used to render the SOURCE text into a file named
+    ///     `-es.epub`, recorded as `language: "es"`, with the coverage gate
+    ///     green because the gate reads the translation layer rather than the
+    ///     emitted book.
     ///   - wrap: how the caller wraps a bound source (the include filter).
     ///     Applied to EVERY body, the single given one included.
     /// - Throws: `NotRebindable` when `set.bodies.count > 1` and `source` is
@@ -91,22 +100,20 @@ public struct BodyPlan {
         wrap: (ProjectASTBuilder.Source) -> ProjectASTBuilder.Source
     ) throws -> BodyPlan {
 
-        let rebindable: (any LanguageRebindableSource)?
-        if set.bodies.count > 1 {
-            guard let r = source as? any LanguageRebindableSource else {
-                let list = set.bodies.map { $0 ?? set.sourceTag }.joined(separator: ", ")
-                throw NotRebindable(message:
-                    "this compile renders \(set.bodies.count) languages (\(list)), "
-                    + "but its manuscript source cannot bind to a language")
-            }
-            rebindable = r
-        } else {
-            rebindable = nil
+        // Asked of the source itself, never of the body count: a single body
+        // needs its own text as much as one of two does.
+        let rebindable = source as? any LanguageRebindableSource
+        if set.bodies.count > 1, rebindable == nil {
+            let list = set.bodies.map { $0 ?? set.sourceTag }.joined(separator: ", ")
+            throw NotRebindable(message:
+                "this compile renders \(set.bodies.count) languages (\(list)), "
+                + "but its manuscript source cannot bind to a language")
         }
 
         let bodies = set.bodies.map { tag -> Body in
-            // One body: the source as given. Two or more: each body asks the
-            // source for its own binding.
+            // Each body asks the source for its own binding; a source that
+            // cannot answer is used as given (one body only — the throw above
+            // has already refused the rest).
             let bound = rebindable?.rebound(toLanguage: tag) ?? source
             return Body(
                 tag: tag,

@@ -159,6 +159,14 @@ public struct CompileOrchestrator {
                 contextLines: [
                     "Nothing was compiled — no export, no snapshot, no version bump."
                 ])
+            // This one registers a job and fails it, where the language
+            // refusal just below returns without one: BOTH shapes are the door's
+            // existing rule, not an inconsistency. Getting here means the
+            // project was READ — the op log, the manifest, the imprint's
+            // merge-patch — so a compile did begin and `compile_status` must be
+            // able to say how it ended. The register call moved down to make
+            // room for the language check; registering it here keeps this path's
+            // behaviour exactly what it was before that move.
             let jobID = await jobManager.register(phase: .renderingBody)
             await jobManager.fail(
                 jobID: jobID, errors: [diag],
@@ -631,6 +639,13 @@ public struct CompileOrchestrator {
         // contributes nothing to it: `gateWarnings` are collected but dropped
         // on the blocked path, because nothing was compiled for them to be
         // about.
+        //
+        // `allow_stale` is the whole compile's, so it applies to EVERY tongue:
+        // there is one book, and a writer who accepts source-text fallback for
+        // one of its halves has accepted it for the other. A tongue with no
+        // translation layer at all still refuses under it (the zero-layer
+        // guard), which is why one blocked tongue can sink an allow_stale
+        // compile that every other tongue passed.
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
         if let source = astSource as? ProjectStoreASTSource {
             var blocked: [TectonicLogParser.Diagnostic] = []

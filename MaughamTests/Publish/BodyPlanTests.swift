@@ -60,9 +60,9 @@ final class BodyPlanTests: XCTestCase {
         return url
     }
 
-    // MARK: - one body uses the given source AS GIVEN
+    // MARK: - one body: rebound when it can be, passed through when it can't
 
-    func test_singleSourceBody_usesTheGivenSourceUnrebound() throws {
+    func test_singleSourceBody_passesANonRebindableSourceThroughAsGiven() throws {
         let set = try LanguageSet(language: nil, languages: nil, sourceTag: "en")
         let marker = MarkerSource(name: "given")
         let plan = try BodyPlan.make(
@@ -77,10 +77,10 @@ final class BodyPlanTests: XCTestCase {
             "a one-body plan must carry the source it was given, not a rebound copy")
     }
 
-    func test_singleTranslatedBody_alsoUsesTheGivenSourceUnrebound() throws {
-        // Constraint 2 in its sharper form: even a TRANSLATED single body
-        // takes the source as given, because today's single-language callers
-        // pass a source already bound to that language.
+    func test_singleTranslatedBody_alsoPassesANonRebindableSourceThroughAsGiven() throws {
+        // Constraint 2: a source that cannot bind to a language is used as
+        // given for ONE body — which is what keeps every test source that has
+        // never heard of languages driving a single-body compile.
         let set = try LanguageSet(language: nil, languages: ["sr"], sourceTag: "en")
         let marker = MarkerSource(name: "given")
         let plan = try BodyPlan.make(
@@ -91,6 +91,33 @@ final class BodyPlanTests: XCTestCase {
         XCTAssertEqual(plan.first.tag, "sr")
         XCTAssertEqual(plan.first.displayTag, "sr")
         XCTAssertTrue((plan.first.source as AnyObject) === marker)
+    }
+
+    /// The other half of the same rule, and the one that matters in production:
+    /// a source that CAN bind is bound, however many bodies there are. A single
+    /// translated body handed an unbound `ProjectStoreASTSource` used to render
+    /// the SOURCE text under the translation's name — a `-es.epub` recorded as
+    /// `language: "es"` whose every paragraph was English.
+    func test_singleBody_rebindsARebindableSourceToItsOwnTag() throws {
+        let translated = RebindLog()
+        let trPlan = try BodyPlan.make(
+            set: try LanguageSet(language: nil, languages: ["sr"], sourceTag: "en"),
+            resolved: PublishConfig(), source: RecordingSource(log: translated),
+            publishDir: try tempDir("single-rebind"), wrap: { $0 })
+        XCTAssertEqual(translated.requested, ["sr"],
+                       "one body asks for its tag like any other")
+        XCTAssertEqual((trPlan.first.source as? RecordingSource)?.boundTag, "sr")
+
+        // And the source body binds to nil — the same value a caller that
+        // pre-bound it would already hold, which is why legacy callers see no
+        // change.
+        let source = RebindLog()
+        let srcPlan = try BodyPlan.make(
+            set: try LanguageSet(language: nil, languages: nil, sourceTag: "en"),
+            resolved: PublishConfig(), source: RecordingSource(log: source),
+            publishDir: try tempDir("single-rebind-src"), wrap: { $0 })
+        XCTAssertEqual(source.requested, [nil])
+        XCTAssertNil((srcPlan.first.source as? RecordingSource)?.boundTag)
     }
 
     // MARK: - two or more bodies rebind, in order
