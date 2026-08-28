@@ -184,6 +184,44 @@ final class CompilerOrchestrator {
         }
     }
 
+    /// What one round's mint actually did — beside `Environment.mintAnnotations`
+    /// below, because it is that closure's answer and nothing else's.
+    ///
+    /// **Two numbers rather than one, because the dedupe has two outcomes and
+    /// only one of them used to be reportable** (#42 F-H). A finding the mint
+    /// refused is not nothing happening: it is a finding the writer is already
+    /// holding. When they are holding it in the lane the round was run in, the
+    /// since-line already accounts for it as *persisting*. When they are
+    /// holding it in ANOTHER pass's lane, every count on that line is zero and
+    /// the report used to say so over a round that engaged the question.
+    struct MintOutcome: Equatable, Sendable {
+        /// Notes really appended to the document — after the dedupe dropped
+        /// what was already open, and after any that could not be placed
+        /// failed their own append.
+        let minted: Int
+        /// Distinct findings this round raised that the dedupe refused and
+        /// **no lane holding them is this round's own** — own-lane presence
+        /// wins, because one fingerprint can be held by two open notes at once
+        /// (`CompilerEnvironment+Project`'s mint loop spells the shape). A
+        /// finding standing in the round's own lane is the *persisting* case,
+        /// already on the since-line, and counting it here as well would tell
+        /// the writer one finding is two.
+        ///
+        /// Per FINDING, not per matched note: two notes holding one fingerprint
+        /// are one thing the writer is holding elsewhere.
+        let openInOtherLanes: Int
+
+        /// A mint that did not happen: no document to write to, or no note
+        /// worth writing.
+        ///
+        /// **Zero, and indistinguishable on the wire from a run that minted
+        /// nothing** — `finish` records whatever it gets, so both store `0`.
+        /// The `nil` that `CompilerRun.mintedNotes`/`openInOtherLanes` document
+        /// comes from the PREVIEW path alone (and from records written before
+        /// those fields existed); it is never this value.
+        static let nothing = MintOutcome(minted: 0, openInOtherLanes: 0)
+    }
+
     /// Everything the orchestrator needs from the window it belongs to. Closures
     /// rather than stores, so a test drives a run without a project on disk and
     /// so `detach()` can drop the window's whole object graph in one line.
@@ -281,18 +319,19 @@ final class CompilerOrchestrator {
         /// it really minted, which is not the count it was handed: the dedupe
         /// backstop drops a finding already open on the document, and a note
         /// whose paragraph the writer deleted between parse and mint fails its
-        /// own append.
+        /// own append — and, beside it, how many of those refusals were
+        /// findings open in ANOTHER pass's lane (`MintOutcome`, #42 F-H).
         ///
         /// **It cannot fail the run**, and its signature says so: no `throws`,
-        /// an `Int` rather than a result. The compiler is a background
+        /// a plain value rather than a result. The compiler is a background
         /// convenience (spec §3.2) and a note that could not be written is not
         /// a reason to tell the writer their check failed.
         ///
-        /// Defaulted to a no-op returning 0 so every `Environment` built before
-        /// the mint existed still compiles and still runs — those runs simply
-        /// write no annotations, which is what they did.
-        var mintAnnotations: @MainActor ([CompilerNote], CompilerMintContext) async -> Int
-            = { _, _ in 0 }
+        /// Defaulted to a no-op returning `.nothing` so every `Environment`
+        /// built before the mint existed still compiles and still runs — those
+        /// runs simply write no annotations, which is what they did.
+        var mintAnnotations: @MainActor ([CompilerNote], CompilerMintContext) async -> MintOutcome
+            = { _, _ in .nothing }
         /// What this run established, on its way into the bible. Never a note:
         /// a fact-candidate lands silently and surfaces in the Intent pane's
         /// bible stratum, where the writer's three actions reach it.
@@ -799,8 +838,10 @@ final class CompilerOrchestrator {
                              // A preview has minted nothing: the notes it would
                              // mint are minted at `finish` or not at all, so
                              // `nil` here is "no mint has happened" rather than
-                             // a claim that this run queued none.
-                             mintedNotes: nil),
+                             // a claim that this run queued none — and the
+                             // cross-lane count is the same fact seen from the
+                             // other side, so it is nil for the same reason.
+                             mintedNotes: nil, openInOtherLanes: nil),
             // **A preview shows what the report shows, and nothing else**
             // (M4 P1 Task 3). Continuity and reader sections still accumulate
             // on `run.outcome` — the run's own record reads its counts off it
@@ -832,14 +873,16 @@ final class CompilerOrchestrator {
     /// could quietly omit them would file an unnumbered round nothing
     /// downstream could notice — the preview and the answer would simply
     /// disagree.
-    /// `mintedNotes` is `nil` for a preview — nothing is minted until the turn
-    /// ends — and the finished run's real count otherwise. Undefaulted for
-    /// `passId`/`round`/`freshEyes`'s reason: a third call site that quietly
-    /// omitted it would record a run claiming it queued nothing.
+    /// `mintedNotes` and `openInOtherLanes` are `nil` for a preview — nothing
+    /// is minted until the turn ends — and the finished run's real counts
+    /// otherwise. Undefaulted for `passId`/`round`/`freshEyes`'s reason: a
+    /// third call site that quietly omitted either would record a run claiming
+    /// it queued nothing and engaged nothing.
     private static func record(
         id: String, model: String, lastOpId: String?, deltaSummary: String,
         intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
-        outcome: DiagnosticIngest.SectionedOutcome, mintedNotes: Int?
+        outcome: DiagnosticIngest.SectionedOutcome, mintedNotes: Int?,
+        openInOtherLanes: Int?
     ) -> CompilerRun {
         CompilerRun(
             id: id, at: Date(), model: model, lastOpId: lastOpId,
@@ -892,7 +935,14 @@ final class CompilerOrchestrator {
             // conformance strains alone now, so without this a run that raised
             // three questions and no strain would be indistinguishable from a
             // run that found nothing — and the surface would say so.
-            mintedNotes: mintedNotes)
+            mintedNotes: mintedNotes,
+            // **What this run engaged but could not queue, because the writer
+            // is already holding it in another pass** (#42 F-H). The same
+            // argument one field along: without it a round that re-raised a
+            // question open in the Structural lane reads as three zeroes on
+            // the since-line, which is a check that did engage the piece
+            // reported as one that found nothing in it.
+            openInOtherLanes: openInOtherLanes)
     }
 
     /// **What the last round in this run's lane raised**, or `nil` when there
@@ -1117,9 +1167,9 @@ final class CompilerOrchestrator {
             // than one that is a few milliseconds late, and the writer is
             // watching "Checking…" the whole time either way.
             let notes = outcome.mintable
-            var minted = 0
+            var mint = MintOutcome.nothing
             if !notes.isEmpty, let environment {
-                minted = await environment.mintAnnotations(
+                mint = await environment.mintAnnotations(
                     notes,
                     CompilerMintContext(
                         docId: docId, runId: runId, passId: passId, round: round,
@@ -1141,7 +1191,8 @@ final class CompilerOrchestrator {
                 // and the writer may have moved the piece to another pass
                 // while it ran.
                 passId: passId, round: round, freshEyes: freshEyes,
-                outcome: outcome, mintedNotes: minted)
+                outcome: outcome, mintedNotes: mint.minted,
+                openInOtherLanes: mint.openInOtherLanes)
             // Dropped rather than discarded: `replace` below supersedes the
             // preview wholesale, so taking it off the pane first would blink
             // the report out and back.

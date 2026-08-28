@@ -246,7 +246,7 @@ extension CompilerOrchestrator.Environment {
                 guard let document = documentStore?.document(forDocId: context.docId) else {
                     compilerLog.error(
                         "the compiler's notes had nowhere to land: doc \(context.docId, privacy: .public) is no longer open")
-                    return 0
+                    return .nothing
                 }
                 // **The dedupe backstop, and it is THE guard on the fresh-eyes
                 // path.** A warm round is briefed on what the last one raised
@@ -259,12 +259,63 @@ extension CompilerOrchestrator.Environment {
                 // Only OPEN notes block. A resolved one is a finding the
                 // writer dealt with, and prose that still reads the same way
                 // afterwards is news again rather than an echo.
-                var taken = Set(
-                    document.annotations(filter: AnnotationFilter(statuses: [.open]))
-                        .compactMap { $0.isCompilerAuthored ? $0.compilerFingerprint : nil })
+                //
+                // **A map from fingerprint to the LANES holding it rather than
+                // a bare set of fingerprints** (#42 F-H). The dedupe's answer
+                // is the same either way — a finding already open is refused
+                // whichever pass raised it, because one finding is one note and
+                // the lane it was raised in does not make it two. What the
+                // lanes buy is being able to SAY so: a match in this round's
+                // own lane is the since-line's *persisting* case and needs
+                // nothing from here, while a match in another pass's lane falls
+                // outside all three of that line's lane-local counts and used
+                // to leave the round reporting three zeroes. Recorded here
+                // because this is the one place the comparison is already made;
+                // a second scan could disagree with the mint about what it
+                // refused.
+                //
+                // **A SET of lanes, because one fingerprint can be held by two
+                // OPEN notes at once** (review fix, #42). Only open notes
+                // block, so: Structural mints a note, the writer rejects it,
+                // a Line round re-raises the finding and — nothing being open
+                // — mints a second note under the same fingerprint, and the
+                // writer then clicks Reopen on the first. `reopenAnnotation`
+                // has no fingerprint-collision guard and should not grow one:
+                // reopening is the writer taking a note back, not a claim about
+                // any other note. A single-valued map would keep whichever of
+                // the two it walked last, and a later Structural round reading
+                // "line" back would report its own lane's persisting note as
+                // "was already open in another lane" — counted twice, once on each
+                // side of the line.
+                //
+                // **Own-lane presence wins**: a finding is cross-lane only when
+                // NO note holding it is in this round's lane. The writer can
+                // see the one in the lane they are working, and the line
+                // already counts it.
+                //
+                // `Set<String?>` rather than `Set<String>`: a passless note's
+                // lane is `nil` and the passless lane is a lane, so absence
+                // must stay distinguishable from "held, by a passless note" —
+                // which `lanes.contains(context.passId)` gets right for a
+                // passless run without a special case.
+                var taken: [String: Set<String?>] = [:]
+                for annotation in document.annotations(
+                    filter: AnnotationFilter(statuses: [.open])
+                ) where annotation.isCompilerAuthored {
+                    guard let fingerprint = annotation.compilerFingerprint else { continue }
+                    taken[fingerprint, default: []].insert(annotation.reviewPassId)
+                }
                 var minted = 0
+                // By fingerprint, not by occurrence and not by matched note: a
+                // model that raises one finding twice in a turn is raising one
+                // finding (already the rule the mint applies one branch down),
+                // and a finding two open notes happen to share is still ONE
+                // finding the writer is holding elsewhere — the count is of
+                // findings, which is what the sentence it feeds says.
+                var elsewhere = Set<String>()
                 for note in notes {
-                    if let fingerprint = note.fingerprint, taken.contains(fingerprint) {
+                    if let fingerprint = note.fingerprint, let lanes = taken[fingerprint] {
+                        if !lanes.contains(context.passId) { elsewhere.insert(fingerprint) }
                         continue
                     }
                     do {
@@ -299,7 +350,15 @@ extension CompilerOrchestrator.Environment {
                         // turn mints it once. The ingest dedupes refs, not
                         // findings, and the writer would have no way to tell
                         // the copies apart.
-                        if let fingerprint = note.fingerprint { taken.insert(fingerprint) }
+                        if let fingerprint = note.fingerprint {
+                            // Inserted rather than replacing, and stamped with
+                            // THIS round's lane, because that is what the note
+                            // it just wrote carries: a second copy in the same
+                            // turn is the same-lane case, not a cross-lane one
+                            // — and a fingerprint already held elsewhere keeps
+                            // that lane too, since both notes are now open.
+                            taken[fingerprint, default: []].insert(context.passId)
+                        }
                     } catch {
                         // **The mint never fails the run.** The commonest
                         // cause is the writer deleting the paragraph between
@@ -314,7 +373,8 @@ extension CompilerOrchestrator.Environment {
                 // Owed exactly once, and only if something really landed —
                 // `sweepOrphanedAnnotations`' rule, for its reason.
                 if minted > 0 { document.announceAnnotationsChanged() }
-                return minted
+                return CompilerOrchestrator.MintOutcome(
+                    minted: minted, openInOtherLanes: elsewhere.count)
             },
             recordFacts: { [weak bible] candidates in
                 // `record` dedupes on `(subject, fact)` itself, so a second run
