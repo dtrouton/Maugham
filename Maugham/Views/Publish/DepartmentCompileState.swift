@@ -67,10 +67,26 @@ struct DepartmentCompileState: Equatable {
         case .failed(let message):
             return message
         case .refused(let sentence):
-            return sentence
+            // **A refusal while the refused run carries on says both things.**
+            // The phase is replaced by the refusal, so the running sentence is
+            // gone by the time this is read — and a desk that answered the
+            // bare refusal would be a desk with a Cancel button on it and not
+            // one word about what there is to cancel. One channel, both facts.
+            return isRunning ? Self.refusedWhileRunning(sentence) : sentence
         case .idle:
             return report
         }
+    }
+
+    /// **Whether the last press ended badly** — `.failed` and nothing else.
+    ///
+    /// `DepartmentRunState.isFailure`'s rule, in this surface's currency: a
+    /// refusal is not a failure (nothing broke, a press arrived at the wrong
+    /// moment or a name was mistyped) and a cancel is the writer's own act. A
+    /// red line over either sends them looking for a fault that is not there.
+    var isFailure: Bool {
+        if case .failed = phase { return true }
+        return false
     }
 
     // MARK: - Settling
@@ -129,6 +145,15 @@ struct DepartmentCompileState: Equatable {
     static let cancelledLine = "Compile cancelled. Nothing was published."
 
     static let dryRunLine = "Dry run passed. Nothing was compiled."
+
+    /// A refusal drawn while the run it was refused for is still going. The
+    /// suffix is a constant rather than a rebuild of `compiling(...)` because
+    /// the phase no longer carries what that run was for — saying THAT
+    /// something is compiling is true; naming it from a phase that no longer
+    /// holds it would not be.
+    static func refusedWhileRunning(_ sentence: String) -> String {
+        sentence + " \u{2014} still compiling."
+    }
 
     /// A failure that arrived with no diagnostics at all. Rare — the
     /// orchestrator's own refusals all carry one — but a red desk with an empty

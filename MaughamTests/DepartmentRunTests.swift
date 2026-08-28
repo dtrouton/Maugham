@@ -564,6 +564,76 @@ final class DepartmentRunTests: XCTestCase {
                        + "found \(messageInputs)")
     }
 
+    // MARK: - The compile's one line (imprints P3 Task 5)
+
+    /// **Every phase has something to say, and the order is the desk's** —
+    /// what is happening now outranks what happened last, exactly as
+    /// `DepartmentRunState` orders a round's.
+    func test_theCompilesLineSaysSomethingInEveryPhase() {
+        XCTAssertNil(DepartmentCompileState().statusLine,
+                     "a desk nobody has pressed has nothing to report")
+
+        let running = DepartmentCompileState(
+            phase: .running(format: .pdf, languages: ["en", "es"],
+                            imprint: "special"),
+            isRunning: true)
+        let line = try? XCTUnwrap(running.statusLine)
+        XCTAssertEqual(line, DepartmentCompileState.compiling(
+            format: .pdf, languages: ["en", "es"], imprint: "special"))
+        XCTAssertFalse(running.isFailure, "a compile in flight is not a failure")
+
+        XCTAssertEqual(
+            DepartmentCompileState(phase: .failed("template.tex is missing")).statusLine,
+            "template.tex is missing")
+        XCTAssertTrue(
+            DepartmentCompileState(phase: .failed("x")).isFailure,
+            "…and that one is the only phase drawn red")
+
+        XCTAssertEqual(
+            DepartmentCompileState(phase: .idle, isRunning: false,
+                                   report: DepartmentCompileState.cancelledLine)
+                .statusLine,
+            DepartmentCompileState.cancelledLine,
+            "an idle desk that just swallowed a press without a word is "
+            + "indistinguishable from a button that did nothing")
+        XCTAssertFalse(
+            DepartmentCompileState(phase: .idle, isRunning: false,
+                                   report: DepartmentCompileState.cancelledLine)
+                .isFailure,
+            "a cancel is the writer's own act and is never drawn as a failure")
+    }
+
+    /// **A refusal drawn while the run it refused carries on says both things.**
+    ///
+    /// The second press replaces the PHASE and leaves `isRunning` true — that
+    /// is `DepartmentCompileState`'s whole reason for storing the flag — so the
+    /// one line has to carry the refusal AND the fact that something is still
+    /// compiling. A bare refusal beside a live Cancel button is a desk telling
+    /// the writer nothing is happening next to the control that stops it.
+    ///
+    /// The disable experiment: return `sentence` unconditionally from the
+    /// `.refused` arm and the first two assertions fail while the settled one
+    /// still passes.
+    func test_aRefusalWhileTheRunCarriesOnStillSaysSomethingIsCompiling() {
+        let midRun = DepartmentCompileState(
+            phase: .refused(DepartmentCompileState.alreadyRunning),
+            isRunning: true)
+        let line = midRun.statusLine ?? ""
+        XCTAssertTrue(line.contains(DepartmentCompileState.alreadyRunning),
+                      "the refusal is not lost: \(line)")
+        XCTAssertTrue(line.contains("still compiling"),
+                      "…and neither is the run it was refused for: \(line)")
+        XCTAssertFalse(midRun.isFailure,
+                       "nothing broke — a press arrived at the wrong moment")
+
+        let settled = DepartmentCompileState(
+            phase: .refused("unknown imprint 'speciel'"), isRunning: false)
+        XCTAssertEqual(settled.statusLine, "unknown imprint 'speciel'",
+                       "a refusal with nothing running is the bare sentence — "
+                       + "appending \u{201C}still compiling\u{201D} there would "
+                       + "be a lie about a desk at rest")
+    }
+
     // MARK: - Task 4: the Design row's decisions (no window)
 
     /// **The row names the person and the newest round.** The designer is the

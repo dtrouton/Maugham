@@ -355,7 +355,11 @@ final class TripwireGrepTests: XCTestCase {
     /// The three areas that compile a book, and therefore the three that could
     /// grow a fifth spelling of the toolchain's versions.
     private var toolchainCensusDirs: [URL] {
-        ["Publish", "MCP", "Compiler"].map {
+        // `Views/Publish` joined the list in imprints P3 Task 5, when
+        // `DeskCompileRunner` became the second production construction of
+        // `CompileOrchestrator` — a compile stamp is minted in this directory
+        // now, so a fifth spelling could grow here too.
+        ["Publish", "MCP", "Compiler", "Views/Publish"].map {
             sourceDir.appendingPathComponent($0, isDirectory: true)
         }
     }
@@ -401,7 +405,8 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders.isEmpty,
             "A compile's toolchain versions have one home: `PublishToolchain"
             + ".maughamVersion` and `PublishToolchain.tectonicVersion`. A second "
-            + "spelling under Publish/, MCP/ or Compiler/ is how two records "
+            + "spelling under Publish/, MCP/, Compiler/ or Views/Publish/ is "
+            + "how two records "
             + "made by the same build come to disagree about what made them. "
             + "Offenders:\n" + offenders.joined(separator: "\n"))
     }
