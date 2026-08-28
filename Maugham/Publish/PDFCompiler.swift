@@ -283,8 +283,13 @@ public struct PDFCompiler {
     /// but the wrapper is Maugham's file, not the template author's, so
     /// Maugham owns the prefix: one `../` per directory the template sits
     /// below the publish dir, and the empty string for a template at the root.
+    ///
+    /// M1 (whole-branch review): `.` segments are not directories.
+    /// `./template.tex` names the publish dir's own root and needs no prefix
+    /// at all, but counting its segments naively gives it one `../` and sends
+    /// every `\input` a level above the publish dir.
     static func wrapperInputPrefix(forTemplate name: String) -> String {
-        let depth = name.split(separator: "/").count - 1
+        let depth = name.split(separator: "/").filter { $0 != "." }.count - 1
         return String(repeating: "../", count: max(0, depth))
     }
 
