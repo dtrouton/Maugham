@@ -140,8 +140,11 @@ extension ProjectStore {
     /// orphaned photograph is worse than an empty statement.
     ///
     /// `rollbackUnusedStatement` refuses on its own account too (an open pane,
-    /// words in the derivation, a non-empty file, an unknown row), so this is
-    /// the *first* of two questions rather than the only one.
+    /// words in the derivation, a non-empty file, a picture already in the well,
+    /// an unknown row), so this is the *first* of two questions rather than the
+    /// only one. The well refusal is the one that covers what `mintedHere`
+    /// cannot: a *different* drop's photograph landing beside this statement
+    /// while this one's save was failing (issue #35).
     ///
     /// **What it deliberately does not undo: the well itself.** A save that gets
     /// past `createDirectory` and fails on the write leaves an empty

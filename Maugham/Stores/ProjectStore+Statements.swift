@@ -275,6 +275,38 @@ extension ProjectStore {
         return created
     }
 
+    /// **Whether a picture is already sitting in this statement's well** — the
+    /// question `rollbackUnusedStatement` asks so that it never takes a
+    /// statement away from a photograph (issue #35).
+    ///
+    /// The well is `<slug>_assets/` beside the statement's own file, and its
+    /// location comes from `ImagePasteHandler.wellURL` — the saver's own
+    /// derivation, so the guard cannot go looking somewhere the saver stopped
+    /// writing. Asking is a `contentsOfDirectory`, never a read of anything in
+    /// it: what a picture *is* is not this verb's business, only that the
+    /// writer's disk holds one.
+    ///
+    /// **Dotfiles do not count.** A `.DS_Store` the Finder dropped in while the
+    /// writer merely looked at the folder is not a deposit, and letting it
+    /// refuse would make an ordinary empty mint permanently un-rollbackable on
+    /// any Mac that has displayed the directory. Skipped by NAME, through
+    /// `DotfileScan.isDotfile` and never `.skipsHiddenFiles`, which also honours
+    /// the BSD `hidden` flag something outside Maugham may have set on a real
+    /// photograph (`TripwireGrepTests.test_noSkipsHiddenFilesInProductionScans`).
+    /// Sub-directories do not count either — the saver makes none, so anything
+    /// that is not a regular file is not something this ingest put there.
+    func statementWellHoldsAnything(_ statement: Statement) -> Bool {
+        let well = ImagePasteHandler.wellURL(forNoteAt: statement.path, in: url)
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: well, includingPropertiesForKeys: [.isRegularFileKey], options: []
+        ) else { return false }
+        return entries.contains { entry in
+            guard !DotfileScan.isDotfile(entry) else { return false }
+            return (try? entry.resourceValues(
+                forKeys: [.isRegularFileKey]))?.isRegularFile == true
+        }
+    }
+
     /// Undo one `createStatement` whose purpose failed before anything reached
     /// it (issue #29: an image save that threw, a superseded mint nothing was
     /// deposited into). `createStatement` commits exactly two things — an empty
@@ -300,9 +332,25 @@ extension ProjectStore {
     ///   paragraphs. A `stat` and never a read — the same non-zero-size question
     ///   `propagateWikiLinkRename` asks for the same state, which is why it is
     ///   not the manuscript-as-truth read ADR 0018 forbids;
+    /// - when its **well holds a picture** (issue #35). The drop side writes the
+    ///   photograph into `<slug>_assets/` and only *then* takes this gate to
+    ///   append its ref, so a mint racing it finds no words, no bytes and a
+    ///   known row — every other question here says "roll back" while the
+    ///   writer's photograph is already on the disk beside the statement it
+    ///   belongs to. An orphaned photograph is worse than an empty statement
+    ///   (`ProjectStore+StatementAssets.swift`'s `rollBack`), so the well is
+    ///   asked too;
     /// - when the manifest **no longer knows** it. Identity is the manifest `id`
     ///   (tripwire 22), so a stale handle naming a path a *later* statement now
     ///   lives at removes nothing.
+    ///
+    /// **The well is asked TWICE, and the second asking is the load-bearing
+    /// one.** `saveManifest` is an `await` — a suspension point by contract,
+    /// whatever today's callee happens to do — and the well is a directory in
+    /// the open that another process can write into while the save runs. So the
+    /// question is asked again with nothing left between it and `removeItem`.
+    /// A picture that landed in that window puts the row back, restores the
+    /// stamp, saves again, and refuses.
     ///
     /// The removal is a direct `removeItem` rather than the typed mover
     /// (tripwire 14) because it is the exact inverse of `createStatement`'s own
@@ -331,10 +379,14 @@ extension ProjectStore {
               derived.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return false }
 
+        // Kept for `removeItem` below; the size question is the shared helper's.
         let fileURL = url.appendingPathComponent(statement.path)
-        let size = (try? FileManager.default.attributesOfItem(
-            atPath: fileURL.path))?[.size] as? Int ?? 0
-        guard size == 0 else { return false }
+        // `propagateWikiLinkRename`'s own `stat`, inverted: the same question
+        // about the same path, so the two cannot come to different conclusions
+        // about whether this file holds anything (RULING-8).
+        guard !statementFileHasBytes(statement) else { return false }
+
+        guard !statementWellHoldsAnything(statement) else { return false }
 
         guard let row = manifest.statements.firstIndex(where: { $0.id == statement.id })
         else { return false }
@@ -347,12 +399,43 @@ extension ProjectStore {
             // The row could not be dropped, so put it back — including the
             // stamp, since nothing was modified — and refuse. Deleting the file
             // under a live row is the dangle this order exists to avoid.
-            manifest.statements.insert(statement, at: row)
-            manifest.modified = previouslyModified
+            reinstate(statement, at: row, stampedAt: previouslyModified)
             return false
         }
+
+        // Asked again, with nothing between here and the removal: see the
+        // doc-comment's "asked TWICE". A picture that arrived during the save
+        // must keep its statement, so the row goes back on disk as well as in
+        // memory — best-effort, because a second save that also fails leaves the
+        // writer's photograph and its statement's FILE both intact, which is the
+        // half of the state that matters, and losing the row is what a reload
+        // would then heal or the writer re-declare.
+        guard !statementWellHoldsAnything(statement) else {
+            reinstate(statement, at: row, stampedAt: previouslyModified)
+            try? await saveManifest()
+            return false
+        }
+
         try? FileManager.default.removeItem(at: fileURL)
         return true
+    }
+
+    /// Put a row the rollback lifted back where it came from, stamp and all.
+    ///
+    /// **`min` because `row` was read before a suspension.** Both callers
+    /// captured the index, then awaited `saveManifest`; a concurrent removal in
+    /// that window leaves `row` past the end, and `insert(at:)` traps rather
+    /// than refusing. Clamping puts the row back at the nearest honest place
+    /// instead of crashing the app on a failure path.
+    ///
+    /// **The stamp goes back with it**, because a refusal modified nothing —
+    /// the same restore `commitProductionRoles` performs, pinned there by
+    /// `ProductionRoleStoreTests.test_aFailedSaveLeavesNoPhantomTranslatorBehind`
+    /// and here by `test_aFailedSaveDuringRollbackPutsTheRowAndTheStampBack`.
+    /// Two verbs undoing the same shape must not disagree about it (RULING-8).
+    private func reinstate(_ statement: Statement, at row: Int, stampedAt stamp: Date) {
+        manifest.statements.insert(statement, at: min(row, manifest.statements.count))
+        manifest.modified = stamp
     }
 
     // MARK: - Writing into one

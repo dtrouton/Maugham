@@ -613,7 +613,12 @@ extension ProjectStore {
     /// reading the file to answer that would be the manuscript-as-truth read
     /// ADR 0018 forbids, and the content still arrives the sanctioned way,
     /// through `Document.load`'s bootstrap inside the dance.
-    private func statementFileHasBytes(_ statement: Statement) -> Bool {
+    ///
+    /// **Internal, not private, because `rollbackUnusedStatement` asks the same
+    /// question with the opposite polarity** (issue #35). Two `stat`s of one
+    /// path, one saying "bootstrap it" and one saying "this is not an unused
+    /// mint", are one rule that RULING-8 says must not be able to disagree.
+    func statementFileHasBytes(_ statement: Statement) -> Bool {
         let path = url.appendingPathComponent(statement.path).path
         let attributes = try? FileManager.default.attributesOfItem(atPath: path)
         return ((attributes?[.size] as? Int) ?? 0) > 0
