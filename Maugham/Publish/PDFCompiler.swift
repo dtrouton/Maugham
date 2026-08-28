@@ -89,10 +89,15 @@ public struct PDFCompiler {
         let cache = try TectonicCache.ensureCacheExists()
         let invoker = TectonicInvoker(binaryURL: binary, cacheURL: cache)
 
-        // Pick the language-suffixed template (`template.es.tex`) when the
-        // edition ships one; else the base `template.tex` (Task 10).
+        // The template is the CONFIG's (Task 5) — `"template.tex"` is only its
+        // default, and an imprint replaces it through
+        // `PublishConfig.resolved(imprint:pieceIDs:)`. Nothing here takes an
+        // `imprint` parameter: resolution happened at the door, and this
+        // compiler reads the one field it left behind. Then the
+        // language-suffixed variant (`special.es.tex`) when the edition ships
+        // one; else the config's own name (Task 10).
         let templateName = LanguageSuffixedFile.resolve(
-            "template.tex", language: language, under: publish)
+            config.template, language: language, under: publish)
         let templateURL = publish.appendingPathComponent(templateName)
         let invocationResult = try await invoker.compile(
             texFile: templateURL,
@@ -125,7 +130,17 @@ public struct PDFCompiler {
 
         // tectonic emits <templateBasename>.pdf into build/, not publish root —
         // a suffixed template (`template.es.tex`) yields `template.es.pdf`.
-        let generatedName = (templateName as NSString).deletingPathExtension + ".pdf"
+        //
+        // BASENAME, deliberately (measured against the bundled tectonic,
+        // 2026-08-27): `--outdir` is FLAT. A template in a subdirectory,
+        // `templates/special.tex`, lands its PDF at `build/special.pdf` — never
+        // at `build/templates/special.pdf`. Taking the whole path and swapping
+        // the extension looks right and names a file tectonic never writes, so
+        // the move below throws a file-not-found on the one config an imprint
+        // is most likely to use.
+        let generatedName =
+            ((templateName as NSString).lastPathComponent as NSString)
+                .deletingPathExtension + ".pdf"
         let generated = build.appendingPathComponent(generatedName)
         let filename = makeOutputFilename(format: .pdf, label: label)
         let exports = projectURL.appendingPathComponent(config.outputs.directory,

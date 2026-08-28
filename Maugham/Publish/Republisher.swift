@@ -112,6 +112,12 @@ public struct Republisher {
         effective.nextVersion = newVersion
 
         let language = prior?.language
+        // Task 5: an imprint is part of what a republish reproduces. The
+        // snapshot's config already carries `imprint` (and the imprint's own
+        // `template`), so the COMPILE needs nothing from here — but the mint
+        // key and the new catalog row are identity, and identity is read off
+        // the prior publication, exactly as `language` is.
+        let imprint = prior?.imprint
         // Round 3: `republish` has no `allow_stale` parameter of its own — it
         // replays whichever gate mode the ORIGINAL compile used. `false` for
         // a strictly-gated edition and for any publication compiled before
@@ -136,7 +142,8 @@ public struct Republisher {
         // above mutates anything) so the refusal terminates a job the way
         // every other republish failure does.
         let mintKey = PublishMintGate.Key(
-            version: newVersion, language: language, format: format)
+            version: newVersion, language: language, format: format,
+            imprint: imprint)
         guard await mintGate.reserve(mintKey) else {
             let langLabel = language ?? "source"
             let diag = TectonicLogParser.Diagnostic(
@@ -164,6 +171,7 @@ public struct Republisher {
                 snap: snap, format: format, label: label, jobID: jobID,
                 effective: effective, newVersion: newVersion,
                 priorVersion: priorVersion, language: language,
+                imprint: imprint,
                 allowStale: allowStale, emitSource: emitSource,
                 excludedSectionIDs: excludedSectionIDs, stage: stage,
                 progress: progress)
@@ -202,6 +210,7 @@ public struct Republisher {
         newVersion: String,
         priorVersion: String?,
         language: String?,
+        imprint: String?,
         allowStale: Bool,
         emitSource: ProjectASTBuilder.Source,
         excludedSectionIDs: Set<String>,
@@ -326,7 +335,8 @@ public struct Republisher {
             maughamVersion: maughamVersion,
             tectonicVersion: tectonicVersion,
             language: language,
-            allowStale: allowStale)
+            allowStale: allowStale,
+            imprint: imprint)
         try await publicationStore.append(pub)
         progress.record("the catalog row: v\(newVersion) \(format.rawValue) (\(pub.publicationID))")
 

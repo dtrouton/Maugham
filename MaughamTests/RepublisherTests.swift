@@ -1,5 +1,6 @@
 import XCTest
 import MaughamCore
+import PDFKit
 @testable import Maugham
 
 @MainActor
@@ -1182,6 +1183,104 @@ final class RepublisherTests: XCTestCase {
             XCTFail("expected republish to refuse a snapshot whose template lacks {version}")
         } catch RepublishError.invalidSnapshotConfig(let msg) {
             XCTAssertTrue(msg.contains("filename_template"), msg)
+        }
+    }
+
+    // MARK: - Task 5: republish carries the imprint
+
+    /// A republish of an imprint publication must mint an imprint publication:
+    /// the same `imprint` on the new catalog row, and the imprint's own
+    /// template compiled again — not the book's.
+    ///
+    /// Seeded by hand rather than through the orchestrator: `CompileOrchestrator`
+    /// grows its `imprint:` parameter in Task 6, so this test writes the
+    /// prior `Publication(imprint:)` and captures the snapshot itself. The
+    /// snapshot's config is built the way production will build it — through
+    /// `PublishConfig.resolved(imprint:pieceIDs:)`, the one setter of
+    /// `config.imprint` — so nothing here hand-assembles a shape the compile
+    /// path would not produce.
+    ///
+    /// The template half is proved by making the BOOK's `template.tex`
+    /// uncompilable before the snapshot is captured. The snapshot freezes both
+    /// files, `Republisher` stages both, and the republish can only succeed by
+    /// compiling `special.tex` — the imprint's. A republish that reached for
+    /// the book's template would fail on `\undefined_command_xyz`.
+    func testRepublish_carriesTheImprintAndCompilesItsTemplate() async throws {
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
+
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello.")]
+            }
+        }
+
+        let publish = tmp.appendingPathComponent(".maugham/publish", isDirectory: true)
+        // The imprint's own template: a copy of the starter, valid.
+        let starter = try String(
+            contentsOf: publish.appendingPathComponent("template.tex"), encoding: .utf8)
+        try starter.write(to: publish.appendingPathComponent("special.tex"),
+                          atomically: true, encoding: .utf8)
+        // The book's template, now uncompilable.
+        try "\\undefined_command_xyz".write(
+            to: publish.appendingPathComponent("template.tex"),
+            atomically: true, encoding: .utf8)
+
+        let book = PublishConfig(
+            metadata: .init(title: "Imprints", author: "T"),
+            imprints: ["aldine": .init(template: "special.tex")])
+        let imprintConfig = try book.resolved(imprint: "aldine", pieceIDs: ["p1"])
+        XCTAssertEqual(imprintConfig.template, "special.tex")
+        XCTAssertEqual(imprintConfig.imprint, "aldine")
+
+        // The prior publication + its snapshot, as a Task 6 compile will leave them.
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let snap = try snapStore.capture(
+            config: imprintConfig, maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+        try snapStore.save(snap)
+        XCTAssertTrue(snap.publishFiles.contains { $0.relativePath == "special.tex" },
+                      "the snapshot must hold the imprint template; it held: "
+                      + snap.publishFiles.map(\.relativePath).sorted().joined(separator: ", "))
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await pubStore.append(Publication(
+            publicationID: "pub-aldine", version: "0.1", label: nil, format: .pdf,
+            outputPath: "Exports/imprints-v0.1-aldine.pdf", snapshotID: snap.snapshotID,
+            checkpointID: "", republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0",
+            language: nil, allowStale: false, imprint: "aldine"))
+
+        let r = Republisher(
+            projectURL: tmp, astSource: Src(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+        let outcome = try await r.republish(
+            snapshotID: snap.snapshotID, format: .pdf, label: nil)
+
+        switch outcome {
+        case .completed(let pub, _):
+            XCTAssertEqual(pub.imprint, "aldine",
+                           "the republished row must carry the prior's imprint")
+            XCTAssertEqual(pub.republishedFrom, "0.1")
+            // The imprint reached the filename too (Task 4's builder reads
+            // `config.imprint`, which the snapshot's resolved config carries).
+            XCTAssertTrue(pub.outputPath.contains("aldine"),
+                          "the republished output should name its imprint: \(pub.outputPath)")
+            // And the artifact is real: it could only have been produced by
+            // special.tex, because template.tex in this snapshot does not compile.
+            let out = tmp.appendingPathComponent(pub.outputPath)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: out.path),
+                          "no artifact at \(pub.outputPath)")
+            let pdf = PDFDocument(url: out)
+            XCTAssertGreaterThan(pdf?.pageCount ?? 0, 0,
+                                 "the republished artifact is not a PDF with pages")
+        case .failed(let errors, let log):
+            XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(600))")
+        case .dryRunPassed:
+            XCTFail("republish never produces dry_run_passed")
+        case .cancelled:
+            XCTFail("nothing cancelled this republish")
         }
     }
 }
