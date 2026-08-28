@@ -173,23 +173,38 @@ struct CompilerRun: Codable, Equatable, Sendable {
     var mintedNotes: Int?
 
     /// **How many findings this run raised that the writer is already holding
-    /// in ANOTHER pass's lane** (#42 F-H) — distinct findings whose fingerprint
-    /// matched an open compiler note stamped with a different `reviewPassId`
-    /// than this run's own, counted by the mint at the one place it already
-    /// compares fingerprints.
+    /// in ANOTHER pass's lane** (#42 F-H) — distinct findings the dedupe
+    /// refused where **no lane holding them is this run's own**, counted by the
+    /// mint at the one place it already compares fingerprints. Own-lane
+    /// presence wins: one fingerprint can be held by two open notes at once
+    /// (settle one, let the next lane re-raise it, reopen the first), and a
+    /// finding standing in this run's own lane is the *persisting* case,
+    /// already on the since-line — counting it here as well would say one
+    /// finding is two. Per FINDING, not per matched note.
     ///
     /// **It exists because the since-line's three counts are lane-local and
     /// this case falls between them.** `SinceLastRound` reads only notes in the
     /// round's own lane, and the dedupe mints nothing for a cross-lane
     /// re-raise, so a Line round that engaged a question open in Structural
     /// read "0 resolved · 0 persisting · 0 new" — a check that did engage the
-    /// piece, reported as one that found nothing in it. A match in the round's
-    /// OWN lane is not counted here: that is the *persisting* case, already on
-    /// the line, and counting it twice would say one finding is two.
+    /// piece, reported as one that found nothing in it.
     ///
-    /// **Notes only.** The mint sees `SectionedOutcome.mintable` — continuity
-    /// questions and reader reports — so a conformance strain re-raised across
-    /// lanes is report-side and takes no part in this number.
+    /// **Notes only, and only findings that HAVE a fingerprint.** The mint sees
+    /// `SectionedOutcome.mintable` — continuity questions and reader reports —
+    /// so a conformance strain re-raised across lanes is report-side and takes
+    /// no part; and an anchorless craft note carries no fingerprint at all, so
+    /// it is neither deduped nor counted here (`RoundFingerprint` has no
+    /// discriminator to make one from).
+    ///
+    /// **Recorded is not the same as drawn, and three states record it with no
+    /// since-line to carry it** (whole-branch review I2): round 1 of a lane
+    /// (nothing behind it to be "since"), a Fresh Eyes round, and a passless
+    /// run (no round number at all). Since that review the other two surfaces
+    /// carry it — `RoundNarrative.freshEyesHeader` appends the same clause, and
+    /// the Diagnostics pane's empty state says "Nothing new to flag." instead
+    /// of sealing over it. The residual: a passless run that also raised a
+    /// conformance strain draws a report rather than an empty state, so its
+    /// count is stored and shown nowhere.
     ///
     /// `nil` is "no mint has happened", exactly as for `mintedNotes`: a preview
     /// and every record written before this field existed. `0` is a finished

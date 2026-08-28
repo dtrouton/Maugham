@@ -44,8 +44,8 @@ enum RoundNarrative {
     /// this run is not a round that can be compared.
     ///
     /// **A fourth clause joins it when the round engaged a finding the writer
-    /// is holding in another pass's lane** (#42 F-H) — "· 1 also open in
-    /// another lane". The three counts above are lane-local by construction
+    /// is holding in another pass's lane** (#42 F-H) — "· 1 was already open
+    /// in another lane". The three counts above are lane-local by construction
     /// (`SinceLastRound`'s decision 1) and the mint refuses a cross-lane
     /// re-raise, so that case fell between them and left the round reading
     /// three zeroes. The number is not derived here: it is `CompilerRun`'s
@@ -109,12 +109,39 @@ enum RoundNarrative {
             previousRoundAt: previous.at)
         let line = "Since round \(previousNumber): \(outcome.resolved) resolved "
             + "\u{00b7} \(outcome.persisting) persisting \u{00b7} \(outcome.new) new"
-        // The pair is kept adjacent on purpose: one place to read, so a later
-        // edit to either half cannot drift from the other.
-        guard let elsewhere = run.openInOtherLanes, elsewhere > 0 else { return line }
-        return line + (elsewhere == 1
-            ? " \u{00b7} 1 also open in another lane"
-            : " \u{00b7} \(elsewhere) also open in other lanes")
+        guard let elsewhere = openInOtherLanes(run.openInOtherLanes) else { return line }
+        return line + " \u{00b7} " + elsewhere.clause
+    }
+
+    /// **The cross-lane count in words** (#42 F-H) — or `nil` when there is
+    /// nothing to say: zero, or a record written before the field existed.
+    ///
+    /// **One function returning BOTH wordings, rather than two functions.** The
+    /// three surfaces that say this phrase it differently — the since-line
+    /// appends a bare clause to a row of counts, while the pane's empty state
+    /// opens a sentence of its own — but they must agree about when one becomes
+    /// many, and a second `count == 1` written elsewhere is a second place for
+    /// that to drift. The singular and plural forms sit adjacent here for the
+    /// same reason.
+    ///
+    /// **Past tense, deliberately** (whole-branch review, M1). The three counts
+    /// beside this clause are computed live off the writer's queue every time
+    /// the line is drawn; this number is a snapshot taken at the mint and
+    /// stored on the run. Present tense ("is already open") would quietly go
+    /// false the moment the writer settled the other lane's note, and the
+    /// sentence would then claim something about the queue that the queue no
+    /// longer says. Past tense describes what the ROUND did, which is the one
+    /// thing a stored number can keep being right about.
+    static func openInOtherLanes(_ count: Int?)
+        -> (clause: String, sentence: String)? {
+        guard let count, count > 0 else { return nil }
+        return count == 1
+            ? (clause: "1 was already open in another lane",
+               sentence: "What this check raised was already open in another "
+                   + "pass's queue.")
+            : (clause: "\(count) were already open in other lanes",
+               sentence: "What this check raised was already open in other "
+                   + "passes' queues.")
     }
 
     /// **"Fresh eyes · round N"** — what a cold read (⌘⇧R) says about itself,
@@ -134,10 +161,20 @@ enum RoundNarrative {
     /// `== true` rather than `?? false`: the stamp is `Bool?` on the wire and
     /// an ordinary run writes no key at all, so absent and `false` must read
     /// alike.
+    /// **It carries the cross-lane clause too** (#42, whole-branch review I2).
+    /// A cold read is one of the places the since-line is silent by design, so
+    /// without this the count would be recorded on the run and drawn nowhere —
+    /// and a Fresh Eyes round whose every finding was already open in another
+    /// pass is exactly the round a writer would otherwise read as "found
+    /// nothing".
     static func freshEyesHeader(run: CompilerRun?) -> String? {
         guard let run, run.freshEyes == true else { return nil }
-        guard let round = run.round else { return "Fresh eyes" }
-        return "Fresh eyes \u{00b7} round \(round)"
+        var header = "Fresh eyes"
+        if let round = run.round { header += " \u{00b7} round \(round)" }
+        if let elsewhere = openInOtherLanes(run.openInOtherLanes) {
+            header += " \u{00b7} " + elsewhere.clause
+        }
+        return header
     }
 
     // MARK: - When a run does not answer

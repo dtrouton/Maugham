@@ -285,7 +285,7 @@ extension CompilerOrchestrator.Environment {
                 // any other note. A single-valued map would keep whichever of
                 // the two it walked last, and a later Structural round reading
                 // "line" back would report its own lane's persisting note as
-                // "also open in another lane" — counted twice, once on each
+                // "was already open in another lane" — counted twice, once on each
                 // side of the line.
                 //
                 // **Own-lane presence wins**: a finding is cross-lane only when

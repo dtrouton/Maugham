@@ -218,8 +218,10 @@ enum SinceLastRound {
         /// own lane (decision 1), by design. That case is carried on the run
         /// instead — `CompilerRun.openInOtherLanes`, recorded by the mint
         /// itself — and `RoundNarrative.sinceLastRoundLine` appends it to the
-        /// sentence as "also open in other lanes" (#42 F-H). It is not derived
-        /// here, and nothing here changes to accommodate it.
+        /// sentence as "were already open in other lanes" (#42 F-H), past
+        /// tense because it is a snapshot the mint took while these three are
+        /// recomputed live. It is not derived here, and nothing here changes
+        /// to accommodate it.
         let new: Int
     }
 

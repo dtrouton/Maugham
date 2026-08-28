@@ -113,17 +113,23 @@ split into two headed lists:
   every dated verdict.
 
 **A standing fingerprint silences its settled twin.** The mint's own dedupe
-stops two OPEN notes sharing a fingerprint, but nothing stops an open note
-sharing one with a note settled earlier and since re-raised — briefing both
-would tell the model to confirm a finding in one line and forget it two lines
-later. The live note wins: `dispositionsSection` drops a settled entry whose
+stops it WRITING a second open note while one already stands. That is not a
+guarantee that only one ever stands: a note settled, re-raised in another lane
+and then reopened leaves two open under one fingerprint, which the cross-lane
+paragraph below owns. And nothing stops an open note sharing a fingerprint
+with a note settled earlier and since re-raised — briefing both would tell the
+model to confirm a finding in one line and forget it two lines later. The
+live note wins: `dispositionsSection` drops a settled entry whose
 fingerprint is also standing. A note with no fingerprint (the anchorless
 kind — a doc-scoped craft note, which has no discriminator to make one from)
 is listed on its own rather than folded into anything, since a nil
 fingerprint is the absence of identity, not an identity shared with anything
-else. **A sibling residual, same class:** a continuity note's fingerprint
-leans on the model re-quoting `cites` byte-identically (`RoundFingerprint`'s
-"clause quote" for that kind), so a re-punctuated quote on a Fresh Eyes
+else — **and being fingerprintless it is neither deduped nor counted
+cross-lane**: the dedupe branch it never enters is the same branch the
+cross-lane count is taken in. **A sibling residual, same class:** a continuity
+note's fingerprint leans on the model re-quoting `cites` byte-identically
+(`RoundFingerprint`'s "clause quote" for that kind), so a re-punctuated quote
+on a Fresh Eyes
 reread — same question, one comma moved — can mint a duplicate the dedupe
 can't see. Neither residual gets machinery; the writer disposes the
 duplicate the way they dispose any other settled note.
@@ -137,10 +143,24 @@ round that re-raised a question standing in the Structural lane used to read
 "0 resolved · 0 persisting · 0 new": a check that engaged the piece, reported
 as one that found nothing in it. The mint now answers a
 `CompilerOrchestrator.MintOutcome` — `minted` beside `openInOtherLanes`, the
-count of DISTINCT findings whose fingerprint matched an open note stamped with
-a different `reviewPassId` than the round's own — and
-`RoundNarrative.sinceLastRoundLine` appends "· 1 also open in another lane" /
-"· N also open in other lanes" when it is above zero. **A match in the round's
+count of DISTINCT findings the dedupe refused where **no lane holding them is
+the round's own** (own-lane presence wins; the paragraph below is why that is a
+set of lanes and not one) — and **three surfaces say it**:
+`RoundNarrative.sinceLastRoundLine` appends "· 1 was already open in another
+lane" / "· N were already open in other lanes"; `RoundNarrative.freshEyesHeader`
+appends the same clause, because a cold read is one of the states the since-line
+is silent in; and the Diagnostics pane's header and empty state say "Nothing new
+to flag." rather than sealing over a round that raised something the writer is
+holding out of sight. The wording lives in ONE place —
+`RoundNarrative.openInOtherLanes(_:)`, which hands back the bare clause and the
+pane's whole sentence together, so the three cannot drift about when one becomes
+many — and it is deliberately **past** tense: the three counts beside it are
+recomputed off the writer's live queue every time the line is drawn, while this
+one is a snapshot taken at the mint and stored, so present tense would go false
+the moment the writer settled the other lane's note. **The residual, since the
+count is recorded whether or not anything draws it:** a passless run that also
+raised a conformance strain draws a report rather than an empty state, so its
+count is stored and shown nowhere. **A match in the round's
 OWN lane is deliberately not counted**: that is the *persisting* case, already
 on the line, and counting it twice would tell the writer one finding is two.
 The number is produced at the one place fingerprints are already compared
@@ -159,8 +179,8 @@ same fingerprint, and Reopen on the first leaves both open in different lanes.
 reopening is the writer taking a note back, not a claim about any other note.
 A single-valued map keeps whichever of the two the annotation order happened to
 leave last, so the round in the OTHER lane reads a foreign lane back and reports
-its own persisting note as "also open in another lane" — the same finding
-counted twice in one sentence ("1 persisting · 1 also open in another lane"),
+its own persisting note as "was already open in another lane" — the same finding
+counted twice in one sentence ("1 persisting · 1 was already open in another lane"),
 which is the exact string the review fix's test produces when falsified.
 **Own-lane presence wins**: cross-lane means NO note holding the fingerprint is
 in this round's lane. And the count stays per FINDING, not per matched note —

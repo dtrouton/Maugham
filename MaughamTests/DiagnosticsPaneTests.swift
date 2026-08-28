@@ -1238,7 +1238,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// F-H) — the three counts are lane-local, and without the clause a round
     /// that re-raised a question open in the Structural lane read as three
     /// zeroes. Singular and plural, because one is the common case and reading
-    /// "1 also open in other lanes" would make the writer doubt the count.
+    /// "1 were already open in other lanes" would make the writer doubt the count.
     func test_sinceLastRoundLine_saysWhatIsOpenInAnotherLane() {
         XCTAssertEqual(
             RoundNarrative.sinceLastRoundLine(
@@ -1246,14 +1246,14 @@ final class DiagnosticsPaneTests: XCTestCase {
                 run: makeRun(passId: "line", round: 2, openInOtherLanes: 1),
                 annotations: []),
             "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new "
-            + "\u{00b7} 1 also open in another lane")
+            + "\u{00b7} 1 was already open in another lane")
         XCTAssertEqual(
             RoundNarrative.sinceLastRoundLine(
                 history: [makeRoundRecord(round: 1)],
                 run: makeRun(passId: "line", round: 2, openInOtherLanes: 2),
                 annotations: []),
             "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new "
-            + "\u{00b7} 2 also open in other lanes")
+            + "\u{00b7} 2 were already open in other lanes")
     }
 
     /// **It is appended, not substituted.** The lane-local counts keep their
@@ -1272,7 +1272,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                                      resolvedAt: filed.addingTimeInterval(60)),
                 ]),
             "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 1 new "
-            + "\u{00b7} 1 also open in another lane")
+            + "\u{00b7} 1 was already open in another lane")
     }
 
     /// **The record it measures FROM is the record it counts from.** The
@@ -1585,6 +1585,39 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertNil(RoundNarrative.freshEyesHeader(
             run: makeRun(passId: "line", round: 2, freshEyes: false)),
             "…and so is one stamped false by some earlier build")
+    }
+
+    /// **A cold read carries the cross-lane clause too** (#42, whole-branch
+    /// review I2). Fresh Eyes is one of the states in which the since-line is
+    /// silent by construction, so without this the count would be recorded on
+    /// the run and drawn nowhere \u{2014} and a cold reread whose every finding was
+    /// already open in another pass is exactly the round a writer would
+    /// otherwise read as having found nothing.
+    func test_freshEyesHeader_saysWhatWasAlreadyOpenInAnotherLane() {
+        XCTAssertEqual(
+            RoundNarrative.freshEyesHeader(
+                run: makeRun(passId: "line", round: 2, freshEyes: true,
+                             openInOtherLanes: 1)),
+            "Fresh eyes \u{00b7} round 2 \u{00b7} 1 was already open in another lane")
+        // Plural, and with no round number to hang it on: a passless cold read
+        // still has a lane-crossing to report, and the wording comes from the
+        // same helper the since-line reads, so the two cannot disagree about
+        // when one becomes many.
+        XCTAssertEqual(
+            RoundNarrative.freshEyesHeader(
+                run: makeRun(freshEyes: true, openInOtherLanes: 3)),
+            "Fresh eyes \u{00b7} 3 were already open in other lanes")
+    }
+
+    /// The control: zero and nil both leave the header byte-identical to what
+    /// it said before the clause existed.
+    func test_freshEyesHeader_saysNothingAboutOtherLanesWhenThereIsNothingToSay() {
+        for quiet in [makeRun(passId: "line", round: 3, freshEyes: true,
+                              openInOtherLanes: 0),
+                      makeRun(passId: "line", round: 3, freshEyes: true)] {
+            XCTAssertEqual(RoundNarrative.freshEyesHeader(run: quiet),
+                           "Fresh eyes \u{00b7} round 3")
+        }
     }
 
     /// **The two lines never co-render.** Task 3's guard refuses the
@@ -1947,6 +1980,85 @@ final class DiagnosticsPaneTests: XCTestCase {
             "Notes in your queue",
             "the discard arm took the empty state back to a seal over a run "
             + "that queued three notes")
+    }
+
+    /// **The seal may not stand over a round whose findings were already open
+    /// in another pass** (#42, whole-branch review I1). The mint refused
+    /// everything this round raised, because the writer is holding it in a
+    /// lane they cannot see from here: nothing reached this pane and nothing
+    /// reached the queue in front of them, so "the compiler found nothing to
+    /// raise against the last check" is the opposite of what happened.
+    ///
+    /// This is also precisely where the since-line cannot help \u{2014} a
+    /// cross-lane-only round is most often round 1 of a lane, where that line
+    /// is silent because there is nothing behind it to be "since".
+    func test_theCleanCopyDefersToWhatWasAlreadyOpenInAnotherLane() {
+        let elsewhere = makeRun(openInOtherLanes: 1)
+        let header = DiagnosticsPane.headerCopy(for: .clean(lastRun: elsewhere))
+        XCTAssertTrue(header.hasPrefix("Nothing new to flag."), header)
+
+        let empty = DiagnosticsPane.emptyState(for: .clean(lastRun: elsewhere))
+        XCTAssertEqual(empty.title, "Nothing new to flag.")
+        XCTAssertTrue(
+            empty.description.contains(
+                "was already open in another pass's queue"),
+            empty.description)
+        XCTAssertFalse(empty.description.contains("found nothing to raise"),
+                       "the seal's own sentence stood under the new title: "
+                       + empty.description)
+
+        // Plural, from the one helper both wordings live in.
+        let many = DiagnosticsPane.emptyState(for: .clean(lastRun: makeRun(openInOtherLanes: 2)))
+        XCTAssertTrue(
+            many.description.contains("was already open in other passes' queues"),
+            many.description)
+    }
+
+    /// The control, and the falsifier for an arm that fired on the field's
+    /// mere presence: zero and nil are both "nothing stood elsewhere", and
+    /// over either the seal is the honest sentence and must be untouched.
+    func test_theSealStandsOverARoundThatCrossedNoLane() {
+        for quiet in [makeRun(openInOtherLanes: 0), makeRun()] {
+            XCTAssertTrue(
+                DiagnosticsPane.headerCopy(for: .clean(lastRun: quiet))
+                    .hasPrefix("Nothing to flag."),
+                DiagnosticsPane.headerCopy(for: .clean(lastRun: quiet)))
+            let empty = DiagnosticsPane.emptyState(for: .clean(lastRun: quiet))
+            XCTAssertEqual(empty.title, "Nothing to flag.")
+            XCTAssertEqual(empty.symbol, "checkmark.seal")
+            XCTAssertEqual(
+                empty.description,
+                "The compiler found nothing to raise against the last check.")
+        }
+    }
+
+    /// **Notes that really landed outrank a lane-crossing**, the same ordering
+    /// the discard footnote already loses to: a run can queue notes AND refuse
+    /// a finding standing elsewhere, and where the writer has to go next is
+    /// the news.
+    func test_theQueuedSentenceOutranksTheCrossLaneClause() {
+        let both = makeRun(mintedNotes: 2, openInOtherLanes: 1)
+        XCTAssertTrue(
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: both))
+                .hasPrefix("2 notes went to your queue."),
+            DiagnosticsPane.headerCopy(for: .clean(lastRun: both)))
+        XCTAssertEqual(
+            DiagnosticsPane.emptyState(for: .clean(lastRun: both)).title,
+            "Notes in your queue")
+    }
+
+    /// **Wet ink outranks it as well**, on the arm's own rule: under
+    /// `.showing` / `.settled` this run's notes are on screen beneath the
+    /// header, and that arm exists precisely so the copy does not send the
+    /// writer somewhere else for what is right there.
+    func test_theCrossLaneClauseYieldsToWetInk() {
+        let elsewhere = makeRun(openInOtherLanes: 1)
+        for ink in [DiagnosticsPane.WetInk.showing, .settled] {
+            XCTAssertTrue(
+                DiagnosticsPane.headerCopy(for: .clean(lastRun: elsewhere), wetInk: ink)
+                    .hasPrefix("Nothing to flag."),
+                DiagnosticsPane.headerCopy(for: .clean(lastRun: elsewhere), wetInk: ink))
+        }
     }
 
     // MARK: - Excerpt chips (requirement 3)

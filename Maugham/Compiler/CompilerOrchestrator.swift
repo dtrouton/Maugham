@@ -199,16 +199,26 @@ final class CompilerOrchestrator {
         /// what was already open, and after any that could not be placed
         /// failed their own append.
         let minted: Int
-        /// Distinct findings this round raised whose fingerprint matched an
-        /// open compiler note stamped with a DIFFERENT `reviewPassId` than the
-        /// round's own. A match in the round's own lane is the *persisting*
-        /// case and is deliberately not counted here — it is already on the
-        /// line, and counting it twice would say one finding is two.
+        /// Distinct findings this round raised that the dedupe refused and
+        /// **no lane holding them is this round's own** — own-lane presence
+        /// wins, because one fingerprint can be held by two open notes at once
+        /// (`CompilerEnvironment+Project`'s mint loop spells the shape). A
+        /// finding standing in the round's own lane is the *persisting* case,
+        /// already on the since-line, and counting it here as well would tell
+        /// the writer one finding is two.
+        ///
+        /// Per FINDING, not per matched note: two notes holding one fingerprint
+        /// are one thing the writer is holding elsewhere.
         let openInOtherLanes: Int
 
         /// A mint that did not happen: no document to write to, or no note
-        /// worth writing. Distinct on the wire from a run that mints nothing,
-        /// which records zeroes — see `CompilerRun.mintedNotes`.
+        /// worth writing.
+        ///
+        /// **Zero, and indistinguishable on the wire from a run that minted
+        /// nothing** — `finish` records whatever it gets, so both store `0`.
+        /// The `nil` that `CompilerRun.mintedNotes`/`openInOtherLanes` document
+        /// comes from the PREVIEW path alone (and from records written before
+        /// those fields existed); it is never this value.
         static let nothing = MintOutcome(minted: 0, openInOtherLanes: 0)
     }
 

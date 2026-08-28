@@ -4425,7 +4425,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // **The control for #42 F-H.** A re-raise in the round's OWN lane is
         // already spoken for: the note is in the queue the writer is working,
         // and the line calls it *persisting*. Counting it a second time as
-        // "also open in another lane" would say one finding is two.
+        // "was already open in another lane" would say one finding is two.
         XCTAssertEqual(fx.diagnostics.lastRun(docId: "ch-1")?.openInOtherLanes, 0)
         XCTAssertEqual(
             RoundNarrative.sinceLastRoundLine(
@@ -4887,7 +4887,7 @@ final class CompilerRunCommandTests: XCTestCase {
                 run: fx.diagnostics.lastRun(docId: "ch-1"),
                 annotations: queue),
             "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new "
-            + "\u{00b7} 1 also open in another lane")
+            + "\u{00b7} 1 was already open in another lane")
     }
 
     /// **One fingerprint, two OPEN notes, two lanes — and a round in EITHER of
@@ -4907,7 +4907,7 @@ final class CompilerRunCommandTests: XCTestCase {
     /// map keeps exactly one of the two, and which one it keeps is an accident
     /// of the order `annotations(filter:)` happens to return: whichever it
     /// kept, the round in the OTHER lane would read a foreign lane back and
-    /// report its own persisting note as "also open in another lane" — counted
+    /// report its own persisting note as "was already open in another lane" — counted
     /// twice, once on each side of the same sentence. Asserting only one of the
     /// two lanes would pass on the broken code half the time.
     ///

@@ -599,10 +599,26 @@ struct DiagnosticsPane: View {
             // the writer somewhere else for what is (or was) directly beneath
             // this line, so it drops to the same "Nothing to flag" the header
             // has always said when a run truly minted nothing.
+            //
+            // **A round whose findings were already open in another pass gets
+            // the same treatment** (#42, whole-branch review I1): nothing
+            // landed here and nothing landed in the queue this writer is
+            // looking at, so the seal would affirm the same falsehood one case
+            // along. It sits below the queued sentence — notes that really
+            // landed are the stronger news — and inside the `.none` arm alone,
+            // exactly where the seal it replaces lives: under `.showing` /
+            // `.settled` this run's own notes are on screen beneath the header,
+            // and that arm's whole point is not to send the writer elsewhere.
             let opening: String
             switch wetInk {
             case .none:
-                opening = queuedNotesSentence(run.mintedNotes) ?? "Nothing to flag"
+                if let queued = queuedNotesSentence(run.mintedNotes) {
+                    opening = queued
+                } else if RoundNarrative.openInOtherLanes(run.openInOtherLanes) != nil {
+                    opening = "Nothing new to flag"
+                } else {
+                    opening = "Nothing to flag"
+                }
             case .showing, .settled:
                 opening = "Nothing to flag"
             }
@@ -1284,6 +1300,27 @@ struct DiagnosticsPane: View {
             let queued = queuedNotesSentence(run.mintedNotes) ?? ""
             return ("Notes in your queue", "tray.and.arrow.down",
                     "\(queued). " + clauseSentence(for: state))
+        case .clean(let run)
+            where RoundNarrative.openInOtherLanes(run.openInOtherLanes) != nil:
+            // **The seal may not stand over a round whose findings were
+            // already open in another pass either** (#42, whole-branch review
+            // I1) — the same argument as the queued arm above, one case along,
+            // and from the same ruling that produced the count. This round
+            // raised something; the mint refused it because the writer is
+            // holding it in a lane they cannot see from here, so nothing
+            // reached this pane and nothing reached their queue. "The compiler
+            // found nothing to raise" is then the opposite of what happened.
+            //
+            // **And this is precisely where the since-line cannot help**: the
+            // cross-lane-only round is most often round 1 of a lane, where
+            // that line is silent by construction (nothing behind it to be
+            // "since"). Below the queued arm because notes that really landed
+            // are the stronger news; above the discarded arm because that one
+            // still wears the seal, and the discard footnote is carried along
+            // by `clauseSentence` rather than lost.
+            let elsewhere = RoundNarrative.openInOtherLanes(run.openInOtherLanes)
+            return ("Nothing new to flag.", "tray.full",
+                    (elsewhere?.sentence ?? "") + " " + clauseSentence(for: state))
         case .clean(let run) where discardedNotesSentence(run.droppedDangling) != nil:
             return ("Nothing to flag.", "circle.dashed",
                     (discardedNotesSentence(run.droppedDangling) ?? "") + ".")
