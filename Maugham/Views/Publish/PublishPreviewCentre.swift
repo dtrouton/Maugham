@@ -237,8 +237,14 @@ struct PublishPreviewCentre: View {
     }
 
     /// One row of the menu, and the header's own sentence: version, language
-    /// when there is one, and when it was compiled — the three facts that tell
-    /// two publications of the same book apart.
+    /// when there is one, and when it was compiled.
+    ///
+    /// Those three no longer tell every pair of publications apart: identity
+    /// gained a fourth dimension with imprints (P1), so two rows from
+    /// different imprints at the same version, language and minute draw
+    /// identically here. The imprint joins the label in plan 3, which is where
+    /// the spec puts the naming surfaces; until then this picker is honest
+    /// about the book and ambiguous across imprints.
     static func label(for publication: Publication) -> String {
         var parts = ["v\(publication.version)"]
         if let language = publication.language { parts.append(language.uppercased()) }
