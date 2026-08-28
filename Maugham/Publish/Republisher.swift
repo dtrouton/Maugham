@@ -253,8 +253,9 @@ public struct Republisher {
             // `CompileOrchestrator.compile` makes: the failure says what it
             // did as well as what failed, and the job is terminal. Throws
             // BEFORE the reservation (snapshot load, config validation, the
-            // stage extract) still propagate — nothing durable has moved and
-            // no job exists yet for the early ones.
+            // stage extract, the frozen `config.json` read and the
+            // `LanguageSet` it feeds) still propagate — nothing durable has
+            // moved and no job exists yet for any of them.
             let diag = TectonicLogParser.Diagnostic(
                 level: .error, file: nil, line: nil,
                 message: String(describing: error),

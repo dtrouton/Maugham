@@ -119,11 +119,20 @@ struct DesignProposalStore {
     /// the writer's standing design round vanishes off the desk. The encoded
     /// shape is the synthesized one, so only the *reading* is widened.
     enum SampleResult: Codable, Equatable, Sendable {
-        case pages(path: String, demonstrates: [String])
+        /// `fallbackPieces` is how many pieces in these pages were typeset from
+        /// the BOOK's own text because the edition's translation was
+        /// incomplete — a sample is compiled `allowStale` (see
+        /// `SampleCompiler`), so this is the only record that pages a designer
+        /// is about to approve are partly in the wrong language. Zero for every
+        /// source round and every complete edition.
+        case pages(path: String, demonstrates: [String], fallbackPieces: Int)
         case failed(error: String)
 
         private enum CodingKeys: String, CodingKey { case pages, failed }
-        private enum PagesKeys: String, CodingKey { case path, demonstrates }
+        private enum PagesKeys: String, CodingKey {
+            case path, demonstrates
+            case fallbackPieces = "fallback_pieces"
+        }
         private enum FailedKeys: String, CodingKey { case error }
 
         init(from decoder: Decoder) throws {
@@ -131,10 +140,15 @@ struct DesignProposalStore {
             if container.contains(.pages) {
                 let pages = try container.nestedContainer(
                     keyedBy: PagesKeys.self, forKey: .pages)
+                // Additive (ADR 0015): a record written before the gate
+                // could say so decodes as zero — "nothing known to have
+                // fallen back" — rather than throwing.
                 self = .pages(
                     path: try pages.decode(String.self, forKey: .path),
                     demonstrates: try pages.decodeIfPresent(
-                        [String].self, forKey: .demonstrates) ?? [])
+                        [String].self, forKey: .demonstrates) ?? [],
+                    fallbackPieces: try pages.decodeIfPresent(
+                        Int.self, forKey: .fallbackPieces) ?? 0)
                 return
             }
             if container.contains(.failed) {
@@ -151,11 +165,12 @@ struct DesignProposalStore {
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             switch self {
-            case .pages(let path, let demonstrates):
+            case .pages(let path, let demonstrates, let fallbackPieces):
                 var pages = container.nestedContainer(
                     keyedBy: PagesKeys.self, forKey: .pages)
                 try pages.encode(path, forKey: .path)
                 try pages.encode(demonstrates, forKey: .demonstrates)
+                try pages.encode(fallbackPieces, forKey: .fallbackPieces)
             case .failed(let error):
                 var failed = container.nestedContainer(
                     keyedBy: FailedKeys.self, forKey: .failed)

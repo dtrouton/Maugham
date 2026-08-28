@@ -40,11 +40,21 @@ import Foundation
 ///
 /// **A sample is always `allowStale`.** That is this type's own contract, not
 /// the compile door's: a design round is about typesetting, and the writer is
-/// looking at what the edition IS right now — source-text fallbacks and their
-/// `[tag]` warnings included — rather than being refused a look at their
-/// templates because a paragraph went untranslated this morning. (The gate's
-/// zero-layer guard still refuses unconditionally; an edition with no
+/// looking at what the edition IS right now rather than being refused a look at
+/// their templates because a paragraph went untranslated this morning. (The
+/// gate's zero-layer guard still refuses unconditionally; an edition with no
 /// translation records at all has no text to set.)
+///
+/// **So a sample has to SAY when the book's own text stood in.** `allowStale`
+/// turns every gap into a warning instead of a refusal, and pages that look
+/// clean while half their prose is the wrong language are worse than a refusal.
+/// `Outcome.pages` therefore carries the preview's `warnings` whole, and
+/// `sampleResult(_:)` counts the source-text fallbacks among them
+/// (`TranslationCoverage.isSourceTextFallback`) onto the record the gate reads
+/// — `DesignGate.fallbackNotice`, one sentence beside the edition caveat.
+/// The count is what is persisted rather than the diagnostics: the gate needs
+/// the fact and its size, and the writer's own `compile_status` is where a
+/// warning's full text belongs.
 ///
 /// **Failure is a value, not an error.** A tectonic failure, a project with no
 /// publish tree, a staged path that escapes the scratch — each rides out on
@@ -58,9 +68,12 @@ enum SampleCompiler {
 
     /// What a sample compile produced: the pages, or why there are none.
     enum Outcome: Equatable {
-        /// An absolute path to the sample PDF, plus the selection's
-        /// writer-facing "this piece is here because…" lines.
-        case pages(path: String, demonstrates: [String])
+        /// An absolute path to the sample PDF, the selection's writer-facing
+        /// "this piece is here because…" lines, and every warning the preview
+        /// rode out on — a sample is `allowStale`, so its source-text
+        /// fallbacks arrive here and nowhere else.
+        case pages(path: String, demonstrates: [String],
+                   warnings: [TectonicLogParser.Diagnostic])
         /// The compiler's own diagnostics, kept whole. `logExcerpt` matters
         /// independently of `errors`: an empty `errors` array with a failed
         /// compile is the tectonic bundle fetch, and the excerpt is the only
@@ -139,7 +152,9 @@ enum SampleCompiler {
             guard result.errors.isEmpty, !result.outputPath.isEmpty else {
                 return .failed(errors: result.errors, logExcerpt: result.logExcerpt)
             }
-            return .pages(path: result.outputPath, demonstrates: selection.demonstrates)
+            return .pages(path: result.outputPath,
+                          demonstrates: selection.demonstrates,
+                          warnings: result.warnings)
         } catch {
             return .failed(
                 errors: [diagnostic("the sample compile could not run: \(error)")],
@@ -263,8 +278,11 @@ enum SampleCompiler {
     /// AST at the round and the writer keeps writing.
     static func sampleResult(_ outcome: Outcome) -> DesignProposalStore.SampleResult {
         switch outcome {
-        case .pages(let path, let demonstrates):
-            return .pages(path: path, demonstrates: demonstrates)
+        case .pages(let path, let demonstrates, let warnings):
+            return .pages(
+                path: path, demonstrates: demonstrates,
+                fallbackPieces: warnings.filter(
+                    TranslationCoverage.isSourceTextFallback).count)
         case .failed:
             return .failed(error: failureSentence(outcome))
         }

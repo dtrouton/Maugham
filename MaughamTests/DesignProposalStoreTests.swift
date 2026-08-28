@@ -193,11 +193,11 @@ final class DesignProposalStoreTests: XCTestCase {
         let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
         try Self.rewriteStatusField("in_review", forProposal: staged.id, in: project)
 
-        try store.recordSampleResult(id: staged.id, .pages(path: "sample.pdf", demonstrates: []))
+        try store.recordSampleResult(id: staged.id, .pages(path: "sample.pdf", demonstrates: [], fallbackPieces: 0))
 
         let loaded = try store.load(id: staged.id)
         XCTAssertEqual(loaded.status, .unknown("in_review"))
-        XCTAssertEqual(loaded.sampleResult, .pages(path: "sample.pdf", demonstrates: []))
+        XCTAssertEqual(loaded.sampleResult, .pages(path: "sample.pdf", demonstrates: [], fallbackPieces: 0))
     }
 
     private static func rewriteStatusField(
@@ -225,10 +225,10 @@ final class DesignProposalStoreTests: XCTestCase {
         let store = DesignProposalStore(projectURL: project)
         let staged = try store.stage(report: makeReport(), round: 1, designerName: "Tschichold", language: nil)
 
-        try store.recordSampleResult(id: staged.id, .pages(path: "scratch/sample.pdf", demonstrates: []))
+        try store.recordSampleResult(id: staged.id, .pages(path: "scratch/sample.pdf", demonstrates: [], fallbackPieces: 0))
 
-        XCTAssertEqual(try store.sampleResult(id: staged.id), .pages(path: "scratch/sample.pdf", demonstrates: []))
-        XCTAssertEqual(try store.load(id: staged.id).sampleResult, .pages(path: "scratch/sample.pdf", demonstrates: []))
+        XCTAssertEqual(try store.sampleResult(id: staged.id), .pages(path: "scratch/sample.pdf", demonstrates: [], fallbackPieces: 0))
+        XCTAssertEqual(try store.load(id: staged.id).sampleResult, .pages(path: "scratch/sample.pdf", demonstrates: [], fallbackPieces: 0))
     }
 
     func test_recordSampleResult_failed_carriesTheErrorText() throws {

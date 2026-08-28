@@ -159,7 +159,7 @@ enum TranslationCoverage {
             warnings += report.gaps.map { gap in
                 TectonicLogParser.Diagnostic(
                     level: .warning, file: nil, line: nil,
-                    message: describe(gap) + " — compiled with source-text fallback",
+                    message: describe(gap) + Self.sourceTextFallbackSuffix,
                     contextLines: [])
             }
         }
@@ -232,6 +232,24 @@ enum TranslationCoverage {
             level: diagnostic.level, file: diagnostic.file, line: diagnostic.line,
             message: "[\(tag)] " + diagnostic.message,
             contextLines: diagnostic.contextLines)
+    }
+
+    /// What an `allow_stale` warning says happened, appended to the gap's own
+    /// itemization. A CONSTANT rather than a literal because two places need
+    /// it: `applyGate` writes it, and `SampleCompiler` reads it back to tell a
+    /// source-text fallback apart from a LaTeX warning in one undifferentiated
+    /// `warnings` array. Two spellings of it would mean a design sample that
+    /// quietly stopped saying the book's own text had stood in.
+    nonisolated static let sourceTextFallbackSuffix =
+        " — compiled with source-text fallback"
+
+    /// Whether a diagnostic is one of `applyGate`'s source-text-fallback
+    /// warnings — one per PIECE that fell back, tagged with its tongue.
+    nonisolated static func isSourceTextFallback(
+        _ diagnostic: TectonicLogParser.Diagnostic
+    ) -> Bool {
+        diagnostic.level == .warning
+            && diagnostic.message.hasSuffix(sourceTextFallbackSuffix)
     }
 
     /// `"<title>: N stale (¶a, ¶b), M missing (¶c)"`. Empty lists drop their

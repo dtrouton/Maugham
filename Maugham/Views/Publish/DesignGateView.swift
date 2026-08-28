@@ -43,7 +43,7 @@ enum DesignGate {
         case .failed(let error):
             let cause = error.trimmingCharacters(in: .whitespacesAndNewlines)
             return .failed(cause: cause.isEmpty ? noCauseGiven : error)
-        case .pages(let path, _):
+        case .pages(let path, _, _):
             guard pagesExist else { return .missing(path: path) }
             return .pages(pagesURL(path, in: projectURL))
         }
@@ -77,6 +77,25 @@ enum DesignGate {
             + "book, so an edition round revises that set rather than adding a "
             + "second one \u{2014} approving this changes how every edition is "
             + "typeset."
+    }
+
+    /// **What the pages do not say for themselves**: some of this text is the
+    /// BOOK's, not the edition's.
+    ///
+    /// A sample is compiled `allowStale` (`SampleCompiler`), so a half-finished
+    /// translation produces pages rather than a refusal — which is right for a
+    /// design round, and dangerous without this sentence: the designer would be
+    /// judging typography over prose in the wrong language with nothing on
+    /// screen saying so. `nil` at zero, so a complete edition and every source
+    /// round carry no notice at all.
+    static func fallbackNotice(fallbackPieces: Int) -> String? {
+        guard fallbackPieces > 0 else { return nil }
+        let subject = fallbackPieces == 1
+            ? "One piece in these pages"
+            : "\(fallbackPieces) pieces in these pages"
+        return "\(subject) fell back to the book\u{2019}s own text \u{2014} the "
+            + "translation is incomplete, so part of what you are looking at is "
+            + "not this edition\u{2019}s prose."
     }
 
     // MARK: - Copy
@@ -227,10 +246,19 @@ struct DesignGateView: View {
                          pagesExist: pagesExist)
     }
 
+    /// How many pieces in these pages were set from the book's own text — read
+    /// off the RECORD rather than the run, because the gate is normally opened
+    /// long after (and often in a later session than) the round that compiled
+    /// it.
+    private var fallbackPieces: Int {
+        guard case .pages(_, _, let count) = proposal.sampleResult else { return 0 }
+        return count
+    }
+
     /// The lines the selection wrote for the writer — present only on a sample
     /// that produced pages, because they are an account OF those pages.
     private var demonstrates: [String] {
-        guard case .pages(_, let lines) = proposal.sampleResult else { return [] }
+        guard case .pages(_, let lines, _) = proposal.sampleResult else { return [] }
         return lines
     }
 
@@ -324,6 +352,14 @@ struct DesignGateView: View {
         VStack(alignment: .leading, spacing: 0) {
             if let caveat = DesignGate.caveat(language: proposal.language) {
                 editionCaveat(caveat)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 10)
+            }
+            // Beside the caveat, and for the same reason: both change what
+            // approving these pages MEANS, so both are read before the spec
+            // rather than filed under the pages they are about.
+            if let notice = DesignGate.fallbackNotice(fallbackPieces: fallbackPieces) {
+                editionCaveat(notice)
                     .padding(.horizontal, 10)
                     .padding(.top, 10)
             }
@@ -618,7 +654,7 @@ struct DesignGateView: View {
     /// the writer Shows a different round, and it is `nil` for a proposal with no
     /// pages to look for.
     private var recordedPagesPath: String? {
-        guard case .pages(let path, _) = proposal.sampleResult else { return nil }
+        guard case .pages(let path, _, _) = proposal.sampleResult else { return nil }
         return path
     }
 

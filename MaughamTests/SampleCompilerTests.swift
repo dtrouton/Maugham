@@ -349,7 +349,7 @@ final class SampleCompilerTests: XCTestCase {
             astSource: TwoPieceSource(), language: nil, jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
 
-        guard case .pages(let path, let demonstrates) = outcome else {
+        guard case .pages(let path, let demonstrates, _) = outcome else {
             return XCTFail("the sample compile must produce pages: "
                            + SampleCompiler.failureSentence(outcome))
         }
@@ -389,7 +389,9 @@ final class SampleCompilerTests: XCTestCase {
         // …and the pages are recorded on the proposal.
         let recorded = try DesignProposalStore(projectURL: projectURL)
             .sampleResult(id: proposal.id)
-        XCTAssertEqual(recorded, .pages(path: path, demonstrates: selection(["p1"]).demonstrates),
+        XCTAssertEqual(recorded, .pages(path: path,
+                                        demonstrates: selection(["p1"]).demonstrates,
+                                        fallbackPieces: 0),
                        "the recorded result carries the selection's own lines, "
                        + "which is what the gate shows beside the pages")
     }
@@ -551,5 +553,83 @@ final class SampleCompilerTests: XCTestCase {
                       "the translated half is set in the edition: \(body)")
         XCTAssertTrue(body.contains(Self.secondSource),
                       "and the untranslated half falls back to source text: \(body)")
+    }
+
+    // MARK: - the sample says when the book's own text stood in (fix round 2)
+
+    /// `allowStale` is what lets an incomplete edition produce pages at all, and
+    /// pages that look clean while part of their prose is the wrong language are
+    /// worse than a refusal. The fallback warnings must therefore reach the
+    /// outcome, and the COUNT of them the record the gate reads — otherwise the
+    /// only place the fact exists is a `CompileJobManager` nobody opens.
+    ///
+    /// Needs a real compile (the warnings ride out on the success path), so it
+    /// reads its premise off the machine like every other end-to-end case here.
+    ///
+    /// Disable experiment: drop `warnings: result.warnings` from `.pages(…)` in
+    /// `SampleCompiler.run` and this fails on an empty `warnings` array and a
+    /// recorded `fallbackPieces` of 0.
+    func test_compile_overAnIncompleteLayer_carriesItsFallbackWarningsToTheRecord() async throws {
+        try await TectonicProbe.requireReady()
+
+        let fx = try await makeTranslatedProject(covering: 1)
+        let proposal = try stage([], in: fx.projectURL)
+
+        let outcome = try await SampleCompiler.compile(
+            proposal: proposal, selection: selection([fx.pieceID]),
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store, language: "es"),
+            language: "es",
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+
+        guard case .pages(_, _, let warnings) = outcome else {
+            return XCTFail("an incomplete layer still produces pages: "
+                           + SampleCompiler.failureSentence(outcome))
+        }
+        let fallbacks = warnings.filter(TranslationCoverage.isSourceTextFallback)
+        XCTAssertFalse(fallbacks.isEmpty,
+                       "the fallback must reach the outcome: \(warnings.map(\.message))")
+        XCTAssertTrue(fallbacks.allSatisfy { $0.message.hasPrefix("[es]") },
+                      "and say which tongue: \(fallbacks.map(\.message))")
+
+        // …and onto the record the gate actually reads, which is the only copy
+        // that survives the session that compiled it.
+        guard case .pages(_, _, let recorded) = try XCTUnwrap(
+            DesignProposalStore(projectURL: fx.projectURL).sampleResult(id: proposal.id))
+        else { return XCTFail("the proposal must record pages") }
+        XCTAssertEqual(recorded, fallbacks.count,
+                       "the record counts the pieces that fell back")
+        XCTAssertGreaterThan(recorded, 0)
+    }
+
+    /// Its control: a COMPLETE edition records none, so the gate stays silent
+    /// about a translation that is finished. Without it the test above could
+    /// pass on a sample that had started warning about every edition round.
+    func test_compile_overACompleteLayer_recordsNoFallback() async throws {
+        try await TectonicProbe.requireReady()
+
+        let fx = try await makeTranslatedProject()
+        let proposal = try stage([], in: fx.projectURL)
+
+        let outcome = try await SampleCompiler.compile(
+            proposal: proposal, selection: selection([fx.pieceID]),
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store, language: "es"),
+            language: "es",
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+
+        guard case .pages(_, _, let warnings) = outcome else {
+            return XCTFail("a complete edition must produce pages: "
+                           + SampleCompiler.failureSentence(outcome))
+        }
+        XCTAssertTrue(warnings.filter(TranslationCoverage.isSourceTextFallback).isEmpty,
+                      "nothing fell back: \(warnings.map(\.message))")
+
+        guard case .pages(_, _, let recorded) = try XCTUnwrap(
+            DesignProposalStore(projectURL: fx.projectURL).sampleResult(id: proposal.id))
+        else { return XCTFail("the proposal must record pages") }
+        XCTAssertEqual(recorded, 0)
     }
 }
