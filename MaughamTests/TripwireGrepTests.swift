@@ -4844,20 +4844,34 @@ final class TripwireGrepTests: XCTestCase {
         "PublicationTools.swift", "PublishConfigTools.swift",
     ]
 
+    /// Matches BOTH Swift parameter-label shapes for `imprint`, each followed
+    /// by an explicit type annotation: the same-name shape
+    /// (`imprint: String`, a stored property or a plain-labeled parameter)
+    /// and the label-plus-internal-name shape
+    /// (`imprint name: String?`, exactly how `PublishConfig+Imprints.swift`'s
+    /// own `resolved(imprint name: String?, pieceIDs:)` reads — the shape
+    /// the substring check this replaced could not see, since no `:`
+    /// immediately follows `imprint` there). The negative lookbehind refuses
+    /// `.imprint` (member access) and a word character immediately before
+    /// (so `reimprint:`, were such a thing to exist, does not match); the
+    /// trailing `(String|Imprint)` is what distinguishes a DECLARATION from
+    /// a call site, which passes a VALUE instead
+    /// (`imprint: config.imprint`, `imprint: nil`, `imprint: imprint`,
+    /// `imprint: requestedImprint`) and never a bare type name — so this does
+    /// not fire on `loaded.resolved(imprint: imprint, pieceIDs: pieceIDs)`.
+    /// A local read with no type annotation (`let imprint = config.imprint`,
+    /// as `OutputFilenameBuilder.swift` does) also does not match: there is
+    /// no `:` immediately after `imprint` there, only `=`.
+    private static let imprintParameterRegex = try! NSRegularExpression(
+        pattern: #"(?<![\w.])imprint(\s+[A-Za-z_]\w*)?\s*:\s*(String|Imprint)\b"#)
+
     /// True when `line` declares `imprint` as a stored property or a
-    /// function/init parameter — i.e. carries an explicit type annotation
-    /// (`imprint: String`, `imprint: String?`, `imprint: Imprint`). A call
-    /// site passes a VALUE instead (`imprint: config.imprint`, `imprint: nil`,
-    /// `imprint: imprint`, `imprint: requestedImprint`), never a bare type
-    /// name, so this does not fire on a call like
-    /// `loaded.resolved(imprint: imprint, pieceIDs: pieceIDs)`. A local read
-    /// with no type annotation (`let imprint = config.imprint`, as
-    /// `OutputFilenameBuilder.swift` does) also does not match, because
-    /// there is no `imprint:` substring at all — only an `=`.
+    /// function/init parameter — see `imprintParameterRegex`'s doc comment
+    /// for the two shapes matched and why a call site or an untyped local
+    /// read is not one of them.
     private static func declaresImprintParameter(_ line: String) -> Bool {
-        guard let range = line.range(of: "imprint:") else { return false }
-        let after = line[range.upperBound...].trimmingCharacters(in: .whitespaces)
-        return after.hasPrefix("String") || after.hasPrefix("Imprint")
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        return imprintParameterRegex.firstMatch(in: line, range: range) != nil
     }
 
     /// Census (a): no function/init signature or stored property outside the
@@ -4895,9 +4909,11 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
-    /// Self-check: the census fires on a planted parameter declaration and
-    /// lets a same-shaped call site through, in a file outside the allowed
-    /// set.
+    /// Self-check: the census fires on both planted parameter-declaration
+    /// shapes — same-name (`imprint: String?`) and label-plus-internal-name
+    /// (`imprint name: String?`, `PublishConfig+Imprints.swift`'s own
+    /// `resolved(imprint name:)` shape) — and lets a same-shaped call site
+    /// through, in a file outside the allowed set.
     func test_imprintDeclarationCensusFiresOnPlantedOffender() throws {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
@@ -4913,8 +4929,12 @@ final class TripwireGrepTests: XCTestCase {
                 emit(imprint: resolved.imprint, to: "x")
             }
 
-            // A parameter declaration outside the resolution door — forbidden:
+            // A same-name parameter declaration — forbidden:
             func emit(imprint: String?, to path: String) {}
+
+            // A label-plus-internal-name parameter declaration — forbidden,
+            // and the shape a bare `imprint:` substring check cannot see:
+            func relay(imprint name: String?) {}
         }
         """.write(to: tmp.appendingPathComponent("RogueEmitter.swift"),
                   atomically: true, encoding: .utf8)
@@ -4924,18 +4944,32 @@ final class TripwireGrepTests: XCTestCase {
             patterns: [],
             excludeLine: { Self.isCommentLine($0) },
             extraOffender: Self.declaresImprintParameter)
-        XCTAssertEqual(offenders.count, 1,
-            "Self-check expected exactly the planted parameter declaration, "
-            + "with the call site and the `resolved.imprint` read left alone. "
-            + "Got:\n" + offenders.joined(separator: "\n"))
-        XCTAssertTrue(offenders.first?.contains("func emit(imprint: String?") == true,
-            offenders.description)
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check expected exactly the two planted parameter "
+            + "declarations, with the call site and the `resolved.imprint` "
+            + "read left alone. Got:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("func emit(imprint: String?") },
+            "Self-check: the same-name declaration should be caught. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("func relay(imprint name: String?") },
+            "Self-check: the label-plus-internal-name declaration should be "
+            + "caught. Got:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// The line containing `index`, by scanning back to the nearest `\n`
+    /// (or the start of `text`) and forward to the next `\n` (or the end).
+    private func line(containing index: String.Index, in text: String) -> Substring {
+        let lineStart = text[..<index].lastIndex(of: "\n").map(text.index(after:)) ?? text.startIndex
+        let lineEnd = text[index...].firstIndex(of: "\n") ?? text.endIndex
+        return text[lineStart..<lineEnd]
     }
 
     /// Walks every `Publication(` construction in `dir` to its own closing
     /// paren (never the first `)`, since several arguments are themselves
-    /// parenthesized calls — `Date()`, `relativePath(outputPath, from:)`) and
-    /// reports which ones omit `imprint:`.
+    /// parenthesized calls — `Date()`, `relativePath(outputPath, from:)`),
+    /// skips one whose OWN line is a comment (so a doc-comment example
+    /// showing `Publication(...)` usage can't register as a phantom site),
+    /// and reports which real sites omit `imprint:`.
     private func publicationConstructionOffenders(in dir: URL) throws -> (sites: Int, offenders: [String]) {
         let files = FileManager.default.enumerator(
             at: dir, includingPropertiesForKeys: nil)?
@@ -4950,6 +4984,9 @@ final class TripwireGrepTests: XCTestCase {
             var search = text.startIndex..<text.endIndex
             while let found = text.range(of: constructor, range: search) {
                 search = found.upperBound..<text.endIndex
+                guard !Self.isCommentLine(String(line(containing: found.lowerBound, in: text))) else {
+                    continue
+                }
                 var depth = 1
                 var args = ""
                 for ch in text[found.upperBound...] {
