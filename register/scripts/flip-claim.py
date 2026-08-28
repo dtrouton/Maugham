@@ -20,9 +20,37 @@ Usage:
 """
 import argparse
 import json
+import re
 import sys
 
 BASE = "register/reconciliation"
+HASH_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
+
+
+def find_cited_hash(raw, old):
+    """Find a hash cited in `raw` that repoint's `--old` refers to.
+
+    Filings store hashes at whatever length was on hand when the claim was
+    filed — 8-char abbreviations are the norm, but a full 40-char sha is
+    valid too. A post-rebase `--old` is usually a full sha, so matching it
+    verbatim (or its first 10 chars) against an 8-char citation always
+    misses. Compare on the SHORTER of the two lengths instead (minimum 7,
+    below which a hex prefix is not a trustworthy hash reference either
+    way) — this matches a full sha against an 8-char citation and an
+    8-char --old against a full-length citation.
+    """
+    candidates = sorted(set(HASH_RE.findall(raw)))
+    matches = []
+    for cited in candidates:
+        n = min(len(cited), len(old))
+        if n < 7:
+            continue
+        if cited[:n] == old[:n]:
+            matches.append(cited)
+    if len(matches) > 1:
+        sys.exit(f"{old[:10]} matches {len(matches)} distinct citations "
+                  f"({', '.join(matches)}) — disambiguate with a longer --old")
+    return matches[0] if matches else None
 
 
 def load(module):
@@ -118,12 +146,14 @@ def main():
 
     elif a.cmd == "repoint":
         raw = json.dumps(filings, ensure_ascii=False)
-        if a.old not in raw and a.old[:10] not in raw:
+        match = find_cited_hash(raw, a.old)
+        if match is None:
             sys.exit(f"{a.old[:10]} not cited in {a.module} filings")
-        raw = raw.replace(a.old, a.new).replace(a.old[:10], a.new[:10])
+        replacement = a.new[:len(match)]
+        raw = raw.replace(match, replacement)
         filings = json.loads(raw)
         save(a.module, claims, filings)
-        print(f"re-pointed {a.old[:10]} → {a.new[:10]} in {a.module} filings")
+        print(f"re-pointed {match} → {replacement} in {a.module} filings")
 
 
 if __name__ == "__main__":

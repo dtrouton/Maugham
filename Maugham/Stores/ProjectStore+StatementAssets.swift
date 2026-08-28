@@ -22,9 +22,8 @@ import MaughamCore
 /// records that decision.
 ///
 /// **No naming, dedupe or timestamp scheme of its own**, and no literal:
-/// `ImagePasteHandler.destination(forNoteAt:in:ext:)` derives `<slug>_assets`
-/// from the file's own name, so handing it a `Statement.path` yields the well
-/// for free. Move a statement and the well follows it.
+/// `ImagePasteHandler.wellURL(forNoteAt:in:)` derives `<slug>_assets` from the
+/// file's own name, so handing it a `Statement.path` yields the well for free. Move a statement and the well follows it.
 ///
 /// **The ref this returns is the caller's to insert, and it must go in through
 /// the `Document`.** A statement's `.md` is derived output (hard invariant), so
@@ -140,8 +139,11 @@ extension ProjectStore {
     /// orphaned photograph is worse than an empty statement.
     ///
     /// `rollbackUnusedStatement` refuses on its own account too (an open pane,
-    /// words in the derivation, a non-empty file, an unknown row), so this is
-    /// the *first* of two questions rather than the only one.
+    /// words in the derivation, a non-empty file, a picture already in the well,
+    /// an unknown row), so this is the *first* of two questions rather than the
+    /// only one. The well refusal is the one that covers what `mintedHere`
+    /// cannot: a *different* drop's photograph landing beside this statement
+    /// while this one's save was failing (issue #35).
     ///
     /// **What it deliberately does not undo: the well itself.** A save that gets
     /// past `createDirectory` and fails on the write leaves an empty
