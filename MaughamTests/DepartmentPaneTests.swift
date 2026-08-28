@@ -1049,6 +1049,59 @@ final class DepartmentPaneTests: XCTestCase {
                           + "documents")
     }
 
+    /// **The compile sheet never offers the book's own language twice.**
+    ///
+    /// The sheet draws the untranslated body as its own checkbox ("The book's
+    /// own language (English)"). A translator ROW named for the same tag — the
+    /// desk accepts `Add Language…` with "en" on an English book — put a second
+    /// English box beside it, and a writer who checked both sent `["en", "en"]`
+    /// into `LanguageSet`, which refuses a duplicate: a red compile for a
+    /// request the sheet itself made offerable.
+    ///
+    /// Disable experiment: delete the `.filter` on `languages:` at
+    /// `DepartmentPane`'s `DepartmentCompileSheet(…)` and this fails with
+    /// `XCTAssertEqual failed: ("1") is not equal to ("0") — the book's own
+    /// language is offered twice…`.
+    func test_theCompileSheetNeverOffersTheBooksOwnLanguageTwice() async throws {
+        // "EN" rather than "en" — a tag is matched case-insensitively
+        // everywhere else on this desk, and a writer types what they type.
+        let window = mount(languages: ["EN", "es"])
+        _ = try await scrollersSettling(in: window)
+        press(try axButtons(labelled: DepartmentDesk.compileTitle, in: window)[0])
+        let attached = await attachedSheetWindow(of: window)
+        let sheet = try XCTUnwrap(attached, "Compile… opened no sheet to inspect")
+
+        let texts = try axTexts(in: sheet)
+        let ownTag = TranslationReviewIndicator.displayLabel(forLanguageTag: "EN")
+        XCTAssertEqual(texts.filter { $0 == ownTag }.count, 0,
+                       "the book's own language is offered twice — checking "
+                       + "both boxes sends a duplicate tag and the compile is "
+                       + "refused. Published: \(texts.sorted())")
+
+        // The controls: the book's own row IS there, and a language that is
+        // genuinely a translation still is too.
+        let bookRow = DepartmentCompileSheetCopy.bookLanguageTitle("en")
+        XCTAssertTrue(texts.contains { $0.contains(bookRow) },
+                      "the book's own language must still be offered once. "
+                      + "Published: \(texts.sorted())")
+        let other = TranslationReviewIndicator.displayLabel(forLanguageTag: "es")
+        XCTAssertTrue(texts.contains { $0 == other },
+                      "…and a real translation is still on the sheet. "
+                      + "Published: \(texts.sorted())")
+    }
+
+    /// **Wait for a `.sheet` to attach** — a real child `NSWindow` once the
+    /// parent is ordered front, which every mount here does.
+    private func attachedSheetWindow(of parent: NSWindow,
+                                     deadline: TimeInterval = 5) async -> NSWindow? {
+        var sheet: NSWindow?
+        _ = await pumpUntil(deadline: deadline) {
+            sheet = parent.attachedSheet
+            return sheet != nil
+        }
+        return sheet
+    }
+
     // MARK: - Census
 
     /// **The desk reads no store** (tripwire 4). Its values are assembled by the

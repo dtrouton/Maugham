@@ -237,7 +237,19 @@ struct DepartmentPane: View {
             desk
                 .sheet(isPresented: $showingCompileSheet) {
                     DepartmentCompileSheet(
-                        languages: languages.map(\.language),
+                        // **The book's own language is never offered twice.**
+                        // The sheet draws it as its own checkbox ("The book's
+                        // own language (English)"); a translator role named for
+                        // the same tag — `Add Language…` with "en" on an
+                        // English book, which the desk accepts — put a second
+                        // box beside it, and checking both sent `["en", "en"]`
+                        // into `LanguageSet`, which refuses a duplicate and
+                        // fails the compile red for a request the sheet itself
+                        // made offerable. Case-insensitively, because a tag is
+                        // matched that way everywhere else on this desk.
+                        languages: languages.map(\.language).filter {
+                            $0.caseInsensitiveCompare(bookLanguage) != .orderedSame
+                        },
                         bookLanguage: bookLanguage,
                         imprint: selectedImprint,
                         onCompile: { request in
