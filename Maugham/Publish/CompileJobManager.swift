@@ -12,7 +12,29 @@ public actor CompileJobManager {
     private var jobs: [String: CompileJob] = [:]
     private var cancellationTokens: [String: Bool] = [:]
 
+    /// **Test-only: every job this manager hands out is born cancelled.**
+    ///
+    /// A compile's one cancellation checkpoint sits after the render and before
+    /// the snapshot, so a test that wants to see a cancel WIN has to land it in
+    /// the window between `register` and that check — a window whose width is
+    /// however long it takes to emit and zip a book. Polling `allInProgress()`
+    /// and racing the writer is a coin flip; this removes the race instead of
+    /// trying to win it, and what it exercises is unchanged: the real
+    /// orchestrator really renders, really reaches the checkpoint, and really
+    /// finds the token set.
+    ///
+    /// Production never touches it (`false` is the only value any shipping path
+    /// can observe). `internal` rather than `public` so only `@testable`
+    /// importers can reach it at all.
+    private var cancelsAtRegistration = false
+
     public init() {}
+
+    /// See ``cancelsAtRegistration``. A function rather than a settable
+    /// property so the name carries `ForTesting` at every call site.
+    func _cancelJobsAtRegistrationForTesting(_ on: Bool) {
+        cancelsAtRegistration = on
+    }
 
     @discardableResult
     public func register(
@@ -24,6 +46,7 @@ public actor CompileJobManager {
             jobID: id, startedAt: startedAt,
             status: .inProgress(phase: phase))
         cancellationTokens[id] = false
+        if cancelsAtRegistration { _ = cancel(jobID: id) }
         return id
     }
 

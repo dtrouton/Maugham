@@ -386,8 +386,8 @@ extension DesignerOrchestrator.Environment {
                     jobManager: PublishingStores.sharedFor(
                         projectID: ProjectIdentifier.id(for: projectURL),
                         projectURL: projectURL).jobManager,
-                    maughamVersion: maughamVersion,
-                    tectonicVersion: bundledTectonicVersion))
+                    maughamVersion: PublishToolchain.maughamVersion,
+                    tectonicVersion: PublishToolchain.tectonicVersion))
         } catch {
             // `SampleCompiler.compile` throws for one thing only: it could not
             // RECORD the outcome on the proposal. The proposal itself is staged
@@ -398,15 +398,4 @@ extension DesignerOrchestrator.Environment {
             return nil
         }
     }
-
-    /// The running build's version, as every other compile site reads it.
-    private static var maughamVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
-    }
-
-    /// The bundled tectonic's version, spelled as `CompileTools` and
-    /// `PublicationTools` spell it. A literal in four places rather than three
-    /// is not an improvement, but promoting it to a constant is a publish-area
-    /// change with publish-area tests behind it, and this task is the wiring.
-    private static let bundledTectonicVersion = "0.15.0"
 }

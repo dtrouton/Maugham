@@ -53,6 +53,19 @@ public struct CompileOrchestrator {
     /// `PublishingStores.mintGate` so every compile of a project contends on
     /// the same one (censused by `PublishMintGateTests`).
     public let mintGate: PublishMintGate
+    /// **How a caller's typo is told from a compile that went wrong.**
+    ///
+    /// An unknown imprint refuses at the door — before a job registers, before
+    /// a word of the manuscript is read — and it refuses through the ordinary
+    /// `.failed` shape, because that is the shape every caller already reads.
+    /// The excerpt is what carries the distinction, and a surface that wants to
+    /// draw the two differently (`DepartmentCompileState.settled(after:)` draws
+    /// this one as a refusal rather than a failure) reads THIS constant rather
+    /// than re-typing the prefix. `CompileToolsTests` pins the wire spelling
+    /// `"unknown_imprint: nope"`, so the prefix is part of the tool's contract
+    /// and not free to drift.
+    public static let unknownImprintLogExcerpt = "unknown_imprint: "
+
     public let maughamVersion: String
     public let tectonicVersion: String
 
@@ -119,7 +132,8 @@ public struct CompileOrchestrator {
                 contextLines: [
                     "Nothing was compiled — no export, no snapshot, no version bump."
                 ])
-            return .failed(errors: [diag], logExcerpt: "unknown_imprint: \(imprint)")
+            return .failed(errors: [diag],
+                           logExcerpt: Self.unknownImprintLogExcerpt + imprint)
         }
 
         // `loaded` is kept beside `config` on purpose: the RESOLVED config is
