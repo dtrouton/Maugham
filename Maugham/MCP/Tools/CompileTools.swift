@@ -92,7 +92,7 @@ public enum CompileTool: MCPTool {
     public static let description =
     "Full PDF or EPUB compile. wait_seconds blocks up to that long for completion; if it elapses, returns {status: in_progress, job_id, phase}. On success creates a Publication record referencing the captured PublicationSnapshot (template + config + styles bytes, frozen at compile time). A Publication is keyed on (imprint, version, language, format): a source compile (no language) takes its version from next_version and bumps it; a language edition renders an EXISTING source version (pin it with version, or omit to target the latest source publication) and never bumps next_version. The borrowed version is an identity label only — the edition compiles the CURRENT manuscript text, not that version's frozen content; use republish to reproduce a frozen snapshot. Note: the Publication.checkpoint_id field is reserved for a follow-up milestone — it's empty in v1, and reproducibility is via snapshot_id (which republish uses)."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to compile a translated edition: applies language_overrides, sets dc:language / \\\\MaughamLanguage, and language-suffixes the output filename. Omit for the source-language edition."},"version":{"type":"string","description":"Editions only (requires language). Pins the EXISTING source-publication version this edition renders (e.g. '1.0'); refused without language. Omit and the edition targets the latest source publication's version. Pins the version IDENTITY only — the edition renders the current manuscript text, not that version's frozen content (use republish to reproduce a frozen snapshot). A Publication is keyed on (imprint, version, language, format), so 1.0/en, 1.0/es, and 1.0/es/epub coexist as one family."},"allow_stale":{"type":"boolean","default":false,"description":"Compile a translated edition even if some paragraphs are stale or missing, falling back to source text for those paragraphs (default false blocks the compile and reports the gap instead)."},"imprint":{"type":"string","description":"Name of an imprint from config.json's `imprints` — its own template, rendered set, metadata and version counter. Omit for the book."},"dry_run":{"type":"boolean","default":false,"description":"Run the version-collision guard and translation-coverage gate for this edition and report the verdict WITHOUT compiling: no output file, no Publication record, no version bump. Returns {status: dry_run_passed, warnings} when it would compile, or the same failed/gate-blocked shape a real compile returns. Answers 'would this edition compile pass for the currently included sections' without minting a throwaway Publication."},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to compile a translated edition: applies language_overrides, sets dc:language / \\\\MaughamLanguage, and language-suffixes the output filename. Omit for the source-language edition. See languages to render more than one tongue into the same document."},"languages":{"type":"array","items":{"type":"string"},"description":"Languages to render, in order, one complete body each in ONE document — e.g. [\\"en\\",\\"sr\\"]. \\"source\\" or the book's own metadata.language names the untranslated body. A set that includes the source is a source compile (mints at next_version); one without it is an edition of an existing version. Equivalent to language for a single tag; if both are given they must agree."},"version":{"type":"string","description":"Editions only (requires language). Pins the EXISTING source-publication version this edition renders (e.g. '1.0'); refused without language. Omit and the edition targets the latest source publication's version. Pins the version IDENTITY only — the edition renders the current manuscript text, not that version's frozen content (use republish to reproduce a frozen snapshot). A Publication is keyed on (imprint, version, language, format), so 1.0/en, 1.0/es, and 1.0/es/epub coexist as one family."},"allow_stale":{"type":"boolean","default":false,"description":"Compile a translated edition even if some paragraphs are stale or missing, falling back to source text for those paragraphs (default false blocks the compile and reports the gap instead)."},"imprint":{"type":"string","description":"Name of an imprint from config.json's `imprints` — its own template, rendered set, metadata and version counter. Omit for the book."},"dry_run":{"type":"boolean","default":false,"description":"Run the version-collision guard and translation-coverage gate for this edition and report the verdict WITHOUT compiling: no output file, no Publication record, no version bump. Returns {status: dry_run_passed, warnings} when it would compile, or the same failed/gate-blocked shape a real compile returns. Answers 'would this edition compile pass for the currently included sections' without minting a throwaway Publication."},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
     """
 
     struct Params: Codable {
@@ -100,6 +100,7 @@ public enum CompileTool: MCPTool {
         let format: PublishConfig.Format
         let label: String?
         let language: String?
+        let languages: [String]?
         let version: String?
         let allowStale: Bool?
         let dryRun: Bool?
@@ -107,7 +108,7 @@ public enum CompileTool: MCPTool {
         let waitSeconds: Int?
         enum CodingKeys: String, CodingKey {
             case projectID = "project_id"
-            case format, label, language, version, imprint
+            case format, label, language, languages, version, imprint
             case allowStale = "allow_stale"
             case dryRun = "dry_run"
             case waitSeconds = "wait_seconds"
@@ -120,6 +121,19 @@ public enum CompileTool: MCPTool {
         if let language = params.language,
            !TranslationRecord.isValidLanguageTag(language) {
             throw MCPError.invalidArgument("invalid language tag: \(language)")
+        }
+        // Element-level validation only — agreement between `language` and
+        // `languages`, and duplicates within `languages`, are `LanguageSet`'s
+        // job and surface through the orchestrator's ordinary failed shape
+        // (mirrors the unknown-imprint precedent just below). This check is
+        // what keeps a caller's typo ("nope!") from ever reaching the
+        // orchestrator at all.
+        if let languages = params.languages {
+            for tag in languages {
+                guard tag == "source" || TranslationRecord.isValidLanguageTag(tag) else {
+                    throw MCPError.invalidArgument("invalid language tag in languages: \(tag)")
+                }
+            }
         }
         let entry = try resolveProject(params.projectID, in: registry)
         let store = entry.store
@@ -144,6 +158,7 @@ public enum CompileTool: MCPTool {
         let format = params.format
         let label = params.label
         let language = params.language
+        let languages = params.languages
         let version = params.version
         let allowStale = params.allowStale ?? false
         let dryRun = params.dryRun ?? false
@@ -151,7 +166,8 @@ public enum CompileTool: MCPTool {
         let task = Task {
             try await orch.compile(
                 format: format, label: label,
-                language: language, allowStale: allowStale, dryRun: dryRun,
+                language: language, languages: languages,
+                allowStale: allowStale, dryRun: dryRun,
                 version: version, imprint: imprint)
         }
         do {
@@ -188,7 +204,7 @@ public enum PreviewCompileTool: MCPTool {
     public static let description =
     "Fast subset compile. section_ids = list of piece IDs to include (omit for whole project). language/allow_stale mirror compile: preview a translated edition (applies language_overrides + language-suffixed templates) behind the SAME coverage gate — the gate scopes to exactly the pieces this preview renders, so an exploratory preview of one section isn't blocked by other untranslated pieces. imprint previews that imprint instead of the book — its template, its rendered set, its metadata and its own version counter — and lands on a filename of its own, so it never replaces the book's preview. Does NOT create a Publication or bump version."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"section_ids":{"type":"array","items":{"type":"string"}},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to preview a translated edition, applying language_overrides + language-suffixed templates and running the same coverage gate as compile. Omit for the source-language preview."},"allow_stale":{"type":"boolean","default":false,"description":"Preview a translated edition even if some paragraphs are stale or missing, falling back to source text (default false blocks and reports the gap, exactly like compile)."},"imprint":{"type":"string","description":"Name of an imprint from config.json's `imprints` — its own template, rendered set, metadata and version counter. Omit for the book."},"max_pages":{"type":"integer"},"wait_seconds":{"type":"integer","default":30}},"required":["project_id","format"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"section_ids":{"type":"array","items":{"type":"string"}},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to preview a translated edition, applying language_overrides + language-suffixed templates and running the same coverage gate as compile. Omit for the source-language preview. See languages to render more than one tongue into the same document."},"languages":{"type":"array","items":{"type":"string"},"description":"Languages to render, in order, one complete body each in ONE document — e.g. [\\"en\\",\\"sr\\"]. \\"source\\" or the book's own metadata.language names the untranslated body. A set that includes the source is a source compile (mints at next_version); one without it is an edition of an existing version. Equivalent to language for a single tag; if both are given they must agree."},"allow_stale":{"type":"boolean","default":false,"description":"Preview a translated edition even if some paragraphs are stale or missing, falling back to source text (default false blocks and reports the gap, exactly like compile)."},"imprint":{"type":"string","description":"Name of an imprint from config.json's `imprints` — its own template, rendered set, metadata and version counter. Omit for the book."},"max_pages":{"type":"integer"},"wait_seconds":{"type":"integer","default":30}},"required":["project_id","format"]}
     """
 
     struct Params: Codable {
@@ -196,6 +212,7 @@ public enum PreviewCompileTool: MCPTool {
         let format: PublishConfig.Format
         let sectionIDs: [String]?
         let language: String?
+        let languages: [String]?
         let allowStale: Bool?
         let imprint: String?
         let maxPages: Int?
@@ -204,7 +221,7 @@ public enum PreviewCompileTool: MCPTool {
             case projectID = "project_id"
             case format
             case sectionIDs = "section_ids"
-            case language, imprint
+            case language, languages, imprint
             case allowStale = "allow_stale"
             case maxPages = "max_pages"
             case waitSeconds = "wait_seconds"
@@ -217,6 +234,14 @@ public enum PreviewCompileTool: MCPTool {
         if let language = params.language,
            !TranslationRecord.isValidLanguageTag(language) {
             throw MCPError.invalidArgument("invalid language tag: \(language)")
+        }
+        // Element-level validation only — see CompileTool's identical guard.
+        if let languages = params.languages {
+            for tag in languages {
+                guard tag == "source" || TranslationRecord.isValidLanguageTag(tag) else {
+                    throw MCPError.invalidArgument("invalid language tag in languages: \(tag)")
+                }
+            }
         }
         let entry = try resolveProject(params.projectID, in: registry)
         let store = entry.store
@@ -233,6 +258,7 @@ public enum PreviewCompileTool: MCPTool {
             maughamVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0",
             tectonicVersion: "0.15.0",
             language: params.language,
+            languages: params.languages,
             allowStale: params.allowStale ?? false)
         let result = try await preview.preview(
             format: params.format,

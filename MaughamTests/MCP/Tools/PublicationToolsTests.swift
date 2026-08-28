@@ -853,4 +853,77 @@ final class PublicationToolsTests: XCTestCase {
             ListPublicationsTool.description.contains("(imprint, version, language, format)"),
             "list_publications' description must state the widened key")
     }
+
+    // MARK: - P2 Task 7: languages — the joined spelling ("en+sr") is exact
+
+    /// A bilingual publication's `language` field is already the joined
+    /// identity `CompileOrchestrator`/`LanguageSet` mint (e.g. "en+sr") —
+    /// `languageMatches` is an exact string match, so no logic change was
+    /// needed here. This seeds that row directly (rather than compiling one)
+    /// to prove the EXISTING filter/disambiguation logic already handles it.
+    private func seedBilingualPublication() async throws -> Publication {
+        let stores = PublishingStores.sharedFor(
+            projectID: pid!, projectURL: projectURL)
+        let pub = Publication(
+            publicationID: "pub-bilingual-test",
+            version: "1.0", label: nil, format: .pdf,
+            outputPath: "Exports/en-sr.pdf",
+            snapshotID: "snap-bilingual", checkpointID: "",
+            republishedFrom: nil,
+            compiledAt: Date(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0",
+            language: "en+sr")
+        try await stores.publicationStore.append(pub)
+        return pub
+    }
+
+    func testList_filtersByLanguage_joinedSpellingMatchesExactly() async throws {
+        _ = try await seedBilingualPublication()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","language":"en+sr"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 1)
+        XCTAssertEqual(pubs.first?["language"] as? String, "en+sr")
+    }
+
+    /// The "source" sentinel selects only `language == nil` rows — a joined
+    /// identity that happens to include the source tongue is a different,
+    /// named edition, not the untagged source row.
+    func testList_filtersByLanguage_sourceSentinel_excludesBilingualRow() async throws {
+        _ = try await seedBilingualPublication()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","language":"source"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertTrue(pubs.isEmpty, "the joined identity is not the untagged source row")
+    }
+
+    func testReadPage_versionAndLanguage_resolvesBilingualFamilyMember() async throws {
+        _ = try await seedBilingualPublication()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","version":"1.0","language":"en+sr","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — fixture has no PDF on disk")
+        } catch let MCPError.internalError(msg) {
+            XCTAssertTrue(msg.contains("en-sr.pdf"),
+                          "expected error to reference en-sr.pdf (the bilingual edition's outputPath), got: \(msg)")
+        }
+    }
+
+    func testDescription_listPublications_mentionsJoinedSpelling() {
+        XCTAssertTrue(
+            ListPublicationsTool.description.contains("en+sr"),
+            "list_publications' description must mention the joined spelling")
+    }
+
+    func testDescription_readPublicationPage_mentionsJoinedSpelling() {
+        XCTAssertTrue(
+            ReadPublicationPageTool.description.contains("en+sr"),
+            "read_publication_page's description must mention the joined spelling")
+    }
 }

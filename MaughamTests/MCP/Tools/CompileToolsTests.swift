@@ -513,4 +513,205 @@ final class CompileToolsTests: XCTestCase {
             CompileTool.description.contains("(imprint, version, language, format)"),
             "compile's description must state the widened key")
     }
+
+    // MARK: - P2 Task 7: compile / preview_compile speak `languages`
+
+    private func sourceLanguageTag() async throws -> String {
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        let cfg = try await stores.configStore.load()
+        return cfg?.metadata.language ?? "en"
+    }
+
+    /// Both `Params` decode `languages` off the wire — a schema key nothing
+    /// decodes is a lie in the catalogue (mirrors `testParams_bothToolsDecodeImprint`).
+    func testParams_bothToolsDecodeLanguages() throws {
+        let json = Data(#"{"project_id":"p","format":"epub","languages":["en","sr"]}"#.utf8)
+        XCTAssertEqual(
+            try JSONDecoder().decode(CompileTool.Params.self, from: json).languages,
+            ["en", "sr"])
+        XCTAssertEqual(
+            try JSONDecoder().decode(PreviewCompileTool.Params.self, from: json).languages,
+            ["en", "sr"])
+    }
+
+    /// `[sourceTag, "sr"]` end-to-end through `compile` is a SOURCE compile
+    /// (the set contains the source body) whose joined identity is
+    /// "<sourceTag>+sr" — `list_publications(language:)` for that exact
+    /// string finds the row, and the plain "source" sentinel does not (it
+    /// names the untagged single-body row, a different thing). EPUB, so no
+    /// tectonic is needed; allow_stale, because nothing has translated "sr"
+    /// yet and this test is about identity, not coverage.
+    func testCompile_languages_endToEnd_mintsJoinedRow() async throws {
+        let sourceTag = try await sourceLanguageTag()
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","languages":["\#(sourceTag)","sr"],"allow_stale":true,"wait_seconds":120}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "completed",
+                       "unexpected response: \(resp ?? [:])")
+        XCTAssertEqual(resp?["language"] as? String, "\(sourceTag)+sr")
+
+        let joined = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","language":"\#(sourceTag)+sr"}"#.utf8),
+            registry: registry)
+        let joinedResp = try JSONSerialization.jsonObject(with: joined) as? [String: Any]
+        XCTAssertEqual((joinedResp?["publications"] as? [Any])?.count, 1,
+                       "unexpected response: \(joinedResp ?? [:])")
+
+        let sourceOnly = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","language":"source"}"#.utf8),
+            registry: registry)
+        let sourceOnlyResp = try JSONSerialization.jsonObject(with: sourceOnly) as? [String: Any]
+        XCTAssertEqual((sourceOnlyResp?["publications"] as? [Any])?.count, 0,
+                       "the joined bilingual identity is not the plain source row: \(sourceOnlyResp ?? [:])")
+    }
+
+    /// `languages:["sr"]` — a single translated tag, no source body — must
+    /// behave exactly like `language:"sr"`: same completed shape, same
+    /// filename. Proves `languages` isn't a second, divergent path for the
+    /// single-tag case that `language` already covers. preview_compile,
+    /// deliberately: it needs no seeded source publication (unlike compile's
+    /// language-edition branch), so the comparison isolates identity from
+    /// that unrelated precondition.
+    func testPreview_singleElementLanguages_equivalentToLanguage() async throws {
+        let viaLanguage = try await PreviewCompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","language":"sr","allow_stale":true}"#.utf8),
+            registry: registry)
+        let viaLanguageResp = try JSONSerialization.jsonObject(with: viaLanguage) as? [String: Any]
+        XCTAssertEqual(viaLanguageResp?["status"] as? String, "completed",
+                       "unexpected response: \(viaLanguageResp ?? [:])")
+
+        let viaLanguages = try await PreviewCompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","languages":["sr"],"allow_stale":true}"#.utf8),
+            registry: registry)
+        let viaLanguagesResp = try JSONSerialization.jsonObject(with: viaLanguages) as? [String: Any]
+        XCTAssertEqual(viaLanguagesResp?["status"] as? String, "completed",
+                       "unexpected response: \(viaLanguagesResp ?? [:])")
+
+        XCTAssertEqual(viaLanguageResp?["output_path"] as? String,
+                       viaLanguagesResp?["output_path"] as? String,
+                       "a single-element languages list must render the same edition as language")
+    }
+
+    /// `language` and `languages` disagreeing is not a per-element problem —
+    /// it's `LanguageSet`'s agreement refusal, and (mirroring the unknown-
+    /// imprint precedent above) it surfaces through the tool's ORDINARY
+    /// failed shape, not a thrown `MCPError`, naming both values.
+    func testCompile_languageAndLanguagesDisagree_returnsFailedNamingBoth() async throws {
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","language":"sr","languages":["es"],"wait_seconds":5}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "failed",
+                       "unexpected response: \(resp ?? [:])")
+        let errors = resp?["errors"] as? [[String: Any]]
+        let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
+        XCTAssertTrue(message.contains("sr"), "got: \(message)")
+        XCTAssertTrue(message.contains("es"), "got: \(message)")
+        XCTAssertEqual(resp?["log_excerpt"] as? String,
+                       "invalid_languages: language 'sr' and languages [es] disagree")
+
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        let pubs = try await stores.publicationStore.load()
+        XCTAssertTrue(pubs.isEmpty, "nothing was compiled — no record, no bump")
+    }
+
+    /// A repeated tag in `languages` is `LanguageSet`'s duplicate refusal —
+    /// same ordinary failed shape.
+    func testCompile_duplicateLanguagesInList_returnsFailed() async throws {
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","languages":["sr","sr"],"wait_seconds":5}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "failed",
+                       "unexpected response: \(resp ?? [:])")
+        let errors = resp?["errors"] as? [[String: Any]]
+        let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
+        XCTAssertTrue(message.contains("duplicate"), "got: \(message)")
+        XCTAssertTrue(message.contains("sr"), "got: \(message)")
+    }
+
+    /// An element that fails `TranslationRecord.isValidLanguageTag` (and
+    /// isn't the "source" sentinel) is refused at the TOOL boundary — before
+    /// any orchestrator call, unlike the agreement/duplicate cases above,
+    /// which are the orchestrator's own refusal. Proven by the empty catalog
+    /// after: nothing was even attempted.
+    func testCompile_invalidLanguageElement_refusedBeforeOrchestrator() async throws {
+        await XCTAssertThrowsErrorAsync(
+            try await CompileTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","languages":["sr","nope!"],"wait_seconds":5}"#.utf8),
+                registry: registry)
+        ) { error in
+            guard case MCPError.invalidArgument(let msg) = error else {
+                return XCTFail("expected MCPError.invalidArgument, got \(error)")
+            }
+            XCTAssertTrue(msg.contains("nope!"), "got: \(msg)")
+        }
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        let pubs = try await stores.publicationStore.load()
+        XCTAssertTrue(pubs.isEmpty, "an invalid element must refuse before any compile begins")
+    }
+
+    /// The same element-level refusal for `preview_compile`.
+    func testPreview_invalidLanguageElement_refusedBeforeOrchestrator() async throws {
+        await XCTAssertThrowsErrorAsync(
+            try await PreviewCompileTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","languages":["nope!"]}"#.utf8),
+                registry: registry)
+        ) { error in
+            guard case MCPError.invalidArgument(let msg) = error else {
+                return XCTFail("expected MCPError.invalidArgument, got \(error)")
+            }
+            XCTAssertTrue(msg.contains("nope!"), "got: \(msg)")
+        }
+    }
+
+    // MARK: - P2 Task 7: schema round-trip for `languages`
+
+    /// Exact text from the brief — both schemas must declare it verbatim.
+    static let languagesDescription =
+        "Languages to render, in order, one complete body each in ONE document — e.g. [\"en\",\"sr\"]. \"source\" or the book's own metadata.language names the untranslated body. A set that includes the source is a source compile (mints at next_version); one without it is an edition of an existing version. Equivalent to language for a single tag; if both are given they must agree."
+
+    func testSchema_compile_declaresLanguages() throws {
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(CompileTool.inputSchemaJSON.utf8)) as? [String: Any]
+        let props = try XCTUnwrap(obj?["properties"] as? [String: Any])
+        let languages = try XCTUnwrap(props["languages"] as? [String: Any],
+                                      "compile schema must declare languages")
+        XCTAssertEqual(languages["type"] as? String, "array")
+        let items = try XCTUnwrap(languages["items"] as? [String: Any])
+        XCTAssertEqual(items["type"] as? String, "string")
+        XCTAssertEqual(languages["description"] as? String, Self.languagesDescription)
+    }
+
+    func testSchema_preview_declaresLanguages() throws {
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(PreviewCompileTool.inputSchemaJSON.utf8)) as? [String: Any]
+        let props = try XCTUnwrap(obj?["properties"] as? [String: Any])
+        let languages = try XCTUnwrap(props["languages"] as? [String: Any],
+                                      "preview_compile schema must declare languages")
+        XCTAssertEqual(languages["type"] as? String, "array")
+        let items = try XCTUnwrap(languages["items"] as? [String: Any])
+        XCTAssertEqual(items["type"] as? String, "string")
+        XCTAssertEqual(languages["description"] as? String, Self.languagesDescription)
+    }
+
+    func testSchema_compile_languageDescriptionPointsAtLanguages() throws {
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(CompileTool.inputSchemaJSON.utf8)) as? [String: Any]
+        let props = try XCTUnwrap(obj?["properties"] as? [String: Any])
+        let language = try XCTUnwrap(props["language"] as? [String: Any])
+        XCTAssertTrue((language["description"] as? String ?? "").contains("languages"),
+                      "compile's language description must point at languages")
+    }
+
+    func testSchema_preview_languageDescriptionPointsAtLanguages() throws {
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(PreviewCompileTool.inputSchemaJSON.utf8)) as? [String: Any]
+        let props = try XCTUnwrap(obj?["properties"] as? [String: Any])
+        let language = try XCTUnwrap(props["language"] as? [String: Any])
+        XCTAssertTrue((language["description"] as? String ?? "").contains("languages"),
+                      "preview_compile's language description must point at languages")
+    }
+
 }
