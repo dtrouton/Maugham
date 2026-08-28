@@ -1024,6 +1024,46 @@ final class DepartmentPaneTests: XCTestCase {
         XCTAssertEqual(asked.first?.languages, ["es"])
     }
 
+    /// **A persisted imprint the config no longer declares is not a selection.**
+    ///
+    /// An imprint is declared by hand-editing `config.json`, so one can be
+    /// deleted under a stored `UIState.publishImprint`. The `Picker`'s
+    /// selection then matched no tag it drew and it went BLANK — not the
+    /// imprint, not "Book", nothing on screen to say which the desk was about
+    /// — while the ROWS below it had already fallen back to the whole book
+    /// (`scopedDocumentIds`). The header and the rows disagreed, silently.
+    ///
+    /// Disable experiment: return `persisted` unconditionally from
+    /// `DepartmentPaneHost.selection(persisted:among:)` and the first assertion
+    /// fails with `XCTAssertNil failed: "gone"`.
+    func test_aPersistedImprintTheConfigNoLongerHasIsDrawnAsTheBook() throws {
+        XCTAssertNil(DepartmentPaneHost.selection(persisted: "gone",
+                                                  among: ["special", "other"]),
+                     "a name no row can show is not a selection — the picker "
+                     + "draws blank on it")
+        XCTAssertNil(DepartmentPaneHost.selection(persisted: "special", among: []),
+                     "…and a project whose imprints all went away is the book")
+
+        // The controls: a name the config still declares survives, and the
+        // book itself is unaffected.
+        XCTAssertEqual(DepartmentPaneHost.selection(persisted: "special",
+                                                    among: ["other", "special"]),
+                       "special")
+        XCTAssertNil(DepartmentPaneHost.selection(persisted: nil,
+                                                  among: ["special"]))
+
+        // …and the rows the desk draws under that blank picker were already
+        // the whole book, which is what the picker now agrees with.
+        let pieces = ["doc-1", "doc-2"]
+        var config = PublishConfig(metadata: .init(title: "T", author: "A"))
+        config.imprints = ["special": .init(sections: ["doc-1": .init(include: true)])]
+        XCTAssertEqual(
+            DepartmentPaneHost.scopedDocumentIds(pieces, imprint: "gone", in: config),
+            pieces,
+            "premise: the rows already fall back to the whole book for a name "
+            + "the config does not define")
+    }
+
     /// **The desk's pick is joined into the re-derive key**, which is the whole
     /// of how picking an imprint re-sums the rows. Nothing the pane DRAWS shows
     /// this: delete the join and the desk goes on reporting the previous book's

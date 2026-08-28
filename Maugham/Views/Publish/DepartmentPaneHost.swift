@@ -251,7 +251,11 @@ struct DepartmentPaneHost: View {
             // `DocumentStore` is `@Observable`, so a write through
             // `updateUIState` moves the picker with no event and no second
             // copy of the choice to keep in agreement with the persisted one.
-            selectedImprint: documentStore.uiState.publishImprint,
+            //
+            // …through `selection(persisted:among:)`, because a persisted name
+            // is not automatically a selection — see there.
+            selectedImprint: Self.selection(
+                persisted: documentStore.uiState.publishImprint, among: imprints),
             selectImprint: { Self.select(imprint: $0, in: documentStore) },
             compileRun: compileRunner.state,
             runCompile: {
@@ -798,6 +802,29 @@ struct DepartmentPaneHost: View {
     /// does not define falls back to it too: the picker's rows come from that
     /// same config, so a stale `UIState` name is a choice the writer can no
     /// longer see, and summing the whole book is the honest reading of it.
+    /// **Which imprint the picker is standing on, given what was persisted.**
+    ///
+    /// An imprint is declared by editing `config.json` by hand, so one can be
+    /// deleted out from under a `UIState.publishImprint` that names it. The
+    /// `Picker`'s selection then matched no tag it drew and it went BLANK — not
+    /// the imprint, not "Book", nothing, with no way to tell which of the two
+    /// the desk was actually about.
+    ///
+    /// `nil` is the honest answer, and it is the one the rest of the desk had
+    /// already reached on its own: `scopedDocumentIds` sums the whole book for a
+    /// name the config does not define, and `sourceLanguage` falls back to the
+    /// book's own tag. This makes the picker agree with them rather than
+    /// disagree in silence.
+    ///
+    /// The persisted value is deliberately NOT rewritten — a writer who
+    /// temporarily renamed an imprint gets their choice back when they rename it
+    /// back, and a `body` that wrote to the store would be a write on the draw
+    /// path.
+    static func selection(persisted: String?, among imprints: [String]) -> String? {
+        guard let persisted, imprints.contains(persisted) else { return nil }
+        return persisted
+    }
+
     static func scopedDocumentIds(_ all: [String], imprint: String?,
                                   in config: PublishConfig?) -> [String] {
         guard let imprint,
