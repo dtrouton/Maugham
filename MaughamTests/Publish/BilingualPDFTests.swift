@@ -644,6 +644,64 @@ final class BilingualPDFTests: XCTestCase {
         XCTAssertTrue(plain.contains("INT. SOBA - DAN"), plain)
     }
 
+    /// **A project that predates cross-links, but does load hyperref, LINKS.**
+    ///
+    /// This is the case the flat `{#2}` fallback got wrong, and it is the
+    /// COMMON one: `PublishStarter.installIfMissing` returns early for an
+    /// initialised project, so every book begun before this milestone keeps its
+    /// old `preamble.tex` forever — hyperref and all — and never receives the
+    /// starter's `\MaughamCrossLink` definition. Under the flat fallback those
+    /// projects emitted a cross-link for every slugline and rendered every one
+    /// of them dead, with nothing red anywhere to say so.
+    ///
+    /// The fixture is exactly that project: the starter's own preamble with the
+    /// `\MaughamCrossLink` line deleted and nothing else touched.
+    ///
+    /// Disable experiment: restore `LaTeXBodyEmitter`'s fallback to
+    /// `"\\providecommand{\\MaughamCrossLink}[2]{#2}"` and this fails with
+    /// `XCTAssertEqual failed: ("0") is not equal to ("4") - a preamble that
+    /// loads hyperref must link…`. The control is
+    /// `test_aPreambleWithoutHyperrefStillCompiles` directly above, which reads
+    /// 0 on the same fixture BECAUSE hyperref is absent — the two together are
+    /// what say the `\ifdefined` test is doing the work rather than the links
+    /// being unconditional.
+    func test_aPreambleThatLoadsHyperrefLinksWithNoCrossLinkDefinitionOfItsOwn() async throws {
+        let preambleURL = publish.appendingPathComponent("preamble.tex")
+        let starter = try String(contentsOf: preambleURL, encoding: .utf8)
+        let definition = "\\providecommand{\\MaughamCrossLink}[2]{\\hyperlink{#1}{#2}}"
+        XCTAssertTrue(starter.contains(definition),
+                      "premise: the starter defines the command this fixture strips")
+        let stripped = starter.components(separatedBy: "\n")
+            .filter { !$0.contains("\\providecommand{\\MaughamCrossLink}") }
+            .joined(separator: "\n")
+        XCTAssertFalse(stripped.contains("\\MaughamCrossLink}[2]{\\hyperlink"),
+                       "premise: the definition is really gone")
+        XCTAssertTrue(stripped.contains("hyperref"),
+                      "premise: hyperref is still loaded \u{2014} that is the "
+                      + "whole difference from the test above")
+        try stripped.write(to: preambleURL, atomically: true, encoding: .utf8)
+
+        let cfg = anchoredConfig()
+        let plan = try anchoredTwoBodyPlan(cfg)
+        let compiler = try PDFCompiler(
+            projectURL: tmp, bodies: plan.bodies, config: cfg,
+            jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
+        let result = try await compiler.compile(label: nil)
+        XCTAssertTrue(result.errors.isEmpty,
+                      "tectonic reported errors: \(result.errors.map(\.message))\n\n\(result.logExcerpt)")
+        XCTAssertFalse(result.logExcerpt.contains("Undefined control sequence"),
+                       result.logExcerpt)
+
+        let expected = plan.bodies.count
+            * AnchoredScreenplay.sluglinesPerBody
+            * (plan.bodies.count - 1)
+        XCTAssertEqual(linkAnnotationCount(at: URL(fileURLWithPath: result.outputPath)),
+                       expected,
+                       "a preamble that loads hyperref must link even with no "
+                       + "\\MaughamCrossLink definition of its own \u{2014} this "
+                       + "is every project that existed before the command did")
+    }
+
     /// The starter really does ship the definition the test above strips —
     /// pinned so the two cannot drift apart silently.
     func test_theStarterPreambleDefinesTheCrossLinkAsAHyperlink() throws {

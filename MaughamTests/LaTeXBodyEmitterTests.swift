@@ -12,7 +12,7 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         XCTAssertEqual(body.trimmingCharacters(in: .whitespacesAndNewlines), """
             \\providecommand{\\st}[1]{#1}
             \\providecommand{\\hypertarget}[2]{#2}
-            \\providecommand{\\MaughamCrossLink}[2]{#2}
+            \\providecommand{\\MaughamCrossLink}[2]{\\ifdefined\\hyperlink\\hyperlink{#1}{#2}\\else#2\\fi}
             """)
     }
 
@@ -27,8 +27,44 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         XCTAssertEqual(Array(body.components(separatedBy: "\n").prefix(3)), [
             "\\providecommand{\\st}[1]{#1}",
             "\\providecommand{\\hypertarget}[2]{#2}",
-            "\\providecommand{\\MaughamCrossLink}[2]{#2}",
+            "\\providecommand{\\MaughamCrossLink}[2]"
+                + "{\\ifdefined\\hyperlink\\hyperlink{#1}{#2}\\else#2\\fi}",
         ], body)
+    }
+
+    /// **The cross-link fallback links wherever hyperref is loaded**, and only
+    /// degrades where it is not.
+    ///
+    /// Its first spelling was a flat `{#2}`, which made every cross-link inert
+    /// in every project that already existed: `PublishStarter.installIfMissing`
+    /// returns early for an initialised project, so a book begun before this
+    /// milestone never receives the starter's `\MaughamCrossLink` definition
+    /// and had nothing but the flat fallback under it — links emitted, links
+    /// dead, nothing red anywhere. `\ifdefined` is decided at each USE, so the
+    /// body needs to know nothing about what the preamble loaded.
+    ///
+    /// Disable experiment: put the fallback back to
+    /// `"\\providecommand{\\MaughamCrossLink}[2]{#2}"` and this fails with
+    /// `XCTAssertTrue failed - the emitted fallback must call \hyperlink when
+    /// hyperref has defined it`, and `BilingualPDFTests
+    /// .test_aPreambleThatLoadsHyperrefLinksWithNoCrossLinkDefinitionOfItsOwn`
+    /// reads 0 link annotations where it wants 4.
+    func testEmits_crossLinkFallback_linksWhenHyperrefIsLoaded() {
+        let body = LaTeXBodyEmitter.emit(ProjectAST(sections: []))
+        let fallback = try? XCTUnwrap(body.components(separatedBy: "\n")
+            .first { $0.contains("\\providecommand{\\MaughamCrossLink}") })
+        let line = fallback ?? ""
+        XCTAssertTrue(line.contains("\\ifdefined\\hyperlink"),
+                      "the emitted fallback must call \\hyperlink when hyperref "
+                      + "has defined it \u{2014} a flat {#2} leaves every "
+                      + "pre-existing project's links inert: \(line)")
+        XCTAssertTrue(line.contains("\\else#2\\fi"),
+                      "\u{2026}and must still degrade to its content where "
+                      + "hyperref is absent: \(line)")
+        // The control: the OTHER two prologue lines are untouched flat
+        // fallbacks, so this is one deliberate change and not a sweep.
+        XCTAssertTrue(body.contains("\\providecommand{\\hypertarget}[2]{#2}"), body)
+        XCTAssertTrue(body.contains("\\providecommand{\\st}[1]{#1}"), body)
     }
 
     func testEmits_proseSection_environment() {

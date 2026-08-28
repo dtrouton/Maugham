@@ -50,10 +50,23 @@ public enum LaTeXBodyEmitter {
 
     /// Fallback for `\MaughamCrossLink{target}{content}`, the cross-body
     /// slugline link. The starter `preamble.tex` defines it as
-    /// `\hyperlink{#1}{#2}`; without that definition the slugline still sets,
-    /// simply un-linked.
+    /// `\hyperlink{#1}{#2}` and, being a `\providecommand`, still wins over
+    /// this one.
+    ///
+    /// **It links wherever hyperref is loaded, and only degrades where it is
+    /// not.** The first spelling of this fallback was a flat `{#2}`, which made
+    /// every cross-link in every PRE-EXISTING project inert: `PublishStarter
+    /// .installIfMissing` returns early for an initialised project, so a book
+    /// begun before this milestone never receives the starter's
+    /// `\MaughamCrossLink` definition and had nothing but the flat fallback to
+    /// fall back to — links emitted, links dead, nothing red anywhere. The
+    /// `\ifdefined\hyperlink` test is decided at each USE, so the body needs
+    /// to know nothing about what the preamble loaded: hyperref present and the
+    /// slugline links; absent and it sets plainly, which is what a preamble
+    /// with no hyperref could ever have done.
     private static let crossLinkProvidecommand =
-        "\\providecommand{\\MaughamCrossLink}[2]{#2}"
+        "\\providecommand{\\MaughamCrossLink}[2]"
+        + "{\\ifdefined\\hyperlink\\hyperlink{#1}{#2}\\else#2\\fi}"
 
     /// Everything one anchored node needs: the name of its own target and the
     /// names of the same paragraph's targets in the compile's other bodies.

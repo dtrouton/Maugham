@@ -416,6 +416,10 @@ public enum EmissionContract {
     \\providecommand{\\MaughamCrossLink}[2]{\\hyperlink{#1}{#2}}
     ```
 
+    A template is free to define it as something else — a coloured link, a \
+    marginal marker, or nothing at all. Whatever it defines wins, because both \
+    definitions are `\\providecommand` and the preamble is read first.
+
     A single-language compile passes no other bodies and emits neither form — \
     a plain `\\scene`.
 
@@ -434,17 +438,25 @@ public enum EmissionContract {
     ```latex
     \\providecommand{\\st}[1]{#1}
     \\providecommand{\\hypertarget}[2]{#2}
-    \\providecommand{\\MaughamCrossLink}[2]{#2}
+    \\providecommand{\\MaughamCrossLink}[2]{\\ifdefined\\hyperlink\\hyperlink{#1}{#2}\\else#2\\fi}
     ```
 
     They are unconditional so the emitted contract is one shape rather than \
-    four. Each degrades to its content: no `soul` and `\\st` sets plainly, no \
-    `hyperref` and `\\hypertarget{name}{}` sets nothing at all, no \
-    `\\MaughamCrossLink` definition and the slugline sets un-linked. \
+    four, and each degrades to its content: no `soul` and `\\st` sets plainly, \
+    no `hyperref` and `\\hypertarget{name}{}` sets nothing at all. \
     `\\providecommand` in the preamble AND in the body is what lets the \
     preamble's definition win: it is read first, and the body's then no-ops. \
     An existing project never receives starter updates, so this is the only \
-    thing standing between a pre-P3 `preamble.tex` and a failed compile.
+    thing standing between a `preamble.tex` written before cross-links existed \
+    and a failed compile.
+
+    **The cross-link fallback links rather than degrading whenever it can.** \
+    Its `\\ifdefined\\hyperlink` test is decided at each use, not at load \
+    time, so a project whose preamble loads `hyperref` — every project the \
+    starter ever installed — gets working links from the body alone, with no \
+    `\\MaughamCrossLink` definition of its own. Only a preamble without \
+    hyperref sets the slugline un-linked. A template that defines the command \
+    still wins over both.
     """
 
     static let recoveryNote = """

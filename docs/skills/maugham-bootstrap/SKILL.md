@@ -94,9 +94,14 @@ something vertical-mode-hostile, or a pdfTeX engine instead of XeTeX, could
 break the link. `\MaughamCrossLink` is redefinable the same way
 `\MaughamBody` is, if your template wants the link styled differently than a
 plain `\hyperlink`. Two `\providecommand` fallbacks (`\hypertarget`,
-`\MaughamCrossLink`) sit in every body's own prologue, so a preamble with no
-`hyperref` still compiles — the anchors set nothing and the links set
-un-linked, rather than failing.
+`\MaughamCrossLink`) sit in every body's own prologue, so a preamble that has
+never heard of either still compiles. The cross-link fallback **links wherever
+`hyperref` is loaded** — it tests `\ifdefined\hyperlink` at each use — which
+is what makes the links work in a project whose `preamble.tex` predates the
+command and will never be updated to define it; only a preamble without
+`hyperref` sets the slugline un-linked. A definition of your own still wins
+over the fallback, since both are `\providecommand` and the preamble is read
+first.
 
 ## Translating into a language
 
