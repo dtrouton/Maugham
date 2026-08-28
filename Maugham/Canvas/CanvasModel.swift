@@ -167,6 +167,41 @@ final class CanvasModel {
     /// path.
     @ObservationIgnored var onSceneChangedExternally: (() -> Void)?
 
+    /// **The item index the callbacks above resolve through** — issue #57.
+    ///
+    /// `CanvasItemIndex` is built once per manifest change in `ProjectWindow` and
+    /// handed to `CanvasView` as a property of one *view* of this scene, which is
+    /// where it still belongs: `handleDrop` and `CanvasDrop.decide` read the view's
+    /// own, and that one is always the window's latest by construction. This is
+    /// the copy the MODEL keeps, and it exists because `CanvasView` is a struct.
+    ///
+    /// The closures above are captured from the view VALUE at first appear, so
+    /// every plain stored property they read is frozen at that moment. The index
+    /// is the one such property whose value the writer can change without the
+    /// canvas going away: add a research item and `ProjectWindow` hands the view a
+    /// fresh index, which the per-body `.onChange(of: itemIndex.fingerprint)`
+    /// picks up — while `onSceneChangedExternally` goes on holding the manifest
+    /// the Plan persona first appeared with. **Named symptom:** the writer drags a
+    /// research image added this session onto the board and the card reads
+    /// `CanvasItemFacts.missingTitle` — "No longer in the project." — until they
+    /// relaunch, because the drop resolves the node it just made against a
+    /// manifest that predates the item.
+    ///
+    /// A reference the stale copy still reaches is the whole fix: `CanvasView`
+    /// writes this in `load()` and again on every fingerprint change, and
+    /// `rebuildLayouts` resolves through it rather than through whatever the
+    /// capturing view held.
+    ///
+    /// **`@ObservationIgnored` for `onSceneChangedExternally`'s reason and one of
+    /// its own.** The renderer must not observe it: this is read on the
+    /// measurement pass, which runs inside a body that re-evaluates per frame, and
+    /// an observed read there would put a whole dictionary's worth of manifest on
+    /// the drag loop's dependency graph (tripwire 30's neighbourhood, and
+    /// `CanvasItemIndex.fingerprint`'s own doc comment on why nothing compares
+    /// this value directly). Nothing needs to be *notified* when it changes
+    /// either — the view already is, by holding the new value.
+    @ObservationIgnored var itemIndex: CanvasItemIndex = .empty
+
     /// The view's chance to move the CAMERA to something another column has sent
     /// the writer to — the Show button on Claude's arrival banner is the first
     /// caller (1C-c3).
@@ -452,6 +487,15 @@ final class CanvasModel {
         onSceneReplacedByUndo = nil
         onSceneChangedExternally = nil
         onRevealRequested = nil
+        // Not a callback, and not part of the cycle the three above are — it
+        // holds strings, not a view. It is cleared with them because it is held
+        // for their sake alone: a detached model has no business keeping the
+        // manifest of a project whose window has gone, and a canvas re-appearing
+        // against a project whose research has changed in the meantime should
+        // resolve nothing until `load()` has said what it is resolving through.
+        // `CanvasView.load()` re-writes it on the next `.onAppear`, exactly as it
+        // re-sets the three above.
+        itemIndex = .empty
         // Last, and it is the fact the rest of this method establishes: the
         // scene left behind is a snapshot of a canvas nobody is looking at any
         // more, and the next `attach` replaces it from disk. Note that the store

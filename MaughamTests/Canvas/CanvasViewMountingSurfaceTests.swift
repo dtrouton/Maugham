@@ -1564,4 +1564,120 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
                       + "scrap, so a VoiceOver user is left on the synthetic twin "
                       + "of a card whose real text field is elsewhere")
     }
+
+    // MARK: - The index the model's own callbacks resolve through (#57)
+
+    /// **A research item added to the project THIS session lands on the canvas as
+    /// itself, not as "No longer in the project."** (issue #57, Denver
+    /// 2026-08-28: drag a research image row onto the board and the card reads
+    /// the deleted-reference sentence; relaunch and the same drag works.)
+    ///
+    /// The whole defect lives in WHO holds the index a write from another column
+    /// resolves through. `CanvasView` is a struct, `load()` runs once from
+    /// `.onAppear`, and the closures it hands the model capture the view VALUE at
+    /// that moment. The window hands down a fresh `CanvasItemIndex` whenever the
+    /// manifest changes — `.onChange(of: itemIndex.fingerprint)` picks it up
+    /// correctly, and `CanvasDrop.decide` below is handed it directly — but
+    /// `CanvasDrop.apply` goes through `mutateFromInspector`, which fires
+    /// `onSceneChangedExternally`, which is the closure from first appear. Resolve
+    /// the scene through the index IT captured and the card the writer has just
+    /// dropped is looked up in a manifest that predates the item, so it resolves
+    /// to `CanvasItemFacts.missingTitle` — and that resolved value is what the
+    /// draw pass, the measurement and the accessibility tree all read.
+    ///
+    /// **Read off the published tree rather than off `itemPresentation`**, which
+    /// is private `@State`: the tree is the one channel a test can ask, and it is
+    /// the same resolved value the card is drawn from, so a card reading the
+    /// sentence cannot hide behind a tree that reads the title.
+    ///
+    /// The photograph's file deliberately does not exist. Its absence costs the
+    /// card its pixels and nothing else — a title is a manifest fact — and it
+    /// keeps the thumbnail service out of the way: a decode that fails reports
+    /// nothing landed, so no re-measure of its own can heal a stale resolve and
+    /// pass this test for a reason that is not the fix.
+    @MainActor
+    func test_anItemAddedAfterTheCanvasAppearedResolvesThroughTheWindowsCurrentIndex() throws {
+        let chartID = "res-chart"
+        let chartTitle = "The old chart"
+        let harbourID = "res-harbour"
+        let harbourTitle = "Harbour at dusk"
+
+        // The manifest as it stood when the Plan persona first appeared: the chart
+        // is in the project, the photograph the writer is about to add is not.
+        let atMount = CanvasItemIndex(entriesByID: [
+            chartID: .init(title: chartTitle, kind: .researchNote)])
+        let model = makeModel()
+        let window = host(CanvasView(model: model,
+                                     projectRoot: try projectRoot(scene: CanvasScene(),
+                                                                  scraps: [:]),
+                                     paletteSwatchHexes: { [] },
+                                     itemIndex: atMount))
+
+        // THE CONTROL, through the very same two verbs: an item the index already
+        // had at mount. If this card read the sentence too, the test below would
+        // be about the drop rather than about the index that arrived after it.
+        guard case .create(let chartNode) = CanvasDrop.decide(
+            payload: chartID, at: CGPoint(x: 40, y: 40),
+            in: model.scene, index: atMount) else {
+            return XCTFail("precondition: the index the canvas mounted with does not "
+                           + "accept the chart, so nothing below is a drop at all")
+        }
+        CanvasDrop.apply(chartNode, in: model)
+        pump()
+        XCTAssertTrue(try cardValues(in: window).contains(chartTitle),
+                      "the control card — an item in the index the canvas mounted "
+                      + "with — does not read its own title, so this test cannot "
+                      + "tell a stale index from a drop that never resolves anything")
+
+        // The writer adds the photograph to the project. `ProjectWindow` rebuilds
+        // the index off the new manifest and hands the canvas a new one.
+        let afterAdding = CanvasItemIndex(entriesByID: [
+            chartID: .init(title: chartTitle, kind: .researchNote),
+            harbourID: .init(title: harbourTitle, kind: .image,
+                             thumbnailPath: "research/harbour.jpg")])
+        try retarget(window, withItemIndex: afterAdding)
+
+        // The drop: decided against the index the view now holds — which is what
+        // `handleDrop` reads, and it finds the item — and applied through the verb
+        // the drop runs, which is where the stale closure is reached.
+        guard case .create(let harbourNode) = CanvasDrop.decide(
+            payload: harbourID, at: CGPoint(x: 300, y: 200),
+            in: model.scene, index: afterAdding) else {
+            return XCTFail("precondition: the index handed down after the item was "
+                           + "added does not accept the photograph, so this test "
+                           + "never reaches the callback it is about")
+        }
+        XCTAssertEqual(harbourNode.id, CanvasNodeID.item(harbourID),
+                       "precondition: the dropped node is not the derived item node, "
+                       + "so nothing about it resolves against the manifest")
+        CanvasDrop.apply(harbourNode, in: model)
+        pump()
+
+        let values = try cardValues(in: window)
+        XCTAssertFalse(values.contains(CanvasItemFacts.missingTitle),
+                       "a card on the board reads \"\(CanvasItemFacts.missingTitle)\" "
+                       + "— the photograph the writer added this session was "
+                       + "resolved against the manifest the canvas first appeared "
+                       + "with, so a research item they can see in the binder lands "
+                       + "on the canvas as a deleted reference until they relaunch. "
+                       + "Published cards: \(values)")
+        XCTAssertTrue(values.contains(harbourTitle),
+                      "the photograph's card does not read \"\(harbourTitle)\", so "
+                      + "whatever it says it is not the title the manifest holds. "
+                      + "Published cards: \(values)")
+        XCTAssertTrue(values.contains(chartTitle),
+                      "the control card stopped reading its own title once a second "
+                      + "index arrived, so the fix moved what an item resolves "
+                      + "through and lost the items that were already right")
+    }
+
+    /// Every card's spoken value, at the role a card is published under — the
+    /// instrument the test above reads. Values rather than one lookup by name,
+    /// because what it has to say is *what the board reads*, including the case
+    /// where a card reads a sentence nobody asked for.
+    private func cardValues(in window: NSWindow) throws -> [String] {
+        try axTree(in: window)
+            .filter { axString($0, "accessibilityRole") == Self.cardRole }
+            .compactMap { axString($0, "accessibilityValue") }
+    }
 }

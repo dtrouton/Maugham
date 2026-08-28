@@ -651,7 +651,17 @@ struct CanvasView: View {
         // old title for the rest of the session. Keyed on the FINGERPRINT and
         // never on the index itself: a dictionary comparison per body pass is the
         // cost this key exists to avoid (`CanvasItemIndex.fingerprint`).
-        .onChange(of: itemIndex.fingerprint) { _, _ in rebuildLayouts() }
+        //
+        // **The model's copy is written HERE, before the rebuild** (issue #57).
+        // This handler is created fresh on every body pass, so `itemIndex` here is
+        // the window's latest; the model-held callbacks that `load()` wired are
+        // not, and `rebuildLayouts` resolves through the model's copy for exactly
+        // that reason. Miss this line and the callbacks go on resolving against
+        // whatever index this canvas first appeared with.
+        .onChange(of: itemIndex.fingerprint) { _, _ in
+            model.itemIndex = itemIndex
+            rebuildLayouts()
+        }
         // The thumbnails the last resolve missed, decoded OFF the frame path.
         //
         // `CanvasThumbnails.resolved` never decodes — it records a miss and
@@ -813,6 +823,13 @@ struct CanvasView: View {
     // MARK: - Loading and measuring
 
     private func load() {
+        // FIRST, and before a single closure below is wired: the index those
+        // closures resolve item nodes through (issue #57). They capture this
+        // view's VALUE, so the copy that lives on the model is the one they can
+        // still reach after the window has handed the view a newer one —
+        // `CanvasModel.itemIndex` carries the whole argument. Kept current by the
+        // `.onChange(of: itemIndex.fingerprint)` in `body`.
+        model.itemIndex = itemIndex
         // The model reads both files and wires the recorder's two closures to
         // itself. What is left here is what only a VIEW can do.
         model.attach(projectRoot: projectRoot)
@@ -1120,8 +1137,16 @@ struct CanvasView: View {
         // path that changes the scene has to re-ask what its item nodes are, and
         // the measurement below reads the answer. `resolve` decodes nothing — a
         // miss is recorded and serviced by the `.task` in `body`.
+        //
+        // **`model.itemIndex` and not this view's own** (issue #57). Two of this
+        // function's callers are closures the model holds — `onSceneChangedExternally`
+        // and `onSceneReplacedByUndo` — and a struct's closure captures the view
+        // VALUE it was made from, so through them `itemIndex` is the index of the
+        // canvas that first appeared. The model's copy is a reference they still
+        // reach, and `load()` plus the fingerprint `.onChange` keep it equal to the
+        // one the window last handed down.
         itemPresentation = CanvasItemPresentation.resolve(scene: model.scene,
-                                                          index: itemIndex,
+                                                          index: model.itemIndex,
                                                           thumbnails: thumbnails,
                                                           projectRoot: projectRoot)
         // ONE `withScene` around the whole loop rather than one per node, and
