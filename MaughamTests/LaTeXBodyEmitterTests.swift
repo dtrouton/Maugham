@@ -3,12 +3,32 @@ import XCTest
 
 final class LaTeXBodyEmitterTests: XCTestCase {
 
-    func testEmits_emptyAST_onlyStrikethroughFallback() {
-        // The unconditional \st providecommand fallback (task-8) is the only
-        // line emitted even with zero sections.
+    /// P3 Task 2: this test used to assert the `\st` fallback ALONE. The
+    /// prologue is now three lines and always three lines — one contract,
+    /// emitted whether or not the body carries a single anchor — so a preamble
+    /// that never loaded `soul` and never loaded `hyperref` still compiles.
+    func testEmits_emptyAST_onlyTheThreePrologueLines() {
         let body = LaTeXBodyEmitter.emit(ProjectAST(sections: []))
-        XCTAssertEqual(body.trimmingCharacters(in: .whitespacesAndNewlines),
-                       "\\providecommand{\\st}[1]{#1}")
+        XCTAssertEqual(body.trimmingCharacters(in: .whitespacesAndNewlines), """
+            \\providecommand{\\st}[1]{#1}
+            \\providecommand{\\hypertarget}[2]{#2}
+            \\providecommand{\\MaughamCrossLink}[2]{#2}
+            """)
+    }
+
+    /// The prologue does not depend on the arguments: an anchored, cross-linked
+    /// body opens with exactly the same three lines as an empty one.
+    func testEmits_prologueIsTheSameThreeLines_withATagAndOtherBodies() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose,
+                  nodes: [.paragraph("Hello.")], anchors: [0: "k3wq"])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast, anchorTag: "en", crossLinkTags: ["sr"])
+        XCTAssertEqual(Array(body.components(separatedBy: "\n").prefix(3)), [
+            "\\providecommand{\\st}[1]{#1}",
+            "\\providecommand{\\hypertarget}[2]{#2}",
+            "\\providecommand{\\MaughamCrossLink}[2]{#2}",
+        ], body)
     }
 
     func testEmits_proseSection_environment() {
@@ -517,5 +537,163 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         let secondIdx = body.range(of: "Second")!.lowerBound
         XCTAssertLessThan(firstIdx, clearIdx)
         XCTAssertLessThan(clearIdx, secondIdx)
+    }
+
+    // MARK: - P3 Task 2: paragraph anchors
+
+    /// The `\hypertarget` is its OWN line, immediately BEFORE the node's first
+    /// line. The blank line a prose paragraph emits belongs AFTER the text (it
+    /// is the `\par`); an anchor landing between the text and that blank line
+    /// would split the paragraph in two.
+    func testEmits_anchoredParagraph_hypertargetIsItsOwnLineBeforeTheText() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose,
+                  nodes: [.paragraph("Hello.")], anchors: [0: "k3wq"])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast, anchorTag: "en")
+        let lines = body.components(separatedBy: "\n")
+        guard let begin = lines.firstIndex(of: "\\begin{prose}{T}") else {
+            return XCTFail("no prose environment in:\n\(body)")
+        }
+        XCTAssertEqual(Array(lines[begin...]), [
+            "\\begin{prose}{T}",
+            "\\hypertarget{p-en-k3wq}{}",
+            "Hello.",
+            "",
+            "\\end{prose}",
+        ], body)
+    }
+
+    /// `Section.anchors` is SPARSE. Only the indices it names get a target —
+    /// the unanchored node in the middle gets none, and the ids are not
+    /// shifted onto their neighbours.
+    func testEmits_anchorsAreSparse_onlyTheNamedIndicesGetATarget() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose,
+                  nodes: [.paragraph("One."), .paragraph("Two."), .paragraph("Three.")],
+                  anchors: [0: "aaaa", 2: "cccc"])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast, anchorTag: "en")
+        XCTAssertEqual(body.components(separatedBy: "\\hypertarget{p-").count - 1, 2, body)
+        XCTAssertTrue(body.contains("\\hypertarget{p-en-aaaa}{}\nOne."), body)
+        XCTAssertTrue(body.contains("\\hypertarget{p-en-cccc}{}\nThree."), body)
+        // The unanchored node is emitted plainly, and "Two." carries no target
+        // borrowed from either neighbour.
+        XCTAssertFalse(body.contains("\\hypertarget{p-en-aaaa}{}\nTwo."), body)
+        XCTAssertFalse(body.contains("\\hypertarget{p-en-cccc}{}\nTwo."), body)
+    }
+
+    /// The control, and the disable experiment for every assertion above: with
+    /// `anchorTag` nil — the default every existing caller and every emitter
+    /// test uses — no `\hypertarget` is emitted anywhere, even though the
+    /// section carries anchors. Deleting the `anchorTag.flatMap` guard in
+    /// `LaTeXBodyEmitter.emitNodes` (`let anchor = anchorTag.flatMap { tag in`)
+    /// fails this test.
+    func testEmits_nilAnchorTag_emitsNoHypertargetAnywhere() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose,
+                  nodes: [.paragraph("Hello.")], anchors: [0: "k3wq"]),
+            .init(pieceID: "p2", title: "S", mode: .fountain,
+                  nodes: [.fountain(.sceneHeading("INT. ROOM - DAY"))], anchors: [0: "bbbb"]),
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertFalse(body.contains("\\hypertarget{p-"),
+                       "an untagged body must be byte-identical to the pre-anchor emitter "
+                       + "apart from its prologue:\n\(body)")
+        XCTAssertFalse(body.contains("\\MaughamCrossLink{p-"), body)
+    }
+
+    // MARK: - P3 Task 2: cross-body slugline links
+
+    /// One `\MaughamCrossLink` per OTHER body, NESTED, first tag outermost —
+    /// and wrapping `\scene`, never wrapped by it (the starter's `\scene`
+    /// applies `\MakeUppercase`, which would eat the link's target).
+    func testEmits_sceneHeading_nestsOneCrossLinkPerOtherBody_firstOutermost() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "S", mode: .fountain,
+                  nodes: [.fountain(.sceneHeading("INT. ROOM - DAY"))], anchors: [0: "k3wq"])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast, anchorTag: "en", crossLinkTags: ["sr", "de"])
+        XCTAssertTrue(body.contains(
+            "\\MaughamCrossLink{p-sr-k3wq}{\\MaughamCrossLink{p-de-k3wq}{\\scene{INT. ROOM - DAY}}}"),
+            body)
+        // The anchor itself is still emitted, on its own line before the scene.
+        XCTAssertTrue(body.contains("\\hypertarget{p-en-k3wq}{}\n\\MaughamCrossLink{p-sr-"), body)
+    }
+
+    /// The scene NUMBER rides inside `\scene`, so the link wraps the whole
+    /// command including it.
+    func testEmits_numberedSceneHeading_crossLinkWrapsTheWholeSceneCommand() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "S", mode: .fountain,
+                  nodes: [.fountain(.sceneHeading("INT. ROOM - DAY", sceneNumber: "12"))],
+                  anchors: [0: "k3wq"])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast, anchorTag: "en", crossLinkTags: ["sr"])
+        XCTAssertTrue(body.contains(
+            "\\MaughamCrossLink{p-sr-k3wq}{\\scene{INT. ROOM - DAY\\scenenumber{12}}}"),
+            body)
+    }
+
+    /// Disable experiment for the nesting: a single-language compile passes no
+    /// other bodies and the slugline is a plain `\scene`. Deleting the
+    /// `crossLinkTags.reversed().reduce(content)` early-out — it returns
+    /// `content` unchanged for an empty list — cannot fail this test, so the
+    /// assertion that bites is the `\MaughamCrossLink`-free one: emitting a
+    /// self-link (`crossLinkTags` including the body's own tag) fails it.
+    func testEmits_sceneHeading_withNoOtherBodies_isAPlainScene() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "S", mode: .fountain,
+                  nodes: [.fountain(.sceneHeading("INT. ROOM - DAY"))], anchors: [0: "k3wq"])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast, anchorTag: "en")
+        XCTAssertTrue(body.contains("\\hypertarget{p-en-k3wq}{}\n\\scene{INT. ROOM - DAY}"), body)
+        XCTAssertFalse(body.contains("\\MaughamCrossLink{p-"), body)
+    }
+
+    /// A slugline with no anchor has nothing to link TO in the other bodies —
+    /// the link's target is built from the paragraph id, so without one the
+    /// scene is emitted plainly even in a multi-body compile.
+    func testEmits_unanchoredSceneHeading_isAPlainSceneEvenWithOtherBodies() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "S", mode: .fountain,
+                  nodes: [.fountain(.sceneHeading("INT. ROOM - DAY"))])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast, anchorTag: "en", crossLinkTags: ["sr"])
+        XCTAssertTrue(body.contains("\\scene{INT. ROOM - DAY}"), body)
+        XCTAssertFalse(body.contains("\\MaughamCrossLink{p-"), body)
+        XCTAssertFalse(body.contains("\\hypertarget{p-"), body)
+    }
+
+    /// Only the SLUGLINE links. Action, dialogue and prose paragraphs get their
+    /// `\hypertarget` (so a cross-link has somewhere to land) and nothing else.
+    func testEmits_onlySluglinesAreCrossLinked() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "S", mode: .fountain, nodes: [
+                .fountain(.sceneHeading("INT. ROOM - DAY")),
+                .fountain(.action("He waits.")),
+                .fountain(.character("AARON")),
+                .fountain(.dialogue("Morning.")),
+            ], anchors: [0: "aaaa", 1: "bbbb", 2: "cccc", 3: "dddd"])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast, anchorTag: "en", crossLinkTags: ["sr"])
+        XCTAssertEqual(body.components(separatedBy: "\\hypertarget{p-").count - 1, 4, body)
+        XCTAssertEqual(body.components(separatedBy: "\\MaughamCrossLink{p-").count - 1, 1, body)
+        XCTAssertTrue(body.contains("\\hypertarget{p-en-bbbb}{}\n\\action{He waits.}"), body)
+    }
+
+    /// A dual-dialogue block's nested nodes are not top-level nodes: they carry
+    /// no index in `Section.anchors`, so nothing inside the block is anchored
+    /// or linked — the block's OWN index is.
+    func testEmits_dualDialogue_anchorsTheBlockAndNothingInsideIt() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "S", mode: .fountain, nodes: [
+                .fountain(.dualDialogue(left: [.character("A"), .dialogue("Left.")],
+                                        right: [.character("B"), .dialogue("Right.")]))
+            ], anchors: [0: "aaaa"])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast, anchorTag: "en", crossLinkTags: ["sr"])
+        XCTAssertEqual(body.components(separatedBy: "\\hypertarget{p-").count - 1, 1, body)
+        XCTAssertTrue(body.contains("\\hypertarget{p-en-aaaa}{}\n\\dualdialogue{%"), body)
     }
 }

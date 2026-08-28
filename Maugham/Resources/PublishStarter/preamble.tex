@@ -42,6 +42,16 @@
 % with a frontmatter-en.tex and a frontmatter-sr.tex beside this file.
 \ifdefined\MaughamBody\else\newenvironment{MaughamBody}[1]{\clearpage}{}\fi
 
+% --- Cross-body slugline links -----------------------------------------------
+% In a multi-language compile every slugline links to the same slugline in each
+% of the other bodies, so a reader can jump from a scene to its translation.
+% Maugham emits \MaughamCrossLink{p-<tag>-<id>}{\scene{...}} — the link WRAPS
+% the mode command — against \hypertarget{p-<tag>-<id>}{} targets it writes
+% before every anchored node. \providecommand, so a template that defines its
+% own wins; the emitted body carries a degrade-to-plain-text fallback for a
+% preamble (like a pre-P3 project's) that has never heard of either.
+\providecommand{\MaughamCrossLink}[2]{\hyperlink{#1}{#2}}
+
 % Wiki link in prose: rendered as plain bold display text (no hyperlink
 % target; wiki targets resolve inside Maugham, not in the PDF).
 \newcommand{\wikilink}[2]{\textbf{#2}}

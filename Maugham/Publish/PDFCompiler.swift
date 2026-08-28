@@ -143,10 +143,16 @@ public struct PDFCompiler {
         // is the guard line plus one `MaughamBody` line, and the book itself
         // moves to `build/body.<tag>.tex`.
         var wrapperLines = [Self.maughamBodyGuard]
+        // Resolved for ALL bodies before any of them is written: each body's
+        // sluglines link to the SAME paragraph in every OTHER body, so a body
+        // cannot be emitted knowing only its own tag.
+        let tags = bodies.enumerated().map { Self.fileTag(for: $1, at: $0) }
         for (index, body) in bodies.enumerated() {
-            let tag = Self.fileTag(for: body, at: index)
+            let tag = tags[index]
+            let others = tags.enumerated().filter { $0.offset != index }.map(\.element)
             let ast = try ProjectASTBuilder.build(from: body.source)
-            try LaTeXBodyEmitter.emit(ast, config: body.config).write(
+            try LaTeXBodyEmitter.emit(ast, config: body.config,
+                                      anchorTag: tag, crossLinkTags: others).write(
                 to: build.appendingPathComponent("body.\(tag).tex"),
                 atomically: true, encoding: .utf8)
             try Self.metadataBlock(config: body.config, label: label).write(

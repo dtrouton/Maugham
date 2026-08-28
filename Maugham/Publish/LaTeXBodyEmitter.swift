@@ -8,12 +8,72 @@ import Foundation
 /// starter provides working defaults.
 public enum LaTeXBodyEmitter {
 
-    public static func emit(_ ast: ProjectAST, config: PublishConfig = PublishConfig()) -> String {
-        var lines: [String] = [strikethroughProvidecommand]
+    /// - Parameters:
+    ///   - anchorTag: the compiler's filename-safe tag for the body being
+    ///     emitted (`en`, `sr`, or an ordinal). `nil` — the default every
+    ///     hand-built caller uses — emits no `\hypertarget` anywhere, so an
+    ///     AST that carries anchors still produces exactly the bytes it
+    ///     produced before anchors existed.
+    ///   - crossLinkTags: the tags of the compile's OTHER bodies, in order.
+    ///     Each slugline that has an anchor is wrapped in one
+    ///     `\MaughamCrossLink` per entry so a reader can jump to the same
+    ///     scene in the other language. Empty for a single-language compile.
+    public static func emit(_ ast: ProjectAST, config: PublishConfig = PublishConfig(),
+                            anchorTag: String? = nil,
+                            crossLinkTags: [String] = []) -> String {
+        var lines: [String] = prologue
         for (index, section) in ast.sections.enumerated() {
-            emit(section: section, isFirst: index == 0, config: config, into: &lines)
+            emit(section: section, isFirst: index == 0, config: config,
+                 anchorTag: anchorTag, crossLinkTags: crossLinkTags, into: &lines)
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// One contract, always three lines, whatever the arguments: a body that
+    /// anchors nothing opens exactly as one that anchors everything. Each is a
+    /// `\providecommand`, so a preamble that defines the real thing — `soul`'s
+    /// `\st`, hyperref's `\hypertarget`, the starter's `\MaughamCrossLink` —
+    /// wins (it is read first, and these then no-op), and a project whose
+    /// preamble predates any of them degrades to the plain content rather than
+    /// failing the compile.
+    private static let prologue: [String] = [
+        strikethroughProvidecommand,
+        hypertargetProvidecommand,
+        crossLinkProvidecommand,
+    ]
+
+    /// Fallback for hyperref's `\hypertarget{name}{text}`. Anchors are emitted
+    /// with an EMPTY second argument — a target marks a position, it typesets
+    /// nothing — so degrading to `#2` degrades to nothing at all.
+    private static let hypertargetProvidecommand =
+        "\\providecommand{\\hypertarget}[2]{#2}"
+
+    /// Fallback for `\MaughamCrossLink{target}{content}`, the cross-body
+    /// slugline link. The starter `preamble.tex` defines it as
+    /// `\hyperlink{#1}{#2}`; without that definition the slugline still sets,
+    /// simply un-linked.
+    private static let crossLinkProvidecommand =
+        "\\providecommand{\\MaughamCrossLink}[2]{#2}"
+
+    /// Everything one anchored node needs: the name of its own target and the
+    /// names of the same paragraph's targets in the compile's other bodies.
+    private struct Anchor {
+        let tag: String
+        let id: String
+        let crossLinkTags: [String]
+
+        var name: String { Anchor.name(tag: tag, id: id) }
+
+        static func name(tag: String, id: String) -> String { "p-\(tag)-\(id)" }
+
+        /// Wrap `content` in one `\MaughamCrossLink` per OTHER body, NESTED,
+        /// first tag outermost. No other bodies → `content` unchanged, which is
+        /// what makes a single-language compile emit a plain `\scene`.
+        func crossLinked(_ content: String) -> String {
+            crossLinkTags.reversed().reduce(content) { inner, other in
+                "\\MaughamCrossLink{\(Anchor.name(tag: other, id: id))}{\(inner)}"
+            }
+        }
     }
 
     /// Fallback for `\st` (strikethrough): the starter `preamble.tex` loads
@@ -30,7 +90,8 @@ public enum LaTeXBodyEmitter {
     // MARK: - section
 
     private static func emit(section: ProjectAST.Section, isFirst: Bool,
-                             config: PublishConfig, into out: inout [String]) {
+                             config: PublishConfig, anchorTag: String?,
+                             crossLinkTags: [String], into out: inout [String]) {
         let ov = config.sections[section.pieceID]
         // A per-piece style file's `\renewcommand`s must be scoped so they
         // revert after this piece — otherwise a styled piece leaks its
@@ -71,12 +132,14 @@ public enum LaTeXBodyEmitter {
         switch section.mode {
         case .prose:
             out.append("\\begin{prose}\(opt){\(title)}")
-            for node in section.nodes { emit(node: node, into: &out) }
+            emitNodes(of: section, anchorTag: anchorTag,
+                      crossLinkTags: crossLinkTags, into: &out)
             out.append("\\end{prose}")
         case .fountain:
             out.append("\\begin{screenplay}\(opt){\(title)}")
             out.append(contentsOf: fountainProvidecommands)
-            for node in section.nodes { emit(node: node, into: &out) }
+            emitNodes(of: section, anchorTag: anchorTag,
+                      crossLinkTags: crossLinkTags, into: &out)
             out.append("\\end{screenplay}")
         }
         if styled {
@@ -86,10 +149,36 @@ public enum LaTeXBodyEmitter {
 
     // MARK: - nodes
 
-    private static func emit(node: ProjectAST.Node, into out: inout [String]) {
+    /// The section's top-level nodes, each preceded by its `\hypertarget` when
+    /// this body is tagged AND `Section.anchors` names that index. The map is
+    /// SPARSE — most nodes have no entry — so most nodes emit exactly what they
+    /// always did.
+    ///
+    /// The target is its OWN line, BEFORE the node's first line. A prose
+    /// paragraph writes its text and then a blank line (the `\par`), so an
+    /// anchor placed after the text would land between a paragraph and its own
+    /// terminator and split it in two.
+    private static func emitNodes(of section: ProjectAST.Section, anchorTag: String?,
+                                  crossLinkTags: [String], into out: inout [String]) {
+        for (index, node) in section.nodes.enumerated() {
+            let anchor = anchorTag.flatMap { tag in
+                section.anchors[index].map {
+                    Anchor(tag: tag, id: $0, crossLinkTags: crossLinkTags)
+                }
+            }
+            if let anchor { out.append("\\hypertarget{\(anchor.name)}{}") }
+            emit(node: node, anchor: anchor, into: &out)
+        }
+    }
+
+    private static func emit(node: ProjectAST.Node, anchor: Anchor?,
+                             into out: inout [String]) {
         switch node {
+        // Prose has no cross-linked node kind: only a slugline links, because
+        // only a slugline names a place a reader of the other language is
+        // looking for. Prose still anchors, so a link HAS somewhere to land.
         case .prose(let p):    emit(prose: p, into: &out)
-        case .fountain(let f): emit(fountain: f, into: &out)
+        case .fountain(let f): emit(fountain: f, anchor: anchor, into: &out)
         }
     }
 
@@ -187,14 +276,20 @@ public enum LaTeXBodyEmitter {
         "\\providecommand{\\screenplaytitleblock}[1]{\\begin{center}\\vspace*{1.5in}#1\\end{center}\\clearpage}",
     ]
 
-    private static func emit(fountain: ProjectAST.FountainNode, into out: inout [String]) {
+    private static func emit(fountain: ProjectAST.FountainNode, anchor: Anchor?,
+                             into out: inout [String]) {
         switch fountain {
         case .sceneHeading(let s, let number):
+            // The link WRAPS `\scene`, never the reverse: the starter's
+            // `\scene` applies `\MakeUppercase` to its argument, which would
+            // uppercase — and so break — a link target passed inside it.
+            let scene: String
             if let number {
-                out.append("\\scene{\(LaTeXEscape.escape(s))\\scenenumber{\(LaTeXEscape.escape(number))}}")
+                scene = "\\scene{\(LaTeXEscape.escape(s))\\scenenumber{\(LaTeXEscape.escape(number))}}"
             } else {
-                out.append("\\scene{\(LaTeXEscape.escape(s))}")
+                scene = "\\scene{\(LaTeXEscape.escape(s))}"
             }
+            out.append(anchor?.crossLinked(scene) ?? scene)
         case .action(let xs):       out.append("\\action{\(emitInline(xs))}")
         case .character(let s):     out.append("\\character{\(LaTeXEscape.escape(s))}")
         case .dialogue(let xs):     out.append("\\dialogue{\(emitInline(xs))}")
@@ -207,8 +302,10 @@ public enum LaTeXBodyEmitter {
         case .dualDialogue(let left, let right):
             var leftLines: [String] = []
             var rightLines: [String] = []
-            for n in left  { emit(fountain: n, into: &leftLines) }
-            for n in right { emit(fountain: n, into: &rightLines) }
+            // A dual-dialogue block's members are not top-level nodes, so
+            // `Section.anchors` cannot name them: the BLOCK carries the anchor.
+            for n in left  { emit(fountain: n, anchor: nil, into: &leftLines) }
+            for n in right { emit(fountain: n, anchor: nil, into: &rightLines) }
             out.append("\\dualdialogue{%")
             out.append(leftLines.joined(separator: "\n"))
             out.append("}{%")
