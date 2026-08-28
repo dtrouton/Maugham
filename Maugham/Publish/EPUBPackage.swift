@@ -62,6 +62,11 @@ public struct EPUBPackage: Sendable {
         public let filename: String        // e.g. "section-001.xhtml"
         public let title: String
         public let xhtmlBody: String       // raw <section>...</section> from XHTMLBodyEmitter
+        /// The language this section is written in — its body's `displayTag`
+        /// (P2). Stamped on the section document's own `<html>` element, so
+        /// each half of a bilingual book hyphenates and is spoken in its own
+        /// language rather than in the publication's primary one.
+        public let language: String
     }
 
     public struct Cover: Sendable {
@@ -74,16 +79,28 @@ public struct EPUBPackage: Sendable {
     public let sections: [Section]
     public let cover: Cover?
     public let stylesheetCSS: String
+    /// One tag per rendered body, in order — what `<dc:language>` is emitted
+    /// from. EPUB 3 permits several, and the FIRST is the publication's
+    /// primary language.
+    ///
+    /// **Derived, never accepted whole**: the head is always
+    /// `metadata.language`, because the rest of the metadata was folded to
+    /// exactly one language and a primary `<dc:language>` naming a different
+    /// one would be two answers to the same question. A caller supplies the
+    /// ADDITIONAL bodies' tags; the head it passes is discarded.
+    public let languages: [String]
 
     public init(
         metadata: Metadata,
         sections: [Section],
         cover: Cover?,
-        stylesheetCSS: String = ""
+        stylesheetCSS: String = "",
+        languages: [String] = []
     ) {
         self.metadata = metadata
         self.sections = sections
         self.cover = cover
         self.stylesheetCSS = stylesheetCSS
+        self.languages = [metadata.language] + languages.dropFirst()
     }
 }

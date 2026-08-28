@@ -268,7 +268,7 @@ public struct PreviewCompiler {
                                       warnings: warnings, errors: r.errors)
             return Result(outputPath: r.outputPath, warnings: warnings, errors: r.errors)
         case .epub:
-            let e = EPUBCompiler(
+            let e = try EPUBCompiler(
                 projectURL: projectURL, astSource: filteredSrc,
                 config: config, jobManager: jobManager,
                 maughamVersion: maughamVersion,

@@ -8,7 +8,7 @@ final class EPUBPackageTests: XCTestCase {
             metadata: .init(title: "Test", author: "Author"),
             sections: [
                 .init(id: "s1", filename: "section-001.xhtml", title: "First",
-                      xhtmlBody: "<p>Hello.</p>"),
+                      xhtmlBody: "<p>Hello.</p>", language: "en"),
             ],
             cover: nil)
         XCTAssertEqual(pkg.sections.count, 1)

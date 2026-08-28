@@ -16,7 +16,12 @@ public enum EPUBOPFWriter {
         if let s = m.subject {
             lines.append("    <dc:subject>\(XHTMLEscape.escape(s))</dc:subject>")
         }
-        lines.append("    <dc:language>\(XHTMLEscape.escape(m.language))</dc:language>")
+        // One per rendered body, in order (P2). `pkg.languages` is `[m.language]`
+        // for a single body, so a one-language book emits exactly the line it
+        // always did.
+        for tag in pkg.languages {
+            lines.append("    <dc:language>\(XHTMLEscape.escape(tag))</dc:language>")
+        }
         if let p = m.publisher {
             lines.append("    <dc:publisher>\(XHTMLEscape.escape(p))</dc:publisher>")
         }
@@ -74,22 +79,52 @@ public enum EPUBOPFWriter {
         lines.append("<body>")
         lines.append("<nav epub:type=\"toc\" id=\"toc\">")
         lines.append("  <h1>Contents</h1>")
-        lines.append("  <ol>")
-        for s in pkg.sections {
-            lines.append("    <li><a href=\"\(XHTMLEscape.attribute(s.filename))\">\(XHTMLEscape.escape(s.title))</a></li>")
+
+        func item(_ s: EPUBPackage.Section) -> String {
+            "    <li><a href=\"\(XHTMLEscape.attribute(s.filename))\">\(XHTMLEscape.escape(s.title))</a></li>"
         }
-        lines.append("  </ol>")
+
+        if pkg.languages.count <= 1 || pkg.sections.isEmpty {
+            // One body: one flat list, byte-identical to the nav a
+            // single-language book has always shipped.
+            lines.append("  <ol>")
+            for s in pkg.sections { lines.append(item(s)) }
+            lines.append("  </ol>")
+        } else {
+            // Several: a heading per body, then that body's own list. Grouped
+            // by RUNS rather than by looking each language's sections up, so
+            // the nav follows the order the sections are actually in — the
+            // same order the spine reads them.
+            var current: String? = nil
+            for s in pkg.sections {
+                if s.language != current {
+                    if current != nil { lines.append("  </ol>") }
+                    lines.append("  <h2>\(XHTMLEscape.escape(s.language))</h2>")
+                    lines.append("  <ol>")
+                    current = s.language
+                }
+                lines.append(item(s))
+            }
+            if current != nil { lines.append("  </ol>") }
+        }
         lines.append("</nav>")
         lines.append("</body></html>")
         return lines.joined(separator: "\n")
     }
 
     /// Wraps a section's body XHTML in a full XHTML 5 document.
+    ///
+    /// The `<html>` element declares the SECTION's own language, not the
+    /// publication's — which is the difference between a bilingual book that
+    /// hyphenates and is spoken correctly in both halves and one that reads
+    /// its translation in the source language. This is a byte change for a
+    /// single-body book too, and deliberately so: a section that does not say
+    /// what language it is in is the defect, not the divergence.
     public static func sectionXHTML(for section: EPUBPackage.Section) -> String {
         """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE html>
-        <html xmlns="http://www.w3.org/1999/xhtml">
+        <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="\(XHTMLEscape.attribute(section.language))" lang="\(XHTMLEscape.attribute(section.language))">
         <head>
           <meta charset="utf-8"/>
           <title>\(XHTMLEscape.escape(section.title))</title>

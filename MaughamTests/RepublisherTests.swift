@@ -1297,23 +1297,10 @@ final class RepublisherTests: XCTestCase {
         }
     }
 
-    /// Every `data-piece-id` an EPUB's section documents carry.
-    private func pieceIDs(inEPUBAt url: URL) throws -> Set<String> {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        proc.arguments = ["-p", url.path, "OEBPS/*.xhtml"]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        try proc.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        proc.waitUntilExit()
-        let xhtml = String(data: data, encoding: .utf8) ?? ""
-        let pattern = try NSRegularExpression(pattern: #"data-piece-id="([^"]+)""#)
-        let range = NSRange(xhtml.startIndex..<xhtml.endIndex, in: xhtml)
-        return Set(pattern.matches(in: xhtml, range: range).compactMap {
-            Range($0.range(at: 1), in: xhtml).map { String(xhtml[$0]) }
-        })
-    }
+    // `pieceIDs(inEPUBAt:)` lived here as a private helper until P2 Task 4
+    // moved it to `MaughamTests/Publish/EPUBInspection.swift`, where the
+    // bilingual suite can ask the same question of a two-language EPUB. It is
+    // an `XCTestCase` extension there, so the call sites below are unchanged.
 
     /// C1 (whole-branch review). An imprint's `sections` is an ALLOWLIST, and
     /// resolution MATERIALIZES it — the frozen config names only the pieces

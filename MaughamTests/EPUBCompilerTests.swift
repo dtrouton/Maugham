@@ -25,7 +25,7 @@ final class EPUBCompilerTests: XCTestCase {
         }
         let cfg = PublishConfig(metadata: .init(title: "EpubSmoke", author: "T"))
         let mgr = CompileJobManager()
-        let compiler = EPUBCompiler(
+        let compiler = try EPUBCompiler(
             projectURL: tmp, astSource: Src(), config: cfg,
             jobManager: mgr, maughamVersion: "0.0.0-test",
             tectonicVersion: "n/a")

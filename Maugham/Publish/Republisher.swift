@@ -264,7 +264,7 @@ public struct Republisher {
             errors = r.errors
             logExcerpt = r.logExcerpt
         case .epub:
-            let e = EPUBCompiler(
+            let e = try EPUBCompiler(
                 projectURL: stage, astSource: emitSource,
                 config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion,

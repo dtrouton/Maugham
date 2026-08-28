@@ -595,7 +595,7 @@ public struct CompileOrchestrator {
             logExcerpt = result.logExcerpt
 
         case .epub:
-            let epub = EPUBCompiler(
+            let epub = try EPUBCompiler(
                 projectURL: projectURL, astSource: emitSource,
                 config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion,
