@@ -103,6 +103,7 @@ public enum EmissionContract {
         out += styleFileContract + "\n\n"
         out += fontsConvention + "\n\n"
         out += languageEditionContract + "\n\n"
+        out += maughamBodyContract + "\n\n"
         out += recoveryNote + "\n\n"
         out += epubIterationNote + "\n"
         return out
@@ -283,14 +284,75 @@ public enum EmissionContract {
     rendering — until a `template.<lang>.tex` `\\input`s it.
     """
 
+    static let maughamBodyContract = """
+    ## Multi-language bodies — the `MaughamBody` environment
+
+    A compile renders **one complete body per language, in order**. \
+    `build/body.tex` is not the book any more — it is a WRAPPER:
+
+    ```latex
+    \\ifdefined\\MaughamBody\\else\\newenvironment{MaughamBody}[1]{\\clearpage}{}\\fi
+    \\begin{MaughamBody}{en}\\input{build/metadata.en}\\input{build/body.en}\\end{MaughamBody}
+    \\begin{MaughamBody}{sr}\\input{build/metadata.sr}\\input{build/body.sr}\\end{MaughamBody}
+    ```
+
+    One `MaughamBody` line per rendered language, in the order the compile \
+    asked for them; a single-language compile emits exactly one. The \
+    environment takes **one argument, the language tag**, so a template can \
+    tell the halves apart.
+
+    **The guard line is emitted, not assumed.** An existing project never \
+    receives starter updates, so its `preamble.tex` may have never heard of \
+    `MaughamBody`; the `\\ifdefined` supplies a default (`\\clearpage` — each \
+    half starts on a fresh page, nothing else changes) without overriding a \
+    template that defines its own. The starter `preamble.tex` now ships the \
+    same guarded definition.
+
+    **To give each half its own title page**, redefine the environment and \
+    key the frontmatter on `#1`:
+
+    ```latex
+    \\renewenvironment{MaughamBody}[1]{\\clearpage\\input{frontmatter-#1}}{}
+    ```
+
+    ### Where the files are
+
+    | File | What it is |
+    |---|---|
+    | `build/body.<tag>.tex` | one language's complete emitted body |
+    | `build/metadata.<tag>.tex` | that language's `\\renewcommand` metadata block |
+    | `build/body.tex` | the wrapper above — the only file the template `\\input`s |
+    | `build/metadata.tex` | **the FIRST body's** block |
+
+    `build/metadata.tex` is what the template's \
+    `\\InputIfFileExists{build/metadata}` reads before `\\begin{document}`, so \
+    the title page, the running heads and hyperref's document properties are \
+    the **first** body's — a bilingual PDF is one book, titled in its source \
+    language. Each half's own block is re-input INSIDE its `MaughamBody` \
+    group, so a translated title applies to that half and is undone at its \
+    `\\end{MaughamBody}`.
+
+    ### `\\input` paths and subdirectory templates
+
+    The wrapper's `\\input` arguments are relative to the **primary \
+    template's own directory**, not to `build/body.tex` and not to the \
+    working directory — the same rule that makes an imprint template at \
+    `templates/special.tex` reach the shared preamble with \
+    `\\input{../preamble}`. Maugham writes the matching prefix into the \
+    wrapper itself (`\\input{../build/body.en}` for a template one directory \
+    down), so a template author only ever writes their own partials' paths.
+    """
+
     static let recoveryNote = """
     ## Recovery
 
     Overwriting or clearing a style file moves the prior version to Maugham's \
     trash (`.maugham/trash/`, 30-day sweep, undo via ⌘⌥Z). There is **no git** in \
-    this workflow; the trash is the recovery path. `build/body.tex`, \
-    `build/body.xhtml`, and `build/compile.log` are readable via `read_publish_file` \
-    for diagnosing what the emitter and compiler produced.
+    this workflow; the trash is the recovery path. `build/body.<lang>.tex` \
+    (the PDF emitter's output for one language — `build/body.tex` is the \
+    wrapper over them), `build/body.xhtml`, and `build/compile.log` are \
+    readable via `read_publish_file` for diagnosing what the emitter and \
+    compiler produced.
     """
 
     static let epubIterationNote = """

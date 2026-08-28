@@ -130,8 +130,10 @@ final class StarterTemplateDefectProbeTests: XCTestCase {
             config: PublishConfig(metadata: .init(title: "Fence Probe", author: "Tester")))
         XCTAssertGreaterThan(pdf.pageCount, 0, "PDF has no pages")
         // The emitted body must carry the scan-proof break form.
+        // (P2: `build/body.tex` is now the wrapper over the document's bodies —
+        // the emitted book lives at `build/body.<tag>.tex`, `en` for this fixture.)
         let body = try String(
-            contentsOf: projectURL.appendingPathComponent(".maugham/publish/build/body.tex"),
+            contentsOf: projectURL.appendingPathComponent(".maugham/publish/build/body.en.tex"),
             encoding: .utf8)
         XCTAssertTrue(body.contains("key = value\\newline [options]"),
                       "fence lines must join with \\newline; body.tex:\n\(body)")

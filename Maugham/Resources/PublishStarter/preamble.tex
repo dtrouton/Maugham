@@ -33,6 +33,15 @@
   pdfcreator={Maugham}
 }
 
+% --- Bilingual / multi-language bodies ----------------------------------------
+% Maugham's build/body.tex wraps EACH language's body in \begin{MaughamBody}{<tag>}
+% ... \end{MaughamBody}, in order, and passes the language tag as #1. The default
+% below just starts each half on a fresh page. To give each half its own title
+% page, move frontmatter's \input inside the environment and key it on #1 — e.g.
+%   \renewenvironment{MaughamBody}[1]{\clearpage\input{frontmatter-#1}}{}
+% with a frontmatter-en.tex and a frontmatter-sr.tex beside this file.
+\ifdefined\MaughamBody\else\newenvironment{MaughamBody}[1]{\clearpage}{}\fi
+
 % Wiki link in prose: rendered as plain bold display text (no hyperlink
 % target; wiki targets resolve inside Maugham, not in the PDF).
 \newcommand{\wikilink}[2]{\textbf{#2}}

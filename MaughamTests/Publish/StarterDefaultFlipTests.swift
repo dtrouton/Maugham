@@ -65,9 +65,11 @@ final class StarterDefaultFlipTests: XCTestCase {
         XCTAssertNotNil(pdf, "produced file at \(result.outputPath) is not a valid PDF")
         XCTAssertGreaterThan(pdf?.pageCount ?? 0, 0, "PDF has no pages")
 
-        // (b) body.tex carries the toc form for piece one and notoc for piece two.
+        // (b) the body carries the toc form for piece one and notoc for piece two.
+        // (P2: `build/body.tex` is now the wrapper over the document's bodies —
+        // the emitted book lives at `build/body.<tag>.tex`, `en` for this fixture.)
         let bodyURL = projectURL
-            .appendingPathComponent(".maugham/publish/build/body.tex")
+            .appendingPathComponent(".maugham/publish/build/body.en.tex")
         let body = try String(contentsOf: bodyURL, encoding: .utf8)
         XCTAssertTrue(body.contains("\\begin{prose}{Tank Park Salute}"),
                       "expected toc form for first piece; body.tex:\n\(body)")

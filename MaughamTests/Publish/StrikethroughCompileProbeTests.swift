@@ -120,8 +120,10 @@ final class StrikethroughCompileProbeTests: XCTestCase {
         XCTAssertNotNil(pdf, "produced file at \(result.outputPath) is not a valid PDF")
         XCTAssertGreaterThan(pdf?.pageCount ?? 0, 0, "PDF has no pages")
 
-        // body.tex carries the real emitter output for the strikethrough run.
-        let bodyURL = projectURL.appendingPathComponent(".maugham/publish/build/body.tex")
+        // The body carries the real emitter output for the strikethrough run.
+        // (P2: `build/body.tex` is now the wrapper over the document's bodies —
+        // the emitted book lives at `build/body.<tag>.tex`, `en` for this fixture.)
+        let bodyURL = projectURL.appendingPathComponent(".maugham/publish/build/body.en.tex")
         let body = try String(contentsOf: bodyURL, encoding: .utf8)
         XCTAssertTrue(body.contains("\\st{this clause}"),
                       "body.tex missing expected \\st{...} emission; body.tex:\n\(body)")
