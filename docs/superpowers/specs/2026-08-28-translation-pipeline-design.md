@@ -1,6 +1,6 @@
 # The Translation Pipeline — Design
 
-**Date:** 2026-08-28 (amended the same day after an experience-first pressure test; v2 supersedes v1 wholesale)
+**Date:** 2026-08-28 (amended the same day after an experience-first pressure test; v2 supersedes v1 wholesale; re-derived against v0.33.0 — imprints and bilingual editions — which landed the same day and changed the desk)
 **Status:** Designed, not built. Planned as four plans (§13); Plan 1 is written and built before Plans 2–4 are written.
 **Constitution check:** extends the Claude-parallel-layer principle — every session added here reads and returns, none holds a write tool, and manuscript text is reachable from none of them (the reader, collator and glosser hold *no tool at all*). Everything new lives under `.maugham/` (round records, staged proposals), on the manifest (two more role kinds, no schema bump), or in the writer's own plain-text statements (directives and glossary are rulings). The keystroke-only trigger rule (ADR 0028's tempo discipline, `Maugham/Compiler/AREA.md`) holds: one Run is one act with more legs; nothing here re-arms itself. The "no statement-writing tool in the catalogue" line (`CompilerAllowlistTests.test_noStatementWritingToolExistsAnywhereClaudeCanReach`) is kept *and strengthened*: what is added is a **proposal** the writer adopts, never a write. **No new `AnnotationKind`** — the enum is closed, the phone decodes it, and a new case would force a paired release; every new writer-facing record here is a ruling or a round record.
 
@@ -158,7 +158,7 @@ kind ∈ mistranslation | omission | addition | untranslated | inconsistency | r
 
 **Cancel** is one button reaching whichever leg is live — the translator's `cancel()` (covers unsent and in-flight) or `ColdCall`'s. Between legs the pipeline checks its own generation before starting the next leg, so a Cancel landing in the gap stops the pipeline rather than a leg that never started.
 
-**Whole book.** **Run whole book** on the row (and in the Rename… menu's company) queues every included document (`PublishConfig`'s `sections.<docId>.include`) through the pipeline in binder order, one round each, from one keystroke; Cancel stops the queue after the live leg. **Pre-flight** on the row before either Run: "7 legs · ~N words briefed" (N = source + translated word counts of the document, or the book), so the wait and the cost are a known quantity before the click.
+**Whole book.** **Run whole book** on the row (and in the Rename… menu's company) queues the documents of **the imprint the desk is standing on** — the same set `EditionStatus.languageRows(documentIds:)` sums for that row since imprints P3 (the book itself when no imprint is picked; an imprint's `sections` allowlist otherwise) — through the pipeline in binder order, one round each, from one keystroke; Cancel stops the queue after the live leg. The desk's rule for Compile is the rule here: the writer is asking about the thing that will actually be compiled, and an edition complete against the pamphlet must not be sent through the whole novel. **Pre-flight** on the row before either Run: "7 legs · ~N words briefed" (N = source + translated word counts of the document, or the book), so the wait and the cost are a known quantity before the click.
 
 **The gate** — one round at a time across every language — widens from "a translator round" to "a pipeline, or a book queue".
 
@@ -206,7 +206,7 @@ Numbering is per language across documents; the record names its document and th
 
 A departure row and a disagreement row **click through** to that paragraph in Translation Review (existing mode and reveal contract). An addressed note or departure expands to its before/after. Nothing on this surface requires reading the target language to act on.
 
-**Desk row** (`DepartmentPane`, `DepartmentRunState`): the one status slot names the leg (*translating → reading → fixing → re-reading → fixing → collating → fixing*; for a book queue, "chapter 4 of 12 · reading"), then "Round N · finished 2m ago · **Show**"; the pre-flight line; the notes-per-round trend. `DepartmentRunState.Phase.running` widens from `translating: Int` to a leg descriptor.
+**Desk row** (`DepartmentPane`, `DepartmentRunState`) — busier since v0.33.0, which put an imprint picker and a Compile sheet on the desk, so the pre-flight line and the trend share the row's existing status slot rather than adding a line each: the one status slot names the leg (*translating → reading → fixing → re-reading → fixing → collating → fixing*; for a book queue, "chapter 4 of 12 · reading"), then "Round N · finished 2m ago · **Show**"; the pre-flight line; the notes-per-round trend. `DepartmentRunState.Phase.running` widens from `translating: Int` to a leg descriptor.
 
 **MCP**: `translation_status` gains `reader`, `collator` and a `last_round` block (number, verdicts, counts, summary) — a widening of an existing read.
 
