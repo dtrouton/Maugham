@@ -381,4 +381,107 @@ final class BilingualEPUBTests: XCTestCase {
             XCTAssertEqual(error as? EPUBCompiler.NoBodies, EPUBCompiler.NoBodies())
         }
     }
+
+    // MARK: - P3 Task 3: anchors and cross-links in the shipped archive
+
+    /// P3 Task 3. A screenplay that hands its op-log PARAGRAPHS as well as its
+    /// display text, so `ProjectASTBuilder` can hang a `¶id` on each node — the
+    /// premise every anchor below rests on. The ids are the SAME in both
+    /// languages, which is what makes a cross-link resolvable
+    /// (`p-en-aaaa` ↔ `p-sr-aaaa`). Mirrors `BilingualPDFTests.AnchoredScreenplay`.
+    private struct AnchoredScreenplay: LanguageRebindableSource {
+        let tag: String?
+        static let source: [(id: String, text: String)] = [
+            ("aaaa", "INT. ROOM - DAY"),
+            ("bbbb", "He waits by the window."),
+        ]
+        static let translated: [(id: String, text: String)] = [
+            ("aaaa", "INT. SOBA - DAN"),
+            ("bbbb", "Ceka kraj prozora."),
+        ]
+        var rows: [(id: String, text: String)] { tag == nil ? Self.source : Self.translated }
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            [.init(pieceID: "p1", title: "Opening", mode: .fountain,
+                   displayText: rows.map(\.text).joined(separator: "\n\n"),
+                   paragraphs: rows)]
+        }
+        func rebound(toLanguage tag: String?) -> ProjectASTBuilder.Source {
+            AnchoredScreenplay(tag: tag)
+        }
+    }
+
+    private func anchoredTwoBodyPlan(_ cfg: PublishConfig) throws -> BodyPlan {
+        let set = try LanguageSet(language: nil, languages: ["source", "sr"], sourceTag: "en")
+        return try BodyPlan.make(
+            set: set, resolved: cfg, source: AnchoredScreenplay(tag: nil),
+            publishDir: publish, wrap: { $0 })
+    }
+
+    private func compileAnchoredTwoBodies() async throws -> URL {
+        let cfg = baseConfig()
+        let compiler = try EPUBCompiler(
+            projectURL: tmp, bodies: try anchoredTwoBodyPlan(cfg).bodies,
+            config: cfg, jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let result = try await compiler.compile(label: nil)
+        XCTAssertTrue(result.errors.isEmpty, "\(result.errors.map(\.message))")
+        return URL(fileURLWithPath: result.outputPath)
+    }
+
+    /// The end-to-end claim: every paragraph in the shipped archive carries its
+    /// own `¶id` under its OWN body's tag, and each body's slugline links into
+    /// the other body's section file at the same paragraph.
+    func test_eachBodysSectionAnchorsUnderItsOwnTagAndLinksToTheOther() async throws {
+        let epub = try await compileAnchoredTwoBodies()
+        let en = try epubEntryText("OEBPS/section-en-001.xhtml", inEPUBAt: epub)
+        let sr = try epubEntryText("OEBPS/section-sr-001.xhtml", inEPUBAt: epub)
+
+        XCTAssertTrue(en.contains(#"<p class="scene-heading" id="p-en-aaaa">"#
+            + #"<a href="section-sr-001.xhtml#p-sr-aaaa">INT. ROOM - DAY</a></p>"#), en)
+        XCTAssertTrue(en.contains(#"<p class="action" id="p-en-bbbb">He waits by the window.</p>"#), en)
+        XCTAssertTrue(sr.contains(#"<p class="scene-heading" id="p-sr-aaaa">"#
+            + #"<a href="section-en-001.xhtml#p-en-aaaa">INT. SOBA - DAN</a></p>"#), sr)
+    }
+
+    /// Neither body links to itself — a self-link is a link that goes nowhere,
+    /// and is exactly what a compiler passing its own tag as an "other" would
+    /// produce.
+    func test_neitherBodyCrossLinksToItself() async throws {
+        let epub = try await compileAnchoredTwoBodies()
+        let en = try epubEntryText("OEBPS/section-en-001.xhtml", inEPUBAt: epub)
+        let sr = try epubEntryText("OEBPS/section-sr-001.xhtml", inEPUBAt: epub)
+        XCTAssertFalse(en.contains(#"href="section-en-"#), en)
+        XCTAssertFalse(sr.contains(#"href="section-sr-"#), sr)
+    }
+
+    /// A link into a file the archive does not hold is a broken link. The href's
+    /// filename is checked against the entries the compile actually shipped —
+    /// which is what makes the shared `sectionFilename` rule load-bearing rather
+    /// than decorative.
+    func test_theCrossLinkNamesAFileTheArchiveActuallyHolds() async throws {
+        let epub = try await compileAnchoredTwoBodies()
+        let en = try epubEntryText("OEBPS/section-en-001.xhtml", inEPUBAt: epub)
+        let pattern = try NSRegularExpression(pattern: ##"href="([^"#]+)#"##)
+        let range = NSRange(en.startIndex..<en.endIndex, in: en)
+        let targets = pattern.matches(in: en, range: range).compactMap {
+            Range($0.range(at: 1), in: en).map { String(en[$0]) }
+        }
+        XCTAssertEqual(targets, ["section-sr-001.xhtml"], en)
+        let names = try epubEntryNames(inEPUBAt: epub)
+        for target in targets {
+            XCTAssertTrue(names.contains("OEBPS/" + target),
+                          "the slugline links to \(target), which the archive does not hold: \(names)")
+        }
+    }
+
+    /// The single-body control: the section is still anchored — the ids are
+    /// there for a template or a reader to address — and carries not one link,
+    /// because there is no other body to link to.
+    func test_aSingleBodySectionIsAnchoredAndCarriesNoLink() async throws {
+        let epub = try await compileSingleBody(baseConfig(), source: AnchoredScreenplay(tag: nil))
+        let section = try epubEntryText("OEBPS/section-001.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(section.contains(
+            #"<p class="scene-heading" id="p-en-aaaa">INT. ROOM - DAY</p>"#), section)
+        XCTAssertFalse(section.contains("<a "), section)
+    }
 }

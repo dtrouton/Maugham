@@ -118,18 +118,31 @@ public struct EPUBCompiler {
         // must not have its archive rearranged underneath it.
         var sections: [EPUBPackage.Section] = []
         var languages: [String] = []
+        // Resolved for ALL bodies before any of them is emitted: a slugline
+        // links to the SAME piece in every OTHER body, so a body cannot be
+        // emitted knowing only its own tag.
+        let tags = bodies.enumerated().map { Self.fileTag(for: $1, at: $0) }
         for (index, body) in bodies.enumerated() {
-            let tag = Self.fileTag(for: body, at: index)
+            let tag = tags[index]
+            let others = tags.enumerated().filter { $0.offset != index }.map(\.element)
             let ast = try ProjectASTBuilder.build(from: body.source)
             let ownSections = zip(ast.sections.indices, ast.sections).map { (i, s) in
                 EPUBPackage.Section(
                     id: bodies.count == 1 ? "s\(i + 1)" : "s-\(tag)-\(i + 1)",
-                    filename: bodies.count == 1
-                        ? String(format: "section-%03d.xhtml", i + 1)
-                        : "section-\(tag)-" + String(format: "%03d", i + 1) + ".xhtml",
+                    filename: Self.sectionFilename(tag: tag, index: i,
+                                                   bodyCount: bodies.count),
                     title: s.title,
                     xhtmlBody: XHTMLBodyEmitter.emit(
-                        ProjectAST(sections: [s]), config: body.config),
+                        ProjectAST(sections: [s]), config: body.config,
+                        anchorTag: tag,
+                        // The same piece index is the same piece in every body,
+                        // so section `i` of body `other` is where this section's
+                        // paragraphs live over there.
+                        crossLinks: others.map {
+                            (tag: $0,
+                             href: Self.sectionFilename(tag: $0, index: i,
+                                                        bodyCount: bodies.count))
+                        }),
                     language: body.displayTag)
             }
             sections.append(contentsOf: ownSections)
@@ -234,6 +247,19 @@ public struct EPUBCompiler {
     /// carries it.
     static func fileTag(for body: BodyPlan.Body, at index: Int) -> String {
         LaTeXSafeFilename(body.displayTag) != nil ? body.displayTag : "\(index + 1)"
+    }
+
+    /// Where a body's section for piece `index` lives in the archive — the one
+    /// spelling of the rule. A single body keeps the filenames it has always
+    /// had (`section-%03d.xhtml`); more than one carries the body's tag.
+    ///
+    /// It is a function rather than two literals because a cross-link's `href`
+    /// must name the file the OTHER body actually shipped: written twice, the
+    /// two spellings can drift and every link in the book breaks silently.
+    static func sectionFilename(tag: String, index: Int, bodyCount: Int) -> String {
+        bodyCount == 1
+            ? String(format: "section-%03d.xhtml", index + 1)
+            : "section-\(tag)-" + String(format: "%03d", index + 1) + ".xhtml"
     }
 
     private func makeOutputFilename(
