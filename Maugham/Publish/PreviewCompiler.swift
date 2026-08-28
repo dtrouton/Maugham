@@ -146,6 +146,36 @@ public struct PreviewCompiler {
             pieceIDs: config.imprints.isEmpty
                 ? [] : try astSource.orderedPieces().map(\.pieceID))
 
+        // I1 (whole-branch review): the door VALIDATES what it resolved. A
+        // preview runs with `replacesExistingOutput: true` and reaches
+        // `PDFCompiler` with whatever `config.template` now says, so a
+        // hand-edited (or synced) `imprints.x.template` of "../../secret.tex"
+        // used to escape the publish tree on this path alone — the compile
+        // door has validated since Task 6, and `set_publish_config`'s
+        // write-time pass never sees a config that arrived another way.
+        //
+        // The PURE pass, deliberately, not the project-aware one: a preview
+        // tolerates a missing default `template.tex` exactly as it always has
+        // (the writer is iterating), and an imprint template that is simply
+        // absent still surfaces from `PDFCompiler` as it does today. What this
+        // refuses is a config that is malformed on its face. Same shape as the
+        // unknown-name refusal above, and the same `invalid_config:` excerpt
+        // `CompileOrchestrator.compile` fails with.
+        let configErrors = PublishConfigValidator.validate(config)
+        if !configErrors.isEmpty {
+            let diags = configErrors.map {
+                TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: "\($0.field): \($0.message)",
+                    contextLines: ["Nothing was previewed — no output file."])
+            }
+            let excerpt = "invalid_config: "
+                + configErrors.map(\.field).joined(separator: ", ")
+            await jobManager.fail(jobID: jobID, errors: diags, logExcerpt: excerpt)
+            return Result(outputPath: "", warnings: [], errors: diags,
+                          logExcerpt: excerpt)
+        }
+
         // F5: previews are where template iteration lives, so refresh the
         // project's app-owned EMISSION.md here too — same unconditional
         // overwrite of that ONE file as `CompileOrchestrator.compile`, never

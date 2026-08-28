@@ -633,4 +633,88 @@ final class PreviewCompilerTests: XCTestCase {
                        "the pieceIDs the preview reads are what turn an allowlist "
                        + "into an exclusion set")
     }
+
+    // MARK: - I1: the preview door validates what it resolved
+
+    /// A project whose imprint `escape` names a template outside the publish
+    /// tree. `PublishConfigStore.save` writes what it is given — this is the
+    /// hand-edited (or synced) `config.json` the preview door has to meet,
+    /// which is exactly why `set_publish_config`'s write-time validation is
+    /// not enough.
+    private func escapingImprintConfigStore(
+        template: String = "../../secret.tex"
+    ) async throws -> PublishConfigStore {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Pre", author: "X"))
+        cfg.imprints = ["escape": .init(template: template)]
+        try await configStore.save(cfg)
+        return configStore
+    }
+
+    /// I1 (whole-branch review). `run` resolved the imprint and validated
+    /// nothing, so a template that escapes the publish tree reached
+    /// `PDFCompiler` — on the path that runs with `replacesExistingOutput:
+    /// true`. It is refused now, in the same shape as the unknown-name
+    /// refusal, before a file is written.
+    func testPreview_underAnImprint_withAnEscapingTemplate_isRefused() async throws {
+        let configStore = try await escapingImprintConfigStore()
+        let jobs = CompileJobManager()
+        let result = try await imprintPreview(configStore, jobs: jobs).preview(
+            format: .pdf, sectionIDs: nil, maxPages: nil, imprint: "escape")
+
+        XCTAssertEqual(result.outputPath, "")
+        let message = result.errors.map(\.message).joined(separator: "\n")
+        XCTAssertTrue(message.contains("template"),
+                      "the refusal must name the offending field, got: \(message)")
+        XCTAssertTrue(message.contains("..") || message.contains("traversal"),
+                      "and say what is wrong with it, got: \(message)")
+        // Both fields: the resolved config's top-level `template` (which the
+        // imprint replaced) and the imprint layer itself, which resolution
+        // leaves in place. One offending path, named wherever it appears.
+        XCTAssertEqual(result.logExcerpt,
+                       "invalid_config: template, imprints.escape.template")
+        let running = await jobs.allInProgress()
+        XCTAssertTrue(running.isEmpty, "the refusal is terminal for the job")
+    }
+
+    /// The refusal's CONTROL on the disk: nothing was previewed. An EPUB
+    /// deliberately, because an EPUB does not typeset through the template at
+    /// all — before this door existed the escaping config previewed
+    /// SUCCESSFULLY here, writing into `build/preview` under a config no
+    /// writer could have saved. The refusal has to come from the validation,
+    /// not from a downstream compiler tripping over the bad path.
+    func testPreview_underAnImprint_withAnEscapingTemplate_writesNothing() async throws {
+        let configStore = try await escapingImprintConfigStore()
+        _ = try await imprintPreview(configStore).preview(
+            format: .epub, sectionIDs: nil, maxPages: nil, imprint: "escape")
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: tmp.appendingPathComponent(PreviewCompiler.previewSubpath).path),
+            "an invalid config is refused before anything is rendered")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: tmp.appendingPathComponent(".maugham/publish/build/body.xhtml").path),
+            "and before a word of the manuscript is emitted")
+    }
+
+    /// The CONTROL for the rule itself: a well-formed imprint still previews.
+    /// Without it the refusal above could pass on a door that refuses
+    /// everything.
+    func testPreview_underAWellFormedImprint_stillPreviews() async throws {
+        let publish = tmp.appendingPathComponent(".maugham/publish", isDirectory: true)
+        let starter = try String(
+            contentsOf: publish.appendingPathComponent("template.tex"), encoding: .utf8)
+        try starter.write(to: publish.appendingPathComponent("special.tex"),
+                          atomically: true, encoding: .utf8)
+        let configStore = try await escapingImprintConfigStore(template: "special.tex")
+
+        let result = try await imprintPreview(configStore).preview(
+            format: .epub, sectionIDs: nil, maxPages: nil, imprint: "escape")
+        XCTAssertTrue(result.errors.isEmpty,
+                      "a valid imprint must not be caught by the new door: "
+                      + "\(result.errors.map(\.message))")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.outputPath),
+                      "no preview at \(result.outputPath)")
+    }
 }
