@@ -9,10 +9,11 @@ import Foundation
 /// `DeskCompileRunner` holds one field and the pane goes on taking values.
 ///
 /// **Every phase carries its own words.** A compile that refuses in silence is
-/// the dead control RULING-35 is about, and this surface has three ways to
+/// the dead control RULING-35 is about, and this surface has four ways to
 /// produce nothing: a second press while one is running, an imprint name the
-/// config does not define, and a cancel. None of them is a failure and none of
-/// them may be drawn as one.
+/// config does not define, a duplicate the mint gate turns away, and a cancel.
+/// None of them is a failure and none of them may be drawn as one. (Count the
+/// refusal arms in `settled(after:)`, not this sentence.)
 struct DepartmentCompileState: Equatable {
 
     /// **What the last press did.**
@@ -104,10 +105,23 @@ struct DepartmentCompileState: Equatable {
 
         case .failed(let errors, let logExcerpt):
             let message = errors.first?.message ?? Self.failedWithoutADiagnostic
-            // The orchestrator's own marker, read rather than re-typed: an
-            // unknown imprint refuses before a job registers and is a typo, not
-            // a fault (`CompileOrchestrator.unknownImprintLogExcerpt`).
-            if logExcerpt.hasPrefix(CompileOrchestrator.unknownImprintLogExcerpt) {
+            // The orchestrator's own markers, read rather than re-typed. Two
+            // of its `.failed` outcomes are refusals wearing the failure shape
+            // — the shape is the channel every caller already reads, and the
+            // excerpt is what tells them apart:
+            //
+            //   • an unknown imprint is a name this project does not define,
+            //     refused before a job registers and before a word is read;
+            //   • a mint already in flight is the gate turning away a duplicate
+            //     of a compile that is running right now (issue #25).
+            //
+            // Neither is a fault, nothing is broken, and the writer's move in
+            // both cases is to change something and press again rather than to
+            // read a log. A red line over either sends them hunting a bug that
+            // is not there.
+            let refusals = [CompileOrchestrator.unknownImprintLogExcerpt,
+                            CompileOrchestrator.mintInFlightLogExcerpt]
+            if refusals.contains(where: logExcerpt.hasPrefix) {
                 return DepartmentCompileState(phase: .refused(message), isRunning: false)
             }
             return DepartmentCompileState(phase: .failed(message), isRunning: false)

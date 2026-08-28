@@ -465,6 +465,45 @@ final class DeskCompileRunnerTests: XCTestCase {
                                    report: DepartmentCompileState.dryRunLine))
     }
 
+    /// **A mint already in flight is a refusal, not a failure.**
+    ///
+    /// The gate turned a duplicate away while the compile it duplicates is
+    /// running right now (issue #25): nothing broke, nothing was rendered,
+    /// nothing was written, and the writer's move is to wait rather than to
+    /// read a log. Drawn as `.failed` it wore a red line and sent them hunting
+    /// a fault that is not there — the same mistake an unknown imprint had
+    /// already been fixed for, which is why the marker is a constant on the
+    /// orchestrator and not a literal typed twice.
+    ///
+    /// Disable experiment: drop `CompileOrchestrator.mintInFlightLogExcerpt`
+    /// from `settled(after:)`'s `refusals` array and this fails with
+    /// `XCTAssertEqual failed: ("failed("Publication v0.1 …")") is not equal to
+    /// ("refused("Publication v0.1 …")")`.
+    func test_aMintAlreadyInFlightIsARefusalAndNotAFailure() {
+        let message = "Publication v0.1 (en, epub) is already compiling; "
+            + "wait for it to finish."
+        let diag = TectonicLogParser.Diagnostic(
+            level: .error, file: nil, line: nil, message: message, contextLines: [])
+        let refused = DepartmentCompileState.settled(after: .failed(
+            errors: [diag],
+            logExcerpt: CompileOrchestrator.mintInFlightLogExcerpt + "0.1/en/epub"))
+
+        XCTAssertEqual(refused.phase, .refused(message))
+        XCTAssertFalse(refused.isFailure,
+                       "a duplicate the gate turned away is not a fault, and a "
+                       + "red line over the desk says it is")
+        XCTAssertEqual(refused.statusLine, message,
+                       "and it still says something — a silent refusal is the "
+                       + "dead control RULING-35 is about")
+
+        // The control: the SAME diagnostic with a real failure's excerpt is
+        // still a failure. It is the marker that decides, not the message.
+        let broken = DepartmentCompileState.settled(after: .failed(
+            errors: [diag], logExcerpt: "tectonic exited 1"))
+        XCTAssertEqual(broken.phase, .failed(message))
+        XCTAssertTrue(broken.isFailure)
+    }
+
     /// A failure with no diagnostics at all still says something — a red desk
     /// with an empty line is the dead control RULING-35 is about.
     func test_aFailureWithNoDiagnosticStillSaysSomething() {

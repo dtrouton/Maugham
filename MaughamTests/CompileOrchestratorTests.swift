@@ -1556,6 +1556,19 @@ final class CompileOrchestratorTests: XCTestCase {
             return XCTFail("expected an in-flight refusal, got \(refused)")
         }
         XCTAssertEqual(excerpt, "mint_in_flight: 1.1/source/epub")
+        // **And the desk draws it as a refusal, not as a failure.** Nothing
+        // broke: a compile of this exact triple is running RIGHT NOW and the
+        // gate turned a duplicate away (issue #25). A red line over the desk
+        // would send the writer hunting a fault that is not there — the same
+        // rule an unknown imprint already had, which is why the excerpt is a
+        // constant rather than a literal typed in two places.
+        XCTAssertTrue(excerpt.hasPrefix(CompileOrchestrator.mintInFlightLogExcerpt),
+                      "the constant must be what the orchestrator really "
+                      + "writes: \(excerpt)")
+        guard case .refused = DepartmentCompileState.settled(after: refused).phase else {
+            return XCTFail("a mint already in flight is a refusal, not a failure "
+                           + "— got \(DepartmentCompileState.settled(after: refused).phase)")
+        }
         // I2: spec §6 — the mint-gate refusal names the imprint.
         XCTAssertTrue(
             errors.contains { $0.message.contains("under imprint 'special'") },

@@ -66,6 +66,15 @@ public struct CompileOrchestrator {
     /// and not free to drift.
     public static let unknownImprintLogExcerpt = "unknown_imprint: "
 
+    /// **The second constant of that kind**, and the same rule: a compile
+    /// refused because an identical one is already minting is not a fault. The
+    /// mint gate turned a press away — nothing was rendered, nothing was
+    /// written, and the writer's move is to wait rather than to read a log
+    /// (`PublishMintGate`, issue #25). `DepartmentCompileState.settled(after:)`
+    /// reads THIS rather than re-typing the prefix; `CompileToolsTests` pins
+    /// the wire spelling, so it is part of the tool's contract too.
+    public static let mintInFlightLogExcerpt = "mint_in_flight: "
+
     public let maughamVersion: String
     public let tectonicVersion: String
 
@@ -560,13 +569,11 @@ public struct CompileOrchestrator {
                         "Another compile of the (version, language, format) triple '\(effectiveVersion)/\(langLabel)/\(format.rawValue)' \(Self.placeOf(imprint)) is in flight in this app.",
                         "Poll it with compile_status, or compile a different format/language."
                     ])
+                let excerpt = Self.mintInFlightLogExcerpt
+                    + "\(effectiveVersion)/\(langLabel)/\(format.rawValue)"
                 await jobManager.fail(
-                    jobID: jobID,
-                    errors: [diag],
-                    logExcerpt: "mint_in_flight: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
-                return .failed(
-                    errors: [diag],
-                    logExcerpt: "mint_in_flight: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
+                    jobID: jobID, errors: [diag], logExcerpt: excerpt)
+                return .failed(errors: [diag], logExcerpt: excerpt)
             }
         }
 
