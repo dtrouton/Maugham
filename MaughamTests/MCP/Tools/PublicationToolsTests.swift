@@ -627,4 +627,230 @@ final class PublicationToolsTests: XCTestCase {
             XCTAssertTrue(msg.contains("es.pdf"))
         }
     }
+
+    // MARK: - Task 7: imprints (spec 2026-08-27) — filter + disambiguation
+
+    /// Seeds a book publication and an imprint one sharing the SAME version,
+    /// book first — the imprint sibling of `seedLanguageFamily`, so a test can
+    /// prove `imprint` (not append order) drives resolution.
+    private func seedImprintFamily() async throws -> (book: Publication, special: Publication) {
+        let stores = PublishingStores.sharedFor(
+            projectID: pid!, projectURL: projectURL)
+        let book = Publication(
+            publicationID: "pub-book-test",
+            version: "1.0", label: nil, format: .pdf,
+            outputPath: "Exports/book.pdf",
+            snapshotID: "snap-book", checkpointID: "",
+            republishedFrom: nil,
+            compiledAt: Date(timeIntervalSinceNow: -3600),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0",
+            language: nil, allowStale: false, imprint: nil)
+        let special = Publication(
+            publicationID: "pub-special-test",
+            version: "1.0", label: nil, format: .pdf,
+            outputPath: "Exports/special.pdf",
+            snapshotID: "snap-special", checkpointID: "",
+            republishedFrom: nil,
+            compiledAt: Date(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0",
+            language: nil, allowStale: false, imprint: "special")
+        try await stores.publicationStore.append(book)
+        try await stores.publicationStore.append(special)
+        return (book, special)
+    }
+
+    func testList_rowsSurfaceImprint_nullForTheBook() async throws {
+        let (book, _) = try await seedImprintFamily()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(book.publicationID)"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 1)
+        // Explicit null, not a missing key — `Publication.encode` omits a nil
+        // imprint exactly as it omits a nil language, so the row is backfilled.
+        XCTAssertTrue(pubs.first?["imprint"] is NSNull,
+                      "expected explicit null for the book row, got: "
+                      + String(describing: pubs.first?["imprint"]))
+    }
+
+    func testList_rowsSurfaceImprint_nameForAnImprint() async throws {
+        let (_, special) = try await seedImprintFamily()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(special.publicationID)"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 1)
+        XCTAssertEqual(pubs.first?["imprint"] as? String, "special")
+    }
+
+    func testList_filtersByImprint_exactName() async throws {
+        _ = try await seedImprintFamily()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","imprint":"special"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 1)
+        XCTAssertEqual(pubs.first?["imprint"] as? String, "special")
+    }
+
+    func testList_filtersByImprint_bookSentinelSelectsNilRows() async throws {
+        _ = try await seedImprintFamily()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","imprint":"book"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 1)
+        XCTAssertTrue(pubs.first?["imprint"] is NSNull,
+                      "the \"book\" sentinel must select the imprint==nil row")
+    }
+
+    /// The filter's CONTROL: unfiltered, both rows come back. Without it the
+    /// two assertions above could be passing on a filter that drops everything
+    /// and a fixture that seeded one row.
+    func testList_withoutImprintFilter_returnsBothFamilyMembers() async throws {
+        _ = try await seedImprintFamily()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 2)
+    }
+
+    /// A name no publication carries selects nothing rather than falling back
+    /// to the book — the sentinel is the only way to ask for nil rows.
+    func testList_filtersByImprint_unknownNameSelectsNothing() async throws {
+        _ = try await seedImprintFamily()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","imprint":"nope"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        XCTAssertEqual((resp["publications"] as? [[String: Any]] ?? []).count, 0)
+    }
+
+    func testReadPage_versionAndImprint_resolvesTheImprintFamilyMember() async throws {
+        _ = try await seedImprintFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","version":"1.0","imprint":"special","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — fixture has no PDF on disk")
+        } catch let MCPError.internalError(msg) {
+            XCTAssertTrue(msg.contains("special.pdf"),
+                          "expected the imprint's outputPath, got: \(msg)")
+            XCTAssertFalse(msg.contains("book.pdf"))
+        }
+    }
+
+    func testReadPage_versionAndImprintBook_resolvesTheBookFamilyMember() async throws {
+        _ = try await seedImprintFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","version":"1.0","imprint":"book","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — fixture has no PDF on disk")
+        } catch let MCPError.internalError(msg) {
+            XCTAssertTrue(msg.contains("book.pdf"),
+                          "expected the book's outputPath, got: \(msg)")
+            XCTAssertFalse(msg.contains("special.pdf"))
+        }
+    }
+
+    func testReadPage_versionAndImprint_noMatchingMember_throws() async throws {
+        _ = try await seedImprintFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","version":"1.0","imprint":"nope","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — no 'nope' imprint at version 1.0")
+        } catch let MCPError.invalidArgument(msg) {
+            XCTAssertTrue(msg.contains("1.0"))
+            XCTAssertTrue(msg.contains("nope"))
+        }
+    }
+
+    /// Version-only addressing is UNCHANGED by the new param: first-write-wins
+    /// still lands on the book, which was appended first — not on some implicit
+    /// "prefer the book" rule.
+    func testReadPage_versionOnly_ignoresImprint_firstWriteWins() async throws {
+        _ = try await seedImprintFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","version":"1.0","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — fixture has no PDF on disk")
+        } catch let MCPError.internalError(msg) {
+            XCTAssertTrue(msg.contains("book.pdf"),
+                          "first-write-wins must be untouched, got: \(msg)")
+        }
+    }
+
+    func testReadPage_publicationIDAndImprintDisagree_throws() async throws {
+        let (book, _) = try await seedImprintFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(book.publicationID)","imprint":"special","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — publication_id is the book's, not 'special'")
+        } catch let MCPError.invalidArgument(msg) {
+            XCTAssertTrue(msg.contains("special"), "got: \(msg)")
+            XCTAssertTrue(msg.contains("book"),
+                          "a nil imprint must read as 'book' in the refusal, got: \(msg)")
+        }
+    }
+
+    func testReadPage_publicationIDAndImprintAgree_addressingSucceeds() async throws {
+        let (_, special) = try await seedImprintFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(special.publicationID)","imprint":"special","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — fixture has no PDF on disk")
+        } catch let MCPError.internalError(msg) {
+            // Reaching the PDF-open attempt proves agreement was accepted.
+            XCTAssertTrue(msg.contains("special.pdf"), "got: \(msg)")
+        }
+    }
+
+    func testSchema_listPublications_declaresImprint() throws {
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(ListPublicationsTool.inputSchemaJSON.utf8)) as? [String: Any]
+        let props = try XCTUnwrap(obj?["properties"] as? [String: Any])
+        let imprint = try XCTUnwrap(props["imprint"] as? [String: Any])
+        XCTAssertTrue((imprint["description"] as? String ?? "").contains("book"),
+                      "the schema must document the \"book\" sentinel")
+    }
+
+    func testSchema_readPublicationPage_declaresImprint() throws {
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(ReadPublicationPageTool.inputSchemaJSON.utf8)) as? [String: Any]
+        let props = try XCTUnwrap(obj?["properties"] as? [String: Any])
+        XCTAssertNotNil(props["imprint"],
+                        "read_publication_page schema must declare imprint")
+    }
+
+    func testParams_bothPublicationToolsDecodeImprint() throws {
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                ListPublicationsTool.Params.self,
+                from: Data(#"{"project_id":"p","imprint":"special"}"#.utf8)).imprint,
+            "special")
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                ReadPublicationPageTool.Params.self,
+                from: Data(#"{"project_id":"p","page_number":1,"imprint":"special"}"#.utf8)).imprint,
+            "special")
+    }
+
+    func testDescription_listPublications_statesTheFourPartKey() {
+        XCTAssertTrue(
+            ListPublicationsTool.description.contains("(imprint, version, language, format)"),
+            "list_publications' description must state the widened key")
+    }
 }

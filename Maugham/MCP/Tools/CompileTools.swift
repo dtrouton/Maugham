@@ -90,9 +90,9 @@ enum CompileResponseEncoder {
 public enum CompileTool: MCPTool {
     public static let method = "compile"
     public static let description =
-    "Full PDF or EPUB compile. wait_seconds blocks up to that long for completion; if it elapses, returns {status: in_progress, job_id, phase}. On success creates a Publication record referencing the captured PublicationSnapshot (template + config + styles bytes, frozen at compile time). A Publication is keyed on (version, language, format): a source compile (no language) takes its version from next_version and bumps it; a language edition renders an EXISTING source version (pin it with version, or omit to target the latest source publication) and never bumps next_version. The borrowed version is an identity label only — the edition compiles the CURRENT manuscript text, not that version's frozen content; use republish to reproduce a frozen snapshot. Note: the Publication.checkpoint_id field is reserved for a follow-up milestone — it's empty in v1, and reproducibility is via snapshot_id (which republish uses)."
+    "Full PDF or EPUB compile. wait_seconds blocks up to that long for completion; if it elapses, returns {status: in_progress, job_id, phase}. On success creates a Publication record referencing the captured PublicationSnapshot (template + config + styles bytes, frozen at compile time). A Publication is keyed on (imprint, version, language, format): a source compile (no language) takes its version from next_version and bumps it; a language edition renders an EXISTING source version (pin it with version, or omit to target the latest source publication) and never bumps next_version. The borrowed version is an identity label only — the edition compiles the CURRENT manuscript text, not that version's frozen content; use republish to reproduce a frozen snapshot. Note: the Publication.checkpoint_id field is reserved for a follow-up milestone — it's empty in v1, and reproducibility is via snapshot_id (which republish uses)."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to compile a translated edition: applies language_overrides, sets dc:language / \\\\MaughamLanguage, and language-suffixes the output filename. Omit for the source-language edition."},"version":{"type":"string","description":"Editions only (requires language). Pins the EXISTING source-publication version this edition renders (e.g. '1.0'); refused without language. Omit and the edition targets the latest source publication's version. Pins the version IDENTITY only — the edition renders the current manuscript text, not that version's frozen content (use republish to reproduce a frozen snapshot). A Publication is keyed on (version, language, format), so 1.0/en, 1.0/es, and 1.0/es/epub coexist as one family."},"allow_stale":{"type":"boolean","default":false,"description":"Compile a translated edition even if some paragraphs are stale or missing, falling back to source text for those paragraphs (default false blocks the compile and reports the gap instead)."},"dry_run":{"type":"boolean","default":false,"description":"Run the version-collision guard and translation-coverage gate for this edition and report the verdict WITHOUT compiling: no output file, no Publication record, no version bump. Returns {status: dry_run_passed, warnings} when it would compile, or the same failed/gate-blocked shape a real compile returns. Answers 'would this edition compile pass for the currently included sections' without minting a throwaway Publication."},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to compile a translated edition: applies language_overrides, sets dc:language / \\\\MaughamLanguage, and language-suffixes the output filename. Omit for the source-language edition."},"version":{"type":"string","description":"Editions only (requires language). Pins the EXISTING source-publication version this edition renders (e.g. '1.0'); refused without language. Omit and the edition targets the latest source publication's version. Pins the version IDENTITY only — the edition renders the current manuscript text, not that version's frozen content (use republish to reproduce a frozen snapshot). A Publication is keyed on (imprint, version, language, format), so 1.0/en, 1.0/es, and 1.0/es/epub coexist as one family."},"allow_stale":{"type":"boolean","default":false,"description":"Compile a translated edition even if some paragraphs are stale or missing, falling back to source text for those paragraphs (default false blocks the compile and reports the gap instead)."},"imprint":{"type":"string","description":"Name of an imprint from config.json's `imprints` — its own template, rendered set, metadata and version counter. Omit for the book."},"dry_run":{"type":"boolean","default":false,"description":"Run the version-collision guard and translation-coverage gate for this edition and report the verdict WITHOUT compiling: no output file, no Publication record, no version bump. Returns {status: dry_run_passed, warnings} when it would compile, or the same failed/gate-blocked shape a real compile returns. Answers 'would this edition compile pass for the currently included sections' without minting a throwaway Publication."},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
     """
 
     struct Params: Codable {
@@ -103,10 +103,11 @@ public enum CompileTool: MCPTool {
         let version: String?
         let allowStale: Bool?
         let dryRun: Bool?
+        let imprint: String?
         let waitSeconds: Int?
         enum CodingKeys: String, CodingKey {
             case projectID = "project_id"
-            case format, label, language, version
+            case format, label, language, version, imprint
             case allowStale = "allow_stale"
             case dryRun = "dry_run"
             case waitSeconds = "wait_seconds"
@@ -146,11 +147,12 @@ public enum CompileTool: MCPTool {
         let version = params.version
         let allowStale = params.allowStale ?? false
         let dryRun = params.dryRun ?? false
+        let imprint = params.imprint
         let task = Task {
             try await orch.compile(
                 format: format, label: label,
                 language: language, allowStale: allowStale, dryRun: dryRun,
-                version: version)
+                version: version, imprint: imprint)
         }
         do {
             let outcome = try await withTimeout(seconds: wait) { try await task.value }
@@ -184,9 +186,9 @@ public enum CompileTool: MCPTool {
 public enum PreviewCompileTool: MCPTool {
     public static let method = "preview_compile"
     public static let description =
-    "Fast subset compile. section_ids = list of piece IDs to include (omit for whole project). language/allow_stale mirror compile: preview a translated edition (applies language_overrides + language-suffixed templates) behind the SAME coverage gate — the gate scopes to exactly the pieces this preview renders, so an exploratory preview of one section isn't blocked by other untranslated pieces. Does NOT create a Publication or bump version."
+    "Fast subset compile. section_ids = list of piece IDs to include (omit for whole project). language/allow_stale mirror compile: preview a translated edition (applies language_overrides + language-suffixed templates) behind the SAME coverage gate — the gate scopes to exactly the pieces this preview renders, so an exploratory preview of one section isn't blocked by other untranslated pieces. imprint previews that imprint instead of the book — its template, its rendered set, its metadata and its own version counter — and lands on a filename of its own, so it never replaces the book's preview. Does NOT create a Publication or bump version."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"section_ids":{"type":"array","items":{"type":"string"}},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to preview a translated edition, applying language_overrides + language-suffixed templates and running the same coverage gate as compile. Omit for the source-language preview."},"allow_stale":{"type":"boolean","default":false,"description":"Preview a translated edition even if some paragraphs are stale or missing, falling back to source text (default false blocks and reports the gap, exactly like compile)."},"max_pages":{"type":"integer"},"wait_seconds":{"type":"integer","default":30}},"required":["project_id","format"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"section_ids":{"type":"array","items":{"type":"string"}},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to preview a translated edition, applying language_overrides + language-suffixed templates and running the same coverage gate as compile. Omit for the source-language preview."},"allow_stale":{"type":"boolean","default":false,"description":"Preview a translated edition even if some paragraphs are stale or missing, falling back to source text (default false blocks and reports the gap, exactly like compile)."},"imprint":{"type":"string","description":"Name of an imprint from config.json's `imprints` — its own template, rendered set, metadata and version counter. Omit for the book."},"max_pages":{"type":"integer"},"wait_seconds":{"type":"integer","default":30}},"required":["project_id","format"]}
     """
 
     struct Params: Codable {
@@ -195,13 +197,14 @@ public enum PreviewCompileTool: MCPTool {
         let sectionIDs: [String]?
         let language: String?
         let allowStale: Bool?
+        let imprint: String?
         let maxPages: Int?
         let waitSeconds: Int?
         enum CodingKeys: String, CodingKey {
             case projectID = "project_id"
             case format
             case sectionIDs = "section_ids"
-            case language
+            case language, imprint
             case allowStale = "allow_stale"
             case maxPages = "max_pages"
             case waitSeconds = "wait_seconds"
@@ -234,7 +237,8 @@ public enum PreviewCompileTool: MCPTool {
         let result = try await preview.preview(
             format: params.format,
             sectionIDs: params.sectionIDs,
-            maxPages: params.maxPages)
+            maxPages: params.maxPages,
+            imprint: params.imprint)
         if !result.errors.isEmpty {
             // Gate-block / compile-error parity with compile's `.failed` shape.
             return try CompileResponseEncoder.encodeFailed(

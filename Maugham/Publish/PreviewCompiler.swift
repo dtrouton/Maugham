@@ -71,12 +71,14 @@ public struct PreviewCompiler {
     public func preview(
         format: PublishConfig.Format,
         sectionIDs: [String]?,
-        maxPages: Int?
+        maxPages: Int?,
+        imprint: String? = nil
     ) async throws -> Result {
         let jobID = await jobManager.register(phase: .renderingBody)
         do {
             return try await run(
-                jobID: jobID, format: format, sectionIDs: sectionIDs, maxPages: maxPages)
+                jobID: jobID, format: format, sectionIDs: sectionIDs,
+                maxPages: maxPages, imprint: imprint)
         } catch {
             await jobManager.fail(
                 jobID: jobID,
@@ -93,7 +95,8 @@ public struct PreviewCompiler {
         jobID: String,
         format: PublishConfig.Format,
         sectionIDs: [String]?,
-        maxPages: Int?
+        maxPages: Int?,
+        imprint: String?
     ) async throws -> Result {
         guard var config = try await configStore.load() else {
             // RULING-7 (M7-PB-010): the cause rides the Result, so the tool
@@ -109,6 +112,40 @@ public struct PreviewCompiler {
             await jobManager.fail(jobID: jobID, errors: [diag], logExcerpt: "no config")
             return Result(outputPath: "", warnings: [], errors: [diag])
         }
+
+        // Imprint resolution, a two-line twin of `CompileOrchestrator.compile`'s
+        // door (Task 6): the unknown-name check first, then `resolved`. It is a
+        // twin rather than a shared helper because the two entry points differ
+        // in what they do on failure — the orchestrator can refuse before it
+        // registers a job, while a preview's job is already registered by
+        // `preview(_:)` above, so this refusal must FAIL that job on its way
+        // out. Everything below reads an ordinary `PublishConfig` and never
+        // learns an imprint existed (spec §3).
+        if let imprint, config.imprints[imprint] == nil {
+            let error = PublishConfig.UnknownImprint(
+                requested: imprint, known: Array(config.imprints.keys))
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: error.errorDescription ?? "unknown imprint '\(imprint)'",
+                contextLines: ["Nothing was previewed — no output file."])
+            await jobManager.fail(
+                jobID: jobID, errors: [diag],
+                logExcerpt: "unknown_imprint: \(imprint)")
+            return Result(outputPath: "", warnings: [], errors: [diag],
+                          logExcerpt: "unknown_imprint: \(imprint)")
+        }
+        // Read the piece ids only when they can change an answer, exactly as
+        // the orchestrator does: with no imprints declared there is no
+        // allowlist to materialize, and deriving every manuscript a second
+        // time would be pure cost. A throw from here (an unreadable op log,
+        // RULING-54; a merge-patch fragment that leaves a block undecodable)
+        // escapes to `preview(_:)`'s catch, which fails the job and rethrows —
+        // the same terminal exit every other throw past registration takes.
+        config = try config.resolved(
+            imprint: imprint,
+            pieceIDs: config.imprints.isEmpty
+                ? [] : try astSource.orderedPieces().map(\.pieceID))
+
         // F5: previews are where template iteration lives, so refresh the
         // project's app-owned EMISSION.md here too — same unconditional
         // overwrite of that ONE file as `CompileOrchestrator.compile`, never
@@ -119,6 +156,18 @@ public struct PreviewCompiler {
                    atomically: true, encoding: .utf8)
 
         // Preview output lands in build/preview/ — don't pollute Exports/.
+        // This override deliberately outranks an imprint's own `outputs`
+        // patch: previews have one naming rule, whoever asked for them. It
+        // does NOT flatten the imprint away, because `OutputFilenameBuilder`
+        // reads `config.imprint` (set by `resolved` just above) rather than
+        // taking an argument — this template names no `{imprint}` token, so
+        // the builder's collision guard inserts the name before the
+        // extension and an imprint preview lands as
+        // `preview-0.1-pdf-special.pdf`. That is what keeps it off the book's
+        // preview: this directory is last-write-wins by design (a second
+        // preview overwrites its own prior output), so two editions sharing
+        // one filename would mean the writer's last look silently replaced
+        // the other's.
         config.outputs = .init(
             directory: Self.previewSubpath,
             filenameTemplate: "preview-{version}-{ext}.{ext}",

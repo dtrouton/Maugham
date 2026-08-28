@@ -489,4 +489,148 @@ final class PreviewCompilerTests: XCTestCase {
         }
     }
 
+
+    // MARK: - Task 7: previews under an imprint
+
+    /// A three-piece project whose imprint `special` allowlists exactly one of
+    /// them. `sections` is the half of resolution a preview must honour: the
+    /// materialization turns the allowlist into `include: false` entries for
+    /// everything it does not name, which is what `excludedSectionIDs` and
+    /// `IncludeFilteredASTSource` already read.
+    private func imprintConfigStore(
+        nextVersion: String? = nil
+    ) async throws -> PublishConfigStore {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Pre", author: "X"))
+        cfg.imprints = [
+            "special": .init(sections: ["p1": .init()], nextVersion: nextVersion),
+            "other": .init()
+        ]
+        try await configStore.save(cfg)
+        return configStore
+    }
+
+    private func imprintPreview(
+        _ configStore: PublishConfigStore, jobs: CompileJobManager = CompileJobManager()
+    ) -> PreviewCompiler {
+        PreviewCompiler(
+            projectURL: tmp, astSource: ThreePieceSrc(),
+            configStore: configStore, jobManager: jobs,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+    }
+
+    /// An imprint's `sections` allowlist reaches the preview body: only the
+    /// piece it names renders, and the two it does not are dropped — the same
+    /// materialize-then-filter path a compile takes.
+    func testPreview_underAnImprint_rendersOnlyItsAllowlist() async throws {
+        let configStore = try await imprintConfigStore()
+        _ = try await imprintPreview(configStore).preview(
+            format: .epub, sectionIDs: nil, maxPages: nil, imprint: "special")
+
+        let body = try String(
+            contentsOf: tmp.appendingPathComponent(".maugham/publish/build/body.xhtml"),
+            encoding: .utf8)
+        XCTAssertTrue(body.contains("data-piece-id=\"p1\""),
+                      "the allowlisted piece must render")
+        XCTAssertFalse(body.contains("data-piece-id=\"p2\""),
+                       "a piece the imprint does not name must be excluded")
+        XCTAssertFalse(body.contains("data-piece-id=\"p3\""),
+                       "a piece the imprint does not name must be excluded")
+    }
+
+    /// The CONTROL for the allowlist: the same config previewed as the book
+    /// renders all three. Without it the assertion above could pass on a
+    /// preview that renders nothing at all.
+    func testPreview_withoutAnImprint_rendersEveryPiece() async throws {
+        let configStore = try await imprintConfigStore()
+        _ = try await imprintPreview(configStore).preview(
+            format: .epub, sectionIDs: nil, maxPages: nil)
+
+        let body = try String(
+            contentsOf: tmp.appendingPathComponent(".maugham/publish/build/body.xhtml"),
+            encoding: .utf8)
+        XCTAssertTrue(body.contains("data-piece-id=\"p1\""))
+        XCTAssertTrue(body.contains("data-piece-id=\"p2\""))
+        XCTAssertTrue(body.contains("data-piece-id=\"p3\""))
+    }
+
+    /// The preview directory is last-write-wins, so an imprint preview that
+    /// wore the book's filename would silently replace it. It does not: the
+    /// preview's own `filename_template` names no `{imprint}`, so
+    /// `OutputFilenameBuilder`'s collision guard inserts `-special` before the
+    /// extension — reached because `resolved(imprint:pieceIDs:)` set
+    /// `config.imprint` and the builder reads it off the config.
+    func testPreview_underAnImprint_namesItsFileWithTheImprint() async throws {
+        let configStore = try await imprintConfigStore()
+        let book = try await imprintPreview(configStore).preview(
+            format: .epub, sectionIDs: nil, maxPages: nil)
+        let special = try await imprintPreview(configStore).preview(
+            format: .epub, sectionIDs: nil, maxPages: nil, imprint: "special")
+
+        XCTAssertEqual(URL(fileURLWithPath: book.outputPath).lastPathComponent,
+                       "preview-0.1-epub.epub")
+        XCTAssertEqual(URL(fileURLWithPath: special.outputPath).lastPathComponent,
+                       "preview-0.1-epub-special.epub",
+                       "an imprint preview must not land on the book's preview")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: book.outputPath),
+                      "and the book's preview must still be there afterwards")
+    }
+
+    /// An imprint's own `next_version` reaches the preview's filename too —
+    /// proof the whole resolved config is in play, not just `config.imprint`.
+    func testPreview_underAnImprint_takesItsOwnVersion() async throws {
+        let configStore = try await imprintConfigStore(nextVersion: "3.7")
+        let result = try await imprintPreview(configStore).preview(
+            format: .epub, sectionIDs: nil, maxPages: nil, imprint: "special")
+        XCTAssertEqual(URL(fileURLWithPath: result.outputPath).lastPathComponent,
+                       "preview-3.7-epub-special.epub")
+    }
+
+    /// A name this project does not define is a caller's typo: the preview
+    /// refuses in the resolver's own sentence, listing what it does know, and
+    /// carries the same `unknown_imprint:` excerpt a compile's refusal does.
+    func testPreview_unknownImprint_refusesWithTheKnownList() async throws {
+        let configStore = try await imprintConfigStore()
+        let jobs = CompileJobManager()
+        let result = try await imprintPreview(configStore, jobs: jobs).preview(
+            format: .epub, sectionIDs: nil, maxPages: nil, imprint: "nope")
+
+        XCTAssertEqual(result.outputPath, "")
+        let message = result.errors.map(\.message).joined()
+        XCTAssertTrue(message.contains("unknown imprint 'nope'"), "got: \(message)")
+        XCTAssertTrue(message.contains("other, special"),
+                      "the refusal must list what this project does define, sorted "
+                      + "— got: \(message)")
+        XCTAssertEqual(result.logExcerpt, "unknown_imprint: nope")
+        let running = await jobs.allInProgress()
+        XCTAssertTrue(running.isEmpty, "the refusal is terminal for the job")
+    }
+
+    /// The refusal's CONTROL: nothing was rendered. A refusal that still wrote
+    /// a body would be a compile the caller was told did not happen.
+    func testPreview_unknownImprint_rendersNothing() async throws {
+        let configStore = try await imprintConfigStore()
+        _ = try await imprintPreview(configStore).preview(
+            format: .epub, sectionIDs: nil, maxPages: nil, imprint: "nope")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: tmp.appendingPathComponent(".maugham/publish/build/body.xhtml").path),
+            "an unknown name is refused before a word of the manuscript is read")
+    }
+
+    /// Disable experiment (recorded, not automated): deleting the
+    /// `loaded.imprints.isEmpty ? [] : …` guard in `run` and passing `[]`
+    /// unconditionally leaves the allowlist unmaterialized, and
+    /// `testPreview_underAnImprint_rendersOnlyItsAllowlist` goes red on
+    /// `data-piece-id="p2"` still being in the body.
+    func testPreview_underAnImprint_materializesAgainstTheProjectsPieces() async throws {
+        let configStore = try await imprintConfigStore()
+        let loaded = try await configStore.load()
+        let cfg = try XCTUnwrap(loaded)
+        let resolved = try cfg.resolved(
+            imprint: "special", pieceIDs: ThreePieceSrc().orderedPieces().map(\.pieceID))
+        XCTAssertEqual(resolved.excludedSectionIDs, ["p2", "p3"],
+                       "the pieceIDs the preview reads are what turn an allowlist "
+                       + "into an exclusion set")
+    }
 }

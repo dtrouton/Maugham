@@ -13,14 +13,26 @@ private func languageMatches(_ actual: String?, requested: String) -> Bool {
     return actual == requested
 }
 
+/// Shared imprint-addressing rule for `list_publications`'s filter and
+/// `read_publication_page`'s disambiguation (spec 2026-08-27): the documented
+/// sentinel `"book"` selects the rows no imprint compiled (`imprint == nil`);
+/// any other string is an exact name match. A sibling of `languageMatches`,
+/// and shared for the same reason — one meaning of a value everywhere in this
+/// file. (A project MAY legally name an imprint `book`; the sentinel then
+/// wins, exactly as `"source"` would over a language tag spelled `source`.)
+private func imprintMatches(_ actual: String?, requested: String) -> Bool {
+    if requested == "book" { return actual == nil }
+    return actual == requested
+}
+
 // MARK: - list_publications
 
 public enum ListPublicationsTool: MCPTool {
     public static let method = "list_publications"
     public static let description =
-    "List publications recorded for a project. Optional filters: publication_id (exact, the unique key — prefer this when you need to address one specific publication), version (non-unique when init has reset the counter past a prior publication), language (exact tag match, e.g. \"es\"; the sentinel \"source\" selects the untagged source-language rows), format, limit (default 50, takes the most recent N). When multiple publications share a version, all are returned by the version filter; use publication_id to disambiguate. Every row surfaces its language field explicitly — null for the source edition, the tag string for a translated edition — so a version's language family (spec 2026-07-23) can be enumerated with one call."
+    "List publications recorded for a project. Optional filters: publication_id (exact, the unique key — prefer this when you need to address one specific publication), version (non-unique when init has reset the counter past a prior publication), language (exact tag match, e.g. \"es\"; the sentinel \"source\" selects the untagged source-language rows), format, imprint (exact name match, e.g. \"special\"; the sentinel \"book\" selects the rows no imprint compiled), limit (default 50, takes the most recent N). A publication is keyed on (imprint, version, language, format), so the book's 0.1 and an imprint's 0.1 are different publications. When multiple publications share a version, all are returned by the version filter; use publication_id to disambiguate. Every row surfaces its language field explicitly — null for the source edition, the tag string for a translated edition — so a version's language family (spec 2026-07-23) can be enumerated with one call. Every row surfaces its imprint field the same way — null for the book, the name string for an imprint."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"publication_id":{"type":"string"},"version":{"type":"string"},"language":{"type":"string","description":"Exact tag match (e.g. \\"es\\"); sentinel \\"source\\" selects rows where language is null."},"format":{"type":"string","enum":["pdf","epub"]},"limit":{"type":"integer","default":50}},"required":["project_id"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"publication_id":{"type":"string"},"version":{"type":"string"},"language":{"type":"string","description":"Exact tag match (e.g. \\"es\\"); sentinel \\"source\\" selects rows where language is null."},"imprint":{"type":"string","description":"Exact imprint name (e.g. \\"special\\"); sentinel \\"book\\" selects rows where imprint is null."},"format":{"type":"string","enum":["pdf","epub"]},"limit":{"type":"integer","default":50}},"required":["project_id"]}
     """
 
     struct Params: Codable {
@@ -28,12 +40,13 @@ public enum ListPublicationsTool: MCPTool {
         let publicationID: String?
         let version: String?
         let language: String?
+        let imprint: String?
         let format: PublishConfig.Format?
         let limit: Int?
         enum CodingKeys: String, CodingKey {
             case projectID = "project_id"
             case publicationID = "publication_id"
-            case version, language, format, limit
+            case version, language, imprint, format, limit
         }
     }
 
@@ -49,6 +62,9 @@ public enum ListPublicationsTool: MCPTool {
         if let lang = params.language {
             pubs = pubs.filter { languageMatches($0.language, requested: lang) }
         }
+        if let imp = params.imprint {
+            pubs = pubs.filter { imprintMatches($0.imprint, requested: imp) }
+        }
         if let f = params.format  { pubs = pubs.filter { $0.format == f } }
         let limit = params.limit ?? 50
         if pubs.count > limit { pubs = Array(pubs.suffix(limit)) }
@@ -60,13 +76,15 @@ public enum ListPublicationsTool: MCPTool {
         guard var pubsArray = try JSONSerialization.jsonObject(with: pubsData) as? [[String: Any]] else {
             throw MCPError.internalError("failed to encode publications")
         }
-        // `Publication.encode` uses `encodeIfPresent` for `language` (so old
-        // JSONL records without the field keep decoding), which means a nil
-        // language OMITS the key rather than encoding JSON null. The tool
-        // contract promises every row surfaces `language` explicitly —
-        // backfill the key here rather than changing the on-disk encoding.
-        for i in pubsArray.indices where pubsArray[i]["language"] == nil {
-            pubsArray[i]["language"] = NSNull()
+        // `Publication.encode` uses `encodeIfPresent` for `language` and
+        // `imprint` (so old JSONL records without the fields keep decoding),
+        // which means a nil value OMITS the key rather than encoding JSON
+        // null. The tool contract promises every row surfaces both
+        // explicitly — backfill the keys here rather than changing the
+        // on-disk encoding.
+        for i in pubsArray.indices {
+            if pubsArray[i]["language"] == nil { pubsArray[i]["language"] = NSNull() }
+            if pubsArray[i]["imprint"] == nil { pubsArray[i]["imprint"] = NSNull() }
         }
         return try JSONSerialization.data(
             withJSONObject: ["publications": pubsArray], options: [.sortedKeys])
@@ -78,9 +96,9 @@ public enum ListPublicationsTool: MCPTool {
 public enum ReadPublicationPageTool: MCPTool {
     public static let method = "read_publication_page"
     public static let description =
-    "Rasterize one page of a publication's PDF as a JPEG. Address the publication by either publication_id (unique, preferred) or version (non-unique when init has reset the counter past a prior publication — first-write-wins). At least one must be provided. Optional language disambiguates a version shared across a language family (spec 2026-07-23): exact tag match (e.g. \"es\"), or the sentinel \"source\" for the untagged source edition; combined with version it resolves that specific family member, combined with publication_id it must agree with that publication's language (mirroring the publication_id+version agreement rule) — version-only addressing is unaffected and keeps first-write-wins. Optional max_dimension/quality/region (region is normalized 0–1, top-left origin). Returns the same image-response envelope as read_document. Pages are 1-indexed."
+    "Rasterize one page of a publication's PDF as a JPEG. Address the publication by either publication_id (unique, preferred) or version (non-unique when init has reset the counter past a prior publication — first-write-wins). At least one must be provided. Optional language disambiguates a version shared across a language family (spec 2026-07-23): exact tag match (e.g. \"es\"), or the sentinel \"source\" for the untagged source edition; combined with version it resolves that specific family member, combined with publication_id it must agree with that publication's language (mirroring the publication_id+version agreement rule) — version-only addressing is unaffected and keeps first-write-wins. Optional imprint disambiguates the same way for imprints (spec 2026-08-27): exact name match (e.g. \"special\"), or the sentinel \"book\" for a publication no imprint compiled; with version it narrows the family, with publication_id it must agree. Optional max_dimension/quality/region (region is normalized 0–1, top-left origin). Returns the same image-response envelope as read_document. Pages are 1-indexed."
     public static let inputSchemaJSON = #"""
-    {"type":"object","properties":{"project_id":{"type":"string"},"publication_id":{"type":"string","description":"Unique publication identifier (preferred). Mutually informative with version and language: if given alongside either, must refer to the same publication."},"version":{"type":"string","description":"Version string (e.g. \"0.1\"). First-write-wins when ambiguous, unless language narrows it."},"language":{"type":"string","description":"Exact tag match (e.g. \"es\") or sentinel \"source\" for the untagged source edition. With version, resolves the specific family member sharing that version; with publication_id, must agree with that publication's language."},"page_number":{"type":"integer"},"max_dimension":{"type":"integer","description":"Longest-edge cap (256–4096, default 2048)."},"quality":{"type":"integer","description":"JPEG quality 10–100 (default 85)."},"region":{"type":"object","description":"Optional crop, normalized 0–1, top-left origin.","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]}},"required":["project_id","page_number"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"publication_id":{"type":"string","description":"Unique publication identifier (preferred). Mutually informative with version, language and imprint: if given alongside any of them, must refer to the same publication."},"version":{"type":"string","description":"Version string (e.g. \"0.1\"). First-write-wins when ambiguous, unless language or imprint narrows it."},"language":{"type":"string","description":"Exact tag match (e.g. \"es\") or sentinel \"source\" for the untagged source edition. With version, resolves the specific family member sharing that version; with publication_id, must agree with that publication's language."},"imprint":{"type":"string","description":"Exact imprint name (e.g. \"special\") or sentinel \"book\" for a publication no imprint compiled. With version, narrows the family to that imprint; with publication_id, must agree with that publication's imprint."},"page_number":{"type":"integer"},"max_dimension":{"type":"integer","description":"Longest-edge cap (256–4096, default 2048)."},"quality":{"type":"integer","description":"JPEG quality 10–100 (default 85)."},"region":{"type":"object","description":"Optional crop, normalized 0–1, top-left origin.","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]}},"required":["project_id","page_number"]}
     """#
 
     struct Params: Codable {
@@ -88,6 +106,7 @@ public enum ReadPublicationPageTool: MCPTool {
         let publicationID: String?
         let version: String?
         let language: String?
+        let imprint: String?
         let pageNumber: Int
         let maxDimension: Int?
         let quality: Int?
@@ -95,7 +114,7 @@ public enum ReadPublicationPageTool: MCPTool {
         enum CodingKeys: String, CodingKey {
             case projectID = "project_id"
             case publicationID = "publication_id"
-            case version, language
+            case version, language, imprint
             case pageNumber = "page_number"
             case maxDimension = "max_dimension"
             case quality, region
@@ -133,6 +152,13 @@ public enum ReadPublicationPageTool: MCPTool {
                 throw MCPError.invalidArgument(
                     "publication_id='\(pid)' has language='\(match.language ?? "source")', not the requested language='\(lang)'")
             }
+            // And so must imprint — the same agreement rule, spelled in the
+            // imprint's own sentinel so a book publication reads as 'book'
+            // rather than as an absence.
+            if let imp = params.imprint, !imprintMatches(match.imprint, requested: imp) {
+                throw MCPError.invalidArgument(
+                    "publication_id='\(pid)' has imprint='\(match.imprint ?? "book")', not the requested imprint='\(imp)'")
+            }
             // Format must be PDF (only PDFs are rasterizable).
             guard match.format == .pdf else {
                 throw MCPError.invalidArgument(
@@ -140,7 +166,19 @@ public enum ReadPublicationPageTool: MCPTool {
             }
             pub = match
         } else if let v = params.version {
-            let candidates = pubs.filter { $0.version == v && $0.format == .pdf }
+            var candidates = pubs.filter { $0.version == v && $0.format == .pdf }
+            // `imprint` narrows the family the way `language` does, and runs
+            // first so a caller who named both gets the more specific refusal
+            // when no publication under that imprint exists at all. With no
+            // `imprint` given `candidates` is exactly what it was before —
+            // version-only addressing keeps first-write-wins.
+            if let imp = params.imprint {
+                candidates = candidates.filter { imprintMatches($0.imprint, requested: imp) }
+                guard !candidates.isEmpty else {
+                    throw MCPError.invalidArgument(
+                        "no PDF publication with version='\(v)' and imprint='\(imp)'")
+                }
+            }
             if let lang = params.language {
                 guard let match = candidates.first(where: { languageMatches($0.language, requested: lang) }) else {
                     throw MCPError.invalidArgument(
