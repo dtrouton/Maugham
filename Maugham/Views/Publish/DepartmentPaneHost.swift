@@ -132,7 +132,11 @@ struct DepartmentPaneHost: View {
     /// Design row is out of date. Reading the orchestrator's own state here
     /// registers the observation that makes it live, and the redundant re-derive
     /// when a round *starts* costs one proposals listing.
-    private struct ReloadKey: Equatable {
+    /// **Internal rather than private, so the joins are assertable.** Each
+    /// field here is a re-derive the desk depends on and none of them is
+    /// visible in what the pane draws; a join deleted by a later hand fails
+    /// nothing until a writer notices their rows describing the wrong book.
+    struct ReloadKey: Equatable {
         let manifestModified: Date
         let refreshes: Int
         let designRunState: DesignerOrchestrator.RunState?
@@ -158,7 +162,7 @@ struct DepartmentPaneHost: View {
         let configModified: Date?
     }
 
-    private var reloadKey: ReloadKey {
+    var reloadKey: ReloadKey {
         ReloadKey(manifestModified: store.manifest.modified, refreshes: refreshes,
                   designRunState: designer?.runState,
                   designerBusy: designer?.isRunning ?? false,
@@ -690,14 +694,16 @@ struct DepartmentPaneHost: View {
         // `DesignProposalStore.list()` synchronously three lines down; this
         // read keeps that posture.
         let config = (try? PublishConfigStore.read(in: projectURL)) ?? nil
+        let picked = documentStore.uiState.publishImprint
+        let manuscript = EditionStatus.manuscriptDocumentIds(in: store.manifest)
         imprints = Self.imprintNames(in: config)
-        bookLanguage = config?.metadata.language ?? PublishConfig.Metadata().language
+        bookLanguage = Self.sourceLanguage(imprint: picked, in: config,
+                                           pieceIDs: manuscript)
 
         let report = await EditionStatus.languageRows(
             in: store, projectURL: projectURL,
-            documentIds: Self.scopedDocumentIds(
-                EditionStatus.manuscriptDocumentIds(in: store.manifest),
-                imprint: documentStore.uiState.publishImprint, in: config))
+            documentIds: Self.scopedDocumentIds(manuscript, imprint: picked,
+                                                in: config))
         languages = report.rows
         unreadable = report.unreadable
         do {
@@ -732,6 +738,40 @@ struct DepartmentPaneHost: View {
     @MainActor
     static func select(imprint: String?, in documentStore: DocumentStore) {
         documentStore.updateUIState { $0.publishImprint = imprint }
+    }
+
+    /// **The book's own language, as the compile will read it** — the tag the
+    /// sheet offers checked and the one `LanguageSet` substitutes back to the
+    /// untranslated body.
+    ///
+    /// **Resolved, and that is the whole point.** `CompileOrchestrator` builds
+    /// its `LanguageSet` with `sourceTag: config.metadata.language` off the
+    /// config it has already put through `resolved(imprint:pieceIDs:)` — and
+    /// says so in its own comment, "because an imprint may spell the book's own
+    /// language differently from the book". An imprint whose `metadata`
+    /// fragment carries `"language": "es"` therefore has `es` as its source
+    /// tag; a sheet reading the TOP-LEVEL `en` would offer "the book's own
+    /// language (English)", send `["en"]`, and `LanguageSet` would take that as
+    /// a TRANSLATED edition — a coverage refusal for a translation nobody ever
+    /// wrote.
+    ///
+    /// **Through `resolved` rather than by reading the fragment**, which is
+    /// Constraint 1's door (`PublishConfig+Imprints.swift`: "Resolution is the
+    /// ONE place imprint-awareness lives"). Reaching into
+    /// `imprints[name]?.metadata?["language"]` would be a second, hand-rolled
+    /// copy of an RFC 7396 merge patch, and the two would drift the first time
+    /// the merge learned anything.
+    ///
+    /// Anything `resolved` refuses — a name the config no longer defines, a
+    /// fragment that leaves `metadata` undecodable — falls back to the book's
+    /// own tag, which is `scopedDocumentIds`' fallback for the same case and
+    /// for the same reason.
+    static func sourceLanguage(imprint: String?, in config: PublishConfig?,
+                               pieceIDs: [String]) -> String {
+        guard let config else { return PublishConfig.Metadata().language }
+        let resolved = (try? config.resolved(imprint: imprint,
+                                             pieceIDs: pieceIDs)) ?? config
+        return resolved.metadata.language
     }
 
     /// Every imprint the project declares, sorted — the picker's rows, and

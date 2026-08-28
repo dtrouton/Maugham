@@ -939,6 +939,116 @@ final class DepartmentPaneTests: XCTestCase {
                        "the pamphlet is chapter two, and chapter two is done")
     }
 
+    /// **The book's own language is the IMPRINT's, when the imprint spells
+    /// one** — and getting this wrong refuses a compile for a translation
+    /// nobody wrote.
+    ///
+    /// `CompileOrchestrator` builds its `LanguageSet` with `sourceTag:
+    /// config.metadata.language` off the config it has already RESOLVED, and
+    /// says so in its own comment. So an imprint whose `metadata` fragment
+    /// carries `"language": "es"` has `es` as its source tag: a sheet offering
+    /// the top-level `en` would send `["en"]`, and `LanguageSet` would read
+    /// that as a translated edition of a Spanish book.
+    ///
+    /// The last two assertions are the consequence rather than a restatement:
+    /// the same tag the sheet would send, put through the reader the
+    /// orchestrator actually uses, is a SOURCE body — and the unresolved one is
+    /// not.
+    ///
+    /// The disable experiment: answer `config.metadata.language` without
+    /// resolving and the first assertion fails with "en".
+    func test_theBooksOwnLanguageIsTheImprintsWhenTheImprintSpellsOne() throws {
+        var config = PublishConfig()
+        config.metadata.language = "en"
+        config.imprints = [
+            "es-edition": .init(metadata: ["language": .string("es")]),
+            "plain": .init(metadata: ["title": .string("A Special Edition")]),
+        ]
+        let pieces = ["doc-1", "doc-2"]
+
+        XCTAssertEqual(
+            DepartmentPaneHost.sourceLanguage(imprint: "es-edition", in: config,
+                                              pieceIDs: pieces), "es")
+        XCTAssertEqual(
+            DepartmentPaneHost.sourceLanguage(imprint: "plain", in: config,
+                                              pieceIDs: pieces), "en",
+            "an imprint that spells no language of its own inherits the book's")
+        XCTAssertEqual(
+            DepartmentPaneHost.sourceLanguage(imprint: nil, in: config,
+                                              pieceIDs: pieces), "en")
+        XCTAssertEqual(
+            DepartmentPaneHost.sourceLanguage(imprint: "gone", in: config,
+                                              pieceIDs: pieces), "en",
+            "a name the config no longer defines falls back to the book, as "
+            + "`scopedDocumentIds` does for the same case")
+        XCTAssertEqual(
+            DepartmentPaneHost.sourceLanguage(imprint: "es-edition", in: nil,
+                                              pieceIDs: pieces),
+            PublishConfig.Metadata().language,
+            "a project with no config at all still has to answer something")
+
+        // The consequence, through the orchestrator's own reader.
+        let asSent = try LanguageSet(language: nil, languages: ["es"],
+                                     sourceTag: "es")
+        XCTAssertEqual(asSent.bodies, [nil],
+                       "the resolved tag makes a SOURCE compile")
+        let asUnresolved = try LanguageSet(language: nil, languages: ["en"],
+                                           sourceTag: "es")
+        XCTAssertEqual(asUnresolved.bodies, ["en"],
+                       "…and the top-level one would have asked for a Spanish "
+                       + "book's English TRANSLATION, which nobody wrote")
+    }
+
+    /// **The sheet carries whatever source tag the host resolved** — the label
+    /// the writer reads and the tag the request sends are the same value, so
+    /// the fix above reaches the press rather than stopping at a static
+    /// function.
+    func test_theSheetsBookLanguageRowIsTheOneTheHostResolved() async throws {
+        var asked: [DeskCompileRunner.Request] = []
+        let window = mountSheet(languages: [], bookLanguage: "es",
+                                imprint: "es-edition",
+                                onCompile: { asked.append($0) })
+        _ = await pumpUntil(deadline: 3) {
+            (try? self.axButtonLabels(in: window))?
+                .contains(DepartmentCompileState.compileTitle) == true
+        }
+        let texts = try axTexts(in: window)
+        let expected = DepartmentCompileSheetCopy.bookLanguageTitle("es")
+        XCTAssertTrue(texts.contains { $0.contains(expected) },
+                      "nothing on the sheet reads \u{201C}\(expected)\u{201D}. "
+                      + "Published: \(texts.sorted())")
+
+        press(try axButtons(labelled: DepartmentCompileState.compileTitle,
+                            in: window)[0])
+        _ = await pumpUntil(deadline: 3) { !asked.isEmpty }
+        XCTAssertEqual(asked.first?.languages, ["es"])
+    }
+
+    /// **The desk's pick is joined into the re-derive key**, which is the whole
+    /// of how picking an imprint re-sums the rows. Nothing the pane DRAWS shows
+    /// this: delete the join and the desk goes on reporting the previous book's
+    /// coverage under the new imprint's name, silently.
+    ///
+    /// The disable experiment: drop `imprint:` from `reloadKey`'s construction
+    /// (pass `nil`) and the second assertion fails — the two keys compare equal
+    /// across a changed pick.
+    func test_theDesksPickIsJoinedIntoTheReDeriveKey() async throws {
+        let fixture = try await makeProject()
+        let host = DepartmentPaneHost(store: fixture.projectStore,
+                                      documentStore: fixture.documentStore,
+                                      projectURL: fixture.projectURL)
+        let onTheBook = host.reloadKey
+
+        DepartmentPaneHost.select(imprint: "special", in: fixture.documentStore)
+        let onTheImprint = host.reloadKey
+
+        XCTAssertEqual(onTheImprint.imprint, "special")
+        XCTAssertNotEqual(onTheBook, onTheImprint,
+                          "a changed pick must change the key, or the rows are "
+                          + "never re-derived against the imprint's own "
+                          + "documents")
+    }
+
     // MARK: - Census
 
     /// **The desk reads no store** (tripwire 4). Its values are assembled by the
@@ -952,7 +1062,8 @@ final class DepartmentPaneTests: XCTestCase {
         let code = try Self.codeLines(of: "Views/Publish/DepartmentPane.swift")
 
         for forbidden in ["ProjectStore", "DocumentStore", "TranslationStore",
-                          "DesignProposalStore", "FileManager", "contentsOf"] {
+                          "DesignProposalStore", "PublishConfigStore",
+                          "FileManager", "contentsOf"] {
             XCTAssertFalse(code.contains { $0.contains(forbidden) },
                            "`\(forbidden)` appears on the pane's path — the desk "
                            + "takes values so nothing per-row can reach the disk "

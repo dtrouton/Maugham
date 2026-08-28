@@ -133,9 +133,8 @@ Which imprint the compile is for is the picker's answer, shown at the top
 of the sheet and not asked again.
 
 One compile runs at a time. While it does, the desk says what it is
-compiling and offers **Cancel**; press Compile… again and it tells you a
-compile is already running rather than starting a second one — the one in
-flight is untouched, and Cancel still stops it. A cancelled compile
+compiling and offers **Cancel**; Compile… itself is greyed out, and
+hovering it says a compile is already running. A cancelled compile
 publishes nothing. When one lands, the line says the version, the imprint
 and the edition, and where the file is.
 
