@@ -535,4 +535,105 @@ final class PublishConfigImprintValidationTests: XCTestCase {
         XCTAssertTrue(errs.contains { $0.field == "imprints.Special" },
                       "the pure name rule must fire through the project-aware door, got \(fields(errs))")
     }
+
+    // MARK: - I3: `imprint` is set by resolution, never written
+    //
+    // A top-level `imprint` key in the writer's own config.json is nobody's
+    // to write: every later BOOK compile would append `-x` to its filename
+    // while the catalog row carried `imprint: nil`, and `templateBasenameErrors`
+    // returns [] for a config that already carries one — so the basename rule
+    // would be silently off as well. The refusal lives at the PROJECT-AWARE
+    // door, which is where the writer's config is judged; the pure pass must
+    // stay permissive because `Republisher` runs it on RESOLVED snapshot
+    // configs, which legitimately carry the field.
+
+    private func writtenImprint() -> PublishConfig {
+        var cfg = specExample()
+        cfg.imprint = "special-glb"
+        return cfg
+    }
+
+    func test_aWrittenTopLevelImprint_isRefusedAtTheConfigWriteDoor() throws {
+        try write("template.tex", into: publishDir)
+        try write("templates/special-glb.tex", into: publishDir)
+        let errs = PublishConfigValidator.validate(
+            writtenImprint(), publishDir: publishDir, pieceIDs: ["ab12"])
+        XCTAssertTrue(errs.contains { $0.field == "imprint" },
+                      "a written `imprint` must be refused, got \(fields(errs))")
+        XCTAssertTrue(
+            errs.contains { $0.field == "imprint" && $0.message.contains("resolution") },
+            "and the message must say why: \(errs.map(\.message))")
+    }
+
+    /// The CONTROL: the same config without the key validates. Otherwise the
+    /// assertion above could pass on a door refusing this fixture for some
+    /// other reason.
+    func test_theSameConfigWithoutTheKey_isAccepted() throws {
+        try write("template.tex", into: publishDir)
+        try write("templates/special-glb.tex", into: publishDir)
+        let errs = PublishConfigValidator.validate(
+            specExample(), publishDir: publishDir, pieceIDs: ["ab12"])
+        XCTAssertTrue(errs.isEmpty, "the same project, unwritten: \(fields(errs))")
+    }
+
+    /// The pure pass stays permissive, and this is not a nicety:
+    /// `Republisher.republish` runs exactly this call on `snap.config`, a
+    /// RESOLVED config that always carries `imprint`. A rule placed here would
+    /// refuse every republish of every imprint.
+    func test_thePurePass_acceptsAResolvedImprint() throws {
+        let errs = PublishConfigValidator.validate(writtenImprint())
+        XCTAssertFalse(errs.contains { $0.field == "imprint" },
+                       "the pure pass judges snapshot configs, which carry the "
+                        + "field by construction: \(fields(errs))")
+    }
+
+    /// The compile door judges the RESOLVED config, so it is told which
+    /// imprint resolution chose: the field must equal it. An imprint compile
+    /// passes…
+    func test_theCompileDoor_acceptsTheImprintItResolved() throws {
+        try write("template.tex", into: publishDir)
+        try write("templates/special-glb.tex", into: publishDir)
+        let errs = PublishConfigValidator.validateForCompile(
+            writtenImprint(), publishDir: publishDir, pieceIDs: ["ab12"],
+            format: .epub, resolvedImprint: "special-glb")
+        XCTAssertTrue(errs.isEmpty,
+                      "resolution set this field; the door must not refuse its own "
+                        + "work: \(fields(errs))")
+    }
+
+    /// …and a BOOK compile over a hand-edited config does not. This is the
+    /// half `set_publish_config`'s write-time refusal cannot cover: a
+    /// config.json edited by hand, or arrived by sync, reaches the compile
+    /// door without ever passing the write door.
+    func test_theCompileDoor_refusesAWrittenImprintOnABookCompile() throws {
+        try write("template.tex", into: publishDir)
+        try write("templates/special-glb.tex", into: publishDir)
+        let errs = PublishConfigValidator.validateForCompile(
+            writtenImprint(), publishDir: publishDir, pieceIDs: ["ab12"],
+            format: .epub, resolvedImprint: nil)
+        XCTAssertTrue(errs.contains { $0.field == "imprint" },
+                      "a book compile whose config claims an imprint must refuse, "
+                        + "got \(fields(errs))")
+    }
+
+    /// And the rule is reached by the door `set_publish_config` actually
+    /// calls: `applyPatch`'s project-aware pass. The patch is refused and
+    /// nothing is written.
+    func test_setPublishConfigPatchWritingImprint_isRefusedAndSavesNothing() async throws {
+        try write("template.tex", into: publishDir)
+        try write("templates/special-glb.tex", into: publishDir)
+        let store = PublishConfigStore(projectURL: tmp)
+        try await store.save(specExample())
+
+        let publishDir = self.publishDir!
+        let patch = Data(#"{"imprint": "special-glb"}"#.utf8)
+        let result = try await store.applyPatch(patch) { cfg in
+            PublishConfigValidator.validate(
+                cfg, publishDir: publishDir, pieceIDs: ["ab12"])
+        }
+        XCTAssertTrue(result.errors.contains { $0.field == "imprint" },
+                      "got \(result.errors.map(\.field))")
+        let saved = try await store.load()
+        XCTAssertNil(saved?.imprint, "a refused patch writes nothing")
+    }
 }

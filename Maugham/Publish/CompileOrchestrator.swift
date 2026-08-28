@@ -173,8 +173,13 @@ public struct CompileOrchestrator {
         // project whose starter install failed silently must still be able to
         // patch its config — but a compile through a template that isn't there
         // must refuse in Maugham's own words rather than as a tectonic error.
+        // `resolvedImprint` is the request's own name, not the config's: the
+        // door judges the RESOLVED config, so `config.imprint` is legitimate
+        // exactly when it is what resolution just set (I3). A book compile
+        // over a hand-edited config claiming an imprint is refused here.
         let configErrors = PublishConfigValidator.validateForCompile(
-            config, publishDir: publishDir, pieceIDs: pieceIDs, format: format)
+            config, publishDir: publishDir, pieceIDs: pieceIDs, format: format,
+            resolvedImprint: imprint)
         if !configErrors.isEmpty {
             let diags = configErrors.map {
                 TectonicLogParser.Diagnostic(

@@ -101,10 +101,42 @@ public enum PublishConfigValidator {
     ///   - publishDir: the project's `.maugham/publish/` directory.
     ///   - pieceIDs: the manuscript pieces a compile can render —
     ///     `ProjectStoreASTSource.publishablePieces()`, the one spelling.
+    ///   - resolvedImprint: which imprint resolution chose for the config
+    ///     being judged — `nil` for the book, and for `set_publish_config`,
+    ///     whose subject is the writer's own config and is never resolved.
+    ///     See `writtenImprintError`.
     public static func validate(
-        _ cfg: PublishConfig, publishDir: URL, pieceIDs: [String]
+        _ cfg: PublishConfig, publishDir: URL, pieceIDs: [String],
+        resolvedImprint: String? = nil
     ) -> [ValidationError] {
-        validate(cfg) + existenceErrors(cfg, publishDir: publishDir, pieceIDs: pieceIDs)
+        validate(cfg)
+            + existenceErrors(cfg, publishDir: publishDir, pieceIDs: pieceIDs)
+            + writtenImprintError(cfg, resolvedImprint: resolvedImprint)
+    }
+
+    /// I3 (whole-branch review): `imprint` is set by resolution and is never
+    /// the writer's to write.
+    ///
+    /// A top-level `"imprint": "x"` in config.json used to persist through
+    /// `set_publish_config`, after which every BOOK compile appended `-x` to
+    /// its filename while its catalog row carried `imprint: nil` — and
+    /// `templateBasenameErrors` returns `[]` for any config that already
+    /// carries the field, so the basename collision rule was silently off too.
+    ///
+    /// It cannot live in the pure pass: `Republisher` runs that over RESOLVED
+    /// snapshot configs, which carry `imprint` by construction. And the
+    /// project-aware door is reached with a resolved config from the compile
+    /// path, so the question is not "is it set" but "is it the one resolution
+    /// set" — which the caller is the only one who knows.
+    private static func writtenImprintError(
+        _ cfg: PublishConfig, resolvedImprint: String?
+    ) -> [ValidationError] {
+        guard let written = cfg.imprint, written != resolvedImprint else { return [] }
+        return [.init(
+            field: "imprint",
+            message: "imprint is set by resolution, never written — drop the key "
+                + "and choose the imprint when you compile "
+                + "(compile/preview_compile take an `imprint` argument)")]
     }
 
     /// The compile pre-flight's door (Task 6): everything the config-write
@@ -126,9 +158,11 @@ public enum PublishConfigValidator {
     /// `validate(_:publishDir:pieceIDs:)` above.
     public static func validateForCompile(
         _ cfg: PublishConfig, publishDir: URL, pieceIDs: [String],
-        format: PublishConfig.Format
+        format: PublishConfig.Format,
+        resolvedImprint: String? = nil
     ) -> [ValidationError] {
-        var errs = validate(cfg, publishDir: publishDir, pieceIDs: pieceIDs)
+        var errs = validate(cfg, publishDir: publishDir, pieceIDs: pieceIDs,
+                            resolvedImprint: resolvedImprint)
         if format == .pdf, cfg.template == defaultTemplate,
            let err = templateExistenceError(
             cfg.template, field: "template", publishDir: publishDir,
