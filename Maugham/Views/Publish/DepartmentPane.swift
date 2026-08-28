@@ -219,20 +219,6 @@ struct DepartmentPane: View {
         VStack(spacing: 0) {
             header
             Divider()
-            // **Where an imprint comes from, for a project that has none.**
-            // Drawn instead of the picker rather than beside it: a picker with
-            // one unchangeable row is a control that can only refuse, and the
-            // honest answer to "why can't I pick one" is the sentence saying
-            // where imprints are declared.
-            if imprints.isEmpty {
-                Text(DepartmentDesk.noImprintsYet)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
             if let notice {
                 Text(notice)
                     .font(.caption)
@@ -312,6 +298,28 @@ struct DepartmentPane: View {
     private var desk: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                // **Where an imprint comes from, for a project that has none.**
+                // Drawn instead of the picker rather than beside it: a picker
+                // with one unchangeable row is a control that can only refuse,
+                // and the honest answer to "why can't I pick one" is the
+                // sentence naming where imprints are declared.
+                //
+                // **Inside the scroller, not under the header.** A wrapping
+                // `Text` carrying `fixedSize(vertical: true)` OUTSIDE a
+                // `ScrollView` demands its full intrinsic height from the
+                // column, and this one is drawn for every project that has no
+                // imprints — which is most of them. Measured: it grew the whole
+                // split view to 1002pt in a 732pt window and took the binder
+                // and the writing column with it
+                // (`DetailPaneColumnHeightCensusTests`, the exact failure that
+                // census names in its own message).
+                if imprints.isEmpty {
+                    Text(DepartmentDesk.noImprintsYet)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 section(DepartmentDesk.designHeading) {
                     designRow
                 }
