@@ -630,15 +630,10 @@ public struct CompileOrchestrator {
         // this used to be reimplemented in `Republisher.republish`, which let
         // the two drift apart).
         //
-        // P2: once per TRANSLATED body. Every diagnostic is prefixed with the
-        // tag it belongs to — single-language compiles included, because one
-        // contract is cheaper to read than two — and every blocked tongue is
-        // reported, not just the first: a writer who has to compile once per
-        // language to learn the second one's gaps is being sent round the loop
-        // for nothing. The failure is WHOLE, so a tongue that passed
-        // contributes nothing to it: `gateWarnings` are collected but dropped
-        // on the blocked path, because nothing was compiled for them to be
-        // about.
+        // P2: once per TRANSLATED body, through `gateEveryTongue` — the ONE
+        // loop this door, `PreviewCompiler` and `Republisher` share (Task 6),
+        // for the same reason they already share `applyGate`. What it does
+        // with a tag, a block and a passing tongue is documented there.
         //
         // `allow_stale` is the whole compile's, so it applies to EVERY tongue:
         // there is one book, and a writer who accepts source-text fallback for
@@ -648,27 +643,16 @@ public struct CompileOrchestrator {
         // compile that every other tongue passed.
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
         if let source = astSource as? ProjectStoreASTSource {
-            var blocked: [TectonicLogParser.Diagnostic] = []
-            var blockedExcerpts: [String] = []
-            for tag in set.translatedTags {
-                let report = try await TranslationCoverage.check(
-                    projectStore: source.projectStore, language: tag,
-                    excludedSectionIDs: excludedSectionIDs)
-                switch TranslationCoverage.applyGate(
-                    report: report, language: tag, allowStale: allowStale
-                ) {
-                case .blocked(let errors, let logExcerpt):
-                    blocked += errors.map { Self.tagged($0, tag) }
-                    blockedExcerpts.append(logExcerpt)
-                case .passed(let warnings):
-                    gateWarnings += warnings.map { Self.tagged($0, tag) }
-                }
-            }
-            if !blocked.isEmpty {
-                let excerpt = blockedExcerpts.joined(separator: "; ")
+            switch try await TranslationCoverage.gateEveryTongue(
+                projectStore: source.projectStore, tags: set.translatedTags,
+                excludedSectionIDs: excludedSectionIDs, allowStale: allowStale
+            ) {
+            case .blocked(let errors, let excerpt):
                 await jobManager.fail(
-                    jobID: jobID, errors: blocked, logExcerpt: excerpt)
-                return .failed(errors: blocked, logExcerpt: excerpt)
+                    jobID: jobID, errors: errors, logExcerpt: excerpt)
+                return .failed(errors: errors, logExcerpt: excerpt)
+            case .passed(let warnings):
+                gateWarnings += warnings
             }
         }
 
@@ -826,20 +810,6 @@ public struct CompileOrchestrator {
             jobID: jobID, outputPath: outputPath,
             warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)
-    }
-
-    /// A gate diagnostic, marked with the tongue it is about. The tag goes on
-    /// the MESSAGE and nowhere else: the context lines are the gate's own
-    /// remedy sentences, which read the same whichever language raised them,
-    /// and the `logExcerpt` is diagnostic vocabulary that already names its
-    /// language.
-    private static func tagged(
-        _ diagnostic: TectonicLogParser.Diagnostic, _ tag: String
-    ) -> TectonicLogParser.Diagnostic {
-        TectonicLogParser.Diagnostic(
-            level: diagnostic.level, file: diagnostic.file, line: diagnostic.line,
-            message: "[\(tag)] " + diagnostic.message,
-            contextLines: diagnostic.contextLines)
     }
 
     /// Where a publication lives, for a refusal that has to name it. Two

@@ -1525,4 +1525,231 @@ final class RepublisherTests: XCTestCase {
             errors.contains { $0.message.contains("on the book") },
             "the refusal must name the book: \(errors.map(\.message))")
     }
+
+    // MARK: - P2 Task 6: a republish reproduces every body the record names
+    //
+    // The record is two halves and the republish reads both: the snapshot's
+    // own `languages` (written by every compile since P2) says what was
+    // rendered, and the prior catalog row's `language` is the identity that
+    // names it. An older snapshot has neither key — only the row — and must
+    // still reproduce exactly what it reproduced before this branch.
+
+    /// A source that answers with different text per language, so a
+    /// republished bilingual document can be read back body by body.
+    private struct RebindableRepubSrc: LanguageRebindableSource {
+        let tag: String?
+        static func text(for tag: String?) -> String {
+            tag.map { "Prevedeniparagrafu\($0)." } ?? "Thesourceparagraph."
+        }
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            [.init(pieceID: "p1", title: "C", mode: .prose,
+                   displayText: Self.text(for: tag))]
+        }
+        func rebound(toLanguage tag: String?) -> ProjectASTBuilder.Source {
+            RebindableRepubSrc(tag: tag)
+        }
+    }
+
+    private func bilingualConfigStore() async throws -> PublishConfigStore {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "RepubMulti", author: "T"))
+        cfg.metadata.language = "en"
+        cfg.languageOverrides = ["sr": .init(metadata: ["title": "Prevedeni Naslov"])]
+        try await configStore.save(cfg)
+        return configStore
+    }
+
+    private func repubOrchestrator(
+        _ configStore: PublishConfigStore, _ pubStore: PublicationStore,
+        _ snapStore: PublicationSnapshotStore
+    ) -> CompileOrchestrator {
+        CompileOrchestrator(
+            projectURL: tmp, astSource: RebindableRepubSrc(tag: nil),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+    }
+
+    private func repubRepublisher(
+        _ pubStore: PublicationStore, _ snapStore: PublicationSnapshotStore
+    ) -> Republisher {
+        Republisher(
+            projectURL: tmp, astSource: RebindableRepubSrc(tag: nil),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+    }
+
+    /// A bilingual publication republishes as a bilingual publication: both
+    /// bodies in the archive, each reading its own text, and a catalog row
+    /// carrying the joined identity rather than one tongue or none.
+    func test_republishOfABilingualRecord_reproducesEveryBody() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, languages: ["en", "sr"]) else {
+            return XCTFail("fixture: the bilingual compile must complete")
+        }
+        XCTAssertEqual(first.language, "en+sr", "fixture")
+
+        guard case .completed(let again, _) = try await repubRepublisher(
+            pubStore, snapStore)
+            .republish(snapshotID: first.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("the bilingual republish must complete")
+        }
+        XCTAssertEqual(again.language, "en+sr",
+                       "the republished row carries the joined identity")
+        XCTAssertTrue(again.outputPath.contains("en+sr"),
+                      "and so does its filename: \(again.outputPath)")
+
+        let epub = tmp.appendingPathComponent(again.outputPath)
+        let entries = try epubEntryNames(inEPUBAt: epub)
+        XCTAssertTrue(entries.contains("OEBPS/section-en-001.xhtml"), "\(entries)")
+        XCTAssertTrue(entries.contains("OEBPS/section-sr-001.xhtml"), "\(entries)")
+        XCTAssertEqual(try pieceIDOccurrences(inEPUBAt: epub).count, 2,
+                       "one occurrence of the one piece per body")
+
+        let en = try epubEntryText("OEBPS/section-en-001.xhtml", inEPUBAt: epub)
+        let sr = try epubEntryText("OEBPS/section-sr-001.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(en.contains(RebindableRepubSrc.text(for: nil)),
+                      "the source body reads the source text: \(en)")
+        XCTAssertTrue(sr.contains(RebindableRepubSrc.text(for: "sr")),
+                      "and the sr body its own — not the source text under the "
+                      + "translation's name: \(sr)")
+        XCTAssertFalse(sr.contains(RebindableRepubSrc.text(for: nil)), sr)
+    }
+
+    /// A snapshot minted BEFORE this branch has no `languages` key at all, and
+    /// a republish of it must reproduce exactly what it reproduced before —
+    /// one body, the prior row's language, the un-tagged section filenames.
+    ///
+    /// Disable experiment: drop the `prior?.language` fallback (leave only
+    /// `snap.languages`) and this fails with `again.language == nil` and an
+    /// output filename that has lost its `-sr`.
+    func test_republishOfAPreBranchSnapshot_reproducesItsOneBodyFromTheRow() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        // A translated edition renders an EXISTING source version.
+        try await pubStore.append(Publication(
+            publicationID: "pub-src", version: "0.1", label: nil, format: .pdf,
+            outputPath: "Exports/src.pdf", snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a", language: nil))
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, language: "sr") else {
+            return XCTFail("fixture: the sr compile must complete")
+        }
+        XCTAssertEqual(first.language, "sr", "fixture")
+
+        // Age the snapshot: strip the key no pre-P2 snapshot carries.
+        let fresh = try snapStore.load(id: first.snapshotID)
+        XCTAssertEqual(fresh.languages, ["sr"], "fixture: a fresh compile records its tags")
+        try snapStore.save(PublicationSnapshot(
+            snapshotID: fresh.snapshotID, createdAt: fresh.createdAt,
+            publishFiles: fresh.publishFiles, config: fresh.config,
+            maughamVersion: fresh.maughamVersion,
+            tectonicVersion: fresh.tectonicVersion,
+            languages: nil))
+        XCTAssertNil(try snapStore.load(id: first.snapshotID).languages, "fixture")
+
+        guard case .completed(let again, _) = try await repubRepublisher(
+            pubStore, snapStore)
+            .republish(snapshotID: first.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("an old snapshot must still republish")
+        }
+        XCTAssertEqual(again.language, "sr",
+                       "the row is the only record left of what it rendered")
+        XCTAssertTrue(again.outputPath.contains("-sr."),
+                      "and the filename keeps its suffix: \(again.outputPath)")
+
+        let epub = tmp.appendingPathComponent(again.outputPath)
+        let entries = try epubEntryNames(inEPUBAt: epub)
+        XCTAssertTrue(entries.contains("OEBPS/section-001.xhtml"),
+                      "one body keeps the un-tagged filenames: \(entries)")
+        XCTAssertFalse(entries.contains { $0.contains("section-sr-") },
+                       "a single body must not be rearranged: \(entries)")
+        let body = try epubEntryText("OEBPS/section-001.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(body.contains(RebindableRepubSrc.text(for: "sr")),
+                      "and it reads the sr text: \(body)")
+    }
+
+    /// The other half of that fallback: a pre-branch snapshot whose prior row
+    /// carries a JOINED identity must reproduce BOTH bodies. `LanguageSet`
+    /// refuses a `+` in a tag — it is an identity, never a tongue — so the
+    /// republish splits it back into components itself.
+    ///
+    /// Disable experiment: hand `prior?.language` to `LanguageSet` unsplit and
+    /// this fails on the throw (`invalid language tag 'en+sr'`).
+    func test_republishOfAPreBranchSnapshot_splitsAJoinedIdentityBackIntoBodies() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, languages: ["en", "sr"]) else {
+            return XCTFail("fixture: the bilingual compile must complete")
+        }
+
+        let fresh = try snapStore.load(id: first.snapshotID)
+        try snapStore.save(PublicationSnapshot(
+            snapshotID: fresh.snapshotID, createdAt: fresh.createdAt,
+            publishFiles: fresh.publishFiles, config: fresh.config,
+            maughamVersion: fresh.maughamVersion,
+            tectonicVersion: fresh.tectonicVersion,
+            languages: nil))
+
+        guard case .completed(let again, _) = try await repubRepublisher(
+            pubStore, snapStore)
+            .republish(snapshotID: first.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("a joined identity with no snapshot key must still republish")
+        }
+        XCTAssertEqual(again.language, "en+sr")
+        let entries = try epubEntryNames(
+            inEPUBAt: tmp.appendingPathComponent(again.outputPath))
+        XCTAssertTrue(entries.contains("OEBPS/section-en-001.xhtml"), "\(entries)")
+        XCTAssertTrue(entries.contains("OEBPS/section-sr-001.xhtml"), "\(entries)")
+    }
+
+    /// The control for both fallbacks: an ordinary SOURCE republish is
+    /// untouched — one body, no identity, no language suffix. Without it the
+    /// two tests above could pass on a republish that had started tagging
+    /// every edition.
+    func test_republishOfASourceRecord_staysUntagged() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore).compile(format: .epub, label: nil) else {
+            return XCTFail("fixture: the source compile must complete")
+        }
+        XCTAssertNil(first.language, "fixture")
+
+        guard case .completed(let again, _) = try await repubRepublisher(
+            pubStore, snapStore)
+            .republish(snapshotID: first.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("the source republish must complete")
+        }
+        XCTAssertNil(again.language, "a source republish mints no identity")
+        XCTAssertFalse(again.outputPath.contains("-en."),
+                       "and no language suffix: \(again.outputPath)")
+        let entries = try epubEntryNames(
+            inEPUBAt: tmp.appendingPathComponent(again.outputPath))
+        XCTAssertTrue(entries.contains("OEBPS/section-001.xhtml"), "\(entries)")
+        let body = try epubEntryText("OEBPS/section-001.xhtml", inEPUBAt: epub(again))
+        XCTAssertTrue(body.contains(RebindableRepubSrc.text(for: nil)),
+                      "the source body reads the source text: \(body)")
+    }
+
+    private func epub(_ pub: Publication) -> URL {
+        tmp.appendingPathComponent(pub.outputPath)
+    }
 }

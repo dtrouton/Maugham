@@ -171,6 +171,69 @@ enum TranslationCoverage {
         return .passed(warnings: warnings)
     }
 
+    /// The gate over EVERY tongue a compile renders — the one loop
+    /// `CompileOrchestrator.compile`, `PreviewCompiler.run` and
+    /// `Republisher.republishReserved` share (P2 Task 6).
+    ///
+    /// It exists for the reason `applyGate` does, one level up: three doors
+    /// asking the same question three ways is how `Republisher` came to drop
+    /// `fountainDriftWarnings` (round 5, above), and P2 turned the single
+    /// `if let language` block into a LOOP with a diagnostic prefix, a blocked
+    /// accumulator and a joined excerpt — three more chances to drift. No
+    /// caller may reimplement any part of it.
+    ///
+    /// Every diagnostic is prefixed with the tag it belongs to, single-tag
+    /// compiles included, because one contract is cheaper to read than two. And
+    /// every blocked tongue is reported, not just the first: a writer who has
+    /// to compile once per language to learn the second one's gaps is being
+    /// sent round the loop for nothing. The failure is WHOLE, so a tongue that
+    /// passed contributes nothing to it — its warnings are dropped, because
+    /// nothing was compiled for them to be about.
+    ///
+    /// An empty `tags` (a source-only compile) does no work and passes.
+    @MainActor
+    static func gateEveryTongue(
+        projectStore: ProjectStore,
+        tags: [String],
+        excludedSectionIDs: Set<String>,
+        allowStale: Bool
+    ) throws -> GateResult {
+        var blocked: [TectonicLogParser.Diagnostic] = []
+        var blockedExcerpts: [String] = []
+        var warnings: [TectonicLogParser.Diagnostic] = []
+        for tag in tags {
+            let report = try check(
+                projectStore: projectStore, language: tag,
+                excludedSectionIDs: excludedSectionIDs)
+            switch applyGate(report: report, language: tag, allowStale: allowStale) {
+            case .blocked(let errors, let logExcerpt):
+                blocked += errors.map { tagged($0, tag) }
+                blockedExcerpts.append(logExcerpt)
+            case .passed(let passed):
+                warnings += passed.map { tagged($0, tag) }
+            }
+        }
+        guard blocked.isEmpty else {
+            return .blocked(errors: blocked,
+                            logExcerpt: blockedExcerpts.joined(separator: "; "))
+        }
+        return .passed(warnings: warnings)
+    }
+
+    /// A gate diagnostic, marked with the tongue it is about. The tag goes on
+    /// the MESSAGE and nowhere else: the context lines are the gate's own
+    /// remedy sentences, which read the same whichever language raised them,
+    /// and the `logExcerpt` is diagnostic vocabulary that already names its
+    /// language.
+    nonisolated private static func tagged(
+        _ diagnostic: TectonicLogParser.Diagnostic, _ tag: String
+    ) -> TectonicLogParser.Diagnostic {
+        TectonicLogParser.Diagnostic(
+            level: diagnostic.level, file: diagnostic.file, line: diagnostic.line,
+            message: "[\(tag)] " + diagnostic.message,
+            contextLines: diagnostic.contextLines)
+    }
+
     /// `"<title>: N stale (¶a, ¶b), M missing (¶c)"`. Empty lists drop their
     /// parenthetical. Shared by the orchestrator's fail (error) and allow_stale
     /// (warning) paths so the two surfaces itemize identically.
