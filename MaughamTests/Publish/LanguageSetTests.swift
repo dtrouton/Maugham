@@ -61,6 +61,25 @@ final class LanguageSetTests: XCTestCase {
         XCTAssertEqual(bySentinel, byTag, "\"source\" and the literal sourceTag must be equivalent spellings")
     }
 
+    /// "source" and the literal sourceTag are the SAME body once substituted —
+    /// two entries that both name it are a duplicate, not two distinct bodies.
+    func test_twoSpellingsOfTheSource_areADuplicate() throws {
+        XCTAssertThrowsError(
+            try LanguageSet(language: nil, languages: ["source", "en"], sourceTag: "en")
+        ) { error in
+            guard let invalid = error as? LanguageSet.Invalid else {
+                return XCTFail("expected LanguageSet.Invalid, got \(error)")
+            }
+            XCTAssertEqual(invalid.message, "duplicate language 'en'")
+        }
+    }
+
+    /// Control: "source" beside a DIFFERENT tag is not a duplicate.
+    func test_sourceSentinelBesideAnotherTag_isAccepted() throws {
+        let set = try LanguageSet(language: nil, languages: ["source", "es"], sourceTag: "en")
+        XCTAssertEqual(set.bodies, [nil, "es"])
+    }
+
     // MARK: - order is preserved
 
     func test_orderIsPreserved() throws {

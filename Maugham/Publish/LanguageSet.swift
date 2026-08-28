@@ -40,7 +40,7 @@ public struct LanguageSet: Equatable, Sendable {
             return
         }
 
-        let rawList: [String]
+        let mapped: [String?]
         if hasLanguage, hasLanguages {
             let fromLanguage = [substitute(language!)]
             let fromLanguages = languages!.map(substitute)
@@ -49,14 +49,12 @@ public struct LanguageSet: Equatable, Sendable {
                 throw Invalid(message:
                     "language '\(language!)' and languages \(listDisplay) disagree")
             }
-            rawList = languages!
+            mapped = fromLanguages
         } else if hasLanguages {
-            rawList = languages!
+            mapped = languages!.map(substitute)
         } else {
-            rawList = [language!]
+            mapped = [substitute(language!)]
         }
-
-        let mapped = rawList.map(substitute)
 
         var seen = Set<String?>()
         for tag in mapped {
