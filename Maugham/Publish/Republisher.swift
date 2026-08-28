@@ -119,8 +119,6 @@ public struct Republisher {
         // this path. Minted here, once: the append below must reuse this value.
         let newVersion = Self.uniqueRepublishVersion(
             base: priorVersion, existing: existing, mintSuffix: mintSuffix)
-        var effective = snap.config
-        effective.nextVersion = newVersion
 
         // P2 (Task 6): the bodies this republish reproduces, and the identity
         // that names them.
@@ -189,6 +187,47 @@ public struct Republisher {
         // this field existed (ADR 0015 additive default).
         let allowStale = prior?.allowStale ?? false
 
+        // C1 (whole-branch review): the config every body is FOLDED from.
+        //
+        // It must be the UNFOLDED one — the compile door folds each body from
+        // its resolved-but-unfolded config, and a republish that reproduces
+        // the same publication has to fold from the same article. `snap.config`
+        // is the FIRST BODY's already-folded config, and folding it again is
+        // idempotent only for that body: a `["sr","en"]` record's second body
+        // is the source (`tag == nil`), whose fold is a no-op, so it would
+        // inherit the first body's Serbian title, `\MaughamLanguage{sr}` and
+        // `tribute.sr.tex` — the English half of the book, rendered as Serbian
+        // in everything but its words. (Every republish test wrote
+        // `["en","sr"]`, where the first body's fold IS the identity, which is
+        // why this survived a milestone.)
+        //
+        // The unfolded article is the staged `config.json` read just above,
+        // resolved the way the door resolves it: the snapshot's own imprint
+        // (carried on the folded config, which resolution set), the live
+        // piece ids (as the door derives them — only an imprint's `sections`
+        // ALLOWLIST is materialized against them, so the read is skipped
+        // outright when the config defines no imprints), and this republish's
+        // minted version threaded through `nextVersion` so every body's
+        // `\MaughamVersion` and the filename agree with the catalog row.
+        //
+        // A staged config that cannot describe this snapshot's imprint falls
+        // back to the frozen one for a single-body record — the shape every
+        // republish had before this fix, and a correct base for one body —
+        // and refuses for a multi-body one, where no correct base exists.
+        //
+        // NOTE the division of labour with `excludedSectionIDs` below: WHICH
+        // pieces render is still decided by the FROZEN `snap.config` (an
+        // imprint's frozen allowlist, complemented against the live tree —
+        // P1's C1 ruling), while what each body is TITLED and which style
+        // files it inputs come from `base`. The two cannot disagree about a
+        // piece that actually renders: every rendered piece's `Section` value
+        // comes from the same frozen `config.json` either way, and the only
+        // entries on which they differ describe pieces this republish does not
+        // render at all.
+        let base = try Self.foldingBase(
+            stagedConfig: stagedConfig, snapshotConfig: snap.config,
+            set: set, liveSource: astSource, version: newVersion)
+
         // F1: reproduce the historical subset. The snapshot's config is already
         // language-effective (Task 7 Rule 1), so its `include` flags are exactly
         // those the original compile used — wrap the live source with the same
@@ -239,7 +278,7 @@ public struct Republisher {
         do {
             let outcome = try await republishReserved(
                 snap: snap, format: format, label: label, jobID: jobID,
-                effective: effective, newVersion: newVersion,
+                base: base, newVersion: newVersion,
                 priorVersion: priorVersion, set: set,
                 imprint: imprint,
                 allowStale: allowStale,
@@ -277,7 +316,7 @@ public struct Republisher {
         format: PublishConfig.Format,
         label: String?,
         jobID: String,
-        effective: PublishConfig,
+        base: PublishConfig,
         newVersion: String,
         priorVersion: String?,
         set: LanguageSet,
@@ -313,24 +352,18 @@ public struct Republisher {
 
         // P2: one body per language the record named, each bound to its own
         // text and folded to its own config — the same plan the compile door
-        // builds, from the STAGED snapshot config (`effective`, carrying this
-        // republish's minted version) and against the STAGE's publish
-        // directory, because that is the tree the compilers below read and
-        // therefore the one whose language-suffixed style files count.
-        //
-        // Re-folding an already-folded snapshot config is deliberate and
-        // idempotent: `effectiveMetadata` re-applies the same frozen override
-        // to the same tag, and a style file already resolved to `x.sr.tex`
-        // finds no `x.sr.sr.tex` and keeps what it has. What the fold is
-        // actually FOR here is the second body, whose metadata and style files
-        // the snapshot never carried.
+        // builds, from the same UNFOLDED article (`base`, carrying this
+        // republish's minted version — see `foldingBase`) and against the
+        // STAGE's publish directory, because that is the tree the compilers
+        // below read and therefore the one whose language-suffixed style files
+        // count.
         //
         // A source that cannot bind to a language throws; `republish`'s own
         // catch converts it into the terminal `.failed` every republish throw
         // takes, with nothing durable moved. Production's source is
         // `ProjectStoreASTSource`, which always can.
         let plan = try await BodyPlan.make(
-            set: set, resolved: effective, source: astSource,
+            set: set, resolved: base, source: astSource,
             publishDir: stage.appendingPathComponent(
                 ".maugham/publish", isDirectory: true),
             wrap: { IncludeFilteredASTSource(
@@ -452,6 +485,79 @@ public struct Republisher {
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
                                   warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)
+    }
+
+    // MARK: - What every body is folded from
+
+    /// The UNFOLDED config a republish folds each of its bodies from — the
+    /// republish-side twin of the compile door's version-threaded `resolved`
+    /// config, and the ONE place that value is built.
+    ///
+    /// C1 (whole-branch review): `snapshotConfig` cannot serve, because it is
+    /// the first body's already-FOLDED config. Refolding it is idempotent for
+    /// that body alone; every other body inherits its metadata and its
+    /// language-suffixed style files, and the source body (`tag == nil`,
+    /// whose fold is a no-op) inherits them wholesale. The staged
+    /// `config.json` is the unfolded article, and it is already read — and
+    /// already refused when missing — for `sourceTag`.
+    ///
+    /// Resolved exactly as `CompileOrchestrator.compile` resolves it:
+    ///   * the imprint is the snapshot's own, read off the folded config
+    ///     because resolution is what set it there;
+    ///   * `pieceIDs` are the LIVE tree's, and read only when the config
+    ///     defines imprints at all — they exist solely to materialize an
+    ///     imprint's `sections` allowlist, which is the door's own rule for
+    ///     when to pay for the derivation;
+    ///   * `nextVersion` is this republish's minted version, so every body's
+    ///     `\MaughamVersion` and the output filename agree with the catalog
+    ///     row (P1, issue #25).
+    ///
+    /// **When the staged config cannot describe this snapshot's imprint** —
+    /// it names one the frozen `config.json` does not define, or a merge-patch
+    /// fragment that no longer decodes — the answer depends on how many bodies
+    /// the record has, because that is what decides whether the frozen folded
+    /// config is a correct base:
+    ///   * ONE body: `snapshotConfig` IS a correct base. Its fold is the
+    ///     identity for the source body and idempotent for a single
+    ///     translated one (the same override re-applied to the same tag; a
+    ///     style file already resolved to `x.sr.tex` finds no `x.sr.sr.tex`).
+    ///     Fall back to it, which is exactly what every republish did before
+    ///     this fix — a shape that predates the fix keeps working.
+    ///   * TWO OR MORE: there is no correct base to fall back TO. `snapshot
+    ///     Config` is precisely the wrong answer for every body after the
+    ///     first, which is the defect this function exists to close, so refuse
+    ///     in the same words an unreadable `config.json` is refused in.
+    ///
+    /// - Throws: `RepublishError.unreadableSnapshotConfig` for that
+    ///   multi-body case.
+    static func foldingBase(
+        stagedConfig: PublishConfig,
+        snapshotConfig: PublishConfig,
+        set: LanguageSet,
+        liveSource: ProjectASTBuilder.Source,
+        version: String
+    ) throws -> PublishConfig {
+        var base: PublishConfig
+        do {
+            let pieceIDs = stagedConfig.imprints.isEmpty
+                ? []
+                : try liveSource.orderedPieces().map(\.pieceID)
+            base = try stagedConfig.resolved(
+                imprint: snapshotConfig.imprint, pieceIDs: pieceIDs)
+        } catch {
+            guard set.bodies.count == 1 else {
+                throw RepublishError.unreadableSnapshotConfig(
+                    "This snapshot's config.json could not be resolved "
+                    + "(\(error.localizedDescription)), so there is no record "
+                    + "of what each half of this \(set.bodies.count)-language "
+                    + "edition was titled or which style files it used. "
+                    + "Republish from a snapshot taken by this version of "
+                    + "Maugham, or compile the edition afresh.")
+            }
+            base = snapshotConfig
+        }
+        base.nextVersion = version
+        return base
     }
 
     // MARK: - What a republish leaves out
