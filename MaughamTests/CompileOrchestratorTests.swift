@@ -1848,15 +1848,21 @@ final class CompileOrchestratorTests: XCTestCase {
     /// compile takes the base files — with a suffixed one sitting right there —
     /// while one translated body still resolves its own.
     ///
-    /// The consequence is recorded, not celebrated: with no tag in the
-    /// `language:` argument a bilingual EPUB wants the same filename as the
-    /// SOURCE edition at that version, so compiling both leaves the second with
-    /// the occupied-destination refusal. Loud rather than silent, and the
-    /// reason a `{language}` filename token is worth revisiting.
+    /// The FILENAME is a separate argument (`identity:`) and a separate
+    /// question, pinned by
+    /// `test_languages_aBilingualFileCarriesItsIdentityInItsName` — this test is
+    /// only about what the two suffix-resolving lookups see.
     func test_languages_theCompilersSeeNoSingleTongueForABilingualDocument() async throws {
         let publish = tmp.appendingPathComponent(".maugham/publish", isDirectory: true)
         try "/* sronly */".write(
             to: publish.appendingPathComponent("styles.sr.css"),
+            atomically: true, encoding: .utf8)
+        // The planted offender for the other wrong answer: a file named after
+        // the joined identity, which nothing may ever resolve — the identity
+        // names the EDITION (and, since the filename ruling, the output file),
+        // never a template or a stylesheet.
+        try "/* jointidentity */".write(
+            to: publish.appendingPathComponent("styles.en+sr.css"),
             atomically: true, encoding: .utf8)
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
@@ -1871,11 +1877,8 @@ final class CompileOrchestratorTests: XCTestCase {
             "OEBPS/styles.css", inEPUBAt: tmp.appendingPathComponent(both.outputPath))
         XCTAssertFalse(css.contains("sronly"),
                        "a bilingual book takes the BASE stylesheet: \(css)")
-        let name = (both.outputPath as NSString).lastPathComponent
-        XCTAssertFalse(name.contains("+"),
-                       "the joined identity names the edition, not the file: \(name)")
-        XCTAssertFalse(name.contains("-sr."),
-                       "and neither does one of its tongues: \(name)")
+        XCTAssertFalse(css.contains("jointidentity"),
+                       "and does not resolve a suffix from its identity: \(css)")
 
         // The control: ONE translated body does resolve its own stylesheet, so
         // the base one above is a decision rather than a missing file.
@@ -1888,6 +1891,105 @@ final class CompileOrchestratorTests: XCTestCase {
         let srCSS = try epubEntryText(
             "OEBPS/styles.css", inEPUBAt: tmp.appendingPathComponent(sr.outputPath))
         XCTAssertTrue(srCSS.contains("sronly"), srCSS)
+    }
+
+    /// A bilingual document carries its IDENTITY in its name, so it lands
+    /// beside the source edition at the same version instead of on top of it.
+    /// The name and the template suffix are two different questions: `identity:`
+    /// answers the first, `language:` the second.
+    func test_languages_aBilingualFileCarriesItsIdentityInItsName() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+
+        guard case .completed(let src, _) = try await makeOrch(
+            configStore, pubStore, source: RebindableSrc(tag: nil))
+            .compile(format: .epub, label: nil) else {
+            return XCTFail("the source compile must complete")
+        }
+        // Back to the version the source edition took, so both want one name.
+        guard var reset = try await configStore.load() else {
+            return XCTFail("the config must still be there")
+        }
+        reset.nextVersion = "0.1"
+        try await configStore.save(reset)
+
+        let bilingual = try await makeOrch(
+            configStore, pubStore, source: RebindableSrc(tag: nil))
+            .compile(format: .epub, label: nil, languages: ["en", "sr"])
+        guard case .completed(let both, _) = bilingual else {
+            return XCTFail(
+                "the bilingual compile must complete — without an identity in "
+                + "the name it collides with the source edition's file: \(bilingual)")
+        }
+        XCTAssertEqual(src.version, both.version, "both editions at one version")
+        XCTAssertNotEqual(src.outputPath, both.outputPath,
+                          "and therefore at two filenames")
+        XCTAssertTrue(both.outputPath.hasSuffix("-en+sr.epub"), both.outputPath)
+        for path in [src.outputPath, both.outputPath] {
+            XCTAssertTrue(
+                FileManager.default.fileExists(
+                    atPath: tmp.appendingPathComponent(path).path),
+                "both files must be on disk: \(path)")
+        }
+
+        // The control: one translated body keeps the name it has always had.
+        try await seedSourcePublication(pubStore, version: "0.9", format: .pdf)
+        guard case .completed(let sr, _) = try await makeOrch(
+            configStore, pubStore, source: RebindableSrc(tag: nil))
+            .compile(format: .epub, label: nil, languages: ["sr"], version: "0.9") else {
+            return XCTFail("the sr compile must complete")
+        }
+        XCTAssertTrue(sr.outputPath.hasSuffix("-sr.epub"), sr.outputPath)
+    }
+
+    /// A bilingual publication IS a source publication: its identity contains
+    /// the source tag, so a later edition pins its version and a version-less
+    /// edition resolves to it. Reading `language == nil` alone would tell a
+    /// writer who has compiled nothing but "en+sr" that they have no source
+    /// edition at all.
+    func test_languages_aBilingualRecordIsASourcePublication() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+
+        guard case .completed(let both, _) = try await makeOrch(
+            configStore, pubStore, source: RebindableSrc(tag: nil))
+            .compile(format: .epub, label: nil, languages: ["en", "sr"]) else {
+            return XCTFail("the bilingual compile must complete")
+        }
+        XCTAssertEqual(both.version, "0.1")
+
+        // Pinned by version...
+        guard case .completed(let pinned, _) = try await makeOrch(
+            configStore, pubStore, source: RebindableSrc(tag: nil))
+            .compile(format: .epub, label: nil, languages: ["es"], version: "0.1") else {
+            return XCTFail("the es edition must pin the bilingual source version")
+        }
+        XCTAssertEqual(pinned.version, "0.1")
+
+        // ...and without a version, where it is the latest source publication.
+        guard case .completed(let latest, _) = try await makeOrch(
+            configStore, pubStore, source: RebindableSrc(tag: nil))
+            .compile(format: .epub, label: nil, languages: ["fr"]) else {
+            return XCTFail("the fr edition must resolve the bilingual source")
+        }
+        XCTAssertEqual(latest.version, "0.1")
+
+        // The control: an identity with no source component is no source
+        // publication, and pinning it is refused by name.
+        try await pubStore.append(Publication(
+            publicationID: "pub-srfr", version: "3.0", label: nil, format: .epub,
+            outputPath: "Exports/srfr.epub", snapshotID: "snap-x", checkpointID: "",
+            republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a", language: "sr+fr"))
+        let refused = try await makeOrch(configStore, pubStore,
+                                         source: RebindableSrc(tag: nil))
+            .compile(format: .epub, label: nil, languages: ["es"], version: "3.0")
+        guard case .failed(_, let excerpt) = refused else {
+            return XCTFail("two translations are not a source edition: \(refused)")
+        }
+        XCTAssertEqual(excerpt, "no_source_version: 3.0/es")
     }
 
     /// A `language`/`languages` combination that cannot resolve is a caller's

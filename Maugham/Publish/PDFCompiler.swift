@@ -29,11 +29,20 @@ public struct PDFCompiler {
     public let jobManager: CompileJobManager
     public let maughamVersion: String
     public let jobID: String?
-    /// The requested edition language, used only for the output filename's
-    /// `{language}` token / collision suffix. dc-facing metadata (including
-    /// `\MaughamLanguage`) comes from `config.metadata`, which the orchestrator
-    /// has already folded to the edition.
+    /// The tag the language-SUFFIXED files are resolved against —
+    /// `template.<tag>.tex`, and the per-piece style files the config already
+    /// carries. `nil` for a source compile, and `nil` for a multi-body one: a
+    /// bilingual document belongs to no single tongue's template. dc-facing
+    /// metadata (including `\MaughamLanguage`) comes from `config.metadata`,
+    /// which the orchestrator has already folded to the edition.
     public let language: String?
+    /// How this edition is NAMED — the output filename's `{language}` token and
+    /// its collision suffix. Defaults to `language` and is the same string for
+    /// every compile that has ever existed; a multi-body compile is the one
+    /// case where the two part company, passing the joined identity ("en+sr")
+    /// so a bilingual book lands BESIDE the source edition at its version
+    /// rather than on top of it.
+    public let identity: String?
     /// Whether an existing file at the destination is replaced. **False by
     /// default — the compile path REFUSES an occupied destination** (RULING-8,
     /// M7-PB-008), matching the republish path's rule; only previews pass
@@ -49,6 +58,7 @@ public struct PDFCompiler {
         maughamVersion: String,
         jobID: String? = nil,
         language: String? = nil,
+        identity: String? = nil,
         replacesExistingOutput: Bool = false
     ) throws {
         guard !bodies.isEmpty else { throw NoBodies() }
@@ -59,6 +69,7 @@ public struct PDFCompiler {
         self.maughamVersion = maughamVersion
         self.jobID = jobID
         self.language = language
+        self.identity = identity ?? language
         self.replacesExistingOutput = replacesExistingOutput
     }
 
@@ -315,7 +326,8 @@ public struct PDFCompiler {
     private func makeOutputFilename(
         format: PublishConfig.Format, label: String?
     ) -> String {
-        OutputFilenameBuilder.make(config: config, format: format, label: label, language: language)
+        OutputFilenameBuilder.make(config: config, format: format, label: label,
+                                  language: identity)
     }
 
     /// Locates `tectonic` either from the running app bundle or, in XCTest,

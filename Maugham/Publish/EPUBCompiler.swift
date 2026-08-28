@@ -31,11 +31,16 @@ public struct EPUBCompiler {
     public let maughamVersion: String
     public let tectonicVersion: String
     public let jobID: String?
-    /// The requested edition language, used only for the output filename's
-    /// `{language}` token / collision suffix. dc:language comes from
-    /// `config.metadata.language`, which the orchestrator has already folded
-    /// to the edition.
+    /// The tag the language-SUFFIXED files are resolved against —
+    /// `styles.<tag>.css`. `nil` for a source compile, and `nil` for a
+    /// multi-body one: a bilingual book belongs to no single tongue's
+    /// stylesheet. dc:language comes from `config.metadata.language`, which the
+    /// orchestrator has already folded to the edition.
     public let language: String?
+    /// How this edition is NAMED — see `PDFCompiler.identity`. Defaults to
+    /// `language`; the joined identity ("en+sr") only for a multi-body compile,
+    /// so a bilingual book lands beside the source edition rather than on it.
+    public let identity: String?
     /// See `PDFCompiler.replacesExistingOutput` — false by default (refuse),
     /// true only for previews.
     public let replacesExistingOutput: Bool
@@ -46,6 +51,7 @@ public struct EPUBCompiler {
         config: PublishConfig, jobManager: CompileJobManager,
         maughamVersion: String, tectonicVersion: String,
         jobID: String? = nil, language: String? = nil,
+        identity: String? = nil,
         replacesExistingOutput: Bool = false
     ) throws {
         guard !bodies.isEmpty else { throw NoBodies() }
@@ -57,6 +63,7 @@ public struct EPUBCompiler {
         self.tectonicVersion = tectonicVersion
         self.jobID = jobID
         self.language = language
+        self.identity = identity ?? language
         self.replacesExistingOutput = replacesExistingOutput
     }
 
@@ -232,6 +239,7 @@ public struct EPUBCompiler {
     private func makeOutputFilename(
         format: PublishConfig.Format, label: String?
     ) -> String {
-        OutputFilenameBuilder.make(config: config, format: format, label: label, language: language)
+        OutputFilenameBuilder.make(config: config, format: format, label: label,
+                                  language: identity)
     }
 }

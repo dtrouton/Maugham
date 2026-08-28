@@ -247,15 +247,15 @@ public struct CompileOrchestrator {
         // Edition identity (spec 2026-07-23): a Publication is keyed on the
         // triple (version, language, format). Resolve the version THIS compile
         // mints at BEFORE the collision guard runs.
-        //   • source (language == nil): version comes from next_version; a
-        //     caller-supplied `version` is meaningless here and refused loudly.
-        //   • edition (language != nil): an edition is a rendering OF a source
+        //   • source (`set.isSourceCompile`): version comes from next_version;
+        //     a caller-supplied `version` is meaningless here and refused loudly.
+        //   • edition (no source body): an edition is a rendering OF a source
         //     version — it never mints its own. With `version` it pins that
-        //     exact source version, which must already have a source-language
+        //     exact source version, which must already have a source
         //     publication. Without `version` it targets the latest source
-        //     publication's version (most recent `compiledAt`, `language == nil`);
-        //     when no source publication exists at all it refuses loudly
-        //     ("compile the source edition first").
+        //     publication's version (most recent `compiledAt`); when no source
+        //     publication exists at all it refuses loudly ("compile the source
+        //     edition first").
         let existingPublications: [Publication]
         do { existingPublications = try await publicationStore.load() }
         catch {
@@ -274,6 +274,16 @@ public struct CompileOrchestrator {
             return .failed(errors: [diag], logExcerpt: "publications catalog unreadable")
         }
 
+        // What counts as a SOURCE publication for the branches below is
+        // `Publication.isSourceEdition(sourceTag:)`, never `language == nil`: a
+        // bilingual compile writes the identity "en+sr", and that document
+        // contains the source book as surely as a nil-language record does, so
+        // a later edition may pin its version and a version-less edition may
+        // resolve to it. Two translations joined ("sr+fr") are not a source
+        // edition. The tag asked about is `set.sourceTag` — the resolved
+        // config's own `metadata.language`, which is exactly what this compile's
+        // `LanguageSet` was built with, so the two cannot disagree.
+        //
         // How this edition is NAMED, everywhere below: the joined identity for
         // a multi-body compile, the sole tag for one translated body, nil for
         // the source. `langLabel` is its spelling in a sentence.
@@ -311,7 +321,8 @@ public struct CompileOrchestrator {
             // and vice versa. Without this, an imprint edition would pin — and
             // mint at — a version belonging to another edition line entirely.
             guard existingPublications.contains(where: {
-                $0.language == nil && $0.republishedFrom == nil
+                $0.isSourceEdition(sourceTag: set.sourceTag)
+                    && $0.republishedFrom == nil
                     && $0.version == version && $0.imprint == imprint
             }) else {
                 // T1 re-review: when the pinned version exists ONLY as a
@@ -320,12 +331,14 @@ public struct CompileOrchestrator {
                 // the original, pinnable version instead.
                 let existenceLine: String
                 if let repub = existingPublications.first(where: {
-                    $0.language == nil && $0.republishedFrom != nil
+                    $0.isSourceEdition(sourceTag: set.sourceTag)
+                        && $0.republishedFrom != nil
                         && $0.version == version && $0.imprint == imprint
                 }), let original = repub.republishedFrom {
                     existenceLine = "v\(version) is a republished record (republished_from: \(original)) — republished versions aren't pinnable as edition sources; pin the original v\(original), or use republish to reproduce the snapshot."
                 } else if let elsewhere = existingPublications.first(where: {
-                    $0.language == nil && $0.republishedFrom == nil
+                    $0.isSourceEdition(sourceTag: set.sourceTag)
+                        && $0.republishedFrom == nil
                         && $0.version == version && $0.imprint != imprint
                 }) {
                     // The version EXISTS — under another edition line. Saying
@@ -334,7 +347,7 @@ public struct CompileOrchestrator {
                     // name where it actually lives.
                     existenceLine = "version '\(version)' exists \(Self.placeOf(elsewhere.imprint)), not \(Self.notPlaceOf(imprint)) — an edition renders a source version of its own imprint."
                 } else {
-                    existenceLine = "No source-language publication (language == nil) exists at v\(version)."
+                    existenceLine = "No source publication — one whose edition includes '\(set.sourceTag)' — exists at v\(version)."
                 }
                 let diag = TectonicLogParser.Diagnostic(
                     level: .error, file: nil, line: nil,
@@ -353,8 +366,7 @@ public struct CompileOrchestrator {
             effectiveVersion = version
         } else {
             // Latest ORIGINAL source publication by compiledAt. Republished
-            // source records (`republishedFrom != nil`, language == nil) are
-            // excluded: they carry a mangled `-r…` version, and if one were
+            // source records (`republishedFrom != nil`) are excluded: they carry a mangled `-r…` version, and if one were
             // the most recent, resolving to it would mint the edition at that
             // mangled version, fragmenting the (version, language, format)
             // family (T1 review).
@@ -362,7 +374,8 @@ public struct CompileOrchestrator {
             // latest source of THIS edition line, never whatever happens to be
             // the newest row in the catalog.
             let sources = existingPublications.filter {
-                $0.language == nil && $0.republishedFrom == nil
+                $0.isSourceEdition(sourceTag: set.sourceTag)
+                    && $0.republishedFrom == nil
                     && $0.imprint == imprint
             }
             guard let latest = sources.max(by: { $0.compiledAt < $1.compiledAt }) else {
@@ -676,7 +689,8 @@ public struct CompileOrchestrator {
                 projectURL: projectURL, bodies: plan.bodies,
                 config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
-                language: set.singleTag)
+                language: set.singleTag,
+                identity: set.identity)
             let result = try await pdf.compile(label: label)
             outputPath = result.outputPath
             warnings = result.warnings
@@ -689,7 +703,8 @@ public struct CompileOrchestrator {
                 config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,
-                language: set.singleTag)
+                language: set.singleTag,
+                identity: set.identity)
             let result = try await epub.compile(label: label)
             outputPath = result.outputPath
             warnings = result.warnings
