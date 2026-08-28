@@ -68,6 +68,13 @@ look, not that they forgot. That is the moment to ask what the book should
 feel like — and what they tell you belongs in the Visual Language pane,
 where it will still be there for the next edition.
 
+A project may also declare named **imprints** in `config.json` — a special
+edition with its own template, its own rendered set, its own look. An
+imprint's template is a full template, a peer of `template.tex`, not a
+per-piece style file; give its filename a distinct basename from the book's
+and every other imprint's, and read `EMISSION.md`'s "Imprint templates are
+not style files" section for the `\input`-path rule before authoring one.
+
 ## Translating into a language
 
 Before you translate a paragraph into a language, call `read_edition_brief`
