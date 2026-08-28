@@ -398,7 +398,7 @@ final class DesignerEnvironmentTests: XCTestCase {
 
         let compiled = record(.staged(.init(
             proposalId: "prop-1", filesStaged: 2,
-            sample: .pages(path: "/tmp/sample.pdf", demonstrates: []))))
+            sample: .pages(path: "/tmp/sample.pdf", demonstrates: [], fallbackPieces: 0))))
         XCTAssertTrue(compiled.contains("prop-1"))
         XCTAssertTrue(compiled.contains("/tmp/sample.pdf"))
 

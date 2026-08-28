@@ -717,4 +717,268 @@ final class PreviewCompilerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.outputPath),
                       "no preview at \(result.outputPath)")
     }
+
+    // MARK: - P2 Task 6: a preview renders every body the request names
+    //
+    // The preview door is the compile door's twin, and `languages:` reaches it
+    // the same way: one complete body per tag, the imprint's allowlist over
+    // every one of them, the joined identity in the file's NAME (previews are
+    // last-write-wins, so two editions sharing one filename would mean the
+    // writer's last look silently replaced the other's), and a combination
+    // that cannot resolve refused before anything is written.
+
+    /// Three pieces answering with different text per language, so a two-body
+    /// preview can be read back body by body. `ThreePieceSrc` above
+    /// deliberately is NOT rebindable — this is its language-aware twin, and
+    /// the two together are what make "a single body still previews from a
+    /// source that has never heard of languages" a fact rather than an
+    /// assumption.
+    struct ThreePieceRebindableSrc: LanguageRebindableSource {
+        let tag: String?
+        static func text(for pieceID: String, _ tag: String?) -> String {
+            tag.map { "Prevedeni\(pieceID)u\($0)." } ?? "Source\(pieceID)paragraph."
+        }
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            ["p1", "p2", "p3"].map {
+                .init(pieceID: $0, title: $0.uppercased(), mode: .prose,
+                      displayText: Self.text(for: $0, tag))
+            }
+        }
+        func rebound(toLanguage tag: String?) -> ProjectASTBuilder.Source {
+            ThreePieceRebindableSrc(tag: tag)
+        }
+    }
+
+    private func multiLanguagePreview(
+        _ configStore: PublishConfigStore,
+        languages: [String]?,
+        jobs: CompileJobManager = CompileJobManager()
+    ) -> PreviewCompiler {
+        PreviewCompiler(
+            projectURL: tmp, astSource: ThreePieceRebindableSrc(tag: nil),
+            configStore: configStore, jobManager: jobs,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
+            languages: languages)
+    }
+
+    private func plainConfigStore() async throws -> PublishConfigStore {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Pre", author: "X"))
+        cfg.metadata.language = "en"
+        cfg.languageOverrides = ["sr": .init(metadata: ["title": "Prevedeni"])]
+        try await configStore.save(cfg)
+        return configStore
+    }
+
+    /// The imprint's `sections` allowlist holds for EVERY body, and each body
+    /// reads its own text. One `p1` per body and nothing else: an allowlist
+    /// applied to the first body only would put three pieces in the second.
+    func test_languages_underAnImprint_previewsOnlyItsAllowlistInEveryBody() async throws {
+        let configStore = try await imprintConfigStore()
+        let result = try await multiLanguagePreview(configStore, languages: ["en", "sr"])
+            .preview(format: .epub, sectionIDs: nil, maxPages: nil, imprint: "special")
+        XCTAssertTrue(result.errors.isEmpty,
+                      "the bilingual imprint preview must not fail: "
+                      + "\(result.errors.map(\.message))")
+
+        let epub = URL(fileURLWithPath: result.outputPath)
+        XCTAssertEqual(try pieceIDOccurrences(inEPUBAt: epub).sorted(), ["p1", "p1"],
+                       "the allowlist holds for both bodies — one p1 each, nothing else")
+
+        let entries = try epubEntryNames(inEPUBAt: epub)
+        XCTAssertTrue(entries.contains("OEBPS/section-en-001.xhtml"), "\(entries)")
+        XCTAssertTrue(entries.contains("OEBPS/section-sr-001.xhtml"), "\(entries)")
+        let en = try epubEntryText("OEBPS/section-en-001.xhtml", inEPUBAt: epub)
+        let sr = try epubEntryText("OEBPS/section-sr-001.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(en.contains(ThreePieceRebindableSrc.text(for: "p1", nil)),
+                      "the source body reads the source text: \(en)")
+        XCTAssertTrue(sr.contains(ThreePieceRebindableSrc.text(for: "p1", "sr")),
+                      "and the sr body reads its own: \(sr)")
+    }
+
+    /// The preview directory is last-write-wins by design, so a bilingual
+    /// preview must not land on the source preview's filename. The template
+    /// names no `{language}`, so the collision guard inserts the joined
+    /// identity before the extension — `preview-0.1-pdf-en+sr.pdf`.
+    func test_languages_theBilingualPreviewFileCarriesTheJoinedIdentity() async throws {
+        // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
+        try await TectonicProbe.requireReady()
+        let configStore = try await plainConfigStore()
+
+        let source = try await multiLanguagePreview(configStore, languages: nil)
+            .preview(format: .pdf, sectionIDs: nil, maxPages: nil)
+        XCTAssertEqual(URL(fileURLWithPath: source.outputPath).lastPathComponent,
+                       "preview-0.1-pdf.pdf",
+                       "fixture: the source preview keeps its unsuffixed name")
+
+        let both = try await multiLanguagePreview(configStore, languages: ["en", "sr"])
+            .preview(format: .pdf, sectionIDs: nil, maxPages: nil)
+        XCTAssertTrue(both.errors.isEmpty, "\(both.errors.map(\.message))")
+        XCTAssertEqual(URL(fileURLWithPath: both.outputPath).lastPathComponent,
+                       "preview-0.1-pdf-en+sr.pdf")
+        XCTAssertNotEqual(both.outputPath, source.outputPath,
+                          "a bilingual preview must not overwrite the source preview")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.outputPath),
+                      "and the source preview is still there")
+    }
+
+    /// The compilers' `language:` is the set's SINGLE tag, never its identity:
+    /// a bilingual document belongs to no one tongue's stylesheet, so it takes
+    /// the base one with a suffixed file sitting right there.
+    func test_languages_theBilingualPreviewTakesTheBaseStylesheet() async throws {
+        let publish = tmp.appendingPathComponent(".maugham/publish", isDirectory: true)
+        try "/* sronly */".write(to: publish.appendingPathComponent("styles.sr.css"),
+                                 atomically: true, encoding: .utf8)
+        let configStore = try await plainConfigStore()
+
+        let both = try await multiLanguagePreview(configStore, languages: ["en", "sr"])
+            .preview(format: .epub, sectionIDs: nil, maxPages: nil)
+        XCTAssertTrue(both.errors.isEmpty, "\(both.errors.map(\.message))")
+        let css = try epubEntryText(
+            "OEBPS/styles.css", inEPUBAt: URL(fileURLWithPath: both.outputPath))
+        XCTAssertFalse(css.contains("sronly"),
+                       "a bilingual preview takes the BASE stylesheet: \(css)")
+
+        // The control: ONE translated body does resolve its own, so the base
+        // above is a decision rather than a missing file.
+        let sr = try await multiLanguagePreview(configStore, languages: ["sr"])
+            .preview(format: .epub, sectionIDs: nil, maxPages: nil)
+        XCTAssertTrue(sr.errors.isEmpty, "\(sr.errors.map(\.message))")
+        let srCSS = try epubEntryText(
+            "OEBPS/styles.css", inEPUBAt: URL(fileURLWithPath: sr.outputPath))
+        XCTAssertTrue(srCSS.contains("sronly"),
+                      "one translated body resolves styles.sr.css: \(srCSS)")
+    }
+
+    /// A combination that cannot resolve is a caller's typo, refused with the
+    /// same `.failed`-shaped Result the unknown-imprint refusal returns — and
+    /// refused BEFORE anything is written, because nothing about it needed the
+    /// manuscript.
+    ///
+    /// Disable experiment: delete the `LanguageSet` construction and its
+    /// `catch` from `run`, and this fails on `result.errors` being empty with
+    /// a preview file on disk.
+    func test_languages_anInvalidSetRefusesBeforeAnythingIsWritten() async throws {
+        let configStore = try await plainConfigStore()
+        let jobs = CompileJobManager()
+        // "en" IS this book's own language, so "source" and "en" name the same
+        // body — a duplicate, which `LanguageSet` refuses.
+        let result = try await multiLanguagePreview(
+            configStore, languages: ["source", "en"], jobs: jobs)
+            .preview(format: .epub, sectionIDs: nil, maxPages: nil)
+
+        XCTAssertFalse(result.errors.isEmpty, "a duplicate body must refuse the preview")
+        XCTAssertTrue(result.logExcerpt.hasPrefix("invalid_languages: "),
+                      "got: \(result.logExcerpt)")
+        XCTAssertTrue(result.outputPath.isEmpty, "got: \(result.outputPath)")
+
+        let previewDir = tmp.appendingPathComponent(
+            PreviewCompiler.previewSubpath, isDirectory: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previewDir.path),
+                       "nothing was previewed — not even the output directory")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: tmp.appendingPathComponent(".maugham/publish/build/body.xhtml").path),
+            "and not a word of the manuscript was emitted")
+
+        let running = await jobs.allInProgress()
+        XCTAssertTrue(running.isEmpty, "the job is terminal")
+    }
+
+    /// The CONTROL for the refusal above: a well-formed set still previews.
+    /// Without it the refusal could pass on a door that refuses every
+    /// `languages:` request.
+    func test_languages_aWellFormedSetStillPreviews() async throws {
+        let configStore = try await plainConfigStore()
+        let result = try await multiLanguagePreview(configStore, languages: ["en", "sr"])
+            .preview(format: .epub, sectionIDs: nil, maxPages: nil)
+        XCTAssertTrue(result.errors.isEmpty,
+                      "a valid set must not be caught by the new door: "
+                      + "\(result.errors.map(\.message))")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.outputPath),
+                      "no preview at \(result.outputPath)")
+    }
+
+    /// The gate runs once per TRANSLATED body, and reports EVERY blocked tongue
+    /// rather than the first: a writer who has to preview once per language to
+    /// learn the second one's gaps is being sent round the loop for nothing.
+    ///
+    /// Three bodies — the source (never gated), a covered `sr`, and an `es` with
+    /// no records at all. The refusal must name `es` and must NOT name `sr`,
+    /// which is what makes it a per-tongue verdict rather than a blanket one.
+    func test_languages_theGateJudgesEachTongueAndNamesTheOneThatFailed() async throws {
+        let fx = try await makeLangFixture(content: """
+        First paragraph.
+
+        Second paragraph.
+        """)
+        for id in fx.doc.sequence {
+            try await TranslationStore.append(
+                TranslationRecord(
+                    paragraphId: id, language: "sr", text: "Prevedeni.",
+                    sourceHash: TranslationHash.hash(fx.doc.paragraphs[id] ?? ""),
+                    verbatim: false),
+                forDocId: fx.docID, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                in: fx.projectURL)
+        }
+
+        let result = try await PreviewCompiler(
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store),
+            configStore: fx.stores.configStore, jobManager: fx.stores.jobManager,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
+            languages: ["en", "sr", "es"]
+        ).preview(format: .epub, sectionIDs: nil, maxPages: nil)
+
+        XCTAssertFalse(result.errors.isEmpty, "an untranslated tongue must block")
+        let message = result.errors.map(\.message).joined(separator: "\n")
+        XCTAssertTrue(message.contains("[es]"),
+                      "the blocked tongue must be named: \(message)")
+        XCTAssertFalse(message.contains("[sr]"),
+                       "and a tongue that PASSED must not be: \(message)")
+        XCTAssertTrue(result.outputPath.isEmpty, "got: \(result.outputPath)")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: fx.projectURL
+                    .appendingPathComponent(PreviewCompiler.previewSubpath).path),
+            "a blocked preview writes no output")
+    }
+
+    /// Its control: cover `es` too and the same three-body preview lands.
+    /// Without it the refusal above could pass on a preview that had started
+    /// refusing every multi-tongue request.
+    func test_languages_everyTongueCovered_previewsAllThreeBodies() async throws {
+        let fx = try await makeLangFixture(content: """
+        First paragraph.
+
+        Second paragraph.
+        """)
+        for tag in ["sr", "es"] {
+            for id in fx.doc.sequence {
+                try await TranslationStore.append(
+                    TranslationRecord(
+                        paragraphId: id, language: tag, text: "Prevedenina\(tag).",
+                        sourceHash: TranslationHash.hash(fx.doc.paragraphs[id] ?? ""),
+                        verbatim: false),
+                    forDocId: fx.docID, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                    in: fx.projectURL)
+            }
+        }
+
+        let result = try await PreviewCompiler(
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store),
+            configStore: fx.stores.configStore, jobManager: fx.stores.jobManager,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
+            languages: ["en", "sr", "es"]
+        ).preview(format: .epub, sectionIDs: nil, maxPages: nil)
+
+        XCTAssertTrue(result.errors.isEmpty,
+                      "a fully covered set must preview: \(result.errors.map(\.message))")
+        let entries = try epubEntryNames(inEPUBAt: URL(fileURLWithPath: result.outputPath))
+        for tag in ["en", "sr", "es"] {
+            XCTAssertTrue(entries.contains("OEBPS/section-\(tag)-001.xhtml"),
+                          "body '\(tag)' is missing from \(entries)")
+        }
+    }
 }

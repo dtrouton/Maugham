@@ -42,4 +42,38 @@ final class PDFCompilerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.outputPath))
         XCTAssertTrue(result.outputPath.hasSuffix(".pdf"))
     }
+
+    // MARK: - M1: the wrapper's \input prefix
+
+    /// An `\input` inside `build/body.tex` resolves relative to the PRIMARY
+    /// TEMPLATE's own directory, so the wrapper carries one `../` per
+    /// directory the template sits below the publish dir.
+    ///
+    /// M1 (whole-branch review): a `.` segment is not a directory.
+    /// `./template.tex` is the publish dir's own root — the same file
+    /// `template.tex` names — and giving it a `../` sends every `\input` a
+    /// level above the publish dir, where none of the build files are.
+    ///
+    /// No tectonic: this is a pure string function, and the prefix it returns
+    /// is what a real compile would then fail on.
+    ///
+    /// Disable experiment: drop the `.`-filter and the `./template.tex` case
+    /// returns "../".
+    func test_wrapperInputPrefixCountsDirectoriesAndNotDotSegments() {
+        XCTAssertEqual(
+            PDFCompiler.wrapperInputPrefix(forTemplate: "template.tex"), "",
+            "a template at the publish dir's root needs no prefix")
+        XCTAssertEqual(
+            PDFCompiler.wrapperInputPrefix(forTemplate: "./template.tex"), "",
+            "`.` names that same root — it is not a directory to climb out of")
+        XCTAssertEqual(
+            PDFCompiler.wrapperInputPrefix(forTemplate: "templates/x.tex"), "../",
+            "one directory down, one `../`")
+        XCTAssertEqual(
+            PDFCompiler.wrapperInputPrefix(forTemplate: "templates/a/b.tex"), "../../",
+            "two directories down, two")
+        XCTAssertEqual(
+            PDFCompiler.wrapperInputPrefix(forTemplate: "./templates/x.tex"), "../",
+            "and the two rules compose")
+    }
 }

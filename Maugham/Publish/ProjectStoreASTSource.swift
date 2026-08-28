@@ -153,3 +153,17 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
         }
     }
 }
+
+/// P2: a multi-language compile renders one body per language, each reading
+/// its own text. `BodyPlan` asks the source it was handed for those siblings
+/// rather than constructing them, so it never learns what a `ProjectStore` is.
+///
+/// The conformance is `@MainActor` for the same reason the
+/// `ProjectASTBuilder.Source` conformance above is: it inherits that isolated
+/// conformance, and the returned existential is a `ProjectStoreASTSource`
+/// whose `orderedPieces()` reads main-actor state.
+extension ProjectStoreASTSource: @MainActor LanguageRebindableSource {
+    public func rebound(toLanguage tag: String?) -> ProjectASTBuilder.Source {
+        ProjectStoreASTSource(projectStore: projectStore, language: tag)
+    }
+}

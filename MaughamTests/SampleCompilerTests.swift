@@ -269,7 +269,7 @@ final class SampleCompilerTests: XCTestCase {
 
         let outcome = try await SampleCompiler.compile(
             proposal: proposal, selection: selection([]), projectURL: projectURL,
-            astSource: TwoPieceSource(), jobManager: CompileJobManager(),
+            astSource: TwoPieceSource(), language: nil, jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
 
         guard case .failed(_, let excerpt) = outcome else {
@@ -292,7 +292,7 @@ final class SampleCompilerTests: XCTestCase {
 
         _ = try await SampleCompiler.compile(
             proposal: proposal, selection: selection([]), projectURL: projectURL,
-            astSource: TwoPieceSource(), jobManager: CompileJobManager(),
+            astSource: TwoPieceSource(), language: nil, jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
 
         let recorded = try DesignProposalStore(projectURL: projectURL)
@@ -313,7 +313,7 @@ final class SampleCompilerTests: XCTestCase {
 
         let outcome = try await SampleCompiler.compile(
             proposal: proposal, selection: selection(["p1"]), projectURL: bare,
-            astSource: TwoPieceSource(), jobManager: CompileJobManager(),
+            astSource: TwoPieceSource(), language: nil, jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
 
         guard case .failed = outcome else {
@@ -346,10 +346,10 @@ final class SampleCompilerTests: XCTestCase {
 
         let outcome = try await SampleCompiler.compile(
             proposal: proposal, selection: selection(["p1"]), projectURL: projectURL,
-            astSource: TwoPieceSource(), jobManager: CompileJobManager(),
+            astSource: TwoPieceSource(), language: nil, jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
 
-        guard case .pages(let path, let demonstrates) = outcome else {
+        guard case .pages(let path, let demonstrates, _) = outcome else {
             return XCTFail("the sample compile must produce pages: "
                            + SampleCompiler.failureSentence(outcome))
         }
@@ -389,8 +389,247 @@ final class SampleCompilerTests: XCTestCase {
         // …and the pages are recorded on the proposal.
         let recorded = try DesignProposalStore(projectURL: projectURL)
             .sampleResult(id: proposal.id)
-        XCTAssertEqual(recorded, .pages(path: path, demonstrates: selection(["p1"]).demonstrates),
+        XCTAssertEqual(recorded, .pages(path: path,
+                                        demonstrates: selection(["p1"]).demonstrates,
+                                        fallbackPieces: 0),
                        "the recorded result carries the selection's own lines, "
                        + "which is what the gate shows beside the pages")
+    }
+
+    // MARK: - the edition a round is for (fix round 1)
+
+    /// A design round briefed on a language is handed a source already bound to
+    /// it — and, since P2, that binding is not enough on its own: `BodyPlan`
+    /// rebinds every body, including a single one, so a preview asked for no
+    /// language rebinds the bound source straight back to the source book. The
+    /// gate then shows English under a caveat promising the edition's text
+    /// (`DesignGateView.caveat`). `language:` is what closes it.
+    ///
+    /// **Deliberately tectonic-free**, like everything else in this file but
+    /// `test_endToEnd_…`: `PDFCompiler` writes `build/body.<tag>.tex` from the
+    /// emitter BEFORE it goes looking for a binary, so which text the compile
+    /// set is a file-system fact either way. Making it depend on a TeX bundle
+    /// would let a cold cache skip the assertion.
+    private static let firstSource = "Thefirstsourceparagraph."
+    private static let secondSource = "Thesecondsourceparagraph."
+    private static let editionSentence = "Laoraciontraducidadelamuestra."
+
+    private struct LangSampleFixture {
+        let projectURL: URL
+        let store: ProjectStore
+        let pieceID: String
+    }
+
+    /// A real novel project whose one two-paragraph document is translated into
+    /// `es`, with the publish starter installed over it so the scratch has a
+    /// tree to copy. Mirrors `PreviewCompilerTests.makeLangFixture` — the point
+    /// is that this exercises the SAME `ProjectStore` substitution path
+    /// production uses, rather than a stub that answers per language by
+    /// construction.
+    ///
+    /// `covering` is how many of the two paragraphs get a record: 2 is a
+    /// complete edition, 1 leaves a gap the coverage gate would block on.
+    private func makeTranslatedProject(covering: Int = 2) async throws -> LangSampleFixture {
+        let projectURL = try await ProjectFactory.createNovelProject(
+            named: "SampleLang-\(UUID().uuidString.prefix(6))", in: tmp)
+        let probe = try await ProjectStore.load(from: projectURL)
+        let item = try XCTUnwrap(
+            ProjectStore.collectDocuments(in: probe.manifest.structure).first)
+        let path = try XCTUnwrap(item.path)
+        try "\(Self.firstSource)\n\n\(Self.secondSource)".write(
+            to: projectURL.appendingPathComponent(path), atomically: true, encoding: .utf8)
+
+        let doc = try await Document.load(
+            url: projectURL.appendingPathComponent(path),
+            device: "test", session: "s", presenter: nil)
+        let store = try await ProjectStore.load(from: projectURL)
+
+        // `ProjectFactory` already installed the publish tree
+        // (`PublishStarter.installIfMissing`), which is what the scratch copies;
+        // installing again would throw `alreadyInitialized`.
+        let configStore = PublishConfigStore(projectURL: projectURL)
+        var cfg = try await configStore.load() ?? PublishConfig()
+        cfg.metadata.title = "Sample"
+        cfg.metadata.author = "A"
+        cfg.metadata.language = "en"
+        try await configStore.save(cfg)
+
+        for id in doc.sequence.prefix(covering) {
+            try await TranslationStore.append(
+                TranslationRecord(
+                    paragraphId: id, language: "es", text: Self.editionSentence,
+                    sourceHash: TranslationHash.hash(doc.paragraphs[id] ?? ""),
+                    verbatim: false),
+                forDocId: item.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                in: projectURL)
+        }
+        return LangSampleFixture(
+            projectURL: projectURL, store: store, pieceID: item.id)
+    }
+
+    /// The body the sample compile emitted, read out of the scratch. The
+    /// filename carries the body's own tag (`body.es.tex`, `body.en.tex`), so
+    /// this takes whichever one is there rather than restating the rule.
+    private func sampleBodyTeX(
+        _ proposal: DesignProposalStore.Proposal, in projectURL: URL
+    ) throws -> String {
+        let build = SampleCompiler.scratchURL(proposal: proposal, projectURL: projectURL)
+            .appendingPathComponent(".maugham/publish/build", isDirectory: true)
+        let names = try FileManager.default.contentsOfDirectory(atPath: build.path)
+            .filter { $0.hasPrefix("body.") && $0.hasSuffix(".tex") && $0 != "body.tex" }
+        let name = try XCTUnwrap(names.first,
+                                 "the compile emitted no body file; found \(names)")
+        return try String(contentsOf: build.appendingPathComponent(name), encoding: .utf8)
+    }
+
+    /// Disable experiment: drop `language: language` from the `PreviewCompiler`
+    /// construction in `SampleCompiler.run` and this fails — the body carries
+    /// the source sentence and not the edition's.
+    func test_compile_forAnEditionRound_setsThatEditionsText() async throws {
+        let fx = try await makeTranslatedProject()
+        let proposal = try stage([], in: fx.projectURL)
+
+        _ = try await SampleCompiler.compile(
+            proposal: proposal, selection: selection([fx.pieceID]),
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store, language: "es"),
+            language: "es",
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+
+        let body = try sampleBodyTeX(proposal, in: fx.projectURL)
+        XCTAssertTrue(body.contains(Self.editionSentence),
+                      "the sample must set the edition the round is for: \(body)")
+        XCTAssertFalse(body.contains(Self.firstSource),
+                       "and not the source book under the edition's caveat: \(body)")
+        XCTAssertFalse(body.contains(Self.secondSource), body)
+    }
+
+    /// Its control: a round about the BOOK still sets the source text. Without
+    /// it the test above could pass on a sample that had started translating
+    /// every round.
+    func test_compile_forASourceRound_stillSetsTheSourceText() async throws {
+        let fx = try await makeTranslatedProject()
+        let proposal = try stage([], in: fx.projectURL)
+
+        _ = try await SampleCompiler.compile(
+            proposal: proposal, selection: selection([fx.pieceID]),
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store),
+            language: nil,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+
+        let body = try sampleBodyTeX(proposal, in: fx.projectURL)
+        XCTAssertTrue(body.contains(Self.firstSource),
+                      "a book round sets the book: \(body)")
+        XCTAssertTrue(body.contains(Self.secondSource), body)
+        XCTAssertFalse(body.contains(Self.editionSentence), body)
+    }
+
+    /// The sample's own `allow_stale` contract: a design round is about
+    /// typesetting, so a paragraph that has not been translated yet must not
+    /// refuse the writer a look at their templates. The SAME edition through
+    /// `preview_compile` is blocked (`PreviewCompilerTests
+    /// .testPreview_language_gateBlocksWithoutAllowStale`), which is what makes
+    /// this a decision of this type's rather than an accident.
+    func test_compile_forAnEditionRound_isNotBlockedByAnIncompleteLayer() async throws {
+        let fx = try await makeTranslatedProject(covering: 1)
+        let proposal = try stage([], in: fx.projectURL)
+
+        _ = try await SampleCompiler.compile(
+            proposal: proposal, selection: selection([fx.pieceID]),
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store, language: "es"),
+            language: "es",
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+
+        // It got as far as emitting a body — the gate did not stop it — and the
+        // untranslated half fell back to its source text, which is exactly what
+        // the writer is meant to be looking at.
+        let body = try sampleBodyTeX(proposal, in: fx.projectURL)
+        XCTAssertTrue(body.contains(Self.editionSentence),
+                      "the translated half is set in the edition: \(body)")
+        XCTAssertTrue(body.contains(Self.secondSource),
+                      "and the untranslated half falls back to source text: \(body)")
+    }
+
+    // MARK: - the sample says when the book's own text stood in (fix round 2)
+
+    /// `allowStale` is what lets an incomplete edition produce pages at all, and
+    /// pages that look clean while part of their prose is the wrong language are
+    /// worse than a refusal. The fallback warnings must therefore reach the
+    /// outcome, and the COUNT of them the record the gate reads — otherwise the
+    /// only place the fact exists is a `CompileJobManager` nobody opens.
+    ///
+    /// Needs a real compile (the warnings ride out on the success path), so it
+    /// reads its premise off the machine like every other end-to-end case here.
+    ///
+    /// Disable experiment: drop `warnings: result.warnings` from `.pages(…)` in
+    /// `SampleCompiler.run` and this fails on an empty `warnings` array and a
+    /// recorded `fallbackPieces` of 0.
+    func test_compile_overAnIncompleteLayer_carriesItsFallbackWarningsToTheRecord() async throws {
+        try await TectonicProbe.requireReady()
+
+        let fx = try await makeTranslatedProject(covering: 1)
+        let proposal = try stage([], in: fx.projectURL)
+
+        let outcome = try await SampleCompiler.compile(
+            proposal: proposal, selection: selection([fx.pieceID]),
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store, language: "es"),
+            language: "es",
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+
+        guard case .pages(_, _, let warnings) = outcome else {
+            return XCTFail("an incomplete layer still produces pages: "
+                           + SampleCompiler.failureSentence(outcome))
+        }
+        let fallbacks = warnings.filter(TranslationCoverage.isSourceTextFallback)
+        XCTAssertFalse(fallbacks.isEmpty,
+                       "the fallback must reach the outcome: \(warnings.map(\.message))")
+        XCTAssertTrue(fallbacks.allSatisfy { $0.message.hasPrefix("[es]") },
+                      "and say which tongue: \(fallbacks.map(\.message))")
+
+        // …and onto the record the gate actually reads, which is the only copy
+        // that survives the session that compiled it.
+        guard case .pages(_, _, let recorded) = try XCTUnwrap(
+            DesignProposalStore(projectURL: fx.projectURL).sampleResult(id: proposal.id))
+        else { return XCTFail("the proposal must record pages") }
+        XCTAssertEqual(recorded, fallbacks.count,
+                       "the record counts the pieces that fell back")
+        XCTAssertGreaterThan(recorded, 0)
+    }
+
+    /// Its control: a COMPLETE edition records none, so the gate stays silent
+    /// about a translation that is finished. Without it the test above could
+    /// pass on a sample that had started warning about every edition round.
+    func test_compile_overACompleteLayer_recordsNoFallback() async throws {
+        try await TectonicProbe.requireReady()
+
+        let fx = try await makeTranslatedProject()
+        let proposal = try stage([], in: fx.projectURL)
+
+        let outcome = try await SampleCompiler.compile(
+            proposal: proposal, selection: selection([fx.pieceID]),
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store, language: "es"),
+            language: "es",
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+
+        guard case .pages(_, _, let warnings) = outcome else {
+            return XCTFail("a complete edition must produce pages: "
+                           + SampleCompiler.failureSentence(outcome))
+        }
+        XCTAssertTrue(warnings.filter(TranslationCoverage.isSourceTextFallback).isEmpty,
+                      "nothing fell back: \(warnings.map(\.message))")
+
+        guard case .pages(_, _, let recorded) = try XCTUnwrap(
+            DesignProposalStore(projectURL: fx.projectURL).sampleResult(id: proposal.id))
+        else { return XCTFail("the proposal must record pages") }
+        XCTAssertEqual(recorded, 0)
     }
 }

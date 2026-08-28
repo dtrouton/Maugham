@@ -71,9 +71,11 @@ final class SectionIncludeToCProbeTests: XCTestCase {
 
         // The emitted body must have dropped the excluded piece entirely
         // (no leftover heading/text that could dangle a \pageref).
+        // (P2: `build/body.tex` is now the wrapper over the document's bodies —
+        // the emitted book lives at `build/body.<tag>.tex`, `en` for this fixture.)
         let body = try String(
             contentsOf: projectURL.appendingPathComponent(
-                ".maugham/publish/build/body.tex"),
+                ".maugham/publish/build/body.en.tex"),
             encoding: .utf8)
         XCTAssertTrue(body.contains("{Alphapiece}"), "included Alphapiece missing from body")
         XCTAssertTrue(body.contains("{Charliepiece}"), "included Charliepiece missing from body")

@@ -29,11 +29,20 @@ public struct PublicationSnapshot: Codable, Equatable, Sendable {
     public let config: PublishConfig
     public let maughamVersion: String
     public let tectonicVersion: String
+    /// The languages this snapshot's compile rendered a body for, in order,
+    /// with the source body spelled the way the config spells it (P2).
+    ///
+    /// Optional because every snapshot minted before P2 has no such key, and a
+    /// republish reads snapshots the writer already has on disk: absent decodes
+    /// as `nil` — "this one does not say" — rather than throwing. Present on
+    /// everything captured from now on, single-language compiles included.
+    public let languages: [String]?
 
     public init(
         snapshotID: String, createdAt: Date,
         publishFiles: [File], config: PublishConfig,
-        maughamVersion: String, tectonicVersion: String
+        maughamVersion: String, tectonicVersion: String,
+        languages: [String]? = nil
     ) {
         self.snapshotID = snapshotID
         self.createdAt = createdAt
@@ -41,6 +50,7 @@ public struct PublicationSnapshot: Codable, Equatable, Sendable {
         self.config = config
         self.maughamVersion = maughamVersion
         self.tectonicVersion = tectonicVersion
+        self.languages = languages
     }
 
     enum CodingKeys: String, CodingKey {
@@ -50,5 +60,6 @@ public struct PublicationSnapshot: Codable, Equatable, Sendable {
         case config
         case maughamVersion = "maugham_version"
         case tectonicVersion = "tectonic_version"
+        case languages
     }
 }

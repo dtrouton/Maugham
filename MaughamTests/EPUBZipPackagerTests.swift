@@ -21,7 +21,8 @@ final class EPUBZipPackagerTests: XCTestCase {
                             version: "0.1", checkpointID: "chk-x"),
             sections: [
                 .init(id: "s1", filename: "section-001.xhtml", title: "First",
-                      xhtmlBody: "<section class=\"prose\"><h1>First</h1><p>Hello.</p></section>")
+                      xhtmlBody: "<section class=\"prose\"><h1>First</h1><p>Hello.</p></section>",
+                      language: "en")
             ],
             cover: nil,
             stylesheetCSS: "body { font-family: serif; }")
@@ -41,7 +42,7 @@ final class EPUBZipPackagerTests: XCTestCase {
             metadata: .init(title: "T", author: "A"),
             sections: [
                 .init(id: "s1", filename: "section-001.xhtml", title: "S",
-                      xhtmlBody: "<p>x</p>")
+                      xhtmlBody: "<p>x</p>", language: "en")
             ],
             cover: .init(filename: "cover.jpg", data: coverData, mediaType: "image/jpeg"))
 

@@ -1297,23 +1297,10 @@ final class RepublisherTests: XCTestCase {
         }
     }
 
-    /// Every `data-piece-id` an EPUB's section documents carry.
-    private func pieceIDs(inEPUBAt url: URL) throws -> Set<String> {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        proc.arguments = ["-p", url.path, "OEBPS/*.xhtml"]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        try proc.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        proc.waitUntilExit()
-        let xhtml = String(data: data, encoding: .utf8) ?? ""
-        let pattern = try NSRegularExpression(pattern: #"data-piece-id="([^"]+)""#)
-        let range = NSRange(xhtml.startIndex..<xhtml.endIndex, in: xhtml)
-        return Set(pattern.matches(in: xhtml, range: range).compactMap {
-            Range($0.range(at: 1), in: xhtml).map { String(xhtml[$0]) }
-        })
-    }
+    // `pieceIDs(inEPUBAt:)` lived here as a private helper until P2 Task 4
+    // moved it to `MaughamTests/Publish/EPUBInspection.swift`, where the
+    // bilingual suite can ask the same question of a two-language EPUB. It is
+    // an `XCTestCase` extension there, so the call sites below are unchanged.
 
     /// C1 (whole-branch review). An imprint's `sections` is an ALLOWLIST, and
     /// resolution MATERIALIZES it — the frozen config names only the pieces
@@ -1537,5 +1524,549 @@ final class RepublisherTests: XCTestCase {
         XCTAssertTrue(
             errors.contains { $0.message.contains("on the book") },
             "the refusal must name the book: \(errors.map(\.message))")
+    }
+
+    // MARK: - P2 Task 6: a republish reproduces every body the record names
+    //
+    // The record is two halves and the republish reads both: the snapshot's
+    // own `languages` (written by every compile since P2) says what was
+    // rendered, and the prior catalog row's `language` is the identity that
+    // names it. An older snapshot has neither key — only the row — and must
+    // still reproduce exactly what it reproduced before this branch.
+
+    /// A source that answers with different text per language, so a
+    /// republished bilingual document can be read back body by body.
+    private struct RebindableRepubSrc: LanguageRebindableSource {
+        let tag: String?
+        static func text(for tag: String?) -> String {
+            tag.map { "Prevedeniparagrafu\($0)." } ?? "Thesourceparagraph."
+        }
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            [.init(pieceID: "p1", title: "C", mode: .prose,
+                   displayText: Self.text(for: tag))]
+        }
+        func rebound(toLanguage tag: String?) -> ProjectASTBuilder.Source {
+            RebindableRepubSrc(tag: tag)
+        }
+    }
+
+    private func bilingualConfigStore() async throws -> PublishConfigStore {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "RepubMulti", author: "T"))
+        cfg.metadata.language = "en"
+        cfg.languageOverrides = ["sr": .init(metadata: ["title": "Prevedeni Naslov"])]
+        try await configStore.save(cfg)
+        return configStore
+    }
+
+    private func repubOrchestrator(
+        _ configStore: PublishConfigStore, _ pubStore: PublicationStore,
+        _ snapStore: PublicationSnapshotStore
+    ) -> CompileOrchestrator {
+        CompileOrchestrator(
+            projectURL: tmp, astSource: RebindableRepubSrc(tag: nil),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+    }
+
+    private func repubRepublisher(
+        _ pubStore: PublicationStore, _ snapStore: PublicationSnapshotStore
+    ) -> Republisher {
+        Republisher(
+            projectURL: tmp, astSource: RebindableRepubSrc(tag: nil),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+    }
+
+    /// A bilingual publication republishes as a bilingual publication: both
+    /// bodies in the archive, each reading its own text, and a catalog row
+    /// carrying the joined identity rather than one tongue or none.
+    func test_republishOfABilingualRecord_reproducesEveryBody() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, languages: ["en", "sr"]) else {
+            return XCTFail("fixture: the bilingual compile must complete")
+        }
+        XCTAssertEqual(first.language, "en+sr", "fixture")
+
+        guard case .completed(let again, _) = try await repubRepublisher(
+            pubStore, snapStore)
+            .republish(snapshotID: first.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("the bilingual republish must complete")
+        }
+        XCTAssertEqual(again.language, "en+sr",
+                       "the republished row carries the joined identity")
+        XCTAssertTrue(again.outputPath.contains("en+sr"),
+                      "and so does its filename: \(again.outputPath)")
+
+        let epub = tmp.appendingPathComponent(again.outputPath)
+        let entries = try epubEntryNames(inEPUBAt: epub)
+        XCTAssertTrue(entries.contains("OEBPS/section-en-001.xhtml"), "\(entries)")
+        XCTAssertTrue(entries.contains("OEBPS/section-sr-001.xhtml"), "\(entries)")
+        XCTAssertEqual(try pieceIDOccurrences(inEPUBAt: epub).count, 2,
+                       "one occurrence of the one piece per body")
+
+        let en = try epubEntryText("OEBPS/section-en-001.xhtml", inEPUBAt: epub)
+        let sr = try epubEntryText("OEBPS/section-sr-001.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(en.contains(RebindableRepubSrc.text(for: nil)),
+                      "the source body reads the source text: \(en)")
+        XCTAssertTrue(sr.contains(RebindableRepubSrc.text(for: "sr")),
+                      "and the sr body its own — not the source text under the "
+                      + "translation's name: \(sr)")
+        XCTAssertFalse(sr.contains(RebindableRepubSrc.text(for: nil)), sr)
+    }
+
+    /// A snapshot minted BEFORE this branch has no `languages` key at all, and
+    /// a republish of it must reproduce exactly what it reproduced before —
+    /// one body, the prior row's language, the un-tagged section filenames.
+    ///
+    /// Disable experiment: drop the `prior?.language` fallback (leave only
+    /// `snap.languages`) and this fails with `again.language == nil` and an
+    /// output filename that has lost its `-sr`.
+    func test_republishOfAPreBranchSnapshot_reproducesItsOneBodyFromTheRow() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        // A translated edition renders an EXISTING source version.
+        try await pubStore.append(Publication(
+            publicationID: "pub-src", version: "0.1", label: nil, format: .pdf,
+            outputPath: "Exports/src.pdf", snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a", language: nil))
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, language: "sr") else {
+            return XCTFail("fixture: the sr compile must complete")
+        }
+        XCTAssertEqual(first.language, "sr", "fixture")
+
+        // Age the snapshot: strip the key no pre-P2 snapshot carries.
+        let fresh = try snapStore.load(id: first.snapshotID)
+        XCTAssertEqual(fresh.languages, ["sr"], "fixture: a fresh compile records its tags")
+        try snapStore.save(PublicationSnapshot(
+            snapshotID: fresh.snapshotID, createdAt: fresh.createdAt,
+            publishFiles: fresh.publishFiles, config: fresh.config,
+            maughamVersion: fresh.maughamVersion,
+            tectonicVersion: fresh.tectonicVersion,
+            languages: nil))
+        XCTAssertNil(try snapStore.load(id: first.snapshotID).languages, "fixture")
+
+        guard case .completed(let again, _) = try await repubRepublisher(
+            pubStore, snapStore)
+            .republish(snapshotID: first.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("an old snapshot must still republish")
+        }
+        XCTAssertEqual(again.language, "sr",
+                       "the row is the only record left of what it rendered")
+        XCTAssertTrue(again.outputPath.contains("-sr."),
+                      "and the filename keeps its suffix: \(again.outputPath)")
+
+        let epub = tmp.appendingPathComponent(again.outputPath)
+        let entries = try epubEntryNames(inEPUBAt: epub)
+        XCTAssertTrue(entries.contains("OEBPS/section-001.xhtml"),
+                      "one body keeps the un-tagged filenames: \(entries)")
+        XCTAssertFalse(entries.contains { $0.contains("section-sr-") },
+                       "a single body must not be rearranged: \(entries)")
+        let body = try epubEntryText("OEBPS/section-001.xhtml", inEPUBAt: epub)
+        XCTAssertTrue(body.contains(RebindableRepubSrc.text(for: "sr")),
+                      "and it reads the sr text: \(body)")
+    }
+
+    /// The other half of that fallback: a pre-branch snapshot whose prior row
+    /// carries a JOINED identity must reproduce BOTH bodies. `LanguageSet`
+    /// refuses a `+` in a tag — it is an identity, never a tongue — so the
+    /// republish splits it back into components itself.
+    ///
+    /// Disable experiment: hand `prior?.language` to `LanguageSet` unsplit and
+    /// this fails on the throw (`invalid language tag 'en+sr'`).
+    func test_republishOfAPreBranchSnapshot_splitsAJoinedIdentityBackIntoBodies() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, languages: ["en", "sr"]) else {
+            return XCTFail("fixture: the bilingual compile must complete")
+        }
+
+        let fresh = try snapStore.load(id: first.snapshotID)
+        try snapStore.save(PublicationSnapshot(
+            snapshotID: fresh.snapshotID, createdAt: fresh.createdAt,
+            publishFiles: fresh.publishFiles, config: fresh.config,
+            maughamVersion: fresh.maughamVersion,
+            tectonicVersion: fresh.tectonicVersion,
+            languages: nil))
+
+        guard case .completed(let again, _) = try await repubRepublisher(
+            pubStore, snapStore)
+            .republish(snapshotID: first.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("a joined identity with no snapshot key must still republish")
+        }
+        XCTAssertEqual(again.language, "en+sr")
+        let entries = try epubEntryNames(
+            inEPUBAt: tmp.appendingPathComponent(again.outputPath))
+        XCTAssertTrue(entries.contains("OEBPS/section-en-001.xhtml"), "\(entries)")
+        XCTAssertTrue(entries.contains("OEBPS/section-sr-001.xhtml"), "\(entries)")
+    }
+
+    /// The control for both fallbacks: an ordinary SOURCE republish is
+    /// untouched — one body, no identity, no language suffix. Without it the
+    /// two tests above could pass on a republish that had started tagging
+    /// every edition.
+    func test_republishOfASourceRecord_staysUntagged() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore).compile(format: .epub, label: nil) else {
+            return XCTFail("fixture: the source compile must complete")
+        }
+        XCTAssertNil(first.language, "fixture")
+
+        guard case .completed(let again, _) = try await repubRepublisher(
+            pubStore, snapStore)
+            .republish(snapshotID: first.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("the source republish must complete")
+        }
+        XCTAssertNil(again.language, "a source republish mints no identity")
+        XCTAssertFalse(again.outputPath.contains("-en."),
+                       "and no language suffix: \(again.outputPath)")
+        let entries = try epubEntryNames(
+            inEPUBAt: tmp.appendingPathComponent(again.outputPath))
+        XCTAssertTrue(entries.contains("OEBPS/section-001.xhtml"), "\(entries)")
+        let body = try epubEntryText("OEBPS/section-001.xhtml", inEPUBAt: epub(again))
+        XCTAssertTrue(body.contains(RebindableRepubSrc.text(for: nil)),
+                      "the source body reads the source text: \(body)")
+    }
+
+    /// A snapshot with no frozen `config.json` cannot say which of its language
+    /// tags is the book's own — `snap.config` is the first body's
+    /// language-FOLDED one and answers wrongly for every translated edition —
+    /// so a republish refuses rather than guessing. Loudly, naming the file, in
+    /// the same throwing shape the snapshot load and the config validation use.
+    ///
+    /// Disable experiment: restore the silent
+    /// `?? snap.config.metadata.language` fallback and this fails on no throw.
+    func test_republishRefusesASnapshotMissingItsFrozenConfig() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, languages: ["en", "sr"]) else {
+            return XCTFail("fixture: the bilingual compile must complete")
+        }
+
+        let fresh = try snapStore.load(id: first.snapshotID)
+        XCTAssertTrue(fresh.publishFiles.contains { $0.relativePath == "config.json" },
+                      "fixture: a captured snapshot carries the unfolded config")
+        try snapStore.save(PublicationSnapshot(
+            snapshotID: fresh.snapshotID, createdAt: fresh.createdAt,
+            publishFiles: fresh.publishFiles.filter { $0.relativePath != "config.json" },
+            config: fresh.config,
+            maughamVersion: fresh.maughamVersion,
+            tectonicVersion: fresh.tectonicVersion,
+            languages: fresh.languages))
+
+        do {
+            _ = try await repubRepublisher(pubStore, snapStore)
+                .republish(snapshotID: first.snapshotID, format: .epub, label: nil)
+            XCTFail("a snapshot with no config.json must refuse, not guess")
+        } catch let error as RepublishError {
+            let sentence = error.errorDescription ?? ""
+            XCTAssertTrue(sentence.contains("config.json"),
+                          "the refusal must name the file: \(sentence)")
+        }
+    }
+
+    /// Its control: the same snapshot, untouched, republishes. Without it the
+    /// refusal above could pass on a republish that had started refusing
+    /// everything.
+    func test_republishOfASnapshotWithItsFrozenConfig_stillRepublishes() async throws {
+        let configStore = try await bilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, languages: ["en", "sr"]) else {
+            return XCTFail("fixture: the bilingual compile must complete")
+        }
+        guard case .completed(let again, _) = try await repubRepublisher(
+            pubStore, snapStore)
+            .republish(snapshotID: first.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("an intact snapshot must republish")
+        }
+        XCTAssertEqual(again.language, "en+sr")
+    }
+
+    private func epub(_ pub: Publication) -> URL {
+        tmp.appendingPathComponent(pub.outputPath)
+    }
+
+    // MARK: - C1: every body folds from the UNFOLDED config
+
+    /// A bilingual config whose SECOND body is the source one, plus a
+    /// per-piece style file that has a language-suffixed variant on disk —
+    /// the two things a language fold rewrites (metadata, `style_file`).
+    private func styledBilingualConfigStore() async throws -> PublishConfigStore {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "RepubMulti", author: "T"))
+        cfg.metadata.language = "en"
+        cfg.languageOverrides = ["sr": .init(metadata: ["title": "Prevedeni Naslov"])]
+        cfg.sections = ["p1": .init(styleFile: "tribute.tex")]
+        try await configStore.save(cfg)
+
+        let pieces = tmp.appendingPathComponent(".maugham/publish/pieces",
+                                                isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: pieces, withIntermediateDirectories: true)
+        try "% base\n".write(to: pieces.appendingPathComponent("tribute.tex"),
+                             atomically: true, encoding: .utf8)
+        try "% serbian\n".write(to: pieces.appendingPathComponent("tribute.sr.tex"),
+                                atomically: true, encoding: .utf8)
+        return configStore
+    }
+
+    /// The plan a republish of `snapshotID` folds — driven through the
+    /// production seam (`Republisher.foldingBase`) over the REAL staged
+    /// snapshot, from the real extracted `config.json` and the real stage
+    /// publish dir. `version` is threaded so a caller can ask for byte
+    /// identity against the original compile.
+    private func republishPlan(
+        snapshotID: String, snapStore: PublicationSnapshotStore, version: String
+    ) async throws -> BodyPlan {
+        let snap = try snapStore.load(id: snapshotID)
+        let stage = tmp.appendingPathComponent("Stage-\(UUID().uuidString)")
+        let stagePublish = stage.appendingPathComponent(".maugham/publish",
+                                                        isDirectory: true)
+        try PublicationSnapshotStore.extract(snap, into: stagePublish)
+        guard let staged = try await PublishConfigStore(projectURL: stage).load()
+        else { throw XCTSkip("fixture: the snapshot must carry its config.json") }
+        let set = try LanguageSet(
+            language: nil, languages: snap.languages,
+            sourceTag: staged.metadata.language)
+        let base = try Republisher.foldingBase(
+            stagedConfig: staged, snapshotConfig: snap.config,
+            set: set, liveSource: RebindableRepubSrc(tag: nil),
+            version: version)
+        return try BodyPlan.make(
+            set: set, resolved: base, source: RebindableRepubSrc(tag: nil),
+            publishDir: stagePublish, wrap: { $0 })
+    }
+
+    /// The plan the COMPILE DOOR built for that compile: the live config,
+    /// unfolded, with the compiled version threaded through `nextVersion`
+    /// (`CompileOrchestrator.compile`'s `versioned`).
+    private func doorPlan(
+        configStore: PublishConfigStore, languages: [String], version: String
+    ) async throws -> BodyPlan {
+        guard var versioned = try await configStore.load() else {
+            throw XCTSkip("fixture: the project must have a config")
+        }
+        versioned.nextVersion = version
+        let set = try LanguageSet(
+            language: nil, languages: languages,
+            sourceTag: versioned.metadata.language)
+        return try BodyPlan.make(
+            set: set, resolved: versioned, source: RebindableRepubSrc(tag: nil),
+            publishDir: tmp.appendingPathComponent(".maugham/publish",
+                                                   isDirectory: true),
+            wrap: { $0 })
+    }
+
+    /// C1 (whole-branch review). Every body of a republish is folded from the
+    /// UNFOLDED config, exactly as the compile door folds it — so
+    /// `build/metadata.<tag>.tex` is byte-identical between the two, for every
+    /// body, at the same version.
+    ///
+    /// The order matters and is the whole finding: with `["sr","en"]` the
+    /// snapshot's `config` is the SERBIAN body's fold, and the English body
+    /// (`tag == nil`, whose own fold is a no-op) inherits it wholesale.
+    ///
+    /// Disable experiment: pass `resolved: snap.config`-with-a-new-version
+    /// (the shipped `effective`) instead of `base` — the `en` body's metadata
+    /// block comes out titled "Prevedeni Naslov" with
+    /// `\MaughamLanguage{sr}`, and its style file resolves to
+    /// `tribute.sr.tex`.
+    func test_aRepublishFoldsEveryBodyFromTheUnfoldedConfig() async throws {
+        let configStore = try await styledBilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, languages: ["sr", "en"]) else {
+            return XCTFail("fixture: the bilingual compile must complete")
+        }
+        XCTAssertEqual(first.language, "sr+en", "fixture: the translated body leads")
+
+        let original = try await doorPlan(
+            configStore: configStore, languages: ["sr", "en"],
+            version: first.version)
+        let replay = try await republishPlan(
+            snapshotID: first.snapshotID, snapStore: snapStore,
+            version: first.version)
+
+        XCTAssertEqual(replay.bodies.count, 2, "one body per recorded language")
+        for (i, body) in replay.bodies.enumerated() {
+            XCTAssertEqual(
+                PDFCompiler.metadataBlock(config: body.config, label: nil),
+                PDFCompiler.metadataBlock(config: original.bodies[i].config,
+                                          label: nil),
+                "body \(i) (\(body.displayTag)): build/metadata.\(body.displayTag).tex "
+                + "must be byte-identical to the original compile's")
+            XCTAssertEqual(
+                body.config.sections["p1"]?.styleFile,
+                original.bodies[i].config.sections["p1"]?.styleFile,
+                "body \(i) (\(body.displayTag)): and so must its style file")
+        }
+
+        // The absolute values, so the two computations agreeing is not the
+        // whole of the assertion.
+        let sr = PDFCompiler.metadataBlock(config: replay.bodies[0].config, label: nil)
+        let en = PDFCompiler.metadataBlock(config: replay.bodies[1].config, label: nil)
+        XCTAssertTrue(sr.contains("{Prevedeni Naslov}"), sr)
+        XCTAssertTrue(sr.contains("\\renewcommand{\\MaughamLanguage}{sr}"), sr)
+        XCTAssertTrue(en.contains("{RepubMulti}"),
+                      "the English half keeps the book's own title: \(en)")
+        XCTAssertTrue(en.contains("\\renewcommand{\\MaughamLanguage}{en}"),
+                      "and its own language: \(en)")
+        XCTAssertEqual(replay.bodies[0].config.sections["p1"]?.styleFile,
+                       "tribute.sr.tex")
+        XCTAssertEqual(replay.bodies[1].config.sections["p1"]?.styleFile,
+                       "tribute.tex",
+                       "the English half inputs the base style file, not the "
+                       + "Serbian variant")
+
+        // And the production path still republishes the record whole.
+        guard case .completed(let again, _) = try await repubRepublisher(
+            pubStore, snapStore)
+            .republish(snapshotID: first.snapshotID, format: .epub, label: nil)
+        else { return XCTFail("the bilingual republish must complete") }
+        XCTAssertEqual(again.language, "sr+en")
+    }
+
+    /// Control: the order that always worked must go on working. With
+    /// `["en","sr"]` the snapshot's config IS the unfolded one (the source
+    /// body's fold is the identity), so this passed before the fix and must
+    /// pass after it — the fix cannot be a re-ordering that merely moves the
+    /// defect to the other arrangement.
+    func test_aRepublishFoldsEveryBodyFromTheUnfoldedConfig_sourceBodyFirst() async throws {
+        let configStore = try await styledBilingualConfigStore()
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        guard case .completed(let first, _) = try await repubOrchestrator(
+            configStore, pubStore, snapStore)
+            .compile(format: .epub, label: nil, languages: ["en", "sr"]) else {
+            return XCTFail("fixture: the bilingual compile must complete")
+        }
+        XCTAssertEqual(first.language, "en+sr", "fixture")
+
+        let original = try await doorPlan(
+            configStore: configStore, languages: ["en", "sr"],
+            version: first.version)
+        let replay = try await republishPlan(
+            snapshotID: first.snapshotID, snapStore: snapStore,
+            version: first.version)
+
+        for (i, body) in replay.bodies.enumerated() {
+            XCTAssertEqual(
+                PDFCompiler.metadataBlock(config: body.config, label: nil),
+                PDFCompiler.metadataBlock(config: original.bodies[i].config,
+                                          label: nil),
+                "body \(i) (\(body.displayTag))")
+            XCTAssertEqual(
+                body.config.sections["p1"]?.styleFile,
+                original.bodies[i].config.sections["p1"]?.styleFile,
+                "body \(i) (\(body.displayTag)) style file")
+        }
+        let en = PDFCompiler.metadataBlock(config: replay.bodies[0].config, label: nil)
+        let sr = PDFCompiler.metadataBlock(config: replay.bodies[1].config, label: nil)
+        XCTAssertTrue(en.contains("{RepubMulti}"), en)
+        XCTAssertTrue(sr.contains("{Prevedeni Naslov}"), sr)
+    }
+
+    /// The minted republish version reaches every body — `\MaughamVersion` in
+    /// each `build/metadata.<tag>.tex`, and the filename, agree with the
+    /// catalog row (P1, issue #25). The one thing that is DELIBERATELY not
+    /// byte-identical to the original compile.
+    func test_theFoldingBaseCarriesTheMintedRepublishVersion() async throws {
+        let configStore = try await styledBilingualConfigStore()
+        guard let staged = try await configStore.load() else {
+            return XCTFail("fixture")
+        }
+        let base = try Republisher.foldingBase(
+            stagedConfig: staged, snapshotConfig: staged,
+            set: try LanguageSet(language: nil, languages: nil, sourceTag: "en"),
+            liveSource: RebindableRepubSrc(tag: nil), version: "0.1-rab12")
+        XCTAssertEqual(base.nextVersion, "0.1-rab12")
+        XCTAssertTrue(
+            PDFCompiler.metadataBlock(config: base, label: nil)
+                .contains("\\renewcommand{\\MaughamVersion}{0.1-rab12}"))
+    }
+
+    /// The staged config cannot always describe the snapshot's imprint — a
+    /// hand-assembled snapshot (and `testRepublish_carriesTheImprintAndCompiles
+    /// Template`'s own fixture) captures a resolved config whose `config.json`
+    /// on disk never defined that imprint.
+    ///
+    /// ONE body: the frozen config IS a correct base — its fold is the
+    /// identity for the source body and idempotent for a single translated
+    /// one — so `foldingBase` falls back to it rather than refusing a shape
+    /// that republished perfectly well before this fix.
+    func test_theFoldingBaseFallsBackToTheFrozenConfigForOneBody() throws {
+        var frozen = PublishConfig(metadata: .init(title: "Imprints", author: "T"))
+        frozen.imprint = "aldine"
+        frozen.template = "special.tex"
+        let staged = PublishConfig(metadata: .init(title: "Imprints", author: "T"))
+        XCTAssertTrue(staged.imprints.isEmpty, "fixture: the staged config knows no imprints")
+
+        let base = try Republisher.foldingBase(
+            stagedConfig: staged, snapshotConfig: frozen,
+            set: try LanguageSet(language: nil, languages: nil, sourceTag: "en"),
+            liveSource: RebindableRepubSrc(tag: nil), version: "0.1-rzz99")
+        XCTAssertEqual(base.template, "special.tex",
+                       "the fallback keeps the imprint's own template")
+        XCTAssertEqual(base.imprint, "aldine")
+        XCTAssertEqual(base.nextVersion, "0.1-rzz99",
+                       "and still carries the minted version")
+    }
+
+    /// TWO bodies: there is no correct base to fall back TO — the frozen
+    /// config is the first body's fold, which is precisely the wrong answer
+    /// for the second. Refuse in the same words an unreadable `config.json`
+    /// is refused in, naming the file.
+    func test_theFoldingBaseRefusesAMultiBodyRecordItCannotUnfold() throws {
+        var frozen = PublishConfig(metadata: .init(title: "Imprints", author: "T"))
+        frozen.imprint = "aldine"
+        let staged = PublishConfig(metadata: .init(title: "Imprints", author: "T"))
+
+        XCTAssertThrowsError(try Republisher.foldingBase(
+            stagedConfig: staged, snapshotConfig: frozen,
+            set: try LanguageSet(language: nil, languages: ["sr", "en"],
+                                 sourceTag: "en"),
+            liveSource: RebindableRepubSrc(tag: nil), version: "0.1-rzz99")
+        ) { error in
+            guard case RepublishError.unreadableSnapshotConfig(let msg) = error else {
+                return XCTFail("expected unreadableSnapshotConfig, got \(error)")
+            }
+            XCTAssertTrue(msg.contains("config.json"),
+                          "the refusal must name the file: \(msg)")
+            XCTAssertTrue(msg.contains("2-language"),
+                          "and say what it could not unfold: \(msg)")
+        }
     }
 }

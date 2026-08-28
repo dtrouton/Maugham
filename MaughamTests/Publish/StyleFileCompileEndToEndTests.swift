@@ -47,7 +47,7 @@ final class StyleFileCompileEndToEndTests: XCTestCase {
     ///    `config.sections["two"].includeInToc = false`.
     /// 3. Compiles to PDF via `PDFCompiler`.
     /// 4. Asserts compile succeeds, PDF is valid and has ≥1 page.
-    /// 5. Asserts `build/body.tex` contains `\input{pieces/tribute.tex}`,
+    /// 5. Asserts `build/body.en.tex` contains `\input{pieces/tribute.tex}`,
     ///    `\begingroup`, and `\begin{prose}[notoc]{Tribute}` — proving the
     ///    scoped-group + notoc forms are emitted together.
     func test_pieceWithStyleFile_compiles() async throws {
@@ -99,9 +99,11 @@ final class StyleFileCompileEndToEndTests: XCTestCase {
         XCTAssertNotNil(pdf, "produced file at \(result.outputPath) is not a valid PDF")
         XCTAssertGreaterThan(pdf?.pageCount ?? 0, 0, "PDF has no pages")
 
-        // (c) body.tex carries the expected scoped-group + notoc emission for piece "two".
+        // (c) the body carries the expected scoped-group + notoc emission for piece "two".
+        // (P2: `build/body.tex` is now the wrapper over the document's bodies —
+        // the emitted book lives at `build/body.<tag>.tex`, `en` for this fixture.)
         let bodyURL = projectURL
-            .appendingPathComponent(".maugham/publish/build/body.tex")
+            .appendingPathComponent(".maugham/publish/build/body.en.tex")
         let body = try String(contentsOf: bodyURL, encoding: .utf8)
         XCTAssertTrue(body.contains("\\begingroup"),
                       "body.tex missing \\begingroup for styled piece; body.tex:\n\(body)")

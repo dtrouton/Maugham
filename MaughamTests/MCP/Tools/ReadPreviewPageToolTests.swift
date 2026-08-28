@@ -204,6 +204,26 @@ final class ReadPreviewPageToolTests: XCTestCase {
         XCTAssertEqual(resp["preview_filename"] as? String, "preview-0.1-pdf.pdf")
     }
 
+    /// P2 Task 6: a bilingual preview's filename carries the JOINED identity —
+    /// `preview-0.1-pdf-en+sr.pdf`. This scan is by EXTENSION, so the `+` is
+    /// nothing to it; pinned because the alternative (a name-shaped filter, or
+    /// one that treats the suffix as a single language tag) would make the
+    /// newest preview invisible to the tool that exists to look at it, and the
+    /// writer would be shown the previous edition with nothing saying so.
+    func testBilingualPreview_isFoundByTheExtensionScan() async throws {
+        try writePDF(named: "preview-0.1-pdf.pdf", in: previewDir,
+                     mtime: Date(timeIntervalSinceNow: -3600))
+        try writePDF(named: "preview-0.1-pdf-en+sr.pdf", in: previewDir,
+                     mtime: Date(timeIntervalSinceNow: -60))
+
+        let resp = try await call(#"{"project_id":"\#(pid!)","page_number":1}"#)
+        XCTAssertEqual(resp["preview_filename"] as? String, "preview-0.1-pdf-en+sr.pdf",
+                       "the joined identity must not hide a preview from the tool")
+        let content = resp["content"] as? [[String: Any]] ?? []
+        XCTAssertEqual(content.last?["type"] as? String, "image",
+                       "and it must actually rasterize, not just resolve")
+    }
+
     // MARK: - EPUB is not rasterizable
 
     func testLatestPreviewIsEPUB_throwsClearly() async throws {

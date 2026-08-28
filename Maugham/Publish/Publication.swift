@@ -63,6 +63,27 @@ public struct Publication: Codable, Equatable, Sendable {
         self.imprint = imprint
     }
 
+    /// Whether this record is a SOURCE publication — the thing a language
+    /// edition renders and pins its version to.
+    ///
+    /// `language == nil` is the plain source edition. A multi-language compile
+    /// (P2) writes a joined identity instead — `"en+sr"` — and one of those
+    /// components can be the source language, in which case this publication
+    /// contains the source book as surely as a `nil` record does. Reading
+    /// `language == nil` alone told a writer whose only compile was "en+sr"
+    /// that they had no source edition at all and must compile one first.
+    ///
+    /// Two translations joined (`"sr+fr"`) are NOT a source edition — nothing
+    /// in that document is the source text.
+    ///
+    /// - Parameter sourceTag: how this project spells its own language
+    ///   (`config.metadata.language`); an identity component matching it IS the
+    ///   source body, which is the same substitution `LanguageSet` performs.
+    public func isSourceEdition(sourceTag: String) -> Bool {
+        guard let language else { return true }
+        return language.split(separator: "+").contains { $0 == sourceTag }
+    }
+
     enum CodingKeys: String, CodingKey {
         case publicationID = "publication_id"
         case version, label, format

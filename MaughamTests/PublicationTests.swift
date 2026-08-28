@@ -114,4 +114,33 @@ final class PublicationTests: XCTestCase {
         let pub = try dec.decode(Publication.self, from: Data(json.utf8))
         XCTAssertNil(pub.imprint)
     }
+
+    // MARK: - P2: which records are a source publication
+
+    /// A multi-language edition whose identity CONTAINS the source tag is a
+    /// source publication — that is what a later edition pins and what a
+    /// version-less edition resolves to. `language == nil` alone would tell a
+    /// writer who compiled "en+sr" that they have no source edition at all.
+    func test_isSourceEdition_readsTheIdentitysComponents() {
+        func record(_ language: String?) -> Publication {
+            Publication(
+                publicationID: "pub-x", version: "0.1", label: nil, format: .epub,
+                outputPath: "Exports/x.epub", snapshotID: "snap-x", checkpointID: "",
+                republishedFrom: nil, compiledAt: Date(),
+                maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
+                language: language)
+        }
+        XCTAssertTrue(record(nil).isSourceEdition(sourceTag: "en"),
+                      "the plain source edition")
+        XCTAssertTrue(record("en").isSourceEdition(sourceTag: "en"),
+                      "and the source spelled out")
+        XCTAssertTrue(record("en+sr").isSourceEdition(sourceTag: "en"))
+        XCTAssertTrue(record("sr+en").isSourceEdition(sourceTag: "en"),
+                      "order is identity, not membership")
+        XCTAssertFalse(record("sr").isSourceEdition(sourceTag: "en"))
+        XCTAssertFalse(record("sr+fr").isSourceEdition(sourceTag: "en"),
+                      "two translations are not a source edition")
+        XCTAssertFalse(record("en+sr").isSourceEdition(sourceTag: "de"),
+                      "the tag asked about is this project's own")
+    }
 }

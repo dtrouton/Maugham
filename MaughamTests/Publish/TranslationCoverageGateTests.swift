@@ -122,12 +122,27 @@ final class TranslationCoverageGateTests: XCTestCase {
             tectonicVersion: "0.15.0")
     }
 
+    /// P2: a multi-language compile binds each body itself (`BodyPlan` asks the
+    /// source for its own siblings), so the orchestrator is handed an UNBOUND
+    /// source rather than one pre-bound to a single tongue.
+    private func multiOrchestrator(_ fx: CompileFixture) -> CompileOrchestrator {
+        CompileOrchestrator(
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(projectStore: fx.store),
+            configStore: fx.stores.configStore,
+            publicationStore: fx.stores.publicationStore,
+            snapshotStore: fx.stores.snapshotStore,
+            jobManager: fx.stores.jobManager,
+            maughamVersion: "9.9.9",
+            tectonicVersion: "0.15.0")
+    }
+
     private func writeTranslation(
         _ fx: CompileFixture, paragraphID: String, text: String?,
-        sourceHash: String, verbatim: Bool = false
+        sourceHash: String, verbatim: Bool = false, language: String = "es"
     ) async throws {
         let rec = TranslationRecord(
-            paragraphId: paragraphID, language: "es", text: text,
+            paragraphId: paragraphID, language: language, text: text,
             sourceHash: sourceHash, verbatim: verbatim)
         try await TranslationStore.append(
             rec, forDocId: fx.docID, deviceSlug: DeviceSlug.make(from: "test-mac"),
@@ -525,6 +540,118 @@ final class TranslationCoverageGateTests: XCTestCase {
         let after = try await fx.stores.configStore.load()!
         XCTAssertEqual(after.nextVersion, before.nextVersion,
                        "dry_run must not bump next_version")
+    }
+
+    // MARK: - P2: one gate per tongue
+    //
+    // A multi-language compile runs the gate once per translated body and
+    // fails ONCE, carrying every blocked tongue's errors. Each diagnostic
+    // message is prefixed with the tag it belongs to — for single-language
+    // compiles too, because one contract is cheaper to read than two.
+
+    /// Two translated bodies, both blocked for different reasons: the refusal
+    /// carries BOTH tongues' errors, each under its own tag. Reporting only the
+    /// first would send the writer round the loop once per language.
+    func test_p2_everyBlockedTongueIsReported_eachUnderItsOwnTag() async throws {
+        let fx = try await makeCompileFixture(content: """
+        First paragraph.
+
+        Second paragraph.
+        """)
+        let ids = fx.doc.sequence
+        // es: one fresh, one stale → blocked, itemized by ¶id.
+        try await writeTranslation(fx, paragraphID: ids[0], text: "Uno.",
+                                   sourceHash: sourceHash(fx, ids[0]))
+        try await writeTranslation(fx, paragraphID: ids[1], text: "Dos.",
+                                   sourceHash: "00000000deadbeef")
+        // fr: no records at all → the zero-layer refusal.
+
+        let outcome = try await multiOrchestrator(fx)
+            .compile(format: .epub, label: nil, languages: ["es", "fr"])
+        guard case .failed = outcome else {
+            return XCTFail("expected .failed, got \(outcome)")
+        }
+        let messages = errors(outcome).map(\.message)
+        XCTAssertTrue(
+            messages.contains { $0.hasPrefix("[es] ") && $0.contains("¶\(ids[1])") },
+            "the stale es paragraph must be reported under [es]: \(messages)")
+        XCTAssertTrue(
+            messages.contains {
+                $0 == "[fr] no translation layer for 'fr' — run write_translation first"
+            },
+            "the fr zero-layer refusal must be reported under [fr]: \(messages)")
+    }
+
+    /// A failure is whole: when one tongue blocks, the tongue that PASSED
+    /// contributes nothing — not its fallback warnings, not its tag. Nothing
+    /// was compiled, so there is nothing for a warning to be about.
+    func test_p2_aPassingTonguesWarningsAppearNowhereWhenAnotherIsBlocked() async throws {
+        let fx = try await makeCompileFixture(content: """
+        First paragraph.
+
+        Second paragraph.
+        """)
+        let ids = fx.doc.sequence
+        try await writeTranslation(fx, paragraphID: ids[0], text: "Uno.",
+                                   sourceHash: sourceHash(fx, ids[0]))
+        try await writeTranslation(fx, paragraphID: ids[1], text: "Dos.",
+                                   sourceHash: "00000000deadbeef")
+
+        // allow_stale lets es through with fallback warnings; fr's zero layer
+        // refuses regardless.
+        let outcome = try await multiOrchestrator(fx).compile(
+            format: .epub, label: nil, languages: ["es", "fr"], allowStale: true)
+        guard case .failed = outcome else {
+            return XCTFail("expected .failed, got \(outcome)")
+        }
+        let joined = errors(outcome).map(\.message).joined(separator: "\n")
+        XCTAssertFalse(joined.contains("[es]"),
+                       "the passing tongue says nothing on a failure: \(joined)")
+        XCTAssertFalse(joined.lowercased().contains("fallback"), joined)
+
+        // The control: es ALONE under allow_stale completes and does carry
+        // those warnings — so their absence above means something.
+        let alone = try await multiOrchestrator(fx).compile(
+            format: .epub, label: nil, languages: ["es"], allowStale: true)
+        guard case .completed = alone else {
+            return XCTFail("es alone must complete under allow_stale, got \(alone)")
+        }
+        let warned = warnings(alone).map(\.message).joined(separator: "\n")
+        XCTAssertTrue(warned.contains("[es] "), warned)
+        XCTAssertTrue(warned.lowercased().contains("fallback"), warned)
+    }
+
+    /// The tag prefix is ONE contract, not a multi-language special case: a
+    /// single-tongue compile's diagnostics carry it too, and are otherwise
+    /// exactly what `applyGate` produced — message prefixed, context lines
+    /// untouched.
+    func test_p2_theSingleTongueRefusalIsApplyGatesOwnSentenceUnderItsTag() async throws {
+        let fx = try await makeCompileFixture(content: """
+        First paragraph.
+
+        Second paragraph.
+        """)
+        let ids = fx.doc.sequence
+        try await writeTranslation(fx, paragraphID: ids[0], text: "Uno.",
+                                   sourceHash: sourceHash(fx, ids[0]))
+        try await writeTranslation(fx, paragraphID: ids[1], text: "Dos.",
+                                   sourceHash: "00000000deadbeef")
+
+        let outcome = try await orchestrator(fx, language: "es", allowStale: false)
+            .compile(format: .epub, label: nil, language: "es", allowStale: false)
+        guard case .failed = outcome else {
+            return XCTFail("expected .failed, got \(outcome)")
+        }
+        let report = try TranslationCoverage.check(projectStore: fx.store, language: "es")
+        guard case .blocked(let expected, _) = TranslationCoverage.applyGate(
+            report: report, language: "es", allowStale: false) else {
+            return XCTFail("the fixture must block")
+        }
+        XCTAssertEqual(errors(outcome).map(\.message),
+                       expected.map { "[es] " + $0.message })
+        XCTAssertEqual(errors(outcome).map(\.contextLines),
+                       expected.map(\.contextLines),
+                       "the prefix goes on the message and nothing else")
     }
 
     // MARK: - two-doc fixture (F1)

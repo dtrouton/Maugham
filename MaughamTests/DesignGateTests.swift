@@ -196,12 +196,12 @@ final class DesignGateTests: XCTestCase {
         let project = URL(fileURLWithPath: "/tmp/project")
         XCTAssertEqual(
             DesignGate.panel(for: .pages(path: "/tmp/elsewhere/sample.pdf",
-                                         demonstrates: []),
+                                         demonstrates: [], fallbackPieces: 0),
                              projectURL: project, pagesExist: true),
             .pages(URL(fileURLWithPath: "/tmp/elsewhere/sample.pdf")))
         XCTAssertEqual(
             DesignGate.panel(for: .pages(path: ".maugham/design/s.pdf",
-                                         demonstrates: []),
+                                         demonstrates: [], fallbackPieces: 0),
                              projectURL: project, pagesExist: true),
             .pages(project.appendingPathComponent(".maugham/design/s.pdf")))
     }
@@ -214,7 +214,7 @@ final class DesignGateTests: XCTestCase {
     /// not allowed to have.
     func test_pagesThatAreGoneSayWhereTheyWereRatherThanDrawingAVoid() {
         let panel = DesignGate.panel(
-            for: .pages(path: "/tmp/gone/sample.pdf", demonstrates: []),
+            for: .pages(path: "/tmp/gone/sample.pdf", demonstrates: [], fallbackPieces: 0),
             projectURL: URL(fileURLWithPath: "/tmp/project"), pagesExist: false)
 
         XCTAssertEqual(panel, .missing(path: "/tmp/gone/sample.pdf"))
@@ -263,8 +263,8 @@ final class DesignGateTests: XCTestCase {
 
         XCTAssertEqual(
             SampleCompiler.sampleResult(
-                .pages(path: "/tmp/s.pdf", demonstrates: lines)),
-            .pages(path: "/tmp/s.pdf", demonstrates: lines),
+                .pages(path: "/tmp/s.pdf", demonstrates: lines, warnings: [])),
+            .pages(path: "/tmp/s.pdf", demonstrates: lines, fallbackPieces: 0),
             "what the compile knew is what the proposal records")
     }
 
@@ -275,10 +275,10 @@ final class DesignGateTests: XCTestCase {
         let lines = ["chapter opener — ‘The Fog’"]
 
         try store.recordSampleResult(
-            id: staged.id, .pages(path: "scratch/sample.pdf", demonstrates: lines))
+            id: staged.id, .pages(path: "scratch/sample.pdf", demonstrates: lines, fallbackPieces: 0))
 
         XCTAssertEqual(try store.load(id: staged.id).sampleResult,
-                       .pages(path: "scratch/sample.pdf", demonstrates: lines))
+                       .pages(path: "scratch/sample.pdf", demonstrates: lines, fallbackPieces: 0))
     }
 
     /// **A `proposal.json` written before this task still reads.** The store's
@@ -299,7 +299,7 @@ final class DesignGateTests: XCTestCase {
         let loaded = try store.load(id: staged.id)
 
         XCTAssertEqual(loaded.sampleResult,
-                       .pages(path: "scratch/sample.pdf", demonstrates: []),
+                       .pages(path: "scratch/sample.pdf", demonstrates: [], fallbackPieces: 0),
                        "the older arm decodes, with no lines to show")
         XCTAssertEqual(try store.list().count, 1,
                        "and it is still in the listing — a decode failure here "
@@ -464,7 +464,7 @@ final class DesignGateTests: XCTestCase {
         let pdf = temp.url.appendingPathComponent("sample.pdf")
         try PublishPreviewCentreTests.writePDF(at: pdf)
         let window = mountGate(Self.proposal(
-            sampleResult: .pages(path: pdf.path, demonstrates: lines)))
+            sampleResult: .pages(path: pdf.path, demonstrates: lines, fallbackPieces: 0)))
         _ = try await settling(in: window)
 
         let texts = try axTexts(in: window)
@@ -502,6 +502,54 @@ final class DesignGateTests: XCTestCase {
                        "Published: \(texts.sorted())")
     }
 
+    /// **A half-translated sample says so on screen.** `allowStale` is what lets
+    /// an incomplete edition produce pages at all (`SampleCompiler`), so without
+    /// this sentence the designer approves typography set over prose that is
+    /// partly the wrong language, with nothing saying which part.
+    func test_theFallbackNoticeIsDrawnWhenTheBooksOwnTextStoodIn() async throws {
+        let pdf = temp.url.appendingPathComponent("sample.pdf")
+        try PublishPreviewCentreTests.writePDF(at: pdf)
+        let window = mountGate(Self.proposal(
+            language: "es",
+            sampleResult: .pages(path: pdf.path, demonstrates: [], fallbackPieces: 2)))
+        _ = try await settling(in: window)
+
+        let notice = try XCTUnwrap(DesignGate.fallbackNotice(fallbackPieces: 2))
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0.contains(notice) },
+                      "the fallback notice is not on the gate. "
+                      + "Published: \(texts.sorted())")
+    }
+
+    /// Its control: a complete edition draws no such sentence. A notice drawn
+    /// unconditionally would pass the test above and be wrong about every
+    /// finished translation — and about every source round.
+    func test_control_aCompleteEditionDrawsNoFallbackNotice() async throws {
+        let pdf = temp.url.appendingPathComponent("sample.pdf")
+        try PublishPreviewCentreTests.writePDF(at: pdf)
+        let window = mountGate(Self.proposal(
+            language: "es",
+            sampleResult: .pages(path: pdf.path, demonstrates: [], fallbackPieces: 0)))
+        _ = try await settling(in: window)
+
+        let texts = try axTexts(in: window)
+        XCTAssertFalse(
+            texts.contains { $0.contains("fell back to the book\u{2019}s own text") },
+            "Published: \(texts.sorted())")
+    }
+
+    /// The sentence itself: `nil` at zero, and it counts in PIECES — which is
+    /// what a fallback warning is one of. Singular is spelled, because "1
+    /// pieces" on the one surface a designer reads before approving a book's
+    /// typography would be its own small embarrassment.
+    func test_theFallbackNoticeIsNilAtZeroAndAgreesWithItsCount() {
+        XCTAssertNil(DesignGate.fallbackNotice(fallbackPieces: 0))
+        let one = try? XCTUnwrap(DesignGate.fallbackNotice(fallbackPieces: 1))
+        XCTAssertEqual(one?.hasPrefix("One piece in these pages"), true, "\(one ?? "nil")")
+        let three = try? XCTUnwrap(DesignGate.fallbackNotice(fallbackPieces: 3))
+        XCTAssertEqual(three?.hasPrefix("3 pieces in these pages"), true, "\(three ?? "nil")")
+    }
+
     /// **The pages are PDFKit's** — the same view the compiled book is drawn in
     /// (`PDFPreview`, which `PublishPreviewCentre` and the research preview both
     /// use), so a proposal's sample and the book it would become cannot come to
@@ -510,7 +558,7 @@ final class DesignGateTests: XCTestCase {
         let pdf = temp.url.appendingPathComponent("sample.pdf")
         try PublishPreviewCentreTests.writePDF(at: pdf)
         let window = mountGate(Self.proposal(
-            sampleResult: .pages(path: pdf.path, demonstrates: [])))
+            sampleResult: .pages(path: pdf.path, demonstrates: [], fallbackPieces: 0)))
         _ = try await settling(in: window)
 
         _ = await pumpUntil(deadline: 3) { !self.collect(PDFView.self, in: window).isEmpty }

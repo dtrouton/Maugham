@@ -38,14 +38,22 @@ public struct PreviewCompiler {
     /// F2: when non-nil, preview the translated edition — apply
     /// `effectiveMetadata` + language-suffixed style files and run the SAME
     /// coverage gate as `compile`. nil ⇒ the source-language preview, unchanged.
+    ///
+    /// P2: one half of the pair `LanguageSet` reconciles; see `languages`.
     public let language: String?
+    /// P2: the languages this preview renders, one complete body each — the
+    /// same argument `CompileOrchestrator.compile` takes, reconciled with
+    /// `language` by the same `LanguageSet`. `nil` (or empty) leaves `language`
+    /// to speak alone, which is every caller that predates this branch.
+    public let languages: [String]?
     public let allowStale: Bool
 
     public init(
         projectURL: URL, astSource: ProjectASTBuilder.Source,
         configStore: PublishConfigStore, jobManager: CompileJobManager,
         maughamVersion: String, tectonicVersion: String,
-        language: String? = nil, allowStale: Bool = false
+        language: String? = nil, languages: [String]? = nil,
+        allowStale: Bool = false
     ) {
         self.projectURL = projectURL
         self.astSource = astSource
@@ -54,6 +62,7 @@ public struct PreviewCompiler {
         self.maughamVersion = maughamVersion
         self.tectonicVersion = tectonicVersion
         self.language = language
+        self.languages = languages
         self.allowStale = allowStale
     }
 
@@ -146,6 +155,35 @@ public struct PreviewCompiler {
             pieceIDs: config.imprints.isEmpty
                 ? [] : try astSource.orderedPieces().map(\.pieceID))
 
+        // P2 (Task 6): the languages this preview renders, one complete body
+        // each — the SAME reconciliation the compile door performs, in the
+        // same place and against the same `sourceTag` (the RESOLVED config's
+        // `metadata.language`, because an imprint may spell the book's own
+        // language differently from the book).
+        //
+        // Refused BEFORE the validate below and before a word of the
+        // manuscript is emitted: a combination that cannot resolve is a
+        // caller's typo, and nothing about deciding that needed the project.
+        // The refusal FAILS the job on its way out — a preview's job is
+        // already registered by `preview(_:)` — and wears the same
+        // `.failed`-shaped Result the unknown-imprint refusal returns, with
+        // the compile door's own `invalid_languages:` excerpt.
+        let set: LanguageSet
+        do {
+            set = try LanguageSet(
+                language: language, languages: languages,
+                sourceTag: config.metadata.language)
+        } catch {
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: error.localizedDescription,
+                contextLines: ["Nothing was previewed — no output file."])
+            let excerpt = "invalid_languages: \(error.localizedDescription)"
+            await jobManager.fail(jobID: jobID, errors: [diag], logExcerpt: excerpt)
+            return Result(outputPath: "", warnings: [], errors: [diag],
+                          logExcerpt: excerpt)
+        }
+
         // I1 (whole-branch review): the door VALIDATES what it resolved. A
         // preview runs with `replacesExistingOutput: true` and reaches
         // `PDFCompiler` with whatever `config.template` now says, so a
@@ -204,30 +242,48 @@ public struct PreviewCompiler {
             sanitizeSpaces: true,
             formatsEnabled: config.outputs.formatsEnabled)
 
-        // F2: fold the config to the language edition exactly as
-        // `CompileOrchestrator.compile` does — metadata (dc:language +
-        // language_overrides) then existence-based language-suffixed style
-        // files. `language == nil` leaves both untouched.
-        config.metadata = config.effectiveMetadata(language: language)
-        config = LanguageSuffixedFile.resolvingStyleFiles(
-            in: config, language: language,
-            publishDir: projectURL.appendingPathComponent(
-                ".maugham/publish", isDirectory: true))
-
         // F1: an omitted `section_ids` means "all *included* sections" — drop
         // any piece whose config section carries `include == false`. An explicit
         // `section_ids` is an exploratory override: honored verbatim, so it may
         // name an excluded section (preview is for looking, not shipping).
-        let filteredSrc: ProjectASTBuilder.Source
-        if let sectionIDs {
-            filteredSrc = FilteredASTSource(base: astSource, sectionIDs: sectionIDs)
-        } else {
-            filteredSrc = IncludeFilteredASTSource(
-                base: astSource, excludedSectionIDs: config.excludedSectionIDs)
+        //
+        // P2: this is now a WRAP applied to every body rather than a source
+        // built once, so a second body cannot slip past the subset the first
+        // one was held to.
+        let excludedSectionIDs = config.excludedSectionIDs
+        let wrap: (ProjectASTBuilder.Source) -> ProjectASTBuilder.Source = { base in
+            if let sectionIDs {
+                return FilteredASTSource(base: base, sectionIDs: sectionIDs)
+            }
+            return IncludeFilteredASTSource(
+                base: base, excludedSectionIDs: excludedSectionIDs)
         }
 
-        // F2: run the SAME translation-coverage gate as `compile`, gating exactly
-        // the pieces that will actually render (`filteredSrc`). For a default
+        // F2 + P2: one body per language, each bound to its own text and folded
+        // to its own config. The two folds this method used to perform inline —
+        // `effectiveMetadata`, then the existence-based language-suffixed style
+        // files — happen once per body inside `BodyPlan`, so a second body
+        // cannot inherit the first's metadata or its per-piece style files.
+        // `[nil]` (no language asked for) folds nothing, exactly as before.
+        //
+        // A source that cannot bind to a language throws here; it escapes to
+        // `preview(_:)`'s catch, which fails the job and rethrows — the same
+        // terminal exit every other throw past registration takes.
+        let plan = try BodyPlan.make(
+            set: set, resolved: config, source: astSource,
+            publishDir: projectURL.appendingPathComponent(
+                ".maugham/publish", isDirectory: true),
+            wrap: wrap)
+        // The edition-effective config is the FIRST body's, as at the compile
+        // door: it is what names the file and describes the document as a
+        // whole, while each body retitles only inside its own half.
+        let effective = plan.first.config
+
+        // F2: run the SAME translation-coverage gate as `compile` — through the
+        // same `gateEveryTongue` (P2 Task 6), which is where the per-tag prefix,
+        // the "every blocked tongue, not just the first" rule and the joined
+        // excerpt live — gating exactly the pieces that will actually render.
+        // For a default
         // preview that is the included set (so the excluded set is the config's
         // `excludedSectionIDs`, matching compile); for an explicit `section_ids`
         // override it is precisely the named allowlist, so an exploratory preview
@@ -235,15 +291,19 @@ public struct PreviewCompiler {
         // returns the same `.failed`-shaped errors + logExcerpt compile emits;
         // any pass warnings ride out on the success path below.
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
-        if let language, let source = astSource as? ProjectStoreASTSource {
-            let renderedIDs = Set(try filteredSrc.orderedPieces().map(\.pieceID))
+        if !set.translatedTags.isEmpty,
+           let source = astSource as? ProjectStoreASTSource {
+            // Which pieces this preview actually renders — read off the plan's
+            // own first body, because every body is wrapped by the same filter
+            // and the ids cannot differ between them. The emptiness check above
+            // is not just a shortcut: a source-only preview must not pay for
+            // deriving the project twice to answer a question nobody asked.
+            let renderedIDs = Set(try plan.first.source.orderedPieces().map(\.pieceID))
             let allIDs = Set(try source.orderedPieces().map(\.pieceID))
             let excludedFromGate = allIDs.subtracting(renderedIDs)
-            let report = try TranslationCoverage.check(
-                projectStore: source.projectStore, language: language,
-                excludedSectionIDs: excludedFromGate)
-            switch TranslationCoverage.applyGate(
-                report: report, language: language, allowStale: allowStale
+            switch try TranslationCoverage.gateEveryTongue(
+                projectStore: source.projectStore, tags: set.translatedTags,
+                excludedSectionIDs: excludedFromGate, allowStale: allowStale
             ) {
             case .blocked(let errors, let logExcerpt):
                 await jobManager.fail(jobID: jobID, errors: errors, logExcerpt: logExcerpt)
@@ -257,10 +317,11 @@ public struct PreviewCompiler {
         switch format {
         case .pdf:
             let pdf = try PDFCompiler(
-                projectURL: projectURL, astSource: filteredSrc,
-                config: config, jobManager: jobManager,
+                projectURL: projectURL, bodies: plan.bodies,
+                config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
-                language: language,
+                language: set.singleTag,
+                identity: set.identity,
                 replacesExistingOutput: true)
             let r = try await pdf.compile(label: "preview")
             let warnings = gateWarnings + r.warnings
@@ -268,12 +329,13 @@ public struct PreviewCompiler {
                                       warnings: warnings, errors: r.errors)
             return Result(outputPath: r.outputPath, warnings: warnings, errors: r.errors)
         case .epub:
-            let e = EPUBCompiler(
-                projectURL: projectURL, astSource: filteredSrc,
-                config: config, jobManager: jobManager,
+            let e = try EPUBCompiler(
+                projectURL: projectURL, bodies: plan.bodies,
+                config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,
-                language: language,
+                language: set.singleTag,
+                identity: set.identity,
                 replacesExistingOutput: true)
             let r = try await e.compile(label: "preview")
             let warnings = gateWarnings + r.warnings

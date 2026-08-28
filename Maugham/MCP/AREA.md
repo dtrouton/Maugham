@@ -94,8 +94,8 @@ A **separate** catalog, `TestMCPToolCatalog`, that mirrors `MCPToolCatalog`'s sh
 (`register(router:registry:)`) but is registered onto the **same dev-build Unix socket**
 only inside `#if MAUGHAM_DEV_BUILD` in `MaughamApp.registerTools` — absent from the stable
 binary entirely (enforced by `TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`).
-It exists for **Claude Code**, not Claude Desktop, and is not part of the production 55-tool
-count above — the "Tool catalogue (55)" heading is unaffected by these tools.
+It exists for **Claude Code**, not Claude Desktop, and is not part of the production 56-tool
+count above — the "Tool catalogue (56)" heading is unaffected by these tools.
 
 Purpose: let Claude Code drive the full create → edit → autosave → checkpoint → quit →
 relaunch → verify loop end to end without the owner acting as a human tester, so the
@@ -160,7 +160,7 @@ URI** (per the draft, names aren't unique identifiers) and fails loudly (protoco
 only — any other URI fails loudly too (Maugham's server has no general resources support).
 These three are **protocol methods**, registered directly on the router in
 `MaughamApp.registerTools` alongside `initialize`/`tools/list`/`tools/call` — not tools,
-so **the tool catalogue count stays 55** whether or not a connecting client speaks the
+so **the tool catalogue count stays 56** whether or not a connecting client speaks the
 extension.
 
 **Content source:** `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format:

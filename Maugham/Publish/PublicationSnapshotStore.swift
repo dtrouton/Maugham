@@ -43,7 +43,8 @@ public actor PublicationSnapshotStore {
     nonisolated public func capture(
         config: PublishConfig,
         maughamVersion: String,
-        tectonicVersion: String
+        tectonicVersion: String,
+        languages: [String]? = nil
     ) throws -> PublicationSnapshot {
         let publish = projectURL.appendingPathComponent(".maugham/publish",
                                                         isDirectory: true)
@@ -54,7 +55,8 @@ public actor PublicationSnapshotStore {
             publishFiles: files,
             config: config,
             maughamVersion: maughamVersion,
-            tectonicVersion: tectonicVersion)
+            tectonicVersion: tectonicVersion,
+            languages: languages)
     }
 
     nonisolated public func save(_ snap: PublicationSnapshot) throws {

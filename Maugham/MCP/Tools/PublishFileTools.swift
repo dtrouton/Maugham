@@ -137,7 +137,7 @@ public enum ListPublishFilesTool: MCPTool {
 public enum ReadPublishFileTool: MCPTool {
     public static let method = "read_publish_file"
     public static let description =
-    "Read a text file under .maugham/publish/ as UTF-8. Files under build/ (body.tex, body.xhtml, compile.log) are readable here for diagnosing emitter or compile output. For binary files (covers, font previews) use read_publish_image."
+    "Read a text file under .maugham/publish/ as UTF-8. Files under build/ (body.<lang>.tex, body.xhtml, compile.log) are readable here for diagnosing emitter or compile output; body.tex is the wrapper that inputs each language's body in order. For binary files (covers, font previews) use read_publish_image."
     public static let inputSchemaJSON = """
     {"type":"object","properties":{
        "project_id":{"type":"string"},

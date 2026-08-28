@@ -3580,7 +3580,7 @@ struct ProjectWindow: View {
             let proposal = staged.proposalId ?? "(none)"
             let sample: String
             switch staged.sample {
-            case .pages(let path): sample = "sample pages at \(path)"
+            case .pages(let path, _, _): sample = "sample pages at \(path)"
             case .failed(let error): sample = "sample did not compile: \(error)"
             case nil: sample = "no sample recorded"
             }

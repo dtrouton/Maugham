@@ -28,8 +28,10 @@ final class EPUBOPFWriterTests: XCTestCase {
         let pkg = EPUBPackage(
             metadata: .init(title: "X", author: "Y"),
             sections: [
-                .init(id: "s1", filename: "section-001.xhtml", title: "One", xhtmlBody: ""),
-                .init(id: "s2", filename: "section-002.xhtml", title: "Two", xhtmlBody: ""),
+                .init(id: "s1", filename: "section-001.xhtml", title: "One", xhtmlBody: "",
+                      language: "en"),
+                .init(id: "s2", filename: "section-002.xhtml", title: "Two", xhtmlBody: "",
+                      language: "en"),
             ],
             cover: nil)
         let xml = EPUBOPFWriter.opfXML(for: pkg)
@@ -43,8 +45,10 @@ final class EPUBOPFWriterTests: XCTestCase {
         let pkg = EPUBPackage(
             metadata: .init(title: "X", author: "Y"),
             sections: [
-                .init(id: "first", filename: "a.xhtml", title: "A", xhtmlBody: ""),
-                .init(id: "second", filename: "b.xhtml", title: "B", xhtmlBody: ""),
+                .init(id: "first", filename: "a.xhtml", title: "A", xhtmlBody: "",
+                      language: "en"),
+                .init(id: "second", filename: "b.xhtml", title: "B", xhtmlBody: "",
+                      language: "en"),
             ], cover: nil)
         let xml = EPUBOPFWriter.opfXML(for: pkg)
         let spineStart = xml.range(of: "<spine")!.lowerBound

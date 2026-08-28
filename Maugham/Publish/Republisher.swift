@@ -7,10 +7,19 @@ public enum RepublishError: Error, LocalizedError {
     /// `outputs.directory` or `filenameTemplate`). Fail loudly rather than
     /// writing output files outside the allowed roots (finding 1.5).
     case invalidSnapshotConfig(String)
+    /// P2 (Task 6): the snapshot's frozen, UNFOLDED `config.json` could not be
+    /// read. It is the only thing that says which of the record's language tags
+    /// is the book's own — `snap.config` is the first body's language-FOLDED
+    /// config and answers that question wrongly for every translated edition —
+    /// so a republish without it cannot know what it is reproducing. Refused
+    /// rather than guessed: the silent fallback would republish the Spanish
+    /// edition as the English book under the Spanish name.
+    case unreadableSnapshotConfig(String)
 
     public var errorDescription: String? {
         switch self {
         case .invalidSnapshotConfig(let msg): return msg
+        case .unreadableSnapshotConfig(let msg): return msg
         }
     }
 }
@@ -85,14 +94,16 @@ public struct Republisher {
             snap, into: stage.appendingPathComponent(".maugham/publish",
                                                      isDirectory: true))
 
-        // Find the prior publication so we can fill `republishedFrom` and
-        // carry its edition `language` forward — the snapshot's config is
-        // already language-effective (Task 7 Rule 1), but the compilers and
-        // the new Publication record still need the tag explicitly to
-        // language-suffix the filename and tag the catalog entry. Through the
-        // store's own accessor, deliberately: `RepublishTool` resolves the
-        // prior the same way to drive translation substitution, and the two
-        // must not answer "which publication is prior" by different rules.
+        // Find the prior publication so we can fill `republishedFrom` and read
+        // this edition's IDENTITY off it — the snapshot's config is already
+        // language-effective (Task 7 Rule 1), but the compilers and the new
+        // Publication record still need the tags explicitly to language-suffix
+        // the filename and tag the catalog entry, and (P2) a snapshot that
+        // predates the `languages` key has nothing else left to say what it
+        // rendered. Through the store's own accessor, deliberately:
+        // `RepublishTool` resolves the prior the same way to drive translation
+        // substitution, and the two must not answer "which publication is
+        // prior" by different rules.
         let prior = try await publicationStore.publication(forSnapshotID: snapshotID)
         let priorVersion = prior?.version
 
@@ -108,10 +119,62 @@ public struct Republisher {
         // this path. Minted here, once: the append below must reuse this value.
         let newVersion = Self.uniqueRepublishVersion(
             base: priorVersion, existing: existing, mintSuffix: mintSuffix)
-        var effective = snap.config
-        effective.nextVersion = newVersion
 
-        let language = prior?.language
+        // P2 (Task 6): the bodies this republish reproduces, and the identity
+        // that names them.
+        //
+        // WHAT was rendered comes from the snapshot first — `languages`, which
+        // every compile has written since P2 — and from the prior catalog row
+        // when the snapshot predates that key. That fallback splits a JOINED
+        // identity ("en+sr") back into its components itself, because
+        // `LanguageSet` refuses a `+` in a tag: the identity names an edition,
+        // never a tongue, and handing it over unsplit would refuse the
+        // republish of the very document it describes. A row with no language
+        // at all is the plain source edition — one body, no list.
+        //
+        // WHICH of those tags is the SOURCE body (rendered untranslated, never
+        // gated, and spelled away in a single-body identity) is a separate
+        // question, and `snap.config` cannot answer it: that config is the
+        // FIRST BODY's language-FOLDED one, so for a translated edition its
+        // `metadata.language` is that edition's own tag — reading it would call
+        // the translation the source and republish the Spanish edition as the
+        // English book under the Spanish name. The snapshot's own frozen
+        // `config.json` is the unfolded article; it was extracted into `stage`
+        // just above, so ask it there — and REFUSE when it is not there or will
+        // not decode, in the same throwing shape the snapshot load and the
+        // config validation above use. There is no honest fallback: guessing
+        // with `snap.config` is precisely the wrong answer for every translated
+        // edition, and a republish that quietly reproduces the wrong book is
+        // worse than one that says it cannot.
+        let stagedConfig: PublishConfig
+        do {
+            guard let loaded = try await PublishConfigStore(projectURL: stage).load()
+            else {
+                throw RepublishError.unreadableSnapshotConfig(
+                    "This snapshot carries no config.json, so there is no record "
+                    + "of which language the book itself is written in — and "
+                    + "without that a republish cannot tell a translated edition "
+                    + "from the source. Republish from a snapshot taken by this "
+                    + "version of Maugham, or compile the edition afresh.")
+            }
+            stagedConfig = loaded
+        } catch let error as RepublishError {
+            throw error
+        } catch {
+            throw RepublishError.unreadableSnapshotConfig(
+                "This snapshot's config.json could not be read (\(error)), so "
+                + "there is no record of which language the book itself is "
+                + "written in — and without that a republish cannot tell a "
+                + "translated edition from the source.")
+        }
+        let sourceTag = stagedConfig.metadata.language
+        let recordedTags = snap.languages
+            ?? prior?.language.map { $0.split(separator: "+").map(String.init) }
+        let set = try LanguageSet(
+            language: nil, languages: recordedTags, sourceTag: sourceTag)
+        // How this edition is NAMED, everywhere below — the mint key, the new
+        // catalog row, the output filename — exactly as at the compile door.
+        let language = set.identity
         // Task 5: an imprint is part of what a republish reproduces. The
         // snapshot's config already carries `imprint` (and the imprint's own
         // `template`), so the COMPILE needs nothing from here — but the mint
@@ -124,16 +187,59 @@ public struct Republisher {
         // this field existed (ADR 0015 additive default).
         let allowStale = prior?.allowStale ?? false
 
+        // C1 (whole-branch review): the config every body is FOLDED from.
+        //
+        // It must be the UNFOLDED one — the compile door folds each body from
+        // its resolved-but-unfolded config, and a republish that reproduces
+        // the same publication has to fold from the same article. `snap.config`
+        // is the FIRST BODY's already-folded config, and folding it again is
+        // idempotent only for that body: a `["sr","en"]` record's second body
+        // is the source (`tag == nil`), whose fold is a no-op, so it would
+        // inherit the first body's Serbian title, `\MaughamLanguage{sr}` and
+        // `tribute.sr.tex` — the English half of the book, rendered as Serbian
+        // in everything but its words. (Every republish test wrote
+        // `["en","sr"]`, where the first body's fold IS the identity, which is
+        // why this survived a milestone.)
+        //
+        // The unfolded article is the staged `config.json` read just above,
+        // resolved the way the door resolves it: the snapshot's own imprint
+        // (carried on the folded config, which resolution set), the live
+        // piece ids (as the door derives them — only an imprint's `sections`
+        // ALLOWLIST is materialized against them, so the read is skipped
+        // outright when the config defines no imprints), and this republish's
+        // minted version threaded through `nextVersion` so every body's
+        // `\MaughamVersion` and the filename agree with the catalog row.
+        //
+        // A staged config that cannot describe this snapshot's imprint falls
+        // back to the frozen one for a single-body record — the shape every
+        // republish had before this fix, and a correct base for one body —
+        // and refuses for a multi-body one, where no correct base exists.
+        //
+        // NOTE the division of labour with `excludedSectionIDs` below: WHICH
+        // pieces render is still decided by the FROZEN `snap.config` (an
+        // imprint's frozen allowlist, complemented against the live tree —
+        // P1's C1 ruling), while what each body is TITLED and which style
+        // files it inputs come from `base`. The two cannot disagree about a
+        // piece that actually renders: every rendered piece's `Section` value
+        // comes from the same frozen `config.json` either way, and the only
+        // entries on which they differ describe pieces this republish does not
+        // render at all.
+        let base = try Self.foldingBase(
+            stagedConfig: stagedConfig, snapshotConfig: snap.config,
+            set: set, liveSource: astSource, version: newVersion)
+
         // F1: reproduce the historical subset. The snapshot's config is already
         // language-effective (Task 7 Rule 1), so its `include` flags are exactly
         // those the original compile used — wrap the live source with the same
         // excluded set. An empty set is a pass-through (pre-F1 snapshots).
         // C1: for an imprint that named an allowlist, "the same excluded set"
         // is not the frozen exclusions — see `excludedSections`.
+        //
+        // P2: the set is carried rather than a pre-wrapped source, because the
+        // wrap now happens once per BODY (inside `BodyPlan`) instead of once
+        // per compile.
         let excludedSectionIDs = try Self.excludedSections(
             inSnapshot: snap.config, liveSource: astSource)
-        let emitSource = IncludeFilteredASTSource(
-            base: astSource, excludedSectionIDs: excludedSectionIDs)
 
         let jobID = await jobManager.register(phase: .renderingBody)
 
@@ -172,10 +278,10 @@ public struct Republisher {
         do {
             let outcome = try await republishReserved(
                 snap: snap, format: format, label: label, jobID: jobID,
-                effective: effective, newVersion: newVersion,
-                priorVersion: priorVersion, language: language,
+                base: base, newVersion: newVersion,
+                priorVersion: priorVersion, set: set,
                 imprint: imprint,
-                allowStale: allowStale, emitSource: emitSource,
+                allowStale: allowStale,
                 excludedSectionIDs: excludedSectionIDs, stage: stage,
                 progress: progress)
             await mintGate.release(mintKey)
@@ -186,8 +292,9 @@ public struct Republisher {
             // `CompileOrchestrator.compile` makes: the failure says what it
             // did as well as what failed, and the job is terminal. Throws
             // BEFORE the reservation (snapshot load, config validation, the
-            // stage extract) still propagate — nothing durable has moved and
-            // no job exists yet for the early ones.
+            // stage extract, the frozen `config.json` read and the
+            // `LanguageSet` it feeds) still propagate — nothing durable has
+            // moved and no job exists yet for any of them.
             let diag = TectonicLogParser.Diagnostic(
                 level: .error, file: nil, line: nil,
                 message: String(describing: error),
@@ -209,13 +316,12 @@ public struct Republisher {
         format: PublishConfig.Format,
         label: String?,
         jobID: String,
-        effective: PublishConfig,
+        base: PublishConfig,
         newVersion: String,
         priorVersion: String?,
-        language: String?,
+        set: LanguageSet,
         imprint: String?,
         allowStale: Bool,
-        emitSource: ProjectASTBuilder.Source,
         excludedSectionIDs: Set<String>,
         stage: URL,
         progress: DurableProgress
@@ -231,12 +337,10 @@ public struct Republisher {
         // be reimplemented inline here, and had silently dropped
         // `fountainDriftWarnings` as a result).
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
-        if let language, let source = astSource as? ProjectStoreASTSource {
-            let report = try await TranslationCoverage.check(
-                projectStore: source.projectStore, language: language,
-                excludedSectionIDs: excludedSectionIDs)
-            switch TranslationCoverage.applyGate(
-                report: report, language: language, allowStale: allowStale
+        if let source = astSource as? ProjectStoreASTSource {
+            switch try await TranslationCoverage.gateEveryTongue(
+                projectStore: source.projectStore, tags: set.translatedTags,
+                excludedSectionIDs: excludedSectionIDs, allowStale: allowStale
             ) {
             case .blocked(let errors, let logExcerpt):
                 await jobManager.fail(jobID: jobID, errors: errors, logExcerpt: logExcerpt)
@@ -246,6 +350,25 @@ public struct Republisher {
             }
         }
 
+        // P2: one body per language the record named, each bound to its own
+        // text and folded to its own config — the same plan the compile door
+        // builds, from the same UNFOLDED article (`base`, carrying this
+        // republish's minted version — see `foldingBase`) and against the
+        // STAGE's publish directory, because that is the tree the compilers
+        // below read and therefore the one whose language-suffixed style files
+        // count.
+        //
+        // A source that cannot bind to a language throws; `republish`'s own
+        // catch converts it into the terminal `.failed` every republish throw
+        // takes, with nothing durable moved. Production's source is
+        // `ProjectStoreASTSource`, which always can.
+        let plan = try await BodyPlan.make(
+            set: set, resolved: base, source: astSource,
+            publishDir: stage.appendingPathComponent(
+                ".maugham/publish", isDirectory: true),
+            wrap: { IncludeFilteredASTSource(
+                base: $0, excludedSectionIDs: excludedSectionIDs) })
+
         let outputPath: String
         let warnings: [TectonicLogParser.Diagnostic]
         let errors: [TectonicLogParser.Diagnostic]
@@ -254,22 +377,24 @@ public struct Republisher {
         switch format {
         case .pdf:
             let pdf = try PDFCompiler(
-                projectURL: stage, astSource: emitSource,
-                config: effective, jobManager: jobManager,
+                projectURL: stage, bodies: plan.bodies,
+                config: plan.first.config, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
-                language: language)
+                language: set.singleTag,
+                identity: set.identity)
             let r = try await pdf.compile(label: label)
             outputPath = r.outputPath
             warnings = r.warnings
             errors = r.errors
             logExcerpt = r.logExcerpt
         case .epub:
-            let e = EPUBCompiler(
-                projectURL: stage, astSource: emitSource,
-                config: effective, jobManager: jobManager,
+            let e = try EPUBCompiler(
+                projectURL: stage, bodies: plan.bodies,
+                config: plan.first.config, jobManager: jobManager,
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,
-                language: language)
+                language: set.singleTag,
+                identity: set.identity)
             let r = try await e.compile(label: label)
             outputPath = r.outputPath
             warnings = r.warnings
@@ -337,7 +462,7 @@ public struct Republisher {
             compiledAt: Date(),
             maughamVersion: maughamVersion,
             tectonicVersion: tectonicVersion,
-            language: language,
+            language: set.identity,
             allowStale: allowStale,
             imprint: imprint)
         try await publicationStore.append(pub)
@@ -360,6 +485,79 @@ public struct Republisher {
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
                                   warnings: allWarnings, errors: errors)
         return .completed(pub, warnings: allWarnings)
+    }
+
+    // MARK: - What every body is folded from
+
+    /// The UNFOLDED config a republish folds each of its bodies from — the
+    /// republish-side twin of the compile door's version-threaded `resolved`
+    /// config, and the ONE place that value is built.
+    ///
+    /// C1 (whole-branch review): `snapshotConfig` cannot serve, because it is
+    /// the first body's already-FOLDED config. Refolding it is idempotent for
+    /// that body alone; every other body inherits its metadata and its
+    /// language-suffixed style files, and the source body (`tag == nil`,
+    /// whose fold is a no-op) inherits them wholesale. The staged
+    /// `config.json` is the unfolded article, and it is already read — and
+    /// already refused when missing — for `sourceTag`.
+    ///
+    /// Resolved exactly as `CompileOrchestrator.compile` resolves it:
+    ///   * the imprint is the snapshot's own, read off the folded config
+    ///     because resolution is what set it there;
+    ///   * `pieceIDs` are the LIVE tree's, and read only when the config
+    ///     defines imprints at all — they exist solely to materialize an
+    ///     imprint's `sections` allowlist, which is the door's own rule for
+    ///     when to pay for the derivation;
+    ///   * `nextVersion` is this republish's minted version, so every body's
+    ///     `\MaughamVersion` and the output filename agree with the catalog
+    ///     row (P1, issue #25).
+    ///
+    /// **When the staged config cannot describe this snapshot's imprint** —
+    /// it names one the frozen `config.json` does not define, or a merge-patch
+    /// fragment that no longer decodes — the answer depends on how many bodies
+    /// the record has, because that is what decides whether the frozen folded
+    /// config is a correct base:
+    ///   * ONE body: `snapshotConfig` IS a correct base. Its fold is the
+    ///     identity for the source body and idempotent for a single
+    ///     translated one (the same override re-applied to the same tag; a
+    ///     style file already resolved to `x.sr.tex` finds no `x.sr.sr.tex`).
+    ///     Fall back to it, which is exactly what every republish did before
+    ///     this fix — a shape that predates the fix keeps working.
+    ///   * TWO OR MORE: there is no correct base to fall back TO. `snapshot
+    ///     Config` is precisely the wrong answer for every body after the
+    ///     first, which is the defect this function exists to close, so refuse
+    ///     in the same words an unreadable `config.json` is refused in.
+    ///
+    /// - Throws: `RepublishError.unreadableSnapshotConfig` for that
+    ///   multi-body case.
+    static func foldingBase(
+        stagedConfig: PublishConfig,
+        snapshotConfig: PublishConfig,
+        set: LanguageSet,
+        liveSource: ProjectASTBuilder.Source,
+        version: String
+    ) throws -> PublishConfig {
+        var base: PublishConfig
+        do {
+            let pieceIDs = stagedConfig.imprints.isEmpty
+                ? []
+                : try liveSource.orderedPieces().map(\.pieceID)
+            base = try stagedConfig.resolved(
+                imprint: snapshotConfig.imprint, pieceIDs: pieceIDs)
+        } catch {
+            guard set.bodies.count == 1 else {
+                throw RepublishError.unreadableSnapshotConfig(
+                    "This snapshot's config.json could not be resolved "
+                    + "(\(error.localizedDescription)), so there is no record "
+                    + "of what each half of this \(set.bodies.count)-language "
+                    + "edition was titled or which style files it used. "
+                    + "Republish from a snapshot taken by this version of "
+                    + "Maugham, or compile the edition afresh.")
+            }
+            base = snapshotConfig
+        }
+        base.nextVersion = version
+        return base
     }
 
     // MARK: - What a republish leaves out
