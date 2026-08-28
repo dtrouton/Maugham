@@ -26,11 +26,20 @@ public actor PublishMintGate {
         public let version: String
         public let language: String?
         public let format: PublishConfig.Format
+        /// The imprint this compile resolved, when any (`nil` for a book-level
+        /// compile). A fourth identity component: an imprint's compile of an
+        /// edition must not contend with the book's own compile of the same
+        /// (version, language, format).
+        public let imprint: String?
 
-        public init(version: String, language: String?, format: PublishConfig.Format) {
+        public init(
+            version: String, language: String?, format: PublishConfig.Format,
+            imprint: String? = nil
+        ) {
             self.version = version
             self.language = language
             self.format = format
+            self.imprint = imprint
         }
     }
 

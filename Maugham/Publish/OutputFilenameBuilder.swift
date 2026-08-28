@@ -47,21 +47,29 @@ enum OutputFilenameBuilder {
         }
         let labelSuffix = label.map { "-\(sanitizeForFilesystem($0))" } ?? ""
         let template = config.outputs.filenameTemplate
+        // The imprint comes from the resolved config, not a parameter here —
+        // "resolve once, at the door" (Task 2 sets `config.imprint`; this
+        // builder never takes an imprint argument of its own).
+        let imprint = config.imprint
 
-        // F7 residue: when {language} expands empty (source-language
-        // compile), a separator immediately preceding the token would
-        // otherwise dangle (e.g. "T-v0.1-.pdf"). Strip EXACTLY ONE `-`/`_`/`.`
-        // right before each token occurrence before the generic replacement
-        // runs. A token with no preceding separator falls through to the plain
-        // empty replacement below, unchanged from today. When language IS
-        // present, the separator is meaningful and stays. (M1: single-pass
+        // F7 residue: when {language} (or, as of Task 4, {imprint}) expands
+        // empty, a separator immediately preceding the token would otherwise
+        // dangle (e.g. "T-v0.1-.pdf"). Strip EXACTLY ONE `-`/`_`/`.` right
+        // before each token occurrence before the generic replacement runs. A
+        // token with no preceding separator falls through to the plain empty
+        // replacement below, unchanged from today. When the value IS present,
+        // the separator is meaningful and stays. (M1: single-pass
         // per-occurrence strip — the old sequential replace-all cascaded on a
         // doubled-separator template like "{title}._{language}.{ext}",
         // removing both separators instead of one.)
         var workingTemplate = template
         if language == nil || language?.isEmpty == true {
             workingTemplate = stripOneSeparatorBefore(
-                token: "{language}", in: template)
+                token: "{language}", in: workingTemplate)
+        }
+        if imprint == nil || imprint?.isEmpty == true {
+            workingTemplate = stripOneSeparatorBefore(
+                token: "{imprint}", in: workingTemplate)
         }
 
         var name = workingTemplate
@@ -69,20 +77,35 @@ enum OutputFilenameBuilder {
             .replacingOccurrences(of: "{version}",      with: config.nextVersion)
             .replacingOccurrences(of: "{label_suffix}", with: labelSuffix)
             .replacingOccurrences(of: "{language}",     with: language ?? "")
+            .replacingOccurrences(of: "{imprint}",      with: imprint ?? "")
             .replacingOccurrences(of: "{ext}",          with: format.rawValue)
 
-        // Collision guard: if a language edition was requested but the template
-        // has no {language} token, insert -<lang> before the extension so the
-        // translated edition can't silently overwrite the source-language file.
+        // Collision guards. Order matters: the imprint guard runs BEFORE the
+        // language guard, so a template with neither token produces
+        // "<title>-v<version>-<imprint>-<language>.<ext>" — imprint nearer
+        // the version, language nearer the extension — because each guard
+        // inserts immediately before the extension and the imprint guard
+        // gets there first.
+        if let imprint, !template.contains("{imprint}") {
+            name = insertBeforeExtension(imprint, into: name, format: format)
+        }
         if let language, !template.contains("{language}") {
-            let ext = ".\(format.rawValue)"
-            if name.hasSuffix(ext) {
-                name = "\(name.dropLast(ext.count))-\(language)\(ext)"
-            } else {
-                name += "-\(language)"
-            }
+            name = insertBeforeExtension(language, into: name, format: format)
         }
         return name
+    }
+
+    /// Insert `-<suffix>` immediately before the format's extension — the
+    /// no-token collision guard shared by `{language}` and `{imprint}`.
+    private static func insertBeforeExtension(
+        _ suffix: String, into name: String, format: PublishConfig.Format
+    ) -> String {
+        let ext = ".\(format.rawValue)"
+        if name.hasSuffix(ext) {
+            return "\(name.dropLast(ext.count))-\(suffix)\(ext)"
+        } else {
+            return name + "-\(suffix)"
+        }
     }
 
     /// Strip a single `-`/`_`/`.` immediately preceding each occurrence of

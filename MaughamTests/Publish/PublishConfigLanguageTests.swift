@@ -193,6 +193,56 @@ final class PublishConfigLanguageTests: XCTestCase {
         XCTAssertEqual(name, "Book-v0.1-galley-de.epub")
     }
 
+    // MARK: - {imprint} filename token (Task 4)
+    //
+    // Same shape as {language}: substituted when present, dangling separator
+    // stripped when absent, and a template lacking the token gets an
+    // auto-suffix collision guard so an imprint's compile can't overwrite
+    // the book's own file.
+
+    func testFilename_imprintTokenSubstituted() {
+        var cfg = PublishConfig(
+            metadata: .init(title: "Book", author: "A"), imprint: "special-edition")
+        cfg.outputs.filenameTemplate = "{title}-{imprint}-v{version}.{ext}"
+        let name = OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "Book-special-edition-v0.1.pdf")
+    }
+
+    func testFilename_imprintTokenEmptyWhenNil() {
+        var cfg = PublishConfig(metadata: .init(title: "Book", author: "A"))
+        cfg.outputs.filenameTemplate = "{title}-v{version}-{imprint}.{ext}"
+        let name = OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "Book-v0.1.pdf", "the book's own compile drops the dangling separator")
+    }
+
+    func testFilename_imprintAutoSuffix_whenTemplateLacksImprintToken() {
+        // Default template has no {imprint}; an imprint's compile must not
+        // collide with the book's own file — insert -<imprint> before the
+        // extension.
+        let cfg = PublishConfig(
+            metadata: .init(title: "Book", author: "A"), imprint: "special-edition")
+        let name = OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "Book-v0.1-special-edition.pdf")
+    }
+
+    func testFilename_noImprintAutoSuffix_whenImprintNil() {
+        // The control: the book's own filename is unaffected by the guard.
+        let cfg = PublishConfig(metadata: .init(title: "Book", author: "A"))
+        let name = OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "Book-v0.1.pdf")
+    }
+
+    func testFilename_guardOrder_imprintThenLanguage() {
+        // Both guards fire on a template with neither token: the imprint
+        // guard runs first (nearer the version), the language guard second
+        // (nearer the extension) — "Title-v0.1-special-sr.pdf".
+        var cfg = PublishConfig(
+            metadata: .init(title: "Title", author: "A"), imprint: "special")
+        cfg.nextVersion = "0.1"
+        let name = OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: "sr")
+        XCTAssertEqual(name, "Title-v0.1-special-sr.pdf")
+    }
+
     // MARK: - Publication decode tolerance
 
     func testPublication_withoutLanguage_decodesToNil() throws {
