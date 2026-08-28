@@ -87,7 +87,11 @@ compiled book could be addressed back to a paragraph. A multi-language
 compile uses it to cross-link scene headings between bodies
 (`\MaughamCrossLink`, wrapping the mode command rather than being wrapped by
 it — read `EMISSION.md`'s "Cross-body links" section before writing or
-redefining one), and `\MaughamCrossLink` is redefinable the same way
+redefining one). A slugline's `\scene` expands to something containing
+`\par`, so the wrap carries one inside it — fine under the bundled
+tectonic/XeTeX (measured), but a template that redefines `\scene` into
+something vertical-mode-hostile, or a pdfTeX engine instead of XeTeX, could
+break the link. `\MaughamCrossLink` is redefinable the same way
 `\MaughamBody` is, if your template wants the link styled differently than a
 plain `\hyperlink`. Two `\providecommand` fallbacks (`\hypertarget`,
 `\MaughamCrossLink`) sit in every body's own prologue, so a preamble with no
