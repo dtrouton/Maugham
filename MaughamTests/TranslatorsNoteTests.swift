@@ -129,6 +129,31 @@ final class TranslatorsNoteTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    /// A brief's language tag and a translation file's tag can disagree in
+    /// case (`"FR"` vs `"fr"`) — `createStatement` itself refuses an uppercase
+    /// tag (`TranslationRecord.isValidLanguageTag` is lowercase-only), so a
+    /// manifest carrying one can only arise from a hand-edited or migrated
+    /// manifest; seed `manifest.statements` directly rather than going
+    /// through the store. `editions` must still offer exactly one row.
+    func test_editionsNormalizeTagCaseToOneRowPerLanguage() async throws {
+        let h = try await makeHarness()
+        try await TranslationStore.append(
+            TranslationRecord(paragraphId: h.doc.sequence[0], language: "fr", text: "…",
+                              sourceHash: TranslationHash.hash("x")),
+            forDocId: h.doc.docId, deviceSlug: DeviceSlug.make(from: "t"), in: h.projectURL)
+
+        var manifest = h.projectStore.manifest
+        manifest.statements.append(
+            Statement(id: "brief-fr-upper", kind: .editionBrief("FR"), scope: .project,
+                     path: "intent/edition-brief-fr.md"))
+
+        XCTAssertEqual(
+            TranslatorsNote.editions(manifest: manifest, docId: h.doc.docId,
+                                     projectURL: h.projectURL),
+            ["fr"])
+        await h.documentStore.close()
+    }
+
     /// The target is read off the caret: the paragraph under it, an excerpt of
     /// its display text, and the editions the sheet offers. No paragraph (an
     /// empty document) → no target.
@@ -165,6 +190,24 @@ final class TranslatorsNoteTests: XCTestCase {
             encoding: .utf8)
         XCTAssertTrue(coordinator.contains(
             "case .translatorsNote: MaughamEvent.post(.maughamTranslatorsNote, to: .keyWindow)"))
+    }
+
+    /// `ProjectWindow`'s `.onKeyWindowCommand(.maughamTranslatorsNote, …)` arm is
+    /// the whole command→caret→`activeSheet` wiring, and nothing else in the
+    /// suite mounts `ProjectWindow` to exercise it live. Without this pin the
+    /// arm can be deleted and the branch stays green while ⌘⌥C goes dead.
+    func test_theWindowArmWiresTheCommandToTheSheet() throws {
+        let window = try String(
+            contentsOf: repoFile("Maugham/Views/ProjectWindow.swift"), encoding: .utf8)
+        XCTAssertTrue(
+            window.contains(".onKeyWindowCommand(.maughamTranslatorsNote, window: window)"),
+            "without this the ⌘⌥C command reaches no handler in ProjectWindow")
+        XCTAssertTrue(
+            window.contains("activeSheet = .translatorsNote("),
+            "without this the command handler never opens the sheet")
+        // Self-check: prove the scan actually reads the file rather than
+        // trivially passing on an empty string.
+        XCTAssertFalse(window.contains(".onKeyWindowCommand(.maughamNotARealCommand"))
     }
 
     private func repoFile(_ relative: String) -> URL {

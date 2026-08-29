@@ -14,6 +14,10 @@ enum CollatorBriefing {
 
         /// One paragraph, both texts. `translation` nil = untranslated, listed
         /// as such so the collator can report `untranslated` rather than guess.
+        /// The caller strips inline task anchors
+        /// (`MarkdownDisplayFilter.stripTaskAnchorsInline`) before passing
+        /// text here, as the translator's gather does; `compose` strips only
+        /// whole-line `¶id` anchors.
         struct Pair: Equatable {
             let paragraphId: String
             let sourceText: String

@@ -999,22 +999,54 @@ final class TripwireGrepTests: XCTestCase {
                            "ColdCall.swift must not contain `\(forbidden)` — a cold call is "
                            + "blind by construction, never by allowlist")
         }
-        XCTAssertTrue(text.contains(".sealed"),
+        XCTAssertTrue(text.contains("confinement: .sealed"),
                       "the scan reads the file rather than always answering true")
     }
 
-    /// **The converse: `.sealed` is spelled in production by `ColdCall` and the
-    /// session type alone.** A fourth file asking for a sealed session is a
-    /// fifth cold caller the spec's four (reader, collator, gloss, Ask the
-    /// collator) do not name — it goes through `ColdCall`, not around it.
+    /// **The converse: `confinement: .sealed` is spelled in production by
+    /// `ColdCall` and the session type alone.** A fourth file asking for a
+    /// sealed session is a fifth cold caller the spec's four (reader,
+    /// collator, gloss, Ask the collator) do not name — it goes through
+    /// `ColdCall`, not around it. The pattern is the full spawn-site spelling
+    /// (`confinement: .sealed`), not the bare `.sealed` token, so a future
+    /// `isSealed`/`segment.sealed` elsewhere in the tree cannot trip this
+    /// census with a misleading message.
     func test_theOnlySealedSpawnerIsColdCall() throws {
         let offenders = try grepSwift(
             in: sourceDir,
-            patterns: [".sealed"],
+            patterns: ["confinement: .sealed"],
             allowed: ["ColdCall.swift", "ClaudeCLISession.swift"])
         XCTAssertTrue(offenders.isEmpty,
                       "a sealed session is spawned through ColdCall only. Offenders:\n"
                       + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the sealed-spawner census FIRES on a planted
+    /// `confinement: .sealed` outside the allow-list. Without this the
+    /// census above had no planted-offender companion, unlike its siblings.
+    func test_theSealedSpawnerCensusWouldFireOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-sealed-spawner-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = tmp.appendingPathComponent("SecondSealedSpawner.swift")
+        try """
+        enum SecondSealedSpawner {
+            static func spawn() {
+                _ = ClaudeCLISession(model: "haiku", confinement: .sealed, preamble: nil)
+            }
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: ["confinement: .sealed"],
+            allowed: ["ColdCall.swift", "ClaudeCLISession.swift"])
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check: a planted sealed spawner outside the allow-list should be "
+            + "caught. Got:\n" + offenders.joined(separator: "\n"))
     }
 
     // MARK: - EditorSurface mount census (M1A: two editors in one window)

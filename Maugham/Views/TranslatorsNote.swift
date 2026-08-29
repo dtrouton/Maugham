@@ -56,15 +56,21 @@ enum TranslatorsNote {
     /// plus any language with a brief and nothing else yet. Sorted, so the
     /// picker is stable.
     static func editions(manifest: ProjectManifest, docId: String, projectURL: URL) -> [String] {
-        let files = Set(TranslationStore.languages(forDocId: docId, in: projectURL))
+        // Every tag is lowercased before it reaches `EditionStatus.editionLanguages`
+        // — that function dedupes case-insensitively against the union it is
+        // handed, but a case mismatch already present in the union itself (e.g.
+        // a brief stored `"ES"` beside a file `"es"`) would otherwise survive as
+        // two rows in the picker.
+        let files = Set(TranslationStore.languages(forDocId: docId, in: projectURL)
+            .map { $0.lowercased() })
         let roles: [String] = manifest.productionRoles.compactMap { role in
             switch role.role {
-            case .translator(let l), .reader(let l), .collator(let l): return l
+            case .translator(let l), .reader(let l), .collator(let l): return l.lowercased()
             case .designer, .unknown: return nil
             }
         }
         let briefs: [String] = manifest.statements.compactMap {
-            if case .editionBrief(let l) = $0.kind { return l }
+            if case .editionBrief(let l) = $0.kind { return l.lowercased() }
             return nil
         }
         return EditionStatus.editionLanguages(files: files, queries: [], roles: roles + briefs)
@@ -116,6 +122,7 @@ struct TranslatorsNoteSheet: View {
     let onCancel: () -> Void
     @State private var instruction = ""
     @State private var home: TranslatorsNote.Home = .everyEdition
+    @FocusState private var instructionFocused: Bool
 
     private var trimmed: String {
         instruction.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -132,6 +139,8 @@ struct TranslatorsNoteSheet: View {
             TextEditor(text: $instruction)
                 .frame(minHeight: 70)
                 .border(Color.gray.opacity(0.3))
+                .focused($instructionFocused)
+                .onAppear { instructionFocused = true }
             Picker(TranslatorsNoteCopy.homeLabel, selection: $home) {
                 Text(TranslatorsNoteCopy.everyEdition).tag(TranslatorsNote.Home.everyEdition)
                 ForEach(target.editions, id: \.self) { language in
@@ -146,6 +155,7 @@ struct TranslatorsNoteSheet: View {
             HStack {
                 Spacer()
                 Button(TranslatorsNoteCopy.cancelTitle, action: onCancel)
+                    .keyboardShortcut(.cancelAction)
                 Button(TranslatorsNoteCopy.confirmTitle) { onCommit(trimmed, home) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)

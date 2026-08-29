@@ -2988,3 +2988,4 @@ git commit -m "feat(editor): Translator's note… — a directive on the paragra
 - **`TranslatorBriefing.FixNote.id`** is the annotation id Plan 3 mints before briefing leg 7 (P1's carried-forward item about `CollatorReport.Departure` carrying no id).
 - `ColdCall` has no production caller yet; its four arrive in Plans 3 (reader, collator) and 4 (gloss, Ask the collator). The window wiring and the census are in place so they arrive as calls, not as wiring.
 - The StatementPane glossary TABLE and orphaned-directive drawing (spec §3, §3.1) are Plan 4's surfaces; this plan only composes and reads.
+- **Plan 3's reader/collator gather must strip inline task anchors** (`MarkdownDisplayFilter.stripTaskAnchorsInline`) from paragraph text before it reaches `ReaderBriefing`/`CollatorBriefing`, exactly as the translator's gather already does — `compose` on both types strips only whole-line `¶id` anchors, not inline ones.

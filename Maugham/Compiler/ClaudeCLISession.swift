@@ -429,7 +429,9 @@ final class ClaudeCLISession: CompilerRunner {
     /// `--strict-mcp-config` is emitted in both cases — with no config beside
     /// it, it is what keeps the writer's own user-level MCP servers out of a
     /// process that is supposed to hold nothing. `--tools ""` is common to
-    /// both, for the reason above.
+    /// both, for the reason above. Verified live 2026-08-29 against `claude`
+    /// 2.1.251: `--strict-mcp-config` with no `--mcp-config` beside it is
+    /// accepted, the turn runs, and a `result` event comes back.
     static func arguments(model: String, confinement: Confinement, preamble: String?) -> [String] {
         var args = [
             "-p",

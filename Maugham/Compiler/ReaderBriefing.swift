@@ -19,7 +19,10 @@ enum ReaderBriefing {
         /// One paragraph of the edition, in `sequence` order. `translation`
         /// is nil for a paragraph the reader must not see yet — missing, or
         /// stale (the caller passes nil for stale: an out-of-date translation
-        /// is not the edition either).
+        /// is not the edition either). The caller strips inline task anchors
+        /// (`MarkdownDisplayFilter.stripTaskAnchorsInline`) before passing
+        /// text here, as the translator's gather does; `compose` strips only
+        /// whole-line `¶id` anchors.
         struct Paragraph: Equatable {
             let paragraphId: String
             let translation: String?

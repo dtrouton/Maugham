@@ -548,9 +548,16 @@ struct DepartmentPaneHost: View {
 
     /// **Mint-then-rename, the one visible act — now for the whole cast.**
     /// `translatorRole(for:)` finds or mints; the very next line names them.
-    /// The reader and the collator follow the same shape only when the sheet
-    /// sent a name: a blank field is "change nothing", so a rename that
-    /// touches only the translator mints no reader on the side. Answers
+    /// The reader and the collator follow the same shape, gated on whether
+    /// the sheet sent a name: a blank field is "change nothing". In practice
+    /// that gate almost never closes for a preset language (es/fr/de/ja) —
+    /// `askToRename` prefills the reader/collator fields from
+    /// `EditionStatus.readerName`/`collatorName`, which fall back to the
+    /// preset name when nothing is stored yet, so the writer sees all three
+    /// names before confirming and Confirm mints all three together (spec
+    /// §1: "Rename … on a language row offers all three"). Only a bespoke
+    /// tag with nobody named leaves the two companion fields blank, which is
+    /// what actually leaves a rename touching the translator alone. Answers
     /// whether the TRANSLATOR landed — the run the sheet may be standing in
     /// front of needs them and nobody else.
     @discardableResult
