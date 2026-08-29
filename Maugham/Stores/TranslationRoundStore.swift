@@ -73,7 +73,7 @@ struct TranslationRoundStore {
     /// not be read is the wrong trade.
     private func load(language: String) -> Ledger {
         let url = Self.fileURL(language: language, in: projectURL)
-        guard let data = try? Data(contentsOf: url) else { return Ledger() }
+        guard let data = try? Data(contentsOf: url) else { return Ledger() }  // adr-0018-ok: reads a derived .maugham/translations/rounds/ ledger the pipeline itself wrote, not manuscript text
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         do {
