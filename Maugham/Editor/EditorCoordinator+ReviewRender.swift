@@ -331,14 +331,18 @@ extension EditorCoordinator {
         }
     }
 
-    /// Map a `SelectionToolbarView.Kind` to the annotation flow. All three open
+    /// Map a `SelectionToolbarView.Kind` to what it does. The first three open
     /// the inline composer; Suggest pre-fills it with the selected text so the
-    /// reviewer edits it into the replacement.
+    /// reviewer edits it into the replacement. Translator's note authors no
+    /// annotation at all — it posts the window command (⌘⌥C's own), and
+    /// `ProjectWindow` reads the caret and opens the sheet. That asymmetry is
+    /// the point: the editor learns nothing about statements.
     func handleToolbarAction(_ kind: SelectionToolbarView.Kind) {
         switch kind {
         case .comment: beginAuthoringAnnotation(kind: .comment)
         case .query:   beginAuthoringAnnotation(kind: .query)
         case .suggest: beginAuthoringAnnotation(kind: .suggestedChange)
+        case .translatorsNote: MaughamEvent.post(.maughamTranslatorsNote, to: .keyWindow)
         }
     }
 

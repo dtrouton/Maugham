@@ -23,6 +23,7 @@ The ones you'll use most:
 | `⌘G` / `⌘⇧G` | Find next / previous |
 | `⌘⌥F` | Find in project |
 | `⌘⌥A` | Show Annotations pane |
+| `⌘⌥C` | Translator's Note… — a directive on the paragraph under the caret, into the piece's craft intent (every edition) or one edition's brief |
 | `⌘⌥Z` | Restore last deletion |
 | `⌘\\` | Toggle focus mode (on the canvas, also collapses both side columns) |
 | `⌘⇧F` | Toggle full-screen focus (turns focus mode on, so the canvas collapses too) |

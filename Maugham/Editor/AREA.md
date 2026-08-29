@@ -101,6 +101,20 @@ Until M1A there was exactly one `EditorSurface` alive in a window at a time. The
 
 Both hang off one configuration flag, `EditorSurfaceConfiguration.isSecondEditorInItsWindow`, default false. **A third surface asks the same question**: if it can be on screen at the same time as another editor, it is a second editor.
 
+## Translator's note — the editor's one statement-writing verb (translation pipeline P2)
+
+⌘⌥C (Edit ▸ Translator's Note…, and a fourth `SelectionToolbarView.Kind` in
+Review Mode) opens `TranslatorsNoteSheet` (`Maugham/Views/TranslatorsNote.swift`)
+on the paragraph under the caret — `Document.paragraphId(at: cursorLocation)`,
+read by `ProjectWindow`'s key-window handler, never by the coordinator — and
+writes a **directive** (`Ruling.directiveText`, provenance `translator's note`)
+through `RulingPerformer.rule`: the piece's craft intent at `.document(id)` by
+default, or one language's edition brief at `.project`. The editor itself
+knows nothing about statements (the toolbar button only posts the window
+command), which is what keeps this out of the binding contract above. It is
+a sheet, not a popover (tripwire 7). `TranslatorsNoteTests` drives the whole
+act at the op log.
+
 ## What to read before editing
 
 - For prose tokenization changes: `Tokenizer/` and the prose path in `EditorCoordinator.applyStyles`.

@@ -46,6 +46,7 @@ public enum KeyboardShortcuts {
             Entry(label: "Find Next",               shortcut: "⌘G"),
             Entry(label: "Find Previous",           shortcut: "⌘⇧G"),
             Entry(label: "Find in Project…",        shortcut: "⌘⌥F"),
+            Entry(label: "Translator's Note…",      shortcut: "⌘⌥C"),
             Entry(label: "Restore Last Deletion",   shortcut: "⌘⌥Z"),
         ]),
         Category(category: "View", items: [

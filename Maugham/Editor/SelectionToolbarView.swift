@@ -13,12 +13,20 @@ import AppKit
 /// so there is no AppKit↔SwiftUI loop (tripwire 5 / tripwire 2).
 ///
 /// Throwaway. The real review feature replaces the button actions with the
-/// Comment / Suggest / Query annotation flows.
+/// Comment / Suggest / Query annotation flows; a fourth button, Translator's
+/// note, posts the window command instead of authoring anything.
 final class SelectionToolbarView: NSView {
     enum Kind: String, CaseIterable {
         case comment = "Comment"
         case suggest = "Suggest"
         case query = "Query"
+        /// **Translator's note** (translation pipeline P2) — last, so the
+        /// existing buttons keep their `tag`s (the tag is the case's index in
+        /// `allCases`). Unlike its three neighbours this one authors no
+        /// annotation: it only posts `.maughamTranslatorsNote` to the key
+        /// window, and the window opens the sheet. The editor stays ignorant
+        /// of statements.
+        case translatorsNote = "Translator\u{2019}s note"
     }
 
     /// Optional hook the real feature wires; the spike just prints.
