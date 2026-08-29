@@ -380,10 +380,19 @@ final class TranslationPipeline {
 
     /// Route `addressed`/`declined` onto the record rows the fix leg was
     /// briefed with — notes for legs 3/5, departures for leg 7.
+    ///
+    /// **Scoped to `notes`, and that is load-bearing.** Legs 3 and 5 are two
+    /// turns of ONE warm translator session, so leg 2's note ids are still in
+    /// the model's context when leg 5 answers; an id echoed from the earlier
+    /// turn would otherwise reach into a row this leg was never briefed with
+    /// and silently overwrite the verdict already recorded there — a note the
+    /// author will read as declined when it was addressed, or the reverse.
+    /// A leg records outcomes for its own work-list and nothing else.
     private func applyFixOutcomes(_ outcome: TranslatorOrchestrator.IngestOutcome,
                                   annotationIds: [String: String],
                                   notes: [TranslatorBriefing.FixNote],
                                   to round: inout TranslationRound) {
+        let briefed = Set(notes.map(\.id))
         let rewrites = Dictionary(outcome.rewrites.map { ($0.paragraphId, $0) },
                                   uniquingKeysWith: { first, _ in first })
         func rewrite(for paragraphId: String) -> TranslationRound.Rewrite {
@@ -395,6 +404,7 @@ final class TranslationPipeline {
                                   uniquingKeysWith: { first, _ in first })
         for index in round.notes.indices {
             let note = round.notes[index]
+            guard briefed.contains(note.id) else { continue }
             if outcome.addressed.contains(note.id) {
                 round.notes[index].outcome = .addressed(rewrite(for: note.paragraphId))
             } else if let reason = declined[note.id] {
@@ -403,6 +413,7 @@ final class TranslationPipeline {
         }
         for index in round.departures.indices {
             let departure = round.departures[index]
+            guard briefed.contains(departure.id) else { continue }
             if outcome.addressed.contains(departure.id) {
                 round.departures[index].outcome = .addressed(rewrite(for: departure.paragraphId))
             } else if let reason = declined[departure.id] {
@@ -427,6 +438,12 @@ final class TranslationPipeline {
         let end: TranslatorLegEnd = await withCheckedContinuation { continuation in
             pending = (nil, continuation)
             guard let runId = start() else {
+                // Only refuse if this leg still owns the continuation. A
+                // callback landing synchronously inside `start()` has already
+                // cleared `pending` and resumed it — and Task 5 adds two more
+                // resume paths (`cancel()`, `shutdown()`) into this same slot,
+                // so a second resume here would trap rather than misreport.
+                guard pending != nil else { return }
                 pending = nil
                 continuation.resume(returning: .refused)
                 return

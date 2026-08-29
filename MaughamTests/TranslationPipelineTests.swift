@@ -372,6 +372,72 @@ final class TranslationPipelineTests: XCTestCase {
         XCTAssertTrue(world.mints.isEmpty)
     }
 
+    /// **A leg records outcomes for its own work-list and nothing else.**
+    /// Legs 3 and 5 are two turns of ONE warm translator session, so leg 2's
+    /// note ids are still in the model's context when leg 5 answers. An id
+    /// echoed out of the earlier turn must not reach into the row leg 3
+    /// already ruled on — the author would read a verdict no leg reached.
+    func test_aFixLegRecordsOutcomesOnlyForTheNotesItWasBriefedWith() async throws {
+        let world = FakeWorld()
+        var leg3NoteIds: [String] = []
+        world.fixAnswer = { notes, isFinal in
+            if isFinal {
+                return .ingested(.init(entriesWritten: 1, addressed: notes.map(\.id)))
+            }
+            if leg3NoteIds.isEmpty {
+                leg3NoteIds = notes.map(\.id)
+                return .ingested(.init(
+                    entriesWritten: 1, addressed: notes.map(\.id),
+                    rewrites: notes.map { .init(paragraphId: $0.paragraphId, beforeRecordId: "b",
+                                                before: "old", afterRecordId: "a", after: "new") }))
+            }
+            // Leg 5: its own note, plus leg 2's id echoed back out of the
+            // warm session with a verdict that contradicts leg 3's.
+            return .ingested(.init(
+                entriesWritten: 1, addressed: notes.map(\.id),
+                declined: leg3NoteIds.map { .init(noteId: $0, reason: "Echo.") }))
+        }
+        world.pipeline.run(docId: "doc-1", language: "es")
+        await Self.settle(world)
+        let round = try XCTUnwrap(world.saved.first)
+
+        XCTAssertEqual(round.notes.count, 2)
+        XCTAssertEqual(round.notes[0].id, leg3NoteIds.first)
+        XCTAssertEqual(round.notes[0].outcome,
+                       .addressed(.init(beforeRecordId: "b", before: "old",
+                                        afterRecordId: "a", after: "new")),
+                       "leg 5 cannot overwrite leg 3's verdict on leg 2's note")
+        XCTAssertEqual(round.notes[1].outcome,
+                       .addressed(.init(beforeRecordId: nil, before: nil,
+                                        afterRecordId: nil, after: nil)),
+                       "leg 5 still records its own")
+        XCTAssertFalse(world.mints.contains { mint in
+            mint.items.contains { $0.note.id == leg3NoteIds.first }
+        }, "and never mints a query against a note it was not briefed with")
+    }
+
+    /// A summary landing synchronously inside `start()` has already resumed
+    /// the leg; a `nil` run id arriving afterwards must not resume it a
+    /// second time. (`CheckedContinuation` traps on a double resume, so the
+    /// unguarded shape fails this as a crash, not an assertion.)
+    func test_aSummaryThatLandsInsideTheStartCallIsTheLegsAnswer() async throws {
+        let world = FakeWorld()
+        var environment = world.environment()
+        environment.runTranslation = { [pipeline = world.pipeline] docId, language in
+            pipeline.translatorRunEnded(.init(
+                runId: "run-sync", docId: docId, language: language, at: Date(),
+                outcome: .ingested(.init(entriesWritten: 3, queriesMinted: 0))))
+            return nil
+        }
+        world.pipeline.configure(environment: environment)
+        world.pipeline.run(docId: "doc-1", language: "es")
+        await Self.settle(world)
+        let round = try XCTUnwrap(world.saved.first)
+        XCTAssertEqual(round.legs[0].status, .ran)
+        XCTAssertEqual(round.legs[0].counts?.entries, 3)
+        XCTAssertNotEqual(round.legs[0].reason, TranslationPipeline.translatorRefusedSentence)
+    }
+
     func test_aSecondRunWhileOneIsRunningIsRefused() async throws {
         let world = FakeWorld()
         XCTAssertTrue(world.pipeline.run(docId: "doc-1", language: "es"))
