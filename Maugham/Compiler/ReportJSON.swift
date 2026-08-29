@@ -2,10 +2,10 @@ import Foundation
 
 /// The helpers every report parser shares: finding the answer object in a
 /// turn's text, reading a list all-or-nothing, and reading a string that has
-/// something in it. `DiagnosticIngest`, `TranslatorReport` and
-/// `DesignerReport` each carried a private copy "owing the others no
-/// dependency"; a neutral helper is not a dependency on another contract, and
-/// the fourth copy is where the duplication stopped earning its keep.
+/// something in it. `TranslatorReport` and `DesignerReport` were migrated onto
+/// this shared copy; `DiagnosticIngest` keeps its own — the compiler's
+/// sectioned, line-delimited contract is out of this extraction's scope. New
+/// parsers use this.
 enum ReportJSON {
 
     /// A `String` value with something in it, TRIMMED — whitespace around a
