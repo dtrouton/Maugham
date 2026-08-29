@@ -1662,7 +1662,7 @@ final class DepartmentRunTests: XCTestCase {
     /// offers four of these.
     func test_theRenameSheetStartsFromTheNameItIsAbout() async throws {
         let window = mountCastSheet(
-            ask: .rename(subject: .translator(language: "es"),
+            ask: .rename(subject: .edition(language: "es"),
                          currentName: "Cortázar"))
 
         let nameField = try XCTUnwrap(
@@ -1677,10 +1677,96 @@ final class DepartmentRunTests: XCTestCase {
         XCTAssertTrue(
             texts.contains {
                 $0.contains(DepartmentCastCopy.renameExplanation(
-                    subject: .translator(language: "es")))
+                    subject: .edition(language: "es")))
             },
             "…nor that a rename orphans nothing, which is the fear that stops a "
             + "writer renaming anybody. Published: \(texts.sorted())")
+    }
+
+    /// **Rename … on a language row offers all three** (translation pipeline
+    /// spec §1): the sheet starts from the translator, the reader and the
+    /// collator this edition has — presets included — and sends all three.
+    func test_theRenameSheetOffersReaderAndCollatorPrefilled() async throws {
+        var answered: [DepartmentCastAnswer] = []
+        let window = mountCastSheet(
+            ask: .rename(subject: .edition(language: "es"), currentName: "Cortázar"),
+            currentReader: "Ocampo", currentCollator: "Borges",
+            onConfirm: { answered.append($0) })
+
+        let reader = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.readerPlaceholder, in: window),
+            "no reader field")
+        let collator = try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.collatorPlaceholder, in: window),
+            "no collator field")
+        XCTAssertEqual(reader.stringValue, "Ocampo")
+        XCTAssertEqual(collator.stringValue, "Borges")
+
+        type("Victoria", into: reader)
+        pump(0.1)
+        press(try axButtons(labelled: DepartmentCastCopy.renameConfirmTitle, in: window)[0])
+        _ = await pumpUntil(deadline: 3) { !answered.isEmpty }
+        XCTAssertEqual(answered, [DepartmentCastAnswer(
+            language: nil, name: "Cortázar", reader: "Victoria", collator: "Borges")])
+    }
+
+    /// A blank reader or collator is "leave them be", not a refusal: only the
+    /// translator's name gates Confirm, because only the translator signs the
+    /// round the sheet may be standing in front of.
+    func test_blankReaderAndCollatorTravelAsNilAndDoNotDisableConfirm() async throws {
+        var answered: [DepartmentCastAnswer] = []
+        let window = mountCastSheet(ask: .nameForRun(language: "xx", docId: "doc-1"),
+                                    onConfirm: { answered.append($0) })
+        type("Ana", into: try XCTUnwrap(
+            textField(placeholder: DepartmentCastCopy.placeholder, in: window)))
+        pump(0.1)
+        let confirm = try axButtons(labelled: DepartmentCastCopy.nameAndRunTitle, in: window)
+        XCTAssertEqual(axEnabled(confirm[0]), true)
+        press(confirm[0])
+        _ = await pumpUntil(deadline: 3) { !answered.isEmpty }
+        XCTAssertEqual(answered, [DepartmentCastAnswer(
+            language: nil, name: "Ana", reader: nil, collator: nil)])
+    }
+
+    /// The designer's sheet is one field — there is no reader or collator of a
+    /// book's design.
+    func test_theDesignerSheetHasNoCastFields() async throws {
+        let window = mountCastSheet(
+            ask: .rename(subject: .designer, currentName: "Tschichold"))
+        XCTAssertNil(textField(placeholder: DepartmentCastCopy.readerPlaceholder, in: window))
+        XCTAssertNil(textField(placeholder: DepartmentCastCopy.collatorPlaceholder, in: window))
+    }
+
+    /// **On the real desk, all three land in the manifest** — the same one
+    /// visible act, three people.
+    func test_renamingAnEditionNamesItsReaderAndCollatorToo() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
+        let window = mountTranslatorHost(fixture)
+        _ = try await scrollersSettling(in: window)
+
+        try await pressRowControl(
+            labelled: DepartmentDesk.renameTitle(translator: "Cortázar"), in: window)
+        let sheet = await attachedSheetWindow(of: window)
+        let sheetWindow = try XCTUnwrap(sheet)
+        type("Victoria", into: try XCTUnwrap(textField(
+            placeholder: DepartmentCastCopy.readerPlaceholder, in: sheetWindow)))
+        pump(0.1)
+        press(try axButtons(labelled: DepartmentCastCopy.renameConfirmTitle,
+                            in: sheetWindow)[0])
+
+        _ = await pumpUntil(deadline: 10) {
+            fixture.projectStore.manifest.storedReader(for: "es") != nil
+                && fixture.projectStore.manifest.storedCollator(for: "es") != nil
+        }
+        XCTAssertEqual(fixture.projectStore.manifest.storedTranslator(for: "es")?.effectiveName,
+                       "Cortázar")
+        XCTAssertEqual(fixture.projectStore.manifest.storedReader(for: "es")?.effectiveName,
+                       "Victoria")
+        XCTAssertEqual(fixture.projectStore.manifest.storedCollator(for: "es")?.effectiveName,
+                       "Borges", "an untouched preset field still names them — the sheet "
+                       + "is the one composition that mints the cast")
+
+        await fixture.documentStore.close()
     }
 
     /// **A row with nobody on it yet asks for a NAME**, which is the honest verb
@@ -1688,7 +1774,7 @@ final class DepartmentRunTests: XCTestCase {
     /// an empty name after it would be a sheet about nobody.
     func test_aRowWithNobodyOnItAsksForANameRatherThanARename() async throws {
         let prompt = DepartmentCastPrompt(
-            ask: .rename(subject: .translator(language: "xx"), currentName: ""))
+            ask: .rename(subject: .edition(language: "xx"), currentName: ""))
         XCTAssertEqual(prompt.title,
                        DepartmentCastCopy.nameForRunTitle(language: "xx"))
         XCTAssertEqual(prompt.confirmTitle, DepartmentCastCopy.nameConfirmTitle)
@@ -1993,12 +2079,15 @@ final class DepartmentRunTests: XCTestCase {
     /// The cast sheet on any ask — the shape the Add Language cases drive.
     private func mountCastSheet(
         ask: DepartmentCastPrompt.Ask,
+        currentReader: String? = nil, currentCollator: String? = nil,
         onConfirm: @escaping (DepartmentCastAnswer) -> Void = { _ in },
         onCancel: @escaping () -> Void = { }) -> NSWindow {
         let window = TestWindow.mount(
-            AnyView(DepartmentCastSheet(prompt: DepartmentCastPrompt(ask: ask),
-                                        onConfirm: onConfirm, onCancel: onCancel)),
-            size: CGSize(width: 380, height: 260))
+            AnyView(DepartmentCastSheet(
+                prompt: DepartmentCastPrompt(
+                    ask: ask, currentReader: currentReader, currentCollator: currentCollator),
+                onConfirm: onConfirm, onCancel: onCancel)),
+            size: CGSize(width: 380, height: 360))
         windows.append(window)
         pump(0.1)
         return window

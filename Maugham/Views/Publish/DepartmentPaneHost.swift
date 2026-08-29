@@ -409,10 +409,13 @@ struct DepartmentPaneHost: View {
     /// rather than a renaming.
     private func askToRename(language: String) {
         notice = nil
-        castPrompt = DepartmentCastPrompt(ask: .rename(
-            subject: .translator(language: language),
-            currentName: EditionStatus.translatorName(
-                for: language, in: store.manifest) ?? ""))
+        castPrompt = DepartmentCastPrompt(
+            ask: .rename(
+                subject: .edition(language: language),
+                currentName: EditionStatus.translatorName(
+                    for: language, in: store.manifest) ?? ""),
+            currentReader: EditionStatus.readerName(for: language, in: store.manifest),
+            currentCollator: EditionStatus.collatorName(for: language, in: store.manifest))
     }
 
     /// **Open the sheet on the book's designer.** `designerRole()` is a read
@@ -436,14 +439,14 @@ struct DepartmentPaneHost: View {
         case .nameForRun(let language, let docId):
             guard let translator else { return }
             Task {
-                guard await nameTranslator(language: language, name: answer.name)
+                guard await nameCast(language: language, answer: answer)
                 else { return }
                 translator.runTranslation(docId: docId, language: language)
             }
         case .addLanguage:
-            addLanguage(tag: answer.language ?? "", name: answer.name)
-        case .rename(.translator(let language), _):
-            Task { await nameTranslator(language: language, name: answer.name) }
+            addLanguage(tag: answer.language ?? "", answer: answer)
+        case .rename(.edition(let language), _):
+            Task { await nameCast(language: language, answer: answer) }
         case .rename(.designer, _):
             renameTheDesigner(to: answer.name)
         }
@@ -485,7 +488,7 @@ struct DepartmentPaneHost: View {
     /// Nothing is said on success: the row appearing in the section this button
     /// sits under IS the answer, and the notice slot is for what the writer
     /// cannot otherwise see.
-    private func addLanguage(tag: String, name: String) {
+    private func addLanguage(tag: String, answer: DepartmentCastAnswer) {
         notice = nil
         let language = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard TranslationRecord.isValidLanguageTag(language) else {
@@ -500,7 +503,7 @@ struct DepartmentPaneHost: View {
             notice = DepartmentCastCopy.alreadyOnTheDesk(language: spelling)
             return
         }
-        Task { _ = await nameTranslator(language: language, name: name) }
+        Task { _ = await nameCast(language: language, answer: answer) }
     }
 
     /// The manifest's own spelling of a stored translator's tag, for the
@@ -543,17 +546,43 @@ struct DepartmentPaneHost: View {
         }
     }
 
+    /// **Mint-then-rename, the one visible act — now for the whole cast.**
+    /// `translatorRole(for:)` finds or mints; the very next line names them.
+    /// The reader and the collator follow the same shape only when the sheet
+    /// sent a name: a blank field is "change nothing", so a rename that
+    /// touches only the translator mints no reader on the side. Answers
+    /// whether the TRANSLATOR landed — the run the sheet may be standing in
+    /// front of needs them and nobody else.
     @discardableResult
-    private func nameTranslator(language: String, name: String) async -> Bool {
+    private func nameCast(language: String, answer: DepartmentCastAnswer) async -> Bool {
         do {
-            let role = try await store.translatorRole(for: language)
-            try await store.renameProductionRole(id: role.id, to: name)
-            return true
+            let translator = try await store.translatorRole(for: language)
+            try await store.renameProductionRole(id: translator.id, to: answer.name)
         } catch {
             _departmentLog.error(
                 "could not name the \(language, privacy: .public) translator: \(error, privacy: .public)")
             notice = DepartmentCastCopy.mintFailed(language: language)
             return false
+        }
+        await nameCompanion(language: language, name: answer.reader,
+                            mint: store.readerRole(for:), what: "reader")
+        await nameCompanion(language: language, name: answer.collator,
+                            mint: store.collatorRole(for:), what: "collator")
+        return true
+    }
+
+    private func nameCompanion(
+        language: String, name: String?,
+        mint: (String) async throws -> ProductionRole, what: String
+    ) async {
+        guard let name else { return }
+        do {
+            let role = try await mint(language)
+            try await store.renameProductionRole(id: role.id, to: name)
+        } catch {
+            _departmentLog.error(
+                "could not name the \(language, privacy: .public) \(what, privacy: .public): \(error, privacy: .public)")
+            notice = DepartmentCastCopy.mintFailed(language: language)
         }
     }
 

@@ -1374,4 +1374,15 @@ final class DepartmentPaneTests: XCTestCase {
         let url = appSourceDir.appendingPathComponent(relativePath)
         return SourceScan.codeLines(of: try String(contentsOf: url, encoding: .utf8))
     }
+
+    // MARK: - The cast sheet's three fields (translation pipeline P2 Task 9)
+
+    func test_everyEditionAskTakesTheCastAndTheDesignersDoesNot() {
+        XCTAssertTrue(DepartmentCastPrompt(ask: .addLanguage).takesCast)
+        XCTAssertTrue(DepartmentCastPrompt(ask: .nameForRun(language: "es", docId: "d")).takesCast)
+        XCTAssertTrue(DepartmentCastPrompt(
+            ask: .rename(subject: .edition(language: "es"), currentName: "X")).takesCast)
+        XCTAssertFalse(DepartmentCastPrompt(
+            ask: .rename(subject: .designer, currentName: "X")).takesCast)
+    }
 }
