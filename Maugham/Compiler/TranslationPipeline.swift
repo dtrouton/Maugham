@@ -165,6 +165,22 @@ final class TranslationPipeline {
     private enum LiveKind { case translator, cold, gap }
     private var live: LiveKind = .gap
 
+    /// `live` is what `cancel()` steers by, so it is run-scoped exactly as
+    /// `status` and `queue` are — by `runToken`, not by `generation`.
+    ///
+    /// A run that was shut down can still be parked in a cold call, because
+    /// `shutdown()` does not reach one: it resumes the translator's
+    /// continuation and nothing else. If the owner starts another run and the
+    /// stale call then resolves, its `live = .gap` would land under the NEW
+    /// run — which is mid-translator-leg — and `cancel()` would take the
+    /// `.gap` arm and call nothing at all: the translator uncancelled, its
+    /// continuation never resumed, its round never saved, and the desk stuck
+    /// on `.running` until another `shutdown()`.
+    private func setLive(_ kind: LiveKind, token: Int) {
+        guard runToken == token else { return }
+        live = kind
+    }
+
     var isRunning: Bool { status != .idle }
 
     func configure(environment: Environment) { self.environment = environment }
@@ -213,7 +229,7 @@ final class TranslationPipeline {
             position += 1
             let book = count > 1 ? BookProgress(position: position, count: count) : nil
             let round = await runRound(docId: docId, language: language, book: book,
-                                       generation: gen, environment: environment)
+                                       generation: gen, token: token, environment: environment)
             // A failed or cancelled round stops a book queue: the next chapter
             // would meet the same session, and the author should see this one.
             if round.stoppedAt != nil { break }
@@ -252,7 +268,8 @@ final class TranslationPipeline {
     }
 
     private func runRound(docId: String, language: String, book: BookProgress?,
-                          generation gen: Int, environment env: Environment) async -> TranslationRound {
+                          generation gen: Int, token: Int,
+                          environment env: Environment) async -> TranslationRound {
         var round = TranslationRound(number: env.nextRoundNumber(language), language: language,
                                      docId: docId, startedAt: Date())
         var wroteAnything = false
@@ -291,7 +308,7 @@ final class TranslationPipeline {
             switch leg {
             case .translate:
                 result = await translatorLeg(
-                    generation: gen, skipReason: Self.nothingToTranslateReason,
+                    generation: gen, token: token, skipReason: Self.nothingToTranslateReason,
                     start: { env.runTranslation(docId, language) },
                     onIngested: { outcome in
                         wroteAnything = wroteAnything || outcome.entriesWritten > 0
@@ -303,7 +320,8 @@ final class TranslationPipeline {
                     break
                 }
                 let read = await readerLeg(leg, docId: docId, language: language,
-                                           identity: reader, generation: gen, environment: env)
+                                           identity: reader, generation: gen, token: token,
+                                           environment: env)
                 reader = read.identity
                 result = read.result
                 if let report = read.report {
@@ -331,7 +349,7 @@ final class TranslationPipeline {
                 let authorRoleId = leg == .finalFix ? (collator?.roleId ?? "") : (reader?.roleId ?? "")
                 var fixOutcome: TranslatorOrchestrator.IngestOutcome?
                 result = await translatorLeg(
-                    generation: gen, skipReason: Self.noCurrentTranslationReason,
+                    generation: gen, token: token, skipReason: Self.noCurrentTranslationReason,
                     start: { env.runFix(docId, language, notes, leg == .finalFix) },
                     onIngested: { fixOutcome = $0 })
                 if let outcome = fixOutcome {
@@ -370,7 +388,8 @@ final class TranslationPipeline {
                     break
                 }
                 let collated = await collatorLeg(docId: docId, language: language,
-                                                 identity: collator, generation: gen, environment: env)
+                                                 identity: collator, generation: gen, token: token,
+                                                 environment: env)
                 collator = collated.identity
                 result = collated.result
                 if let report = collated.report {
@@ -393,7 +412,7 @@ final class TranslationPipeline {
             round.summary = Self.nothingToDoSummary
         }
         round.endedAt = Date()
-        live = .gap
+        setLive(.gap, token: token)
         env.saveRound(round)
         env.onRoundEnded(round)
         return round
@@ -451,11 +470,11 @@ final class TranslationPipeline {
     /// (the orchestrator's own vocabulary) — and if the generation moved, as
     /// cancelled regardless of what the summary says.
     private func translatorLeg(
-        generation gen: Int, skipReason: String,
+        generation gen: Int, token: Int, skipReason: String,
         start: @MainActor () -> String?,
         onIngested: (TranslatorOrchestrator.IngestOutcome) -> Void
     ) async -> LegResult {
-        live = .translator
+        setLive(.translator, token: token)
         let end: TranslatorLegEnd = await withCheckedContinuation { continuation in
             pending = (nil, continuation)
             guard let runId = start() else {
@@ -471,7 +490,7 @@ final class TranslationPipeline {
             }
             pending?.runId = runId
         }
-        live = .gap
+        setLive(.gap, token: token)
         guard generation == gen else { return .cancelled }
         switch end {
         case .refused: return .failed(Self.translatorRefusedSentence)
@@ -497,11 +516,11 @@ final class TranslationPipeline {
         case cancelled
     }
 
-    private func coldLeg(message: String, generation gen: Int,
+    private func coldLeg(message: String, generation gen: Int, token: Int,
                          environment env: Environment) async -> ColdEnd {
-        live = .cold
+        setLive(.cold, token: token)
         let event = await env.coldCall(message, Self.coldPreamble, env.model)
-        live = .gap
+        setLive(.gap, token: token)
         guard generation == gen else { return .cancelled }
         switch event {
         case .resultText(let text): return .text(text)
@@ -519,7 +538,7 @@ final class TranslationPipeline {
     /// re-read and for the declined mint's byline.
     private func readerLeg(
         _ leg: TranslationRound.Leg, docId: String, language: String,
-        identity: (name: String, roleId: String)?, generation gen: Int,
+        identity: (name: String, roleId: String)?, generation gen: Int, token: Int,
         environment env: Environment
     ) async -> (result: LegResult, report: ReaderReport?, identity: (name: String, roleId: String)?) {
         var identity = identity
@@ -539,7 +558,7 @@ final class TranslationPipeline {
             return (.skipped(Self.nothingToReadReason), nil, identity)
         }
         switch await coldLeg(message: ReaderBriefing.compose(inputs: inputs),
-                             generation: gen, environment: env) {
+                             generation: gen, token: token, environment: env) {
         case .cancelled: return (.cancelled, nil, identity)
         case .failed(let sentence): return (.failed(sentence), nil, identity)
         case .text(let text):
@@ -553,7 +572,7 @@ final class TranslationPipeline {
 
     private func collatorLeg(
         docId: String, language: String,
-        identity: (name: String, roleId: String)?, generation gen: Int,
+        identity: (name: String, roleId: String)?, generation gen: Int, token: Int,
         environment env: Environment
     ) async -> (result: LegResult, report: CollatorReport?, identity: (name: String, roleId: String)?) {
         var identity = identity
@@ -573,7 +592,7 @@ final class TranslationPipeline {
             return (.skipped(Self.nothingToCollateReason), nil, identity)
         }
         switch await coldLeg(message: CollatorBriefing.compose(inputs: inputs),
-                             generation: gen, environment: env) {
+                             generation: gen, token: token, environment: env) {
         case .cancelled: return (.cancelled, nil, identity)
         case .failed(let sentence): return (.failed(sentence), nil, identity)
         case .text(let text):
@@ -616,9 +635,11 @@ final class TranslationPipeline {
         queue = []
         if let pending {
             self.pending = nil
-            pending.continuation.resume(returning: .ended(.init(
-                runId: pending.runId ?? "", docId: "", language: "", at: Date(),
-                outcome: .cancelled)))
+            // Which end it is never reaches a reader: the generation bumped a
+            // line above makes `translatorLeg` answer `.cancelled` before it
+            // looks. So say the true thing — the run was left behind — rather
+            // than fabricate a summary with an empty docId and language.
+            pending.continuation.resume(returning: .abandoned)
         }
         status = .idle
     }

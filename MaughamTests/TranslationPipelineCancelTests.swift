@@ -77,6 +77,16 @@ final class TranslationPipelineCancelTests: XCTestCase {
             world.pipeline.configure(environment: environment)
         }
 
+        /// Let a held cold call resolve on its own — what a shut-down
+        /// `ColdCall` session does to a call already in flight, as opposed to
+        /// `cancelColdCall` above, which the pipeline reaches deliberately.
+        func releaseCold() {
+            let held = heldCold
+            heldCold = nil
+            held?.resume(returning: .failed(
+                .sessionDied(detail: CompilerRunFailure.Detail.sessionShutDown)))
+        }
+
         func releaseBriefing() {
             let held = heldBriefing
             heldBriefing = nil
@@ -193,6 +203,43 @@ final class TranslationPipelineCancelTests: XCTestCase {
         XCTAssertEqual(held.world.saved.map(\.docId), ["doc-1", "doc-2", "doc-3"])
         XCTAssertEqual(held.world.saved[0].legs.map(\.status), [.cancelled],
                        "the shut-down round is still the one that was cut short")
+    }
+
+    /// The COLD twin of the test above, and the case `live` has to be scoped
+    /// for. `shutdown()` resumes the translator's continuation and nothing
+    /// else, so a cold call in flight stays in flight; the owner starts
+    /// another run, which parks on its own translator leg; and only then does
+    /// the stale call resolve. Its `live = .gap` must not land under the new
+    /// run — Cancel would take the `.gap` arm and call nothing at all: the
+    /// translator never cancelled, its continuation never resumed, its round
+    /// never saved, and a desk stuck on `.running` that only another
+    /// `shutdown()` recovers.
+    func test_aStaleColdLegDoesNotBlindCancelForTheRunThatReplacedIt() async throws {
+        let held = HeldWorld()
+        held.holdCold = { true }
+        held.world.pipeline.run(docId: "doc-1", language: "es")
+        await held.waitFor { held.isHoldingCold }
+
+        held.world.pipeline.shutdown()
+        held.holdTranslator = true
+        XCTAssertTrue(held.world.pipeline.run(docId: "doc-2", language: "es"))
+        await held.waitFor { held.heldRunId != nil }
+
+        held.releaseCold()   // the abandoned leg resolves under the new run
+        await held.waitFor { held.world.saved.contains { $0.docId == "doc-1" } }
+
+        held.world.pipeline.cancel()
+        await TranslationPipelineTests.settle(held.world, rounds: 2)
+
+        XCTAssertEqual(held.cancels, ["translator"],
+                       "Cancel still reaches the leg the LIVE run is on")
+        XCTAssertEqual(held.world.pipeline.status, .idle)
+        // The stale round unwinds whenever its call resolves, so the order in
+        // `saved` is not the order the rounds started in — read them by docId.
+        let abandoned = try XCTUnwrap(held.world.saved.first { $0.docId == "doc-1" })
+        XCTAssertEqual(abandoned.legs.map(\.status), [.ran, .cancelled])
+        let live = try XCTUnwrap(held.world.saved.first { $0.docId == "doc-2" })
+        XCTAssertEqual(live.legs.map(\.status), [.cancelled])
     }
 
     func test_detachDropsTheEnvironmentAndRefusesTheNextRun() {
