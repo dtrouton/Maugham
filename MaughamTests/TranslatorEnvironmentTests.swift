@@ -703,6 +703,12 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(
             compilerShutdowns, 2,
             "app-quit and the AI toggle are both window-ending paths")
+        XCTAssertEqual(
+            compilerShutdowns,
+            modifier.components(separatedBy: "coldCall.shutdown()").count - 1,
+            "every compiler shutdown in the modifier needs its cold-call sibling — "
+            + "a cold read in flight when the window closes is a billing process "
+            + "otherwise (translation pipeline spec §5)")
 
         // The designer's own five tokens are `DesignerEnvironmentTests`' —
         // each file owns the wiring of the loop it is about; the paired counts
@@ -718,5 +724,12 @@ final class TranslatorEnvironmentTests: XCTestCase {
         }
         XCTAssertFalse(window.contains("translator.notARealVerb("),
                        "the scan reads the file rather than always answering true")
+
+        for token in ["ColdCall()", "coldCall.detach()", "coldCall.configure(",
+                      "coldCall: coldCall"] {
+            XCTAssertTrue(window.contains(token),
+                          "ProjectWindow is missing \(token) — without it the cold-call "
+                          + "runner is unwired, unmounted, or outlives the window")
+        }
     }
 }

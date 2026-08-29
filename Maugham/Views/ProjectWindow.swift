@@ -231,6 +231,10 @@ struct ProjectWindow: View {
     /// the AI toggle in `CompilerRunModifier`. A session merely released is a
     /// live, billing process (`DesignerOrchestrator`'s own contract).
     @State private var designer = DesignerOrchestrator()
+    /// The cold-call runner (translation pipeline P2): reader, collator, gloss
+    /// and Ask-the-collator will spawn through it (Plans 3–4). Owned here so
+    /// its teardown sits beside the three orchestrators'.
+    @State private var coldCall = ColdCall()
     /// The Intent pane's two lower strata (declared-world Task 6): Claude's
     /// bible of what the manuscript has established, and the per-scope cache of
     /// its readings of the writer's statements.
@@ -387,6 +391,7 @@ struct ProjectWindow: View {
                 compiler.detach()
                 translator.detach()
                 designer.detach()
+                coldCall.detach()
                 store = nil
                 documentStore = nil
                 lastParsedScript = nil
@@ -395,6 +400,7 @@ struct ProjectWindow: View {
         .modifier(CompilerRunModifier(orchestrator: compiler,
                                       translator: translator,
                                       designer: designer,
+                                      coldCall: coldCall,
                                       window: window,
                                       activeDocId: activeDocId,
                                       mcpEnabled: userPreferences.mcpEnabled))
@@ -3775,6 +3781,11 @@ struct ProjectWindow: View {
                         _projectWindowLog.info(
                             "design run \(summary.runId, privacy: .public) round \(summary.round, privacy: .public) ended: \(Self.designRunRecord(summary), privacy: .public)")
                     }))
+            // The cold-call runner, wired beside the three orchestrators. It
+            // holds no session between calls; what it needs is the factory
+            // that builds a sealed one, and the same toggle every spawn reads.
+            coldCall.configure(
+                makeRunner: ColdCall.productionRunnerFactory(preferences: userPreferences))
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
             loadError = nil
