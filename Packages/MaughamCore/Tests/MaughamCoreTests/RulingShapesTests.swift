@@ -87,4 +87,36 @@ final class RulingShapesTests: XCTestCase {
         XCTAssertNil(ruling("¶k7mq: keep it").glossary)
         XCTAssertNil(ruling("«a» → «b»").directive)
     }
+
+    // MARK: - lineSafe (guillemets, interior newlines)
+
+    func test_aGlossaryTermContainingGuillemetsRoundTripsWithThemRemoved() {
+        let line = Ruling.glossaryText(term: "«mot juste»", rendering: "le mot juste", note: nil)
+        XCTAssertEqual(line, "«mot juste» → «le mot juste»",
+                        "the term's OWN guillemets must be stripped before the composer adds its delimiters")
+        let md = RulingsSection.appending(line, provenance: Ruling.Provenance.glossary,
+                                          on: Date(timeIntervalSince1970: 0), to: "Essay.")
+        let parsed = RulingsSection.parse(md).rulings
+        XCTAssertEqual(parsed.first?.glossary?.term, "mot juste")
+        XCTAssertEqual(parsed.first?.glossary?.rendering, "le mot juste")
+    }
+
+    func test_aDirectiveInstructionWithAnInteriorNewlineRoundTripsAsOneLine() {
+        let line = Ruling.directiveText(paragraphId: "k7mq", "one sentence,\nnot two")
+        XCTAssertFalse(line.contains("\n"), "a composed line must never contain a line break")
+        let md = RulingsSection.appending(line, provenance: Ruling.Provenance.translatorsNote,
+                                          on: Date(timeIntervalSince1970: 0), to: "Essay.")
+        let parsed = RulingsSection.parse(md).rulings
+        XCTAssertEqual(parsed.first?.directive?.text, "one sentence, not two")
+    }
+
+    func test_aGlossaryNoteWithAnInteriorNewlineRoundTripsAsOneLine() {
+        let line = Ruling.glossaryText(term: "October", rendering: "Octubre",
+                                        note: "the month,\nnever a name")
+        XCTAssertFalse(line.contains("\n"), "a composed line must never contain a line break")
+        let md = RulingsSection.appending(line, provenance: Ruling.Provenance.glossary,
+                                          on: Date(timeIntervalSince1970: 0), to: "Essay.")
+        let parsed = RulingsSection.parse(md).rulings
+        XCTAssertEqual(parsed.first?.glossary?.note, "the month, never a name")
+    }
 }

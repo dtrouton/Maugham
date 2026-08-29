@@ -6,10 +6,13 @@ import Foundation
 /// `RulingsSection` parses, renders or round-trips, which is what lets a
 /// pre-pipeline build read the same file as ordinary rulings.
 ///
-/// **No em-dash may appear in a composed line.** `RulingsSection.parseItem`
-/// splits on the rightmost `—` to find the `ruled <date>, <provenance>`
-/// suffix, so an em-dash inside a directive's instruction or a glossary note
-/// would be read as the suffix. The composers replace it with a hyphen.
+/// **No em-dash, guillemet or line break may appear in a composed line.**
+/// `RulingsSection.parseItem` splits on the rightmost `—` to find the
+/// `ruled <date>, <provenance>` suffix, so an em-dash inside a directive's
+/// instruction or a glossary note would be read as the suffix; `«`/`»` inside
+/// a glossary component would break `glossaryPattern`'s `[^«»]+` grouping; an
+/// interior newline would break the one-line-per-ruling stratum. The
+/// composers sanitize every component before assembling the line.
 public extension Ruling {
 
     enum Provenance {
@@ -38,7 +41,7 @@ public extension Ruling {
 
     /// The line text for a directive on `paragraphId`.
     static func directiveText(paragraphId: String, _ instruction: String) -> String {
-        "¶\(paragraphId): \(dashSafe(instruction))"
+        "¶\(paragraphId): \(lineSafe(instruction))"
     }
 
     // MARK: - Glossary
@@ -60,9 +63,9 @@ public extension Ruling {
 
     /// The line text for a glossary entry.
     static func glossaryText(term: String, rendering: String, note: String?) -> String {
-        var line = "«\(dashSafe(term))» → «\(dashSafe(rendering))»"
+        var line = "«\(lineSafe(term))» → «\(lineSafe(rendering))»"
         if let note, !note.trimmingCharacters(in: .whitespaces).isEmpty {
-            line += " (\(dashSafe(note)))"
+            line += " (\(lineSafe(note)))"
         }
         return line
     }
@@ -76,8 +79,16 @@ public extension Ruling {
     private static let glossaryPattern = try! NSRegularExpression(
         pattern: "^«([^«»]+)»\\s*→\\s*«([^«»]+)»(?:\\s*\\((.*)\\))?$")
 
-    private static func dashSafe(_ s: String) -> String {
+    /// Makes a component safe to sit inside a composed ruling line: the
+    /// em-dash `parseItem` splits on becomes a hyphen, the guillemets
+    /// `glossaryPattern` reserves for term/rendering delimiters are removed,
+    /// and any run of whitespace (including a line break) collapses to a
+    /// single space, so the stratum's one-line-per-ruling shape always holds.
+    private static func lineSafe(_ s: String) -> String {
         s.replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "«", with: "")
+            .replacingOccurrences(of: "»", with: "")
+            .replacingOccurrences(of: "[\\s]+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
