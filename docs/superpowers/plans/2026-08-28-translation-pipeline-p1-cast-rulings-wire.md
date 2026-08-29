@@ -288,15 +288,13 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
              {"id":"c1","role":"collator:es"},
              {"id":"t1","role":"translator:es"}]
             """)
-        let manifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: json)
+        let manifest = try ProjectManifest.decodeGuardingSchema(json)
         XCTAssertEqual(manifest.storedReader(for: "ES")?.id, "r1")
         XCTAssertEqual(manifest.storedCollator(for: "es")?.id, "c1")
         XCTAssertEqual(manifest.storedTranslator(for: "es")?.id, "t1", "unchanged")
         XCTAssertNil(manifest.storedReader(for: "fr"))
     }
 ```
-
-(If the fixture file decodes manifests through a different helper than `ProjectManifest.makeDecoder()`, use whatever `test_twoProductionRolesRoundTripByteStable` in the same file uses.)
 
 - [ ] **Step 2: Failing app tests** — append to `ProductionRoleStoreTests` (it already has `loadedNovel(named:)`):
 
@@ -829,7 +827,38 @@ enum ReportJSON {
 
     /// Every top-level `{...}` span in `text`, brace-balanced and string-aware.
     static func objectSpans(in text: String) -> [String] {
-        // — paste TranslatorReport.objectSpans' body here verbatim —
+        var spans: [String] = []
+        var depth = 0
+        var start: String.Index?
+        var inString = false
+        var escaped = false
+
+        for index in text.indices {
+            let character = text[index]
+            if inString {
+                if escaped { escaped = false }
+                else if character == "\\" { escaped = true }
+                else if character == "\"" { inString = false }
+                continue
+            }
+            switch character {
+            case "\"":
+                inString = true
+            case "{":
+                if depth == 0 { start = index }
+                depth += 1
+            case "}":
+                guard depth > 0 else { break }
+                depth -= 1
+                if depth == 0, let opening = start {
+                    spans.append(String(text[opening...index]))
+                    start = nil
+                }
+            default:
+                break
+            }
+        }
+        return spans
     }
 }
 ```
@@ -1507,3 +1536,18 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ## What this plan deliberately leaves to Plan 2
 
 Briefings (`ReaderBriefing`, `CollatorBriefing`, `TranslatorBriefing.mode` and the *directed* work-list), the sealed `ClaudeCLISession` confinement and `ColdCall`, the cast sheet's three fields, and **Translator's note…** in the editor. Plan 2 is written against this plan's built code.
+
+---
+
+## Appendix — facts gathered for Plan 2 (so its author need not re-research)
+
+Recorded 2026-08-28 from the codebase at v0.33.0; verify line numbers before relying on them.
+
+- **The editor has no context menu.** `Maugham/Editor/` contains no `NSMenu`, `menu(for:)`, `rightMouseDown` or `.contextMenu`. The existing paragraph-level writer verbs are the review-posture `SelectionToolbarView` (`Comment`/`Suggest`/`Query`, `Maugham/Editor/SelectionToolbarView.swift`) dispatched by `EditorCoordinator.handleToolbarAction` → `beginAuthoringAnnotation` (`EditorCoordinator+ReviewRender.swift` ~334-394) into the inline `ReviewAnnotationComposerView`. **Translator's note…** should follow that shape (a fourth toolbar kind, or a window command that opens the same composer) — never an `NSPopover` (Editor AREA tripwire 7).
+- **Selection → paragraph id:** `capturedSpanForSelection(in:)` (`EditorCoordinator+ReviewRender.swift` ~402) requires a non-empty selection; for a bare caret use the `paragraphLocator` closure (`EditorCoordinator.swift` ~250) over `Document.paragraphId(at:)` (`Maugham/OpLog/Document.swift` ~585); `ProjectWindow.swift` ~1737 reads `paragraphId(at: cursorLocation)` the same way.
+- **Statement scope for a directive:** `Statement.Scope` is `.project | .document(id) | .unknown`; the editor knows nothing about statements — the SwiftUI layer resolves scope via `StatementPane.effectiveScope(kind:subject:structure:)` (`.document(id)` only for `.intent` on a document subject). `QueryRuling.commit` hard-codes `.editionBrief(language)` at `.project` and cannot be reused for a craft-intent-scoped directive; call `RulingPerformer.rule(_:provenance:kind:forScope:store:world:)` directly with `Ruling.directiveText(paragraphId:_:)` and provenance `Ruling.Provenance.translatorsNote`.
+- **A new `⌘⌥` binding must also be added to `KeyboardShortcuts.all`** (`Maugham/Resources/KeyboardShortcuts.swift`) and `docs/guide/reference.md`, or `DocSyncTests.test_paneShortcutsDocumentedInTheInAppCheatsheet` fails. Free letters: C, G, J, M, U, X, Y (A B D E F H I K L N O P R T V Z and 0 are taken).
+- **Cast sheet:** `DepartmentCastPrompt.Ask` is `.nameForRun(language:docId:) | .addLanguage | .rename(subject:currentName:)`; `RenameSubject` is `.translator(language:) | .designer`; the one presentation is `DepartmentPane.swift` ~269 and the four prompt constructors plus `confirmCast`/`cancelCast` are in `DepartmentPaneHost.swift` ~334-466; `nameTranslator(language:name:)` (~546) is the one composition `translatorRole(for:)` + `renameProductionRole`. Tests: `DepartmentRunTests.swift` ~1131-1857 with `mountCastSheet(ask:onConfirm:onCancel:)` (~1994).
+- **Sessions:** `ClaudeCLISession.arguments(model:mcpConfigPath:preamble:)` (~378) unconditionally emits `--mcp-config` and `CompilerAllowlist.cliArguments()`; the sealed cold session needs a `Confinement` enum (`.bridged(URL) | .sealed`) threaded through `init` and `arguments`, with `test_spawnArgumentsMatchTheSpike` (`ClaudeCLISessionTests.swift` ~771) kept for `.bridged` and a sibling asserting `.sealed` emits neither. `CompilerRunner` protocol: `send(message:systemPreamble:) async -> CompilerRunEvent`, `cancelCurrentRun()`, `shutdown()`, `isRunning`, `sessionEpoch`.
+- **Teardown census:** `TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown` (~675) counts `orchestrator.shutdown()` vs `translator.shutdown()` vs `designer.shutdown()` in `Maugham/Views/CompilerRunModifier.swift` and five tokens in `ProjectWindow.swift`; `ColdCall` joins as a fourth count.
+- **Translator briefing:** `TranslatorBriefing.Inputs` fields and `compose(inputs:)` section order are in `Maugham/Compiler/TranslatorBriefing.swift` (~23-189); `TranslationRecord.at` (not `writtenAt`) is the record timestamp; `TranslationStore.loadMerged(forDocId:language:in:)` + `latestByParagraph(_:)` give the newest record per paragraph.
