@@ -984,6 +984,39 @@ final class TripwireGrepTests: XCTestCase {
             + "existing id population. Offenders:\n" + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - ColdCall never bridges (translation pipeline spec §11)
+
+    /// **`ColdCall` is sealed by construction and stays that way.** A sealed
+    /// session is handed no `--mcp-config` (Task 1's pin); this census keeps
+    /// the ONE production spawner of sealed sessions from ever writing a
+    /// bridge config or asking for the bridged confinement — the two ways a
+    /// later edit could hand the reader the source it must not see.
+    func test_coldCallNeverBridges() throws {
+        let file = sourceDir.appendingPathComponent("Compiler/ColdCall.swift")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        for forbidden in ["writeMCPConfig", ".bridged(", "--mcp-config", "CompilerAllowlist"] {
+            XCTAssertFalse(text.contains(forbidden),
+                           "ColdCall.swift must not contain `\(forbidden)` — a cold call is "
+                           + "blind by construction, never by allowlist")
+        }
+        XCTAssertTrue(text.contains(".sealed"),
+                      "the scan reads the file rather than always answering true")
+    }
+
+    /// **The converse: `.sealed` is spelled in production by `ColdCall` and the
+    /// session type alone.** A fourth file asking for a sealed session is a
+    /// fifth cold caller the spec's four (reader, collator, gloss, Ask the
+    /// collator) do not name — it goes through `ColdCall`, not around it.
+    func test_theOnlySealedSpawnerIsColdCall() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            patterns: [".sealed"],
+            allowed: ["ColdCall.swift", "ClaudeCLISession.swift"])
+        XCTAssertTrue(offenders.isEmpty,
+                      "a sealed session is spawned through ColdCall only. Offenders:\n"
+                      + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - EditorSurface mount census (M1A: two editors in one window)
 
     /// Every production site that mounts an `EditorSurface`. Adding one is the
