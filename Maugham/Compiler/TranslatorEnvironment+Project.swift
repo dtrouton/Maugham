@@ -82,6 +82,8 @@ extension TranslatorOrchestrator.Environment {
                     documentStore: documentStore, bible: bible,
                     projectURL: projectURL)
             },
+            // A stub until Task 3 gathers a fix leg's briefing from the notes.
+            briefFix: { _, _, _, _ in nil },
             translatorIdentity: { [weak store] language in
                 guard let store else { throw WiringFailure.windowClosed }
                 // **Find-or-create, and the run is what earns the mint.** The
