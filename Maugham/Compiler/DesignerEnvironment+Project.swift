@@ -97,7 +97,7 @@ extension DesignerOrchestrator.Environment {
             makeRunner: { configURL, model in
                 ClaudeCLISession(
                     model: model,
-                    mcpConfigPath: configURL,
+                    confinement: .bridged(mcpConfigPath: configURL),
                     cliOverride: nil,
                     isEnabled: { [weak preferences] in preferences?.mcpEnabled ?? false })
             },
