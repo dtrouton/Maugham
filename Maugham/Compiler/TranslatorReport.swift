@@ -22,6 +22,9 @@ import Foundation
 /// **`delete` is deliberately absent from this contract.** A translation
 /// disappearing is the writer's own act (or an orphan-purge outside any
 /// run) — never something a run decides on its own.
+///
+/// The wire object names two arrays in translate mode, and in a fix leg the
+/// four fields `Mode` describes.
 struct TranslatorReport: Equatable {
 
     /// One paragraph's translation, or the instruction to carry the source
@@ -44,8 +47,46 @@ struct TranslatorReport: Equatable {
         let text: String
     }
 
+    /// A note the translator stands against rather than acting on.
+    struct Declined: Equatable {
+        let noteId: String
+        let reason: String
+    }
+
+    /// A term the edition should fix a rendering for, going forward.
+    struct GlossaryProposal: Equatable {
+        let term: String
+        let rendering: String
+        let reason: String
+    }
+
+    /// Which leg is reading. `.fix` carries the note ids the leg was briefed
+    /// with, and the parser holds the report to them: every one in exactly one
+    /// of `addressed`/`declined`, none from anywhere else. Silence on a note
+    /// fails the report (spec §4) — an unaddressed note would otherwise land in
+    /// the author's queue with no verdict from anybody.
+    enum Mode: Equatable {
+        case translate
+        case fix(briefedNoteIds: Set<String>)
+    }
+
     let entries: [Entry]
     let queries: [Query]
+    let addressed: [String]
+    let declined: [Declined]
+    let summary: String?
+    let glossaryProposals: [GlossaryProposal]
+
+    init(entries: [Entry], queries: [Query], addressed: [String] = [],
+         declined: [Declined] = [], summary: String? = nil,
+         glossaryProposals: [GlossaryProposal] = []) {
+        self.entries = entries
+        self.queries = queries
+        self.addressed = addressed
+        self.declined = declined
+        self.summary = summary
+        self.glossaryProposals = glossaryProposals
+    }
 
     // MARK: - Wire names
 
@@ -59,6 +100,14 @@ struct TranslatorReport: Equatable {
         static let paragraphId = "paragraph_id"
         static let text = "text"
         static let verbatim = "verbatim"
+        static let addressed = "addressed"
+        static let declined = "declined"
+        static let noteId = "note_id"
+        static let reason = "reason"
+        static let summary = "summary"
+        static let glossaryProposals = "glossary_proposals"
+        static let term = "term"
+        static let rendering = "rendering"
     }
 
     /// The prose+JSON description of this contract, stated once. Task 3's
@@ -90,6 +139,20 @@ struct TranslatorReport: Equatable {
         a round that needs nothing further from you.
         """
 
+    /// Appended to `schemaDescription` by a fix leg's briefing (spec §2).
+    static let fixSchemaDescription: String = """
+        This is a repair of the noted paragraphs, not a polish: an entry for a \
+        paragraph you were not asked to fix makes the report unusable. The \
+        object also carries "addressed": [note_id, …] for every note you \
+        rewrote in response to, and "declined": [{"note_id":<id>,"reason":<why \
+        the translation stands>}] for every note you stand against. Every note \
+        you were given must appear in exactly one of the two — never neither, \
+        never both. "summary" is a short paragraph, in the author's language, \
+        saying what this round settled. "glossary_proposals": [{"term":<in the \
+        source language>,"rendering":<in this edition's language>,"reason":<why>}] \
+        names terms the edition should fix a rendering for.
+        """
+
     // MARK: - Parsing
 
     /// Parse one turn's output. `nil` means unusable as a whole: no
@@ -100,12 +163,57 @@ struct TranslatorReport: Equatable {
     /// An empty `entries` and empty `queries` — a fully fresh document, or a
     /// round with nothing left to do — parses successfully. An empty LIST is
     /// a complete answer; an empty STRING inside one never is.
-    static func parse(_ raw: String) -> TranslatorReport? {
-        guard let object = ReportJSON.lastObject(in: raw, shapedBy: [WireField.entries, WireField.queries]),
+    static func parse(_ raw: String, mode: Mode = .translate) -> TranslatorReport? {
+        guard let object = ReportJSON.lastObject(in: raw, shapedBy: [WireField.entries, WireField.queries,
+                                                                      WireField.addressed, WireField.summary]),
               let entries = ReportJSON.parseList(object, key: WireField.entries, parseItem: parseEntry),
               let queries = ReportJSON.parseList(object, key: WireField.queries, parseItem: parseQuery)
         else { return nil }
-        return TranslatorReport(entries: entries, queries: queries)
+
+        guard case .fix(let briefed) = mode else {
+            return TranslatorReport(entries: entries, queries: queries)
+        }
+        guard let addressed = parseIdList(object, key: WireField.addressed),
+              let declined = ReportJSON.parseList(object, key: WireField.declined, parseItem: parseDeclined),
+              let proposals = ReportJSON.parseList(object, key: WireField.glossaryProposals,
+                                                   parseItem: parseGlossaryProposal),
+              accounts(for: briefed, addressed: addressed, declined: declined)
+        else { return nil }
+        let summary = ReportJSON.nonEmptyString(object[WireField.summary])
+        return TranslatorReport(entries: entries, queries: queries, addressed: addressed,
+                                declined: declined, summary: summary, glossaryProposals: proposals)
+    }
+
+    /// Every briefed id in exactly one list; nothing in either list that was
+    /// not briefed; no id twice.
+    private static func accounts(for briefed: Set<String>, addressed: [String], declined: [Declined]) -> Bool {
+        let all = addressed + declined.map(\.noteId)
+        guard Set(all).count == all.count else { return false }
+        return Set(all) == briefed
+    }
+
+    private static func parseIdList(_ object: [String: Any], key: String) -> [String]? {
+        guard let value = object[key] else { return [] }
+        guard let raw = value as? [Any] else { return nil }
+        var ids: [String] = []
+        for element in raw {
+            guard let id = ReportJSON.nonEmptyString(element) else { return nil }
+            ids.append(id)
+        }
+        return ids
+    }
+
+    private static func parseDeclined(_ item: [String: Any]) -> Declined? {
+        guard let noteId = ReportJSON.nonEmptyString(item[WireField.noteId]),
+              let reason = ReportJSON.nonEmptyString(item[WireField.reason]) else { return nil }
+        return Declined(noteId: noteId, reason: reason)
+    }
+
+    private static func parseGlossaryProposal(_ item: [String: Any]) -> GlossaryProposal? {
+        guard let term = ReportJSON.nonEmptyString(item[WireField.term]),
+              let rendering = ReportJSON.nonEmptyString(item[WireField.rendering]),
+              let reason = ReportJSON.nonEmptyString(item[WireField.reason]) else { return nil }
+        return GlossaryProposal(term: term, rendering: rendering, reason: reason)
     }
 
     private static func parseEntry(_ item: [String: Any]) -> Entry? {

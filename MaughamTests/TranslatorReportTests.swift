@@ -243,4 +243,65 @@ final class TranslatorReportTests: XCTestCase {
         XCTAssertTrue(schema.contains("never empty"), schema)
         XCTAssertTrue(schema.contains("must not be empty either"), schema)
     }
+
+    // MARK: - Fix mode (translation pipeline P1)
+
+    private let briefedNotes: Set<String> = ["n1", "n2", "n3"]
+
+    func test_fixMode_roundTrip_addressedDeclinedSummaryAndGlossary() throws {
+        let raw = """
+            {"entries":[{"paragraph_id":"k7mq","text":"Nueva versión."}],
+             "queries":[],
+             "addressed":["n1","n2"],
+             "declined":[{"note_id":"n3","reason":"The fragment is the author's."}],
+             "summary":"Two repaired; one stands.",
+             "glossary_proposals":[{"term":"October","rendering":"Octubre","reason":"the month"}]}
+            """
+        let report = try XCTUnwrap(TranslatorReport.parse(raw, mode: .fix(briefedNoteIds: briefedNotes)))
+        XCTAssertEqual(report.addressed, ["n1", "n2"])
+        XCTAssertEqual(report.declined, [.init(noteId: "n3", reason: "The fragment is the author's.")])
+        XCTAssertEqual(report.summary, "Two repaired; one stands.")
+        XCTAssertEqual(report.glossaryProposals, [.init(term: "October", rendering: "Octubre", reason: "the month")])
+    }
+
+    func test_fixMode_everyBriefedNoteMustAppearExactlyOnce() {
+        let missing = #"{"entries":[],"addressed":["n1"],"declined":[{"note_id":"n2","reason":"r"}]}"#
+        XCTAssertNil(TranslatorReport.parse(missing, mode: .fix(briefedNoteIds: briefedNotes)), "n3 unaccounted for — silence is refused")
+        let twice = #"{"entries":[],"addressed":["n1","n2","n3"],"declined":[{"note_id":"n3","reason":"r"}]}"#
+        XCTAssertNil(TranslatorReport.parse(twice, mode: .fix(briefedNoteIds: briefedNotes)))
+        let duplicate = #"{"entries":[],"addressed":["n1","n1","n2","n3"]}"#
+        XCTAssertNil(TranslatorReport.parse(duplicate, mode: .fix(briefedNoteIds: briefedNotes)))
+        let unknown = #"{"entries":[],"addressed":["n1","n2","n3","n9"]}"#
+        XCTAssertNil(TranslatorReport.parse(unknown, mode: .fix(briefedNoteIds: briefedNotes)), "an id from another pass fails the report")
+    }
+
+    func test_fixMode_withNoBriefedNotesAcceptsEmptyLists() throws {
+        let raw = #"{"entries":[],"summary":"Nothing to fix."}"#
+        let report = try XCTUnwrap(TranslatorReport.parse(raw, mode: .fix(briefedNoteIds: [])))
+        XCTAssertEqual(report.summary, "Nothing to fix.")
+        XCTAssertTrue(report.addressed.isEmpty)
+    }
+
+    func test_fixMode_aDeclineNeedsAReasonAndAProposalNeedsAllThreeFields() {
+        let noReason = #"{"entries":[],"addressed":["n1","n2"],"declined":[{"note_id":"n3"}]}"#
+        XCTAssertNil(TranslatorReport.parse(noReason, mode: .fix(briefedNoteIds: briefedNotes)))
+        let badProposal = #"{"entries":[],"addressed":["n1","n2","n3"],"glossary_proposals":[{"term":"x","rendering":"y"}]}"#
+        XCTAssertNil(TranslatorReport.parse(badProposal, mode: .fix(briefedNoteIds: briefedNotes)))
+    }
+
+    func test_translateMode_ignoresTheFixFieldsAndReadsThemEmpty() throws {
+        let raw = #"{"entries":[],"queries":[],"addressed":["n1"],"summary":"x","glossary_proposals":[{"term":"a","rendering":"b","reason":"c"}]}"#
+        let report = try XCTUnwrap(TranslatorReport.parse(raw))
+        XCTAssertTrue(report.addressed.isEmpty)
+        XCTAssertNil(report.summary)
+        XCTAssertTrue(report.glossaryProposals.isEmpty)
+    }
+
+    func test_fixSchemaDescriptionNamesEveryFixField() {
+        for name in ["addressed", "declined", "note_id", "reason", "summary", "glossary_proposals", "term", "rendering"] {
+            XCTAssertTrue(TranslatorReport.fixSchemaDescription.contains(name), name)
+        }
+        XCTAssertTrue(TranslatorReport.fixSchemaDescription.contains("exactly one of"))
+        XCTAssertFalse(TranslatorReport.schemaDescription.contains("addressed"), "the translate contract is unchanged")
+    }
 }
