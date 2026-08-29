@@ -1,10 +1,5 @@
 import Foundation
 import MaughamCore
-import os
-
-private let pipelineLog = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
-    category: "TranslationPipeline")
 
 /// **One Run, seven legs** (translation pipeline spec §5). A state machine
 /// and nothing else: it owns no session, gathers no briefing, parses no
@@ -427,7 +422,11 @@ final class TranslationPipeline {
     /// turn would otherwise reach into a row this leg was never briefed with
     /// and silently overwrite the verdict already recorded there — a note the
     /// author will read as declined when it was addressed, or the reverse.
-    /// A leg records outcomes for its own work-list and nothing else.
+    /// A leg records outcomes for its own work-list and nothing else. This
+    /// scoping is defence in depth: `TranslatorReport.accounts(for:)` already
+    /// requires `Set(addressed ∪ declined) == briefed`, so a report echoing an
+    /// id outside this leg's own notes fails the parser first and never
+    /// reaches here.
     private func applyFixOutcomes(_ outcome: TranslatorOrchestrator.IngestOutcome,
                                   annotationIds: [String: String],
                                   notes: [TranslatorBriefing.FixNote],

@@ -117,6 +117,26 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
         await harness.documentStore.close()
     }
 
+    /// Spec §2: stale and missing are gaps the reader is briefed with `nil`
+    /// for. A **verbatim** record is neither — `TranslationWritePipeline.perform`
+    /// (~line 130) writes the paragraph's own source text as the record's
+    /// `text` when `verbatim: true`, so that text IS the edition, and the
+    /// reader must see it as a real translation rather than a hole.
+    func test_aVerbatimParagraphReachesTheReaderAsTheEditionsOwnText() async throws {
+        let harness = try await makeHarness()
+        let id = harness.doc.sequence[2]
+        _ = try TranslationWritePipeline.perform(
+            entries: [.init(paragraphId: id, text: nil, verbatim: true, delete: nil)],
+            language: "es", documentId: harness.doc.docId,
+            state: (harness.doc.sequence, harness.doc.paragraphs, harness.projectURL),
+            deviceSlug: DeviceSlug.make(from: MacDeviceID.current))
+        let gathered = await harness.environment.briefReader(harness.doc.docId, "es")
+        let inputs = try XCTUnwrap(gathered)
+        XCTAssertEqual(inputs.paragraphs[2].translation, harness.doc.paragraphs[id],
+                       "a verbatim record's text is the source paragraph itself, not a gap")
+        await harness.documentStore.close()
+    }
+
     // MARK: - The collator's gather
 
     func test_theCollatorIsBriefedWithPairsDirectivesAndTheGlossary() async throws {
