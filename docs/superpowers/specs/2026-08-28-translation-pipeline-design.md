@@ -1,7 +1,7 @@
 # The Translation Pipeline — Design
 
 **Date:** 2026-08-28 (amended the same day after an experience-first pressure test; v2 supersedes v1 wholesale; re-derived against v0.33.0 — imprints and bilingual editions — which landed the same day and changed the desk)
-**Status:** Designed, not built. Planned as four plans (§13); Plan 1 is written and built before Plans 2–4 are written.
+**Status:** Designed, not built. Planned as five plans (§13); Plan 1 is written and built before Plans 2–4 are written.
 **Constitution check:** extends the Claude-parallel-layer principle — every session added here reads and returns, none holds a write tool, and manuscript text is reachable from none of them (the reader, collator and glosser hold *no tool at all*). Everything new lives under `.maugham/` (round records, staged proposals), on the manifest (two more role kinds, no schema bump), or in the writer's own plain-text statements (directives and glossary are rulings). The keystroke-only trigger rule (ADR 0028's tempo discipline, `Maugham/Compiler/AREA.md`) holds: one Run is one act with more legs; nothing here re-arms itself. The "no statement-writing tool in the catalogue" line (`CompilerAllowlistTests.test_noStatementWritingToolExistsAnywhereClaudeCanReach`) is kept *and strengthened*: what is added is a **proposal** the writer adopts, never a write. **No new `AnnotationKind`** — the enum is closed, the phone decodes it, and a new case would force a paired release; every new writer-facing record here is a ruling or a round record.
 
 ## Purpose
@@ -71,7 +71,7 @@ Pure functions in `Maugham/Compiler/`, `TranslatorBriefing`'s discipline: no I/O
 
 **`TranslatorBriefing` gains a `mode`**: `.translate` (today's, plus directives per work item and the glossary) or `.fix(notes)`. In `.fix` the work-list is exactly the noted paragraphs (they are `fresh`; today's gather would skip them), each with the note's id, author, kind, severity and text, the paragraph's directives, and its current translation; and the briefing says in words: *this is a repair of the noted paragraphs, not a polish; leave every unnoted paragraph exactly as it is; for every note, rewrite or decline with a reason — never stay silent.* Leg 7 additionally asks for the `summary` and `glossary_proposals`.
 
-**The `.translate` work-list** = `stale ∪ missing ∪ directed`, where *directed* is a fresh paragraph carrying a directive ruled **after** its translation record's `writtenAt` — derived from two dates, nothing stored. That is how "Keep mine" (§8) reaches the next Run.
+**The `.translate` work-list** = `stale ∪ missing ∪ directed`, where *directed* is a fresh paragraph carrying a directive ruled **after** its translation record's `at` — derived from two dates, nothing stored. That is how "Keep mine" (§8) reaches the next Run.
 
 ## 3. Directives — the author's Kundera move
 
@@ -251,12 +251,13 @@ Every `ColdCall` spawns with `--tools ""`, `--strict-mcp-config`, and **no `--mc
 
 ## 13. Plans
 
-Four plans, each ≤10 tasks; **Plan 1 is built before Plans 2–4 are written**, and the later plans are derived against the built code.
+Five plans, each ≤10 tasks; **each plan is built before the next is written**, and the later plans are derived against the built code.
 
-1. **Cast, rulings, cold calls** — role cases + presets + briefs; cast-sheet widening; `RulingsSection` directive and glossary shapes; **Translator's note…** in the editor; `ReaderBriefing`/`CollatorBriefing`/`ReaderReport`/`CollatorReport`; `ColdCall` with its confinement pins; teardown census widened; `TranslatorBriefing.mode` + directed work-list + `TranslatorReport` widening.
-2. **Pipeline, minting, round** — `TranslationPipeline` with the book queue; the `.fix` gather; minting per §6; `TranslationRound` + store; `translation_status` widening.
-3. **Surfaces** — desk row (legs, pre-flight, trend, Run whole book); the round report arm with its verbs and click-through; Gloss and Ask the collator in the Translation pane; guide + roadmap + AREA sweeps; ADR 0030.
-4. **Proposals** — `StatementProposalStore`; two tools; the gate with diff; census widening; the two skills; docs.
+1. **Cast, rulings, and the wire** (`docs/superpowers/plans/2026-08-28-translation-pipeline-p1-cast-rulings-wire.md`) — role cases + presets + briefs; manifest lookups and store mints; `Ruling`'s directive and glossary shapes; `ReportJSON` extracted from the three duplicated parsers; `ReaderReport`/`CollatorReport`; `TranslatorReport`'s fix mode.
+2. **Briefings, cold calls, and the two verbs** — `ReaderBriefing`/`CollatorBriefing`; `TranslatorBriefing.mode` + directed work-list; the sealed `ClaudeCLISession` confinement and `ColdCall` with its pins; teardown census widened; the cast sheet's three fields; **Translator's note…** in the editor.
+3. **Pipeline, minting, round** — `TranslationPipeline` with the book queue; the `.fix` gather; minting per §6; `TranslationRound` + store; `translation_status` widening.
+4. **Surfaces** — desk row (legs, pre-flight, trend, Run whole book); the round report arm with its verbs and click-through; Gloss and Ask the collator in the Translation pane; guide + roadmap + AREA sweeps; ADR 0030.
+5. **Proposals** — `StatementProposalStore`; two tools; the gate with diff; census widening; the two skills; docs.
 
 ## 14. Docs
 
