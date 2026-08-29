@@ -47,6 +47,11 @@ final class TranslationPipelineTests: XCTestCase {
         }
 
         private(set) var calls: [String] = []
+        /// A world that WRAPS these closures — the cancel suite's `HeldWorld`,
+        /// which parks a leg instead of answering it — records the leg here
+        /// rather than keeping a second log: a leg that was entered and held
+        /// is a leg the pipeline started, and `calls` is the one call log.
+        func record(_ call: String) { calls.append(call) }
         private(set) var briefedFixNotes: [[TranslatorBriefing.FixNote]] = []
         private(set) var coldMessages: [String] = []
         private(set) var mints: [TranslationPipeline.DeclinedMint] = []

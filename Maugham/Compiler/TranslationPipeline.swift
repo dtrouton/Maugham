@@ -143,6 +143,13 @@ final class TranslationPipeline {
     /// compares the generation it started under (`TranslatorOrchestrator
     /// .runGeneration`'s discipline, one owner up).
     private var generation = 0
+    /// Bumped by `start` and NOTHING else, so an `execute` that is ending can
+    /// ask "is the run I began still the current one?" — which `generation`
+    /// cannot answer, because `cancel()` and `shutdown()` bump that too. A
+    /// cancelled run must still return `status` to `.idle` (nothing else
+    /// will), and a run whose owner shut it down and then started another must
+    /// NOT: the second run's `.running` is already on screen.
+    private var runToken = 0
     private var queue: [String] = []
 
     private enum TranslatorLegEnd {
@@ -173,22 +180,32 @@ final class TranslationPipeline {
         start(queue: [docId], language: language)
     }
 
+    /// One round per document, in the order given — the desk's imprint set
+    /// (`EditionStatus.languageRows(documentIds:)`'s), which the caller
+    /// resolves. Same gate as `run`.
+    @discardableResult
+    func runBook(documentIds: [String], language: String) -> Bool {
+        start(queue: documentIds, language: language)
+    }
+
     private func start(queue documents: [String], language: String) -> Bool {
         guard let environment, !isRunning, !documents.isEmpty else { return false }
         generation &+= 1
+        runToken &+= 1
         let gen = generation
+        let token = runToken
         queue = documents
         let count = documents.count
         status = .running(docId: documents[0], language: language, leg: .translate,
                           book: count > 1 ? BookProgress(position: 1, count: count) : nil)
         Task { [weak self] in
             await self?.execute(language: language, count: count, generation: gen,
-                                environment: environment)
+                                token: token, environment: environment)
         }
         return true
     }
 
-    private func execute(language: String, count: Int, generation gen: Int,
+    private func execute(language: String, count: Int, generation gen: Int, token: Int,
                          environment: Environment) async {
         var position = 0
         while generation == gen, !queue.isEmpty {
@@ -201,7 +218,11 @@ final class TranslationPipeline {
             // would meet the same session, and the author should see this one.
             if round.stoppedAt != nil { break }
         }
-        if generation == gen {
+        // The question is not whether the generation moved — `cancel()` moves
+        // it, and a cancelled run is exactly the one that has to put the desk
+        // back to idle. It is whether a NEWER run has taken the pipeline over,
+        // which only `start` does.
+        if runToken == token {
             queue = []
             status = .idle
         }
@@ -564,11 +585,48 @@ final class TranslationPipeline {
         }
     }
 
-    // MARK: - Cancel and shutdown (completed in Task 5)
+    // MARK: - Cancel and shutdown
 
-    func cancel() {}
-    func shutdown() {}
-    func detach() {}
+    /// One button, whichever leg is live (spec §5): the translator's
+    /// `cancel()` covers unsent and in-flight; `ColdCall`'s covers a cold
+    /// leg; a cancel in the gap is caught by the generation check before the
+    /// next leg starts. The round in flight is recorded where it stopped and
+    /// the book queue, if any, stops after it.
+    ///
+    /// Status is not set here: the run is still ending — its round has yet to
+    /// be saved and handed to `onRoundEnded` — and `execute`'s tail returns
+    /// the desk to idle when it does.
+    func cancel() {
+        guard isRunning else { return }
+        generation &+= 1
+        queue = []
+        switch live {
+        case .translator: environment?.cancelTranslator()
+        case .cold: environment?.cancelColdCall()
+        case .gap: break
+        }
+    }
+
+    /// The window closing, project close, app quit, the AI toggle. The
+    /// orchestrators are shut down beside this and emit no summary for a
+    /// turn cut short, so the translator leg awaiting one is resumed here as
+    /// cancelled — otherwise the round would never be recorded.
+    func shutdown() {
+        generation &+= 1
+        queue = []
+        if let pending {
+            self.pending = nil
+            pending.continuation.resume(returning: .ended(.init(
+                runId: pending.runId ?? "", docId: "", language: "", at: Date(),
+                outcome: .cancelled)))
+        }
+        status = .idle
+    }
+
+    func detach() {
+        shutdown()
+        environment = nil
+    }
 }
 
 extension TranslationRound.NoteRecord {
