@@ -61,6 +61,21 @@ can cite; 6 is what the letter leaves behind.
 - Process signals never appear unprompted (§5) — constitution must #2.
 - Lessons are project-scoped only (§6). Habits belong to the writer, not the
   chapter.
+- **Seven additions from the theory pass** (Lerman's Critical Response
+  Process, Elbow, Hattie & Timperley, Stone & Heen, Le Guin's own exercises):
+  the writer's ask (§3.7), exercises that file as tasks (§3.1), say-back and
+  the one thing (§3.1), dosage by draft stage (§3.8), retired lessons and
+  choices (§6), voice distinctness and time-away (§3.1, §5).
+- **The passless rule follows the ladder** (§4): Le Guin briefs a passless ⌘R
+  while Workshop is on the ladder; remove her and a passless run is the M2
+  all-altitudes reader signed "Claude". No experience-level switch exists —
+  the ladder is the writer's declaration.
+- **The brief measures against the writer's own pinned work** when the shelf
+  holds it (§4).
+- **The book letter** — a whole-project Fresh Eyes with an arc table — is the
+  named follow-on milestone (§10), not a plan here.
+- **Design rule:** every surface is reached from the letter, and the letter is
+  reached from ⌘R. Nothing here is required for the day-one loop (§9).
 
 ## 3. The letter (mechanism)
 
@@ -74,14 +89,43 @@ is still being written — the same tempo the guide already promises.
 
 ```
 {"section":"letter",
+ "answer":   <string|null>,                                           // the writer's ask, answered first (§3.7)
+ "about":    <string>,                                                // say-back: what this seems to be about, as read
+ "one_thing":<string|null>,                                           // if you fix one thing, this
  "working":  [{"refs":[¶id…], "what":<string>, "why":<string>}],      // ≤3
  "habits":   [{"name":<string>, "refs":[¶id…], "cost":<string>,
-               "lesson":<string|null>}],                              // ≤2, ≤4 refs each
+               "lesson":<string|null>,
+               "exercise":<string|null>}],                            // ≤2, ≤4 refs each
  "questions":[{"refs":[¶id…], "question":<string>}],                  // ≤3
  "scenes":   [{"refs":[¶id…], "wants":<string|"">, "changes":<string|"">,
                "turn":<string|"">, "charge":"+"|"-"|null}] | null,
+ "retired":  [<lesson heading>],                                      // §6
  "process":  <string|null>}
 ```
+
+Part by part, in reading order:
+
+- **`answer`** — the writer's ask (§3.7), answered before anything else.
+  Absent when nothing was asked.
+- **`about`** — Elbow's *say-back*: one sentence, what the piece seems to be
+  about as read. Always present. The writer compares it to their own intent
+  themselves; for a new author that is a better reader-side drift check than a
+  holds/drifted verdict, and it costs one line.
+- **`one_thing`** — Saunders's rule: if you fix one thing, this. One line, so
+  a cap of 3+2+3 never reads as nine equal demands. May be null when the
+  letter has nothing to fix (a legitimate answer).
+- **`working`** — what works, with the repeatable principle. The brief names
+  strengths before habits.
+- **`habits`** — a pattern across what was read; `exercise` is Le Guin's
+  feed-forward — a thing to *do*, never a rewrite (*rewrite the scene without
+  a single "was"; read the dialogue aloud with the names removed*). **Accept
+  as task** files it through `ProjectStore+Tasks` as a document-scoped task
+  anchored at the habit's first ref, so the writer leaves a round with
+  something to try. One named habit test the brief carries by name: **voice
+  distinctness** — could each character be identified by their lines alone.
+- **`questions`**, **`scenes`** — as below.
+- **`retired`** — lessons the round looked for and did not find (§6).
+- **`process`** — one sentence from Maugham's own numbers (§5).
 
 - Every part optional; an empty part is an empty array, never omitted (the
   existing "a section with nothing to report still appears" rule).
@@ -174,6 +218,42 @@ still ages out. No other durability is offered — a letter the writer did not
 keep was a letter the writer read and let go, which is what happens to a
 letter.
 
+### 3.7 The writer's ask
+
+Lerman's step 2, and the largest gap the theory pass found: the writer says
+what they want feedback *on* — "I'm worried the middle sags", "is her voice
+distinct from his?", "just tell me whether the ending lands". Today the only
+steering is the intent statement, which is about the piece, not this round.
+
+**Ask about…** is a one-line field on the run: in Review, in the cockpit
+between the lane line and the buttons; in Author, in the Diagnostics header.
+Per document, persisted in the diagnostics sidecar (derived; losing it costs a
+sentence), kept until the writer clears it — a worry usually outlasts one
+round. The briefing carries it as its own section and the schema puts the
+answer first. An ask that is an opinion request ("what do you think of the
+ending?") is Lerman's step 4 — opinion with permission — and the brief says a
+direct question gets a direct answer, in the voice's register, still never a
+rewrite.
+
+### 3.8 Dosage by draft stage
+
+A first draft in motion should not be line-edited (Lamott, King). The stage is
+**derived, never set**, from numbers the run already has: a delta that is
+mostly *new* paragraphs at the document's frontier is **drafting**; a delta
+that is mostly *revised* is **revising**. `CompilerOrchestrator.DeltaCounts`
+plus the frontier (§5) decide it; the briefing names the stage.
+
+- **Drafting:** a short letter — `about`, `working`, at most one question,
+  habits only when a habit is everywhere in the delta, no exercise, no scenes
+  table. Momentum protected.
+- **Revising:** the full letter.
+- **Fresh Eyes** is always the full letter.
+
+The stage is shown in the lane line ("Le Guin · drafting") so a writer who
+wants the full letter mid-draft knows to ask for Fresh Eyes, and the ask
+field overrides dosage for its own answer — a worry asked about is answered
+in full whatever the stage.
+
 ## 4. Le Guin (the voice)
 
 A fifth preset in `ReviewPass.presets`, **first** on the ladder:
@@ -204,11 +284,25 @@ the process signals (§5) say the frontier has not moved, she may say so in her
 own words with the numbers behind her, once, and without scolding. The
 writer decides.
 
-**Passless runs:** `passlessEditorName = "Le Guin"`; the passless briefing
-carries the Workshop brief the way a Workshop round does. The one-loop spec
-§4's line "a passless ⌘R briefs no register — the M2 all-altitudes reader" is
-superseded by this document. Existing notes signed "Claude" are untouched;
-they are history.
+**Passless runs follow the ladder.** While the Workshop pass is on the
+piece's effective ladder, a passless ⌘R briefs Le Guin and signs her name; the
+one-loop spec §4's "a passless ⌘R briefs no register — the M2 all-altitudes
+reader" is superseded for that case. Remove Workshop from the ladder in
+Project Settings and the passless run is exactly what it was — the
+all-altitudes reader signed "Claude", writing a letter under the general
+instruction only. The ladder is the writer's declaration of what kind of
+writer they are; there is no experience-level switch, which would be setup of
+the kind must #2 forbids. `passlessEditorName` therefore becomes a function of
+the ladder, not a constant, and the one spelling lives beside
+`effectiveEditorName`. Existing notes signed "Claude" are untouched; they are
+history.
+
+**The writer's own bar.** The general letter instruction (every voice) says:
+when the pinned shelf holds the writer's own pieces — a prior chapter, a
+published story — measure against those by name, before any rule. *This
+chapter is slacker than your chapter 4; the dialogue in the pinned story is
+doing something this one isn't.* An experienced writer's "what's working" is a
+comparison to their own best work, and the shelf already lets them pin it.
 
 **Fresh Eyes (⌘⇧R)** with Le Guin is the full editorial letter over the whole
 piece — the classic shape. A warm round's letter is about the delta and says
@@ -226,6 +320,9 @@ through the existing rewind machinery, never raw paragraphs) and
 - **churn** — edits per paragraph over the last N sessions, so "the opening
   five paragraphs have been rewritten nine times" is a number.
 - **forward motion** — sessions since the frontier last moved.
+- **time away** — days since the document's last session; past a threshold
+  (14 days) the briefing says this reads as a cold read, and Le Guin may say
+  so — King's drawer, observed rather than prescribed.
 
 Two surfaces, per the every-data-type-gets-a-surface rule:
 
@@ -268,6 +365,24 @@ recurring habit the ledger already names is reported with that heading verbatim
 and `lesson: null` — the letter says *this is the one we talked about* instead
 of rediscovering it.
 
+**Trajectory, both ways.** The briefing carries every open lesson; the schema
+asks the round to name, in `retired`, any lesson it looked for across a
+revising or Fresh Eyes delta and found no instance of. Three consecutive such
+rounds and the ledger entry is marked retired (dated, in place — never
+deleted; a retired habit can come back), and the letter says it once: *I
+didn't find a filter word anywhere in this chapter.* Progress made visible.
+
+**Choices are the negative space of lessons.** A habit the writer **stets**
+(twice on the same habit, or once with the queue's "this is a choice" verb
+on a Le Guin question) or rules deliberate becomes a **choice**, filed in the
+same ledger under its own heading with the same `RulingPerformer` shape and
+provenance. The briefing carries choices as a list of things *not* to raise;
+a round that raises one anyway is a defect the fingerprint dedupe backstops.
+Voice is the sum of choices; a coach who keeps flagging your voice is a bad
+coach — and for an experienced writer this list matters more than the lessons.
+A Fresh Eyes over a finished piece followed by **These are all choices** on
+its habits seeds the list in one act rather than six stets.
+
 **MCP:** `read_lessons`, a fourth spine reader on `read_craft_intent`'s shape,
 through the same `ProjectStore.statementText(of:)`; count moves by one.
 `list_all_links` / `find_references` already scan statements.
@@ -277,15 +392,20 @@ through the same `ProjectStore.statementText(of:)`; count moves by one.
 One milestone, three plans, written one at a time against built code (rule
 11); each under ~10 tasks (rule 12).
 
-- **P1 — the letter and Le Guin** (§3, §4): section schema + ingest, `CompilerRun.letter`,
-  question minting, the five preset briefs revised, the Workshop preset,
-  passless = Le Guin, the three-position scenes derivation, Diagnostics
-  Letter section, cockpit disclosure, Keep this letter.
-- **P2 — the lessons ledger** (§6): the kind, the pane, the two doors,
-  the briefing section, the schema's cite-by-heading rule, `read_lessons`.
-- **P3 — process signals** (§5): `ProcessSignals`, the Practice section, the
-  briefing threshold, the letter's `process` line. Last because its letter
-  line is why it exists and the letter must exist first.
+- **P1 — the letter and Le Guin** (§3.1–3.6, §4): section schema + ingest,
+  `CompilerRun.letter`, question minting, say-back / one thing / exercise
+  (Accept as task), the five preset briefs revised incl. own-bar comparison
+  and voice distinctness, the Workshop preset, passless-follows-the-ladder,
+  the three-position scenes derivation, Diagnostics Letter section, cockpit
+  disclosure, Keep this letter.
+- **P2 — the ask and the ledger** (§3.7, §6): Ask about… in both homes;
+  `.lessons` kind, pane, Keep as lesson / These are all choices / the stet
+  route, retired lessons, briefing sections for lessons and choices, the
+  cite-by-heading rule, `read_lessons`.
+- **P3 — process and dosage** (§3.8, §5): `ProcessSignals` incl. time away,
+  the Practice section, the briefing thresholds, the letter's `process` line,
+  the derived draft stage and its dosage. Last because dosage needs the
+  frontier and the `process` line needs the letter.
 
 Schema: no manifest bump. `.lessons` is a new kind on the existing statement
 op; `CompilerRun.letter` is an optional field on a derived sidecar. No paired
@@ -304,8 +424,57 @@ phone release is forced.
   are never pushed; a quiet session produces no line.
 - **Lenses, not gates:** the Workshop pass never blocks; a beginner who never
   opens Project Settings still meets Le Guin through a passless ⌘R.
+- **Nothing required up front:** the ask field, the ledger, exercises, the
+  stage and the signals are all met by doing the thing before them. The
+  day-one loop is *write, ⌘R, read a letter* — §9.
 
-## 9. Out of scope
+## 9. The author's experience — the loop this must stay
+
+**Day 1.** New project → Novel → 800 words. The getting-started tour and the
+empty Diagnostics pane say the same sentence: *Press ⌘R and Le Guin reads
+what you've written.* ⌘R → "Checking 12 new paragraphs…" → the pane opens in
+Author. No intent, so no conformance; a continuity question lands; the letter
+arrives and renders at the top: say-back, the one thing, two things that work
+and why, one habit with four jumps, one question (also in the queue), an
+exercise. Click a jump; the editor goes there. Write, ⌘R, read a letter —
+nothing else needs to exist yet.
+
+**Week 1.** Drafting — the frontier moves every session — so letters stay
+short. A worry typed into Ask about… is answered first next round. Keep as
+lesson: a capsule confirms, nothing opens. The ledger is found later, through
+the pane picker, holding three dated entries in the writer's own words.
+
+**Week 3.** Chapter 1 rewritten for five sessions. Nothing nags. The next
+⌘R's letter says, once: *the opening's been rewritten nine times and nothing
+past chapter 3 has moved in three weeks — is that where the book is, or where
+it's comfortable?* Statistics' Practice section has the same numbers for
+anyone who goes looking.
+
+**Week 6.** An exercise accepted as a task, done, ⌘R: *I didn't find a filter
+word anywhere in this chapter* — retired. Fragments stetted twice → a choice;
+never raised again. The board in Review shows Workshop first and Structural
+after it; Perkins's chip gives a structural letter with a scenes table. The
+graduation is clicking a different name, not learning a system.
+
+**The experienced writer** touches different knobs on the same system:
+removes Workshop from the ladder (passless goes back to "Claude"), pins their
+own prior work so "what's working" is a comparison to their own bar, seeds
+choices in one act, authors a custom pass brief for the hostile reader they
+want, and uses the ask field for opinion on request. Their real letter — the
+whole book — is §10.
+
+## 10. Follow-on: the book letter
+
+An experienced writer's problems live at 80,000 words — a subplot dropped in
+the middle third, a motif that stops paying, an arc that flattens — and no
+delta or single-piece Fresh Eyes can see them. **The book letter** is Fresh
+Eyes at project scope: a chosen voice reads the whole project cold and writes
+one letter with a whole-book scenes/arc table, whose natural home is the
+altitude view. It is the milestone after this one, and gets its own brainstorm:
+cost and cancellation of a cold read over a novel, what the table looks like at
+that altitude, and whether Perkins's brief is the right default.
+
+## 11. Out of scope
 
 - Phone surfaces (statements and annotations are read through existing
   tolerance).
