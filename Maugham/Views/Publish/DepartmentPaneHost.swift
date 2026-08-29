@@ -46,6 +46,17 @@ struct DepartmentPaneHost: View {
     /// caller that surfaces no run — the probe mounts — offers a desk that reads
     /// and does not act.
     var designer: DesignerOrchestrator? = nil
+    /// **The window's translation pipeline** (translation pipeline P3), reached
+    /// exactly as `translator` is and owned beside it, because the leg it holds
+    /// open outlives no window either.
+    ///
+    /// Passed here for the GATE: a round's cold legs hold no translator session,
+    /// so `translator.isRunning` reads false while a reader is out and every row
+    /// would offer Run into a round already under way (`DepartmentRunSession
+    /// .read`). What its legs LOOK like on the rows is Plan 4's; this is only
+    /// the refusal. Optional for `translator`'s reason — a probe mount offers a
+    /// desk that reads and does not act.
+    var pipeline: TranslationPipeline? = nil
     /// **Where a Show goes** (Task 5) — the window's own centre column, which is
     /// the other side of this split view.
     ///
@@ -141,6 +152,11 @@ struct DepartmentPaneHost: View {
         let refreshes: Int
         let designRunState: DesignerOrchestrator.RunState?
         let designerBusy: Bool
+        /// **Which leg of which round the pipeline is on** (translation pipeline
+        /// P3), in the key for the designer's state's reason: a leg change
+        /// touches neither the manifest nor an event, so without this join the
+        /// rows would keep offering Run through a round that had moved on.
+        let pipelineStatus: TranslationPipeline.Status
         /// **Which imprint the desk is standing on.** A change re-sums every
         /// language row against that imprint's own documents, which is the
         /// whole of what picking one does to this pane.
@@ -166,6 +182,7 @@ struct DepartmentPaneHost: View {
         ReloadKey(manifestModified: store.manifest.modified, refreshes: refreshes,
                   designRunState: designer?.runState,
                   designerBusy: designer?.isRunning ?? false,
+                  pipelineStatus: pipeline?.status ?? .idle,
                   imprint: documentStore.uiState.publishImprint,
                   configModified: Self.configModified(in: projectURL))
     }
@@ -299,7 +316,8 @@ struct DepartmentPaneHost: View {
         for target: DepartmentRunTarget) -> [String: DepartmentRunState] {
         let runState = translator?.runState ?? .idle
         let session = DepartmentRunSession.read(
-            runState: runState, isRunning: translator?.isRunning ?? false)
+            runState: runState, isRunning: translator?.isRunning ?? false,
+            pipeline: pipeline?.status ?? .idle)
         var states: [String: DepartmentRunState] = [:]
         for row in languages {
             states[row.language] = DepartmentRunState.resolve(
@@ -338,7 +356,8 @@ struct DepartmentPaneHost: View {
             return
         }
         let session = DepartmentRunSession.read(
-            runState: translator.runState, isRunning: translator.isRunning)
+            runState: translator.runState, isRunning: translator.isRunning,
+            pipeline: pipeline?.status ?? .idle)
         if let refusal = DepartmentRunState.preflight(
             language: language, target: runTarget, session: session) {
             notice = refusal

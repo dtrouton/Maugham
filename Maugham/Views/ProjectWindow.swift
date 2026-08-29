@@ -240,6 +240,14 @@ struct ProjectWindow: View {
     /// and Ask-the-collator will spawn through it (Plans 3–4). Owned here so
     /// its teardown sits beside the three orchestrators'.
     @State private var coldCall = ColdCall()
+    /// **The seven-leg round** (translation pipeline P3), sequencing the
+    /// translator above and the cold-call runner beside it. Owned here for
+    /// their reason and one of its own: it owns no `claude` session, but it
+    /// owns the LEG that waits — a round suspended on a continuation that only
+    /// the translator's summary resumes. Wired in `load()`; torn down wherever
+    /// the orchestrators are, and FIRST, so a parked leg is resolved before the
+    /// session it is waiting on stops existing.
+    @State private var pipeline = TranslationPipeline()
     /// The Intent pane's two lower strata (declared-world Task 6): Claude's
     /// bible of what the manuscript has established, and the per-scope cache of
     /// its readings of the writer's statements.
@@ -413,6 +421,10 @@ struct ProjectWindow: View {
                 // closures over both of them, so a session left configured here
                 // would keep the whole project graph alive in the husk — and
                 // its `claude` subprocess alive with it.
+                // The pipeline first, for `CompilerRunModifier`'s reason: a leg
+                // parked on a translator summary has to be resolved before the
+                // translator that owed it is torn down.
+                pipeline.detach()
                 compiler.detach()
                 translator.detach()
                 designer.detach()
@@ -426,6 +438,7 @@ struct ProjectWindow: View {
                                       translator: translator,
                                       designer: designer,
                                       coldCall: coldCall,
+                                      pipeline: pipeline,
                                       window: window,
                                       activeDocId: activeDocId,
                                       mcpEnabled: userPreferences.mcpEnabled))
@@ -2940,6 +2953,10 @@ struct ProjectWindow: View {
             // three long-lived sessions. No log beside it: what a design round
             // leaves is a staged proposal, which the desk re-derives.
             designer: designer,
+            // …and the pipeline, for the desk's one-round-at-a-time gate: a
+            // round's cold legs hold no translator session, so without it the
+            // rows offer Run while a reader is out (translation pipeline P3).
+            pipeline: pipeline,
             // …and the desk's Show (P4 Task 5), which is the only thing on that
             // pane that reaches the CENTRE column. One write, of the one piece
             // of window state the gate arm is a function of.
@@ -2953,6 +2970,9 @@ struct ProjectWindow: View {
                 // mid-round never kills the round in flight.
                 translator.updateModel(newValue.claudeModel)
                 designer.updateModel(newValue.claudeModel)
+                // …and the pipeline, whose cold legs spawn their own readers on
+                // it rather than through either orchestrator above.
+                pipeline.updateModel(newValue.claudeModel)
                 documentStore.updateUIState { $0.compilerModel = newValue }
             },
             assistant: assistant,
@@ -3800,10 +3820,25 @@ struct ProjectWindow: View {
                     bible: bibleStore,
                     preferences: userPreferences,
                     model: ds.uiState.compilerModel.claudeModel,
-                    onRunEnded: { [weak translationRuns] summary in
+                    // **Two listeners, and the second is load-bearing for
+                    // cancel** (translation pipeline P3): the pipeline's leg is
+                    // suspended on a continuation that ONLY this forwarding
+                    // resumes. `pipeline.cancel()` mid-translator-leg works by
+                    // calling `TranslatorOrchestrator.cancel()`, which emits a
+                    // `.cancelled` summary — which reaches the parked leg
+                    // through this line and nowhere else. Drop it and a
+                    // cancelled round hangs forever.
+                    onRunEnded: { [weak translationRuns, weak pipeline] summary in
                         translationRuns?.record(summary)
+                        pipeline?.translatorRunEnded(summary)
                         _projectWindowLog.info(
                             "translation run \(summary.runId, privacy: .public) ended for \(summary.docId, privacy: .public)/\(summary.language, privacy: .public)")
+                    },
+                    // A click that turned out not to be a run — the briefing
+                    // answered nil — emits no summary at all, so the leg would
+                    // wait on a run that never started.
+                    onRunAbandoned: { [weak pipeline] runId in
+                        pipeline?.translatorRunAbandoned(runId)
                     }))
             // The designer's loop, wired beside the other two. Headless for the
             // translator's reason — a design round is started from the desk
@@ -3826,6 +3861,16 @@ struct ProjectWindow: View {
             // that builds a sealed one, and the same toggle every spawn reads.
             coldCall.configure(
                 makeRunner: ColdCall.productionRunnerFactory(preferences: userPreferences))
+            // The pipeline, sequencing the translator and the cold-call runner
+            // wired just above. Owns no session; owns the leg that waits.
+            pipeline.configure(environment: .production(
+                store: s, documentStore: ds, projectURL: url,
+                translator: translator, coldCall: coldCall,
+                model: ds.uiState.compilerModel.claudeModel,
+                onRoundEnded: { round in
+                    _projectWindowLog.info(
+                        "translation round \(round.number, privacy: .public) for \(round.docId, privacy: .public)/\(round.language, privacy: .public) ended at leg \(round.legs.last?.leg.name ?? "-", privacy: .public)")
+                }))
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
             loadError = nil

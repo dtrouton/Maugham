@@ -112,8 +112,19 @@ enum DepartmentRunSession: Equatable {
     /// pair yet. Short, and a writer double-clicking is exactly who lands in it.
     case busy(language: String?)
 
+    /// **The pipeline outranks the orchestrator's own state** (translation
+    /// pipeline spec §5). A round's cold legs — the reader's, the collator's —
+    /// hold no warm translator session at all, so `isRunning` reads false and
+    /// every row would offer Run while a reader is out. The gate is the
+    /// pipeline's now; the orchestrator's own state is what is left to read
+    /// when no pipeline round is up (a bare `runTranslation` from the desk's
+    /// P4 verb, and the probe mounts that pass no pipeline).
     static func read(runState: TranslatorOrchestrator.RunState,
-                     isRunning: Bool) -> DepartmentRunSession {
+                     isRunning: Bool,
+                     pipeline: TranslationPipeline.Status = .idle) -> DepartmentRunSession {
+        if case .running(_, let language, _, _) = pipeline {
+            return .busy(language: language)
+        }
         guard isRunning else { return .free }
         if case .running(_, let language, _) = runState {
             return .busy(language: language)

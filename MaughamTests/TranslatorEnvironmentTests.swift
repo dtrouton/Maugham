@@ -796,6 +796,12 @@ final class TranslatorEnvironmentTests: XCTestCase {
             "every compiler shutdown in the modifier needs its cold-call sibling — "
             + "a cold read in flight when the window closes is a billing process "
             + "otherwise (translation pipeline spec §5)")
+        XCTAssertEqual(
+            compilerShutdowns,
+            modifier.components(separatedBy: "pipeline.shutdown()").count - 1,
+            "every compiler shutdown in the modifier needs its pipeline sibling — "
+            + "a leg awaiting a translator summary is otherwise never resumed once "
+            + "the orchestrator is shut down (translation pipeline spec §5)")
 
         // The designer's own five tokens are `DesignerEnvironmentTests`' —
         // each file owns the wiring of the loop it is about; the paired counts
@@ -817,6 +823,19 @@ final class TranslatorEnvironmentTests: XCTestCase {
             XCTAssertTrue(window.contains(token),
                           "ProjectWindow is missing \(token) — without it the cold-call "
                           + "runner is unwired, unmounted, or outlives the window")
+        }
+
+        // The last two are spelled `pipeline?.` rather than `pipeline.`: they
+        // live inside the translator environment's `onRunEnded`/`onRunAbandoned`
+        // closures, which capture the pipeline weakly — a strong capture there
+        // is a window's whole project graph held alive by an orchestrator
+        // closure, which is the thing `.onDisappear`'s scorch exists to prevent.
+        for token in ["TranslationPipeline()", "pipeline.detach()", "pipeline.configure(",
+                      "pipeline: pipeline", "pipeline.updateModel(",
+                      "pipeline?.translatorRunEnded(", "pipeline?.translatorRunAbandoned("] {
+            XCTAssertTrue(window.contains(token),
+                          "ProjectWindow is missing \(token) — without it the pipeline is "
+                          + "unwired, unmounted, deaf to the translator, or outlives the window")
         }
     }
 
