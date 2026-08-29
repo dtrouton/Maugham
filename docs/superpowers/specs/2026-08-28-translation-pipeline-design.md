@@ -88,6 +88,8 @@ On disk it is one plain line the author can hand-edit:
 
 `RulingsSection` learns one thing: an optional leading `¶<id>:` parses into `Ruling.paragraphId: String?` (additive; a bare line still parses; the id alphabet is `ParagraphID`'s). Minted only through `RulingPerformer.rule` — the one door — with provenance `translator's note`. **A directive whose paragraph no longer exists is an orphan**, drawn as such in the statement pane with its text intact and a Remove; it is never silently dropped and never silently re-anchored.
 
+**A composed line never contains an em-dash, `«` or `»`, or a line break** — the composers substitute or strip them, because the stratum splits an item on its rightmost em-dash.
+
 Directives reach the translator (an instruction on the work item), the collator (the standard for that paragraph), and the reader (through the brief's rulings, so a declared feature is not a fault). The compiler also reads craft intent's rulings and is unaffected: a directive is a true statement about the prose.
 
 ### 3.1 The glossary
@@ -95,10 +97,10 @@ Directives reach the translator (an instruction on the work item), the collator 
 A glossary entry is a ruling of a recognised shape, in the edition brief:
 
 ```
-- «October» → «Octubre» — the month, never a name — ruled 28 Aug 2026, glossary
+- «October» → «Octubre» (the month, never a name) — ruled 28 Aug 2026, glossary
 ```
 
-`RulingsSection` parses `«term» → «rendering»` (optional trailing note) into `Ruling.glossary: (term, rendering)?`; `StatementPane` renders glossary-shaped rulings as a **table** above the other rulings, since a table is what makes the glossary readable by an author who cannot read the language. Entries come from the author by hand, from the interview (§10), or from the translator's `glossary_proposals` adopted on a round (§8) — each adoption one `RulingPerformer.rule` call. The translator is briefed with the table; the collator checks the document against it (`inconsistency`).
+`RulingsSection` parses `«term» → «rendering»` (an optional parenthesised note) into `Ruling.glossary: (term, rendering)?`; `StatementPane` renders glossary-shaped rulings as a **table** above the other rulings, since a table is what makes the glossary readable by an author who cannot read the language. Entries come from the author by hand, from the interview (§10), or from the translator's `glossary_proposals` adopted on a round (§8) — each adoption one `RulingPerformer.rule` call. The translator is briefed with the table; the collator checks the document against it (`inconsistency`).
 
 ## 4. The wire
 
