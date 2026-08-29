@@ -58,6 +58,11 @@ extension TranslatorOrchestrator.Environment {
     ///     answer one more round. `nil` means refuse — the safe direction.
     ///   - onRunEnded: where a finished run is recorded. P4's desk is the
     ///     stated destination; until it exists `ProjectWindow` logs.
+    ///   - onRunAbandoned: a click that turned out not to be a run — the
+    ///     briefing answered nil — named by the run id the verb returned.
+    ///     Defaulted, because most callers have nothing to do with it; a
+    ///     caller SEQUENCING on the run (`TranslationPipeline`) supplies one,
+    ///     or it waits forever on a run that never started.
     @MainActor
     static func production(
         store: ProjectStore,
@@ -66,7 +71,8 @@ extension TranslatorOrchestrator.Environment {
         bible: BibleStore,
         preferences: UserPreferences,
         model: String = CompilerOrchestrator.defaultModel,
-        onRunEnded: @escaping @MainActor (TranslatorOrchestrator.RunSummary) -> Void
+        onRunEnded: @escaping @MainActor (TranslatorOrchestrator.RunSummary) -> Void,
+        onRunAbandoned: @escaping @MainActor (String) -> Void = { _ in }
     ) -> TranslatorOrchestrator.Environment {
         TranslatorOrchestrator.Environment(
             projectId: ProjectIdentifier.id(for: projectURL),
@@ -82,8 +88,13 @@ extension TranslatorOrchestrator.Environment {
                     documentStore: documentStore, bible: bible,
                     projectURL: projectURL)
             },
-            // A stub until Task 3 gathers a fix leg's briefing from the notes.
-            briefFix: { _, _, _, _ in nil },
+            briefFix: { [weak store, weak documentStore, weak bible] docId, language, notes, isFinalLeg in
+                guard let store else { return nil }
+                return fixBriefing(
+                    docId: docId, language: language, notes: notes, isFinalLeg: isFinalLeg,
+                    store: store, documentStore: documentStore, bible: bible,
+                    projectURL: projectURL)
+            },
             translatorIdentity: { [weak store] language in
                 guard let store else { throw WiringFailure.windowClosed }
                 // **Find-or-create, and the run is what earns the mint.** The
@@ -114,26 +125,37 @@ extension TranslatorOrchestrator.Environment {
                     report, context: context, store: store,
                     documentStore: documentStore, projectURL: projectURL)
             },
-            onRunEnded: onRunEnded)
+            onRunEnded: onRunEnded,
+            onRunAbandoned: onRunAbandoned)
     }
 
     // MARK: - The briefing
 
-    /// Everything one round needs, gathered from the project.
+    /// What both gathers resolve before they differ: the current paragraphs,
+    /// the translator's stored row, the two statements, the directives, and
+    /// the merged records with their derivation. `nil` is "not a run" for
+    /// `briefing`'s two reasons.
     ///
-    /// **`nil` is "not a run"** — the orchestrator's own escape hatch, used
-    /// here for the two things that are not worth a session to discover: a
-    /// language tag the readers could not parse (Task 4 left this validation to
-    /// its one caller rather than take a dependency on the write pipeline), and
-    /// a document whose current paragraphs cannot be resolved at all.
-    ///
-    /// An empty work-list is NOT nil: nothing stale and nothing missing is a
-    /// real answer, and the orchestrator reports it as `nothingToTranslate`.
+    /// **One resolution, two gathers.** A translate leg and a fix leg differ
+    /// only in which paragraphs they ask for and what they say about them —
+    /// everything above is the same round, and a second copy of it is a second
+    /// answer to which document, which records and whose doctrine a leg is
+    /// about, free to drift from the first by a whole typing burst.
+    private struct RoundContext {
+        let state: (sequence: [String], paragraphs: [String: String], projectURL: URL)
+        let role: ProductionRole?
+        let intentText: String?
+        let briefText: String?
+        let directives: [String: [Directive]]
+        let latest: [String: TranslationRecord]
+        let derived: TranslatedDocument
+    }
+
     @MainActor
-    private static func briefing(
+    private static func roundContext(
         docId: String, language: String, store: ProjectStore,
-        documentStore: DocumentStore?, bible: BibleStore?, projectURL: URL
-    ) -> TranslatorOrchestrator.BriefedRound? {
+        documentStore: DocumentStore?, projectURL: URL
+    ) -> RoundContext? {
         // The pipeline's own gate, called here so a malformed tag costs a
         // refused click rather than a whole session — the ingest would catch it
         // at the end of the round otherwise.
@@ -150,24 +172,53 @@ extension TranslatorOrchestrator.Environment {
                 "a translation run found no current paragraphs for doc \(docId, privacy: .public)")
             return nil
         }
-        // **The stored row, not a second resolution.** `translatorIdentity` has
-        // already run by the time this is called (`TranslatorOrchestrator.begin`
-        // pins the order), so the mint has landed and a plain lookup agrees with
-        // the identity by construction — where a second call to the
-        // find-or-create verb would be a second chance to mint.
-        let role = store.manifest.storedTranslator(for: language)
-
         let intentText = craftIntentText(docId: docId, store: store)
         let briefText = editionBriefText(language: language, store: store)
-        let directives = Directives.byParagraph(
-            Directives.gather(craftIntent: intentText, editionBrief: briefText))
-
         let records = TranslationStore.loadMerged(
             forDocId: docId, language: language, in: projectURL)
-        let latest = TranslationStore.latestByParagraph(records)
-        let derived = TranslationDeriver.derive(
-            records: records,
-            sequence: state.sequence, paragraphs: state.paragraphs, language: language)
+        return RoundContext(
+            state: state,
+            // **The stored row, not a second resolution.** `translatorIdentity`
+            // has already run by the time this is called
+            // (`TranslatorOrchestrator.begin` pins the order), so the mint has
+            // landed and a plain lookup agrees with the identity by
+            // construction — where a second call to the find-or-create verb
+            // would be a second chance to mint.
+            role: store.manifest.storedTranslator(for: language),
+            intentText: intentText, briefText: briefText,
+            directives: Directives.byParagraph(
+                Directives.gather(craftIntent: intentText, editionBrief: briefText)),
+            latest: TranslationStore.latestByParagraph(records),
+            derived: TranslationDeriver.derive(
+                records: records, sequence: state.sequence,
+                paragraphs: state.paragraphs, language: language))
+    }
+
+    /// Everything one round needs, gathered from the project.
+    ///
+    /// **`nil` is "not a run"** — the orchestrator's own escape hatch, used
+    /// here for the two things that are not worth a session to discover: a
+    /// language tag the readers could not parse (Task 4 left this validation to
+    /// its one caller rather than take a dependency on the write pipeline), and
+    /// a document whose current paragraphs cannot be resolved at all.
+    ///
+    /// An empty work-list is NOT nil: nothing stale and nothing missing is a
+    /// real answer, and the orchestrator reports it as `nothingToTranslate`.
+    @MainActor
+    private static func briefing(
+        docId: String, language: String, store: ProjectStore,
+        documentStore: DocumentStore?, bible: BibleStore?, projectURL: URL
+    ) -> TranslatorOrchestrator.BriefedRound? {
+        guard let context = roundContext(
+            docId: docId, language: language, store: store,
+            documentStore: documentStore, projectURL: projectURL) else { return nil }
+        let state = context.state
+        let role = context.role
+        let intentText = context.intentText
+        let briefText = context.briefText
+        let directives = context.directives
+        let latest = context.latest
+        let derived = context.derived
 
         // **The delta is `stale ∪ missing ∪ directed`** (spec §2). Stale and
         // missing are the deriver's; directed is a FRESH paragraph the writer
@@ -238,6 +289,88 @@ extension TranslatorOrchestrator.Environment {
         return TranslatorOrchestrator.BriefedRound(inputs: inputs, sourceHashes: hashes)
     }
 
+    /// **The fix leg's briefing** (spec §2, `.fix`): the work-list is exactly
+    /// the noted paragraphs — those that still carry a FRESH translation —
+    /// each `.fresh` with its current translation as `priorTranslation`, in
+    /// sequence order; the mode's notes are the ones whose paragraph made an
+    /// item. A note on a paragraph that is missing, stale (the writer edited
+    /// the English mid-pipeline) or gone is dropped here rather than briefed
+    /// blind — the parser would otherwise fail the whole leg for an id the
+    /// model was never shown a paragraph for, with no clue why.
+    ///
+    /// An EMPTY work-list is not nil, on `briefing`'s own rule: no noted
+    /// paragraph having a translation any more is a real answer, which the
+    /// orchestrator reports as `nothingToTranslate` and the pipeline records
+    /// as a skip. `nil` stays reserved for the two things that are not a run
+    /// at all.
+    @MainActor
+    static func fixBriefing(
+        docId: String, language: String, notes: [TranslatorBriefing.FixNote],
+        isFinalLeg: Bool, store: ProjectStore, documentStore: DocumentStore?,
+        bible: BibleStore?, projectURL: URL
+    ) -> TranslatorOrchestrator.BriefedRound? {
+        guard let context = roundContext(
+            docId: docId, language: language, store: store,
+            documentStore: documentStore, projectURL: projectURL) else { return nil }
+
+        // Walked in the deriver's order rather than the notes' — the notes
+        // arrive from a reader's report in whatever order it wrote them, and a
+        // work-list out of sequence reads as a jumble to the model being asked
+        // to keep one voice across it. `translatedText != nil` as well as
+        // `.fresh` because a BLANK source paragraph derives fresh with nothing
+        // translated (`TranslationDeriver`'s own rule), and there is nothing to
+        // repair there.
+        let noted = Set(notes.map(\.paragraphId))
+        let work = context.derived.entries.filter {
+            noted.contains($0.paragraphId) && $0.status == .fresh && $0.translatedText != nil
+        }
+        let briefable = Set(work.map(\.paragraphId))
+        let briefedNotes = notes.filter { briefable.contains($0.paragraphId) }
+
+        let workList = work.map { entry in
+            TranslatorBriefing.Inputs.WorkItem(
+                paragraphId: entry.paragraphId,
+                // `briefing`'s own strip, for its own reason: an inline
+                // `<!--t-XXXX-->` task marker must never reach the model.
+                sourceText: MarkdownDisplayFilter.stripTaskAnchorsInline(entry.sourceText),
+                // Every fix item is fresh by construction — the filter above
+                // admits nothing else — and its current translation is what the
+                // note is a complaint about, so it is always handed over.
+                status: .fresh,
+                priorTranslation: entry.translatedText,
+                directives: (context.directives[entry.paragraphId] ?? []).map(\.text))
+        }
+        let (open, answered) = languageQueries(
+            docId: docId, language: language, documentStore: documentStore)
+
+        let inputs = TranslatorBriefing.Inputs(
+            translatorName: context.role?.effectiveName
+                ?? ProductionRole.defaultTranslatorName(language: language)
+                ?? language,
+            language: language,
+            roleBrief: context.role?.effectiveBrief,
+            craftIntentText: context.intentText,
+            editionBriefText: context.briefText,
+            workList: workList,
+            contextParagraphs: neighbours(of: work.map(\.paragraphId), in: context.state),
+            openQueries: open,
+            answeredQueries: answered,
+            bibleFacts: bible?.slice(matching: workList.map(\.sourceText)
+                .joined(separator: "\n")) ?? [],
+            mode: .fix(notes: briefedNotes, isFinalLeg: isFinalLeg),
+            glossary: GlossaryTable.gather(editionBrief: context.briefText))
+
+        // `briefing`'s hashes, on `briefing`'s reasoning: read off the RAW
+        // source, keyed on the work-list only, spent by `midRunEdits`.
+        let hashes = Dictionary(
+            work.map { entry in
+                (entry.paragraphId,
+                 TranslationHash.hash(context.state.paragraphs[entry.paragraphId] ?? ""))
+            },
+            uniquingKeysWith: { first, _ in first })
+        return TranslatorOrchestrator.BriefedRound(inputs: inputs, sourceHashes: hashes)
+    }
+
     /// The writer's declared intent for this piece, whole — the essay AND its
     /// rulings, on `CompilerEnvironment+Project`'s reasoning: the rulings are
     /// half of what the writer has decided, and a translator briefed on the
@@ -247,7 +380,7 @@ extension TranslatorOrchestrator.Environment {
     /// unreadable statement reads as absent here, and the Intent pane's editor
     /// owns surfacing the refusal.
     @MainActor
-    private static func craftIntentText(docId: String, store: ProjectStore) -> String? {
+    static func craftIntentText(docId: String, store: ProjectStore) -> String? {
         guard let resolved = store.effectiveIntent(forDocId: docId) else { return nil }
         return try? store.statementText(of: resolved)
     }
@@ -258,7 +391,7 @@ extension TranslatorOrchestrator.Environment {
     /// what the run is briefed on and what Claude can read on demand cannot
     /// disagree. Project scope only: an edition's register applies to the book.
     @MainActor
-    private static func editionBriefText(language: String, store: ProjectStore) -> String? {
+    static func editionBriefText(language: String, store: ProjectStore) -> String? {
         guard let statement = store.statement(
             kind: .editionBrief(language), scope: .project) else { return nil }
         return try? store.statementText(of: statement)
@@ -267,7 +400,7 @@ extension TranslatorOrchestrator.Environment {
     /// The paragraph immediately before and after each work item, for
     /// continuity — never the work itself, and deduped so a paragraph between
     /// two work items is listed once.
-    private static func neighbours(
+    static func neighbours(
         of workIds: [String],
         in state: (sequence: [String], paragraphs: [String: String], projectURL: URL)
     ) -> [TranslatorBriefing.Inputs.ContextParagraph] {
@@ -294,10 +427,14 @@ extension TranslatorOrchestrator.Environment {
     /// This language's queries, split into the ones still waiting on the writer
     /// and the ones they have answered.
     ///
-    /// **Read off the OPEN document only.** A closed one would have to be
-    /// transient-loaded, and the round that could not carry its own history is
-    /// the same round whose new questions have nowhere to land (see `mint`
-    /// below) — one honest gap rather than two half-measures.
+    /// **Read off the OPEN document only** — deliberately still, now that
+    /// `mint` reaches a closed one. The two are not the same trade: a mint
+    /// that cannot land loses the writer a question outright, while a gather
+    /// that skips a closed document's history costs a round some context it
+    /// can be re-briefed with next time. A transient load here would be one
+    /// per gather, on every leg of a book queue, for a briefing section the
+    /// cap already trims — the cost is paid where something is lost, not
+    /// everywhere symmetry would put it.
     ///
     /// **Craft notes as well as queries**, because a doc-scoped translation
     /// question mints as a `.craftNote` — `addAnnotation` refuses an
@@ -310,7 +447,7 @@ extension TranslatorOrchestrator.Environment {
     /// `open_queries` widened the same one way, so the count the writer reads
     /// and the history the round carries cannot disagree.
     @MainActor
-    private static func languageQueries(
+    static func languageQueries(
         docId: String, language: String, documentStore: DocumentStore?
     ) -> ([TranslatorBriefing.Inputs.OpenQuery], [TranslatorBriefing.Inputs.AnsweredQuery]) {
         guard let document = documentStore?.document(forDocId: docId) else { return ([], []) }
@@ -383,7 +520,18 @@ extension TranslatorOrchestrator.Environment {
 
         var warnings: [String] = []
         var written = 0
+        var rewrites: [TranslatorOrchestrator.ParagraphRewrite] = []
         if !report.entries.isEmpty {
+            // **Read before the write, because after it the old record is no
+            // longer the latest.** A fix leg's whole point is what it CHANGED,
+            // and the pipeline appends rather than replaces, so the only moment
+            // the standing record is visible as "the one that stood" is this
+            // one. Read for a translate leg too: the shape is the same and a
+            // paragraph translated for the first time simply has nil on the
+            // before side, which is the honest answer rather than an omission.
+            let before = TranslationStore.latestByParagraph(
+                TranslationStore.loadMerged(
+                    forDocId: context.docId, language: context.language, in: projectURL))
             do {
                 // **The one shared write pipeline**, which re-validates every
                 // `¶id` against the state resolved a line ago rather than
@@ -405,6 +553,17 @@ extension TranslatorOrchestrator.Environment {
             } catch {
                 return .init(rejection: sentence(for: error))
             }
+            let after = TranslationStore.latestByParagraph(
+                TranslationStore.loadMerged(
+                    forDocId: context.docId, language: context.language, in: projectURL))
+            rewrites = report.entries.map { entry in
+                TranslatorOrchestrator.ParagraphRewrite(
+                    paragraphId: entry.paragraphId,
+                    beforeRecordId: before[entry.paragraphId]?.opId,
+                    before: before[entry.paragraphId]?.text,
+                    afterRecordId: after[entry.paragraphId]?.opId,
+                    after: after[entry.paragraphId]?.text)
+            }
             // `write_translation`'s step 7, verbatim: a live translation-review
             // posture must re-derive rather than stay frozen until the writer
             // leaves the pane and comes back.
@@ -418,8 +577,16 @@ extension TranslatorOrchestrator.Environment {
         }
 
         let minted = await mint(
-            report.queries, context: context, documentStore: documentStore)
-        return .init(entriesWritten: written, queriesMinted: minted, warnings: warnings)
+            report.queries, context: context, store: store, projectURL: projectURL)
+        // **The report's own answers travel whole**, unparsed and unedited: the
+        // pipeline routes `addressed`/`declined` back to the notes they name and
+        // files the summary and the glossary proposals, and a second reading of
+        // the report here would be a second answer to what the translator said.
+        return .init(
+            entriesWritten: written, queriesMinted: minted, warnings: warnings,
+            addressed: report.addressed, declined: report.declined,
+            summary: report.summary, glossaryProposals: report.glossaryProposals,
+            rewrites: rewrites)
     }
 
     /// The paragraphs whose source changed between the send and the answer,
@@ -484,64 +651,78 @@ extension TranslatorOrchestrator.Environment {
     /// **The mint never fails the run.** A note that cannot be appended is
     /// logged and the rest are written; a check that finished is not made to
     /// look like one that died.
+    ///
+    /// **A CLOSED document is no longer a gap** (Plan 3). Resolved through
+    /// `withAnnotationDocument` — the one spelling of "loaded → the live
+    /// instance, otherwise transient-load, run, close" the annotation tools
+    /// use — because the book queue runs a pipeline over every chapter of a
+    /// book, and all but the open one are closed. While this read the registry
+    /// alone, a question about chapter nine had nowhere to land and was logged
+    /// away: acceptable for a single-chapter Run the writer was watching,
+    /// wrong for a queue they are not. A load that throws keeps the old
+    /// sentence and mints nothing — the words still landed, and re-running the
+    /// round asks the questions again.
     @MainActor
     private static func mint(
         _ queries: [TranslatorReport.Query],
         context: TranslatorOrchestrator.IngestContext,
-        documentStore: DocumentStore?
+        store: ProjectStore, projectURL: URL
     ) async -> Int {
         guard !queries.isEmpty else { return 0 }
-        // The open document, as the compiler's mint resolves it. A document
-        // closed between the send and the answer is a real gap and is logged as
-        // one: the words still landed (the pipeline reads a closed document's
-        // derived state), and re-running the round asks the questions again.
-        guard let document = documentStore?.document(forDocId: context.docId) else {
-            translatorLog.error(
-                "\(queries.count, privacy: .public) translator quer(ies) had nowhere to land: doc \(context.docId, privacy: .public) is no longer open")
-            return 0
-        }
         let author = AnnotationAuthor(
             sourceKind: .claude, displayName: context.translatorName)
         let toolArgs = queryToolArgs(
             language: context.language, roleId: context.translatorRoleId)
 
-        var minted = 0
-        for query in queries {
-            // Anchored to the LIVE paragraph, never to an id the round was
-            // briefed with and the document has since lost.
-            let anchor = query.paragraphId.flatMap {
-                document.sequence.contains($0) ? $0 : nil
+        do {
+            return try await withAnnotationDocument(
+                store: store, projectURL: projectURL, documentId: context.docId
+            ) { document in
+                var minted = 0
+                for query in queries {
+                    // Anchored to the LIVE paragraph, never to an id the round
+                    // was briefed with and the document has since lost.
+                    let anchor = query.paragraphId.flatMap {
+                        document.sequence.contains($0) ? $0 : nil
+                    }
+                    do {
+                        _ = try await document.addAnnotation(
+                            kind: anchor == nil ? .craftNote : .query,
+                            paragraphId: anchor,
+                            body: anchor == nil
+                                ? "Translation query (\(context.language)) — \(query.text)"
+                                : query.text,
+                            // The language tag `translation_status` counts an
+                            // open query by, plus the role that signs it —
+                            // `add_query`'s own encoding, which the deriver
+                            // reads `language` back out of and ignores the rest
+                            // of.
+                            toolArgs: toolArgs,
+                            // **The exact label IS the filter bucket**
+                            // (`AnnotationAuthorFilter.distinctLabels`), which
+                            // is the feature: this edition's questions gather
+                            // under its translator's name. `.claude` keeps
+                            // `isClaude` true, so every existing Claude
+                            // affordance still applies.
+                            author: author,
+                            // One round is ONE event to every surface counting
+                            // this project's notes, and each walks the whole
+                            // project to answer it. Paid back once below.
+                            announcing: false)
+                        minted += 1
+                    } catch {
+                        translatorLog.error(
+                            "a translator query could not be minted on doc \(context.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+                if minted > 0 { document.announceAnnotationsChanged() }
+                return minted
             }
-            do {
-                _ = try await document.addAnnotation(
-                    kind: anchor == nil ? .craftNote : .query,
-                    paragraphId: anchor,
-                    body: anchor == nil
-                        ? "Translation query (\(context.language)) — \(query.text)"
-                        : query.text,
-                    // The language tag `translation_status` counts an open query
-                    // by, plus the role that signs it — `add_query`'s own
-                    // encoding, which the deriver reads `language` back out of
-                    // and ignores the rest of.
-                    toolArgs: toolArgs,
-                    // **The exact label IS the filter bucket**
-                    // (`AnnotationAuthorFilter.distinctLabels`), which is the
-                    // feature: this edition's questions gather under its
-                    // translator's name. `.claude` keeps `isClaude` true, so
-                    // every existing Claude affordance still applies.
-                    author: author,
-                    // One round is ONE event to every surface counting this
-                    // project's notes, and each walks the whole project to
-                    // answer it. Paid back once below.
-                    announcing: false)
-                minted += 1
-            } catch {
-                translatorLog.error(
-                    "a translator query could not be minted on doc \(context.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
+        } catch {
+            translatorLog.error(
+                "\(queries.count, privacy: .public) translator quer(ies) had nowhere to land: doc \(context.docId, privacy: .public) could not be resolved: \(error.localizedDescription, privacy: .public)")
+            return 0
         }
-        if minted > 0 { document.announceAnnotationsChanged() }
-        return minted
     }
 
     /// `add_query`'s `toolArgs` shape, which is where a query's language tag
@@ -549,7 +730,7 @@ extension TranslatorOrchestrator.Environment {
     /// rides along as provenance: the byline is a display name and two
     /// translators can be renamed into one, while the id is what the manifest
     /// row is keyed by.
-    private static func queryToolArgs(language: String, roleId: String) -> String? {
+    static func queryToolArgs(language: String, roleId: String) -> String? {
         struct Args: Encodable {
             let language: String
             let role_id: String
