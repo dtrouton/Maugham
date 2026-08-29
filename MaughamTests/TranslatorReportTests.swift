@@ -297,6 +297,18 @@ final class TranslatorReportTests: XCTestCase {
         XCTAssertTrue(report.glossaryProposals.isEmpty)
     }
 
+    /// The widened `shapedBy` list must not loosen what counts as a
+    /// translate-mode report: an object with only fix fields is not one, the
+    /// same refusal the pre-existing contract gave an object with neither
+    /// `entries` nor `queries`. A fix leg reads the very same object fine —
+    /// a round with nothing to translate can still carry just a summary.
+    func test_translateMode_anObjectWithOnlyFixFieldsIsNotAReport() throws {
+        let raw = #"{"summary":"x"}"#
+        XCTAssertNil(TranslatorReport.parse(raw))
+        let report = try XCTUnwrap(TranslatorReport.parse(raw, mode: .fix(briefedNoteIds: [])))
+        XCTAssertEqual(report.summary, "x")
+    }
+
     func test_fixSchemaDescriptionNamesEveryFixField() {
         for name in ["addressed", "declined", "note_id", "reason", "summary", "glossary_proposals", "term", "rendering"] {
             XCTAssertTrue(TranslatorReport.fixSchemaDescription.contains(name), name)

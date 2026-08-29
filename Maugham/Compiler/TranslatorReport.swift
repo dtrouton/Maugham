@@ -163,9 +163,22 @@ struct TranslatorReport: Equatable {
     /// An empty `entries` and empty `queries` — a fully fresh document, or a
     /// round with nothing left to do — parses successfully. An empty LIST is
     /// a complete answer; an empty STRING inside one never is.
+    /// The shape keys `lastObject` looks for are mode-dependent: translate
+    /// mode looks only for `entries`/`queries`, exactly as before this type
+    /// grew fix fields, so an object carrying only `summary` or `addressed`
+    /// is not a translate-mode report at all; a fix mode also accepts an
+    /// object shaped by its own fields, since a round with nothing to
+    /// translate can still carry a summary alone.
     static func parse(_ raw: String, mode: Mode = .translate) -> TranslatorReport? {
-        guard let object = ReportJSON.lastObject(in: raw, shapedBy: [WireField.entries, WireField.queries,
-                                                                      WireField.addressed, WireField.summary]),
+        let shapeKeys: [String]
+        switch mode {
+        case .translate:
+            shapeKeys = [WireField.entries, WireField.queries]
+        case .fix:
+            shapeKeys = [WireField.entries, WireField.queries, WireField.addressed,
+                         WireField.declined, WireField.summary]
+        }
+        guard let object = ReportJSON.lastObject(in: raw, shapedBy: shapeKeys),
               let entries = ReportJSON.parseList(object, key: WireField.entries, parseItem: parseEntry),
               let queries = ReportJSON.parseList(object, key: WireField.queries, parseItem: parseQuery)
         else { return nil }
