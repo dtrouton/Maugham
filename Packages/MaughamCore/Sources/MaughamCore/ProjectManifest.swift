@@ -223,9 +223,28 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// — and otherwise exact: `es-MX` is a language of its own, exactly as it
     /// is in `ProductionRole.defaultTranslatorName`'s table.
     public func storedTranslator(for language: String) -> ProductionRole? {
+        storedLanguageRole(for: language) { if case .translator(let t) = $0 { return t }; return nil }
+    }
+
+    /// The STORED reader for a language tag — `storedTranslator`'s rule, for
+    /// the blind reader (translation pipeline P1).
+    public func storedReader(for language: String) -> ProductionRole? {
+        storedLanguageRole(for: language) { if case .reader(let t) = $0 { return t }; return nil }
+    }
+
+    /// The STORED collator for a language tag — `storedTranslator`'s rule.
+    public func storedCollator(for language: String) -> ProductionRole? {
+        storedLanguageRole(for: language) { if case .collator(let t) = $0 { return t }; return nil }
+    }
+
+    /// The one spelling of the case-insensitive tag match, for every role that
+    /// carries a language.
+    private func storedLanguageRole(
+        for language: String, tag: (ProductionRole.Role) -> String?
+    ) -> ProductionRole? {
         productionRoles.first { role in
-            guard case .translator(let tag) = role.role else { return false }
-            return tag.caseInsensitiveCompare(language) == .orderedSame
+            guard let stored = tag(role.role) else { return false }
+            return stored.caseInsensitiveCompare(language) == .orderedSame
         }
     }
 

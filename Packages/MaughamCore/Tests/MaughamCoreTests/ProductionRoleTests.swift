@@ -391,4 +391,17 @@ final class ProductionRoleTests: XCTestCase {
         let role = ProductionRole(id: "r", role: .reader(language: "es"), brief: "Only flag register.")
         XCTAssertEqual(role.effectiveBrief, "Only flag register.")
     }
+
+    func test_theManifestFindsAStoredReaderAndCollatorCaseInsensitively() throws {
+        let json = manifestJSON(schemaVersion: 8, productionRolesJSON: """
+            [{"id":"r1","role":"reader:es","name":"Pizarnik"},
+             {"id":"c1","role":"collator:es"},
+             {"id":"t1","role":"translator:es"}]
+            """)
+        let manifest = try ProjectManifest.decodeGuardingSchema(json)
+        XCTAssertEqual(manifest.storedReader(for: "ES")?.id, "r1")
+        XCTAssertEqual(manifest.storedCollator(for: "es")?.id, "c1")
+        XCTAssertEqual(manifest.storedTranslator(for: "es")?.id, "t1", "unchanged")
+        XCTAssertNil(manifest.storedReader(for: "fr"))
+    }
 }
