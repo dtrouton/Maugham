@@ -462,7 +462,8 @@ final class TranslatorOrchestrator {
             message: TranslatorBriefing.compose(inputs: inputs),
             systemPreamble: Self.sessionSystemPreamble(projectId: environment.projectId))
         await finish(event, pair: pair, runId: runId, identity: identity,
-                     briefedSourceHashes: round.sourceHashes, generation: generation)
+                     briefedSourceHashes: round.sourceHashes, reportMode: inputs.reportMode,
+                     generation: generation)
     }
 
     // MARK: - The turn coming back
@@ -477,10 +478,14 @@ final class TranslatorOrchestrator {
     /// `runState` that went `.idle` before the ingest landed would tell the
     /// writer the round was finished while its paragraphs were still
     /// arriving.
+    ///
+    /// The parser's mode is the briefing's (`Inputs.reportMode`) — a fix
+    /// leg's report is held to its briefed notes.
     private func finish(
         _ event: CompilerRunEvent, pair: Pair, runId: String,
         identity: (name: String, roleId: String),
-        briefedSourceHashes: [String: String], generation: Int
+        briefedSourceHashes: [String: String], reportMode: TranslatorReport.Mode,
+        generation: Int
     ) async {
         switch event {
         case .started:
@@ -498,7 +503,7 @@ final class TranslatorOrchestrator {
                 pair: pair, runId: runId)
 
         case .resultText(let text):
-            guard let report = TranslatorReport.parse(text) else {
+            guard let report = TranslatorReport.parse(text, mode: reportMode) else {
                 guard runGeneration == generation else { return }
                 // All-or-nothing starts at parse: a turn that got one entry
                 // wrong is a model that has lost the contract, and there is

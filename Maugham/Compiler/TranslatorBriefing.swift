@@ -13,9 +13,61 @@ import MaughamCore
 /// `TranslatorOrchestrator` (Task 4) is the one production caller and owns
 /// gathering `Inputs` from the store, the deriver and the annotation layer;
 /// this type does not know any of those exist.
+///
+/// Since P2 it composes in two `Mode`s — `.translate` (with directives and
+/// the glossary) and `.fix` (a repair of the noted paragraphs).
 enum TranslatorBriefing {
 
     // MARK: - Inputs
+
+    /// One note a fix leg is asked to answer — a reader's note or a collator's
+    /// departure, flattened to what the translator needs: who said it, what
+    /// kind, how bad, and where. `id` is what `addressed`/`declined` name
+    /// (`TranslatorReport.Mode.fix(briefedNoteIds:)`).
+    struct FixNote: Equatable {
+        let id: String
+        let paragraphId: String
+        let author: String
+        let kind: String
+        let severity: String?
+        let text: String
+
+        init(id: String, paragraphId: String, author: String, kind: String,
+             severity: String? = nil, text: String) {
+            self.id = id
+            self.paragraphId = paragraphId
+            self.author = author
+            self.kind = kind
+            self.severity = severity
+            self.text = text
+        }
+    }
+
+    /// Which leg this briefing is for (spec §2). `.translate` is today's round
+    /// plus directives and the glossary; `.fix` is a repair of exactly the
+    /// noted paragraphs — the caller's work-list IS those paragraphs, each
+    /// `.fresh` with its current translation in `priorTranslation`.
+    /// `isFinalLeg` is leg 7: the one that also returns the summary and the
+    /// glossary proposals.
+    enum Mode: Equatable {
+        case translate
+        case fix(notes: [FixNote], isFinalLeg: Bool)
+    }
+
+    /// The fix leg's sentence, in words the model cannot read as a polish.
+    static let repairSentence =
+        "This is a repair of the noted paragraphs, not a polish. Leave every "
+        + "paragraph that carries no note exactly as it is — do not send an entry "
+        + "for it. For every note below, either rewrite that paragraph in answer "
+        + "to it or decline it with a reason; never stay silent on a note."
+
+    static let finalLegSentence =
+        "This is the round's last fix leg: include \"summary\" and "
+        + "\"glossary_proposals\" in your report."
+
+    static let notFinalLegSentence =
+        "Leave \"summary\" and \"glossary_proposals\" out of this leg's report; "
+        + "a later leg asks for them."
 
     /// Everything one briefing needs, already resolved by the caller. Every
     /// field here has a reader in `compose` — `CompilerAnnotationDisposition`'s
@@ -32,15 +84,19 @@ enum TranslatorBriefing {
             /// exists yet) and for `.fresh` (this type does not forbid a
             /// caller from listing one, but there is nothing to hand over).
             let priorTranslation: String?
+            /// The writer's directives on this paragraph, as instructions —
+            /// `Directives.byParagraph`'s texts.
+            let directives: [String]
 
             init(
                 paragraphId: String, sourceText: String, status: TranslationStatus,
-                priorTranslation: String? = nil
+                priorTranslation: String? = nil, directives: [String] = []
             ) {
                 self.paragraphId = paragraphId
                 self.sourceText = sourceText
                 self.status = status
                 self.priorTranslation = priorTranslation
+                self.directives = directives
             }
         }
 
@@ -113,13 +169,16 @@ enum TranslatorBriefing {
         /// whose compiler has never run has established nothing yet — and
         /// `compose` omits the section rather than announcing an empty ledger.
         let bibleFacts: [BibleFact]
+        let mode: Mode
+        let glossary: [GlossaryEntry]
 
         init(
             translatorName: String, language: String, roleBrief: String? = nil,
             craftIntentText: String? = nil, editionBriefText: String? = nil,
             workList: [WorkItem] = [], contextParagraphs: [ContextParagraph] = [],
             openQueries: [OpenQuery] = [], answeredQueries: [AnsweredQuery] = [],
-            bibleFacts: [BibleFact] = []
+            bibleFacts: [BibleFact] = [], mode: Mode = .translate,
+            glossary: [GlossaryEntry] = []
         ) {
             self.translatorName = translatorName
             self.language = language
@@ -131,6 +190,17 @@ enum TranslatorBriefing {
             self.openQueries = openQueries
             self.answeredQueries = answeredQueries
             self.bibleFacts = bibleFacts
+            self.mode = mode
+            self.glossary = glossary
+        }
+
+        /// The parser's mode for this briefing's report — one derivation, so
+        /// the orchestrator cannot brief a fix leg and parse a translate one.
+        var reportMode: TranslatorReport.Mode {
+            switch mode {
+            case .translate: return .translate
+            case .fix(let notes, _): return .fix(briefedNoteIds: Set(notes.map(\.id)))
+            }
         }
     }
 
@@ -171,11 +241,16 @@ enum TranslatorBriefing {
                     + "the writer's own settled answer, not a suggestion:\n"
                     + cleaned(brief))
         }
+        if let table = GlossaryTable.render(inputs.glossary) {
+            sections.append(
+                "Glossary — the edition's fixed renderings. Render these terms "
+                    + "exactly so, every time:\n" + table)
+        }
         if let bible = bibleSection(inputs.bibleFacts) {
             sections.append(bible)
         }
 
-        sections.append(workListSection(inputs.workList))
+        sections.append(workListSection(inputs))
         if let context = contextSection(inputs) {
             sections.append(context)
         }
@@ -183,7 +258,15 @@ enum TranslatorBriefing {
             sections.append(queries)
         }
 
-        sections.append(TranslatorReport.schemaDescription)
+        switch inputs.mode {
+        case .translate:
+            sections.append(TranslatorReport.schemaDescription)
+        case .fix(_, let isFinalLeg):
+            sections.append(
+                [TranslatorReport.schemaDescription, TranslatorReport.fixSchemaDescription,
+                 isFinalLeg ? finalLegSentence : notFinalLegSentence]
+                    .joined(separator: "\n"))
+        }
 
         return sections.joined(separator: "\n\n")
     }
@@ -237,19 +320,48 @@ enum TranslatorBriefing {
 
     // MARK: - Work list
 
-    private static func workListSection(_ items: [Inputs.WorkItem]) -> String {
-        guard !items.isEmpty else {
-            return "This round's work: nothing needs translation right now."
+    private static func workListSection(_ inputs: Inputs) -> String {
+        switch inputs.mode {
+        case .translate:
+            guard !inputs.workList.isEmpty else {
+                return "This round's work: nothing needs translation right now."
+            }
+            var lines = [
+                "This round's work — for each paragraph below, answer with an "
+                    + "entry: a full translation, or \"verbatim\" if it should carry "
+                    + "over unchanged:"
+            ]
+            for item in inputs.workList {
+                lines.append(contentsOf: workItemLines(item))
+                lines.append(contentsOf: directiveLines(item))
+            }
+            return lines.joined(separator: "\n")
+
+        case .fix(let notes, _):
+            let byParagraph = Dictionary(grouping: notes, by: \.paragraphId)
+            var lines = [repairSentence, "The noted paragraphs:"]
+            for item in inputs.workList {
+                lines.append("[\(item.paragraphId)] (noted)")
+                lines.append("Source: \(cleaned(item.sourceText))")
+                if let current = item.priorTranslation {
+                    lines.append("Current translation: \(cleaned(current))")
+                }
+                for note in byParagraph[item.paragraphId] ?? [] {
+                    lines.append(noteLine(note))
+                }
+                lines.append(contentsOf: directiveLines(item))
+            }
+            return lines.joined(separator: "\n")
         }
-        var lines = [
-            "This round's work — for each paragraph below, answer with an "
-                + "entry: a full translation, or \"verbatim\" if it should carry "
-                + "over unchanged:"
-        ]
-        for item in items {
-            lines.append(contentsOf: workItemLines(item))
-        }
-        return lines.joined(separator: "\n")
+    }
+
+    private static func noteLine(_ note: FixNote) -> String {
+        let qualifier = [note.kind, note.severity].compactMap { $0 }.joined(separator: ", ")
+        return "Note \(note.id) from \(note.author) (\(qualifier)): \(cleaned(note.text))"
+    }
+
+    private static func directiveLines(_ item: Inputs.WorkItem) -> [String] {
+        item.directives.map { "Directive from the writer: \(cleaned($0))" }
     }
 
     private static func workItemLines(_ item: Inputs.WorkItem) -> [String] {
@@ -270,11 +382,24 @@ enum TranslatorBriefing {
             }
             return lines
         case .fresh:
-            // Not the ordinary case — a fresh entry needs no work — but this
-            // type does not forbid a caller from listing one, so render it
-            // plainly rather than silently dropping what the caller asked
-            // for.
-            return ["[\(item.paragraphId)]", cleaned(item.sourceText)]
+            // A fresh item in the work-list is a DIRECTED one (spec §2): the
+            // writer ruled on it after it was translated. Say why it is here,
+            // and hand over what it currently says so the rewrite is a repair
+            // against a standard rather than a fresh guess. A fresh item with
+            // no directive is the old permissive arm, rendered plainly.
+            guard !item.directives.isEmpty else {
+                return ["[\(item.paragraphId)]", cleaned(item.sourceText)]
+            }
+            var lines = [
+                "[\(item.paragraphId)] (directed — the writer has ruled on this "
+                    + "paragraph since it was translated; the directive below is the "
+                    + "standard for it)",
+                "Source: \(cleaned(item.sourceText))",
+            ]
+            if let prior = item.priorTranslation {
+                lines.append("Prior translation: \(cleaned(prior))")
+            }
+            return lines
         }
     }
 

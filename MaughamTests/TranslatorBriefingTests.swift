@@ -298,6 +298,94 @@ final class TranslatorBriefingTests: XCTestCase {
         XCTAssertTrue(briefing.contains("The house stood empty."))
     }
 
+    // MARK: - Directives and the glossary (translation pipeline P2)
+
+    func test_workItem_carriesItsDirectivesAsInstructions() {
+        let inputs = makeInputs(workList: [
+            .init(paragraphId: "a1b2", sourceText: "And, and, and.", status: .missing,
+                  directives: ["keep the three \"and\"s", "one sentence, not two"])])
+        let briefing = TranslatorBriefing.compose(inputs: inputs)
+        XCTAssertTrue(briefing.contains("Directive from the writer: keep the three \"and\"s"))
+        XCTAssertTrue(briefing.contains("Directive from the writer: one sentence, not two"))
+    }
+
+    /// A directed paragraph is FRESH with a prior translation — the status
+    /// arm says why it is work.
+    func test_workItem_directedFreshEntry_saysSoAndHandsOverThePriorTranslation() {
+        let inputs = makeInputs(workList: [
+            .init(paragraphId: "a1b2", sourceText: "And, and, and.", status: .fresh,
+                  priorTranslation: "Y, y, y.", directives: ["keep the three \"and\"s"])])
+        let briefing = TranslatorBriefing.compose(inputs: inputs)
+        XCTAssertTrue(briefing.contains("[a1b2] (directed"), briefing)
+        XCTAssertTrue(briefing.contains("Prior translation: Y, y, y."))
+    }
+
+    func test_glossary_isATableAfterTheBriefAndAbsentWhenEmpty() {
+        let with = TranslatorBriefing.compose(inputs: makeInputs(
+            editionBriefText: "Texture: fluent.",
+            glossary: [GlossaryEntry(term: "October", rendering: "Octubre", note: "the month")]))
+        let brief = with.range(of: "Texture: fluent.")!.lowerBound
+        let table = with.range(of: "| October | Octubre | the month |")!.lowerBound
+        XCTAssertLessThan(brief, table)
+        XCTAssertTrue(with.contains("Glossary"))
+        XCTAssertFalse(TranslatorBriefing.compose(inputs: makeInputs()).contains("| Term |"))
+    }
+
+    // MARK: - Fix mode
+
+    private func fixInputs(isFinalLeg: Bool = false) -> TranslatorBriefing.Inputs {
+        makeInputs(
+            workList: [
+                .init(paragraphId: "a1b2", sourceText: "The fog came in.", status: .fresh,
+                      priorTranslation: "La niebla vino.", directives: ["plain, not lyrical"]),
+                .init(paragraphId: "c3d4", sourceText: "She closed the door.", status: .fresh,
+                      priorTranslation: "Cerró la puerta."),
+            ],
+            mode: .fix(notes: [
+                .init(id: "n-1", paragraphId: "a1b2", author: "Ocampo", kind: "rhythm",
+                      severity: "major", text: "The sentence limps."),
+                .init(id: "n-2", paragraphId: "c3d4", author: "Borges", kind: "omission",
+                      severity: nil, text: "The door is not closed in the translation."),
+            ], isFinalLeg: isFinalLeg))
+    }
+
+    func test_fixMode_workListIsTheNotedParagraphsWithTheirNotes() {
+        let briefing = TranslatorBriefing.compose(inputs: fixInputs())
+        XCTAssertTrue(briefing.contains("[a1b2] (noted)"))
+        XCTAssertTrue(briefing.contains("Current translation: La niebla vino."))
+        XCTAssertTrue(briefing.contains("Note n-1 from Ocampo (rhythm, major): The sentence limps."))
+        XCTAssertTrue(briefing.contains("Note n-2 from Borges (omission): The door is not closed in the translation."))
+        XCTAssertTrue(briefing.contains("Directive from the writer: plain, not lyrical"))
+    }
+
+    /// The repair sentence, in words: a repair, not a polish; unnoted
+    /// paragraphs untouched; every note answered.
+    func test_fixMode_saysItIsARepairAndCarriesTheFixContract() {
+        let briefing = TranslatorBriefing.compose(inputs: fixInputs())
+        XCTAssertTrue(briefing.contains(TranslatorBriefing.repairSentence))
+        XCTAssertTrue(briefing.contains(TranslatorReport.schemaDescription))
+        XCTAssertTrue(briefing.contains(TranslatorReport.fixSchemaDescription))
+        XCTAssertTrue(briefing.contains(TranslatorBriefing.notFinalLegSentence))
+        XCTAssertFalse(briefing.contains(TranslatorBriefing.finalLegSentence))
+    }
+
+    func test_fixMode_finalLegAsksForSummaryAndProposals() {
+        let briefing = TranslatorBriefing.compose(inputs: fixInputs(isFinalLeg: true))
+        XCTAssertTrue(briefing.contains(TranslatorBriefing.finalLegSentence))
+        XCTAssertFalse(briefing.contains(TranslatorBriefing.notFinalLegSentence))
+    }
+
+    func test_reportMode_followsTheBriefingMode() {
+        XCTAssertEqual(makeInputs().reportMode, .translate)
+        XCTAssertEqual(fixInputs().reportMode, .fix(briefedNoteIds: ["n-1", "n-2"]))
+    }
+
+    func test_translateMode_carriesNoFixContract() {
+        let briefing = TranslatorBriefing.compose(inputs: makeInputs())
+        XCTAssertFalse(briefing.contains(TranslatorReport.fixSchemaDescription))
+        XCTAssertTrue(briefing.hasSuffix(TranslatorReport.schemaDescription))
+    }
+
     // MARK: - Fixture
 
     private func makeInputs(
@@ -308,14 +396,16 @@ final class TranslatorBriefingTests: XCTestCase {
         contextParagraphs: [TranslatorBriefing.Inputs.ContextParagraph] = [],
         openQueries: [TranslatorBriefing.Inputs.OpenQuery] = [],
         answeredQueries: [TranslatorBriefing.Inputs.AnsweredQuery] = [],
-        bibleFacts: [BibleFact] = []
+        bibleFacts: [BibleFact] = [],
+        mode: TranslatorBriefing.Mode = .translate,
+        glossary: [GlossaryEntry] = []
     ) -> TranslatorBriefing.Inputs {
         TranslatorBriefing.Inputs(
             translatorName: translatorName, language: language, roleBrief: roleBrief,
             craftIntentText: craftIntentText, editionBriefText: editionBriefText,
             workList: workList, contextParagraphs: contextParagraphs,
             openQueries: openQueries, answeredQueries: answeredQueries,
-            bibleFacts: bibleFacts)
+            bibleFacts: bibleFacts, mode: mode, glossary: glossary)
     }
 
     private func fact(_ subject: String, _ text: String) -> BibleFact {
