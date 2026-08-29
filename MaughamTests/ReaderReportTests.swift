@@ -61,10 +61,17 @@ final class ReaderReportTests: XCTestCase {
     }
 
     func test_wireFieldNamesAppearInTheSchemaDescription() {
-        for name in ["overall", "verdict", "text", "notes", "paragraph_id", "kind", "severity",
-                     "reads_as_native", "reads_as_translated", "mixed",
-                     "unidiomatic", "register", "rhythm", "grammar", "inconsistency", "minor", "major"] {
+        for name in ["overall", "verdict", "text", "notes", "paragraph_id", "kind", "severity"] {
             XCTAssertTrue(ReaderReport.schemaDescription.contains(name), name)
+        }
+        for verdict in ReaderReport.Verdict.allCases {
+            XCTAssertTrue(ReaderReport.schemaDescription.contains(verdict.rawValue), verdict.rawValue)
+        }
+        for kind in ReaderReport.NoteKind.allCases {
+            XCTAssertTrue(ReaderReport.schemaDescription.contains(kind.rawValue), kind.rawValue)
+        }
+        for severity in ReaderReport.Severity.allCases {
+            XCTAssertTrue(ReaderReport.schemaDescription.contains(severity.rawValue), severity.rawValue)
         }
         XCTAssertTrue(ReaderReport.schemaDescription.contains("Do not rewrite"))
     }

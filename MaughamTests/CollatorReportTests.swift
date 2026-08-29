@@ -54,10 +54,14 @@ final class CollatorReportTests: XCTestCase {
     }
 
     func test_wireFieldNamesAppearInTheSchemaDescription() {
-        for name in ["overall", "text", "departures", "paragraph_id", "verdict", "kind", "note", "gloss",
-                     "holds", "drifted", "mistranslation", "omission", "addition", "untranslated",
-                     "inconsistency", "rendering"] {
+        for name in ["overall", "text", "departures", "paragraph_id", "verdict", "kind", "note", "gloss"] {
             XCTAssertTrue(CollatorReport.schemaDescription.contains(name), name)
+        }
+        for verdict in CollatorReport.Verdict.allCases {
+            XCTAssertTrue(CollatorReport.schemaDescription.contains(verdict.rawValue), verdict.rawValue)
+        }
+        for kind in CollatorReport.Kind.allCases {
+            XCTAssertTrue(CollatorReport.schemaDescription.contains(kind.rawValue), kind.rawValue)
         }
     }
 }
