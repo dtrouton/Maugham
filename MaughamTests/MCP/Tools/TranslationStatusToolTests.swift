@@ -549,6 +549,70 @@ final class TranslationStatusToolTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    // MARK: - Task 8: the row names the reader, collator and last round
+
+    /// The row names the whole cast for a preset language (spec §8's MCP
+    /// line), read without minting, and omits what has no honest name.
+    func test_rowsNameTheReaderAndCollatorWithoutMinting() async throws {
+        let h = try await makeHarness()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "a")
+
+        let result = try await status(h, [
+            "project_id": h.projectId,
+            "document_id": "doc-1"
+        ])
+        let row = try XCTUnwrap(result.rows.first { $0.language == "es" })
+        XCTAssertEqual(row.translator, "Cortázar")
+        XCTAssertEqual(row.reader, "Ocampo")
+        XCTAssertEqual(row.collator, "Borges")
+        XCTAssertNil(row.last_round)
+        XCTAssertTrue(h.projectStore.manifest.productionRoles.isEmpty, "a read never mints")
+
+        await h.documentStore.close()
+    }
+
+    /// `last_round` is this `(document, language)` pair's newest round — never
+    /// another document's round for the same language.
+    func test_theLastRoundIsThisPairsNewestAndAnotherChaptersIsNotReported() async throws {
+        let h = try await makeHarness()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "a")
+        let docId = h.doc1.docId
+
+        var round = TranslationRound(number: 4, language: "es", docId: docId, startedAt: Date())
+        round.leg2 = .init(verdict: "mixed", text: "…")
+        round.leg4 = .init(verdict: "reads_as_native", text: "…")
+        round.notes = [.init(id: "n1", leg: .read, author: "Ocampo", paragraphId: "a1b2",
+                             kind: "rhythm", severity: "minor", text: "Limps.",
+                             outcome: .declined(reason: "Deliberate.", annotationId: nil))]
+        round.departures = [.init(id: "d1", paragraphId: "a1b2", verdict: "holds", kind: "rendering",
+                                  note: "Split.", gloss: "…", outcome: nil)]
+        round.summary = "Done."
+        round.legs = [.init(leg: .translate, status: .ran, counts: .init(entries: 1))]
+        try TranslationRoundStore(projectURL: h.projectURL).append(round)
+        var other = TranslationRound(number: 5, language: "es", docId: "doc-other", startedAt: Date())
+        other.legs = [.init(leg: .read, status: .failed, reason: "died")]
+        try TranslationRoundStore(projectURL: h.projectURL).append(other)
+
+        let result = try await status(h, [
+            "project_id": h.projectId,
+            "document_id": "doc-1"
+        ])
+        let row = try XCTUnwrap(result.rows.first { $0.language == "es" })
+        let last = try XCTUnwrap(row.last_round)
+        XCTAssertEqual(last.number, 4, "chapter-other's round 5 is not this row's")
+        XCTAssertEqual(last.leg2_verdict, "mixed")
+        XCTAssertEqual(last.leg4_verdict, "reads_as_native")
+        XCTAssertEqual(last.notes, 1)
+        XCTAssertEqual(last.departures, 1)
+        XCTAssertEqual(last.declined, 1)
+        XCTAssertEqual(last.summary, "Done.")
+        XCTAssertNil(last.stopped_at)
+
+        await h.documentStore.close()
+    }
+
     /// The control: the same call over a book that reads cleanly reports the
     /// field EMPTY rather than absent — the always-present-array shape
     /// `write_translation`'s `warnings` set, so a reader never has to tell
