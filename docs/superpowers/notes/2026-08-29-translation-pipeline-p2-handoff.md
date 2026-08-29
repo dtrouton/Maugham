@@ -47,7 +47,7 @@ From Plan 2:
 ## Gate record
 
 - Gate at `18fab610` (all ten tasks): first run 7379 / 7366 passed / **1 failed** / 12 skipped — `TreeTravelRowMountingTests.test_aDoubleClickOnTheRowsNameTravelsToAuthor`, a mounted synthetic click in a file this branch never touched; passed in isolation, screen unlocked, no other session's `xcodebuild`. Second run: 7379 / 7369 / **0 failed** / 10 skipped (`maugham-full-20260829-163454.xcresult`). The click-landing environment flips between gates (four sibling single-click cases were measured-and-skipped in run 1) — the standing confounder, not a regression.
-- Gate at the fix-wave head is recorded in the memory note and the merge commit.
+- Gate at the fix-wave head `39e7c589`: 7382 / 7371 passed / **1 failed** / 10 skipped (`maugham-full-20260829-165149.xcresult`) — the SAME double-click test, and this time `ioreg -n Root -d1 | grep ScreenIsLocked` reported `CGSSessionScreenIsLocked=Yes`: the documented locked-screen cause for a mounted synthetic click (CLAUDE.md, build flow). The fix wave changed tests, doc comments, one lowercase in `TranslatorsNote.editions` and the sheet's Escape/focus — nothing on a click path. Merged on that evidence; **Denver: re-run `./scripts/test.sh full` with the screen unlocked to see the clean 0-failed the code deserves**, and if that double-click case ever fails unlocked, it is a real report.
 
 ## Process lessons from this run
 
