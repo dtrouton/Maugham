@@ -799,6 +799,37 @@ and one pending-proposal badge per project, never one per language the way
 the translator's rows are. See `Maugham/Stores/AREA.md`'s own
 `DesignProposalStore` entry for the store's shape.
 
+## Cold calls — the sealed sessions (translation pipeline P2)
+
+`ColdCall.swift` is the one runner every **cold** session shares: a reader, a
+collator, a gloss and an Ask-the-collator (spec §5, §9 — the callers arrive in
+Plans 3–4; P2 built the runner and wired its teardown). One call = one fresh
+process, one briefing sent, one report returned, the process ended. There is
+no `ReaderOrchestrator`: warmth would buy nothing (the whole briefing is
+re-sent every leg) and would cost blindness.
+
+- **Confinement is an enum on the session, not a setting** —
+  `ClaudeCLISession.Confinement.bridged(mcpConfigPath:)` for the compiler,
+  translator and designer (the two-flag membrane above, unchanged), `.sealed`
+  for a cold call: **no `--mcp-config`, no `--allowedTools`**, `--tools ""` and
+  `--strict-mcp-config` as before. Pinned by `ClaudeCLISessionTests
+  .test_aSealedSessionSpawnsWithNoBridgeAndNoAllowlist` beside the bridged
+  spike pin, and by two `TripwireGrepTests` censuses: `ColdCall.swift` never
+  contains `writeMCPConfig`/`.bridged(`/`CompilerAllowlist`, and `.sealed` is
+  spelled in production nowhere but `ColdCall.swift` and the session type.
+- **One call at a time** (`runInFlight` refusal); no queue — leg order is the
+  pipeline's (Plan 3).
+- **Teardown: the census's fourth sibling.** `ProjectWindow` owns a `ColdCall`
+  beside the three orchestrators; `CompilerRunModifier`'s two arms and
+  `.onDisappear` carry `coldCall.shutdown()`/`coldCall.detach()`;
+  `TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`
+  counts it.
+- **The briefings it will be handed are pure**: `ReaderBriefing` and
+  `CollatorBriefing` (this directory) follow `TranslatorBriefing`'s discipline
+  — no I/O, no clock. `BriefingDoctrine.swift` is where directives and the
+  glossary are read off statement markdown (`Ruling.directive`/`.glossary`,
+  MaughamCore) into the plain values all three briefings take.
+
 ## Tripwires this area sits on
 
 - **17 / 24 — the sidecar.** `.maugham/diagnostics/<docId>.<slug>.json` is

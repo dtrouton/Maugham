@@ -327,6 +327,15 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamFindInProject, to: .keyWindow)
                 }
                 .keyboardShortcut("f", modifiers: [.command, .option])
+                // **⌘⌥C, for *direCtive*** — every letter of "translator's
+                // note" the ⌘⌥ family could use is spoken for (T Tasks, N
+                // Intent, R Research, A Annotations, L Translation, O Outline,
+                // E References), and C is the first free letter in the word
+                // for what the note IS on disk (spec §3).
+                Button("Translator\u{2019}s Note\u{2026}") {
+                    MaughamEvent.post(.maughamTranslatorsNote, to: .keyWindow)
+                }
+                .keyboardShortcut("c", modifiers: [.command, .option])
                 // Scoped to the delete ACTION, not to one item (RULING-40), and
                 // the label says so.
                 Button("Restore Last Deletion") {

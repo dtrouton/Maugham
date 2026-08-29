@@ -74,18 +74,28 @@ final class TranslatorOrchestratorTests: XCTestCase {
     /// (`TranslationHash.hash` over the same prose the work item carries), so
     /// an assertion about what reaches ingest is an assertion about a value
     /// production could have produced.
-    private func makeRound(work: Int = 1) -> TranslatorOrchestrator.BriefedRound {
+    private func makeRound(
+        work: Int = 1, mode: TranslatorBriefing.Mode = .translate
+    ) -> TranslatorOrchestrator.BriefedRound {
         let ids = ["a1b2", "c3d4", "e5f6"]
-        let items = (0..<work).map { index in
-            TranslatorBriefing.Inputs.WorkItem(
-                paragraphId: ids[index % ids.count],
-                sourceText: "The fog came.", status: .missing)
+        let items = (0..<work).map { index -> TranslatorBriefing.Inputs.WorkItem in
+            let paragraphId = ids[index % ids.count]
+            switch mode {
+            case .translate:
+                return TranslatorBriefing.Inputs.WorkItem(
+                    paragraphId: paragraphId, sourceText: "The fog came.", status: .missing)
+            case .fix:
+                return TranslatorBriefing.Inputs.WorkItem(
+                    paragraphId: paragraphId, sourceText: "The fog came.", status: .fresh,
+                    priorTranslation: "Y.")
+            }
         }
         return TranslatorOrchestrator.BriefedRound(
             inputs: TranslatorBriefing.Inputs(
                 translatorName: "Elena Ruiz",
                 language: language,
-                workList: items),
+                workList: items,
+                mode: mode),
             sourceHashes: Dictionary(
                 items.map { ($0.paragraphId, TranslationHash.hash($0.sourceText)) },
                 uniquingKeysWith: { first, _ in first }))
@@ -426,6 +436,35 @@ final class TranslatorOrchestratorTests: XCTestCase {
             XCTAssertEqual(reported, .run(failure))
             XCTAssertEqual(harness.summaries.map(\.outcome), [.failed(.run(failure))])
         }
+    }
+
+    /// The parser's mode is the briefing's: a fix-mode round whose report
+    /// leaves a briefed note unaccounted for is unusable output, not a
+    /// translate-mode success.
+    func test_aFixModeRoundIsParsedWithTheFixContract() throws {
+        let runner = SpyRunner()
+        // A translate-shaped report — entries only, no `addressed`/`declined`
+        // — which a fix-mode parse must refuse: the briefed note is unaccounted for.
+        runner.nextEvent = .resultText(Self.oneEntry)
+        let note = TranslatorBriefing.FixNote(
+            id: "n-1", paragraphId: "a1b2", author: "Ocampo", kind: "rhythm",
+            severity: "major", text: "The sentence limps.")
+        let harness = try makeHarness(
+            runner: runner,
+            round: makeRound(mode: .fix(notes: [note], isFinalLeg: false)))
+
+        harness.orchestrator.runTranslation(docId: docId, language: language)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertTrue(harness.ingests.isEmpty,
+                      "a fix leg's report that ignores its note must not be ingested")
+        guard case .failed(_, _, let reported, _) = harness.orchestrator.runState else {
+            return XCTFail("expected unusableOutput, got \(harness.orchestrator.runState)")
+        }
+        XCTAssertEqual(reported, .run(.unusableOutput))
+        XCTAssertTrue(runner.sends[0].message.contains(TranslatorBriefing.repairSentence),
+                      "…and the briefing that went out was the fix leg's")
     }
 
     /// Output that cannot be read at all is a failure in the same

@@ -417,7 +417,7 @@ extension CompilerOrchestrator.Environment {
             makeRunner: { configURL, model in
                 ClaudeCLISession(
                     model: model,
-                    mcpConfigPath: configURL,
+                    confinement: .bridged(mcpConfigPath: configURL),
                     cliOverride: nil,
                     // Read at every spawn, never captured as a value: a session
                     // already warm when the writer turns Claude off must not

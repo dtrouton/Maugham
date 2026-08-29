@@ -202,6 +202,7 @@ final class ClaudeCLISessionTests: XCTestCase {
 
     private func makeSession(
         cli: URL?,
+        confinement: ClaudeCLISession.Confinement? = nil,
         isEnabled: @escaping () -> Bool = { true },
         idleTimeout: TimeInterval = 600,
         runTimeout: TimeInterval = 20,
@@ -210,7 +211,8 @@ final class ClaudeCLISessionTests: XCTestCase {
     ) -> ClaudeCLISession {
         ClaudeCLISession(
             model: "haiku",
-            mcpConfigPath: tempDir.appendingPathComponent("mcp.json"),
+            confinement: confinement
+                ?? .bridged(mcpConfigPath: tempDir.appendingPathComponent("mcp.json")),
             cliOverride: cli,
             isEnabled: isEnabled,
             idleTimeout: idleTimeout,
@@ -829,6 +831,70 @@ final class ClaudeCLISessionTests: XCTestCase {
             "the session runs in its own config directory, never an inherited cwd")
 
         session.shutdown()
+    }
+
+    /// **The sealed membrane, pinned the way the bridged one is** (translation
+    /// pipeline spec §11): a reader, a collator or a gloss is blind by
+    /// construction — no bridge config, no allowlist, built-ins emptied.
+    func test_aSealedSessionSpawnsWithNoBridgeAndNoAllowlist() async throws {
+        let cli = try makeFakeCLI(mode: .normal)
+        let session = makeSession(cli: cli, confinement: .sealed)
+
+        _ = await session.send(message: "hello", systemPreamble: "BE TERSE")
+
+        var argv = try String(contentsOf: argsURL, encoding: .utf8)
+            .components(separatedBy: "\n")
+        if argv.last?.isEmpty == true { argv.removeLast() }
+
+        for flag in ["-p", "--verbose", "--strict-mcp-config"] {
+            XCTAssertTrue(argv.contains(flag), "missing \(flag) in \(argv)")
+        }
+        XCTAssertFalse(argv.contains("--mcp-config"),
+                       "a sealed session must not be handed Maugham's bridge: \(argv)")
+        XCTAssertFalse(argv.contains("--allowedTools"),
+                       "there is nothing to pre-approve in a sealed session: \(argv)")
+        func value(after flag: String) -> String? {
+            guard let i = argv.firstIndex(of: flag), i + 1 < argv.count else { return nil }
+            return argv[i + 1]
+        }
+        XCTAssertEqual(value(after: "--tools"), "",
+                       "--tools \"\" is what removes Read/Glob/Grep")
+        XCTAssertEqual(value(after: "--append-system-prompt"), "BE TERSE")
+
+        let cwd = try String(contentsOf: cwdURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(
+            URL(fileURLWithPath: cwd).resolvingSymlinksInPath().path,
+            ClaudeCLISession.sessionConfigDirectory.resolvingSymlinksInPath().path,
+            "a sealed process stands in the session config directory, never the "
+            + "writer's project")
+        session.shutdown()
+    }
+
+    /// The pure half — no subprocess — so the difference between the two
+    /// confinements is readable in one assertion each.
+    func test_argumentsDifferBetweenBridgedAndSealedExactlyWhereTheMembraneSaysTheyDo() {
+        let config = URL(fileURLWithPath: "/tmp/x/mcp.json")
+        let bridged = ClaudeCLISession.arguments(
+            model: "haiku", confinement: .bridged(mcpConfigPath: config), preamble: nil)
+        let sealed = ClaudeCLISession.arguments(
+            model: "haiku", confinement: .sealed, preamble: nil)
+
+        XCTAssertTrue(bridged.contains("--mcp-config"))
+        XCTAssertTrue(bridged.contains("--allowedTools"))
+        XCTAssertFalse(sealed.contains("--mcp-config"))
+        XCTAssertFalse(sealed.contains("--allowedTools"))
+        for args in [bridged, sealed] {
+            XCTAssertTrue(args.contains("--strict-mcp-config"))
+            XCTAssertTrue(args.contains("--include-partial-messages"))
+            let toolsIndex = try? XCTUnwrap(args.firstIndex(of: "--tools"))
+            XCTAssertEqual(toolsIndex.map { args[$0 + 1] }, "")
+        }
+        XCTAssertEqual(ClaudeCLISession.Confinement.sealed.workingDirectory,
+                       ClaudeCLISession.sessionConfigDirectory)
+        XCTAssertEqual(
+            ClaudeCLISession.Confinement.bridged(mcpConfigPath: config).workingDirectory,
+            config.deletingLastPathComponent())
     }
 
     // MARK: - Streaming (Task 4)

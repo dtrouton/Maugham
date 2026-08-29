@@ -131,6 +131,10 @@ extension Notification.Name {
     public static let maughamFindMatchSelected = Notification.Name("maugham.find.match.selected")
     public static let maughamFindInProject = Notification.Name("maugham.find.in.project")
     public static let maughamCloseFind = Notification.Name("maugham.close.find")
+    /// Posted by ⌘⌥C / Edit ▸ Translator's Note… (translation pipeline P2):
+    /// the window opens the note sheet on the paragraph under the caret.
+    /// Scope: .keyWindow — a command, not a data event.
+    public static let maughamTranslatorsNote = Notification.Name("maugham.translators.note")
     /// Posted by ⌘⌥O (shell-finish stage-3a Task 5). The outline is no longer
     /// a right-pane segment — it is the project row's altitude view (Tasks
     /// 1–3), so the shortcut's new job is to land the writer on that row: the
