@@ -56,6 +56,12 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// record of finished rounds is the proposal it stages, which the desk
     /// re-derives, so there is no log beside it.
     var designer: DesignerOrchestrator? = nil
+    /// The window's translation pipeline (translation pipeline P3), threaded and
+    /// defaulted exactly as `translator` is and travelling to the same desk. The
+    /// desk needs it for the one-round-at-a-time gate: a round's cold legs hold
+    /// no translator session, so without it every row offers Run while a reader
+    /// is out.
+    var pipeline: TranslationPipeline? = nil
     /// **Where the desk's Show sends a proposal** (publish-department P4 Task 5)
     /// — the window's centre column, which this view is not in. Threaded and
     /// defaulted exactly as `onSetActivePass`/`onSetPassState` are, and for the
@@ -126,6 +132,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         translator: TranslatorOrchestrator? = nil,
         translationRuns: TranslationRunLog? = nil,
         designer: DesignerOrchestrator? = nil,
+        pipeline: TranslationPipeline? = nil,
         onShowDesignProposal: @escaping (DesignProposalStore.Proposal) -> Void = { _ in },
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
@@ -155,6 +162,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.translator = translator
         self.translationRuns = translationRuns
         self.designer = designer
+        self.pipeline = pipeline
         self.onShowDesignProposal = onShowDesignProposal
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
@@ -504,6 +512,7 @@ struct DetailPaneToggle<Inspector: View>: View {
                                translator: translator,
                                runLog: translationRuns,
                                designer: designer,
+                               pipeline: pipeline,
                                onShowProposal: onShowDesignProposal)
         } else {
             ContentUnavailableView(

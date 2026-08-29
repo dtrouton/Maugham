@@ -228,6 +228,20 @@ final class DepartmentRunTests: XCTestCase {
             "a round that ended badly is not a session still holding the desk")
     }
 
+    /// The one-round-at-a-time gate is a PIPELINE gate now (spec §5): a cold
+    /// leg holds no translator session, so the translator reads free while a
+    /// reader is out — and every row must still refuse, naming the edition.
+    func test_thePipelineHoldsTheGateEvenWhileTheTranslatorIsFree() {
+        let busy = DepartmentRunSession.read(
+            runState: .idle, isRunning: false,
+            pipeline: .running(docId: "doc-1", language: "fr", leg: .read, book: nil))
+        XCTAssertEqual(busy, .busy(language: "fr"))
+        XCTAssertEqual(DepartmentRunSession.read(runState: .idle, isRunning: false, pipeline: .idle), .free)
+        XCTAssertEqual(
+            DepartmentRunState.refusal(target: .ready(docId: "doc-1", title: "One"), session: busy),
+            DepartmentRunState.busyReason(language: "fr"))
+    }
+
     /// **A language tag the write pipeline will not accept is refused at the desk,
     /// in words** — the malformed-tag arm of Constraint 2.
     ///

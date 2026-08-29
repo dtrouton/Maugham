@@ -27,6 +27,15 @@ import AppKit
 /// sibling calls. `TranslatorEnvironmentTests`' census is what keeps
 /// them paired — a run verb for either is P4's, so nothing else here would
 /// notice one's absence.
+///
+/// **And a fifth sibling that owns no session at all** (translation pipeline
+/// P3): `TranslationPipeline` owns the WAITING LEG. A round suspends between
+/// legs on a continuation resumed by the translator's own summary, and the two
+/// arms below shut that translator down — so a pipeline left alone here has a
+/// round parked forever on a summary that will never come, its progress never
+/// recorded. Its `shutdown()` is therefore the FIRST line of each arm, before
+/// the orchestrators resolve their legs: the generation it bumps is what makes
+/// the parked leg answer cancelled rather than believe a late summary.
 struct CompilerRunModifier: ViewModifier {
     let orchestrator: CompilerOrchestrator
     /// The translator's session, torn down beside the compiler's. No run keys
@@ -40,6 +49,9 @@ struct CompilerRunModifier: ViewModifier {
     /// or collator mid-read when the window ends is a live, billing process
     /// otherwise (translation pipeline spec §5, "session owners").
     let coldCall: ColdCall
+    /// The pipeline sequencing the two above. Owns no session; owns the leg
+    /// that waits — see this type's doc comment for why it goes down first.
+    let pipeline: TranslationPipeline
     let window: NSWindow?
     /// The window's subject as a document id, or the no-document sentinel.
     /// Resolved by the window, not here: this modifier has no opinion about
@@ -64,6 +76,7 @@ struct CompilerRunModifier: ViewModifier {
                 orchestrator.runRequested(docId: activeDocId, freshEyes: true)
             }
             .onGlobalEvent(.maughamAppWillTerminate) { _ in
+                pipeline.shutdown()
                 orchestrator.shutdown()
                 translator.shutdown()
                 designer.shutdown()
@@ -71,6 +84,7 @@ struct CompilerRunModifier: ViewModifier {
             }
             .onChange(of: mcpEnabled) { _, enabled in
                 guard !enabled else { return }
+                pipeline.shutdown()
                 orchestrator.shutdown()
                 translator.shutdown()
                 designer.shutdown()
