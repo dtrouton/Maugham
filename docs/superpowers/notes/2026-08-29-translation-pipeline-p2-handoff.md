@@ -1,6 +1,6 @@
 # Translation pipeline — handoff after Plan 2 (2026-08-29)
 
-Written for a fresh session picking up Plan 3. Plan 2 is built on branch `translation-pipeline-p2` (ten tasks + one whole-branch fix wave) and merged to `main` locally, not pushed. The full gate at the fix-wave head is recorded at the bottom of this note; read the kept xcresult, never the pipe's exit code.
+Written for a fresh session picking up Plan 3. Plan 2 is built on branch `translation-pipeline-p2` (ten tasks + one whole-branch fix wave) and merged to `main` locally at **`2498d90b`** (`--no-ff`, 13 commits), not pushed; the worktree `../Maugham-wt/translation-p2` is kept. The full gate at the fix-wave head is recorded at the bottom of this note; read the kept xcresult, never the pipe's exit code.
 
 ## Where things stand
 
