@@ -101,15 +101,15 @@ struct TranslatorReport: Equatable {
     /// round with nothing left to do — parses successfully. An empty LIST is
     /// a complete answer; an empty STRING inside one never is.
     static func parse(_ raw: String) -> TranslatorReport? {
-        guard let object = reportObject(in: raw),
-              let entries = parseList(object, key: WireField.entries, parseItem: parseEntry),
-              let queries = parseList(object, key: WireField.queries, parseItem: parseQuery)
+        guard let object = ReportJSON.lastObject(in: raw, shapedBy: [WireField.entries, WireField.queries]),
+              let entries = ReportJSON.parseList(object, key: WireField.entries, parseItem: parseEntry),
+              let queries = ReportJSON.parseList(object, key: WireField.queries, parseItem: parseQuery)
         else { return nil }
         return TranslatorReport(entries: entries, queries: queries)
     }
 
     private static func parseEntry(_ item: [String: Any]) -> Entry? {
-        guard let paragraphId = nonEmptyString(item[WireField.paragraphId]) else { return nil }
+        guard let paragraphId = ReportJSON.nonEmptyString(item[WireField.paragraphId]) else { return nil }
         // **`nonEmptyString`, the same discipline the id gets.** `"text": ""`
         // is not a translation and neither is `"   "`; taken at face value it
         // would blank the paragraph in the published edition through a path
@@ -119,7 +119,7 @@ struct TranslatorReport: Equatable {
         // what routes it into the exactly-one-form rule below, which refuses
         // the whole report — an entry with neither form, which is what an
         // empty text is.
-        let text = nonEmptyString(item[WireField.text])
+        let text = ReportJSON.nonEmptyString(item[WireField.text])
         let verbatim = (item[WireField.verbatim] as? Bool) == true
         // Exactly one of the two forms. `(text != nil) != verbatim` is an
         // XOR over two booleans: equal (both true, both false) refuses,
@@ -133,7 +133,7 @@ struct TranslatorReport: Equatable {
         // applies here as everywhere else in this parser: a model that emitted
         // an empty query has lost the contract, and there is no knowing what
         // else in the turn to trust.
-        guard let text = nonEmptyString(item[WireField.text]),
+        guard let text = ReportJSON.nonEmptyString(item[WireField.text]),
               let paragraphId = paragraphIdField(item)
         else { return nil }
         return Query(paragraphId: paragraphId, text: text)
@@ -148,111 +148,7 @@ struct TranslatorReport: Equatable {
         guard let raw = item[WireField.paragraphId], !(raw is NSNull) else {
             return .some(nil)
         }
-        guard let string = nonEmptyString(raw) else { return nil }
+        guard let string = ReportJSON.nonEmptyString(raw) else { return nil }
         return .some(string)
-    }
-
-    /// A key that is absent reads as an empty list — a model that omits an
-    /// empty array has still answered "nothing here". A key that is present
-    /// but the wrong shape, or any one element that fails `parseItem`, fails
-    /// the whole list — which is what makes the caller's all-or-nothing hold
-    /// once this returns `nil`.
-    private static func parseList<T>(
-        _ container: [String: Any], key: String, parseItem: ([String: Any]) -> T?
-    ) -> [T]? {
-        guard let value = container[key] else { return [] }
-        guard let raw = value as? [Any] else { return nil }
-        var results: [T] = []
-        results.reserveCapacity(raw.count)
-        for element in raw {
-            guard let item = element as? [String: Any], let parsed = parseItem(item) else {
-                return nil
-            }
-            results.append(parsed)
-        }
-        return results
-    }
-
-    /// A `String` value with something in it. Mirrors
-    /// `DiagnosticIngest.nonEmptyString` — same discipline, kept local
-    /// because this type owns no dependency on the compiler's ingest.
-    ///
-    /// It TRIMS, and every field routed through it is kept trimmed: the
-    /// paragraph id, the translated paragraph, the question. Deliberate —
-    /// whitespace around a model's answer is an artifact of how it wrote its
-    /// JSON, not of the prose, and the pipeline stores and hashes exactly
-    /// what it is handed.
-    private static func nonEmptyString(_ value: Any?) -> String? {
-        guard let string = value as? String else { return nil }
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    // MARK: - JSON extraction
-
-    /// The LAST complete top-level JSON object in `raw` that looks like a
-    /// translator report — i.e. carries an `entries` or `queries` key.
-    ///
-    /// Mirrors `DiagnosticIngest`'s brace-balanced, string-aware span scan
-    /// (`objectSpans`) — tolerant of a fence around the object and of prose
-    /// before or after it, for the same reason: fence markers hold no
-    /// braces, so a fenced block's object is still exactly one span. Where
-    /// this differs from the compiler's discipline: `DiagnosticIngest`
-    /// reads the FIRST section-shaped span, because a section-per-line turn
-    /// puts its real content up front. A translator turn is answered by a
-    /// single object, and a model that reasons in prose before committing
-    /// to its answer tends to put worked examples earlier and the real
-    /// answer last — so this reads spans in reverse and returns the first
-    /// match found that way, i.e. the last complete block in the text.
-    private static func reportObject(in raw: String) -> [String: Any]? {
-        for span in objectSpans(in: raw).reversed() {
-            guard let data = span.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data),
-                  let dictionary = object as? [String: Any],
-                  dictionary[WireField.entries] != nil || dictionary[WireField.queries] != nil
-            else { continue }
-            return dictionary
-        }
-        return nil
-    }
-
-    /// Every top-level `{...}` span in `text`, brace-balanced and
-    /// string-aware. Identical discipline to `DiagnosticIngest.objectSpans`
-    /// — see that copy for the reasoning; duplicated here rather than
-    /// shared because it is `private` there and this type owes the
-    /// compiler's ingest no dependency.
-    private static func objectSpans(in text: String) -> [String] {
-        var spans: [String] = []
-        var depth = 0
-        var start: String.Index?
-        var inString = false
-        var escaped = false
-
-        for index in text.indices {
-            let character = text[index]
-            if inString {
-                if escaped { escaped = false }
-                else if character == "\\" { escaped = true }
-                else if character == "\"" { inString = false }
-                continue
-            }
-            switch character {
-            case "\"":
-                inString = true
-            case "{":
-                if depth == 0 { start = index }
-                depth += 1
-            case "}":
-                guard depth > 0 else { break }
-                depth -= 1
-                if depth == 0, let opening = start {
-                    spans.append(String(text[opening...index]))
-                    start = nil
-                }
-            default:
-                break
-            }
-        }
-        return spans
     }
 }
