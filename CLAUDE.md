@@ -28,7 +28,7 @@ These are non-negotiable. Violating one is a regression even if tests pass.
 ## Build flow
 
 ```
-./gen.sh                    # xcodegen → Maugham.xcodeproj (run after every clone + after project.yml edits)
+./gen.sh                    # xcodegen → Maugham.xcodeproj (run after every clone, after project.yml edits, AND after ADDING any source/test file — the project is generated from globs, and a stale one runs 0 tests for a new test file with no error; 2026-08-29)
 ./scripts/test.sh           # fast loop (~65s): core package tests + Mac scheme minus the CanvasViewMounting* family
 ./scripts/test.sh full      # pre-merge/tag gate (~70-90s): core + full Mac scheme, NO skips; keeps an xcresult per run
 ./scripts/test.sh phone     # iOS simulator run
