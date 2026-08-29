@@ -479,6 +479,93 @@ final class TranslatorEnvironmentTests: XCTestCase {
         await harness.documentStore.close()
     }
 
+    /// **Spec §2's `directed`**: a fresh paragraph carrying a directive ruled
+    /// after its record is this round's work; one whose directive is older
+    /// than its record is not.
+    func test_aDirectiveNewerThanTheRecordMakesAFreshParagraphWork() async throws {
+        let harness = try await makeHarness()
+        let ids = harness.doc.sequence
+        // Every paragraph fresh, translated "two days ago" so the ruling days
+        // below fall clearly on either side.
+        let twoDaysAgo = Date().addingTimeInterval(-2 * 86_400)
+        for id in ids {
+            try await TranslationStore.append(
+                TranslationRecord(
+                    paragraphId: id, language: "es", text: "…",
+                    sourceHash: TranslationHash.hash(harness.doc.paragraphs[id] ?? ""),
+                    at: twoDaysAgo),
+                forDocId: harness.doc.docId,
+                deviceSlug: DeviceSlug.make(from: MacDeviceID.current),
+                in: harness.projectURL)
+        }
+        _ = try await harness.environment.translatorIdentity("es")
+
+        // ids[0]: directive ruled TODAY (after the record) → directed.
+        try await RulingPerformer.rule(
+            Ruling.directiveText(paragraphId: ids[0], "keep it plain"),
+            provenance: Ruling.Provenance.translatorsNote,
+            kind: .intent, forScope: .document(harness.doc.docId),
+            store: harness.projectStore, world: nil)
+        // ids[1]: a directive dated a week BEFORE the record → not directed.
+        let brief = try await harness.projectStore.createStatement(
+            kind: .editionBrief("es"), scope: .project)
+        try await harness.projectStore.mutateStatementText(
+            of: brief, session: "test-\(UUID().uuidString)") { markdown in
+            RulingsSection.appending(
+                Ruling.directiveText(paragraphId: ids[1], "one sentence"),
+                provenance: Ruling.Provenance.translatorsNote,
+                on: twoDaysAgo.addingTimeInterval(-7 * 86_400), to: markdown)
+        }
+
+        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let inputs = try XCTUnwrap(gathered).inputs
+
+        XCTAssertEqual(inputs.workList.map(\.paragraphId), [ids[0]])
+        XCTAssertEqual(inputs.workList.first?.status, .fresh)
+        XCTAssertEqual(inputs.workList.first?.priorTranslation, "…",
+                       "a directed item hands over what it currently says")
+        XCTAssertEqual(inputs.workList.first?.directives, ["keep it plain"])
+        XCTAssertEqual(gathered?.sourceHashes.keys.sorted(), [ids[0]],
+                       "the mid-run-edit guard covers the directed item too")
+
+        await harness.documentStore.close()
+    }
+
+    /// Directives and the glossary reach the briefing off the writer's own
+    /// statements — craft intent's for every edition, the brief's for this one.
+    func test_theBriefingCarriesDirectivesFromBothStatementsAndTheGlossary() async throws {
+        let harness = try await makeHarness()
+        let ids = harness.doc.sequence
+        _ = try await harness.environment.translatorIdentity("es")
+        try await RulingPerformer.rule(
+            Ruling.directiveText(paragraphId: ids[2], "this fragment is deliberate"),
+            provenance: Ruling.Provenance.translatorsNote,
+            kind: .intent, forScope: .document(harness.doc.docId),
+            store: harness.projectStore, world: nil)
+        try await RulingPerformer.rule(
+            Ruling.directiveText(paragraphId: ids[2], "do not elevate this"),
+            provenance: Ruling.Provenance.translatorsNote,
+            kind: .editionBrief("es"), forScope: .project,
+            store: harness.projectStore, world: nil)
+        try await RulingPerformer.rule(
+            Ruling.glossaryText(term: "October", rendering: "Octubre", note: "the month"),
+            provenance: Ruling.Provenance.glossary,
+            kind: .editionBrief("es"), forScope: .project,
+            store: harness.projectStore, world: nil)
+
+        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let inputs = try XCTUnwrap(gathered).inputs
+
+        let last = try XCTUnwrap(inputs.workList.first { $0.paragraphId == ids[2] })
+        XCTAssertEqual(last.directives, ["this fragment is deliberate", "do not elevate this"],
+                       "craft intent's first, then the brief's")
+        XCTAssertEqual(inputs.glossary,
+                       [GlossaryEntry(term: "October", rendering: "Octubre", note: "the month")])
+        XCTAssertEqual(inputs.mode, .translate)
+
+        await harness.documentStore.close()
+    }
+
     /// The name in the briefing is the one the identity minted — Task 4's
     /// order made load-bearing here: production reads both off the same stored
     /// translator row.

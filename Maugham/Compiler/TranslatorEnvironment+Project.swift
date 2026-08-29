@@ -155,16 +155,27 @@ extension TranslatorOrchestrator.Environment {
         // find-or-create verb would be a second chance to mint.
         let role = store.manifest.storedTranslator(for: language)
 
+        let intentText = craftIntentText(docId: docId, store: store)
+        let briefText = editionBriefText(language: language, store: store)
+        let directives = Directives.byParagraph(
+            Directives.gather(craftIntent: intentText, editionBrief: briefText))
+
+        let records = TranslationStore.loadMerged(
+            forDocId: docId, language: language, in: projectURL)
+        let latest = TranslationStore.latestByParagraph(records)
         let derived = TranslationDeriver.derive(
-            records: TranslationStore.loadMerged(
-                forDocId: docId, language: language, in: projectURL),
+            records: records,
             sequence: state.sequence, paragraphs: state.paragraphs, language: language)
 
-        // The delta: stale and missing, in manuscript order. A fresh paragraph
-        // is not this round's work, and `TranslationDeriver` already knows which
-        // is which — asking a subprocess would be the compiler's empty-delta
-        // mistake in another currency.
-        let work = derived.entries.filter { $0.status != .fresh }
+        // **The delta is `stale ∪ missing ∪ directed`** (spec §2). Stale and
+        // missing are the deriver's; directed is a FRESH paragraph the writer
+        // has ruled on since it was translated — two dates, nothing stored,
+        // which is how "Keep mine" on a round report reaches the next Run.
+        let work = derived.entries.filter { entry in
+            entry.status != .fresh || Directives.isDirected(
+                translatedAt: latest[entry.paragraphId]?.at,
+                directives: directives[entry.paragraphId] ?? [])
+        }
         let workList = work.map { entry in
             TranslatorBriefing.Inputs.WorkItem(
                 paragraphId: entry.paragraphId,
@@ -173,9 +184,11 @@ extension TranslatorOrchestrator.Environment {
                 // inside a translated paragraph.
                 sourceText: MarkdownDisplayFilter.stripTaskAnchorsInline(entry.sourceText),
                 status: entry.status,
-                // Only a stale item has a prior answer worth reconsidering; a
-                // missing one has nothing to hand over.
-                priorTranslation: entry.status == .stale ? entry.translatedText : nil)
+                // A stale item's last answer is worth reconsidering; a DIRECTED
+                // item's current answer is what the directive is a standard
+                // for. Missing has nothing to hand over.
+                priorTranslation: entry.status == .missing ? nil : entry.translatedText,
+                directives: (directives[entry.paragraphId] ?? []).map(\.text))
         }
 
         let (open, answered) = languageQueries(
@@ -187,8 +200,8 @@ extension TranslatorOrchestrator.Environment {
                 ?? language,
             language: language,
             roleBrief: role?.effectiveBrief,
-            craftIntentText: craftIntentText(docId: docId, store: store),
-            editionBriefText: editionBriefText(language: language, store: store),
+            craftIntentText: intentText,
+            editionBriefText: briefText,
             workList: workList,
             contextParagraphs: neighbours(of: work.map(\.paragraphId), in: state),
             openQueries: open,
@@ -200,7 +213,8 @@ extension TranslatorOrchestrator.Environment {
             // store (a window torn down mid-gather) is an empty slice, not a
             // refused round: a briefing without facts is smaller, not wrong.
             bibleFacts: bible?.slice(matching: workList.map(\.sourceText)
-                .joined(separator: "\n")) ?? [])
+                .joined(separator: "\n")) ?? [],
+            glossary: GlossaryTable.gather(editionBrief: briefText))
 
         // **What each work paragraph looked like at send time**, hashed off
         // the RAW text rather than the stripped `sourceText` the model is
