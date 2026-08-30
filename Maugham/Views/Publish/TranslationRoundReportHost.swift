@@ -43,13 +43,18 @@ struct TranslationRoundReportHost: View {
     @State private var sources: [String: String] = [:]
     @State private var chapterTitle: String?
     @State private var queries: [Annotation] = []
+    /// The read's own failure sentence, when it failed. Kept apart from
+    /// `queries` because "none" and "unreadable" are different facts and the
+    /// section says each in its own words (RULING-7).
+    @State private var queriesFailure: String?
     @State private var translatorName = ""
     @State private var collatorName = ""
 
     var body: some View {
         TranslationRoundReportView(
             round: round, chapterTitle: chapterTitle, sources: sources,
-            queries: queries, translatorName: translatorName,
+            queries: queries, queriesFailure: queriesFailure,
+            translatorName: translatorName,
             collatorName: collatorName, actions: actions,
             onClose: onClose, onRoundChanged: onRoundChanged, onReveal: onReveal)
             // Keyed on the round's identity rather than the value: a verb's
@@ -111,18 +116,31 @@ struct TranslationRoundReportHost: View {
     /// it, and a report that showed every open question of the edition would put
     /// round 1's unanswered question under round 3's summary. `distantFuture`
     /// for a round still running, so its questions arrive as they are minted.
+    ///
+    /// **A read that throws is said, never swallowed** (RULING-7): the document
+    /// can be missing from the manifest, or unloadable, and collapsing that into
+    /// an empty array would draw "No open questions from this edition." over a
+    /// queue nobody could open — the one degrade this app is not allowed to make
+    /// look like good news.
     private func loadQueries() async {
         let end = round.endedAt ?? .distantFuture
-        let found = try? await withAnnotationDocument(
-            store: store, projectURL: projectURL, documentId: round.docId
-        ) { document in
-            TranslationReviewPaneLogic.openQueries(
-                document.annotations(filter: AnnotationFilter(
-                    kinds: [.query], statuses: [.open])),
-                language: round.language)
-        }
-        queries = (found ?? []).filter {
-            $0.createdAt >= round.startedAt && $0.createdAt <= end
+        do {
+            let found = try await withAnnotationDocument(
+                store: store, projectURL: projectURL, documentId: round.docId
+            ) { document in
+                TranslationReviewPaneLogic.openQueries(
+                    document.annotations(filter: AnnotationFilter(
+                        kinds: [.query], statuses: [.open])),
+                    language: round.language)
+            }
+            queries = found.filter {
+                $0.createdAt >= round.startedAt && $0.createdAt <= end
+            }
+            queriesFailure = nil
+        } catch {
+            queries = []
+            queriesFailure = TranslationRoundReport.questionsUnreadable(
+                reason: error.localizedDescription)
         }
     }
 }

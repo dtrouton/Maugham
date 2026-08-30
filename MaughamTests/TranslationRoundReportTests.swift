@@ -155,10 +155,69 @@ final class TranslationRoundReportTests: XCTestCase {
 
     /// A disagreement whose query was never minted offers no Translator's right
     /// — there is nothing to reject — and says so.
+    ///
+    /// **And it names the verb the row actually has.** `d3` is a declined
+    /// DEPARTURE, so the right that still applies is the COLLATOR's; the
+    /// sentence hardcoded the reader's until the first review of this task, and
+    /// half the rows it drew on were pointing at a button they do not have.
     func test_aDisagreementWithNoQueryOffersNoTranslatorsRight() async throws {
         let window = mount(round: Self.round())
         XCTAssertEqual(try axButtons(labelled: TranslationRoundReport.translatorsRightLabel(id: "d3"), in: window).count, 0)
-        XCTAssertTrue(try axTexts(in: window).contains { $0.contains(TranslationRoundReport.noQueryForThisNote) })
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains {
+            $0.contains(TranslationRoundReport.noQueryForThisNote(
+                rightVerb: TranslationRoundReport.collatorsRightTitle))
+        }, "\(texts)")
+        XCTAssertFalse(texts.contains {
+            $0.contains(TranslationRoundReport.noQueryForThisNote(
+                rightVerb: TranslationRoundReport.readersRightTitle))
+        }, "no row here offers the reader's right")
+    }
+
+    /// …and the mirror: a declined READER's note with no query says the
+    /// reader's, on the same surface, from the same static.
+    func test_aDeclinedReadersNoteWithNoQueryNamesTheReadersRight() async throws {
+        var round = Self.round()
+        round.notes[1].outcome = .declined(reason: "The brief asks for it.",
+                                           annotationId: nil)
+        let window = mount(round: round)
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains {
+            $0.contains(TranslationRoundReport.noQueryForThisNote(
+                rightVerb: TranslationRoundReport.readersRightTitle))
+        }, "\(texts)")
+    }
+
+    /// **A skipped FIRST read is not the second read's good news.**
+    ///
+    /// The two silences are opposite facts — the second read is skipped when the
+    /// first found nothing to fix, the first is skipped when nothing reached the
+    /// reader at all — and one sentence for both put "nothing changed after the
+    /// first" in the column for a read that never happened.
+    func test_aSkippedFirstReadNeverBorrowsTheSecondReadsSentence() async throws {
+        var round = Self.round()
+        round.leg2 = nil
+        round.leg4 = nil
+        round.legs = [.init(leg: .translate, status: .ran, counts: .init()),
+                      .init(leg: .read, status: .skipped, reason: "Nothing to read.")]
+        XCTAssertEqual(
+            TranslationRoundReport.readerColumn(
+                nil, leg: .read,
+                legRecord: TranslationRoundReport.legRecord(round, .read)).text,
+            TranslationRoundReport.firstReadSkippedLine)
+        XCTAssertEqual(
+            TranslationRoundReport.readerColumn(
+                nil, leg: .reread,
+                legRecord: TranslationRoundReport.legRecord(round, .reread)).text,
+            TranslationRoundReport.roundStoppedLine(before: .reread),
+            "a leg the round never recorded is a round that stopped, not a skip")
+
+        let window = mount(round: round)
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0 == TranslationRoundReport.firstReadSkippedLine },
+                      "\(texts)")
+        XCTAssertFalse(texts.contains { $0.contains(TranslationRoundReport.nothingChangedLine) },
+                       "the second read's sentence has no business in this round")
     }
 
     /// A refused verb lands in the report's one notice slot, in its own words.

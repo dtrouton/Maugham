@@ -96,7 +96,8 @@ struct DepartureRowView: View {
                 .foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(TranslationRoundReport.expandLabel(id: row.id))
+        .accessibilityLabel(
+            TranslationRoundReport.expandLabel(id: row.id, expanded: isExpanded))
         if isExpanded {
             VStack(alignment: .leading, spacing: 4) {
                 if let before = row.before {

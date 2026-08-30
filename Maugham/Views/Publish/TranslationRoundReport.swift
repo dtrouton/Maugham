@@ -174,24 +174,49 @@ enum TranslationRoundReport {
     /// One of the two reader columns: which read it was, its verdict in words,
     /// and what the reader wrote.
     ///
-    /// `skipped` is the leg's own status, and it is the difference between two
-    /// silences: a second read that never ran because the first found nothing to
-    /// fix (`nothingChangedLine`, which is good news) and a column with no
-    /// record for any other reason (an em-dash, which is not news at all).
+    /// `legRecord` is the round's own record for this leg, and it is what lets a
+    /// missing report say something true — see `missingReaderText`.
     static func readerColumn(_ record: TranslationRound.ReaderReportRecord?,
                              leg: TranslationRound.Leg,
-                             skipped: Bool = false)
+                             legRecord: TranslationRound.LegRecord? = nil)
     -> (title: String, verdict: String, text: String) {
         (title: leg == .read ? firstReadTitle : secondReadTitle,
          verdict: record.map { verdictLabel($0.verdict) } ?? emDash,
-         text: record?.text ?? (skipped ? nothingChangedLine : emDash))
+         text: record?.text ?? missingReaderText(leg: leg, legRecord: legRecord))
     }
 
-    /// Whether the round recorded this leg as skipped — `readerColumn`'s
-    /// `skipped`, asked here so the view carries no rule of its own.
-    static func legWasSkipped(_ round: TranslationRound,
-                              _ leg: TranslationRound.Leg) -> Bool {
-        round.legs.contains { $0.leg == leg && $0.status == .skipped }
+    /// **What stands in a reader column with no report — and it is never the
+    /// OTHER column's news.**
+    ///
+    /// A skipped second read is good news (the first found nothing to fix); a
+    /// skipped first read is the opposite. One sentence for both was a column
+    /// that could tell the writer their round went well when it had stopped
+    /// before it began, which is the failure this function exists to make
+    /// impossible: the leg decides which silence this is. A leg that failed or
+    /// was cancelled prefers its own recorded sentence (`LegRecord.reason`) to
+    /// anything written here.
+    static func missingReaderText(leg: TranslationRound.Leg,
+                                  legRecord: TranslationRound.LegRecord?) -> String {
+        // No record at all: the round never reached this leg to record one.
+        guard let legRecord else { return roundStoppedLine(before: leg) }
+        switch legRecord.status {
+        case .ran:
+            // It ran and wrote nothing. Not news, and nothing to explain.
+            return emDash
+        case .skipped:
+            return leg == .reread ? nothingChangedLine : firstReadSkippedLine
+        case .failed, .cancelled:
+            let reason = legRecord.reason?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return reason.isEmpty ? roundStoppedLine(before: leg) : reason
+        }
+    }
+
+    /// The round's own record for a leg — `readerColumn`'s `legRecord`, asked
+    /// here so the view carries no rule of its own.
+    static func legRecord(_ round: TranslationRound,
+                          _ leg: TranslationRound.Leg) -> TranslationRound.LegRecord? {
+        round.legs.first { $0.leg == leg }
     }
 
     /// A reader's or collator's raw verdict, humanised: `reads_as_native` →
@@ -285,6 +310,16 @@ enum TranslationRoundReport {
     static let nothingChangedLine =
         "The second read was skipped \u{2014} nothing changed after the first."
 
+    /// The opposite news, in its own words: nothing reached the reader at all.
+    static let firstReadSkippedLine =
+        "The first read was skipped \u{2014} nothing was translated to read."
+
+    /// A leg the round failed or cancelled before finishing, with no sentence of
+    /// its own recorded.
+    static func roundStoppedLine(before leg: TranslationRound.Leg) -> String {
+        "The round stopped before the \(leg == .read ? "first" : "second") read."
+    }
+
     static let sourceMissingLine =
         "This paragraph is no longer in the document."
 
@@ -305,9 +340,23 @@ enum TranslationRoundReport {
     /// press can never be a silent no-op (Global Constraint 2).
     static let notWired = "This window isn\u{2019}t ready to act on a round yet."
 
-    static let noQueryForThisNote =
+    /// **The verb named here is the row's own**, never a fixed spelling: a
+    /// declined DEPARTURE offers Collator's right and a declined NOTE offers
+    /// Reader's right, so a sentence that named one of them over both told half
+    /// the rows about a button they do not have.
+    static func noQueryForThisNote(rightVerb: String) -> String {
         "No query was minted for this note, so there is nothing to reject "
-        + "\u{2014} Reader\u{2019}s right and Make it a rule still apply."
+            + "\u{2014} \(rightVerb) and \(makeRuleTitle) still apply."
+    }
+
+    /// **The questions could not be read**, which is not the same fact as there
+    /// being none (RULING-7: unreadable is never presented as empty). The
+    /// failure's own sentence rides along, because a writer can act on "the file
+    /// is locked" and cannot act on "something went wrong".
+    static func questionsUnreadable(reason: String) -> String {
+        "The translator\u{2019}s questions for this round can\u{2019}t be read: "
+            + reason
+    }
 
     // MARK: - Per-row accessibility labels
 
@@ -349,8 +398,13 @@ enum TranslationRoundReport {
         "\(answerAsRulingTitle), question \(id)"
     }
 
-    static func expandLabel(id: String) -> String {
-        "Show the translation of change \(id)"
+    /// Follows the disclosure's own state, because a label still saying "Show"
+    /// over a control that now hides is the one thing a screen reader has no way
+    /// to see past.
+    static func expandLabel(id: String, expanded: Bool) -> String {
+        expanded
+            ? "Hide the translation of change \(id)"
+            : "Show the translation of change \(id)"
     }
 
     static func revealAccessibilityLabel(paragraphId: String) -> String {

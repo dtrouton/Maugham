@@ -48,6 +48,11 @@ struct TranslationRoundReportView: View {
     let sources: [String: String]
     /// The translator's open questions from this round's own window.
     let queries: [Annotation]
+    /// **Why there are none, when the reason is that they could not be read**
+    /// (RULING-7: unreadable is never presented as empty). Nil is the ordinary
+    /// case — including a genuinely empty queue, which is a different fact and
+    /// gets a different sentence.
+    var queriesFailure: String? = nil
     let translatorName: String
     let collatorName: String
     var actions: TranslationRoundActions = TranslationRoundActions()
@@ -188,7 +193,7 @@ struct TranslationRoundReportView: View {
                               leg: TranslationRound.Leg) -> some View {
         let column = TranslationRoundReport.readerColumn(
             record, leg: leg,
-            skipped: TranslationRoundReport.legWasSkipped(round, leg))
+            legRecord: TranslationRoundReport.legRecord(round, leg))
         return VStack(alignment: .leading, spacing: 3) {
             Text(column.title)
                 .font(.caption)
@@ -270,7 +275,10 @@ struct TranslationRoundReportView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if row.annotationId == nil {
-                Text(TranslationRoundReport.noQueryForThisNote)
+                // Named with the row's OWN right-verb: a departure offers the
+                // collator's and a note the reader's.
+                Text(TranslationRoundReport.noQueryForThisNote(
+                    rightVerb: row.rightVerbTitle))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -317,7 +325,21 @@ struct TranslationRoundReportView: View {
 
     private var questionsSection: some View {
         section(TranslationRoundReport.questionsHeading) {
-            if queries.isEmpty {
+            // **A read that failed is not an empty queue** (RULING-7). Above the
+            // empty line rather than instead of it, because the two are
+            // different facts and only one of them is good news.
+            if let queriesFailure {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(queriesFailure)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(queriesFailure)
+            } else if queries.isEmpty {
                 emptyLine(TranslationRoundReport.noQuestionsLine)
             } else {
                 ForEach(queries) { query in questionRow(query) }
