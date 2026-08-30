@@ -116,7 +116,14 @@ struct TranslationRound: Codable, Equatable, Sendable {
     enum DepartureOutcome: Codable, Equatable, Sendable {
         case addressed(Rewrite)
         case declined(reason: String, annotationId: String?)
-        /// The author's own "Fine" on the round report (Plan 4).
+        /// **No longer written** (P4 Task 4's fix round). This case existed for
+        /// the author's own "Fine", and writing it here erased the pipeline's
+        /// own fact: an addressed departure that lost its `Rewrite` to a click,
+        /// a declined one that lost the translator's reason. The author's
+        /// disposition is a separate fact and lives in `DepartureRecord.dismissed`;
+        /// the case is kept so a record written before that fix still decodes,
+        /// and `TranslationRoundReport.departureRows` still reads it as
+        /// dismissed.
         case dismissed
     }
 
@@ -130,6 +137,18 @@ struct TranslationRound: Codable, Equatable, Sendable {
         let note: String
         let gloss: String
         var outcome: DepartureOutcome?
+        /// **The author's own "Fine", beside the pipeline's fact and never over
+        /// it** (P4 Task 4's fix round). `outcome` is what the TRANSLATOR did —
+        /// the rewrite, or the reason they declined — and the report offers Fine
+        /// on every row, so a disposition stored in `outcome` erased the
+        /// before/after or the decline reason on the first click, permanently
+        /// and with nothing red.
+        ///
+        /// Declared AFTER `outcome` so the memberwise init keeps its argument
+        /// order and existing callers compile, and optional so a record written
+        /// before this fix decodes (as `nil` — its dismissal, if it had one, is
+        /// in `outcome` and `departureRows` still reads it there).
+        var dismissed: Bool? = nil
     }
 
     struct GlossaryProposalRecord: Codable, Equatable, Sendable {

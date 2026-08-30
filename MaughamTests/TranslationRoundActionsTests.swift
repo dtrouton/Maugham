@@ -116,6 +116,38 @@ final class TranslationRoundActionsTests: XCTestCase {
 
     // MARK: - Fine
 
+    /// **The author's disposition is recorded BESIDE the translator's fact,
+    /// never over it.** Fine is offered on every row, an addressed departure
+    /// included, so a dismissal written into `outcome` would erase that row's
+    /// before/after — permanently, on one click, with nothing red. This is the
+    /// test that would go red if it were.
+    func test_fineOnAnAddressedDepartureKeepsItsRewrite() async throws {
+        let h = try await makeHarness()
+        var round = roundFor(h, number: 1)
+        let rewrite = TranslationRound.Rewrite(
+            beforeRecordId: "r1", before: "Lleg\u{00f3} la niebla.",
+            afterRecordId: "r2", after: "La niebla lleg\u{00f3}.")
+        var addressed = departure(id: "d1", paragraphId: h.doc.sequence[0])
+        addressed.outcome = .addressed(rewrite)
+        round.departures = [addressed]
+        try TranslationRoundStore(projectURL: h.projectURL).append(round)
+
+        guard case .done(let updated?, _) = await actionsFor(h).dismiss(round, "d1") else {
+            return XCTFail("Fine did not answer .done with the changed round")
+        }
+        XCTAssertEqual(updated.departures[0].dismissed, true)
+        XCTAssertEqual(updated.departures[0].outcome, .addressed(rewrite),
+                       "the translator's own fact was overwritten by the author's")
+        let stored = try XCTUnwrap(storedRound(h), "the ledger on disk does not agree")
+        XCTAssertEqual(stored.departures[0].dismissed, true)
+        XCTAssertEqual(stored.departures[0].outcome, .addressed(rewrite))
+        XCTAssertTrue(h.doc.annotations(filter: AnnotationFilter()).isEmpty,
+                      "Fine wrote an annotation; it is a record change and nothing else")
+        await h.documentStore.close()
+    }
+
+    /// The ordinary case — a `holds` departure with nothing the translator did
+    /// — records the same disposition and still leaves `outcome` alone.
     func test_fineRecordsDismissedOnTheRoundAndTouchesNoAnnotation() async throws {
         let h = try await makeHarness()
         var round = roundFor(h, number: 1)
@@ -125,9 +157,11 @@ final class TranslationRoundActionsTests: XCTestCase {
         guard case .done(let updated?, _) = await actionsFor(h).dismiss(round, "d1") else {
             return XCTFail("Fine did not answer .done with the changed round")
         }
-        XCTAssertEqual(updated.departures[0].outcome, .dismissed)
-        XCTAssertEqual(storedRound(h)?.departures[0].outcome, .dismissed,
+        XCTAssertEqual(updated.departures[0].dismissed, true)
+        XCTAssertNil(updated.departures[0].outcome)
+        XCTAssertEqual(storedRound(h)?.departures[0].dismissed, true,
                        "the ledger on disk does not agree")
+        XCTAssertNil(storedRound(h)?.departures[0].outcome)
         XCTAssertTrue(h.doc.annotations(filter: AnnotationFilter()).isEmpty,
                       "Fine wrote an annotation; it is a record change and nothing else")
         await h.documentStore.close()
@@ -178,6 +212,11 @@ final class TranslationRoundActionsTests: XCTestCase {
             RulingsSection.parse(try h.store.statementText(of: intent))
                 .rulings.first?.directive?.text,
             "one sentence")
+        // …and the every-edition note went ONLY there: a directive about the
+        // English filed in the Spanish brief as well would be one decision the
+        // writer made once and would have to revoke twice.
+        XCTAssertEqual(try briefRulings(h).count, 1,
+                       "the every-edition note also landed in the edition brief")
         await h.documentStore.close()
     }
 
@@ -258,7 +297,8 @@ final class TranslationRoundActionsTests: XCTestCase {
         let query = try await mintQuery(h, paragraph: 2, body: "Too flat in Spanish.")
 
         guard case .done = await actionsFor(h).readersRight(
-            round, query.id, pid, "Too flat in Spanish.") else {
+            round, query.id, pid, "Too flat in Spanish.",
+            TranslationRoundReport.readersRightTitle) else {
             return XCTFail("Reader's right was refused")
         }
         XCTAssertEqual(annotation(h, query.id)?.status, .accepted)
@@ -268,8 +308,11 @@ final class TranslationRoundActionsTests: XCTestCase {
         XCTAssertEqual(rulings.count, 1)
         XCTAssertEqual(rulings[0].directive?.paragraphId, pid)
         XCTAssertEqual(rulings[0].directive?.text, "Too flat in Spanish.")
-        XCTAssertEqual(rulings[0].provenance,
-                       TranslationRoundReport.provenance(round: round, verb: "reader's right"))
+        XCTAssertEqual(
+            rulings[0].provenance,
+            TranslationRoundReport.provenance(
+                round: round,
+                verb: TranslationRoundReport.readersRightTitle.lowercased()))
         await h.documentStore.close()
     }
 
@@ -282,10 +325,36 @@ final class TranslationRoundActionsTests: XCTestCase {
         let pid = h.doc.sequence[0]
 
         guard case .done = await actionsFor(h).readersRight(
-            round, "", pid, "Keep the fog literal.") else {
+            round, "", pid, "Keep the fog literal.",
+            TranslationRoundReport.readersRightTitle) else {
             return XCTFail("Reader's right refused a note with no query")
         }
         XCTAssertEqual(try briefRulings(h).first?.directive?.text, "Keep the fog literal.")
+        await h.documentStore.close()
+    }
+
+    /// **A declined DEPARTURE is the collator's disagreement, not the
+    /// reader's** — the row draws "Collator's right", and both records this
+    /// verb writes have to say the same thing. Before the verb carried its own
+    /// title, a writer siding with the collator settled the thread with
+    /// "Reader's right" and filed the doctrine under "reader's right", naming
+    /// somebody who was not in the argument.
+    func test_collatorsRightRecordsTheCollatorOnBothRecords() async throws {
+        let h = try await makeHarness()
+        let round = roundFor(h, number: 5)
+        let pid = h.doc.sequence[1]
+        let query = try await mintQuery(h, paragraph: 1, body: "Drifts from the original.")
+
+        guard case .done = await actionsFor(h).readersRight(
+            round, query.id, pid, "Drifts from the original.",
+            TranslationRoundReport.collatorsRightTitle) else {
+            return XCTFail("Collator's right was refused")
+        }
+        XCTAssertEqual(annotation(h, query.id)?.userResponse,
+                       TranslationRoundReport.collatorsRightTitle)
+        XCTAssertEqual(try briefRulings(h).first?.provenance,
+                       TranslationRoundReport.provenance(round: round,
+                                                         verb: "collator\u{2019}s right"))
         await h.documentStore.close()
     }
 
@@ -365,6 +434,21 @@ final class TranslationRoundActionsTests: XCTestCase {
     }
 
     // MARK: - Answering a question
+
+    /// An empty reply would settle the translator's question with nothing in
+    /// it, and `acceptAnnotation` would take it without complaint.
+    func test_anEmptyReplyIsRefusedAndSettlesNothing() async throws {
+        let h = try await makeHarness()
+        let query = try await mintQuery(h, paragraph: 0, body: "t\u{fa} or usted?")
+
+        guard case .refused(let sentence) = await actionsFor(h).answer(
+            roundFor(h, number: 8), query, "   \n ") else {
+            return XCTFail("an empty reply settled the question")
+        }
+        XCTAssertEqual(sentence, TranslationRoundReport.emptyReply)
+        XCTAssertEqual(annotation(h, query.id)?.status, .open)
+        await h.documentStore.close()
+    }
 
     func test_answerRepliesAndAnswerAsRulingFilesTheRulingFirst() async throws {
         let h = try await makeHarness()

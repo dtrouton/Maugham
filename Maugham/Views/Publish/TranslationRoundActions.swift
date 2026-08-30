@@ -54,11 +54,18 @@ struct TranslationRoundActions {
 
     /// The author sides with whoever raised the note — the reader or the
     /// collator — and the note becomes a directive on that paragraph.
-    /// `(round, annotationId, paragraphId, noteText)`; the annotation id is
-    /// empty when the declined note minted no query, and the directive is
-    /// written all the same.
-    var readersRight: (TranslationRound, String, String, String) async -> Outcome
-        = { _, _, _, _ in .refused(TranslationRoundReport.notWired) }
+    /// `(round, annotationId, paragraphId, noteText, rightVerbTitle)`; the
+    /// annotation id is empty when the declined note minted no query, and the
+    /// directive is written all the same.
+    ///
+    /// **The verb's own title is the fifth argument, and it is not decoration.**
+    /// A declined reader's note offers "Reader's right" and a declined
+    /// DEPARTURE offers "Collator's right" (`DisagreementRow.rightVerbTitle`) —
+    /// two different people to side with. Without it the closure has no way to
+    /// tell them apart, and every settled thread said "Reader's right" over a
+    /// collator's departure while the ruling's provenance said the same.
+    var readersRight: (TranslationRound, String, String, String, String) async -> Outcome
+        = { _, _, _, _, _ in .refused(TranslationRoundReport.notWired) }
 
     /// A glossary proposal, by its index into `round.glossaryProposals`.
     var adopt: (TranslationRound, Int) async -> Outcome
@@ -143,7 +150,11 @@ extension TranslationRoundActions {
             var updated = round
             guard let index = updated.departures.firstIndex(where: { $0.id == departureId })
             else { return .refused(TranslationRoundReport.rowGone) }
-            updated.departures[index].outcome = .dismissed
+            // **Beside the translator's fact, never over it.** `outcome` holds
+            // what the translator did — the rewrite, the reason they declined —
+            // and Fine is offered on every row, so writing the disposition there
+            // would erase a before/after or a decline reason on one click.
+            updated.departures[index].dismissed = true
             if let refusal = record(updated) { return .refused(refusal) }
             return .done(updated, TranslationRoundReport.dismissedLine)
         }
@@ -216,7 +227,7 @@ extension TranslationRoundActions {
 
         // MARK: The note was right
 
-        actions.readersRight = { [weak store] round, annotationId, paragraphId, noteText in
+        actions.readersRight = { [weak store] round, annotationId, paragraphId, noteText, verb in
             guard let store else { return .refused(TranslationRoundReport.notWired) }
             // **The directive FIRST, then the reply** — `QueryRuling.commit`'s
             // order, for its reason: a reply posted first settles the question
@@ -224,10 +235,13 @@ extension TranslationRoundActions {
             // writer's decision gone and the thread closed so nothing asks
             // again.
             do {
+                // The provenance names the person the author sided with, in the
+                // verb's own words lowercased — "round 5, collator's right"
+                // over a departure, "round 5, reader's right" over a note.
                 try await RulingPerformer.rule(
                     Ruling.directiveText(paragraphId: paragraphId, noteText),
-                    provenance: TranslationRoundReport.provenance(round: round,
-                                                                  verb: "reader's right"),
+                    provenance: TranslationRoundReport.provenance(
+                        round: round, verb: verb.lowercased()),
                     kind: .editionBrief(round.language), forScope: .project,
                     store: store, world: nil)
             } catch {
@@ -242,9 +256,7 @@ extension TranslationRoundActions {
                         store: store, projectURL: projectURL, documentId: round.docId
                     ) { document in
                         try await document.acceptAnnotation(
-                            id: annotationId,
-                            userResponse: TranslationRoundReport.readersRightTitle,
-                            undoManager: nil)
+                            id: annotationId, userResponse: verb, undoManager: nil)
                     }
                 } catch {
                     return .refused(TranslationRoundReport.ruledButNoReply(
@@ -303,12 +315,17 @@ extension TranslationRoundActions {
 
         actions.answer = { [weak store] round, annotation, reply in
             guard let store else { return .refused(TranslationRoundReport.notWired) }
+            let words = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Its siblings' rule: an empty reply would settle the translator's
+            // question with nothing in it, and `acceptAnnotation` would take it
+            // without complaint.
+            guard !words.isEmpty else { return .refused(TranslationRoundReport.emptyReply) }
             do {
                 try await withAnnotationDocument(
                     store: store, projectURL: projectURL, documentId: round.docId
                 ) { document in
                     try await document.acceptAnnotation(
-                        id: annotation.id, userResponse: reply, undoManager: nil)
+                        id: annotation.id, userResponse: words, undoManager: nil)
                 }
             } catch {
                 return .refused(error.localizedDescription)

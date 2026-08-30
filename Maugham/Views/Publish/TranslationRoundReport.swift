@@ -55,6 +55,11 @@ enum TranslationRoundReport {
                               translatorName: String = anonymousTranslator) -> [DepartureRow] {
         round.departures.map { departure in
             let rewrite = addressedRewrite(departure.outcome)
+            // **Two facts, read from two places** (Task 4's fix round). The
+            // translator's is `outcome`; the author's own "Fine" is `dismissed`.
+            // The legacy `.dismissed` outcome is read as a dismissal too, so a
+            // record written before the split still draws as one.
+            let isDismissed = departure.dismissed == true || departure.outcome == .dismissed
             return DepartureRow(
                 id: departure.id,
                 paragraphId: departure.paragraphId,
@@ -63,14 +68,20 @@ enum TranslationRoundReport {
                 note: departure.note,
                 verdict: departure.verdict,
                 kind: departure.kind,
-                // A `drifted` departure with no outcome at all is the fix leg
-                // never reaching it — skipped, failed, cancelled. A `holds` one
-                // was never work for the translator, so there is nothing to say.
+                // **The translator's sentence wins where there is one** — a
+                // dismissed row that was ALSO rewritten still says so, which is
+                // the whole point of keeping the two facts apart. Where the
+                // translator did nothing, the author's own "Fine" is what
+                // happened to this row, and it outranks the fix leg's silence:
+                // a `drifted` departure with no outcome is the fix leg never
+                // reaching it, a `holds` one was never work for the translator,
+                // and neither is news once the author has settled it.
                 outcomeLine: outcomeLine(departure.outcome, translatorName: translatorName)
-                    ?? (departure.verdict == driftedVerdict ? unreachedLine : nil),
+                    ?? (isDismissed ? dismissedLine
+                        : (departure.verdict == driftedVerdict ? unreachedLine : nil)),
                 before: rewrite?.before,
                 after: rewrite?.after,
-                isDismissed: departure.outcome == .dismissed)
+                isDismissed: isDismissed)
         }
     }
 
@@ -351,6 +362,14 @@ enum TranslationRoundReport {
         + "from the next round on."
 
     static let answeredLine = "Your reply is on the question."
+
+    /// **An empty reply settles a question with nothing in it.** Both sheets
+    /// disable their confirm button on empty text, so this is unreachable from
+    /// the surface as it stands — which is exactly why it is a refusal rather
+    /// than a trust: the verb, not the sheet, is what makes it impossible.
+    static let emptyReply =
+        "A reply needs words \u{2014} the translator is waiting on an answer, "
+        + "and an empty one closes the question without giving them any."
 
     /// **A glossary proposal with an empty half is not a glossary entry.**
     /// Adopting one would write `«» → «niebla»` into the doctrine every later

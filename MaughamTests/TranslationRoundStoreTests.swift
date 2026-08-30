@@ -188,6 +188,33 @@ final class TranslationRoundStoreTests: XCTestCase {
         XCTAssertNil(record.skipped)
     }
 
+    /// **The author's disposition is its own field, and it arrived after the
+    /// record shipped** (P4 Task 4's fix round) — so a departure written
+    /// before it decodes with `dismissed` nil, and a dismissal round-trips
+    /// beside the translator's `outcome` rather than over it.
+    func test_aDismissedDepartureRoundTripsAndAnOldRecordWithoutTheFieldStillDecodes() throws {
+        var round = TranslationRound(number: 1, language: "es", docId: "d", startedAt: Date())
+        round.departures = [
+            .init(id: "d1", paragraphId: "a1b2", verdict: "drifted", kind: "omission",
+                  note: "Lost a clause.", gloss: "The fog came.",
+                  outcome: .addressed(.init(beforeRecordId: "b", before: "x",
+                                            afterRecordId: "a", after: "y")))]
+        round.departures[0].dismissed = true
+        let data = try JSONEncoder().encode(round)
+        let back = try JSONDecoder().decode(TranslationRound.self, from: data)
+        XCTAssertEqual(back.departures[0].dismissed, true)
+        XCTAssertEqual(back.departures[0].outcome,
+                       .addressed(.init(beforeRecordId: "b", before: "x",
+                                        afterRecordId: "a", after: "y")),
+                       "the dismissal displaced the translator's own fact")
+
+        let old = #"{"id":"d1","paragraphId":"a1b2","verdict":"holds","kind":"rendering","note":"Split.","gloss":"g"}"#
+            .data(using: .utf8)!
+        let record = try JSONDecoder().decode(TranslationRound.DepartureRecord.self, from: old)
+        XCTAssertNil(record.dismissed)
+        XCTAssertNil(record.outcome)
+    }
+
     func test_disagreementsAreTheDeclinedNotesAndDepartures() {
         var round = TranslationRound(number: 1, language: "es", docId: "d", startedAt: Date())
         round.notes = [

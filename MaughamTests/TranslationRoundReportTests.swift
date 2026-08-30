@@ -79,6 +79,43 @@ final class TranslationRoundReportTests: XCTestCase {
         XCTAssertFalse(rows[0].isDismissed)
     }
 
+    /// **The author's "Fine" and the translator's rewrite are two facts, and a
+    /// row carries both** (P4 Task 4's fix round). A dismissal used to be
+    /// written into `outcome`, which erased the before/after of the very row it
+    /// was pressed on; `dismissed` is now its own field and `outcome` is
+    /// untouched, so the row still says what the translator did and still opens
+    /// on the translation.
+    func test_aDismissedRowKeepsWhatTheTranslatorDid() {
+        var round = Self.round()
+        round.departures[0].dismissed = true
+        let rows = TranslationRoundReport.departureRows(round, sources: [:])
+        XCTAssertTrue(rows[0].isDismissed)
+        XCTAssertEqual(rows[0].before, "x")
+        XCTAssertEqual(rows[0].after, "y")
+        XCTAssertTrue(rows[0].outcomeLine?.lowercased().contains("rewrote") == true,
+                      "the translator's sentence was replaced by the author's")
+    }
+
+    /// A `holds` departure the author settled has nothing the translator did to
+    /// report, so the author's own act is what the row says happened to it.
+    func test_aDismissedRowWithNoOutcomeSaysTheAuthorSettledIt() {
+        var round = Self.round()
+        round.departures[1].dismissed = true
+        let rows = TranslationRoundReport.departureRows(round, sources: [:])
+        XCTAssertTrue(rows[1].isDismissed)
+        XCTAssertEqual(rows[1].outcomeLine, TranslationRoundReport.dismissedLine)
+    }
+
+    /// A round written before the split still draws as dismissed — the legacy
+    /// `.dismissed` outcome is read, never written.
+    func test_aLegacyDismissedOutcomeStillReadsAsDismissed() {
+        var round = Self.round()
+        round.departures[1].outcome = .dismissed
+        let rows = TranslationRoundReport.departureRows(round, sources: [:])
+        XCTAssertTrue(rows[1].isDismissed)
+        XCTAssertEqual(rows[1].outcomeLine, TranslationRoundReport.dismissedLine)
+    }
+
     func test_disagreementRowsAreTheDeclinedNotesAndDeparturesWithBothBylines() {
         let rows = TranslationRoundReport.disagreementRows(Self.round(), translatorName: "Cortázar", collatorName: "Borges")
         XCTAssertEqual(rows.map(\.id), ["n2", "d3"])
@@ -236,7 +273,7 @@ final class TranslationRoundReportTests: XCTestCase {
     /// still the round on screen — `publishSelection`'s rule for the gate.
     func test_theWriteBackOnlyLandsOnTheRoundStillOnScreen() {
         var updated = Self.round()
-        updated.departures[1].outcome = .dismissed
+        updated.departures[1].dismissed = true
         var other = Self.round()
         other = TranslationRound(number: 4, language: "es", docId: "doc-1", startedAt: Date())
         XCTAssertEqual(ProjectWindow.publishSelection(after: updated, showing: Self.round()), updated)

@@ -298,8 +298,13 @@ struct TranslationRoundReportView: View {
                 }
                 Button(row.rightVerbTitle) {
                     run {
+                        // The row's own verb travels with the act: "Reader's
+                        // right" over a note, "Collator's right" over a
+                        // departure. It is what the settled thread records and
+                        // what the ruling's provenance names.
                         await actions.readersRight(round, row.annotationId ?? "",
-                                                   row.paragraphId, row.text)
+                                                   row.paragraphId, row.text,
+                                                   row.rightVerbTitle)
                     }
                 }
                 .controlSize(.small)
