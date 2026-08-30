@@ -17,24 +17,57 @@ enum TranslationPreflight {
             + translations.compactMap { $0 }.map(wordCount).reduce(0, +)
     }
 
-    /// nil when no document in the set could be read. Off the body path only
-    /// (tripwire 4): it opens every document's derived state.
+    /// **Every edition's budget over one set of documents, opening each
+    /// document once.**
+    ///
+    /// The desk draws a row per language and wants the same figure for each of
+    /// them, and `currentParagraphState` is the expensive half — for a closed
+    /// document it derives the whole manuscript off the op log. Asked once per
+    /// pair, a four-edition book derives every chapter four times per pass; the
+    /// per-language work that is left (`loadMerged` + `derive` + `sum`) reads
+    /// one edition's own translation file and is cheap beside it.
+    ///
+    /// Empty when no document in the set could be read — the same "nothing to
+    /// say" `budget` answers with `nil`, and distinct from a language whose
+    /// figure is genuinely zero, which is present and 0. Off the body path only
+    /// (tripwire 4).
     @MainActor
-    static func budget(documentIds: [String], language: String, store: ProjectStore,
-                       documentStore: DocumentStore?, projectURL: URL) -> Int? {
-        var total = 0
+    static func budgets(documentIds: [String], languages: [String],
+                        store: ProjectStore, documentStore: DocumentStore?,
+                        projectURL: URL) -> [String: Int] {
+        guard !languages.isEmpty else { return [:] }
+        var totals: [String: Int] = [:]
         var counted = false
         for docId in documentIds {
             guard let state = try? currentParagraphState(
                 documentId: docId, store: store, documentStore: documentStore,
                 projectURL: projectURL) else { continue }
             counted = true
-            let records = TranslationStore.loadMerged(forDocId: docId, language: language, in: projectURL)
-            let derived = TranslationDeriver.derive(
-                records: records, sequence: state.sequence, paragraphs: state.paragraphs, language: language)
-            total += sum(source: derived.entries.map(\.sourceText),
-                         translations: derived.entries.map(\.translatedText))
+            for language in languages {
+                let records = TranslationStore.loadMerged(
+                    forDocId: docId, language: language, in: projectURL)
+                let derived = TranslationDeriver.derive(
+                    records: records, sequence: state.sequence,
+                    paragraphs: state.paragraphs, language: language)
+                totals[language, default: 0] += sum(
+                    source: derived.entries.map(\.sourceText),
+                    translations: derived.entries.map(\.translatedText))
+            }
         }
-        return counted ? total : nil
+        guard counted else { return [:] }
+        // A language that summed to nothing still has an answer — the set was
+        // readable, so "0 words" is a fact rather than an absence.
+        for language in languages where totals[language] == nil { totals[language] = 0 }
+        return totals
+    }
+
+    /// One edition's budget. nil when no document in the set could be read.
+    /// Off the body path only (tripwire 4): it opens every document's derived
+    /// state.
+    @MainActor
+    static func budget(documentIds: [String], language: String, store: ProjectStore,
+                       documentStore: DocumentStore?, projectURL: URL) -> Int? {
+        budgets(documentIds: documentIds, languages: [language], store: store,
+                documentStore: documentStore, projectURL: projectURL)[language]
     }
 }

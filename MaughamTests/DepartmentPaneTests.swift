@@ -1419,4 +1419,24 @@ final class DepartmentPaneTests: XCTestCase {
         let chapter = DepartmentCastPrompt(ask: .nameForRun(language: "xx", docId: "doc-1"))
         XCTAssertNotEqual(book.id, chapter.id)
     }
+
+    // MARK: - When the pre-flight is worth taking (translation pipeline P4,
+    // review finding 1)
+
+    /// **A running round pays for no budgets.** `derive()` re-runs on every
+    /// `maughamTranslationDidUpdate`, which a live round fires per ingest, and
+    /// a budget opens every scoped document — so the one pass a round makes
+    /// most often is the one that must not do this work. The figures it would
+    /// have refreshed answer *what would this click cost*, and mid-round there
+    /// is no such click.
+    func test_thePreflightIsTakenOnlyWhileNoRoundIsRunning() {
+        XCTAssertTrue(DepartmentPaneHost.refillsBudgets(pipeline: .idle))
+        XCTAssertFalse(DepartmentPaneHost.refillsBudgets(
+            pipeline: .running(docId: "doc-1", language: "es", leg: .translate, book: nil)))
+        XCTAssertFalse(DepartmentPaneHost.refillsBudgets(
+            pipeline: .running(docId: "doc-9", language: "fr", leg: .collate,
+                               book: .init(position: 3, count: 9))),
+            "any leg of any pair — the desk is one session's, and there is "
+            + "nothing to weigh while any of it is under way")
+    }
 }

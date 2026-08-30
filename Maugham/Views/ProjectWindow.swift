@@ -193,11 +193,15 @@ struct ProjectWindow: View {
     /// Publish is leaving it.
     @State private var publishSelectedProposal: DesignProposalStore.Proposal?
     /// **The translation round the desk sent to the centre** (translation
-    /// pipeline P4), beside the design proposal above and cleared by the same
-    /// hands. The whole value for `publishSelectedProposal`'s reason: the desk
-    /// derived it to draw the row's own line, so nothing here reads
-    /// `TranslationRoundStore` a second time. The arm that DRAWS it is the next
-    /// task's; what this one owes is the one place the choice is written.
+    /// pipeline P4), beside the design proposal above. The whole value for
+    /// `publishSelectedProposal`'s reason: the desk derived it to draw the
+    /// row's own line, so nothing here reads `TranslationRoundStore` a second
+    /// time.
+    ///
+    /// **Written here, drawn and cleared next task.** So far the only hands on
+    /// it are the desk's two Shows, which clear each other; the arm that DRAWS
+    /// it, and the threading into `PublishPreviewModifier` that clears it on a
+    /// persona change the way the proposal above is cleared, are Task 3's.
     @State private var publishSelectedRound: TranslationRound?
     @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false

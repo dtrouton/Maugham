@@ -356,19 +356,27 @@ struct DepartmentPaneHost: View {
         // each document's derived state (tripwire 4). So it is one document
         // across every language row, re-read when — and only when — the
         // chapter changes.
-        .task(id: DeriveChapterKey(docId: target.docId, languages: languages.map(\.language))) {
+        .task(id: DeriveChapterKey(
+            docId: target.docId, languages: languages.map(\.language),
+            refills: Self.refillsBudgets(pipeline: pipeline?.status ?? .idle))) {
             await deriveChapterBudgets(docId: target.docId)
         }
     }
 
-    /// What the chapter pre-flight is a function of: which chapter, and which
-    /// editions there are rows for. The languages belong in the key because
-    /// they arrive from `derive()` one pass later than the subject does — a
-    /// key of the docId alone leaves a freshly-derived row with no figure until
-    /// the writer clicks somewhere else.
+    /// What the chapter pre-flight is a function of: which chapter, which
+    /// editions there are rows for, and whether a figure is worth taking at
+    /// all.
+    ///
+    /// The languages belong in the key because they arrive from `derive()` one
+    /// pass later than the subject does — keyed on the docId alone, a
+    /// freshly-derived row would have no figure until the writer clicked
+    /// somewhere else. `refills` belongs in it for the mirror of that reason:
+    /// it flips on both edges of a round, so the pass that skipped while a
+    /// round was up is followed by one that takes the figure when it ends.
     private struct DeriveChapterKey: Equatable {
         let docId: String?
         let languages: [String]
+        let refills: Bool
     }
 
     // MARK: - The run (Task 3)
@@ -607,15 +615,19 @@ struct DepartmentPaneHost: View {
         guard let prompt = castPrompt else { return }
         castPrompt = nil
         switch prompt.ask {
+        // Both run arms say so when there is nothing to run them on (Global
+        // Constraint 2). The writer has just typed a name and pressed Name &
+        // Run; a Confirm that closed the sheet and did nothing would be the
+        // swallowed click this desk exists not to have.
         case .nameForRun(let language, let docId):
-            guard let pipeline else { return }
+            guard let pipeline else { notice = Self.noTranslatorWired; return }
             Task {
                 guard await nameCast(language: language, answer: answer)
                 else { return }
                 pipeline.run(docId: docId, language: language)
             }
         case .nameForBookRun(let language, let documentIds):
-            guard let pipeline else { return }
+            guard let pipeline else { notice = Self.noTranslatorWired; return }
             Task {
                 guard await nameCast(language: language, answer: answer)
                 else { return }
@@ -938,18 +950,20 @@ struct DepartmentPaneHost: View {
         let roundStore = TranslationRoundStore(projectURL: projectURL)
         var rounds: [String: TranslationRound] = [:]
         var trendCounts: [String: [Int]] = [:]
-        var budgets: [String: Int] = [:]
         for row in report.rows {
             rounds[row.language] = roundStore.latest(language: row.language, docId: nil)
             trendCounts[row.language] = roundStore.trend(language: row.language)
-            budgets[row.language] = TranslationPreflight.budget(
-                documentIds: documentIds, language: row.language,
-                store: store, documentStore: documentStore,
-                projectURL: projectURL)
         }
         latestRounds = rounds
         trends = trendCounts
-        bookBudgets = budgets
+        // **The pre-flight is skipped while a round is up** — see
+        // `refillsBudgets`. The previous figures stand; the round-ended event
+        // brings this pass back when there is a new answer to give.
+        if Self.refillsBudgets(pipeline: pipeline?.status ?? .idle) {
+            bookBudgets = TranslationPreflight.budgets(
+                documentIds: documentIds, languages: report.rows.map(\.language),
+                store: store, documentStore: documentStore, projectURL: projectURL)
+        }
 
         do {
             // Newest first, and tolerant of a folder it cannot read — the
@@ -967,17 +981,33 @@ struct DepartmentPaneHost: View {
     /// is not on a chapter, which is what makes `detailLine` fall back to the
     /// book's own figure rather than draw a chapter's over a project subject.
     private func deriveChapterBudgets(docId: String?) async {
+        guard Self.refillsBudgets(pipeline: pipeline?.status ?? .idle) else { return }
         guard let docId else {
             chapterBudgets = [:]
             return
         }
-        var budgets: [String: Int] = [:]
-        for row in languages {
-            budgets[row.language] = TranslationPreflight.budget(
-                documentIds: [docId], language: row.language,
-                store: store, documentStore: documentStore, projectURL: projectURL)
-        }
-        chapterBudgets = budgets
+        chapterBudgets = TranslationPreflight.budgets(
+            documentIds: [docId], languages: languages.map(\.language),
+            store: store, documentStore: documentStore, projectURL: projectURL)
+    }
+
+    /// **Whether a pre-flight is worth taking now.**
+    ///
+    /// "7 legs · ~N words briefed" is an answer to *what would this click
+    /// cost*, and mid-round there is no such click to weigh: the round is
+    /// already running and its own leg line is what the row is saying. So a
+    /// running pipeline keeps whatever figures the last idle pass left rather
+    /// than paying for new ones.
+    ///
+    /// **What makes it safe to skip is that the round's end re-derives.** The
+    /// `ReloadKey`'s `pipelineLanguage` flips on both edges of a round and
+    /// `.maughamTranslationRoundEnded` bumps `refreshes`, so an idle pass
+    /// follows every round; the chapter pass carries this same answer in its
+    /// own key for the same reason. The cost this avoids is not theoretical —
+    /// `derive()` re-runs on every `maughamTranslationDidUpdate`, which a live
+    /// round fires per ingest, and a budget opens every scoped document.
+    static func refillsBudgets(pipeline: TranslationPipeline.Status) -> Bool {
+        pipeline == .idle
     }
 
     private func present(language: String) async {
