@@ -165,6 +165,25 @@ final class MaughamEventTests: XCTestCase {
         XCTAssertFalse(MaughamEvent.shouldDeliver(n, to: ctx(.keyWindow, key: true)))
     }
 
+    func test_theRoundEndedEventIsProjectScopedAndNamesTheRound() {
+        var round = TranslationRound(number: 4, language: "es", docId: "doc-1", startedAt: Date())
+        round.endedAt = Date()
+        let url = URL(fileURLWithPath: "/tmp/p")
+        var received: Notification?
+        let token = NotificationCenter.default.addObserver(  // adr-0021-ok: a test observing the post, not a production receiver
+            forName: .maughamTranslationRoundEnded, object: nil, queue: nil) { received = $0 }
+        defer { NotificationCenter.default.removeObserver(token) }
+        MaughamEvent.postTranslationRoundEnded(projectURL: url, round: round)
+        XCTAssertEqual(received?.userInfo?["language"] as? String, "es")
+        XCTAssertEqual(received?.userInfo?["document_id"] as? String, "doc-1")
+        XCTAssertEqual(received?.userInfo?["round"] as? Int, 4)
+        // Scope: the same project-scope assertion the design-proposals event makes
+        // in this file — copy that assertion's shape verbatim for this name.
+        XCTAssertEqual(received?.userInfo?[MaughamEvent.scopeKindKey] as? String, "project")
+        XCTAssertEqual(received?.userInfo?[MaughamEvent.scopeIdKey] as? String,
+                       ProjectIdentifier.id(for: url))
+    }
+
     func test_payloadMustNotShadowReservedKeys() {
         // Reserved keys are the wrapper's channel; a payload collision is a
         // programmer error. Verify post keeps the SCOPE's value.

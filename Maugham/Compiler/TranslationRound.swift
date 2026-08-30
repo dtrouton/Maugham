@@ -137,6 +137,63 @@ struct TranslationRound: Codable, Equatable, Sendable {
         let rendering: String
         let reason: String
         var adopted: Bool
+        /// The author's own "Skip" on the round report (Plan 4) — declared
+        /// AFTER `adopted` so the memberwise init keeps its argument order and
+        /// existing callers compile. `nil` on a record an older build wrote
+        /// (no such verb existed yet) and on one nobody has answered.
+        var skipped: Bool? = nil
+    }
+
+    /// A note or departure the translator declined — the report's
+    /// Disagreements section (spec §8 item 3).
+    enum Disagreement: Equatable {
+        case note(NoteRecord, reason: String, annotationId: String?)
+        case departure(DepartureRecord, reason: String, annotationId: String?)
+
+        /// The underlying record's own id — what a resolution (Answer,
+        /// dismiss) is filed against.
+        var recordId: String {
+            switch self {
+            case .note(let record, _, _): return record.id
+            case .departure(let record, _, _): return record.id
+            }
+        }
+
+        var paragraphId: String {
+            switch self {
+            case .note(let record, _, _): return record.paragraphId
+            case .departure(let record, _, _): return record.paragraphId
+            }
+        }
+
+        var annotationId: String? {
+            switch self {
+            case .note(_, _, let annotationId): return annotationId
+            case .departure(_, _, let annotationId): return annotationId
+            }
+        }
+
+        var reason: String {
+            switch self {
+            case .note(_, let reason, _): return reason
+            case .departure(_, let reason, _): return reason
+            }
+        }
+
+        /// The note's own author for a reader's note; nil for a departure (the
+        /// caller names the collator — a departure record carries no author of
+        /// its own).
+        var author: String? {
+            if case .note(let record, _, _) = self { return record.author }
+            return nil
+        }
+
+        var text: String {
+            switch self {
+            case .note(let record, _, _): return record.text
+            case .departure(let record, _, _): return record.note
+            }
+        }
     }
 
     let number: Int
@@ -173,5 +230,21 @@ struct TranslationRound: Codable, Equatable, Sendable {
     var declinedCount: Int {
         notes.filter { if case .declined = $0.outcome { return true } else { return false } }.count
             + departures.filter { if case .declined = $0.outcome { return true } else { return false } }.count
+    }
+
+    /// Every declined note and departure, notes then departures. What the
+    /// report's Disagreements section walks (spec §8 item 3).
+    var disagreements: [Disagreement] {
+        notes.compactMap { note in
+            if case .declined(let reason, let annotationId) = note.outcome {
+                return .note(note, reason: reason, annotationId: annotationId)
+            }
+            return nil
+        } + departures.compactMap { departure in
+            if case .declined(let reason, let annotationId) = departure.outcome {
+                return .departure(departure, reason: reason, annotationId: annotationId)
+            }
+            return nil
+        }
     }
 }

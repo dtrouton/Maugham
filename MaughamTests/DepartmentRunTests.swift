@@ -133,7 +133,7 @@ final class DepartmentRunTests: XCTestCase {
         let target = DepartmentRunTarget.ready(docId: "doc-1", title: "Chapter 1")
 
         XCTAssertEqual(state("es", target: target, runState: running).phase,
-                       .running(translating: 4))
+                       .running(.translating(4)))
         XCTAssertEqual(state("fr", target: target, runState: running).phase, .idle,
                        "another edition of the same chapter is not this round")
         XCTAssertEqual(
@@ -141,6 +141,143 @@ final class DepartmentRunTests: XCTestCase {
                   runState: running).phase,
             .idle,
             "…and the same edition of another chapter is not this round either")
+    }
+
+    /// **The pipeline's leg is what the row draws**, scoped by LANGUAGE alone:
+    /// a book queue walks chapters the window is not on, and a row that went
+    /// idle whenever the queue left the open chapter would say nothing for
+    /// eleven of twelve rounds.
+    func test_aPipelineLegIsDrawnOnItsLanguagesRowWhateverChapterTheWindowIsOn() {
+        let state = DepartmentRunState.resolve(
+            language: "es",
+            target: .ready(docId: "doc-1", title: "Chapter 1"),
+            session: .busy(language: "es"),
+            runState: .idle, lastRun: nil,
+            pipeline: .running(docId: "doc-9", language: "es", leg: .read,
+                               book: .init(position: 4, count: 12)))
+        XCTAssertEqual(state.phase,
+                       .running(.leg(.read, book: .init(position: 4, count: 12))))
+        XCTAssertEqual(state.statusLine, DepartmentRunState.legLine(
+            .read, book: .init(position: 4, count: 12)))
+        XCTAssertTrue(state.statusLine?.contains("4 of 12") == true)
+        XCTAssertTrue(state.statusLine?.contains("reading") == true)
+
+        let french = DepartmentRunState.resolve(
+            language: "fr",
+            target: .ready(docId: "doc-1", title: "Chapter 1"),
+            session: .busy(language: "es"),
+            runState: .idle, lastRun: nil,
+            pipeline: .running(docId: "doc-1", language: "es", leg: .read, book: nil))
+        XCTAssertEqual(french.phase, .idle, "a Spanish leg is not the French row's")
+    }
+
+    /// **A bare translator round keeps its own count line** — the phase the
+    /// probe mounts still produce, unchanged in words.
+    func test_aBareTranslatorRoundStillSaysHowManyParagraphs() {
+        let state = DepartmentRunState.resolve(
+            language: "es",
+            target: .ready(docId: "doc-1", title: "Chapter 1"),
+            session: .busy(language: "es"),
+            runState: .running(docId: "doc-1", language: "es", translating: 4),
+            lastRun: nil)
+        XCTAssertEqual(state.phase, .running(.translating(4)))
+        XCTAssertEqual(state.statusLine, DepartmentRunState.translating(4))
+    }
+
+    /// **An idle row with a round says the round, not the translator's own
+    /// summary.** The log records every translator LEG's summary, so after a
+    /// seven-leg round its newest entry is leg 7's "2 paragraphs translated" —
+    /// a sentence about a repair, drawn as if it were the round.
+    func test_theRoundLineOutranksTheTranslatorsOwnSummaryWhenARoundExists() {
+        var round = TranslationRound(number: 3, language: "es", docId: "doc-1",
+                                     startedAt: Date(timeIntervalSinceNow: -300))
+        round.endedAt = Date(timeIntervalSinceNow: -120)
+        round.legs = TranslationRound.Leg.allCases.map { .init(leg: $0, status: .skipped, reason: "x") }
+        let summary = TranslatorOrchestrator.RunSummary(
+            runId: "r", docId: "doc-1", language: "es", at: Date(),
+            outcome: .ingested(.init(entriesWritten: 2, queriesMinted: 0)))
+        let now = Date()
+        let state = DepartmentRunState.resolve(
+            language: "es", target: .ready(docId: "doc-1", title: "Chapter 1"),
+            session: .free, runState: .idle, lastRun: summary,
+            latestRound: round, trend: [6, 4, 1], now: now)
+        XCTAssertEqual(state.statusLine, DepartmentRunState.roundLine(round, now: now))
+        XCTAssertTrue(state.statusLine?.hasPrefix("Round 3") == true)
+        XCTAssertTrue(state.statusLine?.contains("2m ago") == true)
+        XCTAssertTrue(state.offersShow)
+
+        let none = DepartmentRunState.resolve(
+            language: "es", target: .ready(docId: "doc-1", title: "Chapter 1"),
+            session: .free, runState: .idle, lastRun: summary)
+        XCTAssertEqual(none.statusLine, DepartmentRunState.reportLine(summary.outcome),
+                       "with no round the translator's summary is still the idle line")
+        XCTAssertFalse(none.offersShow)
+    }
+
+    func test_aStoppedRoundSaysWhereItStopped() {
+        var round = TranslationRound(number: 2, language: "es", docId: "doc-1", startedAt: Date())
+        round.endedAt = Date()
+        round.legs = [.init(leg: .translate, status: .ran, counts: .init(entries: 1)),
+                      .init(leg: .read, status: .cancelled)]
+        let line = DepartmentRunState.roundLine(round, now: Date())
+        XCTAssertTrue(line.contains("Round 2"))
+        XCTAssertTrue(line.contains("cancelled"), line)
+        XCTAssertTrue(line.contains("reading"), line)
+
+        round.legs[1] = .init(leg: .read, status: .failed, reason: "The reader died.")
+        let failed = DepartmentRunState.roundLine(round, now: Date())
+        XCTAssertTrue(failed.contains("failed"), failed)
+        XCTAssertTrue(failed.contains("The reader died."), "the failure's own sentence rides the line")
+    }
+
+    func test_agoIsCoarseAndNeverNegative() {
+        let now = Date()
+        XCTAssertEqual(DepartmentRunState.ago(from: now.addingTimeInterval(-5), to: now), "just now")
+        XCTAssertEqual(DepartmentRunState.ago(from: now.addingTimeInterval(-125), to: now), "2m ago")
+        XCTAssertEqual(DepartmentRunState.ago(from: now.addingTimeInterval(-7200), to: now), "2h ago")
+        XCTAssertEqual(DepartmentRunState.ago(from: now.addingTimeInterval(-3 * 86400), to: now), "3d ago")
+        XCTAssertEqual(DepartmentRunState.ago(from: now.addingTimeInterval(60), to: now), "just now",
+                       "a clock skewed into the future is 'just now', not '-1m ago'")
+    }
+
+    /// **Pre-flight and trend share one detail line** (spec §8: they share the
+    /// row's slot rather than adding a line each), and the line is absent when
+    /// neither has anything to say.
+    func test_theDetailLineCarriesPreflightAndTrendAndIsAbsentWithNeither() {
+        XCTAssertEqual(DepartmentRunState.preflightLine(words: 1200), "7 legs · ~1,200 words briefed")
+        XCTAssertNil(DepartmentRunState.preflightLine(words: nil))
+        XCTAssertEqual(DepartmentRunState.trendLine([6, 4, 1]), "notes per round 6 → 4 → 1")
+        XCTAssertEqual(DepartmentRunState.trendLine([4]), "notes per round 4")
+        XCTAssertNil(DepartmentRunState.trendLine([]))
+
+        var state = DepartmentRunState()
+        XCTAssertNil(state.detailLine)
+        state.chapterWords = 1200
+        state.trend = [6, 4, 1]
+        XCTAssertEqual(state.detailLine, "7 legs · ~1,200 words briefed · notes per round 6 → 4 → 1")
+        state.phase = .running(.leg(.read, book: nil))
+        XCTAssertNil(state.detailLine, "a running row's detail is its leg; the pre-flight is for a click that has not happened")
+    }
+
+    /// **Run Whole Book needs no open chapter** — the book is the desk's own
+    /// set — but it refuses while a session is busy and when the set is empty.
+    func test_theBookVerbRefusesOnlyForBusyAndForAnEmptyBook() {
+        let noChapter = DepartmentRunState.resolve(
+            language: "es", target: .unavailable(DepartmentRunTarget.openAChapter),
+            session: .free, runState: .idle, lastRun: nil, bookDocumentCount: 12)
+        XCTAssertNil(noChapter.bookRefusal)
+        XCTAssertTrue(noChapter.canRunBook)
+        XCTAssertFalse(noChapter.canRun, "…while the chapter Run still refuses")
+
+        let busy = DepartmentRunState.resolve(
+            language: "es", target: .unavailable(DepartmentRunTarget.openAChapter),
+            session: .busy(language: "fr"), runState: .idle, lastRun: nil, bookDocumentCount: 12)
+        XCTAssertEqual(busy.bookRefusal, DepartmentRunState.busyReason(language: "fr"))
+
+        let empty = DepartmentRunState.resolve(
+            language: "es", target: .unavailable(DepartmentRunTarget.openAChapter),
+            session: .free, runState: .idle, lastRun: nil, bookDocumentCount: 0)
+        XCTAssertEqual(empty.bookRefusal, DepartmentRunState.nothingInTheBook)
     }
 
     /// The two endings a row draws for itself, scoped the same way.

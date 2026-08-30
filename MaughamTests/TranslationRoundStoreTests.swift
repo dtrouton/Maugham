@@ -6,6 +6,18 @@ import XCTest
 @MainActor
 final class TranslationRoundStoreTests: XCTestCase {
 
+    private var temp: TempDirectory!
+
+    override func setUp() {
+        super.setUp()
+        temp = TempDirectory()
+    }
+
+    override func tearDown() {
+        temp = nil
+        super.tearDown()
+    }
+
     private func makeStore() throws -> TranslationRoundStore {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("RoundStore-\(UUID().uuidString)")
@@ -130,5 +142,69 @@ final class TranslationRoundStoreTests: XCTestCase {
                            .lastPathComponent, "es.json")
         XCTAssertEqual(TranslationRoundStore.directoryURL(in: store.projectURL).path
                            .hasSuffix(".maugham/translations/rounds"), true)
+    }
+
+    func test_updateRewritesOneRoundInPlaceAndKeepsTheOthers() throws {
+        let store = TranslationRoundStore(projectURL: temp.url)
+        var first = TranslationRound(number: 1, language: "es", docId: "d", startedAt: Date())
+        var second = TranslationRound(number: 2, language: "es", docId: "d", startedAt: Date())
+        second.departures = [.init(id: "dep", paragraphId: "a1b2", verdict: "holds",
+                                   kind: "rendering", note: "n", gloss: "g")]
+        try store.append(first)
+        try store.append(second)
+
+        second.departures[0].outcome = .dismissed
+        try store.update(second)
+
+        let rounds = store.rounds(language: "es")
+        XCTAssertEqual(rounds.map(\.number), [2, 1])
+        XCTAssertEqual(rounds[0].departures[0].outcome, .dismissed)
+        XCTAssertEqual(store.nextNumber(language: "es"), 3, "update never mints")
+        first.summary = "x"
+        XCTAssertNoThrow(try store.update(first))
+    }
+
+    func test_updatingARoundThatAgedOutOfTheRingIsRefusedInWords() throws {
+        let store = TranslationRoundStore(projectURL: temp.url)
+        let gone = TranslationRound(number: 99, language: "es", docId: "d", startedAt: Date())
+        XCTAssertThrowsError(try store.update(gone)) { error in
+            guard case TranslationRoundStore.UpdateError.roundGone(let number) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(number, 99)
+            XCTAssertFalse(error.localizedDescription.isEmpty)
+        }
+    }
+
+    func test_aSkippedProposalRoundTripsAndAnOldRecordWithoutTheFieldStillDecodes() throws {
+        var round = TranslationRound(number: 1, language: "es", docId: "d", startedAt: Date())
+        round.glossaryProposals = [.init(term: "fog", rendering: "niebla", reason: "r", adopted: false)]
+        round.glossaryProposals[0].skipped = true
+        let data = try JSONEncoder().encode(round)
+        let back = try JSONDecoder().decode(TranslationRound.self, from: data)
+        XCTAssertEqual(back.glossaryProposals[0].skipped, true)
+        let old = #"{"term":"fog","rendering":"niebla","reason":"r","adopted":false}"#.data(using: .utf8)!
+        let record = try JSONDecoder().decode(TranslationRound.GlossaryProposalRecord.self, from: old)
+        XCTAssertNil(record.skipped)
+    }
+
+    func test_disagreementsAreTheDeclinedNotesAndDepartures() {
+        var round = TranslationRound(number: 1, language: "es", docId: "d", startedAt: Date())
+        round.notes = [
+            .init(id: "n1", leg: .read, author: "Ocampo", paragraphId: "a1b2", kind: "rhythm",
+                  severity: "minor", text: "limps", outcome: .declined(reason: "meter", annotationId: "ann-1")),
+            .init(id: "n2", leg: .read, author: "Ocampo", paragraphId: "a1b2", kind: "rhythm",
+                  severity: "minor", text: "fine", outcome: .addressed(.init(
+                    beforeRecordId: nil, before: nil, afterRecordId: nil, after: nil)))
+        ]
+        round.departures = [
+            .init(id: "d1", paragraphId: "c3d4", verdict: "drifted", kind: "omission", note: "lost",
+                  gloss: "g", outcome: .declined(reason: "no", annotationId: nil))
+        ]
+        let ids = round.disagreements.map(\.recordId)
+        XCTAssertEqual(ids, ["n1", "d1"])
+        XCTAssertEqual(round.disagreements[0].annotationId, "ann-1")
+        XCTAssertNil(round.disagreements[1].annotationId)
+        XCTAssertEqual(round.disagreements[0].author, "Ocampo")
     }
 }
