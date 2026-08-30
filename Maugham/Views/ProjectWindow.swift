@@ -192,6 +192,13 @@ struct ProjectWindow: View {
     /// (`PublishPreviewModifier`) — a gate is a place in a decision, and leaving
     /// Publish is leaving it.
     @State private var publishSelectedProposal: DesignProposalStore.Proposal?
+    /// **The translation round the desk sent to the centre** (translation
+    /// pipeline P4), beside the design proposal above and cleared by the same
+    /// hands. The whole value for `publishSelectedProposal`'s reason: the desk
+    /// derived it to draw the row's own line, so nothing here reads
+    /// `TranslationRoundStore` a second time. The arm that DRAWS it is the next
+    /// task's; what this one owes is the one place the choice is written.
+    @State private var publishSelectedRound: TranslationRound?
     @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
@@ -2957,10 +2964,23 @@ struct ProjectWindow: View {
             // round's cold legs hold no translator session, so without it the
             // rows offer Run while a reader is out (translation pipeline P3).
             pipeline: pipeline,
-            // …and the desk's Show (P4 Task 5), which is the only thing on that
-            // pane that reaches the CENTRE column. One write, of the one piece
-            // of window state the gate arm is a function of.
-            onShowDesignProposal: { publishSelectedProposal = $0 },
+            // …and the desk's two Shows — the design gate's (P4 Task 5) and,
+            // as of translation pipeline P4, a round's. They are the only
+            // things on that pane that reach the CENTRE column, and each is
+            // one write of the window state its own arm is a function of.
+            //
+            // **One centre, one selection.** The gate arm and the round arm are
+            // two readings of the same column, so each Show clears the other:
+            // leaving both set would make which one the centre draws a question
+            // about the order of two `@State` writes.
+            onShowDesignProposal: {
+                publishSelectedProposal = $0
+                publishSelectedRound = nil
+            },
+            onShowTranslationRound: {
+                publishSelectedRound = $0
+                publishSelectedProposal = nil
+            },
             compilerModel: compilerModel,
             onCompilerModelChange: { newValue in
                 compilerModel = newValue
@@ -3870,6 +3890,14 @@ struct ProjectWindow: View {
                 onRoundEnded: { round in
                     _projectWindowLog.info(
                         "translation round \(round.number, privacy: .public) for \(round.docId, privacy: .public)/\(round.language, privacy: .public) ended at leg \(round.legs.last?.leg.name ?? "-", privacy: .public)")
+                    // **How a finished round reaches the desk** (P4). The round
+                    // is filed to `TranslationRoundStore`, which touches
+                    // neither the manifest nor the annotations, and the desk's
+                    // `ReloadKey` carries the pipeline's LANGUAGE and not its
+                    // leg — so nothing else here would tell the row it has a
+                    // newer round to draw. `.project`-scoped, because another
+                    // window on another book has no stake in it.
+                    MaughamEvent.postTranslationRoundEnded(projectURL: url, round: round)
                 }))
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty

@@ -26,6 +26,18 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         /// while the sheet is open still runs the chapter they actually clicked
         /// Run on.
         case nameForRun(language: String, docId: String)
+        /// **Name the translator a WHOLE-BOOK run is waiting on** (translation
+        /// pipeline P4) — `.nameForRun`'s sibling, carrying a queue where that
+        /// one carries a document.
+        ///
+        /// A case of its own rather than a `[String]` on `.nameForRun`, because
+        /// the ask is what Confirm RUNS: the two reach different verbs on the
+        /// pipeline (`run` and `runBook`), and an ask that could not tell them
+        /// apart would translate the open chapter for a writer who asked for
+        /// the book. Captured at the click for `.nameForRun`'s own reason — a
+        /// writer who changes the imprint while the sheet is open still runs
+        /// the set they pressed the button over.
+        case nameForBookRun(language: String, documentIds: [String])
         /// **Start an edition the book does not have yet** — the only ask that
         /// takes a language tag, because it is the only one where the language
         /// is not already known.
@@ -39,6 +51,19 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         /// to mint one first — a preset translator, or the preset designer, who
         /// reaches disk for the first time here.
         case rename(subject: RenameSubject, currentName: String)
+
+        /// The edition a RUN is waiting on, for either shape of run — the one
+        /// thing the sheet itself needs to tell the two naming asks from the
+        /// two renaming ones, so its preset-filling arm does not have to grow a
+        /// second copy per verb the desk gains.
+        var languageAwaitingARun: String? {
+            switch self {
+            case .nameForRun(let language, _), .nameForBookRun(let language, _):
+                return language
+            case .addLanguage, .rename:
+                return nil
+            }
+        }
     }
 
     /// Who a rename is about. The desk has two kinds of person on it and they
@@ -58,6 +83,7 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
     var id: String {
         switch ask {
         case .nameForRun(let language, _): return "run:\(language)"
+        case .nameForBookRun(let language, _): return "book:\(language)"
         case .addLanguage: return "add"
         case .rename(.edition(let language), _): return "rename:\(language)"
         case .rename(.designer, _): return "rename:designer"
@@ -68,7 +94,7 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
     /// none would be a sheet a writer could answer about the wrong person.
     var title: String {
         switch ask {
-        case .nameForRun(let language, _):
+        case .nameForRun(let language, _), .nameForBookRun(let language, _):
             return DepartmentCastCopy.nameForRunTitle(language: language)
         case .addLanguage:
             return DepartmentCastCopy.addLanguageTitle
@@ -82,7 +108,7 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
 
     var confirmTitle: String {
         switch ask {
-        case .nameForRun: return DepartmentCastCopy.nameAndRunTitle
+        case .nameForRun, .nameForBookRun: return DepartmentCastCopy.nameAndRunTitle
         case .addLanguage: return DepartmentCastCopy.addConfirmTitle
         case .rename(_, let currentName):
             return currentName.isEmpty
@@ -217,7 +243,7 @@ struct DepartmentCastSheet: View {
     /// so, and anything else gets the mint sheet's own who-is-this sentence.
     private var explanation: String {
         switch prompt.ask {
-        case .nameForRun:
+        case .nameForRun, .nameForBookRun:
             return DepartmentCastCopy.explanation
         case .addLanguage:
             return DepartmentCastCopy.addExplanation(
@@ -308,7 +334,7 @@ struct DepartmentCastSheet: View {
             name = prompt.initialName
             reader = prompt.currentReader ?? ""
             collator = prompt.currentCollator ?? ""
-            if case .nameForRun(let language, _) = prompt.ask {
+            if let language = prompt.ask.languageAwaitingARun {
                 if prompt.currentReader == nil {
                     reader = ProductionRole.defaultReaderName(language: language) ?? ""
                 }

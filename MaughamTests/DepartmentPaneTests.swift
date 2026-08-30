@@ -1385,4 +1385,38 @@ final class DepartmentPaneTests: XCTestCase {
         XCTAssertFalse(DepartmentCastPrompt(
             ask: .rename(subject: .designer, currentName: "X")).takesCast)
     }
+
+    // MARK: - Naming a translator a BOOK run is waiting on (translation
+    // pipeline P4 Task 2)
+
+    /// **A whole-book run stands behind the same sheet a chapter run does**,
+    /// and it has to carry its own queue: the ask is what Confirm runs, and a
+    /// `.nameForRun` here would translate the open chapter alone — the writer
+    /// having asked for the book.
+    func test_theBookRunsAskCarriesItsQueueAndWearsTheRunSheetsWords() {
+        let ask = DepartmentPaneHost.bookAsk(language: "xx",
+                                             documentIds: ["doc-1", "doc-2"])
+        XCTAssertEqual(ask, .nameForBookRun(language: "xx",
+                                            documentIds: ["doc-1", "doc-2"]))
+
+        let prompt = DepartmentCastPrompt(ask: ask)
+        XCTAssertEqual(prompt.title, DepartmentCastCopy.nameForRunTitle(language: "xx"),
+                       "the sheet names the edition it is about, as the chapter "
+                       + "run's does")
+        XCTAssertEqual(prompt.confirmTitle, DepartmentCastCopy.nameAndRunTitle)
+        XCTAssertEqual(DepartmentCastCopy.nameAndRunTitle, "Name & Run")
+        XCTAssertTrue(prompt.takesCast, "an edition ask takes the whole cast")
+        XCTAssertFalse(prompt.takesLanguageTag,
+                       "the language is already known — only Add Language types one")
+    }
+
+    /// One prompt per subject, and the book's is not the chapter's: a writer
+    /// who presses Run and then Run Whole Book must not have the second ask
+    /// silently answered by the first sheet's identity.
+    func test_theBookRunsAskHasAnIdentityOfItsOwn() {
+        let book = DepartmentCastPrompt(ask: .nameForBookRun(language: "xx",
+                                                             documentIds: ["doc-1"]))
+        let chapter = DepartmentCastPrompt(ask: .nameForRun(language: "xx", docId: "doc-1"))
+        XCTAssertNotEqual(book.id, chapter.id)
+    }
 }

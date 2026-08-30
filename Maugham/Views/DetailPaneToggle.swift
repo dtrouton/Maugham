@@ -68,6 +68,11 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// same reason: what the centre shows is `ProjectWindow`'s question, and a
     /// right-column pane writing it would be a second place it is decided.
     var onShowDesignProposal: (DesignProposalStore.Proposal) -> Void = { _ in }
+    /// **Where the desk's other Show sends a translation round** (translation
+    /// pipeline P4) — the same centre column, threaded and defaulted exactly as
+    /// `onShowDesignProposal` is, and for the same reason: what the centre
+    /// shows is `ProjectWindow`'s question.
+    var onShowTranslationRound: (TranslationRound) -> Void = { _ in }
     /// The gear menu's persisted choice, and the write-back when it changes —
     /// a value + closure rather than a `Binding` so every existing call site
     /// keeps compiling with the defaults below.
@@ -134,6 +139,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         designer: DesignerOrchestrator? = nil,
         pipeline: TranslationPipeline? = nil,
         onShowDesignProposal: @escaping (DesignProposalStore.Proposal) -> Void = { _ in },
+        onShowTranslationRound: @escaping (TranslationRound) -> Void = { _ in },
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
@@ -164,6 +170,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.designer = designer
         self.pipeline = pipeline
         self.onShowDesignProposal = onShowDesignProposal
+        self.onShowTranslationRound = onShowTranslationRound
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
@@ -513,7 +520,8 @@ struct DetailPaneToggle<Inspector: View>: View {
                                runLog: translationRuns,
                                designer: designer,
                                pipeline: pipeline,
-                               onShowProposal: onShowDesignProposal)
+                               onShowProposal: onShowDesignProposal,
+                               onShowRound: onShowTranslationRound)
         } else {
             ContentUnavailableView(
                 "Open a project",

@@ -362,6 +362,21 @@ struct DepartmentRunState: Equatable {
     static let runTitle = "Run"
     static let cancelTitle = "Cancel"
 
+    /// **What Cancel can honestly promise a PIPELINE round** (spec §5).
+    ///
+    /// Before the pipeline a round was one translator call, so "nothing it has
+    /// translated is written" was true: the ingest was the last thing to
+    /// happen, and a cancel before it wrote nothing at all. A seven-leg round
+    /// has written by leg 1 and repaired by leg 3, and `TranslationPipeline
+    /// .cancel` stops after the leg that is running — earlier legs' writes
+    /// STAND. So the sentence says what actually survives, because a writer who
+    /// cancelled on the old promise and found paragraphs translated would have
+    /// been told the wrong thing by the surface at the moment they most needed
+    /// it to be right.
+    static let cancelHelp =
+        "Stop this round after the leg that is running. What earlier legs "
+        + "wrote stays; nothing later starts."
+
     /// What a round with nothing stale and nothing missing says. Its own sentence
     /// rather than silence, for the reason `TranslatorOrchestrator.RunState` keeps
     /// the case: a writer who presses Run and sees the row unchanged cannot tell

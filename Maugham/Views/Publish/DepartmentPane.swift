@@ -109,6 +109,25 @@ struct DepartmentPane: View {
     /// End the round in flight — `TranslatorOrchestrator.cancel()`. Only reachable
     /// from the row that is running, which is the only row with anything to end.
     var cancelRun: () -> Void = { }
+    /// **Ask for a round on every chapter of this book** (translation pipeline
+    /// P4) — the desk's own scope, at last, as a verb.
+    ///
+    /// A second closure rather than an argument on `runTranslation`, because
+    /// the two refuse for different reasons: a chapter run needs the window to
+    /// have one open and a book run does not (`DepartmentRunState.bookRefusal`
+    /// against `refusal`). A single closure with a flag would have to be read
+    /// alongside a predicate to know which refusal applied to it.
+    var runBook: (String) -> Void = { _ in }
+    /// **Open this edition's newest round in the centre column** — the row's
+    /// door, and its only control that is navigation rather than a verb.
+    ///
+    /// It takes the LANGUAGE and not the round, for `showProposal`'s reason
+    /// inverted: which round this is was resolved by the host and is already on
+    /// the row's own `DepartmentRunState`, but the pane may not be the thing
+    /// that hands a model object back up — the host holds the round it derived
+    /// and sends that one, so the round the centre opens and the round
+    /// `statusLine` describes cannot be two different objects.
+    var showRound: (String) -> Void = { _ in }
     /// **Ask for a design round**, with the writer's words for it or `nil` for a
     /// bare one briefed on the visual language statement alone.
     ///
@@ -632,13 +651,45 @@ struct DepartmentPane: View {
                     .foregroundStyle(.secondary)
             }
             // What the round is doing, or what the last one did. One slot, and
-            // `statusLine` decides which — see `DepartmentRunState`.
-            if let status = run.statusLine {
-                Text(status)
+            // `statusLine` decides which — see `DepartmentRunState`. Show sits
+            // beside it because it is about that same round: a door drawn up
+            // with the verbs would read as a third thing to press before
+            // running, rather than as the way into what has already run.
+            if run.statusLine != nil || run.offersShow {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let status = run.statusLine {
+                        Text(status)
+                            .font(.caption)
+                            // Red only for a failure, on `ReviewRoundCockpit`'s
+                            // rule: a colour that never changes says nothing.
+                            .foregroundStyle(run.isFailure ? Color.red : Color.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 6)
+                    // Hidden rather than disabled, and the only control on this
+                    // desk that is: every other refusal has a sentence to give,
+                    // and a door to a round that does not exist has none — the
+                    // row's own status line has already said there is none.
+                    if run.offersShow {
+                        Button(DepartmentRunState.showRoundTitle) {
+                            showRound(row.language)
+                        }
+                        .controlSize(.small)
+                        .accessibilityLabel(
+                            DepartmentRunState.showRoundAccessibilityLabel(
+                                language: row.language))
+                        .help(DepartmentRunState.showRoundHelp)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // The pre-flight and the trend, sharing one line beneath the status
+            // rather than taking one each (spec §8) — and drawn only while the
+            // row is idle, which is `detailLine`'s own rule.
+            if let detail = run.detailLine {
+                Text(detail)
                     .font(.caption)
-                    // Red only for a failure, on `ReviewRoundCockpit`'s rule: a
-                    // colour that never changes is a colour that says nothing.
-                    .foregroundStyle(run.isFailure ? Color.red : Color.secondary)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -649,6 +700,13 @@ struct DepartmentPane: View {
             Button(DepartmentDesk.renameTitle(translator: row.translator)) {
                 renameTranslator(row.language)
             }
+            // In the Rename… menu's company (spec §5). The row's own button is
+            // the real door — SwiftUI builds a context menu's items only while
+            // the menu is up, so a keyboard, VoiceOver and every
+            // accessibility-tree test find nothing here — and this is the
+            // gesture a Mac writer reaches for first. Same call, same refusal.
+            Button(DepartmentRunState.runBookTitle) { runBook(row.language) }
+                .disabled(!run.canRunBook)
         }
     }
 
@@ -698,11 +756,24 @@ struct DepartmentPane: View {
             .help(run.refusal
                   ?? DepartmentRunState.runHelp(language: row.language,
                                                 target: runTarget))
+        // **The desk's own scope, and it reads a refusal of its own.** A book
+        // run needs no open chapter — the rows already sum every chapter — so
+        // it is `bookRefusal` here and never `refusal`, or the one verb that
+        // matches what this pane is about would be dead on exactly the subject
+        // a writer opens the department on.
+        Button(DepartmentRunState.runBookTitle) { runBook(row.language) }
+            .controlSize(.small)
+            .disabled(!run.canRunBook)
+            .accessibilityLabel(
+                DepartmentRunState.runBookAccessibilityLabel(language: row.language))
+            .help(run.bookRefusal
+                  ?? DepartmentRunState.runBookHelp(language: row.language,
+                                                    count: run.bookDocumentCount,
+                                                    words: run.bookWords))
         if run.isRunning {
             Button(DepartmentRunState.cancelTitle) { cancelRun() }
                 .controlSize(.small)
-                .help("Stop this round. Nothing it has translated is written "
-                      + "\u{2014} a run that does not finish writes nothing at all.")
+                .help(DepartmentRunState.cancelHelp)
         }
     }
 }
