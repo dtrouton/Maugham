@@ -2150,7 +2150,10 @@ struct ProjectWindow: View {
                 TranslationRoundReportHost(
                     round: round, store: store, documentStore: documentStore,
                     projectURL: store.url, window: window,
-                    actions: TranslationRoundActions(),
+                    // The nine verbs, wired to this window (P4 Task 4).
+                    actions: TranslationRoundActions.production(
+                        store: store, documentStore: documentStore,
+                        projectURL: store.url, world: declaredWorld),
                     onClose: { publishSelectedRound = nil },
                     // Through `publishSelection`, never straight in: a verb
                     // answers from a `Task` that outlives the press.

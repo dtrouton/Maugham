@@ -303,6 +303,79 @@ enum TranslationRoundReport {
 
     static let dismissedLine = "You said this was fine."
 
+    // MARK: - What a verb answers with (Task 4)
+
+    // Every verb answers in a sentence whichever way it goes (Global
+    // Constraint 2), so the copy for the DOING half lives here beside the copy
+    // for the reading half — a sentence spelled at the wiring site is one no
+    // test can read, which is the same argument `provenance` above is here for.
+
+    /// **The row the verb was aimed at is not in the round any more.** A round
+    /// travels as a VALUE and the writer may be looking at one the ring has
+    /// since rewritten; acting on an index or an id that is no longer there
+    /// would write a record this surface invented.
+    static let rowGone =
+        "That row is no longer part of this round \u{2014} reopen the round to "
+        + "see what it holds now."
+
+    /// **Both destinations, after the click** — `TranslatorsNoteCopy.confirmation`'s
+    /// pair, past tense, because the writer chose the home in the sheet and the
+    /// confirmation has to say which one it actually reached.
+    static func keptLine(home: TranslatorsNote.Home) -> String {
+        switch home {
+        case .everyEdition:
+            return "Kept \u{2014} your instruction is a dated ruling in this "
+                + "piece\u{2019}s craft intent, briefed to every edition."
+        case .edition(let language):
+            return "Kept \u{2014} your instruction is a dated ruling in the "
+                + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+                + " edition brief."
+        }
+    }
+
+    /// "Make it a rule" — always the edition's own brief, never the book's
+    /// intent, which is why this sentence names the edition and `keptLine`'s
+    /// does not always.
+    static func ruledLine(language: String) -> String {
+        "Ruled \u{2014} it is doctrine for the "
+            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + " edition from the next round on."
+    }
+
+    static let translatorsRightLine =
+        "You sided with the translator. The question is settled and your prose "
+        + "stands as translated."
+
+    static let readersRightLine =
+        "You sided with the note. It is a dated directive on that paragraph "
+        + "from the next round on."
+
+    static let answeredLine = "Your reply is on the question."
+
+    /// **A glossary proposal with an empty half is not a glossary entry.**
+    /// Adopting one would write `«» → «niebla»` into the doctrine every later
+    /// round is checked against, and no reader of that line could tell what it
+    /// was ever about.
+    static let emptyGlossaryTerm =
+        "This proposal is missing its term or its rendering, so there is "
+        + "nothing to fix for the rest of the book."
+
+    /// **A failure BETWEEN two writes says what did land** (`QueryRuling.commit`'s
+    /// rule, and for its reason): a writer told only "that didn't work" answers
+    /// again and mints a second ruling for the decision already in the brief.
+    static func ruledButNoReply(reason: String) -> String {
+        "Your directive is in the edition brief, but the reply could not be "
+            + "posted on the question: \(reason) The question is still open "
+            + "\u{2014} answer it without ruling again."
+    }
+
+    /// The same shape one verb over: the term is doctrine, and only the round's
+    /// own record — which is derived — failed to say so.
+    static func adoptedButNotRecorded(term: String, reason: String) -> String {
+        "\u{201C}\(term)\u{201D} is fixed for the rest of the book, but this "
+            + "round\u{2019}s record could not be marked: \(reason)"
+    }
+
     /// A `drifted` departure the fix leg never reached — the round stopped, or
     /// the paragraph lost its translation in between.
     static let unreachedLine = "The fix leg never reached this paragraph."
