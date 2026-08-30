@@ -120,9 +120,28 @@ struct TranslatorsNoteSheet: View {
     let target: TranslatorsNote.Target
     let onCommit: (String, TranslatorsNote.Home) -> Void
     let onCancel: () -> Void
-    @State private var instruction = ""
-    @State private var home: TranslatorsNote.Home = .everyEdition
+    @State private var instruction: String
+    @State private var home: TranslatorsNote.Home
     @FocusState private var instructionFocused: Bool
+
+    /// **Both seeds are defaulted, so ⌘⌥C's call site is unchanged.**
+    ///
+    /// The round report opens this sheet too (translation pipeline P4 Task 3),
+    /// and there the writer is not composing from nothing: they are agreeing
+    /// with a note in front of them about a paragraph in ONE edition. So it
+    /// arrives with that note in the field and that edition selected, and an
+    /// explicit `init` is what lets a `@State` start from a parameter at all.
+    init(target: TranslatorsNote.Target,
+         onCommit: @escaping (String, TranslatorsNote.Home) -> Void,
+         onCancel: @escaping () -> Void,
+         seed: String = "",
+         defaultHome: TranslatorsNote.Home = .everyEdition) {
+        self.target = target
+        self.onCommit = onCommit
+        self.onCancel = onCancel
+        _instruction = State(initialValue: seed)
+        _home = State(initialValue: defaultHome)
+    }
 
     private var trimmed: String {
         instruction.trimmingCharacters(in: .whitespacesAndNewlines)

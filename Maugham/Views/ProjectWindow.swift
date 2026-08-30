@@ -198,10 +198,10 @@ struct ProjectWindow: View {
     /// row's own line, so nothing here reads `TranslationRoundStore` a second
     /// time.
     ///
-    /// **Written here, drawn and cleared next task.** So far the only hands on
-    /// it are the desk's two Shows, which clear each other; the arm that DRAWS
-    /// it, and the threading into `PublishPreviewModifier` that clears it on a
-    /// persona change the way the proposal above is cleared, are Task 3's.
+    /// Written by the desk's two Shows, which clear each other; drawn by
+    /// `PublishCentre.translationRound`, which outranks the gate above; and
+    /// cleared on a persona change by `PublishPreviewModifier`, exactly as the
+    /// proposal above is (Task 3).
     @State private var publishSelectedRound: TranslationRound?
     @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false
@@ -663,7 +663,8 @@ struct ProjectWindow: View {
             projectURL: url, window: window, persona: persona,
             publishPreview: $publishPreview,
             selectedPublicationID: $publishSelectedPublicationID,
-            selectedProposal: $publishSelectedProposal))
+            selectedProposal: $publishSelectedProposal,
+            selectedRound: $publishSelectedRound))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, persona: persona))
         // The writer's notice that Claude added cards to their canvas, and the way
@@ -1601,15 +1602,26 @@ struct ProjectWindow: View {
     /// writer pressed Show on. Both guards above it still apply unchanged — the
     /// gate is Publish's, and it is PROJECT-level, so a chapter subject opens the
     /// editor with a proposal selected exactly as it does with one compiled.
+    ///
+    /// **And a translation round joins as a FOURTH answer, above the gate**
+    /// (translation pipeline P4 Task 3), composed into the same function for the
+    /// same reason. The desk now has two Shows, each clearing the other as it
+    /// writes, so what the writer pressed last is the only selection standing —
+    /// but the *order* is still needed here, because two `@State` writes landing
+    /// in one body pass would otherwise make which surface draws a question
+    /// about their sequence. Both guards above still apply unchanged: the report
+    /// is Publish's, and it is PROJECT-level.
     static func publishCentre(persona: Persona,
                               subject: BinderSubject?,
                               structure: [StructureItem],
                               preview: PublishPreviewResolution,
-                              proposal: DesignProposalStore.Proposal? = nil)
+                              proposal: DesignProposalStore.Proposal? = nil,
+                              round: TranslationRound? = nil)
     -> PublishCentre? {
         guard persona.previewsThePublishedBook else { return nil }
         guard subjectShowsAltitude(persona: persona, subject: subject,
                                    structure: structure) else { return nil }
+        if let round { return .translationRound(round) }
         if let proposal { return .designProposal(proposal) }
         switch preview {
         case .ready(let publications):
@@ -1646,6 +1658,26 @@ struct ProjectWindow: View {
                                  showing current: DesignProposalStore.Proposal?)
     -> DesignProposalStore.Proposal? {
         current?.id == updated.id ? updated : current
+    }
+
+    /// **The same rule for a round's verb** (translation pipeline P4 Task 3),
+    /// and the same argument: "Fine" and "Adopt" answer from a `Task` that
+    /// outlives the press, and the writer is free to press Back — or Show a
+    /// different round, or the design gate — while it runs.
+    ///
+    /// A round has no `id`; it is identified by `(language, number)`, which is
+    /// what `TranslationRoundStore` keys its ring on. Written out here rather
+    /// than as an `Equatable` conformance on the record, because two rounds with
+    /// the same number in the same language ARE the same round at two moments —
+    /// which is exactly the case this write-back exists for — while
+    /// `TranslationRound: Equatable` is a value comparison the store and the
+    /// tests depend on.
+    static func publishSelection(after updated: TranslationRound,
+                                 showing current: TranslationRound?)
+    -> TranslationRound? {
+        current.map { $0.language == updated.language && $0.number == updated.number } == true
+            ? updated
+            : current
     }
 
     /// **Does Review's centre column show the passes board?** (M3 P1 Task 6,
@@ -2107,7 +2139,26 @@ struct ProjectWindow: View {
                                       subject: selectedSubject,
                                       structure: store.manifest.structure,
                                       preview: publishPreview,
-                                      proposal: publishSelectedProposal) {
+                                      proposal: publishSelectedProposal,
+                                      round: publishSelectedRound) {
+            // **The round report, a fifth layer of this same stack**
+            // (translation pipeline P4 Task 3) — a fourth arm of the ONE switch
+            // for the gate's reason: two ViewBuilder arms are two view
+            // identities, and a report on its own branch would tear
+            // `EditorHost` down on every Show and every Back.
+            case .translationRound(let round):
+                TranslationRoundReportHost(
+                    round: round, store: store, documentStore: documentStore,
+                    projectURL: store.url, window: window,
+                    actions: TranslationRoundActions(),
+                    onClose: { publishSelectedRound = nil },
+                    // Through `publishSelection`, never straight in: a verb
+                    // answers from a `Task` that outlives the press.
+                    onRoundChanged: { updated in
+                        publishSelectedRound = Self.publishSelection(
+                            after: updated, showing: publishSelectedRound)
+                    },
+                    onReveal: { _ in })
             case .designProposal(let proposal):
                 DesignGateView(proposal: proposal, projectURL: store.url,
                                // The verdict's four verbs (P4 Task 6), wired to

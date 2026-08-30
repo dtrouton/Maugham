@@ -420,10 +420,15 @@ private struct TranslationStatusChip: View {
 
 /// Reply sheet for a translator query — mirrors `AnnotationsPane`'s
 /// `QueryReplySheet` (the writer's answer flows into `acceptAnnotation` as the
-/// `userResponse`). Kept file-private here rather than shared because the two
-/// surfaces present the same op through independent panes.
+/// `userResponse`).
+///
+/// **No longer file-private, as of translation pipeline P4 Task 3.** The round
+/// report's Questions section asks the writer for exactly this — a reply to a
+/// translator's open query — and a second sheet saying the same thing is how the
+/// two would eventually come to word it differently. `QueryRulingSheet` is
+/// already shared between three surfaces for the same reason.
 @MainActor
-private struct TranslationQueryReplySheet: View {
+struct TranslationQueryReplySheet: View {
     let annotation: Annotation
     let onReply: (String) -> Void
     let onCancel: () -> Void

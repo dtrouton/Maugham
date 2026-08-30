@@ -16,6 +16,20 @@ import AppKit
 /// surfaces, which is why the rule now asks the subject question at all (it
 /// took none until this revision).
 enum PublishCentre: Equatable {
+    /// **A translation round the writer asked to read** (translation pipeline P4
+    /// Task 3) — the department desk's other Show, answered in this column.
+    ///
+    /// It outranks the gate below it, which outranks the book, for the reason
+    /// the gate outranks the book: two Shows now reach this column from the same
+    /// desk, each clearing the other as it writes (`ProjectWindow`'s desk
+    /// wiring), so the last thing the writer pressed is the thing on screen and
+    /// an order is what makes that true rather than two independent gates.
+    ///
+    /// The round travels whole rather than by `(language, number)`: the desk
+    /// just read it off `TranslationRoundStore` to draw the row that offered the
+    /// Show, and a second read here would be a second answer about the same
+    /// file. This arm carries no state of its own, so deselecting costs nothing.
+    case translationRound(TranslationRound)
     /// **A design proposal the writer asked to look at** (publish-department P4
     /// Task 5) — the department desk's Show, answered in this column.
     ///
@@ -390,6 +404,13 @@ struct PublishPreviewModifier: ViewModifier {
     /// Publish should show the book, which is what Publish is for, and pressing
     /// Show again is one click.
     @Binding var selectedProposal: DesignProposalStore.Proposal?
+    /// **The translation round the desk's Show put in this column** (translation
+    /// pipeline P4 Task 3), cleared by any persona change for exactly the
+    /// reasons above: a report is a place in a decision, and leaving Publish is
+    /// leaving it. Beside the proposal rather than in a modifier of its own,
+    /// because this is already the one place that owns the Publish centre's
+    /// transient picks.
+    @Binding var selectedRound: TranslationRound?
 
     func body(content: Content) -> some View {
         content
@@ -402,6 +423,7 @@ struct PublishPreviewModifier: ViewModifier {
                 // Before the arrival guard: leaving Publish is a persona change
                 // too, and it is the one that most needs the gate let go of.
                 selectedProposal = nil
+                selectedRound = nil
                 guard next.previewsThePublishedBook else { return }
                 Task { await refresh() }
             }
