@@ -1,6 +1,6 @@
 # The editorial letter — Le Guin, habits, lessons, and the writer's own process
 
-**Date:** 2026-08-29 · **Status:** approved in brainstorm, plans unwritten
+**Date:** 2026-08-29 · **Status:** approved in brainstorm, plans unwritten · **2026-09-01:** §4 revised — the coach is a seat, not a rung; reader line; depth in Review; Exhaustive
 **Session:** "coach"
 
 ## 1. The problem
@@ -47,11 +47,17 @@ can cite; 6 is what the letter leaves behind.
 
 - **Both**: the letter is a mechanism any round can produce (§3), **and** a
   new coaching voice makes it the main event (§4).
-- The coach is **Le Guin** (pass id `workshop`, name Workshop).
-- **A passless ⌘R briefs Le Guin.** `CompilerOrchestrator.passlessEditorName`
-  changes from "Claude" to "Le Guin". "Claude" was only ever the absence of a
-  voice; a passless run *is* the beginner's run. The continuity / bible /
-  reader machinery still runs beneath any voice.
+- The coach is **Le Guin** (id `workshop`, name Workshop).
+- **Le Guin holds a seat, not a rung** (2026-09-01, revising this
+  brainstorm's "first on the ladder"). Coaching is a standing relationship,
+  not a stage of finishing: a piece never completes the workshop, so she has
+  no pass state, takes no part in derived review status, and the board draws
+  her apart from the ladder (§4). The ladder keeps one meaning.
+- **An unassigned piece is the coach's.** A ⌘R on a piece with no active pass
+  briefs whoever holds the seat; `CompilerOrchestrator.passlessEditorName`
+  stops being a constant. "Claude" was only ever the absence of a voice; an
+  unassigned piece *is* the beginner's piece. The continuity / bible / reader
+  machinery still runs beneath any voice.
 - **Scene function is three-position, not opt-in** (§3.4): the weak form
   ("what changes") is the prose default; McKee's strong form (value charge,
   conflict-driven turn) is the screenplay default and prose opt-in through
@@ -66,10 +72,16 @@ can cite; 6 is what the letter leaves behind.
   the writer's ask (§3.7), exercises that file as tasks (§3.1), say-back and
   the one thing (§3.1), dosage by draft stage (§3.8), retired lessons and
   choices (§6), voice distinctness and time-away (§3.1, §5).
-- **The passless rule follows the ladder** (§4): Le Guin briefs a passless ⌘R
-  while Workshop is on the ladder; remove her and a passless run is the M2
+- **The passless rule follows the seat** (§4): Le Guin briefs an unassigned
+  piece while she holds the seat; vacate it and a passless run is the M2
   all-altitudes reader signed "Claude". No experience-level switch exists —
-  the ladder is the writer's declaration.
+  the seat is the writer's declaration.
+- **Author shows who is in the seat** (§4.2): the Diagnostics header names
+  the reader a ⌘R on this piece will brief, off the same resolution the run
+  uses. Changing the reader stays a Review act.
+- **Depth is chosen in Review too, and there are four depths** (§4.3): the
+  cockpit gets the Diagnostics pane's gear menu, bound to the same project
+  value, and a fourth choice maps to the `fable` alias.
 - **The brief measures against the writer's own pinned work** when the shelf
   holds it (§4).
 - **The book letter** — a whole-project Fresh Eyes with an arc table — is the
@@ -153,9 +165,17 @@ per-`(document, device)` diagnostics sidecar and is derived (tripwires 17/24).
 `questions` are additionally minted as `query` annotations through
 `Environment.mintAnnotations`, pass-stamped and signed by the voice, deduped by
 the same fingerprint the other minted kinds use, so they are ordinary queue
-rows thereafter. The letter keeps its own copy of the question text for
-reading in place; disposition lives in the queue only (one home per finding,
-the one-loop spec §8).
+rows thereafter. Two consequences of the existing machinery, stated so the
+plan does not rediscover them: a `.query` **cannot** be minted without an
+anchor (`Document.addAnnotation` refuses one, and a fingerprint needs an
+anchor or a clause quote), so a letter question whose refs all failed to
+resolve is **letter-only** — it renders in place, it never reaches the
+queue, and the letter says nothing about that; and letter questions get their
+own `DiagnosticKind` (`letterQuestion`), so a coach's question and a
+continuity question about the same paragraph are two fingerprints, not one.
+The letter keeps its own copy of the question text for reading in place;
+disposition lives in the queue only (one home per finding, the one-loop spec
+§8).
 
 ### 3.3 Who writes one
 
@@ -163,10 +183,15 @@ Any round can. The briefing tells the model what a letter is for, and each
 preset brief says whether that pass writes one:
 
 - **Le Guin** (§4): the letter is the main event; every part is hers.
-- **Perkins**: `working`, `habits` (structural habits), `scenes`; no questions
-  beyond his existing continuity questions.
-- **Lish**: `working`, `habits` (sentence habits); no `scenes`.
+- **Perkins**: `about`, `one_thing`, `working`, `habits` (structural habits),
+  `scenes`; no `questions` beyond his existing continuity questions, no
+  exercises.
+- **Lish**: `about`, `one_thing`, `working`, `habits` (sentence habits); no
+  `scenes`, no exercises.
 - **Gould, Argus**: leave the letter empty. Their briefs say so.
+- `answer` and `retired` are every voice's when there is an ask or a ledger:
+  a direct question gets a direct answer whoever was asked, and a lesson
+  looked for is reported by whoever looked.
 - A **custom pass** with a writer-editable brief writes whatever its brief
   asks; with no brief, the general instruction applies and the model decides.
 
@@ -178,13 +203,33 @@ scenes, and in which form:
 | Project type | Intent says | Rows | `charge` |
 |---|---|---|---|
 | prose | nothing about form | yes — weak form: wants / changes / turn as observation | `null` |
-| prose | moves by dramatic turns / conflict / "every scene must turn" (or the pass brief says so) | yes — strong form | `+`/`-`; a turn-less scene is also raised as a **conformance strain** against that clause |
+| prose | moves by dramatic turns / conflict / "every scene must turn" (or the pass brief says so) | yes — strong form | `+`/`-`; a turn-less scene is also raised as a **conformance strain** when the writer's own intent carries the clause |
 | prose | lyric / essayistic / meander / "not scene-driven" | none (`null`) | — |
-| screenplay | nothing | yes — strong form | `+`/`-`; turn-less scene is a strain |
+| screenplay | nothing | yes — strong form | `+`/`-`; a turn-less scene is an **observation with an offer** (below) |
 | screenplay | opts out explicitly | none | — |
 
+**A strain needs a clause the writer wrote.** Conformance is keyed on a
+`clause_quote` from the intent statement and ingest drops a strain with an
+empty quote; the section's whole promise is *measured against what you
+declared*, so nothing here synthesizes a clause. Under the strong form with
+no such clause — a screenplay with a silent intent, or a prose piece opted
+in by a pass brief rather than its own words — a turn-less scene stays an
+observation in the table, and the table ends with one standing line: *Hold
+every scene to a turn?* with an **Add to intent** button. The click files
+that sentence as a dated ruling under the piece's intent through the
+existing rulings path, so the words are the writer's from then on and the
+next round strains against a clause they can find in their own statement.
+The line appears on every strong-form round until a clause exists, then
+never — the offer lives exactly where the gap is visible (2026-09-01,
+Denver's discoverability concern). Same shape as Answer as ruling and §6's
+Retire: Maugham notices, offers, and writes only by the writer's hand. The
+plan verifies that a ruling's text is quotable as a `clause_quote` (the
+rulings ride in the intent snapshot the run is measured against).
+
 The prompt derives the position from `ProjectType` and the intent essay; the
-model is told which position it is in and never asked to infer it. In the weak
+model is told which position it is in and never asked to infer it. (⌘R has no
+document-kind gate — `runRequested` takes any active document — so a
+screenplay already runs today; the position is the only new thing.) In the weak
 form a blank `changes` cell is an observation — Le Guin's letter may ask
 "nothing shifts here that I can see; is that the point?" — and never a strain.
 Weak-form rows carry no "conflict" field at all, on purpose: the doctrine the
@@ -195,13 +240,16 @@ disputed one (it must be a conflict-driven reversal).
 
 - **Author — Diagnostics pane (⌘⌥D):** a **Letter** section at the top,
   above This check and Conformance. The letter is what the writer reads
-  first; the notes are the margin. Parts in order: working, habits, questions
-  (each row a jump to its first ref, with "and N more" for the rest),
-  scenes (a compact table, blank cells blank), process (one line). Signed with
-  the voice's name and the round's lane line. An empty letter draws no section.
-- **Review — the round cockpit:** the letter's first `working` or `habits`
-  line under the lane line, with a disclosure that opens the same section
-  inline. Nothing about the cockpit's buttons changes.
+  first; the notes are the margin. Parts in the schema's reading order:
+  answer (when asked), about, one thing, working, habits (each with its
+  exercise and **Accept as task**), questions (each row a jump to its first
+  ref, with "and N more" for the rest), scenes (a compact table, blank cells
+  blank), retired (a line on a warm round, an offer on Fresh Eyes — §6),
+  process (one line). Signed with the voice's name and the round's lane
+  line. An empty letter draws no section.
+- **Review — the round cockpit:** the letter's `one_thing` (else `about`)
+  under the lane line, with a disclosure that opens the same section inline.
+  Nothing about the cockpit's buttons changes.
 - **Rounds ring:** the cockpit's "since round N−1" is unchanged; a previous
   round's letter is reachable from the ring the way its counts are.
 - Wet-ink standing (M4 P2 §7.0) is unaffected: the letter is per-run, not
@@ -256,19 +304,100 @@ in full whatever the stage.
 
 ## 4. Le Guin (the voice)
 
-A fifth preset in `ReviewPass.presets`, **first** on the ladder:
+### 4.1 The seat
+
+`ReviewPass` gains a **role**: `.stage` (the four presets, every custom pass
+written so far — the decoded default, so no stored manifest changes meaning)
+or `.coach`. A fifth preset carries the coach:
 
 ```swift
-ReviewPass(id: "workshop", name: "Workshop", brief: workshopBrief, editorName: "Le Guin")
+ReviewPass(id: "workshop", name: "Workshop", role: .coach, brief: workshopBrief, editorName: "Le Guin")
 ```
 
-Because presets resolve through `effectiveBrief` / `effectiveEditorName` and
-`ProjectManifest.effectiveReviewPasses` returns the presets whenever the stored
-array is absent, a project that never customized its passes gains the pass on
-load with no migration (tripwire 11). A project that **did** customize keeps
-its stored array as-is — the Workshop pass is available to add from Project
-Settings like any preset, and the passless run briefs Le Guin regardless, so no
-writer is without her.
+A coach is a pass in every respect the compiler cares about — an id, a brief,
+an editor name resolved through `effectiveBrief` / `effectiveEditorName`, a
+lane in the diagnostics sidecar, numbered rounds, pass-stamped notes — and
+**not** a pass in the respects the ladder cares about: it has no `PassState`,
+`ReviewStatus.derived` walks stages only (so no finished piece flips to
+revising when she arrives), the board draws her as a **seat row above the
+ladder** rather than a chip with Done / Skipped, and `ActivePassMemory` never
+records her. The seat row says what she is for — *reads any piece with no
+editor assigned* — and lights when the selected piece is unassigned, so the
+ladder's rest state is visible rather than blank.
+
+Because presets resolve through the manifest's `effectiveReviewPasses`, a
+project that never customized its passes gains the seat on load with no
+migration (tripwire 11). A project that **did** customize keeps its stored
+array as-is; the seat is available to fill from Project Settings like any
+preset. **Vacating the seat** (removing the coach in Project Settings) is the
+one off switch: an unassigned piece goes back to the all-altitudes reader
+signed "Claude", writing a letter under the general instruction only. Her
+rounds stay in the sidecar as history. There is no experience-level switch —
+the seat is the writer's declaration of what kind of writer they are.
+
+**The resolution has one spelling.** `ProjectManifest.reader(forPiece:memory:)`
+(beside `effectiveReviewPasses`, because it reads the seat as well as the
+memory) answers *stage pass* / *coach* / *nobody* for a piece, and every
+reader calls it: the orchestrator's `activePass` closure, the Author header
+(§4.2), the empty-state sentence, the round lines, the annotation author
+stamp. `passlessEditorName` survives only as the *nobody* arm's name. A
+stored active-pass id that no longer names a pass already reads as
+unassigned (`validatedActivePass`); under this rule that hands the piece to
+the coach rather than to "Claude" — deleting a pass gives its pieces back to
+Le Guin, which is the right default and is stated here so it is not a
+surprise.
+
+**Rounds.** Today the passless lane (`nil`) mints no round number. A run over
+an unassigned piece with the seat held files into the **coach's** lane
+(`workshop`) and mints a round, so the since-line, "Le Guin · round 3" and
+§6's retirement count all exist. The `nil` lane keeps its M2 meaning for the
+seat-vacant case.
+
+**What this means in Author.** The active pass is per piece, set in Review
+and read by ⌘R everywhere; Author has never chosen a reader and still does
+not. So: a writer who never opens Review has every piece unassigned and every
+⌘R is Le Guin's (§9's day one, unchanged). A writer finishing chapter 1
+through Lish while drafting chapter 5 gets Lish on chapter 1 and Le Guin on
+chapter 5 without touching anything — the frontier is coached and the
+finished work is edited. Getting the coach back on an assigned piece is a
+trip to Review to set the chip back to untouched, exactly as changing editors
+is today. Fresh Eyes (⌘⇧R) follows the same rule: on an unassigned piece it is
+Le Guin's full letter over the whole piece, the classic shape; on an assigned
+piece it is that editor's cold read, as today. A warm round's letter is about
+the delta and says so in its lane line, as the header already does for counts.
+
+### 4.2 The reader line (Author)
+
+The Diagnostics pane header carries a **reader line** naming who a ⌘R on this
+piece will brief — *Le Guin reads this piece* · *Lish · Line* · *Claude* —
+read off `reader(forPiece:memory:)`. The empty state's promise ("Press ⌘R and
+Le Guin reads what you've written"), the running line and the finished
+round's lane line read the same resolution, so the header, the promise and
+the result cannot name three different people. It is a label, not a picker;
+a click travels to the board in Review with the piece selected. Author's rule
+— the reader is chosen in Review — is kept, not weakened.
+
+### 4.3 Depth, in both homes, four deep
+
+The gear menu that picks the model (`CompilerModelChoice`, per project in UI
+state, guide: "Choosing how hard it looks") lives only in the Diagnostics
+header today, so a chip-run in Review uses whatever Author last set with no
+way to see or change it there. The menu becomes one shared view, mounted in
+the **cockpit** beside the lane picker and bound to the same project value
+through the same change closure — one stored value, one "the next check
+changes" rule. The board pane does not need it; runs start from the cockpit.
+
+A fourth choice joins Fast / Standard / Deep: **Exhaustive**, mapping to the
+`fable` alias (confirmed accepted by the installed CLI's `--model`, which
+names `fable`, `opus` and `sonnet` as aliases). Same session mechanics; the
+guide's paragraph gains a sentence on what it is for (a Fresh Eyes over a long
+piece, a book letter later). `CompilerModelChoice` is a raw-string enum in a
+derived, per-device UI-state file, so an older build reading `exhaustive`
+back fails the field, not the file: the plan gives the field the ADR 0015
+tolerant-decode shape (unknown → `.standard`) rather than letting a
+preference cost the rest of UI state.
+
+### 4.4 The brief
 
 **The brief** (doctrine, first draft — the plan refines the prose): Le Guin
 reads as a teacher, not an editor. She attends to the sound of the sentences
@@ -284,19 +413,6 @@ the process signals (§5) say the frontier has not moved, she may say so in her
 own words with the numbers behind her, once, and without scolding. The
 writer decides.
 
-**Passless runs follow the ladder.** While the Workshop pass is on the
-piece's effective ladder, a passless ⌘R briefs Le Guin and signs her name; the
-one-loop spec §4's "a passless ⌘R briefs no register — the M2 all-altitudes
-reader" is superseded for that case. Remove Workshop from the ladder in
-Project Settings and the passless run is exactly what it was — the
-all-altitudes reader signed "Claude", writing a letter under the general
-instruction only. The ladder is the writer's declaration of what kind of
-writer they are; there is no experience-level switch, which would be setup of
-the kind must #2 forbids. `passlessEditorName` therefore becomes a function of
-the ladder, not a constant, and the one spelling lives beside
-`effectiveEditorName`. Existing notes signed "Claude" are untouched; they are
-history.
-
 **The writer's own bar.** The general letter instruction (every voice) says:
 when the pinned shelf holds the writer's own pieces — a prior chapter, a
 published story — measure against those by name, before any rule. *This
@@ -304,16 +420,15 @@ chapter is slacker than your chapter 4; the dialogue in the pinned story is
 doing something this one isn't.* An experienced writer's "what's working" is a
 comparison to their own best work, and the shelf already lets them pin it.
 
-**Fresh Eyes (⌘⇧R)** with Le Guin is the full editorial letter over the whole
-piece — the classic shape. A warm round's letter is about the delta and says
-so in its lane line, as the header already does for counts.
-
 ## 5. Process signals (Maugham's own observation)
 
-Deterministic, computed off the op log and the session log, no model involved.
-A pure `ProcessSignals` value over the document's ops (walking by `sequence`
-through the existing rewind machinery, never raw paragraphs) and
-`SessionTracker`'s sessions:
+Deterministic, computed off the op log alone, no model involved. A pure
+`ProcessSignals` value over the document's ops (walking by `sequence` through
+the existing rewind machinery, never raw paragraphs), where every op already
+carries its `session` id and `at` date — that is the per-document session
+evidence. `SessionLog`'s events are project-level (start, end, net words,
+device) with no document id, so they are not an input here; they stay the
+Statistics window's own.
 
 - **frontier** — the last position in the document where *new* paragraphs
   were added, and the session in which that happened.
@@ -347,8 +462,11 @@ A fourth `Statement.Kind`, `.lessons` (raw `lessons`), **project scope only**,
 hosted through the same `StatementPane` / `StatementEditorHost` as intent,
 visual language and the edition brief — the writer's own prose, op-logged,
 rendered clean on disk like any statement. The pane title is "What I've
-learned". `.unknown` tolerance means an older build (and the phone) retains and
-ignores it.
+learned". It is a `DetailSegment` case (`.lessons`) in **Author and Review**,
+beside `.intent` in both — the two personas where a lesson is learned and
+applied — with a place in `PersonaPaneRegistryTests.canonicalPaneOrder` and a
+`⌘⌥` shortcut the plan assigns off `MaughamApp`'s live bindings. `.unknown`
+tolerance means an older build (and the phone) retains and ignores it.
 
 **Two doors in:**
 
@@ -365,23 +483,42 @@ recurring habit the ledger already names is reported with that heading verbatim
 and `lesson: null` — the letter says *this is the one we talked about* instead
 of rediscovering it.
 
-**Trajectory, both ways.** The briefing carries every open lesson; the schema
-asks the round to name, in `retired`, any lesson it looked for across a
-revising or Fresh Eyes delta and found no instance of. Three consecutive such
-rounds and the ledger entry is marked retired (dated, in place — never
-deleted; a retired habit can come back), and the letter says it once: *I
-didn't find a filter word anywhere in this chapter.* Progress made visible.
+**Trajectory, both ways — proposed, never automatic** (2026-09-01, revising
+this brainstorm's three-consecutive-rounds rule). The ledger is the writer's
+prose and moves only by the writer's hand, the rule rulings already keep; the
+model's job is to *notice*, the letter's job is to *offer*. The briefing
+carries every open lesson; the schema asks the round to name, in `retired`,
+any lesson it looked for and found no instance of. A **warm** round renders
+that as a line (*I didn't find a filter word in what changed*) and nothing
+more — a three-paragraph delta proves nothing about a habit. A **Fresh Eyes**
+round, which read the whole piece cold, renders each as an offer: *I didn't
+find a filter word anywhere in this chapter* with a **Retire** button that
+files a dated retirement on that entry through `RulingPerformer` (in place —
+never deleted; a retired habit can come back and the entry says when it
+left). The offer carries the ledger heading verbatim, so what is retired is
+exactly the entry the round was briefed on and never a near-miss the model
+re-spelled. An offer the writer lets go is gone with the letter. No counter,
+no ring dependency, and nothing that has to reconcile a project-scoped
+ledger against document-scoped rounds — the whole-piece read is the
+evidence, and the writer is the judge.
 
-**Choices are the negative space of lessons.** A habit the writer **stets**
-(twice on the same habit, or once with the queue's "this is a choice" verb
-on a Le Guin question) or rules deliberate becomes a **choice**, filed in the
-same ledger under its own heading with the same `RulingPerformer` shape and
-provenance. The briefing carries choices as a list of things *not* to raise;
-a round that raises one anyway is a defect the fingerprint dedupe backstops.
+**Choices are the negative space of lessons.** A habit the writer treats as
+deliberate becomes a **choice**, filed in the same ledger under its own
+heading with the same `RulingPerformer` shape and provenance — and, again,
+only by the writer's verb. Two doors: the queue's **This is a choice** verb on
+a Le Guin question (a stet that also files), and a second stet on a question
+carrying a ledger heading, which offers *Make "fragments" a choice?* rather
+than filing on its own — the offer carries the heading, so identity is exact,
+and a plain stet stays a plain stet. For the offer to be possible, a minted
+question **carries the habit heading it was raised under** (`CompilerNote`
+gains an optional `lessonHeading`, stamped at ingest from `habits[].name`
+when the letter's question cites a habit; nothing else in the annotation
+changes). The briefing carries choices as a list of things *not* to raise; a
+round that raises one anyway is a defect the fingerprint dedupe backstops.
 Voice is the sum of choices; a coach who keeps flagging your voice is a bad
-coach — and for an experienced writer this list matters more than the lessons.
-A Fresh Eyes over a finished piece followed by **These are all choices** on
-its habits seeds the list in one act rather than six stets.
+coach — and for an experienced writer this list matters more than the
+lessons. A Fresh Eyes over a finished piece followed by **These are all
+choices** on its habits seeds the list in one act rather than six stets.
 
 **MCP:** `read_lessons`, a fourth spine reader on `read_craft_intent`'s shape,
 through the same `ProjectStore.statementText(of:)`; count moves by one.
@@ -395,9 +532,11 @@ One milestone, three plans, written one at a time against built code (rule
 - **P1 — the letter and Le Guin** (§3.1–3.6, §4): section schema + ingest,
   `CompilerRun.letter`, question minting, say-back / one thing / exercise
   (Accept as task), the five preset briefs revised incl. own-bar comparison
-  and voice distinctness, the Workshop preset, passless-follows-the-ladder,
-  the three-position scenes derivation, Diagnostics Letter section, cockpit
-  disclosure, Keep this letter.
+  and voice distinctness, the Workshop preset and `ReviewPass.role`, the
+  seat (board row, status derivation over stages only, `reader(forPiece:)`,
+  coach-lane rounds), the Author reader line, depth in the cockpit and the
+  Exhaustive choice, the three-position scenes derivation, Diagnostics
+  Letter section, cockpit disclosure, Keep this letter.
 - **P2 — the ask and the ledger** (§3.7, §6): Ask about… in both homes;
   `.lessons` kind, pane, Keep as lesson / These are all choices / the stet
   route, retired lessons, briefing sections for lessons and choices, the
@@ -422,8 +561,9 @@ phone release is forced.
   cockpit; refs are jumps, not marks. ADR 0027's terms hold.
 - **Get out of the way:** ⌘R/⌘⇧R remain the only triggers; process signals
   are never pushed; a quiet session produces no line.
-- **Lenses, not gates:** the Workshop pass never blocks; a beginner who never
-  opens Project Settings still meets Le Guin through a passless ⌘R.
+- **Lenses, not gates:** the seat never blocks and never counts toward
+  final; a beginner who never opens Review still meets Le Guin, because every
+  piece they have is unassigned.
 - **Nothing required up front:** the ask field, the ledger, exercises, the
   stage and the signals are all met by doing the thing before them. The
   day-one loop is *write, ⌘R, read a letter* — §9.
@@ -451,13 +591,15 @@ it's comfortable?* Statistics' Practice section has the same numbers for
 anyone who goes looking.
 
 **Week 6.** An exercise accepted as a task, done, ⌘R: *I didn't find a filter
-word anywhere in this chapter* — retired. Fragments stetted twice → a choice;
-never raised again. The board in Review shows Workshop first and Structural
-after it; Perkins's chip gives a structural letter with a scenes table. The
+word anywhere in this chapter* — retired. Fragments stetted twice → *Make "fragments" a choice?* → yes;
+never raised again. The board in Review shows Le Guin's seat lit above the
+ladder and Structural first on it; Perkins's chip gives a structural letter
+with a scenes table, and the Author header now reads *Perkins · Structural*
+for that chapter while the next one, unassigned, is still hers. The
 graduation is clicking a different name, not learning a system.
 
 **The experienced writer** touches different knobs on the same system:
-removes Workshop from the ladder (passless goes back to "Claude"), pins their
+vacates the seat (an unassigned piece goes back to "Claude"), pins their
 own prior work so "what's working" is a comparison to their own bar, seeds
 choices in one act, authors a custom pass brief for the hostile reader they
 want, and uses the ask field for opinion on request. Their real letter — the
