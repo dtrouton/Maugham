@@ -203,9 +203,10 @@ which is the exact string the review fix's test produces when falsified.
 in this round's lane. And the count stays per FINDING, not per matched note —
 two notes holding one fingerprint are one thing the writer is holding, which is
 what the sentence says. **Scope, stated honestly: this counts NOTES.** The
-mint only ever sees `SectionedOutcome.mintable` — continuity questions and
-reader reports — so a conformance strain re-raised across lanes stays
-report-side and takes no part in the number.
+mint only ever sees `SectionedOutcome.mintable` — continuity questions, reader
+reports and, since the editorial letter, the letter's own questions — so a
+conformance strain re-raised across lanes stays report-side and takes no part
+in the number.
 
 **Fresh Eyes briefs NO dispositions at all**
 (`CompilerOrchestrator.beginRun`, the private continuation `runRequested`

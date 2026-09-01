@@ -113,10 +113,20 @@ final class CompilerPromptTests: XCTestCase {
             "the drift verdict is about the reading, not about a paragraph")
     }
 
+    /// **The instruction half of the id-scrub, and it must name every field
+    /// the scrub is asked of.** Task 2's fix round gave `parseLetter` an
+    /// id-scrub over all twelve of the letter's prose fields; until this
+    /// sentence covered them, ingest was dropping letter entries for a rule
+    /// the model had never been given — a refusal it could not have complied
+    /// with and would never learn from.
     func test_theSchemaForbidsIdsInProse() {
         let schema = CompilerPrompt.sectionSchemaDescription
         XCTAssertTrue(schema.contains("never contains a paragraph id"))
         XCTAssertTrue(schema.contains("short quotation"))
+        XCTAssertTrue(
+            schema.contains("every prose field of the letter"),
+            "the letter's prose is scrubbed for leaked ids at ingest, so the "
+            + "instruction must ask for what the parser enforces")
     }
 
     func test_theSchemaHasNowhereForYouShould() {
@@ -936,16 +946,23 @@ final class CompilerPromptTests: XCTestCase {
 
     // MARK: - The spike's three disciplines (M4 P1 Task 4)
 
-    /// The three instruction-side additions ride the schema's own surrounding
+    /// The instruction-side additions ride the schema's own surrounding
     /// prose, so they reach every run — warm, cold, passless alike. Pinned by
     /// distinctive phrase rather than whole text: the wording is the author's
     /// to improve, the discipline is not.
+    ///
+    /// **`letterInstruction` joined the loop in Task 2's fix round**, and it
+    /// had to: until it did, the only test naming it was an
+    /// `XCTAssertLessThan` on a word budget, so deleting the interpolation —
+    /// or gutting the static — made the suite MORE green. An instruction whose
+    /// only guard is a cost ceiling is guarded in exactly the wrong direction.
     func test_theSchemaCarriesTheReaderBarTheDedupAndTheDriftStabilizer() {
         let schema = CompilerPrompt.sectionSchemaDescription
         for instruction in [CompilerPrompt.formOnItsOwnTermsInstruction,
                             CompilerPrompt.readerBarInstruction,
                             CompilerPrompt.crossSectionDedupInstruction,
-                            CompilerPrompt.driftStabilizerInstruction] {
+                            CompilerPrompt.driftStabilizerInstruction,
+                            CompilerPrompt.letterInstruction] {
             XCTAssertTrue(schema.contains(instruction),
                           "the schema stopped carrying: \(instruction)")
         }
@@ -965,6 +982,39 @@ final class CompilerPromptTests: XCTestCase {
             .contains("One issue gets one entry"))
         XCTAssertTrue(CompilerPrompt.driftStabilizerInstruction
             .lowercased().contains("direction"))
+    }
+
+    /// **The letter's doctrine, clause by clause** (editorial letter P1
+    /// Task 2, spec §3.1/§3.3/§4.4). Each of these is a decision the brief
+    /// made, not a wording choice, and each is one a rewording could quietly
+    /// drop while the instruction stayed long enough to look intact.
+    ///
+    /// The two that carry the most weight and would be least visible in
+    /// their absence: **voice distinctness** is the one habit test the brief
+    /// names by name, and the **writer's own bar** is what makes "what's
+    /// working" a comparison to their own best work rather than to a rule.
+    /// The other two are the register itself — questions never carry a
+    /// suggested change, and an exercise is a thing to do rather than a
+    /// rewrite, which is also the doctrine `parseLetter`'s scrub exemption
+    /// rests on.
+    func test_theLetterInstructionCarriesItsDoctrineClauseByClause() {
+        let letter = CompilerPrompt.letterInstruction.lowercased()
+        let clauses = [
+            ("voice distinctness", "the one habit test the brief names by name"),
+            ("their lines alone", "…and the test it actually is"),
+            ("the writer's own pieces", "the writer's own bar (spec §4.4)"),
+            ("never a suggested change", "questions only, and never a fix"),
+            ("never a rewrite", "an exercise is a thing to DO"),
+            ("your pass brief allows", "each pass writes only the parts its brief allows"),
+            ("with no brief", "…and a pass with no brief writes all of them"),
+            ("at most 2", "the habits cap the ingest also enforces"),
+            ("at most 3 questions", "the questions cap the ingest also enforces"),
+            ("one_thing", "the single thing to fix if only one"),
+        ]
+        for (phrase, why) in clauses {
+            XCTAssertTrue(letter.contains(phrase),
+                          "the letter instruction stopped saying \"\(phrase)\" — \(why)")
+        }
     }
 
     /// **Exactly six section lines, and the sixth is the letter.**

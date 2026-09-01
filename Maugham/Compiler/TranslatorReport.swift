@@ -4,8 +4,8 @@ import Foundation
 /// Maugham reads it back.
 ///
 /// **One object, not a sectioned stream.** The compiler's contract
-/// (`DiagnosticIngest`) is five line-delimited JSON objects because five
-/// different kinds of finding can arrive independently; a translator answers
+/// (`DiagnosticIngest`) is six line-delimited JSON objects because six
+/// different kinds of answer can arrive independently; a translator answers
 /// one question — "here is this round's work" — so the wire shape is a
 /// single JSON object naming two arrays.
 ///

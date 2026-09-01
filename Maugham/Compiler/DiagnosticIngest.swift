@@ -630,10 +630,14 @@ extension DiagnosticIngest {
                 let wants = nonEmptyString(item[SectionField.wants]) ?? ""
                 let changes = nonEmptyString(item[SectionField.changes]) ?? ""
                 let turn = nonEmptyString(item[SectionField.turn]) ?? ""
-                // A blank cell is an observation (spec §3.4) — a row with
-                // nothing in any of the three is not.
-                guard !(wants.isEmpty && changes.isEmpty && turn.isEmpty),
-                      !letterProseLeaksAnId([wants, changes, turn], live)
+                // **A blank cell is an observation, and so is a row of them**
+                // (spec §3.4). Le Guin's letter may ask "nothing shifts here
+                // that I can see; is that the point?" — a scene the model
+                // could say nothing at all about is the sharpest form of that,
+                // and its refs are what the writer clicks to go and read it.
+                // This carried a guard dropping such a row; the spec says
+                // otherwise and the guard is gone.
+                guard !letterProseLeaksAnId([wants, changes, turn], live)
                 else { return nil }
                 let charge = nonEmptyString(item[SectionField.charge])
                 return Letter.Scene(

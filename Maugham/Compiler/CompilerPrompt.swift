@@ -73,9 +73,9 @@ enum CompilerPrompt {
         is no declared intent to measure against, the answer is holds. \
         Every reference to a paragraph travels in that entry's refs array, \
         copied exactly as the paragraph id appears above. Prose — \
-        what_pulls, question, report, cites, and fact — never contains a \
-        paragraph id: refer to the prose itself by a short quotation, the \
-        way an editor would. clause_quote and cites are the writer's own \
+        what_pulls, question, report, cites, fact, and every prose field of \
+        the letter — never contains a paragraph id: refer to the prose \
+        itself by a short quotation, the way an editor would. clause_quote and cites are the writer's own \
         words, quoted, not summarized. what_pulls names what pulls \
         against the clause and stops there — never a fix. Every \
         continuity entry ends as a question, never a verdict. The reader \
@@ -605,10 +605,17 @@ enum CompilerPrompt {
         case .conformanceStrain: return DiagnosticIngest.SectionField.conformance
         case .continuity: return DiagnosticIngest.SectionField.continuity
         case .readerReport: return DiagnosticIngest.SectionField.reader
-        // A letter question is briefed back under the section it was asked
-        // in, like every other kind: the reminder's whole job is to name the
-        // section the model should raise it in again if it still stands, and
-        // for a letter question that is the letter.
+        // **Unreachable today, and so are the two arms above it.** The
+        // briefing's prior-round notes come from `DiagnosticsStore.
+        // standingRound`, which hands back the SIDECAR's diagnostics — and
+        // since M4 P1 those are conformance strains alone. A letter question
+        // is a `Diagnostic` in `accepted` and in `mintable`, never in
+        // `sidecarDiagnostics`, so it reaches the next round through the
+        // dispositions section as an open annotation, not through here. The
+        // arm exists because the switch is exhaustive and because a sidecar
+        // record written before that split still names its section; the word
+        // it answers with is the one the schema asks in, which is what this
+        // function is for.
         case .letterQuestion: return DiagnosticIngest.SectionField.letter
         }
     }

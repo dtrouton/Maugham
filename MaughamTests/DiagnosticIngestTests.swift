@@ -958,6 +958,21 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertEqual(section.droppedDangling, 0)
     }
 
+    /// The habits cap, on `test_fourWorkingEntriesKeepThree`'s shape. It was
+    /// enforced in production and tested nowhere for a whole review round —
+    /// deleting its `prefix` left the suite green.
+    func test_threeHabitsKeepTwo() throws {
+        let entries = ["a1b2", "c3d4", "e5f6"].enumerated().map { index, id in
+            "{\"name\":\"Habit \(index + 1)\",\"refs\":[\"\(id)\"],\"cost\":\"Distance.\"}"
+        }.joined(separator: ",")
+        let section = try XCTUnwrap(
+            parseSection("{\"section\":\"letter\",\"habits\":[\(entries)]}"))
+        XCTAssertEqual(section.letter?.habits.map(\.name), ["Habit 1", "Habit 2"],
+                       "the cap keeps the first two the model thought of")
+        XCTAssertEqual(section.droppedDangling, 0,
+                       "a cap is not a loss the writer needs to be told about")
+    }
+
     func test_theLettersQuestionsAreCappedAtThree() throws {
         let entries = (1...4).map {
             "{\"refs\":[\"a1b2\"],\"question\":\"Question \($0)?\"}"
@@ -1116,6 +1131,30 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertEqual(
             parseSection("{\"section\":\"letter\",\"scenes\":[]}")?.letter?.scenes, [],
             "control: an empty table is an empty table")
+    }
+
+    /// **Three blank cells is a row, not a reason to drop one** (spec §3.4).
+    /// A blank cell is an observation — Le Guin's letter may ask "nothing
+    /// shifts here that I can see; is that the point?" — and a scene the model
+    /// could say nothing at all about is the sharpest form of that same
+    /// observation. The row's refs are what the writer clicks to go read it.
+    ///
+    /// This shipped as a guard that dropped such a row, on the reasoning that
+    /// a row with nothing in it is not a row. The spec says otherwise, and the
+    /// guard is gone.
+    func test_aSceneRowOfBlankCellsIsStillARow() throws {
+        let line = """
+            {"section":"letter","scenes":[{"refs":["a1b2"],"wants":"",\
+            "changes":"","turn":"","charge":null}]}
+            """
+        let scenes = try XCTUnwrap(try XCTUnwrap(parseSection(line)).letter?.scenes)
+        XCTAssertEqual(scenes.count, 1,
+                       "the row the model could say nothing about is the one "
+                       + "the writer most needs to see")
+        XCTAssertEqual(scenes.first?.refs.map(\.paragraphId), ["a1b2"],
+                       "…and it keeps the refs that make it reachable")
+        XCTAssertEqual(scenes.first?.wants, "")
+        XCTAssertEqual(scenes.first?.charge, nil)
     }
 
     /// An unrecognised charge is no charge, on `intentDriftVerdict`'s rule: a

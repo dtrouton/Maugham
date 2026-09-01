@@ -201,7 +201,8 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// piece, reported as one that found nothing in it.
     ///
     /// **Notes only, and only findings that HAVE a fingerprint.** The mint sees
-    /// `SectionedOutcome.mintable` — continuity questions and reader reports —
+    /// `SectionedOutcome.mintable` — continuity questions, reader reports and,
+    /// since the editorial letter, the letter's own questions —
     /// so a conformance strain re-raised across lanes is report-side and takes
     /// no part; and an anchorless craft note carries no fingerprint at all, so
     /// it is neither deduped nor counted here (`RoundFingerprint` has no
