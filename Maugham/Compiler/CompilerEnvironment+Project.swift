@@ -175,6 +175,12 @@ extension CompilerOrchestrator.Environment {
                     editorName: pass.effectiveEditorName,
                     brief: pass.effectiveBrief)
             },
+            // **The project's own type**, for the letter's scene position
+            // (spec §3.4). `ProjectManifest.type` — the same field
+            // `ResearchScope`'s routing asks of it — read weakly like every
+            // other store closure here. A closed project answers `nil`, which
+            // `ScenePosition.derive` reads as prose.
+            projectType: { [weak store] _ in store?.manifest.type },
             cachedWorld: { [weak declaredWorld] briefing in
                 // The hash gate is the whole cache: a reading is served only
                 // against the exact text it was made from, so the writer

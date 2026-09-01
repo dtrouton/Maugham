@@ -524,6 +524,127 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertLessThan(frame.lowerBound, delta.lowerBound)
     }
 
+    // MARK: - The scene position, told to the model (editorial letter P1 Task 3)
+
+    /// **Every position gets its sentence, `.none` included.** The whole
+    /// point of deriving the position app-side is that the model is never
+    /// asked to infer one (spec §3.4) — and silence is exactly an invitation
+    /// to infer. A run that said nothing about scenes would leave the model to
+    /// decide from the prose whether this book turns, which is the judgement
+    /// the derivation exists to take off it.
+    func test_everyScenePositionGetsItsOwnSentence() {
+        var seen: Set<String> = []
+        for position in [ScenePosition.none, .weak, .strongDeclared, .strongDefault] {
+            guard let section = CompilerPrompt.scenePositionSection(position) else {
+                return XCTFail("\(position) was told nothing about scenes")
+            }
+            XCTAssertFalse(section.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            XCTAssertTrue(seen.insert(section).inserted,
+                          "\(position) repeated another position's sentence")
+        }
+    }
+
+    /// `.none` asks for `null` — not an empty array, which is a scene table
+    /// with no rows in it (`Letter.scenes`' own doc, and the pair
+    /// `DiagnosticIngestTests.test_scenesAbsentOrNullIsNil` pins).
+    func test_theNonePositionAsksForNullRatherThanAnEmptyTable() {
+        guard let section = CompilerPrompt.scenePositionSection(.none)
+        else { return XCTFail("expected a section") }
+        XCTAssertTrue(section.lowercased().contains("null"), section)
+    }
+
+    /// The weak form's two rules, both from spec §3.4: no charge, and a blank
+    /// `changes` is an observation rather than a fault. The doctrine it
+    /// encodes is the near-consensus one — something should change — so the
+    /// word "conflict" must not appear in it at all.
+    func test_theWeakPositionCarriesNoChargeAndNoConflict() {
+        guard let section = CompilerPrompt.scenePositionSection(.weak)
+        else { return XCTFail("expected a section") }
+        XCTAssertTrue(section.lowercased().contains("null"),
+                      "the weak form's charge is always null; got \(section)")
+        XCTAssertFalse(section.lowercased().contains("conflict"),
+                       "the weak form carries no conflict field, on purpose; got \(section)")
+    }
+
+    /// **Only the declared strong form asks for a strain**, and the default
+    /// one says so in as many words. This is spec §3.4's "a strain needs a
+    /// clause the writer wrote": under `.strongDefault` there is no clause of
+    /// the writer's to quote, and a strain raised without one is the app
+    /// having synthesized the standard it then judges them by.
+    func test_onlyTheDeclaredStrongPositionAsksForAConformanceStrain() {
+        guard let declared = CompilerPrompt.scenePositionSection(.strongDeclared),
+              let byDefault = CompilerPrompt.scenePositionSection(.strongDefault)
+        else { return XCTFail("expected both sections") }
+
+        XCTAssertTrue(declared.lowercased().contains("strain"), declared)
+        XCTAssertTrue(declared.lowercased().contains("conformance"), declared)
+        XCTAssertTrue(declared.lowercased().contains("quote"), declared)
+
+        XCTAssertTrue(byDefault.lowercased().contains("not"), byDefault)
+        XCTAssertTrue(byDefault.lowercased().contains("observation"),
+                      "a turn-less scene stays an observation; got \(byDefault)")
+        XCTAssertTrue(byDefault.lowercased().contains("has not declared")
+                        || byDefault.lowercased().contains("no clause"),
+                      "…and it says WHY, so the model does not read the refusal as "
+                      + "an oversight; got \(byDefault)")
+
+        // Both strong forms still ask for the charge the weak one refuses.
+        for section in [declared, byDefault] {
+            XCTAssertTrue(section.contains("+") && section.contains("-"), section)
+        }
+    }
+
+    /// **Nothing per-run folds into the briefing hash** (global constraint 5,
+    /// and `test_theRoundSectionNeverFoldsIntoTheBriefingHash`'s own shape).
+    /// The scene position moves with the project's type, the writer's intent
+    /// and the lane they put the piece in — a hash covering it would never
+    /// match its predecessor after a pass switch, and the essay, the declared
+    /// world and the bible slice would re-embed in full on every ⌘R.
+    func test_theScenePositionNeverFoldsIntoTheBriefingHash() {
+        let world = makeWorld(clauses: [.init(quote: "Keep it wry.", check: "tone check")])
+        let facts = [makeFact(subject: "Kelly", fact: "Kelly grew up on the coast.")]
+
+        let (_, firstHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [], scenePosition: .weak,
+            previousBriefingHash: nil)
+        XCTAssertNotNil(firstHash)
+
+        let (secondMessage, secondHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [], scenePosition: .strongDeclared,
+            previousBriefingHash: firstHash)
+
+        XCTAssertEqual(secondHash, firstHash,
+                       "the intent did not move; a scene position that folded into "
+                       + "the hash would re-embed the whole briefing every time the "
+                       + "writer switched lanes")
+        XCTAssertTrue(secondMessage.lowercased().contains("unchanged"))
+        XCTAssertFalse(secondMessage.contains("Essay text."))
+        XCTAssertTrue(
+            secondMessage.contains(CompilerPrompt.scenePositionSection(.strongDeclared) ?? "!"),
+            "…and the position still travels")
+    }
+
+    /// Its place in the message: after the role frame, before the delta
+    /// (global constraint 5, and the ordering comment in `runMessageV2`). What
+    /// form this piece takes is part of the frame the delta is read through,
+    /// not part of the thing being checked.
+    func test_theScenePositionSitsBetweenTheRoleFrameAndTheDelta() {
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(new: [.init(paragraphId: "p1", text: "The fog came.")]),
+            world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            pass: lane("copyedit"), scenePosition: .weak, previousBriefingHash: nil)
+        guard let frame = message.range(of: "You are Gould"),
+              let scenes = message.range(
+                of: CompilerPrompt.scenePositionSection(.weak) ?? "!"),
+              let delta = message.range(of: "This run's delta:")
+        else { return XCTFail("expected the frame, the position and the delta; got \(message)") }
+        XCTAssertLessThan(frame.lowerBound, scenes.lowerBound)
+        XCTAssertLessThan(scenes.lowerBound, delta.lowerBound)
+    }
+
     // MARK: - The writer's dispositions (M4 P1 Task 4)
 
     private static let standingQuestion = CompilerAnnotationDisposition(

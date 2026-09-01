@@ -417,6 +417,60 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertEqual(reopened.lastRun(docId: docId)?.letter, letter)
     }
 
+    /// **The scene position is a DISK format** (editorial letter P1 Task 3).
+    /// `Letter.scenePosition` carries `ScenePosition.rawValue`, so the four
+    /// snake_case strings are what a sidecar holds — renaming a case reads
+    /// back as an unrecognised string on every letter already written, and the
+    /// pane would lose the position it needs to know whether the table's
+    /// turn-less rows were strains or observations.
+    func test_theScenePositionRoundTripsAsItsRawString() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docScenePosition"
+
+        var run = makeRun()
+        run.letter = Letter(
+            about: "A woman waits out a fog.", oneThing: nil,
+            working: [], habits: [], questions: [], scenes: nil,
+            scenePosition: ScenePosition.strongDefault.rawValue)
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: docId)
+
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(raw.contains("\"strong_default\""),
+                      "the raw value is what reaches the file; got \(raw)")
+
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: docId)
+        XCTAssertEqual(reopened.lastRun(docId: docId)?.letter?.scenePosition, "strong_default")
+    }
+
+    /// …and a letter written before the position existed still loads, with no
+    /// position rather than a failure — global constraint 2's tolerated-missing
+    /// discipline, one field deeper than `test_aSidecarWithoutLetterStillLoads`
+    /// reaches.
+    func test_aLetterWithoutAScenePositionStillLoads() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docLetterNoPosition"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            {"diagnostics":[],"run":{"at":"2026-08-04T09:00:00Z","deltaSummary":"1 new, 0 revised",
+            "id":"01JABC","lastOpId":"op1","model":"sonnet",
+            "letter":{"about":"A woman waits out a fog.","working":[],"habits":[],
+            "questions":[]}}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(store.lastRun(docId: docId)?.letter?.about, "A woman waits out a fog.")
+        XCTAssertNil(store.lastRun(docId: docId)?.letter?.scenePosition)
+    }
+
     /// A sidecar written before the truncatedReader field existed decodes as
     /// nil rather than failing — the reader count is optional and honoring its
     /// absence is the contract.

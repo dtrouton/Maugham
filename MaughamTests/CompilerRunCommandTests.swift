@@ -264,6 +264,11 @@ final class CompilerRunCommandTests: XCTestCase {
         /// The review pass active on the piece when a run starts. `nil` — the
         /// default, and every pre-P3 test's world — is the passless lane.
         activePass: String? = nil,
+        /// The project's type, as `Environment.projectType` answers it — what
+        /// the letter's scene position is derived from (spec §3.4). `nil` — the
+        /// default, and every test written before the position existed — reads
+        /// as prose, which is what those runs were.
+        projectType: ProjectType? = nil,
         liveParagraphText: @escaping (String, String) -> String? = { _, _ in "The fog came." },
         pinnedListing: @escaping (String) -> [String] = { _ in [] },
         paletteListing: @escaping () -> [String] = { [] },
@@ -303,6 +308,7 @@ final class CompilerRunCommandTests: XCTestCase {
                     }
                 },
                 activePass: { id in id == self.docId ? Self.lane(pass.value) : nil },
+                projectType: { _ in projectType },
                 cachedWorld: { _ in cachedWorld },
                 deriveWorld: { _, _ in
                     derivations.value += 1
@@ -5339,5 +5345,183 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertFalse(second.contains("raised these notes"), second)
         XCTAssertTrue(second.contains("You are Gould"),
                       "a cold reader is still this pass's editor; got \(second)")
+    }
+
+    // MARK: - The letter's scene position (editorial letter P1 Task 3)
+
+    /// A turn whose sixth section carries a letter and nothing else worth
+    /// minting — the smallest answer that produces a letter to stamp.
+    private static let aLetterAndNothingElse = """
+        {"section":"conformance","checks":[]}
+        {"section":"continuity","questions":[]}
+        {"section":"reader","reports":[]}
+        {"section":"facts","candidates":[]}
+        {"section":"intent_drift","verdict":"holds"}
+        {"section":"letter","about":"A woman waits out a fog.","one_thing":null,\
+        "working":[],"habits":[],"questions":[],"scenes":null}
+        """
+
+    /// **The position is stamped by the RUN, not answered by the model**
+    /// (spec §3.4). It is derived app-side at the keystroke and the model is
+    /// only told about it, so the record must carry what the run decided —
+    /// here a screenplay whose intent says nothing about form, which is the
+    /// strong form with no clause of the writer's to strain against.
+    ///
+    /// The raw value is asserted rather than the case: `Letter.scenePosition`
+    /// carries `rawValue` into the sidecar, so `"strong_default"` is a disk
+    /// format and a rename reads back as `nil` on every letter already
+    /// written.
+    func test_aRunStampsTheDerivedScenePositionOntoItsLetter() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            statementText: "Cold, and never wistful.",
+            projectType: .screenplay)
+        runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.letter?.about, "A woman waits out a fog.",
+                       "control: the letter itself really did land")
+        XCTAssertEqual(run.letter?.scenePosition, "strong_default")
+    }
+
+    /// The other half of the derivation reaching the record: the same run over
+    /// a prose piece whose writer declared the clause in their own intent
+    /// files `strong_declared`, and a prose piece that declared nothing files
+    /// `weak`. Nothing about the turn changed — only what the writer owns.
+    func test_theStampFollowsTheProjectAndTheIntentRatherThanTheTurn() throws {
+        for (statement, type, expected) in [
+            ("Every scene must turn.", ProjectType.novel, "strong_declared"),
+            ("Cold, and never wistful.", ProjectType.novel, "weak"),
+            ("A lyric sequence.", ProjectType.screenplay, "none"),
+        ] {
+            let runner = SpyRunner()
+            let harness = try makeHarness(
+                runner: runner, reading: standingReading(),
+                statementText: statement, projectType: type)
+            runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
+
+            harness.orchestrator.runRequested(docId: docId)
+            awaitSends(1, on: runner)
+            settle()
+
+            let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+            XCTAssertEqual(run.letter?.scenePosition, expected,
+                           "\(type) + \"\(statement)\"")
+        }
+    }
+
+    /// **The run derives over the WHOLE statement, not the essay half it
+    /// briefs with** (spec §3.4, and the reason Task 9's offer works at all).
+    ///
+    /// The offer files "Every scene must turn." as a dated ruling under
+    /// `## Rulings`, which is where `RulingPerformer` writes — beneath the
+    /// essay boundary. `beginRun` computes `essay` one line above the
+    /// derivation and that value is the RIGHT one for the prompt's own essay
+    /// section, so handing it to `ScenePosition.derive` is a one-word mistake
+    /// that compiles, keeps the whole suite green through the pure function's
+    /// own tests, and silently makes the Add-to-intent offer reappear on every
+    /// round forever while no strain is ever raised. This is the call site's
+    /// own guard, and it caught exactly that during Task 3's disable
+    /// experiments.
+    func test_theDerivationReadsTheRulingsHalfAndNotJustTheEssay() throws {
+        let statement = """
+            Cold, and never wistful.
+
+            ## Rulings
+
+            - 2026-09-01 — Every scene must turn.
+            """
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            statementText: statement, projectType: .novel)
+        runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.letter?.scenePosition, "strong_declared",
+                       "a clause the writer ruled is still a clause the writer wrote")
+        XCTAssertFalse(
+            StatementEssay.half(of: statement).lowercased().contains("every scene must turn"),
+            "control: the essay half genuinely does not carry it, so briefing "
+            + "the derivation with `essay` would have answered weak")
+    }
+
+    /// **The model is TOLD its position** — the run message carries the
+    /// sentence, so nothing about the scene table is left to be inferred from
+    /// the prose (spec §3.4).
+    func test_theRunMessageTellsTheModelItsScenePosition() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            statementText: "Cold, and never wistful.", projectType: .screenplay)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = try XCTUnwrap(runner.sends.first?.message)
+        XCTAssertTrue(
+            message.contains(try XCTUnwrap(
+                CompilerPrompt.scenePositionSection(.strongDefault))),
+            "got \(message)")
+    }
+
+    /// **The preview stamps the same position the finish does.** `record` is
+    /// one spelling and takes the position undefaulted, so the compiler
+    /// forces both call sites to pass something — it cannot force them to pass
+    /// the SAME thing, which is what this pins. A preview that disagreed would
+    /// flip the letter's scene section under the writer as the check ended,
+    /// which is the defect the carried-on-`StreamingRun` shape exists to
+    /// prevent.
+    func test_thePreviewAndTheFinishAgreeAboutTheScenePosition() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // the turn stays open
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(),
+            statementText: "Cold, and never wistful.", projectType: .screenplay)
+        streamingRun(runner: runner, harness: harness)
+
+        runner.stream("""
+            {"section":"letter","about":"A woman waits out a fog.","working":[],\
+            "habits":[],"questions":[],"scenes":null}
+            """ + "\n")
+
+        let previewed = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(previewed.letter?.scenePosition, "strong_default",
+                       "the preview's letter carries the run's own position")
+
+        runner.release(.resultText(Self.aLetterAndNothingElse))
+        settle()
+
+        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(finished.letter?.scenePosition, previewed.letter?.scenePosition,
+                       "\u{2026}and the answer that supersedes it says the same thing")
+    }
+
+    /// **A turn with no letter has nothing to stamp**, and the position does
+    /// not conjure one. `scenePosition` is a fact about a letter, not about a
+    /// run: a four-section answer records no letter, exactly as it did before
+    /// this task existed.
+    func test_aTurnWithNoLetterRecordsNoLetterToStamp() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), projectType: .screenplay)
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertNil(run.letter)
     }
 }

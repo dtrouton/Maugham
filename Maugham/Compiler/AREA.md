@@ -40,6 +40,29 @@ while the fix-shape scrub stops at `questions`, the one part that leaves the
 letter and becomes a `.query` the writer must be able to answer — `exercise` is
 exempt because a Le Guin feed-forward is a directive by nature. Neither scrub
 moves `droppedDangling` either.
+**The letter's scene table has a position, and the run decides it** (spec
+§3.4, P1 Task 3). `ScenePosition.derive` reads three things the writer owns —
+the project's type, their intent statement and the active pass's brief — and
+answers `none` (no table at all), `weak` (rows, charge always null, no conflict
+field, a blank `changes` read as an observation) or one of the two strong
+forms; `CompilerPrompt.scenePositionSection` states it in one sentence per run,
+so the model is TOLD its position and never asked to infer one. **The
+`strongDeclared`/`strongDefault` split is the doctrine**: a turn-less scene is
+a conformance strain ONLY where the writer's own words carry the clause it
+strains against, because conformance is keyed on a `clause_quote` from the
+intent statement and nothing here may synthesize one on their behalf. Reached
+any other way — a screenplay whose intent is silent, a prose piece opted in by
+a pass brief — it stays an observation and the gap belongs to the
+Add-to-intent offer (Task 9). Two rules are easy to get wrong: the derivation
+reads the **WHOLE** statement rather than `StatementEssay.half(of:)`, because
+that offer files its clause under `## Rulings`
+(`CompilerRunCommandTests.test_theDerivationReadsTheRulingsHalfAndNotJustTheEssay`
+is the call site's own guard), and the writer's explicit **opt-out beats
+everything**, including a clause elsewhere in the same statement. The position
+is derived at the keystroke, carried on `StreamingRun`, and stamped onto
+`Letter.scenePosition` in the one `record(...)` spelling, so a preview and the
+answer that supersedes it cannot disagree — its raw values are a disk format.
+
 `CompilerPrompt.sectionSchemaDescription` is what is asked for and
 `DiagnosticIngest.parseSection`/`parseAll` is what reads it. **The v1 contract
 is gone**: `runMessage`, `CompilerContext` and `DiagnosticIngest.parse` were
@@ -281,7 +304,8 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `CompilerOrchestrator.swift` | **The run.** Owned by `ProjectWindow`; one orchestrator per window, one session per orchestrator |
 | `CompilerEnvironment+Project.swift` | The production wiring — the window's stores, as the closures the orchestrator runs on. Every capture is weak. `pinnedListing` carries the resolved `PinnedShelf`'s own grouping into the briefing through `pinnedListingLines`: one `pinnedListingLine` per pin, with a `## <title>` line ahead of each TITLED section and no header over an untitled one, so a run reads the same arrangement the References pane draws |
 | `DeltaBuilder.swift` | What changed since the last run's marker, in the writer's order (`sequence`, never raw `paragraphs`) |
-| `CompilerPrompt.swift` | The message. Asks different questions of new and revised prose; v2 carries the essay + derived clauses + the bible slice + the delta, diffed in as ONE unit (`briefingHash`). M4 P1 adds two more sections between the listings and the delta, neither folded into `briefingHash` (each changes with the writer, not with what they declared): the active pass's **role frame + brief** (`passSection`, "You are Gould, this manuscript's copyeditor") and the **dispositions** section (`dispositionsSection`/`CompilerAnnotationDisposition.gather` — standing notes uncapped, settled notes capped at 12 and sorted by `resolvedAt` descending; see the dispositions paragraph above) |
+| `ScenePosition.swift` | What form the letter's scene table takes, derived app-side from the project type, the writer's whole intent statement and the pass brief (spec §3.4). Two closed phrase lists — the opt-out and the turn clause — and one rule about which wins. Its raw values reach disk through `Letter.scenePosition` |
+| `CompilerPrompt.swift` | The message. Asks different questions of new and revised prose; v2 carries the essay + derived clauses + the bible slice + the delta, diffed in as ONE unit (`briefingHash`). M4 P1 and the editorial letter add per-run sections between the listings and the delta, and **none of them is folded into `briefingHash`** (each changes with the writer, not with what they declared) — count the appends in `runMessageV2`, not a number here: the active pass's **role frame + brief** (`passSection`, "You are Gould, this manuscript's copyeditor"), the **scene position** (`scenePositionSection`, the letter's own; see the scene-position paragraph above) and the **dispositions** section (`dispositionsSection`/`CompilerAnnotationDisposition.gather` — standing notes uncapped, settled notes capped at 12 and sorted by `resolvedAt` descending; see the dispositions paragraph above) |
 | `CompilerAllowlist.swift` | The enumerated read-only MCP tool list, as `--allowedTools` |
 | `CompilerRunner.swift` | The seam: `send(message:systemPreamble:) -> CompilerRunEvent`, plus every way a run can fail |
 | `ClaudeCLISession.swift` | The warm subprocess behind that seam |

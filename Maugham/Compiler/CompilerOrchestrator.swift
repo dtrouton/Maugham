@@ -272,6 +272,22 @@ final class CompilerOrchestrator {
         /// nowhere else, so the round's filing, the notes' authorship and the
         /// briefing cannot describe different passes.
         var activePass: @MainActor (String) -> ActivePass? = { _ in nil }
+        /// **The project's own type**, for the letter's scene position (spec
+        /// §3.4, editorial letter P1 Task 3). A screenplay moves by scenes in
+        /// the strong sense by its form; everything else reads as prose until
+        /// the writer's own intent says otherwise.
+        ///
+        /// Keyed by docId like every other closure here even though the answer
+        /// is project-wide: the caller has a document in hand, and a
+        /// project-wide signature would be the one closure on this type that
+        /// takes nothing, which is a seam a Collection's per-piece answer would
+        /// later have to break.
+        ///
+        /// Defaulted to `nil` — read as prose — so every `Environment` built
+        /// before the scene position existed still compiles and still runs.
+        /// Those runs get the weak form, which is what a run with nothing
+        /// declared about form should get.
+        var projectType: @MainActor (String) -> ProjectType? = { _ in nil }
         /// The reading already held for this statement's EXACT text, or `nil`
         /// for a miss. Pure — it never derives and never spawns, which is what
         /// lets the run tell a hit from a miss before deciding to spend a
@@ -447,6 +463,14 @@ final class CompilerOrchestrator {
         let activePass: ActivePass?
         var passId: String? { activePass?.id }
         let round: Int?
+        /// **The letter's scene position, derived at the keystroke and
+        /// carried** (spec §3.4). Carried for the lane's own reason: the
+        /// writer can switch passes — and edit their intent — while the check
+        /// runs, and the run was briefed on the position it started in. The
+        /// preview stamps it on the letter and so does `finish`, so a preview
+        /// and the answer that supersedes it can never disagree about what
+        /// form the model was told this piece takes.
+        let scenePosition: ScenePosition
         /// Whether this round was read cold (⌘⇧R) — carried for the same
         /// reason the lane is: the preview and the answer must describe one
         /// round, and the pane draws its header off this stamp.
@@ -681,6 +705,24 @@ final class CompilerOrchestrator {
         // declaration in front of the model twice — see
         // `CompilerRunCommandTests.test_rulingsAreBriefedAsClausesNotProse`.
         let essay = briefing.map { StatementEssay.half(of: $0.statementText) }
+        // **The letter's scene position, resolved here with the lane** (spec
+        // §3.4). Three things the writer owns decide it, and all three are
+        // read at the keystroke for the lane's own reason — the writer can
+        // switch passes or edit their intent while the check runs, and the
+        // run was briefed on the position it started in.
+        //
+        // **The WHOLE statement, not `essay` above.** Task 9's Add-to-intent
+        // offer files "Every scene turns." as a dated ruling under
+        // `## Rulings`; derived over the essay half, the clause would land
+        // where the derivation never looks, the offer would return every round
+        // forever, and no strain would ever be raised. The prompt's own essay
+        // section keeps the half — the strata below it reach the run as
+        // derived clauses, and briefing them as prose too would declare the
+        // same thing twice.
+        let scenePosition = ScenePosition.derive(
+            projectType: environment.projectType(docId),
+            statement: briefing?.statementText,
+            passBrief: activePass?.brief)
         // Empty is a real answer (nothing pinned, no palette cards); the prompt
         // omits an empty section by design, so this is a smaller prompt rather
         // than a broken one. Read here, at the keystroke's own moment, so the
@@ -753,6 +795,7 @@ final class CompilerOrchestrator {
                 delta: delta, world: world, essay: essay, bibleFacts: bibleFacts,
                 paletteListing: paletteListing, pinnedListing: pinnedListing,
                 pass: activePass,
+                scenePosition: scenePosition,
                 previousRound: previousRound,
                 dispositions: dispositions,
                 previousBriefingHash: previousHash)
@@ -765,7 +808,7 @@ final class CompilerOrchestrator {
                 generation: generation, docId: docId, runId: runId, model: model,
                 lastOpId: lastOpId, deltaSummary: deltaSummary,
                 intentSnapshot: briefing?.statementText, activePass: activePass, round: round,
-                freshEyes: freshEyes)
+                scenePosition: scenePosition, freshEyes: freshEyes)
             runner.setPartialHandler { [weak self] chunk in
                 self?.receivePartial(chunk, generation: generation)
             }
@@ -774,7 +817,8 @@ final class CompilerOrchestrator {
             await self.finish(event, docId: docId, runId: runId, lastOpId: lastOpId,
                               deltaSummary: deltaSummary,
                               intentSnapshot: briefing?.statementText,
-                              activePass: activePass, round: round, freshEyes: freshEyes,
+                              activePass: activePass, round: round,
+                              scenePosition: scenePosition, freshEyes: freshEyes,
                               briefingHash: briefingHash, model: model,
                               generation: generation)
         }
@@ -835,6 +879,13 @@ final class CompilerOrchestrator {
                              passId: run.passId, round: run.round,
                              freshEyes: run.freshEyes,
                              outcome: run.outcome,
+                             // The position the run was briefed on, stamped on
+                             // the preview's letter exactly as `finish` stamps
+                             // it on the answer's — a preview that disagreed
+                             // with the run superseding it would flip the
+                             // letter's scene section under the writer as the
+                             // check ended.
+                             scenePosition: run.scenePosition,
                              // A preview has minted nothing: the notes it would
                              // mint are minted at `finish` or not at all, so
                              // `nil` here is "no mint has happened" rather than
@@ -881,10 +932,22 @@ final class CompilerOrchestrator {
     private static func record(
         id: String, model: String, lastOpId: String?, deltaSummary: String,
         intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
-        outcome: DiagnosticIngest.SectionedOutcome, mintedNotes: Int?,
-        openInOtherLanes: Int?
+        outcome: DiagnosticIngest.SectionedOutcome, scenePosition: ScenePosition,
+        mintedNotes: Int?, openInOtherLanes: Int?
     ) -> CompilerRun {
-        CompilerRun(
+        // **The letter's one mutable field, stamped here** (spec §3.4). The
+        // position is the run's, not the model's: it is derived app-side at
+        // the keystroke and the model is only told about it, so the record
+        // must carry what the run decided rather than anything the answer
+        // echoed back. Stamped in the one `record` spelling for the reason
+        // every other field is — the preview and the final answer must
+        // describe one check.
+        //
+        // A turn that answered no letter has nothing to stamp, and `nil` stays
+        // `nil`: the position is a fact about a letter, not about a run.
+        var letter = outcome.letter
+        letter?.scenePosition = scenePosition.rawValue
+        return CompilerRun(
             id: id, at: Date(), model: model, lastOpId: lastOpId,
             deltaSummary: deltaSummary, intentSnapshot: intentSnapshot,
             // Carried, not swallowed. A run whose every note named a paragraph
@@ -947,7 +1010,7 @@ final class CompilerOrchestrator {
             // same way `intentDriftVerdict` is — the preview and the finished
             // answer describe the same turn's letter, and `nil` where no
             // section has answered it yet (Task 2 wires the parse).
-            letter: outcome.letter)
+            letter: letter)
     }
 
     /// **What the last round in this run's lane raised**, or `nil` when there
@@ -1109,7 +1172,8 @@ final class CompilerOrchestrator {
     private func finish(
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
         deltaSummary: String, intentSnapshot: String?, activePass: ActivePass?, round: Int?,
-        freshEyes: Bool, briefingHash: String?, model: String, generation: Int
+        scenePosition: ScenePosition, freshEyes: Bool, briefingHash: String?, model: String,
+        generation: Int
     ) async {
         let passId = activePass?.id
         switch event {
@@ -1196,7 +1260,7 @@ final class CompilerOrchestrator {
                 // and the writer may have moved the piece to another pass
                 // while it ran.
                 passId: passId, round: round, freshEyes: freshEyes,
-                outcome: outcome, mintedNotes: mint.minted,
+                outcome: outcome, scenePosition: scenePosition, mintedNotes: mint.minted,
                 openInOtherLanes: mint.openInOtherLanes)
             // Dropped rather than discarded: `replace` below supersedes the
             // preview wholesale, so taking it off the pane first would blink

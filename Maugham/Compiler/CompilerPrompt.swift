@@ -242,6 +242,7 @@ enum CompilerPrompt {
         delta: CompilerDelta, world: DerivedWorld?, essay: String?,
         bibleFacts: [BibleFact], paletteListing: [String], pinnedListing: [String],
         pass: CompilerOrchestrator.ActivePass? = nil,
+        scenePosition: ScenePosition = .none,
         previousRound: PriorRound? = nil,
         dispositions: [CompilerAnnotationDisposition] = [],
         previousBriefingHash: String?
@@ -279,6 +280,14 @@ enum CompilerPrompt {
         // rest is read through.
         if let passSection = passSection(pass) {
             sections.append(passSection)
+        }
+        // Beside the role frame and above the rest of it: what form this piece
+        // takes is read the same way as who is reading it — a frame for the
+        // delta rather than a fact about the delta. Per-run like its three
+        // neighbours, and out of the hash for the same reason (constraint 5):
+        // it moves when the writer changes their intent or switches lanes.
+        if let scenes = scenePositionSection(scenePosition) {
+            sections.append(scenes)
         }
         if let previousRound,
            let round = roundSection(
@@ -380,6 +389,78 @@ enum CompilerPrompt {
             You are \(pass.editorName), this manuscript's \(pass.name) editor.
             \(brief ?? brieflessPassFallback)
             """
+    }
+
+    // MARK: - The scene position (editorial letter P1 §3.4)
+
+    /// **What form this piece takes, stated rather than inferred** (spec
+    /// §3.4). `ScenePosition` decides it app-side from the project's type, the
+    /// writer's whole intent statement and the active pass's brief; this is
+    /// the one sentence that tells the model which of the three positions it
+    /// is in, and what that means for the letter's `scenes` array.
+    ///
+    /// **Every position gets a sentence, `.none` included.** Saying nothing
+    /// would hand the model back the exact judgement the derivation exists to
+    /// take off it — whether this book moves by scenes at all — and it would
+    /// make that judgement from the delta's prose rather than from anything
+    /// the writer declared.
+    ///
+    /// The `.strongDeclared` / `.strongDefault` split is the sharp edge, and
+    /// it is the only place in the prompt where a section is told NOT to raise
+    /// something: conformance is keyed on a `clause_quote` from the intent
+    /// statement, so under `.strongDefault` — a screenplay whose intent is
+    /// silent, a prose piece opted in by a pass brief — there is no clause of
+    /// the writer's to strain against, and a strain raised anyway would be the
+    /// app synthesizing the standard it then judges them by. The gap is the
+    /// Add-to-intent offer's, and the offer is the writer's to accept
+    /// (Task 9).
+    ///
+    /// **`String?` for its two siblings' reason** (`passSection`,
+    /// `roundSection`): the call site composes optional sections in one
+    /// spelling. No position is silent today, which
+    /// `CompilerPromptTests.test_everyScenePositionGetsItsOwnSentence` pins.
+    ///
+    /// **Never folded into `briefingHashInput`** (global constraint 5). It
+    /// moves with the writer — a pass switch changes it — and a hash covering
+    /// it would re-embed the essay, the declared world and the bible slice on
+    /// the round after every switch.
+    static func scenePositionSection(_ position: ScenePosition) -> String? {
+        let sentence: String
+        switch position {
+        case .none:
+            sentence = """
+                This piece does not move by scenes — the writer's own intent \
+                says so. Answer the letter's scenes with null, and raise \
+                nothing anywhere about a scene failing to turn.
+                """
+        case .weak:
+            sentence = """
+                This piece moves by scenes, but the writer has declared \
+                nothing about how. Give a row per scene — what it wants, what \
+                changes in it, its turn — with charge always null. A scene \
+                where nothing seems to change is an observation worth making \
+                plainly, never a fault: say what you see and ask whether it is \
+                the point.
+                """
+        case .strongDeclared:
+            sentence = """
+                This piece moves by scenes in the strong sense, and the writer \
+                declared it in their own intent. Give each row a charge of + \
+                or -, and where a scene does not turn, ALSO raise it in the \
+                conformance section as a strain against the writer's own \
+                clause, quoted in clause_quote exactly as they wrote it.
+                """
+        case .strongDefault:
+            sentence = """
+                This piece moves by scenes in the strong sense by its form or \
+                by the brief of the pass it is in — not by anything the writer \
+                declared. Give each row a charge of + or -, and where a scene \
+                does not turn, say so in the row as an observation. Do not \
+                raise it as a conformance strain: the writer has not declared \
+                that clause, and there is nothing of theirs to quote.
+                """
+        }
+        return "Scenes in this piece: \(sentence)"
     }
 
     // MARK: - The writer's dispositions (M4 P1 §5.5)
