@@ -590,6 +590,71 @@ final class StatementPaneStrataTests: XCTestCase {
                       + "for the project scope")
     }
 
+    /// **Fix round 1**: the orphan check must not go stale while the pane sits
+    /// mounted. The commonest Author-persona shape is the manuscript editor and
+    /// the Intent pane open side by side — the writer deletes the directed
+    /// paragraph right there, with no pane switch, no scope change, and
+    /// therefore (before this fix) no re-resolve: `(kind, scope)` alone never
+    /// changes across a plain manuscript edit.
+    ///
+    /// Driven the real way rather than through the key alone: both editors
+    /// mounted in one window (`hostBesideAManuscriptEditor`, the same shape
+    /// `StatementEditorMountTests` uses — `views[0]` is the manuscript,
+    /// `views[1]` the statement), a directive anchored to a REAL id minted by
+    /// typing into the manuscript, then `Document.deleteParagraph(id:)` called
+    /// directly on the open manuscript `Document` — the same mutation path the
+    /// editor's own delete key drives, with no remount anywhere in between.
+    /// The converse restores the same id to both `paragraphs` and `sequence`
+    /// and checks the caption clears again, still with no remount.
+    func test_anOrphanAppearsWhenTheOpenManuscriptLosesTheDirectedParagraphAndClearsWhenRestored() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "live-orphan-open-doc")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+
+        let window = await fixture.hostBesideAManuscriptEditor(kind: .intent)
+        let views = fixture.allTextViews(in: window)
+        XCTAssertEqual(views.count, 2,
+                       "expected a manuscript editor and a statement editor in one window")
+        let manuscript = views[0]
+
+        await fixture.type("A sentence that will be deleted.", into: manuscript)
+
+        let document = try XCTUnwrap(
+            fixture.documentStore.document(forDocId: fixture.documentItemId),
+            "the manuscript document never opened, so there is no live "
+            + "paragraph sequence for the pane's task key to observe")
+        let liveId = try XCTUnwrap(document.sequence.first)
+        let originalText = try XCTUnwrap(document.paragraphs[liveId])
+
+        try await RulingPerformer.rule(
+            Ruling.directiveText(paragraphId: liveId, "keep this line"),
+            provenance: "test", kind: .intent, forScope: scope, store: fixture.store, world: nil)
+
+        await fixture.pumpUntil(deadline: 5) { fixture.shows("keep this line", in: window) }
+        XCTAssertFalse(fixture.shows(RulingsStratum.orphanCaption, in: window),
+                      "a directive anchored to a live paragraph must not draw as an orphan")
+
+        // The mutation itself: the writer's own delete, on the open Document,
+        // with no pane switch and no scope change.
+        document.deleteParagraph(id: liveId)
+
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(RulingsStratum.orphanCaption, in: window) }
+        XCTAssertTrue(fixture.shows(RulingsStratum.orphanCaption, in: window),
+                      "deleting the directed paragraph in the OPEN manuscript editor did "
+                      + "not turn the directive into an orphan without a remount — the "
+                      + "pane's `.task` key must react to the open document's live "
+                      + "paragraph sequence, not only to (kind, scope)")
+
+        // Converse: restore the same id to both the text and the sequence.
+        document.setParagraph(id: liveId, text: originalText)
+        document.reorder(sequence: [liveId] + document.sequence)
+
+        await fixture.pumpUntil(deadline: 5) { !fixture.shows(RulingsStratum.orphanCaption, in: window) }
+        XCTAssertFalse(fixture.shows(RulingsStratum.orphanCaption, in: window),
+                      "restoring the paragraph to the open document did not clear the "
+                      + "orphan caption without a remount")
+    }
+
     // MARK: - Rulings stratum: the verbs, and one undo step each
 
     func test_revokingARowTakesExactlyThatLineAndOneUndoPutsItBack() async throws {
