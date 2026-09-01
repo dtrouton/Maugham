@@ -71,6 +71,26 @@ public struct ReviewPass: Codable, Equatable, Identifiable, Sendable {
         ReviewPass(id: "proof", name: "Proof", brief: proofBrief, editorName: "Argus"),
     ]
 
+    /// **The coach's seat** — a preset that never enters the ladder's array
+    /// (spec §4.1). She is a pass in every respect the compiler cares about:
+    /// an id, a brief, an editor name, a lane in the diagnostics sidecar,
+    /// numbered rounds, pass-stamped notes. She is not a fifth stage.
+    ///
+    /// Keeping her OUT of `presets` is what leaves every reader of
+    /// `ProjectManifest.effectiveReviewPasses` unchanged by construction
+    /// rather than by inspection — `ReviewStatus.derived` walks stages only
+    /// (no finished piece flips to revising when she arrives), the board's
+    /// chips and Done/Skipped menus never see her, `validatedActivePass`
+    /// refuses her id, and `get_outline`'s `review_passes` is the ladder as
+    /// before. A stage may never carry her id: `ReviewPassEditorLogic`
+    /// refuses to save a ladder containing it, and never mints it.
+    ///
+    /// Read the seat through `ProjectManifest.effectiveCoach`, which answers
+    /// nil once the writer has vacated it — never this property directly
+    /// when what's wanted is "who coaches this project".
+    public static let coachPreset = ReviewPass(
+        id: "workshop", name: "Workshop", brief: workshopBrief, editorName: "Le Guin")
+
     // MARK: - Preset briefs
 
     /// Perkins reads for structure: whether the shape delivers on the
@@ -82,7 +102,10 @@ public struct ReviewPass: Codable, Equatable, Identifiable, Sendable {
     underweight, where the reader's belief would snap before the words do. \
     This pass writes no sentence notes and flags no typos — a scene that \
     still needs rebuilding makes line notes worthless, and polishing prose \
-    before the shape is settled wastes the writer's attention twice.
+    before the shape is settled wastes the writer's attention twice. In the \
+    letter Perkins writes about, one_thing, working, habits — habits of \
+    structure — and scenes; no questions beyond the continuity ones this \
+    pass already asks, and no exercises.
     """
 
     /// Lish reads at the level of the sentence, with structure already
@@ -95,7 +118,9 @@ public struct ReviewPass: Codable, Equatable, Identifiable, Sendable {
     copyediting either — a misspelling or a dropped comma is Gould's \
     business. What's left is the sound of the prose: where a verb goes \
     slack, where an image repeats itself, where the sentence says more or \
-    less than the writer meant.
+    less than the writer meant. In the letter Lish writes about, one_thing, \
+    working and habits — habits of the sentence; no scenes, and no \
+    exercises.
     """
 
     /// Gould reads for correctness, with the diegetic-error exception.
@@ -107,7 +132,8 @@ public struct ReviewPass: Codable, Equatable, Identifiable, Sendable {
     character's typo, a machine's clipped register, a narrator who can't \
     spell. Gould queries those rather than silently correcting them, \
     because fixing what the writer meant to leave broken erases a \
-    choice, not a mistake.
+    choice, not a mistake. Gould leaves the letter empty — correctness is \
+    not what a letter is for.
     """
 
     /// Argus reads the surface only, and advises Fresh Eyes for it.
@@ -118,6 +144,30 @@ public struct ReviewPass: Codable, Equatable, Identifiable, Sendable {
     Eyes (⌘⇧R): a reader who remembers the manuscript stops seeing its \
     surface, reading intent instead of the actual character on the page, \
     and a proofing pass run from memory misses exactly the errors it \
-    exists to catch.
+    exists to catch. Argus leaves the letter empty — there is nothing left \
+    to say about the whole by the time this pass runs.
+    """
+
+    /// Le Guin's doctrine (spec §4.4). She is not a stage on the ladder and
+    /// her brief is not a stage's: where the four presets each fence off the
+    /// altitudes that are not theirs, hers says what a teacher attends to and
+    /// how far she is allowed to go — which is asking, and no further.
+    ///
+    /// Its length is pinned relative to the structural brief
+    /// (`CompilerPromptTests`), so the voice with the most to say cannot
+    /// quietly become the run's largest standing cost.
+    private static let workshopBrief = """
+    Le Guin reads as a teacher, not an editor. She attends to the sound of \
+    the sentences and their rhythm, to point of view and whether it holds, \
+    to what the reader is made to feel and where it is earned. The letter \
+    is the main event, and all of it is hers; she names what works before \
+    what does not, because a writer who cannot tell their good sentences \
+    from their bad ones revises the good ones away. Her line-level output \
+    is questions only — never a suggested change, never a rewrite, never a \
+    correction: a misspelling is Gould's, a scene out of order Perkins's, \
+    and she says so rather than doing their work. She may disagree with the \
+    piece's declared intent, but only by asking. Shown that the frontier \
+    has not moved, she may say so once, in her own words, with the numbers \
+    behind her and without scolding. The writer decides.
     """
 }

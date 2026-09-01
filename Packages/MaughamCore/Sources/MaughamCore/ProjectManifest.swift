@@ -178,6 +178,29 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         reviewPasses.isEmpty ? ReviewPass.presets : reviewPasses
     }
 
+    /// Whether the writer has **vacated the coach's seat** (editorial letter
+    /// P1, spec §4.1). Tolerated-missing and `false` by default in both the
+    /// memberwise init and `init(from:)`, so every manifest written before
+    /// this milestone opens with the seat held — no schema bump, no
+    /// migration (tripwire 11). Unlike `reviewPasses` it is always encoded:
+    /// the field is not optional, and an absent key means "held" only for
+    /// files older than the feature.
+    ///
+    /// Read `effectiveCoach`, never this flag, when what's wanted is "who
+    /// coaches this project".
+    public var coachVacated: Bool
+
+    /// The coach a reader should actually use: `ReviewPass.coachPreset`
+    /// while the seat is held, nil once it has been vacated.
+    ///
+    /// The coach is deliberately absent from `effectiveReviewPasses` — she
+    /// is not a stage — so nothing that walks the ladder needs to learn
+    /// about her. An unassigned piece is hers; with the seat vacant it goes
+    /// back to the all-altitudes reader signed "Claude".
+    public var effectiveCoach: ReviewPass? {
+        coachVacated ? nil : ReviewPass.coachPreset
+    }
+
     /// The project's publish department (schema 8) — its named translators and
     /// its designer. Non-optional, defaulting to `[]` in both the memberwise
     /// init and `init(from:)`, so a schema-7 manifest (which has no such key)
@@ -289,6 +312,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         research: [ResearchItem],
         statements: [Statement] = [],
         reviewPasses: [ReviewPass] = [],
+        coachVacated: Bool = false,
         productionRoles: [ProductionRole] = [],
         targets: ProjectTargets? = nil,
         typography: TypographySettings? = nil,
@@ -305,6 +329,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.research = research
         self.statements = statements
         self.reviewPasses = reviewPasses
+        self.coachVacated = coachVacated
         self.productionRoles = productionRoles
         self.targets = targets
         self.typography = typography
@@ -336,6 +361,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.research = try c.decode([ResearchItem].self, forKey: .research)
         self.statements = try c.decodeIfPresent([Statement].self, forKey: .statements) ?? []
         self.reviewPasses = try c.decodeIfPresent([ReviewPass].self, forKey: .reviewPasses) ?? []
+        self.coachVacated = try c.decodeIfPresent(Bool.self, forKey: .coachVacated) ?? false
         self.productionRoles = try c.decodeIfPresent(
             [ProductionRole].self, forKey: .productionRoles) ?? []
         self.targets = try c.decodeIfPresent(ProjectTargets.self, forKey: .targets)

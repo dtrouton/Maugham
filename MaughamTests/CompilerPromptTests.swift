@@ -1214,6 +1214,37 @@ final class CompilerPromptTests: XCTestCase {
             + "conscious cost, so look at what grew before raising the ceiling.")
     }
 
+    /// **The coach's brief is measured against a stage's, not left to grow.**
+    ///
+    /// `workshopBrief` is deliberately NOT in the standing-overhead list
+    /// above: it is a pass brief, and that test already measures one
+    /// representative (Structural) because exactly one pass brief rides any
+    /// given run. But Le Guin has more to say than a stage does — the letter
+    /// is her main event, where for the four stages it is a closing clause —
+    /// and a brief that grew without anyone looking would make the coach's
+    /// runs quietly the most expensive in the app.
+    ///
+    /// So the ratio is pinned rather than an absolute: half again the
+    /// structural brief is room for a voice with a doctrine, and no more. If
+    /// this fails, either her brief grew or a stage's shrank, and both are
+    /// worth an editor's eye before the multiplier moves.
+    func test_theCoachsBriefStaysWithinHalfAgainOfAStagesBrief() {
+        func words(_ text: String) -> Int {
+            text.split(whereSeparator: { $0.isWhitespace }).count
+        }
+        guard let structural = ReviewPass.presets
+            .first(where: { $0.id == "structural" })?.brief,
+              let workshop = ReviewPass.coachPreset.brief else {
+            return XCTFail("a brief went missing")
+        }
+        let ceiling = words(structural) * 3 / 2
+        XCTAssertLessThanOrEqual(words(workshop), ceiling,
+            "the coach's brief is \(words(workshop)) words against the "
+            + "structural brief's \(words(structural)) — over the "
+            + "half-again ceiling of \(ceiling). One of the two moved; look "
+            + "at which before raising the multiplier.")
+    }
+
     // MARK: - The briefing carries the shelf's grouping (references-shelf, Task 3)
 
     /// One line per pin, exactly as `pinnedListingLine` writes today, with a

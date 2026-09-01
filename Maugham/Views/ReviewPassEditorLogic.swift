@@ -16,14 +16,21 @@ enum ReviewPassEditorLogic {
     /// distinct ids ("line-edit", "line-edit-2"); their `name`s stay equal on
     /// purpose — only `id` needs to be unique.
     ///
-    /// **Scope: uniquified against the WORKING array only**, not against
-    /// preset ids or ids deleted in past sessions. Through the shipped UI this
+    /// **Scope: uniquified against the WORKING array plus the coach's
+    /// reserved id** (below), not against preset ids or ids deleted in past
+    /// sessions. Through the shipped UI this
     /// cannot collide — the Add button's name is the "New Pass" literal and a
     /// rename never re-mints an id — and a collision with a historical id
     /// would anyway only surface the documented stale-states-reappear rule
     /// (`deleted`'s doc), never corrupt anything.
+    ///
+    /// **The coach's id is reserved** (editorial letter P1, spec §4.1): it is
+    /// added to the taken set, so a pass the writer names "Workshop" — which
+    /// slugs straight to `workshop` — mints `workshop-2` instead of putting
+    /// Le Guin into the ladder by accident. `isSavable` refuses one that got
+    /// there some other way.
     static func added(to passes: [ReviewPass], name: String) -> [ReviewPass] {
-        let existingIds = Set(passes.map(\.id))
+        let existingIds = Set(passes.map(\.id)).union([ReviewPass.coachPreset.id])
         let base = Slugifier.slug(from: name)
         let id = ProjectStore.dedupedName(base) { existingIds.contains($0) }
         return passes + [ReviewPass(id: id, name: name)]
@@ -61,10 +68,19 @@ enum ReviewPassEditorLogic {
     /// old name back under the writer's cursor the moment they cleared the
     /// field to retype. An EMPTY list is savable — that is the deliberate
     /// delete-all-restores-presets path, and `allSatisfy` on `[]` is true.
+    ///
+    /// **And no pass may carry the coach's id** (editorial letter P1, spec
+    /// §4.1). The coach is a preset that never enters the ladder's array;
+    /// a `workshop` stage would put her into `effectiveReviewPasses`, where
+    /// `ReviewStatus.derived`, the board's chips and `validatedActivePass`
+    /// would all begin to see her — the one thing the seat's whole design
+    /// is arranged to avoid. `added(to:name:)` cannot mint the id, so this
+    /// guard is for a list that carries it some other way (an
+    /// externally-edited manifest, a future importer).
     static func isSavable(_ passes: [ReviewPass]) -> Bool {
         passes.allSatisfy {
             !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        } && !passes.contains { $0.id == ReviewPass.coachPreset.id }
     }
 
     /// Move the pass with `draggedId` to sit immediately before the pass

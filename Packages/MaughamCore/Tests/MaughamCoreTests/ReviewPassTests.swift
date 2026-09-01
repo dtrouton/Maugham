@@ -15,8 +15,13 @@ final class ReviewPassTests: XCTestCase {
     /// A manifest fixture with an arbitrary `reviewPasses` value spliced in.
     /// `reviewPassesJSON` is the raw JSON for the key, or nil to omit the key
     /// entirely (a schema-5 manifest).
-    private func manifestJSON(schemaVersion: Int, reviewPassesJSON: String? = nil) -> Data {
+    private func manifestJSON(
+        schemaVersion: Int,
+        reviewPassesJSON: String? = nil,
+        coachVacatedJSON: String? = nil
+    ) -> Data {
         let line = reviewPassesJSON.map { "  \"reviewPasses\": \($0),\n" } ?? ""
+        let coachLine = coachVacatedJSON.map { "  \"coachVacated\": \($0),\n" } ?? ""
         return Data("""
         {
           "schemaVersion": \(schemaVersion),
@@ -27,7 +32,7 @@ final class ReviewPassTests: XCTestCase {
           "modified": "2026-01-01T00:00:00Z",
           "structure": [],
           "research": [],
-        \(line)  "showElementGutter": false
+        \(coachLine)\(line)  "showElementGutter": false
         }
         """.utf8)
     }
@@ -226,5 +231,121 @@ final class ReviewPassTests: XCTestCase {
 
         let resavedAgain = try wire(back)
         XCTAssertEqual(resavedAgain, resaved)
+    }
+
+    // MARK: - The coach's seat (editorial letter P1 Task 4)
+
+    /// **The coach is a preset that never enters the ladder's array**
+    /// (spec §4.1). `presets` stays exactly the four stages, so every reader
+    /// of `effectiveReviewPasses` — `ReviewStatus.derived`, the board's
+    /// chips, `validatedActivePass`, `get_outline`'s `review_passes` — is
+    /// unchanged by construction rather than by inspection.
+    func test_theCoachIsAPresetOutsideTheLadder() {
+        XCTAssertEqual(ReviewPass.coachPreset.id, "workshop")
+        XCTAssertEqual(ReviewPass.coachPreset.name, "Workshop")
+        XCTAssertEqual(ReviewPass.coachPreset.editorName, "Le Guin")
+        XCTAssertNotNil(ReviewPass.coachPreset.brief)
+        XCTAssertEqual(ReviewPass.presets.count, 4)
+        XCTAssertFalse(ReviewPass.presets.contains { $0.id == ReviewPass.coachPreset.id },
+                       "the coach must not be a fifth entry in the ladder's presets")
+    }
+
+    /// The coach resolves her brief and her editor name from her OWN fields.
+    ///
+    /// CONTROL, and the point of the test: a pass carrying the same id with
+    /// nil fields resolves to its own name and no brief — proving the
+    /// `presets.first { $0.id == id }` fallback is NOT what makes the coach
+    /// work, i.e. she really is outside the ladder rather than silently a
+    /// fifth preset.
+    func test_theCoachResolvesFromHerOwnFieldsNotThePresetFallback() {
+        XCTAssertEqual(ReviewPass.coachPreset.effectiveEditorName, "Le Guin")
+        XCTAssertEqual(ReviewPass.coachPreset.effectiveBrief, ReviewPass.coachPreset.brief)
+
+        let impostor = ReviewPass(id: "workshop", name: "x")
+        XCTAssertNil(impostor.effectiveBrief,
+                     "a bare workshop-id pass must find no preset to fall back on")
+        XCTAssertEqual(impostor.effectiveEditorName, "x")
+    }
+
+    /// Pins the doctrine, not a count (spec §4.4): she teaches, her
+    /// line-level output is questions only, and she names whose work she
+    /// will not do rather than doing it.
+    func test_theCoachsBriefCarriesLeGuinsDoctrine() {
+        guard let brief = ReviewPass.coachPreset.brief else {
+            return XCTFail("the coach lost her brief")
+        }
+        XCTAssertTrue(brief.contains("teacher"), brief)
+        XCTAssertTrue(brief.contains("question"), brief)
+        XCTAssertTrue(brief.contains("Gould"), brief)
+        XCTAssertTrue(brief.contains("Perkins"), brief)
+    }
+
+    // MARK: - Who writes a letter (spec §3.3)
+
+    /// Each preset brief says which parts of the letter its voice writes.
+    /// Perkins and Lish take a letter and say what they leave out of it;
+    /// Gould and Argus leave the letter empty, in those words, because the
+    /// general instruction otherwise tells them to write all of it.
+    func test_eachPresetBriefSaysWhatItWritesInTheLetter() {
+        func brief(_ id: String) -> String {
+            ReviewPass.presets.first { $0.id == id }?.brief ?? ""
+        }
+        XCTAssertTrue(brief("structural").contains("scenes"), brief("structural"))
+        XCTAssertTrue(brief("structural").contains("no exercises"), brief("structural"))
+        XCTAssertTrue(brief("line").contains("no scenes"), brief("line"))
+        XCTAssertTrue(brief("line").contains("no exercises"), brief("line"))
+        XCTAssertTrue(brief("copyedit").contains("leaves the letter empty"), brief("copyedit"))
+        XCTAssertTrue(brief("proof").contains("leaves the letter empty"), brief("proof"))
+    }
+
+    // MARK: - The seat on the manifest
+
+    /// A manifest with no `coachVacated` key at all — every manifest written
+    /// before this milestone — decodes with the seat HELD, not thrown.
+    /// Tolerated-missing, no schema bump (constraint 2).
+    func test_aManifestWithNoCoachVacatedKeyDecodesWithTheSeatHeld() throws {
+        let manifest = try ProjectManifest.decodeGuardingSchema(
+            manifestJSON(schemaVersion: ProjectManifest.currentSchemaVersion))
+        XCTAssertFalse(manifest.coachVacated)
+        XCTAssertEqual(manifest.effectiveCoach, ReviewPass.coachPreset)
+    }
+
+    /// A stored `true` reads as a vacated seat, and `effectiveCoach` is nil.
+    func test_aVacatedSeatDecodesAndReadsAsNoCoach() throws {
+        let manifest = try ProjectManifest.decodeGuardingSchema(
+            manifestJSON(
+                schemaVersion: ProjectManifest.currentSchemaVersion,
+                coachVacatedJSON: "true"))
+        XCTAssertTrue(manifest.coachVacated)
+        XCTAssertNil(manifest.effectiveCoach)
+    }
+
+    /// The seat is always encoded, and a vacated one round-trips byte-stable
+    /// — the `reviewPasses` round-trip's shape.
+    func test_aVacatedSeatRoundTripsByteStable() throws {
+        var manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(timeIntervalSince1970: 0), modified: Date(timeIntervalSince1970: 0),
+            structure: [], research: [])
+        XCTAssertFalse(manifest.coachVacated, "the memberwise default holds the seat")
+        manifest.coachVacated = true
+
+        let resaved = try wire(manifest)
+        XCTAssertTrue(resaved.contains(#""coachVacated" : true"#), resaved)
+        let back = try ProjectManifest.decodeGuardingSchema(Data(resaved.utf8))
+        XCTAssertTrue(back.coachVacated)
+        XCTAssertNil(back.effectiveCoach)
+        XCTAssertEqual(try wire(back), resaved)
+    }
+
+    /// `false` is written too, not omitted: the field is not optional and an
+    /// absent key means "held" only for manifests older than the feature.
+    func test_theHeldSeatIsWrittenRatherThanOmitted() throws {
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(timeIntervalSince1970: 0), modified: Date(timeIntervalSince1970: 0),
+            structure: [], research: [])
+        let resaved = try wire(manifest)
+        XCTAssertTrue(resaved.contains(#""coachVacated" : false"#), resaved)
     }
 }

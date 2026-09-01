@@ -16,6 +16,29 @@ Maugham never refuses it — see "A quiet nudge, not a gate" below.
 
 Each of the four starting passes carries a **named editor voice** — Structural is **Perkins**, Line is **Lish**, Copyedit is **Gould**, Proof is **Argus** — and a **brief**: doctrine for what that pass's rounds attend to, and what they deliberately leave alone (Perkins reads for shape and never touches a sentence; Argus reads the surface only, and advises its rounds be run as Fresh Eyes). A round's notes carry that pass's editor as their author, so a queue spanning several passes still tells you who's speaking. Renaming a pass in **Project Settings…** doesn't move its editor or its brief — both are tied to the pass's identity, not what you call it. A pass you add yourself starts with neither: its rounds are signed with the pass's own name instead of an editor's, and there's no brief behind them — nothing here yet lets you write one in, so a custom pass runs on general editorial judgment until that changes.
 
+### The coach's seat
+
+Above the four passes sits one more editor who is **not** a pass: **Le Guin**,
+the coach. She reads any piece you haven't assigned a pass to — which, if you
+never open Review, is every piece you have. The four passes are stages of
+finishing; she is the reader for work that isn't there yet, and what she
+writes is a letter about the piece rather than a stack of line notes.
+
+The seat sits outside the ladder on purpose. She is never a column on the
+board, never a row in a piece's Inspector, and never something a piece can be
+"done" with — assigning a pass is how you hand a piece to Perkins or Lish
+instead, and setting that pass back to untouched is how you hand it back to
+her. Because she isn't a pass, her name is reserved: adding a pass called
+"Workshop" gets you a pass of your own with a distinct identity, not the
+coach.
+
+If you'd rather not have a coach at all, **vacate the seat** in **Project
+Settings…** (⌘⇧,). An unassigned piece then goes back to the plain
+all-altitudes reader, signed "Claude". Nothing is lost by vacating: her past
+rounds stay in the piece's history, and restoring the seat brings her back
+where she left off. There is no beginner mode and no experience setting — the
+seat is simply your own declaration of what kind of writer you are today.
+
 Where you actually *rule* on a pass is the piece's own **Inspector** (⌘⌥I).
 Each pass gets a row there — **Untouched**, **In Progress**, **Done**, or
 **Skip** — and above the rows, a read-only **Status** dot shows the one

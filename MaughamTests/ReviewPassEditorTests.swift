@@ -245,4 +245,67 @@ final class ReviewPassEditorTests: XCTestCase {
     func test_isSavable_anEmptyListIsStillSavable() {
         XCTAssertTrue(ReviewPassEditorLogic.isSavable([]))
     }
+
+    // MARK: - The coach's seat (editorial letter P1 Task 4)
+
+    /// `setCoachVacated` is the one writer of the seat, and it persists
+    /// through a manifest round trip like every other metadata verb.
+    func test_setCoachVacated_persistsThroughAManifestRoundTrip() async throws {
+        let (url, store, ds) = try await makeNovel()
+        XCTAssertFalse(store.manifest.coachVacated, "a new project holds the seat")
+        XCTAssertEqual(store.manifest.effectiveCoach, ReviewPass.coachPreset)
+
+        try await store.setCoachVacated(true)
+
+        let reloaded = try await ProjectStore.load(from: url)
+        XCTAssertTrue(reloaded.manifest.coachVacated)
+        XCTAssertNil(reloaded.manifest.effectiveCoach)
+
+        try await store.setCoachVacated(false)
+        let restored = try await ProjectStore.load(from: url)
+        XCTAssertFalse(restored.manifest.coachVacated)
+        XCTAssertEqual(restored.manifest.effectiveCoach, ReviewPass.coachPreset)
+        await ds.close()
+    }
+
+    /// Vacating the seat is a project edit and moves the modified stamp,
+    /// like `setReviewPasses` above.
+    func test_setCoachVacated_movesTheProjectsModifiedStamp() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let before = store.manifest.modified
+        try await Task.sleep(nanoseconds: 1_100_000_000)
+
+        try await store.setCoachVacated(true)
+
+        XCTAssertGreaterThan(store.manifest.modified, before)
+        await ds.close()
+    }
+
+    /// **A stage may never carry the coach's id** (spec §4.1): the ladder is
+    /// stages only, and a `workshop` stage would put her in
+    /// `effectiveReviewPasses`, where `ReviewStatus.derived`, the board's
+    /// chips and `validatedActivePass` would all start seeing her.
+    ///
+    /// CONTROL: the same list with a nearly-identical id saves, so the
+    /// refusal is the reserved id and not the shape of the list.
+    func test_isSavable_refusesALadderCarryingTheCoachsId() {
+        let withCoach = ReviewPass.presets + [ReviewPass(id: "workshop", name: "Workshop")]
+        XCTAssertFalse(ReviewPassEditorLogic.isSavable(withCoach))
+
+        let control = ReviewPass.presets + [ReviewPass(id: "workshop2", name: "Workshop")]
+        XCTAssertTrue(ReviewPassEditorLogic.isSavable(control))
+    }
+
+    /// The reserved id is unreachable from the Add button too: a pass named
+    /// "Workshop" slugs to `workshop`, so without the reservation the writer
+    /// could mint the coach's id into the ladder by typing her name.
+    func test_added_neverMintsTheCoachsReservedId() {
+        let minted = ReviewPassEditorLogic.added(to: [], name: "Workshop")
+        XCTAssertEqual(minted.count, 1)
+        XCTAssertNotEqual(minted[0].id, ReviewPass.coachPreset.id)
+        XCTAssertEqual(minted[0].name, "Workshop")
+        // And what it mints is savable — the reservation must not produce an
+        // id the editor then refuses.
+        XCTAssertTrue(ReviewPassEditorLogic.isSavable(minted))
+    }
 }

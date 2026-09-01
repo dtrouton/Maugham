@@ -119,6 +119,22 @@ extension ProjectStore {
         try await saveManifest()
     }
 
+    /// Vacate or restore the coach's seat (editorial letter P1, spec §4.1).
+    ///
+    /// The seat is a project-level declaration of what kind of writer this
+    /// is, not a per-piece setting: vacated, an unassigned piece goes back to
+    /// the all-altitudes reader signed "Claude", and Le Guin's past rounds
+    /// stay in the diagnostics sidecar as history — nothing here sweeps them.
+    ///
+    /// Deliberately separate from `setReviewPasses`: the coach is never in
+    /// the ladder's array, so writing her through the pass-list verb would be
+    /// the one thing spec §4.1 forbids.
+    public func setCoachVacated(_ vacated: Bool) async throws {
+        manifest.coachVacated = vacated
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
     /// Toggle the per-project element gutter. nil = default (show); false =
     /// hide. The screenplay editor reads this on each layout pass.
     public func setShowElementGutter(_ value: Bool?) async throws {
