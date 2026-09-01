@@ -43,8 +43,7 @@ final class ScenePositionTests: XCTestCase {
     /// the strong form AND has a clause to strain against.
     func test_proseWhoseIntentCarriesATurnClauseIsStrongDeclared() {
         for clause in ["Every scene must turn.",
-                       "This book moves by dramatic turns.",
-                       "Every chapter is built on conflict."] {
+                       "This book moves by dramatic turns."] {
             XCTAssertEqual(
                 ScenePosition.derive(projectType: .novel, statement: clause, passBrief: nil),
                 .strongDeclared,
@@ -60,18 +59,19 @@ final class ScenePositionTests: XCTestCase {
             ScenePosition.derive(
                 projectType: .novel,
                 statement: "Cold, and never wistful.",
-                passBrief: "Structure and shape — and hold this book to conflict "
-                    + "in every scene."),
+                passBrief: "Structure and shape. In this lane the book moves by "
+                    + "dramatic turns, and is read that way."),
             .strongDefault)
     }
 
     /// **The shipped Structural brief does NOT flip a prose piece into the
     /// strong form**, and that is the guard, not an accident. Perkins reads
-    /// for architecture in every writer's book; a brief that happened to say
-    /// "conflict" would silently put every prose novel in a Structural pass
-    /// under a doctrine its writer never chose, and the offer beneath the
-    /// table would ask them to declare a clause the app had already assumed.
-    /// The brief route belongs to a writer who edited their own brief.
+    /// for architecture in every writer's book; a brief that happened to
+    /// match a clause phrase would silently put every prose novel in a
+    /// Structural pass under a doctrine its writer never chose, and the offer
+    /// beneath the table would ask them to declare a clause the app had
+    /// already assumed. The brief route belongs to a writer who edited their
+    /// own brief.
     func test_theShippedStructuralBriefLeavesAProsePieceWeak() throws {
         let brief = try XCTUnwrap(
             ReviewPass.presets.first(where: { $0.id == "structural" })?.brief,
@@ -157,8 +157,38 @@ final class ScenePositionTests: XCTestCase {
             ScenePosition.derive(
                 projectType: .screenplay,
                 statement: "Every scene must turn — except this one, which is lyric.",
-                passBrief: "Hold this book to conflict in every scene."),
+                passBrief: "In this lane the book moves by dramatic turns."),
             ScenePosition.none)
+    }
+
+    /// **A bare "conflict" is not an opt-in** (Denver's ruling, 2026-09-01).
+    ///
+    /// The word appeared in spec §3.4's table, and matching it read a NEGATION
+    /// as a declaration: an intent saying *avoid conflict-driven plotting*
+    /// derived the strong form, and a turn-less scene would then be raised as
+    /// a conformance strain quoting that very sentence back at the writer — the
+    /// app fabricating a standard out of words that reject it. The ruling drops
+    /// the bare word rather than attempting negation detection, which is a
+    /// judgement this closed-list derivation has no business making. A writer
+    /// who wants the strong form writes one of the two turn phrases or clicks
+    /// the Add-to-intent offer.
+    func test_aNegatedConflictClauseDoesNotOptIn() {
+        XCTAssertEqual(
+            ScenePosition.derive(
+                projectType: .novel,
+                statement: "Avoid conflict-driven plotting; let the pressure be social.",
+                passBrief: nil),
+            .weak)
+        XCTAssertEqual(
+            ScenePosition.derive(
+                projectType: .novel,
+                statement: "Every scene must turn. Avoid conflict-driven plotting.",
+                passBrief: nil),
+            .strongDeclared,
+            "control: the same fixture opts in through a turn phrase the writer "
+            + "really did write")
+        XCTAssertFalse(ScenePosition.turnClausePhrases.contains("conflict"),
+                       "the bare word is out of the list, not merely unmatched")
     }
 
     /// **`nil` reads as prose.** A project whose type could not be resolved is

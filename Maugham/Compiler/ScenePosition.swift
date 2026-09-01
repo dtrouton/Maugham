@@ -56,8 +56,22 @@ enum ScenePosition: String, Codable, Equatable, Sendable {
     /// is what a strain is measured against; a pass brief carrying one is a
     /// writer who chose that doctrine for the lane, which puts the piece in
     /// the strong form but declares no clause.
+    ///
+    /// **The bare word "conflict" is deliberately NOT here** (Denver's ruling,
+    /// 2026-09-01). It appeared in spec §3.4's table, and matching it read a
+    /// negation as a declaration: an intent saying *avoid conflict-driven
+    /// plotting* derived the strong form, and a turn-less scene would then be
+    /// raised as a conformance strain quoting that very sentence back at the
+    /// writer — the app fabricating the standard it judges them by out of
+    /// words that reject it. The ruling drops the word rather than adding
+    /// negation detection, which is a judgement a closed-list match has no
+    /// business making and would fail in the same direction on the next
+    /// phrasing. A writer who wants the strong form writes one of the two
+    /// phrases below, or clicks the Add-to-intent offer (Task 9), which files
+    /// one in their own words. Pinned by
+    /// `ScenePositionTests.test_aNegatedConflictClauseDoesNotOptIn`.
     static let turnClausePhrases = [
-        "every scene must turn", "moves by dramatic turns", "conflict",
+        "every scene must turn", "moves by dramatic turns",
     ]
 
     /// - Parameters:
