@@ -154,6 +154,13 @@ struct StatementPane: View {
             structure: store.manifest.structure)
     }
 
+    /// Which paragraph ids are currently live in this statement's scope — fed
+    /// to `RulingsStratumView` so it can tell an orphaned directive from a
+    /// live one. `nil` until the first resolve; see
+    /// `RulingsStratum.partition`'s doc comment for why that must never read
+    /// as "orphaned".
+    @State private var liveParagraphIds: Set<String>?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -173,6 +180,55 @@ struct StatementPane: View {
             strata
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .task(id: liveParagraphTaskId) {
+            await resolveLiveParagraphIds()
+        }
+    }
+
+    /// Changes whenever the (kind, scope) pair this pane resolves to changes
+    /// — a fresh `.task` re-derives live paragraph ids for the new scope
+    /// rather than trusting the old scope's answer.
+    private var liveParagraphTaskId: String {
+        "\(kind.rawValue)|\(scope.rawValue)"
+    }
+
+    /// Resolves which paragraph ids currently exist for this statement's
+    /// scope, so `RulingsStratumView` can tell an orphaned directive from a
+    /// live one. **Runs in a `.task`, never on a body path** (tripwire 4) —
+    /// the read walks a manuscript document's derived state, which is I/O.
+    ///
+    /// `.document(id)` reads that one document's ids. `.project` (and
+    /// `.unknown`, a newer build's scope) reads the UNION of every manuscript
+    /// document's ids — an edition brief's directives can anchor into any
+    /// chapter, not just one. A document that fails to resolve is skipped
+    /// rather than failing the whole read, the shape
+    /// `EditionStatus.documentRows` already uses for the same reason.
+    private func resolveLiveParagraphIds() async {
+        guard StatementEssay.carriesRulings(kind) else {
+            liveParagraphIds = nil
+            return
+        }
+        switch scope {
+        case .document(let id):
+            guard let state = try? currentParagraphState(
+                documentId: id, store: store, documentStore: documentStore,
+                projectURL: store.url)
+            else {
+                liveParagraphIds = nil
+                return
+            }
+            liveParagraphIds = Set(state.sequence)
+        case .project, .unknown(_):
+            var ids = Set<String>()
+            for docId in EditionStatus.manuscriptDocumentIds(in: store.manifest) {
+                if let state = try? currentParagraphState(
+                    documentId: docId, store: store, documentStore: documentStore,
+                    projectURL: store.url) {
+                    ids.formUnion(state.sequence)
+                }
+            }
+            liveParagraphIds = ids
+        }
     }
 
     // MARK: - The two strata under the essay (declared-world Task 6)
@@ -198,7 +254,7 @@ struct StatementPane: View {
                     if !rulings.isEmpty {
                         RulingsStratumView(
                             rulings: rulings, kind: kind, scope: scope, store: store,
-                            world: world)
+                            world: world, liveParagraphIds: liveParagraphIds)
                     }
                     if let bible, !bibleFacts.isEmpty {
                         BibleStratumView(

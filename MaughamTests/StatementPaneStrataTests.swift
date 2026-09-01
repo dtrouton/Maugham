@@ -419,6 +419,177 @@ final class StatementPaneStrataTests: XCTestCase {
             for: Ruling(id: "r", text: "One", ruledOn: nil, provenance: nil)))
     }
 
+    // MARK: - Rulings stratum: partition (translation pipeline P4 Task 7)
+
+    /// The three buckets `RulingsStratumView` draws differently: a glossary
+    /// entry (recognised by its own shape, regardless of position), a
+    /// directive whose anchor is not in the live set (an orphan), and
+    /// everything else — a bare ruling, and a directive whose anchor IS live.
+    func test_partitionSeparatesGlossaryOrphanedDirectivesAndEverythingElse() {
+        let glossaryEntry = Ruling(
+            id: "g1", text: Ruling.glossaryText(term: "October", rendering: "Octubre", note: nil),
+            ruledOn: nil, provenance: nil)
+        let liveDirective = Ruling(
+            id: "d1", text: Ruling.directiveText(paragraphId: "k7mq", "keep the three \"and\"s"),
+            ruledOn: nil, provenance: nil)
+        let orphanDirective = Ruling(
+            id: "d2", text: Ruling.directiveText(paragraphId: "9zzz", "trim this line"),
+            ruledOn: nil, provenance: nil)
+        let plain = Ruling(id: "p1", text: "Kelly never lies", ruledOn: nil, provenance: nil)
+        let rulings = [glossaryEntry, liveDirective, orphanDirective, plain]
+
+        let known = RulingsStratum.partition(rulings, liveParagraphIds: ["k7mq"])
+        XCTAssertEqual(known.glossary, [glossaryEntry])
+        XCTAssertEqual(known.orphans, [orphanDirective])
+        XCTAssertEqual(known.others, [liveDirective, plain])
+    }
+
+    /// **`nil` is "unknown", never "everything is an orphan"** — the
+    /// distinction `RulingsStratum.partition`'s own doc comment states: a
+    /// directive must never flash as orphaned while the pane's `.task` has not
+    /// yet resolved the live set (or failed to).
+    func test_partitionWithNoLiveIdsManufacturesNoOrphan() {
+        let orphanDirective = Ruling(
+            id: "d2", text: Ruling.directiveText(paragraphId: "9zzz", "trim this line"),
+            ruledOn: nil, provenance: nil)
+        let plain = Ruling(id: "p1", text: "Kelly never lies", ruledOn: nil, provenance: nil)
+        let rulings = [orphanDirective, plain]
+
+        let unknown = RulingsStratum.partition(rulings, liveParagraphIds: nil)
+        XCTAssertTrue(unknown.orphans.isEmpty,
+                      "an unresolved live-paragraph read must never manufacture an orphan")
+        XCTAssertEqual(unknown.others, [orphanDirective, plain])
+    }
+
+    // MARK: - Rulings stratum: the glossary table and orphaned directives, mounted
+
+    /// **The glossary draws as a table, not itemized rows** — a mounted
+    /// `RulingsStratumView` with two glossary entries shows the heading and
+    /// both terms and renderings through production's own accessibility tree
+    /// (`DiagnosticsPaneTests`' shape, per `RulingsStratum`'s own type doc:
+    /// what a test wants to ask is asked of the static first, and this is the
+    /// one thing only a mount can answer — that the Grid actually renders
+    /// both rows).
+    func test_theGlossaryDrawsAsATableWithBothEntriesAndTheHeading() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "glossary-grid")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        let rulings = [
+            Ruling(id: "g1",
+                  text: Ruling.glossaryText(term: "October", rendering: "Octubre", note: nil),
+                  ruledOn: nil, provenance: nil),
+            Ruling(id: "g2",
+                  text: Ruling.glossaryText(term: "gray", rendering: "grey",
+                                            note: "British spelling"),
+                  ruledOn: nil, provenance: nil),
+        ]
+        let window = TestWindow.mount(
+            AnyView(RulingsStratumView(rulings: rulings, kind: .intent, scope: scope,
+                                       store: fixture.store, world: nil, liveParagraphIds: nil)),
+            size: CGSize(width: 420, height: 300))
+        bareWindows.append(window)
+        pump()
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains(where: { $0.contains(RulingsStratum.glossaryHeading) }),
+                      "the glossary heading never reached the mounted view: \(texts)")
+        XCTAssertTrue(texts.contains(where: { $0.contains("October") }), "\(texts)")
+        XCTAssertTrue(texts.contains(where: { $0.contains("Octubre") }), "\(texts)")
+        XCTAssertTrue(texts.contains(where: { $0.contains("gray") }), "\(texts)")
+        XCTAssertTrue(texts.contains(where: { $0.contains("grey") }), "\(texts)")
+    }
+
+    /// An orphaned directive draws its caption and a `Remove` control, and
+    /// pressing it revokes exactly that line — the same verb the ordinary
+    /// row's Revoke uses, wearing this row's name for it.
+    func test_pressingRemoveOnAnOrphanRevokesExactlyThatLineAndNothingElse() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "orphan-remove")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
+        let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
+        try await fixture.store.mutateStatementText(of: statement, session: "s") { _ in
+            RulingsSection.render(essay: "Essay.", rulings: [
+                Ruling(id: "", text: Ruling.directiveText(paragraphId: "9zzz", "trim this line"),
+                      ruledOn: nil, provenance: nil),
+                Ruling(id: "", text: "Kelly never lies", ruledOn: nil, provenance: nil),
+            ])
+        }
+        let rulings = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))
+
+        let window = TestWindow.mount(
+            AnyView(RulingsStratumView(rulings: rulings, kind: .intent, scope: scope,
+                                       store: fixture.store, world: nil, liveParagraphIds: [])),
+            size: CGSize(width: 420, height: 300))
+        bareWindows.append(window)
+        pump()
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains(where: { $0.contains(RulingsStratum.orphanCaption) }),
+                      "the orphan caption never reached the mounted view: \(texts)")
+
+        let removeButtons = try axButtons(labelled: RulingsStratum.removeTitle, in: window)
+        let allLabels = try axButtonLabels(in: window)
+        XCTAssertEqual(removeButtons.count, 1,
+                       "expected exactly one orphan; button labels: \(allLabels)")
+        press(removeButtons[0])
+
+        await pumpUntil(deadline: 5) {
+            RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store).count == 1
+        }
+        let remaining = RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store)
+        XCTAssertEqual(remaining.map(\.text), ["Kelly never lies"],
+                       "Remove did not take exactly the orphaned line")
+    }
+
+    // MARK: - Live paragraph ids reach the mounted pane through its own `.task`
+
+    /// `.intent` at `.document(docId)` resolves the ONE document's ids: a
+    /// directive anchored to a paragraph that never existed in this chapter
+    /// shows as an orphan once the pane's own `.task` lands.
+    func test_theStatementPaneShowsAnOrphanForADirectiveOnAParagraphThatNoLongerExists() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "orphan-intent")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
+        let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
+        try await fixture.store.mutateStatementText(of: statement, session: "s") { _ in
+            RulingsSection.render(essay: "Essay.", rulings: [
+                Ruling(id: "", text: Ruling.directiveText(paragraphId: "9zzz", "no such paragraph"),
+                      ruledOn: nil, provenance: nil),
+            ])
+        }
+
+        let window = await fixture.host(kind: .intent, subject: .item(fixture.documentItemId))
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(RulingsStratum.orphanCaption, in: window) }
+        XCTAssertTrue(fixture.shows(RulingsStratum.orphanCaption, in: window),
+                      "the mounted pane's own `.task` never resolved this document's live "
+                      + "paragraph ids")
+    }
+
+    /// An edition brief is `.project`-scoped: its `.task` reads the UNION of
+    /// every manuscript document's ids (`EditionStatus.manuscriptDocumentIds`
+    /// → `currentParagraphState` each), not one document's.
+    func test_anEditionBriefShowsAnOrphanForADirectiveOnAParagraphThatDoesNotExistInTheBook() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "orphan-brief")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.project
+        _ = try await fixture.store.createStatement(kind: .editionBrief("es"), scope: scope)
+        let statement = try XCTUnwrap(fixture.store.statement(kind: .editionBrief("es"), scope: scope))
+        try await fixture.store.mutateStatementText(of: statement, session: "s") { _ in
+            RulingsSection.render(essay: "Essay.", rulings: [
+                Ruling(id: "", text: Ruling.directiveText(paragraphId: "9zzz", "no such paragraph"),
+                      ruledOn: nil, provenance: nil),
+            ])
+        }
+
+        let window = await fixture.host(kind: .editionBrief("es"), subject: .project)
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(RulingsStratum.orphanCaption, in: window) }
+        XCTAssertTrue(fixture.shows(RulingsStratum.orphanCaption, in: window),
+                      "the pane's `.task` never resolved the union of manuscript document ids "
+                      + "for the project scope")
+    }
+
     // MARK: - Rulings stratum: the verbs, and one undo step each
 
     func test_revokingARowTakesExactlyThatLineAndOneUndoPutsItBack() async throws {
