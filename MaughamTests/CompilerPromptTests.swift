@@ -128,8 +128,17 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertTrue(schema.lowercased().contains("status"))
     }
 
+    /// **The whole sentence, not the number.** This used to match the bare
+    /// substring "at most 3", which was enough while the schema said it once.
+    /// The letter's general instruction (P1 Task 2) says "at most 3 questions"
+    /// in the same string, so the loose match would now survive the reader's
+    /// own cap being deleted — a guard weakened by an unrelated addition is
+    /// the exact shape of a test that stops guarding without going red.
     func test_readerReportCapIsThree() {
-        XCTAssertTrue(CompilerPrompt.sectionSchemaDescription.contains("at most 3"))
+        XCTAssertTrue(
+            CompilerPrompt.sectionSchemaDescription
+                .contains("reader section holds at most 3 entries"),
+            "the reader's own cap must be asked for in its own words")
     }
 
     // MARK: - v2 run message
