@@ -148,32 +148,30 @@ extension CompilerOrchestrator.Environment {
                     scopeKey: DeclaredWorldStore.scopeKey(for: resolved.scope))
             },
             activePass: { [weak store, weak documentStore] docId in
-                // **`validatedActivePass` — the one spelling of the read rule**
-                // (`ActivePassMemory`'s own doc), off `uiState` rather than any
-                // window's `@State` mirror, for the margin stamp's reason
+                // **`ProjectManifest.reader(forPiece:memory:)` — the one
+                // resolution** (editorial letter P1, spec §4.1). Who reads a
+                // piece is *stage / coach / nobody*, decided in `PieceReader`
+                // and nowhere else, so the run, the Author header and the
+                // round lines cannot name three different people. An
+                // unassigned piece with the seat held is the coach's, and she
+                // is an `ActivePass` like any other — which is what gives her
+                // a lane, a numbered round and a pass-stamped byline with no
+                // orchestrator change. A vacated seat answers nil, the M2 lane.
+                //
+                // The memory is read off `uiState` rather than any window's
+                // `@State` mirror, for the margin stamp's reason
                 // (`ProjectWindow`, the `activeReviewPassId` closure): the
                 // mirror is per WINDOW, and a second window on the same project
                 // recording a pass would leave this one filing rounds into a
                 // lane the writer left. A run record is a durable write, so it
                 // reads the shared value.
                 //
-                // Keyed `forPiece:` with a document id, as both existing
-                // readers are: the piece IS the document here.
+                // Keyed `forPiece:` with a document id, as every other reader
+                // of the memory is: the piece IS the document here.
                 guard let store, let documentStore else { return nil }
-                let passes = store.manifest.effectiveReviewPasses
-                guard let id = documentStore.uiState.activePassMemory.validatedActivePass(
-                        forPiece: docId, in: passes),
-                      let pass = passes.first(where: { $0.id == id })
-                else { return nil }
-                // **`effectiveEditorName`/`effectiveBrief`, never the raw
-                // fields** (M4 P1 Task 1's rule): a customized manifest can
-                // store a preset-id pass that predates both, and reading
-                // `pass.editorName` here would sign a Copyedit round's notes
-                // with nothing at all.
-                return CompilerOrchestrator.ActivePass(
-                    id: pass.id, name: pass.name,
-                    editorName: pass.effectiveEditorName,
-                    brief: pass.effectiveBrief)
+                return store.manifest.reader(
+                    forPiece: docId,
+                    memory: documentStore.uiState.activePassMemory).activePass
             },
             // **The project's own type**, for the letter's scene position
             // (spec §3.4). `ProjectManifest.type` — the same field

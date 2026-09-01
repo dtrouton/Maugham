@@ -109,16 +109,35 @@ seeded `brief` — what its rounds attend to, and as sharply what they leave
 alone — and an `editorName`. A pass's own `brief`/`editorName` field wins when
 set; a customized manifest can store a preset-id pass that predates both
 fields, so every reader resolves through `ReviewPass.effectiveBrief`/
-`.effectiveEditorName` rather than the raw fields — `CompilerEnvironment
-+Project.swift`'s `activePass` closure is the one production call site, and its
+`.effectiveEditorName` rather than the raw fields — `PieceReader`
+(`Maugham/Models/PieceReader.swift`) is the one production call site, and its
 own comment names why reading `pass.editorName` directly would sign a Copyedit
 round's notes with nothing at all. The resolved name goes three places: the
 **annotation author** on every note that pass mints (`CompilerMintContext.
-editorName`, so the queue's author filter becomes "everything Gould flagged"
-and a passless run signs "Claude" — M2's identity, unchanged), the round
-briefing's **role frame** (`CompilerPrompt`, "You are Gould, this manuscript's
-copyeditor"), and the pass's own brief, embedded in the same briefing so
-attention follows the register the writer chose. A custom pass with no brief
+editorName`, so the queue's author filter becomes "everything Gould flagged"),
+the round briefing's **role frame** (`CompilerPrompt.passSection`, "You are
+Gould, this manuscript's Copyedit editor"), and the pass's own brief, embedded
+in the same briefing so attention follows the register the writer chose.
+
+**Who reads a piece has ONE resolution** (editorial letter P1 Task 5, spec
+§4.1): `ProjectManifest.reader(forPiece:memory:)` answers a `PieceReader` —
+*stage* / *coach* / *nobody* — and `CompilerEnvironment+Project.swift`'s
+`activePass` closure asks it rather than re-deriving the rule. A stored active
+pass that still names a stage wins; else the coach, unless the writer vacated
+her seat; else nobody. So an **unassigned piece is Le Guin's**, files rounds in
+her `workshop` lane and mints notes signed "Le Guin" — with no orchestrator
+change, because she is an `ActivePass` like any pass. A **retired** pass id
+reads as unassigned (`validatedActivePass`) and therefore falls to the coach:
+deleting a pass gives its pieces back to her. `ActivePass.isCoach` is the one
+thing that differs downstream, and `CompilerPrompt.passSection` is the only
+reader of it — a coach is framed as a teacher ("You are Le Guin, this writer's
+workshop teacher.") where a stage is framed as an editor. `nil` — no
+`ActivePass` at all — is now reached ONLY by a vacated seat: that is the
+passless lane, which mints no round, stamps nothing and signs "Claude", M2's
+identity, unchanged. `CompilerOrchestrator.passlessEditorName` has exactly one
+production use, in `PieceReader`'s *nobody* arm, and
+`TripwireGrepTests.test_thePasslessEditorNameHasExactlyOneProductionUse` keeps
+it that way. A custom pass with no brief
 of its own and no matching preset gets the honest fallback: attend at the
 altitude the pass's name suggests.
 

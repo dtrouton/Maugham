@@ -385,8 +385,19 @@ enum CompilerPrompt {
         let brief = pass.brief
             .map(cleaned)
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        // **The coach is a teacher, not an editor** (spec §4.1, §4.4). She is
+        // a pass in every respect this file cares about — a name, an editor,
+        // a brief — and `isCoach` is the ONE thing that differs, resolved once
+        // in `PieceReader` and read only here. Her own name is the noun in the
+        // frame (lowercased, because it is a common noun in this sentence
+        // where a stage's is a proper one), so a writer who renames the seat
+        // renames what she teaches rather than leaving a second spelling of
+        // "workshop" in this file.
+        let frame = pass.isCoach
+            ? "You are \(pass.editorName), this writer's \(pass.name.lowercased()) teacher."
+            : "You are \(pass.editorName), this manuscript's \(pass.name) editor."
         return """
-            You are \(pass.editorName), this manuscript's \(pass.name) editor.
+            \(frame)
             \(brief ?? brieflessPassFallback)
             """
     }

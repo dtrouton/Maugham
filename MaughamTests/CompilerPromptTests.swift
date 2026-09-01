@@ -471,6 +471,43 @@ final class CompilerPromptTests: XCTestCase {
                       "the pass's own brief must travel verbatim; got \(section)")
     }
 
+    /// **The coach is a teacher, not an editor** (spec §4.1, §4.4). She is a
+    /// pass in every respect the run cares about — a lane, a round, a byline —
+    /// and the ONE thing that is not a stage's is the register she reads in.
+    /// `isCoach` is the only thing the section branches on, and this line is
+    /// the only place in the app that branch is visible.
+    func test_theCoachIsFramedAsATeacherRatherThanAnEditor() {
+        let coach = ReviewPass.coachPreset
+        guard let section = CompilerPrompt.passSection(
+            CompilerOrchestrator.ActivePass(
+                id: coach.id, name: coach.name,
+                editorName: coach.effectiveEditorName,
+                brief: coach.effectiveBrief, isCoach: true))
+        else { return XCTFail("the coach must produce a section") }
+        XCTAssertEqual(
+            section.split(separator: "\n").first.map(String.init),
+            "You are Le Guin, this writer's workshop teacher.",
+            "the coach's role frame is the whole of what isCoach buys; got \(section)")
+        XCTAssertFalse(section.contains("this manuscript's"),
+                       "a stage's frame reached the coach; got \(section)")
+        let brief = try? XCTUnwrap(coach.brief)
+        XCTAssertTrue(section.contains(brief ?? "\u{0}"),
+                      "her doctrine must travel verbatim under the frame")
+    }
+
+    /// The control for the branch above: a stage keeps the editor framing it
+    /// has had since M4 P1, and never becomes anybody's teacher.
+    func test_aStageIsStillFramedAsThisManuscriptsEditor() {
+        guard let section = CompilerPrompt.passSection(lane("copyedit"))
+        else { return XCTFail("expected a section") }
+        XCTAssertEqual(
+            section.split(separator: "\n").first.map(String.init),
+            "You are Gould, this manuscript's Copyedit editor.",
+            "got \(section)")
+        XCTAssertFalse(section.contains("teacher"),
+                       "a stage was framed as a teacher; got \(section)")
+    }
+
     /// A custom pass nobody has written a brief for gets the honest fallback
     /// rather than silence: the name is the only doctrine there is, so the
     /// altitude it suggests is what the round is told to read at.

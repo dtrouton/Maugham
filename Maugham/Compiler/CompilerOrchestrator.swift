@@ -175,12 +175,26 @@ final class CompilerOrchestrator {
         /// 4**: the briefing is the next task's, and resolving it in a second
         /// place then would be the drift this type exists to prevent.
         let brief: String?
+        /// Whether this pass is the **coach's seat** rather than a rung of the
+        /// ladder (editorial letter P1, spec §4.1). Resolved once, in
+        /// `PieceReader`, and read in exactly one place:
+        /// `CompilerPrompt.passSection`, which frames a coach as a teacher and
+        /// a stage as an editor. Nothing else branches on it — she is a pass
+        /// in every other respect the run cares about, which is what gives her
+        /// a lane, numbered rounds and pass-stamped notes with no orchestrator
+        /// change.
+        ///
+        /// Defaulted in the initializer so every construction site that
+        /// predates the seat still compiles and still means "a stage".
+        let isCoach: Bool
 
-        init(id: String, name: String, editorName: String, brief: String?) {
+        init(id: String, name: String, editorName: String, brief: String?,
+             isCoach: Bool = false) {
             self.id = id
             self.name = name
             self.editorName = editorName
             self.brief = brief
+            self.isCoach = isCoach
         }
     }
 
@@ -1245,8 +1259,15 @@ final class CompilerOrchestrator {
                         freshEyes: freshEyes,
                         // A passless run signs "Claude" — M2's identity, and
                         // the label `AnnotationAuthorPresentation` already
-                        // gives an author-less note.
-                        editorName: activePass?.editorName ?? Self.passlessEditorName))
+                        // gives an author-less note. **The fallback is read
+                        // off the resolution rather than off the constant**
+                        // (editorial letter P1 Task 5): `PieceReader.nobody`
+                        // IS the case this `??` covers, and naming it here
+                        // keeps `passlessEditorName` to the one production use
+                        // `TripwireGrepTests`' census pins. A held seat never
+                        // reaches the fallback at all — the coach is an
+                        // `ActivePass` with an editor of her own.
+                        editorName: activePass?.editorName ?? PieceReader.nobody.editorName))
             }
             // The one suspension in this method, and the writes below are what
             // make it worth guarding. See the doc comment.

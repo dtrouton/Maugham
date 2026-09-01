@@ -441,6 +441,84 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - The passless editor's name has one home (editorial letter P1)
+
+    /// Lines that mention the constant but are not a USE of it: its own
+    /// declaration, and any comment naming it.
+    private func passlessNameNonUse(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//")
+            || trimmed.contains("static let passlessEditorName")
+    }
+
+    /// **Tripwire: `CompilerOrchestrator.passlessEditorName` has exactly ONE
+    /// production use, and it is `PieceReader`'s *nobody* arm.**
+    ///
+    /// Who reads a piece is one resolution (spec §4.1): *stage / coach /
+    /// nobody*. A second site reaching for the constant is a second answer to
+    /// "who signs this piece's notes" — and the answer it gives is always
+    /// "Claude", which since the coach took the seat is wrong for every
+    /// unassigned piece. The mint site is the one that used to hold it and now
+    /// reads `PieceReader.nobody.editorName` instead, so the fallback and the
+    /// resolution cannot drift apart.
+    func test_thePasslessEditorNameHasExactlyOneProductionUse() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            patterns: ["passlessEditorName"],
+            excludeLine: { self.passlessNameNonUse($0) })
+        XCTAssertEqual(
+            offenders.compactMap { $0.split(separator: ":").first.map(String.init) },
+            ["PieceReader.swift"],
+            "the passless name is read in one place \u{2014} PieceReader's "
+            + "nobody arm \u{2014} and every other site asks the resolution "
+            + "instead. Offenders:\n" + offenders.joined(separator: "\n"))
+
+        // The census above counts USES, so a second DECLARATION would slip
+        // past it — and a second constant is the same defect wearing the
+        // exclusion this test grants the first one.
+        let declarations = try grepSwift(
+            in: sourceDir,
+            patterns: ["static let passlessEditorName"],
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") })
+        XCTAssertEqual(
+            declarations.compactMap { $0.split(separator: ":").first.map(String.init) },
+            ["CompilerOrchestrator.swift"],
+            "the constant is declared once. Declarations:\n"
+            + declarations.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: it is not passing because the pattern
+    /// matches nothing. A planted second reader is caught, and the two shapes
+    /// that are NOT uses — the declaration and a comment naming it — are not.
+    func test_thePasslessEditorNameCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-passless-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        enum SecondReader {
+            // A comment naming passlessEditorName is not a use.
+            nonisolated static let passlessEditorName = "Claude"
+            static func sign() -> String {
+                CompilerOrchestrator.passlessEditorName
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SecondReader.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: ["passlessEditorName"],
+            excludeLine: { self.passlessNameNonUse($0) })
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check: the planted read should be the one caught, and neither "
+            + "the declaration nor the comment. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders[0].hasPrefix("SecondReader.swift:"), offenders[0])
+    }
+
     // MARK: - Meta-tests: tripwires fire on planted offenders (task 4.8 / test gap #14)
 
     /// Self-check: prove the op-log filename tripwire FIRES on a planted

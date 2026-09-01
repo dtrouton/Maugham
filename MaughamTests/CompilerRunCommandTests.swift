@@ -3416,15 +3416,20 @@ final class CompilerRunCommandTests: XCTestCase {
                        "the Line pass's editor \u{2014} `effectiveEditorName`, "
                        + "never the raw stored field")
         XCTAssertNotNil(lane.brief, "…and its doctrine, for the briefing")
-        XCTAssertNil(environment.activePass("ch-2"),
-                     "a piece the writer never opened a pass on has no lane")
+        // **The piece next door is the coach's** (editorial letter P1, spec
+        // §4.1). Before the seat existed this answered nil; now an unassigned
+        // piece resolves to Le Guin, and the closure is the resolution's
+        // reader rather than a second copy of the rule.
+        XCTAssertEqual(environment.activePass("ch-2")?.id, "workshop",
+                       "a piece the writer never opened a pass on is the coach's")
     }
 
-    /// A stored pass the project no longer offers mints nothing — pinned at
-    /// the compiler's own read rather than only at `ActivePassMemory`, so a
-    /// later "optimize to the raw read" files rounds into a lane that does not
-    /// exist.
-    func test_productionMintsNoLaneForAPassTheProjectRetired() async throws {
+    /// **A stored pass the project no longer offers falls to the coach**
+    /// (editorial letter P1, spec §4.1: deleting a pass gives its pieces back
+    /// to Le Guin). Pinned at the compiler's own read rather than only at
+    /// `PieceReader`, so a later "optimize to the raw read" cannot file rounds
+    /// into a lane that does not exist.
+    func test_productionGivesARetiredPassesPieceToTheCoach() async throws {
         let root = try makeListingsProjectRoot()
         let store = try await ProjectStore.load(from: root)
         let documentStore = try await DocumentStore.open(url: root)
@@ -3434,8 +3439,30 @@ final class CompilerRunCommandTests: XCTestCase {
         let environment = makeProductionEnvironment(
             store: store, documentStore: documentStore, root: root)
 
+        let lane = try XCTUnwrap(
+            environment.activePass("ch-1"),
+            "a retired id reads as unassigned, and an unassigned piece is hers")
+        XCTAssertEqual(lane.id, "workshop")
+        XCTAssertEqual(lane.editorName, "Le Guin",
+                       "the lane that does not exist must not be the one filed in")
+    }
+
+    /// **The one off switch, at the production read.** With the seat vacated
+    /// an unassigned piece is nobody's again — the nil lane, which is what the
+    /// orchestrator reads as M2's all-altitudes ⌘R.
+    func test_productionHasNoLaneForAnUnassignedPieceOnceTheSeatIsVacated() async throws {
+        let root = try makeListingsProjectRoot()
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+        XCTAssertEqual(environment.activePass("ch-1")?.id, "workshop",
+                       "control: the seat starts held")
+
+        try await store.setCoachVacated(true)
+
         XCTAssertNil(environment.activePass("ch-1"),
-                     "a pass absent from effectiveReviewPasses is no lane at all")
+                     "a vacated seat leaves an unassigned piece in the nil lane")
     }
 
     /// The weak-capture discipline this file's own doc states, one closure
@@ -4602,9 +4629,16 @@ final class CompilerRunCommandTests: XCTestCase {
 
     /// A \u{2318}R outside every pass signs "Claude" \u{2014} M2's identity,
     /// and the bucket the writer already has \u{2014} and stamps no lane.
+    ///
+    /// **This is the VACATED-SEAT case now** (editorial letter P1 Task 5). An
+    /// unassigned piece is the coach's by default, so "outside every pass"
+    /// means the writer took the one off switch there is: `coachVacated`. What
+    /// it asserts is unchanged, because the whole point of vacating is that
+    /// the run goes back to being exactly M2's.
     func test_aPasslessRunMintsAsClaudeWithNoStamp() async throws {
         let runner = SpyRunner()
         let fx = try await makeLiveDocumentHarness(runner: runner)
+        try await fx.store.setCoachVacated(true)
         let pid = try XCTUnwrap(fx.document.sequence.first)
         runner.nextEvent = .resultText(questionAndReport(about: pid))
 
@@ -4620,6 +4654,50 @@ final class CompilerRunCommandTests: XCTestCase {
             XCTAssertTrue(note.isCompilerAuthored,
                           "it is still the compiler's note: the run id says so")
         }
+    }
+
+    /// **An unassigned piece is the coach's, and her rounds are numbered**
+    /// (spec \u{00a7}4.1, "Rounds"). The passless lane used to mean "nobody
+    /// read this"; with the seat held it means Le Guin, and she files into her
+    /// own lane through the machinery a stage run already uses \u{2014} no
+    /// orchestrator change buys the round number, the stamp and the byline.
+    func test_anUnassignedPieceRunsAsTheCoachAndFilesInHerLane() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        XCTAssertFalse(fx.store.manifest.coachVacated,
+                       "premise: a new project holds the seat")
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        runner.nextEvent = .resultText(questionAndReport(about: pid))
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(2, on: fx.document)
+
+        let notes = fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+        XCTAssertEqual(notes.count, 2, "control: the round minted both findings")
+        for note in notes {
+            XCTAssertEqual(note.author?.displayName, "Le Guin",
+                           "the mint context's editorName is the resolution's, so "
+                           + "an unassigned piece's notes are signed by the coach")
+            XCTAssertEqual(note.reviewPassId, "workshop",
+                           "\u{2026}and stamped with her lane, not left unstamped")
+            XCTAssertEqual(note.compilerRound, 1,
+                           "\u{2026}and numbered, which the nil lane never was")
+        }
+        XCTAssertEqual(fx.diagnostics.lastRun(docId: "ch-1")?.passId, "workshop",
+                       "the run record files in the coach's lane")
+        XCTAssertEqual(fx.diagnostics.lastRun(docId: "ch-1")?.round, 1)
+
+        // The writer types, so the next \u{2318}R has a delta to read.
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+        try await fx.document.flushBurstNow()
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(2, on: runner)
+        await awaitRound(2, on: fx)
+        XCTAssertEqual(fx.diagnostics.lastRun(docId: "ch-1")?.round, 2,
+                       "her second reading is round 2 \u{2014} the since-line and "
+                       + "\"Le Guin \u{00b7} round 2\" exist because of this")
+        XCTAssertEqual(fx.diagnostics.lastRun(docId: "ch-1")?.passId, "workshop")
     }
 
     /// **A mint that fails costs one note and never the run.** The writer
