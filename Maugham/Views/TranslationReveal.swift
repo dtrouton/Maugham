@@ -20,9 +20,21 @@ import Foundation
 /// - **Whether the chapter has to be selected first** (`plan`). The row knows
 ///   which chapter it is about; only the window knows which chapter is *open*.
 ///   So the poster posts, and the window plans.
-/// - **The order of the two posts** (`perform`). Entering review swaps the
-///   editor to the translated surface; navigating scrolls it. Reversed, the
-///   scroll lands in the source and the swap throws it away.
+/// - **The order of the two posts, and the wait between them** (`perform`).
+///   Entering review swaps the editor to the translated surface; navigating
+///   scrolls it.
+///
+/// **The order alone is not enough, and the first draft of this file said it
+/// was** (fix round 1). `.maughamEnterTranslationReview` only writes
+/// `EditorControl.translationLanguage`; the translated buffer is swapped in on
+/// the NEXT SwiftUI body pass, when `EditorHost`'s
+/// `.onChange(of: control.translationLanguage)` recomputes the derived surface
+/// and pushes it through `applyExternalText`. Posted back to back, the navigate
+/// is delivered in between: `EditorCoordinator` scrolls the still-SOURCE text
+/// and the swap throws that scroll away, so every reveal opens the edition at
+/// the top. Hence `ready` — awaited between the two posts, and how production
+/// says *not until the surface is actually there*. It defaults to doing
+/// nothing, so the ordering stays assertable on its own.
 ///
 /// `perform` takes its post closure rather than reaching for `MaughamEvent`
 /// because the ordering is the fact worth pinning, and a test that has to grant
@@ -79,12 +91,26 @@ struct TranslationReveal: Equatable, Sendable {
             docId: docId, language: language, paragraphId: paragraphId)
     }
 
-    /// The two posts, in order: enter review for the language, then navigate.
+    /// The two posts, in order: enter review for the language, then — once
+    /// `ready` has returned — navigate.
+    ///
+    /// `ready` is where production waits for the translated surface to actually
+    /// reach the text view (see the type's doc comment). It returns whether that
+    /// surface arrived or the wait merely ran out of patience, and the navigate
+    /// goes either way: a paragraph the coordinator's range provider cannot find
+    /// is a no-op there, so refusing to post would turn a slow surface into a
+    /// silent one and buy nothing.
+    ///
+    /// `@MainActor` because both posts are `.keyWindow` events that drive the
+    /// editor, and because `ready`'s production body reads window state.
+    @MainActor
     static func perform(
         _ reveal: TranslationReveal,
+        ready: () async -> Void = {},
         post: (Notification.Name, [String: Any]) -> Void
-    ) {
+    ) async {
         post(.maughamEnterTranslationReview, [languageKey: reveal.language])
+        await ready()
         post(.maughamNavigateToParagraph, [paragraphIdKey: reveal.paragraphId])
     }
 }

@@ -4690,11 +4690,12 @@ private struct TranslationReviewModifier: ViewModifier {
     /// A reveal whose chapter had to be selected first, held until `activeDocId`
     /// catches up. Nil at every other moment.
     @State private var pendingReveal: TranslationReveal?
-    /// The poll that waits for that chapter's document to register. Held so a
-    /// second reveal cancels the first rather than racing it.
-    @State private var pendingRevealPoll: Task<Void, Never>?
+    /// The two waits a reveal performs — for the chapter's document, then for
+    /// its translated surface. Held so a second reveal cancels the first rather
+    /// than racing it, and so closing the window ends it.
+    @State private var revealTask: Task<Void, Never>?
 
-    /// 50 ms × 60 = three seconds. See `waitForDocument(_:in:)`.
+    /// 50 ms × 60 = three seconds. Shared by both of the reveal's waits.
     private static let revealPollInterval = 50
     private static let revealPollAttempts = 60
 
@@ -4729,9 +4730,7 @@ private struct TranslationReviewModifier: ViewModifier {
                 guard let reveal = TranslationReveal.decode(note.userInfo) else { return }
                 switch TranslationReveal.plan(reveal, activeDocId: activeDocId) {
                 case .now:
-                    TranslationReveal.perform(reveal) {
-                        MaughamEvent.post($0, to: .keyWindow, payload: $1)
-                    }
+                    startReveal(reveal, waitingForDocument: false)
                 case .afterSelecting(let subject):
                     pendingReveal = reveal
                     selectedSubject = subject
@@ -4758,12 +4757,12 @@ private struct TranslationReviewModifier: ViewModifier {
                 let pending = pendingReveal
                 pendingReveal = nil
                 guard let reveal = pending, reveal.docId == newValue else { return }
-                pendingRevealPoll?.cancel()
-                let store = documentStore
-                pendingRevealPoll = Task { @MainActor in
-                    await Self.waitForDocument(reveal, in: store)
-                }
+                startReveal(reveal, waitingForDocument: true)
             }
+            // A reveal's waits outlive the press by up to six seconds. A window
+            // closing mid-wait must end them rather than let them poll a store
+            // nobody is looking at any more.
+            .onDisappear { revealTask?.cancel() }
             .confirmationDialog(
                 "Translation Review",
                 isPresented: $showingPicker,
@@ -4806,33 +4805,103 @@ private struct TranslationReviewModifier: ViewModifier {
             }
     }
 
-    /// **Wait for the chapter's document before speaking to it** (P4 Task 5).
+    /// **Perform a reveal, waiting for each thing it needs to exist** (P4 Task 5).
     ///
-    /// `EditorHost` registers the `Document` as it loads, and the enter-review
-    /// post is received by an `EditorCoordinator` that does not exist until it
-    /// has. A bare next-tick deferral loses that race — tripwire 16's lesson,
-    /// one column over — so this polls the registry on the coordinator's own
-    /// idiom: 50 ms, up to three seconds, then gives up in silence. Giving up
-    /// still leaves the writer with the right chapter open, which is honestly
-    /// most of what the row was asked for; a notice for a load that is merely
-    /// slow would be worse than the quiet.
+    /// Two waits, and neither is optional:
+    ///
+    /// - **The document**, when the chapter had to be selected first.
+    ///   `EditorHost` registers the `Document` as it loads, and the enter-review
+    ///   post is received by an `EditorCoordinator` that does not exist until it
+    ///   has.
+    /// - **The translated surface**, always. The enter-review post only writes
+    ///   `translationLanguage`; the buffer is swapped in on the next body pass
+    ///   (`EditorHost`'s `.onChange` → `recomputeTranslatedSurface` →
+    ///   `applyExternalText`). Navigate without waiting and the coordinator
+    ///   scrolls the source text, which the swap then discards — the reveal
+    ///   lands at the top of the edition every time (fix round 1).
+    ///
+    /// The two facts the surface wait is judged against — which edition was on
+    /// screen, and what its badge model held — are captured HERE, before the
+    /// enter-review post, because that post is delivered synchronously and has
+    /// already moved both of them by the time `ready` runs.
+    ///
+    /// Cancels whatever a previous reveal left running: the writer clicking a
+    /// second row means the first is no longer what they asked for.
+    private func startReveal(_ reveal: TranslationReveal, waitingForDocument: Bool) {
+        revealTask?.cancel()
+        let store = documentStore
+        let control = editorControl
+        revealTask = Task { @MainActor in
+            if waitingForDocument {
+                guard await Self.waitForDocument(reveal, in: store) else { return }
+            }
+            // Already showing this edition — the enter-review post changes
+            // nothing, nothing recomputes, and there is no new surface to wait
+            // for. Without this the common case (a reveal from the Translation
+            // pane, review already up) would stall for the full three seconds.
+            let alreadyShowing = control.translationLanguage == reveal.language
+            let surfaceBefore = control.translationBadges
+            await TranslationReveal.perform(
+                reveal,
+                ready: {
+                    guard !alreadyShowing else { return }
+                    await Self.waitForTranslatedSurface(
+                        reveal, in: control, replacing: surfaceBefore)
+                },
+                post: { MaughamEvent.post($0, to: .keyWindow, payload: $1) })
+        }
+    }
+
+    /// Poll until the chapter's document is registered. `true` if it arrived.
+    ///
+    /// A bare next-tick deferral loses this race — tripwire 16's lesson, one
+    /// column over — so this polls on the coordinator's own idiom: 50 ms, up to
+    /// three seconds, then gives up in silence. Giving up still leaves the
+    /// writer with the right chapter open, which is honestly most of what the
+    /// row was asked for; a notice for a load that is merely slow would be worse
+    /// than the quiet.
     ///
     /// Static, and handed the store rather than reading `self`, so the `Task`
-    /// captures two sendable values instead of a whole `ViewModifier` whose
-    /// `@State` it must not outlive.
+    /// captures sendable values instead of a whole `ViewModifier` whose `@State`
+    /// it must not outlive.
     @MainActor
     private static func waitForDocument(
         _ reveal: TranslationReveal, in store: DocumentStore?
-    ) async {
+    ) async -> Bool {
         for _ in 0..<revealPollAttempts {
-            if store?.document(forDocId: reveal.docId) != nil {
-                TranslationReveal.perform(reveal) {
-                    MaughamEvent.post($0, to: .keyWindow, payload: $1)
-                }
-                return
-            }
+            // Checked before the read, not after: a cancelled reveal must not
+            // go on to enter review for a chapter nobody is waiting on.
+            if Task.isCancelled { return false }
+            if store?.document(forDocId: reveal.docId) != nil { return true }
             // A cancelled sleep must END the poll — swallowing it with `try?`
             // would spin the loop sixty times with no wait at all.
+            do { try await Task.sleep(for: .milliseconds(revealPollInterval)) }
+            catch { return false }
+        }
+        return false
+    }
+
+    /// Poll until the translated surface the enter-review post asked for has
+    /// reached `EditorControl`.
+    ///
+    /// **Both halves of the predicate are load-bearing.** `replacing` is the
+    /// badge model as it stood before the post: without it, a reveal into a
+    /// DIFFERENT edition than the one on screen would be satisfied instantly by
+    /// the outgoing edition's entries, which is the bug this wait exists to
+    /// prevent wearing a different hat. The `contains` is what says the surface
+    /// that arrived actually holds the paragraph being revealed.
+    @MainActor
+    private static func waitForTranslatedSurface(
+        _ reveal: TranslationReveal, in control: EditorControl,
+        replacing previous: EditorControl.TranslationBadgeModel
+    ) async {
+        for _ in 0..<revealPollAttempts {
+            if Task.isCancelled { return }
+            let badges = control.translationBadges
+            if badges != previous,
+               badges.entries.contains(where: { $0.paragraphId == reveal.paragraphId }) {
+                return
+            }
             do { try await Task.sleep(for: .milliseconds(revealPollInterval)) }
             catch { return }
         }
