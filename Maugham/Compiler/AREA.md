@@ -834,12 +834,12 @@ blindness.
   "keystroke-triggered", which is ADR 0028's tempo contrast read correctly: the
   trigger must be a writer's own act rather than a timer or an event, and a
   button press is that act (P4 Task 6's ruling; a menu item for each is a later
-  decision, not an omission). Gloss is
-  briefed by `GlossBriefing`, whose `Inputs` **have no source field** — a model
-  shown the original renders the original it can read rather than the
-  translation it was asked about, so the property is the type's, not a caller's
-  — and reads its paragraph off the **badge entries the pane already holds**,
-  never the disk. Ask the collator is the collator's own briefing narrowed to
+  decision, not an omission). Gloss is briefed by `GlossBriefing`, whose
+  `Inputs` **have no source field** — a model shown the original renders the
+  original it can read rather than the translation it was asked about, so the
+  property is the type's, not a caller's — and reads its paragraph off the
+  **badge entries the pane already holds**, never the disk. Ask the collator
+  is the collator's own briefing narrowed to
   one pair ± a neighbour (`SpotCheck.narrow`), with the writer's craft intent,
   edition brief, glossary and directives kept **whole**: a doctrine narrowed
   with the text would judge the paragraph against rules the author never
