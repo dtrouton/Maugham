@@ -924,11 +924,19 @@ final class DiagnosticIngestTests: XCTestCase {
     /// a model writing four habits has not made the run lose anything the
     /// writer would have read, and `droppedDangling` must not say it did.
     func test_aHabitWithFiveRefsKeepsFour() throws {
+        // Five DISTINCT live ids. `resolveRefs` dedupes, so a repeated id
+        // would make this pass with no cap at all — which is exactly what the
+        // disable experiment caught when the fifth ref was a repeat of the
+        // first.
+        let five = liveV2([
+            "a1b2": "One.", "c3d4": "Two.", "e5f6": "Three.",
+            "they": "Four.", "g7h8": "Five.",
+        ])
         let line = """
             {"section":"letter","habits":[{"name":"Filter words",\
-            "refs":["a1b2","c3d4","e5f6","they","a1b2"],"cost":"Distance."}]}
+            "refs":["a1b2","c3d4","e5f6","they","g7h8"],"cost":"Distance."}]}
             """
-        let section = try XCTUnwrap(parseSection(line))
+        let section = try XCTUnwrap(parseSection(line, live: five))
         let habit = try XCTUnwrap(section.letter?.habits.first)
         XCTAssertEqual(habit.refs.map(\.paragraphId), ["a1b2", "c3d4", "e5f6", "they"],
                        "five claimed refs must be cut to the schema's four")
