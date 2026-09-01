@@ -49,8 +49,11 @@ struct Letter: Codable, Equatable, Sendable {
     let habits: [Habit]
     let questions: [Question]
     /// `nil` means the letter's scene position said there is nothing to say
-    /// about scenes — distinct from `[]`, which Task 2/3 do not produce but
-    /// which decodes and round-trips the same as any other empty array.
+    /// about scenes — a lyric or essayistic piece — and it is distinct from
+    /// `[]`, which is a scene table with no rows in it. Both are reachable
+    /// from the wire: `scenes` absent or `null` parses as `nil`, and
+    /// `"scenes":[]` parses as `[]` (`DiagnosticIngest.parseLetter`, Task 2).
+    /// The pair is pinned by `DiagnosticIngestTests.test_scenesAbsentOrNullIsNil`.
     let scenes: [Scene]?
     /// `ScenePosition.rawValue` (Task 3). `var` because Task 3 stamps it onto
     /// an already-parsed letter; every other stored property here is `let`.

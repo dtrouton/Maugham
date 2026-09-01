@@ -546,6 +546,12 @@ extension DiagnosticIngest {
     ///   there is nothing to say about scenes (a lyric piece), which is a
     ///   different answer from a table with no rows.
     ///
+    /// **Two scrubs, and they are asked of different things.** Every prose
+    /// field of every part is scrubbed for a leaked paragraph id, and only
+    /// `questions` is scrubbed for a fix's shape — `letterProseLeaksAnId`'s
+    /// doc carries both reasons, including why `exercise` is exempt from the
+    /// second. Neither moves `droppedDangling`.
+    ///
     /// The one part that is also a finding is `questions`: each one that
     /// resolves at least one ref ALSO becomes a `.letterQuestion` diagnostic
     /// in `accepted`, so it rides `mintable` into the queue as a `.query` and
@@ -568,7 +574,8 @@ extension DiagnosticIngest {
         let working: [Letter.Working] = entries(object[SectionField.working])
             .compactMap { item in
                 guard let what = nonEmptyString(item[SectionField.what]),
-                      let why = nonEmptyString(item[SectionField.why])
+                      let why = nonEmptyString(item[SectionField.why]),
+                      !letterProseLeaksAnId([what, why], live)
                 else { return nil }
                 return Letter.Working(
                     refs: letterRefs(item[SectionField.refs], live).refs, what: what, why: why)
@@ -579,20 +586,33 @@ extension DiagnosticIngest {
                 guard let name = nonEmptyString(item[SectionField.habitName]),
                       let cost = nonEmptyString(item[SectionField.cost])
                 else { return nil }
+                let lesson = nonEmptyString(item[SectionField.lesson])
+                // **`exercise` is scrubbed for a leaked id like every other
+                // field, and NOT for a fix's shape** — see
+                // `letterProseLeaksAnId`'s doc for why the second scrub stops
+                // at `questions`.
+                let exercise = nonEmptyString(item[SectionField.exercise])
+                guard !letterProseLeaksAnId([name, cost, lesson, exercise], live)
+                else { return nil }
                 return Letter.Habit(
                     name: name,
                     refs: Array(letterRefs(item[SectionField.refs], live)
                         .refs.prefix(letterHabitRefsCap)),
-                    cost: cost,
-                    lesson: nonEmptyString(item[SectionField.lesson]),
-                    exercise: nonEmptyString(item[SectionField.exercise]))
+                    cost: cost, lesson: lesson, exercise: exercise)
             }
 
         var questions: [Letter.Question] = []
         var notes: [Diagnostic] = []
         for item in entries(object[SectionField.questions]) {
             guard questions.count < letterQuestionsCap,
-                  let question = nonEmptyString(item[SectionField.question])
+                  let question = nonEmptyString(item[SectionField.question]),
+                  !letterProseLeaksAnId([question], live),
+                  // **The one part that also mints, and the one the fix-shape
+                  // scrub is asked of.** A `.letterQuestion` reaches the queue
+                  // as a `.query` the writer is asked to answer, and "you
+                  // should cut this" is not a question they can answer — it is
+                  // the suggested change the register exists to refuse.
+                  !isFixShaped(question)
             else { continue }
             let resolved = letterRefs(item[SectionField.refs], live)
             questions.append(Letter.Question(refs: resolved.refs, question: question))
@@ -612,7 +632,9 @@ extension DiagnosticIngest {
                 let turn = nonEmptyString(item[SectionField.turn]) ?? ""
                 // A blank cell is an observation (spec §3.4) — a row with
                 // nothing in any of the three is not.
-                guard !(wants.isEmpty && changes.isEmpty && turn.isEmpty) else { return nil }
+                guard !(wants.isEmpty && changes.isEmpty && turn.isEmpty),
+                      !letterProseLeaksAnId([wants, changes, turn], live)
+                else { return nil }
                 let charge = nonEmptyString(item[SectionField.charge])
                 return Letter.Scene(
                     refs: letterRefs(item[SectionField.refs], live).refs,
@@ -622,9 +644,17 @@ extension DiagnosticIngest {
             }
         }
 
+        // **`about` and `one_thing` are FIELDS, not entries, so a leaked id
+        // empties them rather than dropping anything.** There is no entry to
+        // lose, and refusing the whole letter over one token in the say-back
+        // would cost the writer everything the letter got right — the opposite
+        // of the rule that a letter is never refused for a missing say-back.
+        let about = nonEmptyString(object[SectionField.about])
+        let oneThing = nonEmptyString(object[SectionField.oneThing])
+
         let letter = Letter(
-            about: nonEmptyString(object[SectionField.about]) ?? "",
-            oneThing: nonEmptyString(object[SectionField.oneThing]),
+            about: letterProseLeaksAnId([about], live) ? "" : (about ?? ""),
+            oneThing: letterProseLeaksAnId([oneThing], live) ? nil : oneThing,
             working: Array(working.prefix(letterWorkingCap)),
             habits: Array(habits.prefix(letterHabitsCap)),
             questions: questions,
@@ -668,6 +698,42 @@ extension DiagnosticIngest {
         _ value: Any?, _ live: (String) -> String?
     ) -> ResolvedRefs {
         resolveRefs(value, live) ?? ResolvedRefs(refs: [], anchor: nil)
+    }
+
+    /// **The id-scrub, asked of the letter's prose** — `leaksAnId` under a
+    /// name that says where the answer is used, because what happens to a
+    /// `true` here is not what happens to it anywhere else.
+    ///
+    /// The schema's standing rule is the letter's too: refer to the prose by a
+    /// short quotation, the way an editor would, never by a four-character
+    /// token. The letter is the part the writer READS, so it is the most
+    /// visible place that rule could break. An entry whose prose names a live
+    /// paragraph is dropped — and dropping is right here in a way it is not
+    /// for a dangling ref: a dead ref costs an entry a jump link it can live
+    /// without, while a leaked id is in the words themselves and there is no
+    /// half of the entry worth showing. `about` and `one_thing` are fields
+    /// rather than entries and are emptied instead; see `parseLetter`.
+    ///
+    /// **Neither this nor the fix-shape scrub touches `droppedDangling`.**
+    /// That counter is what the REGISTER lost — notes the writer would have
+    /// read — and the letter is not a note, so a scrubbed letter entry must
+    /// not put the pane's "lost some notes" seal over a complete report. It is
+    /// the same reason a letter's dangling ref does not move it.
+    ///
+    /// **The fix-shape scrub stops at `questions`, deliberately.** That is the
+    /// one part that leaves the letter and becomes a `.query` the writer is
+    /// asked to answer, and a directive is not answerable. `exercise` is
+    /// exempt for the opposite reason: Le Guin's feed-forward is a thing to go
+    /// and DO — *rewrite the scene without a single "was"* — and it is phrased
+    /// as a directive because that is what an exercise IS (spec §3.1).
+    /// Scrubbing it would delete the one part of the letter that teaches. The
+    /// letter's other prose is exempt too: `fixShapedMarkers` is a small
+    /// hand-written list, and pointed at everything it would refuse real
+    /// sentences the writer only ever reads in place.
+    private static func letterProseLeaksAnId(
+        _ prose: [String?], _ live: (String) -> String?
+    ) -> Bool {
+        leaksAnId(prose, live)
     }
 
     // MARK: - Refs

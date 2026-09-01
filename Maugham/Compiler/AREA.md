@@ -33,6 +33,13 @@ rules are the letter's alone (spec §3.1, global constraint 8): a dangling ref
 costs a letter entry its jump links and not its prose (`letterRefs`, beside
 `resolveRefs`, which drops such an entry for every other section), and neither
 a dangling ref nor a cap moves `droppedDangling` — the letter is not a note.
+The two scrubs are asked of different things (`letterProseLeaksAnId`): EVERY
+prose field is scrubbed for a leaked paragraph id and the entry dropped
+(`about`/`one_thing` are fields rather than entries, so they empty instead),
+while the fix-shape scrub stops at `questions`, the one part that leaves the
+letter and becomes a `.query` the writer must be able to answer — `exercise` is
+exempt because a Le Guin feed-forward is a directive by nature. Neither scrub
+moves `droppedDangling` either.
 `CompilerPrompt.sectionSchemaDescription` is what is asked for and
 `DiagnosticIngest.parseSection`/`parseAll` is what reads it. **The v1 contract
 is gone**: `runMessage`, `CompilerContext` and `DiagnosticIngest.parse` were

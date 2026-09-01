@@ -1163,4 +1163,161 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertEqual(outcome.accepted.count, 4)
         XCTAssertEqual(outcome.intentDriftVerdict, "drifted")
     }
+    // MARK: v2 — the letter's two scrubs (controller ruling on Task 2's concern 1)
+
+    /// **A letter entry whose prose names a paragraph id is dropped.** The
+    /// schema's standing rule — refer to the prose by a short quotation, the
+    /// way an editor would — is the letter's too, and the letter is the part
+    /// the writer READS, so a four-character token in it is the most visible
+    /// place the rule could break.
+    ///
+    /// Dropping is the only refusal this file has, and here it is the right
+    /// one: unlike a dangling ref, which costs an entry a jump link it can
+    /// live without, a leaked id is in the words themselves and there is no
+    /// half of the entry worth showing.
+    func test_aLeakedIdDropsTheWorkingEntryAndItsCleanTwinSurvives() throws {
+        let line = """
+            {"section":"letter","working":[\
+            {"refs":["a1b2"],"what":"The opening image","why":"See [a1b2] for how it lands."},\
+            {"refs":["c3d4"],"what":"The second turn","why":"It arrives without being announced."}]}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        XCTAssertEqual(section.letter?.working.map(\.what), ["The second turn"],
+                       "the entry naming a live id must go, and its clean twin "
+                       + "must not go with it")
+        XCTAssertEqual(section.droppedDangling, 0,
+                       "the letter is not a note \u{2014} neither scrub moves the "
+                       + "count that says the register lost something")
+    }
+
+    /// The scrub reaches every prose field of every part, not just the one
+    /// that was easy to reach. One test per field, each the same shape: the
+    /// id in that field alone, the entry gone.
+    func test_theScrubReachesEveryProsePartOfTheLetter() throws {
+        let cases: [(String, String)] = [
+            ("working what", """
+                {"section":"letter","working":[{"refs":[],"what":"See [a1b2]","why":"It lands."}]}
+                """),
+            ("working why", """
+                {"section":"letter","working":[{"refs":[],"what":"The image","why":"See [a1b2]."}]}
+                """),
+            ("habit name", """
+                {"section":"letter","habits":[{"name":"The [a1b2] habit","cost":"Distance."}]}
+                """),
+            ("habit cost", """
+                {"section":"letter","habits":[{"name":"Filter words","cost":"Worst at [a1b2]."}]}
+                """),
+            ("habit lesson", """
+                {"section":"letter","habits":[{"name":"Filter words","cost":"Distance.",\
+                "lesson":"Cut it, as at [a1b2]."}]}
+                """),
+            ("habit exercise", """
+                {"section":"letter","habits":[{"name":"Filter words","cost":"Distance.",\
+                "exercise":"Read [a1b2] aloud."}]}
+                """),
+            ("question", """
+                {"section":"letter","questions":[{"refs":["c3d4"],\
+                "question":"Whose fear is this in [a1b2]?"}]}
+                """),
+            ("scene wants", """
+                {"section":"letter","scenes":[{"refs":[],"wants":"To reach [a1b2]",\
+                "changes":"Nothing","turn":""}]}
+                """),
+            ("scene changes", """
+                {"section":"letter","scenes":[{"refs":[],"wants":"In",\
+                "changes":"Nothing, see [a1b2]","turn":""}]}
+                """),
+            ("scene turn", """
+                {"section":"letter","scenes":[{"refs":[],"wants":"In",\
+                "changes":"Nothing","turn":"At [a1b2]"}]}
+                """),
+        ]
+        for (label, line) in cases {
+            let section = try XCTUnwrap(parseSection(line), label)
+            let letter = section.letter
+            XCTAssertEqual(letter?.working ?? [], [], label)
+            XCTAssertEqual(letter?.habits ?? [], [], label)
+            XCTAssertEqual(letter?.questions ?? [], [], label)
+            XCTAssertEqual(letter?.scenes ?? [], [], label)
+            XCTAssertEqual(section.accepted, [], label)
+            XCTAssertEqual(section.droppedDangling, 0, label)
+        }
+    }
+
+    /// **`about` and `one_thing` are fields, not entries, so they are emptied
+    /// rather than dropped.** There is no entry to lose, and losing the whole
+    /// letter over one leaked token in the say-back would cost the writer
+    /// everything the letter did get right — the opposite of the "a letter is
+    /// never refused for a missing say-back" rule one field over.
+    func test_aLeakedIdEmptiesTheSayBackAndTheOneThingRatherThanDroppingTheLetter() throws {
+        let line = """
+            {"section":"letter","about":"A woman waits, see [a1b2].",\
+            "one_thing":"Cut [a1b2].",\
+            "working":[{"refs":["c3d4"],"what":"The second turn","why":"It is unannounced."}]}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        let letter = try XCTUnwrap(section.letter, "the letter itself must survive")
+        XCTAssertEqual(letter.about, "")
+        XCTAssertNil(letter.oneThing)
+        XCTAssertEqual(letter.working.map(\.what), ["The second turn"],
+                       "control: the rest of the letter is untouched")
+    }
+
+    /// **A fix-shaped question is dropped, and it is dropped because it must
+    /// never reach the QUEUE.** The letter's own doctrine is questions and
+    /// nothing else; a `.letterQuestion` mints as a `.query` the writer is
+    /// asked to answer, and "you should cut this" is not a question they can
+    /// answer — it is the suggested change the register exists to refuse.
+    func test_aFixShapedQuestionIsDroppedAndAPlainOneSurvives() throws {
+        let line = """
+            {"section":"letter","questions":[\
+            {"refs":["a1b2"],"question":"You should cut the second paragraph."},\
+            {"refs":["c3d4"],"question":"Whose fear is this?"}]}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        XCTAssertEqual(section.letter?.questions.map(\.question), ["Whose fear is this?"],
+                       "the directive must go and the question must stay")
+        XCTAssertEqual(section.accepted.map(\.body), ["Whose fear is this?"],
+                       "\u{2026}and only the question reaches the queue")
+        XCTAssertEqual(section.droppedDangling, 0)
+    }
+
+    /// **The exercise is exempt, on purpose, and this is the control that
+    /// keeps the scrub from spreading.** Le Guin's feed-forward is a thing to
+    /// go and DO — *rewrite the scene without a single "was"* — and it is
+    /// phrased as a directive because that is what an exercise is. Scrubbing
+    /// it would delete the one part of the letter that teaches (spec §3.1).
+    func test_aFixShapedExerciseSurvivesBecauseAnExerciseIsADirective() throws {
+        let line = """
+            {"section":"letter","habits":[{"name":"Filter words","refs":["a1b2"],\
+            "cost":"The reader is held one step back.",\
+            "exercise":"Try rewriting the scene without a single verb of perception."}]}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        XCTAssertEqual(section.letter?.habits.first?.exercise,
+                       "Try rewriting the scene without a single verb of perception.",
+                       "an exercise is a thing to do, not a suggested change")
+
+        // Control: the SAME words in a question are refused, so the exemption
+        // is the exercise's and not a scrub that stopped working.
+        let asQuestion = """
+            {"section":"letter","questions":[{"refs":["a1b2"],\
+            "question":"Try rewriting the scene without a single verb of perception."}]}
+            """
+        XCTAssertEqual(try XCTUnwrap(parseSection(asQuestion)).letter?.questions ?? [], [])
+    }
+
+    /// The scrub is not applied to the letter's other prose. A `what` reading
+    /// like advice is an observation about the draft the writer reads in
+    /// place and never answers, and the fix-shape list is a small hand-written
+    /// one that would refuse real sentences if pointed at everything.
+    func test_theFixShapeScrubIsAskedOfQuestionsOnly() throws {
+        let line = """
+            {"section":"letter","about":"You should read this as a ghost story.",\
+            "working":[{"refs":[],"what":"The opening","why":"I recommend it as a model."}]}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        XCTAssertEqual(section.letter?.about, "You should read this as a ghost story.")
+        XCTAssertEqual(section.letter?.working.count, 1)
+    }
 }
