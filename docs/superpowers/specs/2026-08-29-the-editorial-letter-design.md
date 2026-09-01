@@ -250,8 +250,11 @@ disputed one (it must be a conflict-driven reversal).
 - **Review — the round cockpit:** the letter's `one_thing` (else `about`)
   under the lane line, with a disclosure that opens the same section inline.
   Nothing about the cockpit's buttons changes.
-- **Rounds ring:** the cockpit's "since round N−1" is unchanged; a previous
-  round's letter is reachable from the ring the way its counts are.
+- **Rounds ring:** the cockpit's "since round N−1" is unchanged. Only the
+  standing run's letter is on screen: the ring records a superseded run's
+  identity and lane, not its content, so a previous round's letter is gone
+  once superseded — **Keep this letter** (§3.6) is how one outlives its run.
+  (Plan-time correction; the draft said "reachable from the ring".)
 - Wet-ink standing (M4 P2 §7.0) is unaffected: the letter is per-run, not
   per-note, so it has no `WetInk` state.
 
@@ -306,38 +309,47 @@ in full whatever the stage.
 
 ### 4.1 The seat
 
-`ReviewPass` gains a **role**: `.stage` (the four presets, every custom pass
-written so far — the decoded default, so no stored manifest changes meaning)
-or `.coach`. A fifth preset carries the coach:
+The coach is a **preset that never enters the ladder's array**
+(`ReviewPass.coachPreset`, id `workshop`, name Workshop, editor Le Guin, her
+own brief) and the seat is a **manifest field**: `ProjectManifest.coachVacated:
+Bool`, tolerated-missing and false by default, read through
+`effectiveCoach: ReviewPass?` (nil when vacated). *(Plan-time revision of
+this brainstorm's `ReviewPass.role`: Project Settings has no preset picker —
+"Add Pass" appends a blank pass and the presets return only when the list is
+emptied — so "fill the seat like any preset" was never true, and a role on
+the pass would have made every reader of `effectiveReviewPasses` decide
+whether it meant stages or stages-plus-coach.)*
 
-```swift
-ReviewPass(id: "workshop", name: "Workshop", role: .coach, brief: workshopBrief, editorName: "Le Guin")
-```
+Because the coach is not in `effectiveReviewPasses`, everything that reads
+the ladder is unchanged **by construction**: `ReviewStatus.derived` walks
+stages only (no finished piece flips to revising when she arrives), the
+board's chips and Done / Skipped menus never see her, `ActivePassMemory.
+validatedActivePass` refuses her id, the cockpit's lane picker never offers
+her, and `get_outline`'s `review_passes` is the ladder as before. What she
+*is*: a pass in every respect the compiler cares about — an id, a brief, an
+editor name resolved through `effectiveBrief` / `effectiveEditorName`, a lane
+in the diagnostics sidecar, numbered rounds, pass-stamped notes. A stage may
+never carry her id (the pass editor refuses to save one).
 
-A coach is a pass in every respect the compiler cares about — an id, a brief,
-an editor name resolved through `effectiveBrief` / `effectiveEditorName`, a
-lane in the diagnostics sidecar, numbered rounds, pass-stamped notes — and
-**not** a pass in the respects the ladder cares about: it has no `PassState`,
-`ReviewStatus.derived` walks stages only (so no finished piece flips to
-revising when she arrives), the board draws her as a **seat row above the
-ladder** rather than a chip with Done / Skipped, and `ActivePassMemory` never
-records her. The seat row says what she is for — *reads any piece with no
-editor assigned* — and lights when the selected piece is unassigned, so the
-ladder's rest state is visible rather than blank.
+A project that never customized its passes and one that did both have the
+seat filled, with no migration (tripwire 11). **Vacating the seat** (a Coach
+row in Project Settings, above the ladder, with Vacate / Restore) is the one
+off switch: an unassigned piece goes back to the all-altitudes reader signed
+"Claude", writing a letter under the general instruction only. Her rounds
+stay in the sidecar as history. There is no experience-level switch — the
+seat is the writer's declaration of what kind of writer they are.
 
-Because presets resolve through the manifest's `effectiveReviewPasses`, a
-project that never customized its passes gains the seat on load with no
-migration (tripwire 11). A project that **did** customize keeps its stored
-array as-is; the seat is available to fill from Project Settings like any
-preset. **Vacating the seat** (removing the coach in Project Settings) is the
-one off switch: an unassigned piece goes back to the all-altitudes reader
-signed "Claude", writing a letter under the general instruction only. Her
-rounds stay in the sidecar as history. There is no experience-level switch —
-the seat is the writer's declaration of what kind of writer they are.
+**Where the seat is seen.** The board draws a **seat row above the ladder**
+(*Le Guin reads any piece with no editor assigned*, or *The seat is vacant —
+an unassigned piece gets the plain reader*); the board has no selected piece,
+so it says nothing per piece. The **cockpit**, which is per piece, uses the
+coach's name as its lane label when the piece is unassigned and the seat is
+held (*Le Guin · round 3*, or *Le Guin reads this piece* before her first
+round), where today it reads *Set a pass*. Author's spelling is §4.2.
 
 **The resolution has one spelling.** `ProjectManifest.reader(forPiece:memory:)`
-(beside `effectiveReviewPasses`, because it reads the seat as well as the
-memory) answers *stage pass* / *coach* / *nobody* for a piece, and every
+(a Mac-side extension, because `ActivePassMemory` is the Mac's) answers a
+`PieceReader` — *stage pass* / *coach* / *nobody* — for a piece, and every
 reader calls it: the orchestrator's `activePass` closure, the Author header
 (§4.2), the empty-state sentence, the round lines, the annotation author
 stamp. `passlessEditorName` survives only as the *nobody* arm's name. A
@@ -348,10 +360,11 @@ Le Guin, which is the right default and is stated here so it is not a
 surprise.
 
 **Rounds.** Today the passless lane (`nil`) mints no round number. A run over
-an unassigned piece with the seat held files into the **coach's** lane
-(`workshop`) and mints a round, so the since-line, "Le Guin · round 3" and
-§6's retirement count all exist. The `nil` lane keeps its M2 meaning for the
-seat-vacant case.
+an unassigned piece with the seat held resolves to the coach as its active
+pass, so it files into the **coach's** lane (`workshop`) and mints a round
+through the machinery a stage run already uses — the since-line and "Le Guin
+· round 3" exist with no orchestrator change. The `nil` lane keeps its M2
+meaning for the seat-vacant case.
 
 **What this means in Author.** The active pass is per piece, set in Review
 and read by ⌘R everywhere; Author has never chosen a reader and still does
@@ -532,8 +545,8 @@ One milestone, three plans, written one at a time against built code (rule
 - **P1 — the letter and Le Guin** (§3.1–3.6, §4): section schema + ingest,
   `CompilerRun.letter`, question minting, say-back / one thing / exercise
   (Accept as task), the five preset briefs revised incl. own-bar comparison
-  and voice distinctness, the Workshop preset and `ReviewPass.role`, the
-  seat (board row, status derivation over stages only, `reader(forPiece:)`,
+  and voice distinctness, the coach preset and `coachVacated`, the seat (board row,
+  cockpit label, Project Settings row, `reader(forPiece:memory:)`,
   coach-lane rounds), the Author reader line, depth in the cockpit and the
   Exhaustive choice, the three-position scenes derivation, Diagnostics
   Letter section, cockpit disclosure, Keep this letter.
