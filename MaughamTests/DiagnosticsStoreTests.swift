@@ -370,6 +370,53 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertEqual(reopened.lastRun(docId: docId)?.truncatedReader, 2)
     }
 
+    /// A sidecar written before the letter field existed decodes as nil
+    /// rather than failing — same tolerated-missing discipline as every other
+    /// optional field on `CompilerRun` (global constraint 2).
+    func test_aSidecarWithoutLetterStillLoads() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docNoLetter"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Run written before letter existed (no letter field at all).
+        try Data("""
+            {"diagnostics":[],"run":{"at":"2026-08-04T09:00:00Z","deltaSummary":"1 new, 0 revised",
+            "id":"01JABC","lastOpId":"op1","model":"sonnet"}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(store.lastRun(docId: docId)?.model, "sonnet")
+        XCTAssertNil(store.lastRun(docId: docId)?.letter,
+            "a run written before the field existed has no letter to report")
+    }
+
+    /// A run WITH a letter reloads with the letter equal — the other half of
+    /// the compatibility contract (write, not just tolerated-missing read).
+    func test_aSidecarWithALetter_reloadsWithTheLetterEqual() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docWithLetter"
+
+        let letter = Letter(
+            about: "The middle third pulls its punches.", oneThing: "let Marta want something",
+            working: [Letter.Working(
+                refs: [Diagnostic.Ref(paragraphId: "a1b2", excerpt: "excerpt")],
+                what: "the opening", why: "it moves")],
+            habits: [], questions: [], scenes: nil, scenePosition: nil)
+        var run = makeRun()
+        run.letter = letter
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: docId)
+
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: docId)
+        XCTAssertEqual(reopened.lastRun(docId: docId)?.letter, letter)
+    }
+
     /// A sidecar written before the truncatedReader field existed decodes as
     /// nil rather than failing — the reader count is optional and honoring its
     /// absence is the contract.

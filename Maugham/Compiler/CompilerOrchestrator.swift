@@ -942,7 +942,12 @@ final class CompilerOrchestrator {
             // question open in the Structural lane reads as three zeroes on
             // the since-line, which is a check that did engage the piece
             // reported as one that found nothing in it.
-            openInOtherLanes: openInOtherLanes)
+            openInOtherLanes: openInOtherLanes,
+            // **The sixth section, P1.** Read straight off the outcome, the
+            // same way `intentDriftVerdict` is — the preview and the finished
+            // answer describe the same turn's letter, and `nil` where no
+            // section has answered it yet (Task 2 wires the parse).
+            letter: outcome.letter)
     }
 
     /// **What the last round in this run's lane raised**, or `nil` when there

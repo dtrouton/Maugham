@@ -777,6 +777,27 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertNil(DiagnosticIngest.combining(.empty, facts).intentDriftVerdict)
     }
 
+    /// **`letter` rides `combining` the same way `intentDriftVerdict` does:
+    /// last non-nil wins.** Task 1 only — no section parses a letter yet, so
+    /// this constructs `SectionedOutcome` directly rather than through
+    /// `parseSection`.
+    func test_theFoldCarriesTheLaterLetterOverTheEarlier() {
+        let letter = Letter(
+            about: "a letter", oneThing: nil, working: [], habits: [], questions: [],
+            scenes: nil, scenePosition: nil)
+        let withLetter = DiagnosticIngest.SectionedOutcome(
+            accepted: [], facts: [], conformance: [], droppedDangling: 0, truncatedReader: 0,
+            intentDriftVerdict: nil, letter: letter)
+        let withoutLetter = DiagnosticIngest.SectionedOutcome.empty
+
+        XCTAssertEqual(
+            DiagnosticIngest.combining(withoutLetter, withLetter).letter, letter,
+            "a later section's letter must be carried forward")
+        XCTAssertEqual(
+            DiagnosticIngest.combining(withLetter, withoutLetter).letter, letter,
+            "an earlier letter must survive a later section with none")
+    }
+
     /// **The model's sentence is read and dropped** (ADR 0027: nothing
     /// model-produced renders in the editor's chrome). The outcome has nowhere
     /// to put it, and the strip Task 5 draws is app-authored from the verdict

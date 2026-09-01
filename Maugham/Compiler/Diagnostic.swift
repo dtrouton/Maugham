@@ -211,12 +211,17 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// run that found nothing standing in another lane.
     var openInOtherLanes: Int?
 
+    /// **The sixth section, P1** — one editorial letter, read as prose rather
+    /// than a list of findings. `nil` marks a record written before the
+    /// section existed, on the same convention as `clauseStatuses`.
+    var letter: Letter?
+
     init(id: String, at: Date, model: String, lastOpId: String?,
          deltaSummary: String, intentSnapshot: String?, droppedDangling: Int = 0,
          clauseStatuses: [DiagnosticIngest.ClauseStatus]? = nil,
          truncatedReader: Int? = nil, passId: String? = nil, round: Int? = nil,
          freshEyes: Bool? = nil, intentDriftVerdict: String? = nil,
-         mintedNotes: Int? = nil, openInOtherLanes: Int? = nil) {
+         mintedNotes: Int? = nil, openInOtherLanes: Int? = nil, letter: Letter? = nil) {
         self.id = id
         self.at = at
         self.model = model
@@ -232,6 +237,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
         self.intentDriftVerdict = intentDriftVerdict
         self.mintedNotes = mintedNotes
         self.openInOtherLanes = openInOtherLanes
+        self.letter = letter
     }
 
     /// Hand-written for one field: a sidecar written before `droppedDangling`
@@ -266,5 +272,6 @@ struct CompilerRun: Codable, Equatable, Sendable {
             String.self, forKey: .intentDriftVerdict)
         mintedNotes = try c.decodeIfPresent(Int.self, forKey: .mintedNotes)
         openInOtherLanes = try c.decodeIfPresent(Int.self, forKey: .openInOtherLanes)
+        letter = try c.decodeIfPresent(Letter.self, forKey: .letter)
     }
 }

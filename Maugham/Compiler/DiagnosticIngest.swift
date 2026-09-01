@@ -163,10 +163,14 @@ extension DiagnosticIngest {
         /// and is never re-encoded, which is why an unrecognised word becomes
         /// `nil` here rather than an `unknown` case.
         let intentDriftVerdict: String?
+        /// The sixth section's letter, or `nil` for a turn that did not
+        /// answer it (Task 1 only — no section parses one yet, so every
+        /// production caller passes `nil`; Task 2 wires the parse).
+        let letter: Letter?
 
         static let empty = SectionedOutcome(
             accepted: [], facts: [], conformance: [], droppedDangling: 0, truncatedReader: 0,
-            intentDriftVerdict: nil)
+            intentDriftVerdict: nil, letter: nil)
 
         /// **What stays in the sidecar: conformance strains, and only them**
         /// (M4 P1 Task 3).
@@ -275,7 +279,12 @@ extension DiagnosticIngest {
             // arrive, and every section but one carries no verdict — so `next`
             // alone would erase a verdict already folded in, and `accumulated`
             // alone would ignore a model that restated the section.
-            intentDriftVerdict: next.intentDriftVerdict ?? accumulated.intentDriftVerdict)
+            intentDriftVerdict: next.intentDriftVerdict ?? accumulated.intentDriftVerdict,
+            // Same rule as `intentDriftVerdict`, for the same reason: exactly
+            // one section carries a letter, so last-non-nil-wins is
+            // indistinguishable from "the one section that had it" in
+            // practice, and stays correct if a model ever restates it.
+            letter: next.letter ?? accumulated.letter)
     }
 
     // MARK: - Sections
@@ -328,7 +337,7 @@ extension DiagnosticIngest {
 
         return PartialSection(
             accepted: notes, facts: [], conformance: statuses, droppedDangling: dropped,
-            truncatedReader: 0, intentDriftVerdict: nil)
+            truncatedReader: 0, intentDriftVerdict: nil, letter: nil)
     }
 
     private static func parseContinuity(
@@ -357,7 +366,7 @@ extension DiagnosticIngest {
 
         return PartialSection(
             accepted: notes, facts: [], conformance: [], droppedDangling: dropped,
-            truncatedReader: 0, intentDriftVerdict: nil)
+            truncatedReader: 0, intentDriftVerdict: nil, letter: nil)
     }
 
     private static func parseReader(
@@ -392,7 +401,8 @@ extension DiagnosticIngest {
         let truncated = max(0, notes.count - readerReportCap)
         return PartialSection(
             accepted: Array(notes.prefix(readerReportCap)), facts: [], conformance: [],
-            droppedDangling: dropped, truncatedReader: truncated, intentDriftVerdict: nil)
+            droppedDangling: dropped, truncatedReader: truncated, intentDriftVerdict: nil,
+            letter: nil)
     }
 
     /// The schema's "at most 3 entries — the sharpest three".
@@ -433,7 +443,7 @@ extension DiagnosticIngest {
 
         return PartialSection(
             accepted: [], facts: facts, conformance: [], droppedDangling: dropped,
-            truncatedReader: 0, intentDriftVerdict: nil)
+            truncatedReader: 0, intentDriftVerdict: nil, letter: nil)
     }
 
     /// **The fifth section: one verdict, and nothing the writer reads**
@@ -475,7 +485,7 @@ extension DiagnosticIngest {
 
         return PartialSection(
             accepted: [], facts: [], conformance: [], droppedDangling: 0,
-            truncatedReader: 0, intentDriftVerdict: verdict)
+            truncatedReader: 0, intentDriftVerdict: verdict, letter: nil)
     }
 
     // MARK: - Refs
