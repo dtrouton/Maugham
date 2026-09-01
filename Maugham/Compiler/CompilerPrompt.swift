@@ -10,10 +10,19 @@ import MaughamCore
 /// testable without a subprocess.
 enum CompilerPrompt {
 
-    /// The output contract: five line-delimited JSON objects, one per
+    /// The output contract: six line-delimited JSON objects, one per
     /// section, in fixed order (conformance, continuity, reader, facts,
-    /// intent_drift). `DiagnosticIngestTests` reference this SAME constant,
-    /// so prompt and parser cannot drift apart in a rewording.
+    /// intent_drift, letter). `DiagnosticIngestTests` reference this SAME
+    /// constant, so prompt and parser cannot drift apart in a rewording.
+    ///
+    /// **`letter` (editorial letter P1 Task 2) is last, and that is a
+    /// streaming decision.** The first five are what a check found in the
+    /// prose, entry by entry; the sixth is an editorial letter about the
+    /// reading as a whole (spec §3.1). Asking for it last means the writer is
+    /// reading line-level results while the letter is still being written —
+    /// the tempo the guide already promises — and it is the one section whose
+    /// parts are prose rather than findings, so it mints at most three
+    /// `letterQuestion` notes and otherwise lands on `CompilerRun.letter`.
     ///
     /// **`intent_drift` (M3-P3 Task 4) is the odd one and deliberately so.**
     /// The first four are things found IN the prose and each entry carries a
@@ -31,12 +40,12 @@ enum CompilerPrompt {
     /// (`test_theSchemaForbidsIdsInProse`) — the enforcement with teeth is
     /// Task 2's ingest-side scrub, this is the instruction half.
     static let sectionSchemaDescription: String = """
-        Respond with five lines, each one JSON object, in this exact order \
+        Respond with six lines, each one JSON object, in this exact order \
         — conformance, then continuity, then reader, then facts, then \
-        intent_drift. Nothing else: no prose before, between, or after \
-        them, and no line skipped — a section with nothing to report still \
-        gets its line, with an empty array, and intent_drift always carries \
-        a verdict:
+        intent_drift, then letter. Nothing else: no prose before, between, \
+        or after them, and no line skipped — a section with nothing to \
+        report still gets its line, with an empty array, and intent_drift \
+        always carries a verdict:
         {"section":"conformance","checks":[{"clause_quote":<string>,"status":\
         "holds"|"strains"|"silent","refs":[<paragraph id>...],"what_pulls":\
         <string or null>}]}
@@ -48,7 +57,14 @@ enum CompilerPrompt {
         "refs":[<paragraph id>...]}]}
         {"section":"intent_drift","verdict":"holds"|"drifted","note":<one \
         sentence, only when drifted>}
-        The last line answers one question about this reading as a whole: \
+        {"section":"letter","about":<string>,"one_thing":<string or null>,\
+        "working":[{"refs":[<paragraph id>...],"what":<string>,"why":\
+        <string>}],"habits":[{"name":<string>,"refs":[<paragraph id>...],\
+        "cost":<string>,"lesson":<string or null>,"exercise":<string or \
+        null>}],"questions":[{"refs":[<paragraph id>...],"question":\
+        <string>}],"scenes":[{"refs":[<paragraph id>...],"wants":<string>,\
+        "changes":<string>,"turn":<string>,"charge":"+"|"-"|null}] or null}
+        The fifth line answers one question about this reading as a whole: \
         has the draft drifted from the declared intent? Weigh the prose in \
         this run's delta against the intent declared above — holds when \
         the writing is still going where the writer said it was going, \
@@ -69,6 +85,7 @@ enum CompilerPrompt {
         \(readerBarInstruction)
         \(crossSectionDedupInstruction)
         \(driftStabilizerInstruction)
+        \(letterInstruction)
         """
 
     /// **A form is judged by its own rules** (spec §5.2's second half).
@@ -132,6 +149,43 @@ enum CompilerPrompt {
         verdict: prose that is still going where the writer said it was \
         going holds, however imperfectly it gets there, and only a draft \
         that has moved away from what was declared has drifted.
+        """
+
+    /// **What a letter is for** (spec §3.1/§3.3, and §4.4's "writer's own
+    /// bar") — the general instruction, which rides every run whatever voice
+    /// is reading.
+    ///
+    /// It is general on purpose. A pass brief says which PARTS its voice
+    /// writes (Perkins takes the structural habits and the scenes, Gould
+    /// leaves the letter empty); what a part MEANS is the same for all of
+    /// them, and stating it once is what keeps a custom pass with no brief
+    /// from getting a letter that means whatever the model guessed.
+    ///
+    /// Its cost is measured, not assumed:
+    /// `CompilerPromptTests.test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget`
+    /// counts it into the standing per-run overhead every call pays.
+    static let letterInstruction = """
+        The letter is about the manuscript as a whole rather than one more \
+        note: it says what no single anchored finding can. about is one \
+        sentence — what this piece seems to be about as you read it, not \
+        what it set out to be. one_thing is the single thing to fix if the \
+        writer fixes only one, and null when there is nothing to fix. Name \
+        what is working before what is not, and with each one the principle \
+        behind it, so the writer can repeat it on purpose. A habit is a \
+        pattern across everything you read rather than one instance of it — \
+        at most 2 habits, at most 4 refs each — and one worth testing by \
+        name is voice distinctness: could each character be identified by \
+        their lines alone? An exercise is a thing to go and do, never a \
+        rewrite of the writer's words. In the letter you ask and nothing \
+        else: at most 3 questions, and never a suggested change. Where the \
+        pinned references hold the writer's own pieces, measure this one \
+        against those by name before you measure it against any rule. One \
+        issue still gets one entry — something already filed as a strain, a \
+        continuity question or a reader's report does not come back here as \
+        a habit or a question. Write only the parts your pass brief allows \
+        you; with no brief, write all of them. Where you were given a delta, \
+        the letter is about that delta; on a cold reading of the whole \
+        piece, it is about the whole piece.
         """
 
     /// Sent once, when the warm session is spawned — never repeated per run.
@@ -551,6 +605,11 @@ enum CompilerPrompt {
         case .conformanceStrain: return DiagnosticIngest.SectionField.conformance
         case .continuity: return DiagnosticIngest.SectionField.continuity
         case .readerReport: return DiagnosticIngest.SectionField.reader
+        // A letter question is briefed back under the section it was asked
+        // in, like every other kind: the reminder's whole job is to name the
+        // section the model should raise it in again if it still stands, and
+        // for a letter question that is the letter.
+        case .letterQuestion: return DiagnosticIngest.SectionField.letter
         }
     }
 

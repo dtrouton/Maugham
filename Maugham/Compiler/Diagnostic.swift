@@ -16,6 +16,17 @@ enum DiagnosticKind: String, Codable, Sendable {
     /// What happened in the reading itself. Its `category` is the schema's
     /// two-valued `kind` (`dream_break` / `belief`).
     case readerReport
+    /// A question the sixth section's editorial letter asked (spec §3.2).
+    /// Carries neither a clause nor a category: it is identified by the
+    /// paragraph it names and by being the letter's, which is exactly why it
+    /// is a kind of its own — a coach's question and a continuity question
+    /// about one paragraph are two findings, and one fingerprint for both
+    /// would have the mint's dedupe silently discard the second.
+    ///
+    /// **It never reaches the sidecar.** `SectionedOutcome.sidecarDiagnostics`
+    /// keeps conformance strains alone; this kind exists to carry a letter
+    /// question as far as `CompilerNote`, which turns it into a `.query`.
+    case letterQuestion
 }
 
 /// One note the compiler raised against a document, from the newest

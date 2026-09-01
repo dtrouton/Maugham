@@ -18,11 +18,21 @@ workflow half: notes, fates, the answer flow and the pane's organization — and
 `docs/superpowers/specs/2026-08-17-one-loop-two-tempos-design.md`, which routes
 findings by nature and personifies each pass as a named editor.
 
-**The run speaks the v2 contract** (spec §5), and M3-P3 added a fifth line to
-it: four line-delimited note sections — conformance against the writer's
-derived clauses, continuity questions, a reader's report, and fact-candidates
-that land silently in the bible — plus `intent_drift`, a verdict on the reading
-as a whole rather than a thing found in it.
+**The run speaks the v2 contract** (spec §5), M3-P3 added a fifth line to it
+and the editorial letter (P1 Task 2) a sixth: four line-delimited note sections
+— conformance against the writer's derived clauses, continuity questions, a
+reader's report, and fact-candidates that land silently in the bible — plus
+`intent_drift`, a verdict on the reading as a whole rather than a thing found
+in it, plus `letter`, an editorial letter about the manuscript as a whole
+(`Letter`, on `CompilerRun.letter`). **The letter is asked LAST**, so the
+writer reads line-level results while it is still being written, and it is the
+one section whose parts are prose rather than findings — with one exception:
+each of its questions that resolves a ref also mints a `.letterQuestion`
+diagnostic, which reaches the queue as a `.query` and never the sidecar. Two
+rules are the letter's alone (spec §3.1, global constraint 8): a dangling ref
+costs a letter entry its jump links and not its prose (`letterRefs`, beside
+`resolveRefs`, which drops such an entry for every other section), and neither
+a dangling ref nor a cap moves `droppedDangling` — the letter is not a note.
 `CompilerPrompt.sectionSchemaDescription` is what is asked for and
 `DiagnosticIngest.parseSection`/`parseAll` is what reads it. **The v1 contract
 is gone**: `runMessage`, `CompilerContext` and `DiagnosticIngest.parse` were
@@ -267,7 +277,7 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `CompilerAllowlist.swift` | The enumerated read-only MCP tool list, as `--allowedTools` |
 | `CompilerRunner.swift` | The seam: `send(message:systemPreamble:) -> CompilerRunEvent`, plus every way a run can fail |
 | `ClaudeCLISession.swift` | The warm subprocess behind that seam |
-| `DiagnosticIngest.swift` | The structured message → notes, clause statuses and fact-candidates, anchored against the LIVE document. One section is one unit, so arrival can become incremental without the fold changing. `SectionedOutcome.sidecarDiagnostics` keeps conformance strains only; `.mintable` is the other half, built from the same accepted diagnostics rather than re-parsed |
+| `DiagnosticIngest.swift` | The structured message → notes, clause statuses, fact-candidates and the letter, anchored against the LIVE document. One section is one unit, so arrival can become incremental without the fold changing. `SectionedOutcome.sidecarDiagnostics` keeps conformance strains only; `.mintable` is the other half, built from the same accepted diagnostics rather than re-parsed. `parseLetter` is the sixth section and carries the two exemptions described above |
 | `CompilerNote.swift` | **The value that crosses from parse to mint** (M4 P1 Task 3) — what `Environment.mintAnnotations` writes as a pass-stamped `Annotation`. Neither a `Diagnostic` (no run id, no staleness anchor, no sidecar identity) nor an `Annotation` (derived from ops, not caller-constructed); `CompilerMintContext` is what one mint needs off the run that produced it (lane, round, editor name, cold-or-warm), minted once at the keystroke and carried rather than re-asked at mint time |
 | `DeclaredWorldDeriver.swift` | Also the one-shot's pipe discipline: stdout is drained WHILE the process runs. Reading it from `terminationHandler` deadlocked on any answer past ~64 KB — the child blocks on its own write, so it never exits, so the handler never fires. **120s deadline** (Stage 3), four times the spike's measured 30s sonnet cost: an overrunning process is `terminate()`d and the derivation returns its ordinary honest `nil` — ordinarily through the SAME EOF-and-exit resolution every other unreadable answer already goes through, and by force (`OneShotOutput.deadlineExpired`, after a 2s `terminationGrace`) when a group member escapes the group SIGTERM and withholds EOF by holding the inherited pipe: CI run 31595012981 hit exactly that (the killpg/fork race), and a real CLI grandchild that setsids has the same shape. Both doors are the deadline's own; `derive` never hangs on a stranger's file descriptor |
 | `Diagnostic.swift` | `Diagnostic` + `CompilerRun` — the wire and sidecar shapes |
@@ -411,7 +421,7 @@ differs is what a run is FOR, and two things follow from that:
   spawned session.
 
 **The report is one JSON object, not a sectioned stream.** `DiagnosticIngest`
-reads five line-delimited sections because five different kinds of finding
+reads six line-delimited sections because six different kinds of answer
 can arrive independently; a translator turn answers one question — "here is
 this round's work" — so `TranslatorReport.parse` reads a single fenced
 object naming `entries` (a `¶id` plus exactly one of `text` or

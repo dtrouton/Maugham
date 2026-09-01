@@ -70,6 +70,27 @@ final class DiagnosticIngestTests: XCTestCase {
         """
     }
 
+    /// The sixth section (editorial letter P1 Task 2): one of every part, so
+    /// a part-for-part parse can be asserted from one line. `c3d4` and `e5f6`
+    /// are live; nothing here dangles, which is what the dangling tests below
+    /// vary one field at a time from.
+    private var letterLine: String {
+        """
+        {"section":"letter","about":"A woman waits out a fog that will not lift.",\
+        "one_thing":"Let the fog do less of the work.",\
+        "working":[{"refs":["a1b2"],"what":"The opening image",\
+        "why":"It states the weather and the mood in one move."}],\
+        "habits":[{"name":"Filter words","refs":["c3d4","e5f6"],\
+        "cost":"The reader is held one step back from the scene.",\
+        "lesson":"Cut the verb of perception and the perception stays.",\
+        "exercise":"Read the second paragraph aloud with the names removed."}],\
+        "questions":[{"refs":["c3d4"],\
+        "question":"Whose fear is this, hers or the narrator's?"}],\
+        "scenes":[{"refs":["e5f6"],"wants":"To be let in","changes":"Nothing",\
+        "turn":"","charge":"-"}]}
+        """
+    }
+
     private func parseSection(
         _ line: String, live: ((String) -> String?)? = nil
     ) -> DiagnosticIngest.PartialSection? {
@@ -122,6 +143,29 @@ final class DiagnosticIngestTests: XCTestCase {
             // Read and dropped, but still read — so the name the parser looks
             // for has to be the name the prompt asks for.
             DiagnosticIngest.SectionField.driftNote,
+            // The sixth section (editorial letter P1 Task 2). Every key the
+            // letter parser reads, including the two enumerated `charge`
+            // values, on the same rule as the five sections above it: a name
+            // the parser looks for that the prompt never asks for is a field
+            // that will always be absent, and nothing would say so.
+            DiagnosticIngest.SectionField.letter,
+            DiagnosticIngest.SectionField.about,
+            DiagnosticIngest.SectionField.oneThing,
+            DiagnosticIngest.SectionField.working,
+            DiagnosticIngest.SectionField.what,
+            DiagnosticIngest.SectionField.why,
+            DiagnosticIngest.SectionField.habits,
+            DiagnosticIngest.SectionField.habitName,
+            DiagnosticIngest.SectionField.cost,
+            DiagnosticIngest.SectionField.lesson,
+            DiagnosticIngest.SectionField.exercise,
+            DiagnosticIngest.SectionField.scenes,
+            DiagnosticIngest.SectionField.wants,
+            DiagnosticIngest.SectionField.changes,
+            DiagnosticIngest.SectionField.turn,
+            DiagnosticIngest.SectionField.charge,
+            DiagnosticIngest.SectionField.chargePositive,
+            DiagnosticIngest.SectionField.chargeNegative,
         ]
         for name in names {
             XCTAssertTrue(
@@ -825,5 +869,290 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertEqual(ids.count, 5)
         XCTAssertEqual(Set(ids).count, 5)
         XCTAssertFalse(ids.contains(""))
+    }
+    // MARK: v2 — the sixth section: the letter (editorial letter P1 Task 2)
+
+    /// **Part for part.** Every part of the schema's letter object survives
+    /// the parse with its prose intact, its refs resolved against live text
+    /// and its excerpts filled — the excerpt is what a surface prints, and a
+    /// letter whose refs carried ids and no words would put a four-character
+    /// token in front of the writer (spec §5, requirement 3).
+    func test_aFullLetterParsesPartForPart() throws {
+        let section = try XCTUnwrap(parseSection(letterLine), "expected a letter section")
+        let letter = try XCTUnwrap(section.letter, "the letter never reached the outcome")
+
+        XCTAssertEqual(letter.about, "A woman waits out a fog that will not lift.")
+        XCTAssertEqual(letter.oneThing, "Let the fog do less of the work.")
+
+        XCTAssertEqual(letter.working.count, 1)
+        XCTAssertEqual(letter.working.first?.what, "The opening image")
+        XCTAssertEqual(letter.working.first?.why,
+                       "It states the weather and the mood in one move.")
+        XCTAssertEqual(letter.working.first?.refs.map(\.paragraphId), ["a1b2"])
+        XCTAssertEqual(letter.working.first?.refs.first?.excerpt,
+                       "The first paragraph, as it stands right now.",
+                       "the ref carries the paragraph's words, not its id")
+
+        XCTAssertEqual(letter.habits.count, 1)
+        let habit = try XCTUnwrap(letter.habits.first)
+        XCTAssertEqual(habit.name, "Filter words")
+        XCTAssertEqual(habit.cost, "The reader is held one step back from the scene.")
+        XCTAssertEqual(habit.lesson, "Cut the verb of perception and the perception stays.")
+        XCTAssertEqual(habit.exercise,
+                       "Read the second paragraph aloud with the names removed.")
+        XCTAssertEqual(habit.refs.map(\.paragraphId), ["c3d4", "e5f6"])
+        XCTAssertEqual(habit.refs.last?.excerpt,
+                       "A longer paragraph whose opening runs past the\u{2026}",
+                       "a long paragraph's ref is cut at the excerpt boundary")
+
+        XCTAssertEqual(letter.questions.map(\.question),
+                       ["Whose fear is this, hers or the narrator's?"])
+        XCTAssertEqual(letter.questions.first?.refs.map(\.paragraphId), ["c3d4"])
+
+        let scenes = try XCTUnwrap(letter.scenes, "the scenes rows were dropped")
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertEqual(scenes.first?.wants, "To be let in")
+        XCTAssertEqual(scenes.first?.changes, "Nothing")
+        XCTAssertEqual(scenes.first?.turn, "",
+                       "a blank cell is an observation, not a reason to drop the row")
+        XCTAssertEqual(scenes.first?.charge, "-")
+        XCTAssertNil(letter.scenePosition, "Task 3 stamps the position; the parse does not")
+    }
+
+    /// **The caps are enforced where the section arrives**, exactly as
+    /// `readerReportCap` is, and the extras are dropped without being counted:
+    /// a model writing four habits has not made the run lose anything the
+    /// writer would have read, and `droppedDangling` must not say it did.
+    func test_aHabitWithFiveRefsKeepsFour() throws {
+        let line = """
+            {"section":"letter","habits":[{"name":"Filter words",\
+            "refs":["a1b2","c3d4","e5f6","they","a1b2"],"cost":"Distance."}]}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        let habit = try XCTUnwrap(section.letter?.habits.first)
+        XCTAssertEqual(habit.refs.map(\.paragraphId), ["a1b2", "c3d4", "e5f6", "they"],
+                       "five claimed refs must be cut to the schema's four")
+        XCTAssertEqual(section.droppedDangling, 0,
+                       "a cap is not a loss the writer needs to be told about")
+        XCTAssertNil(habit.lesson, "an absent lesson is nil, not empty")
+        XCTAssertNil(habit.exercise)
+    }
+
+    func test_fourWorkingEntriesKeepThree() throws {
+        let entries = (1...4).map {
+            "{\"refs\":[],\"what\":\"Thing \($0)\",\"why\":\"Because \($0).\"}"
+        }.joined(separator: ",")
+        let section = try XCTUnwrap(
+            parseSection("{\"section\":\"letter\",\"working\":[\(entries)]}"))
+        XCTAssertEqual(section.letter?.working.map(\.what),
+                       ["Thing 1", "Thing 2", "Thing 3"],
+                       "the cap keeps the first three the model thought of")
+        XCTAssertEqual(section.droppedDangling, 0)
+    }
+
+    func test_theLettersQuestionsAreCappedAtThree() throws {
+        let entries = (1...4).map {
+            "{\"refs\":[\"a1b2\"],\"question\":\"Question \($0)?\"}"
+        }.joined(separator: ",")
+        let section = try XCTUnwrap(
+            parseSection("{\"section\":\"letter\",\"questions\":[\(entries)]}"))
+        XCTAssertEqual(section.letter?.questions.map(\.question),
+                       ["Question 1?", "Question 2?", "Question 3?"])
+        XCTAssertEqual(section.accepted.count, 3,
+                       "the fourth question must not mint a note the letter "
+                       + "itself does not carry")
+    }
+
+    /// **The one place `resolveRefs`' dangling rule is NOT applied** (spec
+    /// §3.1, global constraint 8). A note whose every claimed ref is dead is
+    /// dropped, because a note is a pointer at a paragraph. A letter entry is
+    /// not: a habit is still true when one of its instances was rewritten, so
+    /// the entry keeps its prose and loses only its jump links — and
+    /// `droppedDangling` does not move, because the letter is not a note and
+    /// the pane's "lost some notes" seal must not appear over a whole report.
+    func test_aDanglingRefLeavesTheWorkingEntryStandingAndCountsNothing() throws {
+        let line = """
+            {"section":"letter","working":[{"refs":["zzzz"],\
+            "what":"The opening image","why":"It does two things at once."}]}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        let working = try XCTUnwrap(section.letter?.working.first,
+                                    "the entry was dropped with its dead ref")
+        XCTAssertEqual(working.what, "The opening image")
+        XCTAssertEqual(working.refs, [], "the dead ref is gone from the entry")
+        XCTAssertEqual(section.droppedDangling, 0,
+                       "a letter's dangling ref is not a lost note")
+    }
+
+    /// The control for the rule above: the SAME dead id, in a continuity
+    /// entry, still costs the entry and still increments the count. Without
+    /// this the letter's exemption could be a parser that stopped counting.
+    func test_control_aDanglingRefStillCostsAContinuityQuestion() throws {
+        let line = """
+            {"section":"continuity","questions":[{"cites":"the fog",\
+            "refs":["zzzz"],"question":"Is the dock standing again?"}]}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        XCTAssertEqual(section.accepted, [], "a note with no live ref is dropped")
+        XCTAssertEqual(section.droppedDangling, 1,
+                       "…and the run says it lost one")
+    }
+
+    /// **A letter question with a live ref reaches the queue.** It is the one
+    /// part of the letter that also becomes a `Diagnostic`, anchored on the
+    /// first ref that resolved — the dead one before it in the list changes
+    /// where it anchors and nothing else.
+    func test_aQuestionMintsOneDiagnosticAnchoredOnItsFirstLiveRef() throws {
+        let line = """
+            {"section":"letter","questions":[{"refs":["zzzz","c3d4"],\
+            "question":"Whose fear is this?"}]}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        XCTAssertEqual(section.accepted.count, 1)
+        let note = try XCTUnwrap(section.accepted.first)
+        XCTAssertEqual(note.kind, .letterQuestion,
+                       "a coach's question and a continuity question are two "
+                       + "kinds, so the fingerprint tells them apart")
+        XCTAssertEqual(note.body, "Whose fear is this?")
+        XCTAssertEqual(note.anchor?.paragraphId, "c3d4")
+        XCTAssertEqual(note.anchor?.anchorText,
+                       "The second paragraph, as it stands right now.",
+                       "the anchor carries WHOLE live text — the staleness rule "
+                       + "reads it and an excerpt would never match")
+        XCTAssertNil(note.clauseQuote, "a letter question cites no clause")
+        XCTAssertNil(note.category)
+        XCTAssertEqual(note.refs?.map(\.paragraphId), ["c3d4"])
+        XCTAssertEqual(section.letter?.questions.first?.question, "Whose fear is this?",
+                       "the letter keeps its own copy for reading in place")
+
+        // The split: it is a note the writer disposes of in the queue, and it
+        // is not something the sidecar keeps a second copy of.
+        XCTAssertEqual(section.mintable.count, 1)
+        XCTAssertEqual(section.mintable.first?.kind, .query,
+                       "a question asks the writer something — that is .query")
+        XCTAssertEqual(section.mintable.first?.paragraphId, "c3d4")
+        XCTAssertEqual(section.sidecarDiagnostics, [],
+                       "one finding has one home, and a letter question's is the queue")
+    }
+
+    /// **A question with no surviving ref is letter-only** (constraint 8). It
+    /// renders in place and never reaches the queue: a `.query` cannot be
+    /// minted without an anchor, and a fingerprint needs an anchor or a
+    /// clause, so a note here would be one the mint refuses and the dedupe
+    /// cannot see.
+    func test_aQuestionWithNoLiveRefIsLetterOnly() throws {
+        let line = """
+            {"section":"letter","questions":[{"refs":["zzzz"],\
+            "question":"Is the fog doing the work?"}]}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        XCTAssertEqual(section.letter?.questions.map(\.question),
+                       ["Is the fog doing the work?"],
+                       "the letter still carries it")
+        XCTAssertEqual(section.letter?.questions.first?.refs, [])
+        XCTAssertEqual(section.accepted, [],
+                       "…and nothing was minted for it")
+        XCTAssertEqual(section.droppedDangling, 0)
+    }
+
+    /// A question that claims NO refs at all is the same case by a different
+    /// road, and the schema's own escape hatch: an observation about the
+    /// reading rather than about one paragraph.
+    func test_aQuestionThatNamesNoParagraphMintsNothingEither() throws {
+        let line = """
+            {"section":"letter","questions":[{"refs":[],\
+            "question":"Is this the book you meant to write?"}]}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        XCTAssertEqual(section.letter?.questions.count, 1)
+        XCTAssertEqual(section.accepted, [])
+    }
+
+    /// **A letter is never refused for a missing say-back.** `about` is the
+    /// one always-present part in the schema, and a model that skipped it has
+    /// still written a letter the writer should read.
+    func test_aMissingSayBackStillParsesTheLetter() throws {
+        let line = """
+            {"section":"letter","one_thing":"Let the fog do less of the work."}
+            """
+        let section = try XCTUnwrap(parseSection(line))
+        XCTAssertEqual(section.letter?.about, "")
+        XCTAssertEqual(section.letter?.oneThing, "Let the fog do less of the work.")
+    }
+
+    /// The control for the sentence above: a section object with not one key
+    /// this parser recognises yields no letter at all, rather than an empty
+    /// one a surface would draw a heading over.
+    func test_aSectionWithNoRecognisedKeyYieldsNoLetter() throws {
+        for line in ["{\"section\":\"letter\"}",
+                     "{\"section\":\"letter\",\"prose\":\"Dear writer,\"}"] {
+            let section = try XCTUnwrap(parseSection(line), line)
+            XCTAssertNil(section.letter, line)
+            XCTAssertEqual(section.droppedDangling, 0, line)
+        }
+        // Control: one recognised key, even carrying an empty array, IS a letter.
+        XCTAssertNotNil(
+            parseSection("{\"section\":\"letter\",\"working\":[]}")?.letter,
+            "an empty part is still an answer — the schema asks for the array")
+    }
+
+    /// `scenes` absent or null is `nil` and not `[]`: the position said there
+    /// is nothing to say about scenes (a lyric piece), which is a different
+    /// answer from a scene table with no rows in it.
+    func test_scenesAbsentOrNullIsNil() throws {
+        for line in ["{\"section\":\"letter\",\"about\":\"A fog.\"}",
+                     "{\"section\":\"letter\",\"about\":\"A fog.\",\"scenes\":null}"] {
+            let section = try XCTUnwrap(parseSection(line), line)
+            XCTAssertNil(section.letter?.scenes, line)
+        }
+        XCTAssertEqual(
+            parseSection("{\"section\":\"letter\",\"scenes\":[]}")?.letter?.scenes, [],
+            "control: an empty table is an empty table")
+    }
+
+    /// An unrecognised charge is no charge, on `intentDriftVerdict`'s rule: a
+    /// word this build cannot draw must not reach a surface with no glyph for
+    /// it.
+    func test_anUnrecognisedChargeReadsAsNoCharge() throws {
+        let line = """
+            {"section":"letter","scenes":[{"refs":[],"wants":"In",\
+            "changes":"Nothing","turn":"","charge":"neutral"}]}
+            """
+        XCTAssertNil(try XCTUnwrap(parseSection(line)).letter?.scenes?.first?.charge)
+        let plus = """
+            {"section":"letter","scenes":[{"refs":[],"wants":"In",\
+            "changes":"Nothing","turn":"","charge":"+"}]}
+            """
+        XCTAssertEqual(try XCTUnwrap(parseSection(plus)).letter?.scenes?.first?.charge, "+",
+                       "control: the two the schema names do survive")
+    }
+
+    /// **The sixth section is additive in both directions.** A six-line answer
+    /// yields a letter with every earlier section intact, and a five-line
+    /// answer from before the letter existed still ingests whole.
+    func test_aSixLineAnswerYieldsALetterAndEveryEarlierSectionIntact() throws {
+        let text = [conformanceLine, continuityLine, readerLine, factsLine,
+                    intentDriftLine, letterLine].joined(separator: "\n")
+        let outcome = try XCTUnwrap(parseAll(text))
+
+        XCTAssertEqual(outcome.conformance.count, 3)
+        XCTAssertEqual(outcome.facts.count, 1)
+        XCTAssertEqual(outcome.intentDriftVerdict, "drifted")
+        XCTAssertNotNil(outcome.letter)
+        XCTAssertEqual(outcome.accepted.count, 5,
+                       "the four sections' four notes, plus the letter's one "
+                       + "anchored question — got \(outcome.accepted.map(\.body))")
+        XCTAssertEqual(outcome.accepted.filter { $0.kind == .letterQuestion }.count, 1)
+        XCTAssertEqual(outcome.sidecarDiagnostics.map(\.kind), [.conformanceStrain],
+                       "the letter's question left the sidecar with the others")
+    }
+
+    func test_anOldFiveLineAnswerStillParsesWithNoLetter() throws {
+        let text = [conformanceLine, continuityLine, readerLine, factsLine,
+                    intentDriftLine].joined(separator: "\n")
+        let outcome = try XCTUnwrap(parseAll(text))
+        XCTAssertNil(outcome.letter)
+        XCTAssertEqual(outcome.accepted.count, 4)
+        XCTAssertEqual(outcome.intentDriftVerdict, "drifted")
     }
 }

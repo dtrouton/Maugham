@@ -53,39 +53,55 @@ final class CompilerPromptTests: XCTestCase {
     /// Five since M3-P3 Task 4: `intent_drift` is asked last, after the four
     /// note sections, because it is a verdict on the whole reading rather than
     /// one more thing found in it.
+    ///
+    /// **Six since the editorial letter (P1 Task 2), and the letter is now
+    /// what comes last.** The order is a streaming decision, not a taxonomy:
+    /// the writer reads line-level results while the letter is still being
+    /// written, which is the tempo the guide already promises (spec §3.1).
     func test_sectionOrderIsFixed() {
         let schema = CompilerPrompt.sectionSchemaDescription
         guard let conformance = schema.range(of: "\"section\":\"conformance\""),
               let continuity = schema.range(of: "\"section\":\"continuity\""),
               let reader = schema.range(of: "\"section\":\"reader\""),
               let facts = schema.range(of: "\"section\":\"facts\""),
-              let drift = schema.range(of: "\"section\":\"intent_drift\"")
+              let drift = schema.range(of: "\"section\":\"intent_drift\""),
+              let letter = schema.range(of: "\"section\":\"letter\"")
         else {
-            return XCTFail("all five sections must be present")
+            return XCTFail("all six sections must be present")
         }
         XCTAssertLessThan(conformance.lowerBound, continuity.lowerBound)
         XCTAssertLessThan(continuity.lowerBound, reader.lowerBound)
         XCTAssertLessThan(reader.lowerBound, facts.lowerBound)
         XCTAssertLessThan(facts.lowerBound, drift.lowerBound)
+        XCTAssertLessThan(drift.lowerBound, letter.lowerBound,
+                          "the letter is asked last, so the four note sections "
+                          + "and the verdict have all streamed before it begins")
     }
 
-    /// **Scoped to the four NOTE sections rather than widened to five, and
-    /// `intent_drift`'s lack of a `refs` slot is asserted rather than merely
-    /// tolerated.** Of the two ways Task 4 could have kept this test true, the
-    /// other — giving the drift section a `refs` array — would invite the model
-    /// to anchor a judgement about the whole draft to one paragraph, and
-    /// nothing downstream could read it: the verdict lands as a `String?` on
-    /// the run record, never as a `Diagnostic` with an anchor. A field with no
-    /// reader is a field that drifts.
+    /// **`intent_drift` alone has no `refs` slot, and that is asserted rather
+    /// than merely tolerated.** Of the two ways Task 4 could have kept this
+    /// test true, the other — giving the drift section a `refs` array — would
+    /// invite the model to anchor a judgement about the whole draft to one
+    /// paragraph, and nothing downstream could read it: the verdict lands as a
+    /// `String?` on the run record, never as a `Diagnostic` with an anchor. A
+    /// field with no reader is a field that drifts.
+    ///
+    /// **The letter (P1 Task 2) joins the refs-carrying group**, and it is the
+    /// verdict that stays alone. Every part of a letter that says something
+    /// about the prose names the paragraphs it says it about, and one of them
+    /// — a question — anchors a real note on its first resolving ref. The
+    /// verdict is the one answer in the whole contract that is about the
+    /// reading rather than about any of the words in it.
     func test_refsArraysPresentForEveryNoteSection() {
         let schema = CompilerPrompt.sectionSchemaDescription
         let templateLines = schema.components(separatedBy: "\n")
             .filter { $0.contains("\"section\":") }
-        XCTAssertEqual(templateLines.count, 5)
+        XCTAssertEqual(templateLines.count, 6)
 
         let driftName = "\"\(DiagnosticIngest.SectionField.intentDrift)\""
         let noteLines = templateLines.filter { !$0.contains(driftName) }
-        XCTAssertEqual(noteLines.count, 4, "four sections carry notes or facts")
+        XCTAssertEqual(noteLines.count, 5,
+                       "five sections point at paragraphs; only the verdict does not")
         for line in noteLines {
             XCTAssertTrue(line.contains("\"refs\""), line)
         }
@@ -942,14 +958,26 @@ final class CompilerPromptTests: XCTestCase {
             .lowercased().contains("direction"))
     }
 
-    /// **The five lines did not move.** The disciplines are instruction text
-    /// around the schema; the contract `DiagnosticIngest` parses is byte-for-
-    /// byte what it was.
-    func test_theDisciplinesAddedNoSixthSection() {
+    /// **Exactly six section lines, and the sixth is the letter.**
+    ///
+    /// This began life as `test_theDisciplinesAddedNoSixthSection`: the
+    /// disciplines are instruction text around the schema, and the point was
+    /// that instruction prose must never smuggle a section in with it. That
+    /// point is unchanged — a seventh line still fails here — but the number
+    /// moved once, consciously, when the editorial letter (P1 Task 2) became
+    /// the sixth section. It is LAST because it is written about the reading
+    /// as a whole rather than found in it, so the writer is reading the four
+    /// note sections and the drift verdict while the letter is still being
+    /// composed (spec §3.1). The count is asserted here and the ORDER in
+    /// `test_sectionOrderIsFixed`; between them a section cannot be added,
+    /// removed or moved without an editor looking at it.
+    func test_theSchemaAsksForExactlySixSections() {
         let templateLines = CompilerPrompt.sectionSchemaDescription
             .components(separatedBy: "\n")
             .filter { $0.contains("\"section\":") }
-        XCTAssertEqual(templateLines.count, 5)
+        XCTAssertEqual(templateLines.count, 6,
+                       "got \(templateLines.count) section lines: "
+                       + "\(templateLines.map { $0.prefix(40) })")
     }
 
     // MARK: - What the disciplines cost (M4 P2 Task 7)
@@ -966,11 +994,18 @@ final class CompilerPromptTests: XCTestCase {
     /// (`readerBarInstruction`/`crossSectionDedupInstruction`/
     /// `driftStabilizerInstruction`) plus `formOnItsOwnTermsInstruction` plus
     /// one representative preset pass brief (`ReviewPass.presets`' own
-    /// "structural") totalled 301 words. The 450-word ceiling below leaves
-    /// ~150 words of headroom for a wording pass that grows a sentence or
-    /// two without becoming a silent regression — a failure here means the
-    /// budget was actually spent and asks the editor to look, not raise the
-    /// number by reflex.
+    /// "structural") totalled 301 words, under a 450-word ceiling.
+    ///
+    /// **Re-measured at 564 words when the editorial letter's general
+    /// instruction (P1 Task 2) joined the list**, and the ceiling moved once,
+    /// consciously, to 715. `letterInstruction` is the largest single addition
+    /// this feature has made to standing per-run text, and it earns its size:
+    /// it is what a letter MEANS, stated once for every voice, so a custom
+    /// pass with no brief does not get a letter the model invented the rules
+    /// for. The ceiling keeps the same ~150 words of headroom the 450 did — a
+    /// wording pass may grow a sentence or two without becoming a silent
+    /// regression, and a failure here means the budget was actually spent and
+    /// asks the editor to look, not to raise the number by reflex.
     func test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget() {
         let disciplines = [
             CompilerPrompt.readerBarInstruction,
@@ -982,15 +1017,17 @@ final class CompilerPromptTests: XCTestCase {
             return XCTFail("the structural preset lost its brief")
         }
         let additions = disciplines
-            + [CompilerPrompt.formOnItsOwnTermsInstruction, structuralBrief]
+            + [CompilerPrompt.formOnItsOwnTermsInstruction,
+               CompilerPrompt.letterInstruction, structuralBrief]
         let wordCount = additions.reduce(0) {
             $0 + $1.split(whereSeparator: { $0.isWhitespace }).count
         }
-        let budget = 450
+        let budget = 715
         XCTAssertLessThan(wordCount, budget,
             "The three disciplines (reader bar, cross-section dedup, drift "
-            + "stabilizer) plus the form-on-its-own-terms instruction plus one "
-            + "representative preset pass brief (Structural) now measure "
+            + "stabilizer) plus the form-on-its-own-terms instruction plus the "
+            + "general letter instruction plus one representative preset pass "
+            + "brief (Structural) now measure "
             + "\(wordCount) words of standing per-run instruction text — over "
             + "the \(budget)-word budget. This total rides every single "
             + "compiler run, warm or cold; if it grew here, that is a "

@@ -54,7 +54,7 @@ enum DiagnosticIngest {
 
 // MARK: - The sectioned contract
 
-/// Reads `CompilerPrompt.sectionSchemaDescription`'s five sections. Two rules
+/// Reads `CompilerPrompt.sectionSchemaDescription`'s six sections. Two rules
 /// carry the weight, stated once at the top of this file and still true here:
 /// anchors are captured live at ingest, and a bad entry is dropped and
 /// counted rather than failing the run. Three more are this contract's own:
@@ -129,6 +129,37 @@ extension DiagnosticIngest {
         /// everything the parser reads has to be something the prompt asks
         /// for (`test_v2FieldNamesComeFromTheSectionSchema`).
         static let driftNote = "note"
+
+        /// The sixth section (editorial letter P1 Task 2): an editorial
+        /// letter about the reading as a whole. Its parts are prose the
+        /// writer reads rather than findings the writer disposes of — except
+        /// `questions`, which is both, and which shares its wire name with
+        /// the continuity section's array on purpose: it is the same word for
+        /// the same shape of answer, read out of a different object.
+        static let letter = "letter"
+        static let about = "about"
+        static let oneThing = "one_thing"
+        static let working = "working"
+        static let what = "what"
+        static let why = "why"
+        static let habits = "habits"
+        /// The habit's own `name` — spelled `habitName` here because
+        /// `SectionField.name` beside `SectionField.section` would read as the
+        /// section's name, which is a different thing entirely.
+        static let habitName = "name"
+        static let cost = "cost"
+        static let lesson = "lesson"
+        static let exercise = "exercise"
+        static let scenes = "scenes"
+        static let wants = "wants"
+        static let changes = "changes"
+        static let turn = "turn"
+        static let charge = "charge"
+        /// The two values `charge` admits. Named, on `holds`/`dreamBreak`'s
+        /// rule: an enumerated value the parser matches against is part of the
+        /// contract, so it has to be a value the prompt asked for.
+        static let chargePositive = "+"
+        static let chargeNegative = "-"
 
         /// Every paragraph reference travels here, in every section.
         static let refs = "refs"
@@ -243,6 +274,8 @@ extension DiagnosticIngest {
             return parseFacts(object, docId: docId, live: liveParagraphText)
         case SectionField.intentDrift:
             return parseIntentDrift(object)
+        case SectionField.letter:
+            return parseLetter(object, runId: runId, docId: docId, live: liveParagraphText)
         default:
             return nil
         }
@@ -486,6 +519,155 @@ extension DiagnosticIngest {
         return PartialSection(
             accepted: [], facts: [], conformance: [], droppedDangling: 0,
             truncatedReader: 0, intentDriftVerdict: verdict, letter: nil)
+    }
+
+    // MARK: - The sixth section: the letter
+
+    /// **The letter (editorial letter P1 Task 2, spec §3.1/§3.2).** An
+    /// editorial letter about the manuscript as a whole, parsed into
+    /// `PartialSection.letter` — prose the writer reads rather than findings
+    /// the writer disposes of.
+    ///
+    /// Four rules this section does not share with the five above it:
+    ///
+    /// - **A dangling ref costs the entry its jump links and nothing else**
+    ///   (`letterRefs`). A habit is still true when one of its instances was
+    ///   rewritten.
+    /// - **`droppedDangling` never moves here.** It counts what the REGISTER
+    ///   lost — notes the writer would have read — and the letter is not a
+    ///   note. A cap does not move it either: a model that wrote four habits
+    ///   has lost the writer nothing, and the pane's "lost some notes" seal
+    ///   must not appear over a complete report.
+    /// - **A missing `about` is not a refusal.** The say-back is the schema's
+    ///   one always-present part, and a letter without it is still a letter;
+    ///   an object with not ONE recognised key is `nil`, because that is a
+    ///   model that answered the line without writing anything.
+    /// - **`scenes` absent or `null` is `nil`, not `[]`** — the position said
+    ///   there is nothing to say about scenes (a lyric piece), which is a
+    ///   different answer from a table with no rows.
+    ///
+    /// The one part that is also a finding is `questions`: each one that
+    /// resolves at least one ref ALSO becomes a `.letterQuestion` diagnostic
+    /// in `accepted`, so it rides `mintable` into the queue as a `.query` and
+    /// stays out of `sidecarDiagnostics`. One with no surviving ref is
+    /// letter-only: a `.query` cannot be minted without a paragraph, and a
+    /// fingerprint needs an anchor or a clause.
+    private static func parseLetter(
+        _ object: [String: Any], runId: String, docId: String, live: (String) -> String?
+    ) -> PartialSection {
+        let recognised = [
+            SectionField.about, SectionField.oneThing, SectionField.working,
+            SectionField.habits, SectionField.questions, SectionField.scenes,
+        ]
+        guard recognised.contains(where: { object[$0] != nil }) else {
+            return PartialSection(
+                accepted: [], facts: [], conformance: [], droppedDangling: 0,
+                truncatedReader: 0, intentDriftVerdict: nil, letter: nil)
+        }
+
+        let working: [Letter.Working] = entries(object[SectionField.working])
+            .compactMap { item in
+                guard let what = nonEmptyString(item[SectionField.what]),
+                      let why = nonEmptyString(item[SectionField.why])
+                else { return nil }
+                return Letter.Working(
+                    refs: letterRefs(item[SectionField.refs], live).refs, what: what, why: why)
+            }
+
+        let habits: [Letter.Habit] = entries(object[SectionField.habits])
+            .compactMap { item in
+                guard let name = nonEmptyString(item[SectionField.habitName]),
+                      let cost = nonEmptyString(item[SectionField.cost])
+                else { return nil }
+                return Letter.Habit(
+                    name: name,
+                    refs: Array(letterRefs(item[SectionField.refs], live)
+                        .refs.prefix(letterHabitRefsCap)),
+                    cost: cost,
+                    lesson: nonEmptyString(item[SectionField.lesson]),
+                    exercise: nonEmptyString(item[SectionField.exercise]))
+            }
+
+        var questions: [Letter.Question] = []
+        var notes: [Diagnostic] = []
+        for item in entries(object[SectionField.questions]) {
+            guard questions.count < letterQuestionsCap,
+                  let question = nonEmptyString(item[SectionField.question])
+            else { continue }
+            let resolved = letterRefs(item[SectionField.refs], live)
+            questions.append(Letter.Question(refs: resolved.refs, question: question))
+            guard let anchor = resolved.anchor else { continue }
+            notes.append(
+                Diagnostic(
+                    id: ULID.generate(), docId: docId, anchor: anchor, body: question,
+                    category: nil, runId: runId, kind: .letterQuestion, refs: resolved.refs,
+                    clauseQuote: nil))
+        }
+
+        let scenes: [Letter.Scene]? = (object[SectionField.scenes] as? [Any]).map { raw in
+            raw.compactMap { entry -> Letter.Scene? in
+                guard let item = entry as? [String: Any] else { return nil }
+                let wants = nonEmptyString(item[SectionField.wants]) ?? ""
+                let changes = nonEmptyString(item[SectionField.changes]) ?? ""
+                let turn = nonEmptyString(item[SectionField.turn]) ?? ""
+                // A blank cell is an observation (spec §3.4) — a row with
+                // nothing in any of the three is not.
+                guard !(wants.isEmpty && changes.isEmpty && turn.isEmpty) else { return nil }
+                let charge = nonEmptyString(item[SectionField.charge])
+                return Letter.Scene(
+                    refs: letterRefs(item[SectionField.refs], live).refs,
+                    wants: wants, changes: changes, turn: turn,
+                    charge: [SectionField.chargePositive, SectionField.chargeNegative]
+                        .contains(charge ?? "") ? charge : nil)
+            }
+        }
+
+        let letter = Letter(
+            about: nonEmptyString(object[SectionField.about]) ?? "",
+            oneThing: nonEmptyString(object[SectionField.oneThing]),
+            working: Array(working.prefix(letterWorkingCap)),
+            habits: Array(habits.prefix(letterHabitsCap)),
+            questions: questions,
+            scenes: scenes,
+            scenePosition: nil)
+
+        return PartialSection(
+            accepted: notes, facts: [], conformance: [], droppedDangling: 0,
+            truncatedReader: 0, intentDriftVerdict: nil, letter: letter)
+    }
+
+    /// The schema's caps on the letter's parts, enforced at ingest the way
+    /// `readerReportCap` is, because the section is the unit that arrives.
+    /// Extras are dropped and NOT counted — see `parseLetter`.
+    static let letterWorkingCap = 3
+    static let letterHabitsCap = 2
+    static let letterHabitRefsCap = 4
+    static let letterQuestionsCap = 3
+
+    /// One array of section entries, as objects. A non-array, or an element
+    /// that is not an object, is simply absent — the letter drops a malformed
+    /// entry the way every section does, minus the counting.
+    private static func entries(_ value: Any?) -> [[String: Any]] {
+        (value as? [Any] ?? []).compactMap { $0 as? [String: Any] }
+    }
+
+    /// **Resolve one LETTER entry's refs — the one place `resolveRefs`'
+    /// dangling rule is deliberately not applied** (spec §3.1, and global
+    /// constraint 8).
+    ///
+    /// `resolveRefs` answers `nil` when an entry claimed references and not
+    /// one of them resolved, and its callers drop that entry: a note IS a
+    /// pointer at a paragraph, so a note pointing nowhere is nothing. A letter
+    /// entry is the opposite kind of thing. A habit is a pattern across what
+    /// was read and stays true when one of its instances has since been
+    /// rewritten; what it loses is its jump links, not its meaning. So a
+    /// letter entry whose refs all fail keeps its prose with `refs: []` — and
+    /// its `anchor` is `nil`, which is what makes a letter question with no
+    /// surviving ref letter-only rather than a note the mint would refuse.
+    private static func letterRefs(
+        _ value: Any?, _ live: (String) -> String?
+    ) -> ResolvedRefs {
+        resolveRefs(value, live) ?? ResolvedRefs(refs: [], anchor: nil)
     }
 
     // MARK: - Refs

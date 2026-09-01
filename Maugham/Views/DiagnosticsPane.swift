@@ -1233,7 +1233,7 @@ struct DiagnosticsPane: View {
     static func offersAnAnswer(_ diagnostic: Diagnostic) -> Bool {
         switch diagnostic.kind {
         case .conformanceStrain: return true
-        case .continuity, .readerReport, .none: return false
+        case .continuity, .readerReport, .letterQuestion, .none: return false
         }
     }
 

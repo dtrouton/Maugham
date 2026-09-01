@@ -101,6 +101,13 @@ struct CompilerNote: Equatable, Sendable {
         let sectionKind: AnnotationKind
         switch diagnostic.kind {
         case .continuity: sectionKind = .query
+        // The letter's own question, on the continuity question's rule and
+        // for the same reason: it asks the writer something, and what the
+        // writer does about it is a decision. Constraint 8 keeps the
+        // anchorless case away from here — a letter question whose refs all
+        // failed to resolve mints no `Diagnostic` at all — but the craft-note
+        // fallback below still covers it correctly if one ever arrives.
+        case .letterQuestion: sectionKind = .query
         case .readerReport: sectionKind = .comment
         case .conformanceStrain, .none: return nil
         }

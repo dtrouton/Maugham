@@ -4333,6 +4333,109 @@ final class CompilerRunCommandTests: XCTestCase {
                        "a warm round stamps nothing rather than false")
     }
 
+    /// A turn whose sixth section carries one anchored letter question — the
+    /// smallest answer that must reach the queue through the letter rather
+    /// than through continuity.
+    private func oneLetterQuestion(_ question: String, about paragraphId: String) -> String {
+        """
+        {"section":"conformance","checks":[]}
+        {"section":"continuity","questions":[]}
+        {"section":"reader","reports":[]}
+        {"section":"facts","candidates":[]}
+        {"section":"intent_drift","verdict":"holds"}
+        {"section":"letter","about":"A woman waits out a fog.",\
+        "one_thing":"Let the fog do less of the work.",\
+        "questions":[{"refs":["\(paragraphId)"],"question":"\(question)"}]}
+        """
+    }
+
+    /// **The letter's question is an ordinary queue row from the moment it
+    /// lands** (spec §3.2, editorial letter P1 Task 2). Through the production
+    /// environment, on a live document, under an ASSIGNED stage — Perkins's
+    /// structural lane, so the assertion is about what a pass gives a note and
+    /// not about what an unassigned piece signs, which is a different task's
+    /// question.
+    ///
+    /// What must be true: a `.query`, anchored at the ref it named, signed by
+    /// that stage's editor, stamped with that stage's lane, carrying the run
+    /// that raised it and a fingerprint the dedupe can read back. The run's
+    /// own record keeps the letter beside it.
+    func test_aLetterQuestionMintsAsAPassStampedQueryFromTheStageThatAskedIt() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        setActivePass("structural", on: fx)
+        runner.nextEvent = .resultText(
+            oneLetterQuestion("Whose fear is this, hers or the narrator\u{2019}s?", about: pid))
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(1, on: fx.document)
+
+        let notes = fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+        XCTAssertEqual(notes.count, 1, "got \(notes.map(\.body))")
+        let note = try XCTUnwrap(notes.first)
+        XCTAssertEqual(note.body, "Whose fear is this, hers or the narrator\u{2019}s?")
+        XCTAssertEqual(note.kind, .query,
+                       "the letter asks and never suggests \u{2014} that is .query")
+        XCTAssertEqual(note.paragraphId, pid, "anchored at the ref it named")
+        XCTAssertEqual(note.author?.displayName, "Perkins",
+                       "the Structural stage's editor signs the letter it wrote")
+        XCTAssertEqual(note.reviewPassId, "structural",
+                       "\u{2026}and that stage's lane stamps it")
+        XCTAssertEqual(note.compilerRound, 1)
+        XCTAssertTrue(note.isCompilerAuthored)
+        XCTAssertEqual(note.compilerFingerprint,
+                       "letterQuestion\u{1f}\u{1f}\(pid)\u{1f}",
+                       "the letter's own kind is in the identity, or a coach's "
+                       + "question and a continuity question about one paragraph "
+                       + "would be the same finding")
+
+        // The run keeps the letter itself: the question is in the queue, and
+        // the prose around it is in the report.
+        let run = try XCTUnwrap(fx.diagnostics.lastRun(docId: "ch-1"))
+        XCTAssertEqual(run.letter?.about, "A woman waits out a fog.")
+        XCTAssertEqual(run.letter?.oneThing, "Let the fog do less of the work.")
+        XCTAssertEqual(run.letter?.questions.count, 1,
+                       "the letter keeps its own copy for reading in place")
+        XCTAssertEqual(note.compilerRunId, run.id)
+
+        let rows = fx.diagnostics.live(docId: "ch-1", currentText: { fx.document.paragraph(id: $0) })
+        XCTAssertEqual(rows, [],
+                       "one finding has one home \u{2014} the letter's question "
+                       + "must not also be a sidecar row")
+    }
+
+    /// **The dedupe reaches the letter too.** A second round re-raising the
+    /// same question mints nothing: one open note before, one after.
+    func test_aRepeatedLetterQuestionMintsNothingASecondTime() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        setActivePass("structural", on: fx)
+        runner.nextEvent = .resultText(oneLetterQuestion("Whose fear is this?", about: pid))
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(1, on: fx.document)
+        XCTAssertEqual(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open])).count, 1,
+            "control: the first round minted it")
+
+        // The writer types, so the next \u{2318}R has a delta to read.
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+        try await fx.document.flushBurstNow()
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(2, on: runner)
+        await awaitRound(2, on: fx)
+        await awaitNothingMinted()
+
+        XCTAssertEqual(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open])).count, 1,
+            "the same question was minted twice \u{2014} the writer now has two "
+            + "copies of a question they have not answered")
+    }
+
     /// **The other half of the same commit: the sidecar.** The strain stays in
     /// the report; the question is nowhere in it, in memory or on disk. (The
     /// pane's own half is `DiagnosticsPaneTests`, mounted.)

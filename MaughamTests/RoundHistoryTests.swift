@@ -267,6 +267,51 @@ final class RoundHistoryTests: XCTestCase {
         XCTAssertEqual(RoundFingerprint.make(of: dream)?.category, "dream_break")
     }
 
+    /// **A coach's question and a continuity question about the same
+    /// paragraph are two findings** (spec §3.2, editorial letter P1 Task 2).
+    /// Both carry a paragraph and no clause, so `kind` is the only thing
+    /// separating them — and if it did not, the mint's dedupe would discard
+    /// whichever arrived second and the writer would never see the letter's
+    /// question at all.
+    ///
+    /// The control below is what makes the assertion above about `kind`
+    /// rather than about randomness: two letter questions on one paragraph
+    /// ARE one finding, which is what makes a warm round re-raising the same
+    /// question mint nothing a second time.
+    func test_aLetterQuestionAndAContinuityQuestionOnOneParagraphAreTwoFindings() {
+        let letterQuestion = makeDiagnostic(kind: .letterQuestion, clauseQuote: nil,
+                                            paragraphId: "a1b2")
+        let continuity = makeDiagnostic(kind: .continuity, clauseQuote: nil,
+                                        paragraphId: "a1b2")
+
+        XCTAssertNotEqual(RoundFingerprint.make(of: letterQuestion),
+                          RoundFingerprint.make(of: continuity),
+                          "the letter's question collapsed into the continuity "
+                          + "question about the same paragraph")
+        XCTAssertNotEqual(RoundFingerprint.make(of: letterQuestion)?.stringValue,
+                          RoundFingerprint.make(of: continuity)?.stringValue,
+                          "…and the string the mint stamps must separate them too")
+        XCTAssertEqual(RoundFingerprint.make(of: letterQuestion)?.kind, "letterQuestion")
+        XCTAssertNil(RoundFingerprint.make(of: letterQuestion)?.category,
+                     "the category is the reader's alone")
+
+        let sameAgain = makeDiagnostic(kind: .letterQuestion, clauseQuote: nil,
+                                       paragraphId: "a1b2", body: "reworded entirely")
+        XCTAssertEqual(RoundFingerprint.make(of: letterQuestion),
+                       RoundFingerprint.make(of: sameAgain),
+                       "control: the same question on the same paragraph is one "
+                       + "finding however the model rewords it")
+    }
+
+    /// An anchorless letter question has no identity, exactly as every other
+    /// anchorless finding does — which is consistent rather than incidental:
+    /// it is also the shape that never reaches the queue at all, because a
+    /// `.query` cannot be minted without a paragraph.
+    func test_anAnchorlessLetterQuestionHasNoFingerprint() {
+        XCTAssertNil(RoundFingerprint.make(
+            of: makeDiagnostic(kind: .letterQuestion, clauseQuote: nil, paragraphId: nil)))
+    }
+
     /// The category belongs to the READER alone: a strain and a continuity
     /// question are told apart by the clause they cite, and a stray category
     /// on either would be a second discriminator nothing sets.

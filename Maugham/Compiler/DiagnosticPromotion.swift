@@ -63,6 +63,7 @@ enum DiagnosticPromotion {
         case .conformanceStrain: return "conformance"
         case .continuity: return "continuity"
         case .readerReport: return "the reader"
+        case .letterQuestion: return "the letter"
         case nil: return nil
         }
     }
