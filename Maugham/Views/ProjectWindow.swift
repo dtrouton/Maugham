@@ -633,6 +633,8 @@ struct ProjectWindow: View {
             window: window,
             projectURL: url,
             activeDocId: activeDocId,
+            selectedSubject: $selectedSubject,
+            documentStore: documentStore,
             editorControl: $editorControl))
         .modifier(PaletteWallModifier(
             showsPaletteWall: $showsPaletteWall,
@@ -2161,7 +2163,16 @@ struct ProjectWindow: View {
                         publishSelectedRound = Self.publishSelection(
                             after: updated, showing: publishSelectedRound)
                     },
-                    onReveal: { _ in })
+                    // **A row as a way back into the manuscript** (P4 Task 5).
+                    // The row knows its own paragraph; the round knows the
+                    // chapter and the edition it belongs to; which chapter is
+                    // OPEN is the window's answer, so the post carries all three
+                    // and `TranslationReviewModifier` plans what to do with them.
+                    onReveal: { paragraphId in
+                        TranslationReveal.post(.init(
+                            docId: round.docId, language: round.language,
+                            paragraphId: paragraphId))
+                    })
             case .designProposal(let proposal):
                 DesignGateView(proposal: proposal, projectURL: store.url,
                                // The verdict's four verbs (P4 Task 6), wired to
@@ -4661,11 +4672,31 @@ private struct TranslationReviewModifier: ViewModifier {
     /// name — the one consumer of `activeDocId` with no sentinel substitution at
     /// all, and a third spelling of the rule.
     let activeDocId: String
+    /// The window's one subject-picker, written when a reveal names a chapter
+    /// that is not the open one (P4 Task 5). Selecting the document is also what
+    /// dismisses the round report the row was clicked in: `publishCentre` draws
+    /// a report only while `subjectShowsAltitude`, and a document subject ends
+    /// that — so the report gives way to the editor without a second decision.
+    @Binding var selectedSubject: BinderSubject?
+    /// For the pending reveal's one question: has that chapter's `Document`
+    /// registered yet? The enter-review post reaches an `EditorCoordinator` that
+    /// does not exist until it has.
+    let documentStore: DocumentStore?
     @Binding var editorControl: EditorControl
 
     @State private var translationLanguage: String?
     @State private var pickerLanguages: [String] = []
     @State private var showingPicker = false
+    /// A reveal whose chapter had to be selected first, held until `activeDocId`
+    /// catches up. Nil at every other moment.
+    @State private var pendingReveal: TranslationReveal?
+    /// The poll that waits for that chapter's document to register. Held so a
+    /// second reveal cancels the first rather than racing it.
+    @State private var pendingRevealPoll: Task<Void, Never>?
+
+    /// 50 ms × 60 = three seconds. See `waitForDocument(_:in:)`.
+    private static let revealPollInterval = 50
+    private static let revealPollAttempts = 60
 
     func body(content: Content) -> some View {
         content
@@ -4688,12 +4719,50 @@ private struct TranslationReviewModifier: ViewModifier {
                 translationLanguage = nil
                 editorControl.translationLanguage = nil
             }
+            // **A report row as a way back into the manuscript** (P4 Task 5).
+            //
+            // The reveal names a chapter, an edition and a paragraph. Which
+            // chapter is OPEN is this window's own answer and nobody else's, so
+            // the poster posts and the plan is made here — `.now` when the
+            // chapter is already up, `.afterSelecting` when it is not.
+            .onKeyWindowCommand(.maughamRevealTranslation, window: window) { note in
+                guard let reveal = TranslationReveal.decode(note.userInfo) else { return }
+                switch TranslationReveal.plan(reveal, activeDocId: activeDocId) {
+                case .now:
+                    TranslationReveal.perform(reveal) {
+                        MaughamEvent.post($0, to: .keyWindow, payload: $1)
+                    }
+                case .afterSelecting(let subject):
+                    pendingReveal = reveal
+                    selectedSubject = subject
+                }
+            }
             // The chosen language belongs to the doc that was active when it was
             // picked; a doc switch must drop the posture back to the source.
-            .onChange(of: activeDocId) { _, _ in
-                guard translationLanguage != nil else { return }
-                translationLanguage = nil
-                editorControl.translationLanguage = nil
+            //
+            // **And this is where a pending reveal lands.** The selection above
+            // moves `activeDocId` on the same body pass, so this is the first
+            // moment the window is looking at the chapter the reveal named. The
+            // clear still runs first, on purpose: the reveal's own enter-review
+            // post sets the language a moment later, and until it does the
+            // writer is looking at the new chapter's SOURCE rather than at the
+            // previous chapter's edition.
+            .onChange(of: activeDocId) { _, newValue in
+                if translationLanguage != nil {
+                    translationLanguage = nil
+                    editorControl.translationLanguage = nil
+                }
+                // Taken unconditionally: a pending reveal that did not get the
+                // chapter it asked for is stale, and one left standing would
+                // fire on some later, unrelated arrival at that document.
+                let pending = pendingReveal
+                pendingReveal = nil
+                guard let reveal = pending, reveal.docId == newValue else { return }
+                pendingRevealPoll?.cancel()
+                let store = documentStore
+                pendingRevealPoll = Task { @MainActor in
+                    await Self.waitForDocument(reveal, in: store)
+                }
             }
             .confirmationDialog(
                 "Translation Review",
@@ -4735,6 +4804,38 @@ private struct TranslationReviewModifier: ViewModifier {
                         })
                 }
             }
+    }
+
+    /// **Wait for the chapter's document before speaking to it** (P4 Task 5).
+    ///
+    /// `EditorHost` registers the `Document` as it loads, and the enter-review
+    /// post is received by an `EditorCoordinator` that does not exist until it
+    /// has. A bare next-tick deferral loses that race — tripwire 16's lesson,
+    /// one column over — so this polls the registry on the coordinator's own
+    /// idiom: 50 ms, up to three seconds, then gives up in silence. Giving up
+    /// still leaves the writer with the right chapter open, which is honestly
+    /// most of what the row was asked for; a notice for a load that is merely
+    /// slow would be worse than the quiet.
+    ///
+    /// Static, and handed the store rather than reading `self`, so the `Task`
+    /// captures two sendable values instead of a whole `ViewModifier` whose
+    /// `@State` it must not outlive.
+    @MainActor
+    private static func waitForDocument(
+        _ reveal: TranslationReveal, in store: DocumentStore?
+    ) async {
+        for _ in 0..<revealPollAttempts {
+            if store?.document(forDocId: reveal.docId) != nil {
+                TranslationReveal.perform(reveal) {
+                    MaughamEvent.post($0, to: .keyWindow, payload: $1)
+                }
+                return
+            }
+            // A cancelled sleep must END the poll — swallowing it with `try?`
+            // would spin the loop sixty times with no wait at all.
+            do { try await Task.sleep(for: .milliseconds(revealPollInterval)) }
+            catch { return }
+        }
     }
 }
 
