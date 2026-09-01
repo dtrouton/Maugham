@@ -55,6 +55,27 @@ enum TranslationReviewPaneLogic {
         }
     }
 
+    // MARK: - Spot-checks (P4 Task 6)
+
+    /// **Does this answer still belong on screen?** A gloss or a collation is
+    /// asked about ONE paragraph and takes seconds to come back; the buttons are
+    /// disabled while it is out but the caret is not, so the writer can move
+    /// while a call is in flight. Clearing on the move is not enough — the
+    /// in-flight call resolves AFTERWARDS and writes its answer into the state
+    /// the move just cleared, putting the wrong prose under the right heading.
+    ///
+    /// This is the sharpest version of that bug in the app: a gloss is the
+    /// author's only reading of a language they cannot read, so they have
+    /// nothing to check it against and no way to notice it is about the
+    /// paragraph above.
+    ///
+    /// A pure predicate rather than an inline comparison, so the rule is
+    /// assertable without mounting the pane.
+    static func answerStillBelongs(askedAbout paragraphId: String,
+                                   selected: String?) -> Bool {
+        paragraphId == selected
+    }
+
     // MARK: - Orphans (Task 5)
 
     /// One orphaned translation row for display: the paragraph id its stale
@@ -455,31 +476,39 @@ struct TranslationReviewPane: View {
     }
 
     private func runGloss(_ paragraphId: String) {
-        runSpotCheck { language, coldCall in
-            let outcome = await SpotCheck.gloss(
+        runSpotCheck(about: paragraphId) { language, coldCall in
+            await SpotCheck.gloss(
                 paragraphId: paragraphId, language: language, entries: entries,
                 store: store, documentStore: documentStore, projectURL: projectRoot,
                 coldCall: coldCall, model: model)
+        } assign: { outcome in
             gloss = outcome
         }
     }
 
     private func runAskTheCollator(_ paragraphId: String) {
-        runSpotCheck { language, coldCall in
-            let outcome = await SpotCheck.askTheCollator(
+        runSpotCheck(about: paragraphId) { language, coldCall in
+            await SpotCheck.askTheCollator(
                 paragraphId: paragraphId, docId: document.docId, language: language,
                 store: store, documentStore: documentStore, projectURL: projectRoot,
                 coldCall: coldCall, model: model)
+        } assign: { outcome in
             collation = outcome
             dismissedDepartures = []
         }
     }
 
-    /// **One press, one answer** — and the wiring refusal said out loud. Both
-    /// verbs share this so neither can grow its own idea of what "no runner"
-    /// looks like.
-    private func runSpotCheck(
-        _ work: @escaping (String, ColdCall) async -> Void
+    /// **One press, one answer, about the paragraph it was asked about** — and
+    /// the wiring refusal said out loud. Both verbs share this so neither can
+    /// grow its own idea of what "no runner" looks like, and neither can grow
+    /// its own idea of what to do with an answer that outlived the caret: the
+    /// id asked about is captured at the press and checked against the live
+    /// selection before anything is drawn (`answerStillBelongs`). `spotChecking`
+    /// is cleared either way — the call really did finish.
+    private func runSpotCheck<T: Equatable>(
+        about paragraphId: String,
+        call: @escaping (String, ColdCall) async -> SpotCheck.Outcome<T>,
+        assign: @escaping (SpotCheck.Outcome<T>) -> Void
     ) {
         notice = nil
         guard let language = control.translationLanguage else { return }
@@ -489,8 +518,12 @@ struct TranslationReviewPane: View {
         }
         spotChecking = true
         Task {
-            await work(language, coldCall)
+            let outcome = await call(language, coldCall)
             spotChecking = false
+            guard TranslationReviewPaneLogic.answerStillBelongs(
+                askedAbout: paragraphId, selected: selected?.paragraphId)
+            else { return }
+            assign(outcome)
         }
     }
 

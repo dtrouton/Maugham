@@ -246,6 +246,29 @@ final class SpotCheckTests: XCTestCase {
         await harness.documentStore.close()
     }
 
+    /// **A turn that resolved on `started` produced no answer at all**, and the
+    /// refusal must not tell the writer their answer was unreadable — there was
+    /// nothing to read, and they would go looking for output that does not
+    /// exist.
+    func test_aTurnThatOnlyStartedIsRefusedAsASessionThatNeverAnswered() async throws {
+        let harness = try await makeHarness()
+        let (coldCall, factory) = ColdCallSpyFactory.makeColdCall()
+        factory.configure = { $0.nextEvent = .started }
+
+        let outcome = await SpotCheck.gloss(
+            paragraphId: "bbbb", language: "es",
+            entries: entries([("bbbb", "Cerró la puerta.")]),
+            store: harness.store, documentStore: harness.documentStore,
+            projectURL: harness.projectURL, coldCall: coldCall, model: "sonnet")
+
+        XCTAssertEqual(outcome, .refused(RoundNarrative.failureCopy(
+            .sessionDied(detail: SpotCheck.noAnswerDetail), session: .translation)))
+        XCTAssertNotEqual(outcome, .refused(RoundNarrative.failureCopy(
+            .unusableOutput, session: .translation)),
+            "nothing came back \u{2014} that is not an unreadable answer")
+        await harness.documentStore.close()
+    }
+
     /// One cold call at a time is `ColdCall`'s own rule; the spot-check says so
     /// in words the writer can act on, and spawns nothing.
     func test_aCallWhileTheRoundsLegIsOutIsRefusedAndSpawnsNothing() async throws {

@@ -56,6 +56,21 @@ enum SpotCheck {
         "This paragraph has no current translation to check. A spot-check reads "
         + "what the edition says here, and there is nothing here yet."
 
+    /// **What `.started` actually means**, as the detail of a session that
+    /// ended without answering: the turn resolved on the *start* event and no
+    /// result ever arrived. Saying "Claude's answer couldn't be read" there —
+    /// `unusableOutput`'s words — tells the writer their answer was unreadable
+    /// when there was no answer at all, and sends them looking at a model's
+    /// output that does not exist.
+    ///
+    /// It goes through `RoundNarrative.failureCopy`'s `sessionDied` arm rather
+    /// than becoming a sentence of its own, so the one switch stays the one
+    /// switch. **`TranslationPipeline.coldLeg` still reads this arm as
+    /// `unusableOutput`** and was left alone: it is P3's, and its sentence
+    /// lands in a round record rather than under a button the writer has just
+    /// pressed.
+    static let noAnswerDetail = "the session reported only that it had started"
+
     static func glossButtonLabel(paragraphId: String) -> String {
         "\(glossTitle), paragraph \(paragraphId)"
     }
@@ -165,8 +180,9 @@ enum SpotCheck {
     /// .coldLeg`'s own words: the round and the spot-check die through the same
     /// `CompilerRunFailure`, and a writer who sees one sentence in the desk and
     /// a differently-worded account of the same death in the pane learns to
-    /// trust neither. `.started` is unusable output rather than a state to wait
-    /// in: a cold call resolves on its result.
+    /// trust neither. `.started` is not a state to wait in — a cold call
+    /// resolves on its result — so it is read as a session that ended without
+    /// answering (`noAnswerDetail`), which is what it is.
     private static func read<T: Equatable>(
         _ event: CompilerRunEvent, parse: (String) -> T?
     ) -> Outcome<T> {
@@ -180,8 +196,8 @@ enum SpotCheck {
         case .failed(let failure):
             return .refused(RoundNarrative.failureCopy(failure, session: .translation))
         case .started:
-            return .refused(RoundNarrative.failureCopy(.unusableOutput,
-                                                       session: .translation))
+            return .refused(RoundNarrative.failureCopy(
+                .sessionDied(detail: noAnswerDetail), session: .translation))
         }
     }
 }

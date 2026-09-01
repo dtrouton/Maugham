@@ -1063,35 +1063,58 @@ final class TripwireGrepTests: XCTestCase {
     /// objects a mint would be written through. So the file is scanned for the
     /// four doors instead. `coldCall.call(` proves the scan reads a file that
     /// still asks a question at all.
+    /// The four write doors, plus the bridge spelling `ColdCall` is already
+    /// forbidden. One list, read by the census and by its planted-offender
+    /// companion, so adding a door here arms both.
+    static let spotCheckWriteDoors = [
+        "RulingPerformer", "addAnnotation", "TranslationRoundStore",
+        "writeMCPConfig", ".bridged(",
+    ]
+
+    /// The census itself, over whatever directory it is handed — which is what
+    /// lets the companion below plant an offender and run the REAL scan on it
+    /// rather than a copy of it.
+    private func spotCheckMintOffenders(in dir: URL) throws -> [String] {
+        try grepSwift(in: dir, files: ["SpotCheck.swift"],
+                      patterns: Self.spotCheckWriteDoors)
+    }
+
     func test_aSpotCheckMintsNothing() throws {
+        let offenders = try spotCheckMintOffenders(in: sourceDir)
+        XCTAssertTrue(offenders.isEmpty,
+                      "a spot-check answers a question; the author's own verb is what "
+                      + "writes. Offenders:\n" + offenders.joined(separator: "\n"))
+
         let file = sourceDir.appendingPathComponent("Compiler/SpotCheck.swift")
         let text = try String(contentsOf: file, encoding: .utf8)
-        for forbidden in ["RulingPerformer", "addAnnotation", "TranslationRoundStore",
-                          "writeMCPConfig", ".bridged("] {
-            XCTAssertFalse(text.contains(forbidden),
-                           "SpotCheck.swift must not contain `\(forbidden)` \u{2014} a "
-                           + "spot-check answers a question; the author's own verb is "
-                           + "what writes")
-        }
         XCTAssertTrue(text.contains("coldCall.call("),
                       "the scan reads the file rather than always answering true")
     }
 
-    /// Self-check: prove the mint census FIRES on a planted door.
+    /// Self-check: prove the mint census FIRES on a planted door — through the
+    /// same function, so a door added to `spotCheckWriteDoors` cannot leave this
+    /// companion green over a list it no longer shares.
     func test_theSpotCheckCensusWouldFireOnAPlantedMint() throws {
-        let planted = """
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-spot-check-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
         @MainActor
         enum SpotCheck {
             static func gloss() async {
                 try? await RulingPerformer.rule("it drifted", provenance: "spot-check")
             }
         }
-        """
+        """.write(to: tmp.appendingPathComponent("SpotCheck.swift"),
+                  atomically: true, encoding: .utf8)
 
-        let offenders = ["RulingPerformer", "addAnnotation", "TranslationRoundStore",
-                         "writeMCPConfig", ".bridged("].filter { planted.contains($0) }
-        XCTAssertEqual(offenders, ["RulingPerformer"],
-                       "Self-check: a planted mint should be caught. Got: \(offenders)")
+        let offenders = try spotCheckMintOffenders(in: tmp)
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check: a planted mint should be caught. Got:\n"
+            + offenders.joined(separator: "\n"))
     }
 
     // MARK: - EditorSurface mount census (M1A: two editors in one window)

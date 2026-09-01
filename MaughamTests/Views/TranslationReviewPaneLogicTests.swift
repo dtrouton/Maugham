@@ -227,4 +227,21 @@ final class TranslationReviewPaneLogicTests: XCTestCase {
         XCTAssertTrue(derived.orphans.isEmpty,
                       "the purged orphan must not reappear in the next derivation")
     }
+
+    // MARK: - A spot-check's answer belongs to one paragraph (P4 Task 6)
+
+    /// The buttons are disabled while a check is out; the CARET is not. A gloss
+    /// asked about one paragraph and drawn under another is the worst version
+    /// of this bug in the app — a gloss is the author's only reading of a
+    /// language they cannot read, so there is nothing to check it against.
+    func test_anAnswerBelongsOnlyUnderTheParagraphItWasAskedAbout() {
+        XCTAssertTrue(TranslationReviewPaneLogic.answerStillBelongs(
+            askedAbout: "aaaa", selected: "aaaa"))
+        XCTAssertFalse(TranslationReviewPaneLogic.answerStillBelongs(
+            askedAbout: "aaaa", selected: "bbbb"),
+            "the caret moved while the call was out")
+        XCTAssertFalse(TranslationReviewPaneLogic.answerStillBelongs(
+            askedAbout: "aaaa", selected: nil),
+            "no paragraph is selected any more \u{2014} nothing to draw it under")
+    }
 }
