@@ -804,10 +804,11 @@ the translator's rows are. See `Maugham/Stores/AREA.md`'s own
 `ColdCall.swift` is the one runner every **cold** session shares: a reader, a
 collator, a gloss and an Ask-the-collator (spec §5, §9 — the reader and the
 collator arrived in P3, as `TranslationPipeline`'s two cold legs below; gloss
-and Ask the collator are P4's; P2 built the runner and wired its teardown).
-One call = one fresh process, one briefing sent, one report returned, the
-process ended. There is no `ReaderOrchestrator`: warmth would buy nothing (the
-whole briefing is re-sent every leg) and would cost blindness.
+and Ask the collator in P4 Task 6, as `SpotCheck`; P2 built the runner and
+wired its teardown). One call = one fresh process, one briefing sent, one
+report returned, the process ended. There is no `ReaderOrchestrator`: warmth
+would buy nothing (the whole briefing is re-sent every leg) and would cost
+blindness.
 
 - **Confinement is an enum on the session, not a setting** —
   `ClaudeCLISession.Confinement.bridged(mcpConfigPath:)` for the compiler,
@@ -825,6 +826,24 @@ whole briefing is re-sent every leg) and would cost blindness.
   `.onDisappear` carry `coldCall.shutdown()`/`coldCall.detach()`;
   `TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`
   counts it.
+- **The two spot-checks are `SpotCheck.swift`** (P4 Task 6), the other tempo
+  beside a round: the caret is in a paragraph and the author asks *what does
+  this now say?* (**Gloss**) or *does it still say what I wrote?* (**Ask the
+  collator**), each one keystroke in the Translation pane (⌘⌥L). Gloss is
+  briefed by `GlossBriefing`, whose `Inputs` **have no source field** — a model
+  shown the original renders the original it can read rather than the
+  translation it was asked about, so the property is the type's, not a caller's
+  — and reads its paragraph off the **badge entries the pane already holds**,
+  never the disk. Ask the collator is the collator's own briefing narrowed to
+  one pair ± a neighbour (`SpotCheck.narrow`), with the writer's craft intent,
+  edition brief, glossary and directives kept **whole**: a doctrine narrowed
+  with the text would judge the paragraph against rules the author never
+  relaxed. **Neither mints anything** (spec §12) — the answer is drawn, and
+  *Keep mine* / *Make it a rule* are separate verbs the author presses,
+  provenance `spot-check, keep mine` / `spot-check, make it a rule`.
+  `TripwireGrepTests.test_aSpotCheckMintsNothing` scans `SpotCheck.swift` for
+  the four write doors by name, which is why the file's own prose never names
+  one.
 - **The briefings it will be handed are pure**: `ReaderBriefing` and
   `CollatorBriefing` (this directory) follow `TranslatorBriefing`'s discipline
   — no I/O, no clock. `BriefingDoctrine.swift` is where directives and the

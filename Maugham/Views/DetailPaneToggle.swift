@@ -62,6 +62,12 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// no translator session, so without it every row offers Run while a reader
     /// is out.
     var pipeline: TranslationPipeline? = nil
+    /// The window's cold-call runner (translation pipeline P4 Task 6) — the
+    /// Translation pane's two spot-checks ask through it. Threaded and
+    /// defaulted exactly as `pipeline` is, and for the same reason: it is the
+    /// window's, and a pane that made one of its own would be a second session
+    /// nothing tears down.
+    var coldCall: ColdCall? = nil
     /// **Where the desk's Show sends a proposal** (publish-department P4 Task 5)
     /// — the window's centre column, which this view is not in. Threaded and
     /// defaulted exactly as `onSetActivePass`/`onSetPassState` are, and for the
@@ -138,6 +144,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         translationRuns: TranslationRunLog? = nil,
         designer: DesignerOrchestrator? = nil,
         pipeline: TranslationPipeline? = nil,
+        coldCall: ColdCall? = nil,
         onShowDesignProposal: @escaping (DesignProposalStore.Proposal) -> Void = { _ in },
         onShowTranslationRound: @escaping (TranslationRound) -> Void = { _ in },
         compilerModel: CompilerModelChoice = .standard,
@@ -169,6 +176,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.translationRuns = translationRuns
         self.designer = designer
         self.pipeline = pipeline
+        self.coldCall = coldCall
         self.onShowDesignProposal = onShowDesignProposal
         self.onShowTranslationRound = onShowTranslationRound
         self.compilerModel = compilerModel
@@ -621,7 +629,15 @@ struct DetailPaneToggle<Inspector: View>: View {
            let control = editorControl,
            activeDocId != BinderSubject.noDocumentSubject,
            let doc = ds.document(forDocId: activeDocId) {
-            TranslationReviewPane(document: doc, control: control, store: store)
+            TranslationReviewPane(
+                document: doc, control: control, store: store,
+                // The two spot-checks (P4 Task 6): the window's runner, its
+                // documents (the author's language is resolved through the
+                // imprint the desk is standing on), the project, the compiler's
+                // model setting, and the craft-intent cache a Keep mine filed
+                // for every edition has to invalidate.
+                coldCall: coldCall, documentStore: ds, projectURL: projectURL,
+                model: compilerModel.claudeModel, world: declaredWorldStore)
         } else {
             ContentUnavailableView(
                 "Select a document",

@@ -1049,6 +1049,51 @@ final class TripwireGrepTests: XCTestCase {
             + "caught. Got:\n" + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - The spot-checks mint nothing (translation pipeline P4 Task 6)
+
+    /// **Spec §12's line, as a census.** Gloss and Ask the collator are two
+    /// questions the writer asks about one paragraph, and the answer is drawn
+    /// and nothing else: what the author does with it — Keep mine, Make it a
+    /// rule — is a separate verb they press.
+    ///
+    /// The distance between "the verbs write, the check does not" and "the
+    /// check writes what it found" is one plausible convenience, and nothing in
+    /// a type signature refuses it: `SpotCheck` is handed the `ProjectStore` and
+    /// the `DocumentStore` it needs to BRIEF a call, which are the same two
+    /// objects a mint would be written through. So the file is scanned for the
+    /// four doors instead. `coldCall.call(` proves the scan reads a file that
+    /// still asks a question at all.
+    func test_aSpotCheckMintsNothing() throws {
+        let file = sourceDir.appendingPathComponent("Compiler/SpotCheck.swift")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        for forbidden in ["RulingPerformer", "addAnnotation", "TranslationRoundStore",
+                          "writeMCPConfig", ".bridged("] {
+            XCTAssertFalse(text.contains(forbidden),
+                           "SpotCheck.swift must not contain `\(forbidden)` \u{2014} a "
+                           + "spot-check answers a question; the author's own verb is "
+                           + "what writes")
+        }
+        XCTAssertTrue(text.contains("coldCall.call("),
+                      "the scan reads the file rather than always answering true")
+    }
+
+    /// Self-check: prove the mint census FIRES on a planted door.
+    func test_theSpotCheckCensusWouldFireOnAPlantedMint() throws {
+        let planted = """
+        @MainActor
+        enum SpotCheck {
+            static func gloss() async {
+                try? await RulingPerformer.rule("it drifted", provenance: "spot-check")
+            }
+        }
+        """
+
+        let offenders = ["RulingPerformer", "addAnnotation", "TranslationRoundStore",
+                         "writeMCPConfig", ".bridged("].filter { planted.contains($0) }
+        XCTAssertEqual(offenders, ["RulingPerformer"],
+                       "Self-check: a planted mint should be caught. Got: \(offenders)")
+    }
+
     // MARK: - EditorSurface mount census (M1A: two editors in one window)
 
     /// Every production site that mounts an `EditorSurface`. Adding one is the

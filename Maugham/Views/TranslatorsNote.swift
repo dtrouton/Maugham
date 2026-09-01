@@ -93,16 +93,24 @@ enum TranslatorsNote {
     }
 
     /// Write the directive. Returns the refusal's own sentence, or nil.
+    ///
+    /// **`provenance` is defaulted, so ⌘⌥C's call site is unchanged.** The
+    /// Translation pane's Keep mine (translation pipeline P4 Task 6) is this
+    /// same act reached from a spot-check, and what differs is only which
+    /// surface the author was standing on when they pressed it — which is
+    /// exactly what a provenance is for. A second door would be two spellings
+    /// of one write.
     @MainActor
     static func commit(_ instruction: String, target: Target, home: Home,
-                       store: ProjectStore, world: DeclaredWorldStore?) async -> String? {
+                       store: ProjectStore, world: DeclaredWorldStore?,
+                       provenance: String = Ruling.Provenance.translatorsNote) async -> String? {
         let words = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { return TranslatorsNoteCopy.emptyRefusal }
         let (kind, scope) = destination(home: home, docId: target.docId)
         do {
             try await RulingPerformer.rule(
                 Ruling.directiveText(paragraphId: target.paragraphId, words),
-                provenance: Ruling.Provenance.translatorsNote,
+                provenance: provenance,
                 kind: kind, forScope: scope,
                 store: store,
                 world: home == .everyEdition ? world : nil)

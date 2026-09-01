@@ -3033,6 +3033,11 @@ struct ProjectWindow: View {
             // round's cold legs hold no translator session, so without it the
             // rows offer Run while a reader is out (translation pipeline P3).
             pipeline: pipeline,
+            // …and the cold-call runner, for the Translation pane's two
+            // spot-checks (translation pipeline P4 Task 6). The same runner the
+            // pipeline's cold legs use, which is what makes "a cold session is
+            // already out" a true refusal rather than a guess.
+            coldCall: coldCall,
             // …and the desk's two Shows — the design gate's (P4 Task 5) and,
             // as of translation pipeline P4, a round's. They are the only
             // things on that pane that reach the CENTRE column, and each is

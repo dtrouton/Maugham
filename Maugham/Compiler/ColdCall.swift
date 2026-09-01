@@ -26,7 +26,13 @@ import Foundation
 /// the three orchestrators and every teardown arm `TranslatorEnvironmentTests`'
 /// census pairs carries a `coldCall.shutdown()` — it is the census's fourth
 /// sibling.
-@MainActor
+///
+/// **`@Observable`, like the three orchestrators it sits beside** (P4 Task 6).
+/// `isRunning` is what a surface disables its buttons on — the Translation
+/// pane's two spot-checks share this runner with the pipeline's cold legs — and
+/// a plain class would leave those buttons greyed out after a leg finished,
+/// until something unrelated happened to redraw the pane.
+@Observable @MainActor
 final class ColdCall {
 
     typealias RunnerFactory = @MainActor (_ model: String) -> CompilerRunner
