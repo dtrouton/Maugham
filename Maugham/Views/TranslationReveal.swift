@@ -101,6 +101,19 @@ struct TranslationReveal: Equatable, Sendable {
     /// is a no-op there, so refusing to post would turn a slow surface into a
     /// silent one and buy nothing.
     ///
+    /// **A cancelled reveal stops here, and the rule lives in `perform` rather
+    /// than at the caller** (fix round 2). `ready` opened an awaitable gap
+    /// between two posts that used to be adjacent, and a window closing or a
+    /// second row being clicked cancels the task sitting in it — but cancelling
+    /// only unblocks the wait; control still returns HERE. Without this guard
+    /// the first reveal fires a navigate for the paragraph the writer has just
+    /// moved on from, racing or landing after the second reveal's own posts,
+    /// which is precisely what cancelling was supposed to prevent. The check is
+    /// in this function because the gap is this function's, and a caller that
+    /// forgot it would fail silently. The enter-review post is NOT undone — it
+    /// has already been delivered, and a superseding reveal posts its own a
+    /// moment later, so unwinding it would only flicker the surface.
+    ///
     /// `@MainActor` because both posts are `.keyWindow` events that drive the
     /// editor, and because `ready`'s production body reads window state.
     @MainActor
@@ -111,6 +124,7 @@ struct TranslationReveal: Equatable, Sendable {
     ) async {
         post(.maughamEnterTranslationReview, [languageKey: reveal.language])
         await ready()
+        guard !Task.isCancelled else { return }
         post(.maughamNavigateToParagraph, [paragraphIdKey: reveal.paragraphId])
     }
 }

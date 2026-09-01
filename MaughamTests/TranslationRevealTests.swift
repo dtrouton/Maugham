@@ -119,6 +119,48 @@ final class TranslationRevealTests: XCTestCase {
             [.maughamEnterTranslationReview, .maughamNavigateToParagraph],
             "the navigate goes once ready has returned, and only then")
     }
+
+    /// **The gap `ready` opened is a gap a reveal can be cancelled in**
+    /// (fix round 2).
+    ///
+    /// A second row clicked while the first is still waiting for its surface —
+    /// or a window closing — cancels the task sitting in `ready`. Cancelling
+    /// only unblocks the wait; control still returns to `perform`. Without the
+    /// guard there, the superseded reveal fires a navigate for the paragraph the
+    /// writer has just moved on from, racing or landing after the reveal that
+    /// replaced it, which is exactly what cancelling was meant to prevent.
+    ///
+    /// The cancel lands while the hook is held, and the release that follows it
+    /// is what lets `perform` resume — so this proves the guard, not a task that
+    /// simply never got that far.
+    func test_aCancelledRevealDoesNotPostItsStaleNavigate() async {
+        let probe = RevealProbe()
+
+        let performing = Task { @MainActor in
+            await TranslationReveal.perform(
+                reveal,
+                ready: {
+                    probe.readyEntered = true
+                    while !probe.released {
+                        try? await Task.sleep(for: .milliseconds(5))
+                    }
+                },
+                post: { name, _ in probe.posts.append(name) })
+        }
+
+        guard await probe.waitUntilReadyEntered() else {
+            return XCTFail("perform never reached its ready hook")
+        }
+        // Both writes are synchronous on this actor, so the hook cannot observe
+        // the release without also seeing the cancellation.
+        performing.cancel()
+        probe.released = true
+        await performing.value
+
+        XCTAssertEqual(probe.posts, [.maughamEnterTranslationReview],
+            "a cancelled reveal must not post its navigate: the writer has moved "
+            + "on, and this one would land on their new paragraph")
+    }
 }
 
 /// The gate `test_theNavigateDoesNotGoUntilTheReadyHookHasReturned` holds
