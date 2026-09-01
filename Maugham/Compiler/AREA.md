@@ -829,7 +829,12 @@ blindness.
 - **The two spot-checks are `SpotCheck.swift`** (P4 Task 6), the other tempo
   beside a round: the caret is in a paragraph and the author asks *what does
   this now say?* (**Gloss**) or *does it still say what I wrote?* (**Ask the
-  collator**), each one keystroke in the Translation pane (⌘⌥L). Gloss is
+  collator**), each a `Button` in the Translation pane — ⌘⌥L opens the pane,
+  and **no shortcut is bound to either verb**. Spec §9 calls them
+  "keystroke-triggered", which is ADR 0028's tempo contrast read correctly: the
+  trigger must be a writer's own act rather than a timer or an event, and a
+  button press is that act (P4 Task 6's ruling; a menu item for each is a later
+  decision, not an omission). Gloss is
   briefed by `GlossBriefing`, whose `Inputs` **have no source field** — a model
   shown the original renders the original it can read rather than the
   translation it was asked about, so the property is the type's, not a caller's
