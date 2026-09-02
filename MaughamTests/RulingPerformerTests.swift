@@ -298,6 +298,96 @@ final class RulingPerformerTests: XCTestCase {
         XCTAssertTrue(text.contains("Kelly never lies."), text)
     }
 
+    // MARK: - The letter's turn clause (editorial letter P1 Task 9)
+
+    /// **The loop the Add-to-intent offer exists to close.**
+    ///
+    /// The offer stands over a round in the strong form with no clause of the
+    /// writer's (`ScenePosition.strongDefault`). One click files the sentence
+    /// as a dated ruling under `## Rulings` — and the very next
+    /// `ScenePosition.derive` over the resulting statement answers
+    /// `.strongDeclared`, which is what turns a turn-less scene from an
+    /// observation into a conformance strain against words the writer can find
+    /// in their own intent.
+    ///
+    /// Asserted through `ProjectStore.statementText`, which is what the run
+    /// reads, rather than through the render or a preview.
+    func test_theLettersTurnClauseClosesTheScenePositionLoop() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnClauseLoop")
+        let statement = try await store.createStatement(
+            kind: .intent, scope: .document(chapter.id))
+        try await store.appendToStatement(
+            "A ghost story told in weather.", to: statement, session: "seed")
+
+        let essayOnly = try store.statementText(of: statement)
+        XCTAssertEqual(
+            ScenePosition.derive(
+                projectType: .screenplay, statement: essayOnly, passBrief: nil),
+            .strongDefault,
+            "the premise: a screenplay whose intent says nothing about turns is in "
+            + "the strong form with no clause of the writer's \u{2014} exactly the gap "
+            + "the offer is drawn into")
+
+        try await RulingPerformer.rule(
+            LetterSection.turnClauseRuling,
+            provenance: "from Le Guin's letter",
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
+
+        let after = try store.statementText(of: statement)
+        let parsed = RulingsSection.parse(after)
+        XCTAssertEqual(
+            parsed.rulings.count, 1,
+            "the clause lands as a ruling, never as a paragraph appended to the essay")
+        XCTAssertEqual(parsed.rulings.first?.text, LetterSection.turnClauseRuling)
+        XCTAssertEqual(
+            parsed.rulings.first?.provenance, "from Le Guin's letter",
+            "a reader of the statement must be able to see which letter asked")
+        XCTAssertEqual(
+            parsed.essay.trimmingCharacters(in: .whitespacesAndNewlines),
+            "A ghost story told in weather.",
+            "the writer's own essay is untouched")
+
+        XCTAssertEqual(
+            ScenePosition.derive(projectType: .screenplay, statement: after,
+                                 passBrief: nil),
+            .strongDeclared,
+            "the round after the click strains against a clause the writer wrote")
+        XCTAssertEqual(
+            ScenePosition.derive(projectType: .novel, statement: after, passBrief: nil),
+            .strongDeclared,
+            "and it carries a prose piece into the strong form too \u{2014} the clause "
+            + "is the writer's declaration, not the project type's")
+    }
+
+    /// **The clause must survive `derive`'s own reading, which is the WHOLE
+    /// statement.** Read over the essay half alone the ruling lands where the
+    /// derivation never looks, the offer returns on every round forever, and
+    /// no strain is ever raised — the failure `ScenePosition.derive`'s doc
+    /// comment names and nothing else pins.
+    func test_theClauseIsInvisibleToADeriveReadingTheEssayHalfAlone() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnClauseEssayHalf")
+        let statement = try await store.createStatement(
+            kind: .intent, scope: .document(chapter.id))
+        try await store.appendToStatement(
+            "A ghost story told in weather.", to: statement, session: "seed")
+        try await RulingPerformer.rule(
+            LetterSection.turnClauseRuling, provenance: "from Le Guin's letter",
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
+
+        let whole = try store.statementText(of: statement)
+        XCTAssertEqual(
+            ScenePosition.derive(projectType: .screenplay, statement: whole,
+                                 passBrief: nil),
+            .strongDeclared)
+        XCTAssertEqual(
+            ScenePosition.derive(
+                projectType: .screenplay,
+                statement: StatementEssay.half(of: whole), passBrief: nil),
+            .strongDefault,
+            "the essay half cannot see the ruling \u{2014} a caller that passed it "
+            + "would leave the offer standing forever with nothing red")
+    }
+
     // MARK: - revoke
 
     func test_revokeRemovesExactlyTheLine() async throws {

@@ -136,6 +136,15 @@ struct DiagnosticsPane: View {
     @State private var answering: Set<String> = []
     @State private var answerFailures: [String: String] = [:]
 
+    /// **The run whose turn clause has already been filed**, so the offer does
+    /// not stand again over a letter the writer has just answered.
+    ///
+    /// Keyed by run id rather than a bare `Bool` because the next run replaces
+    /// `lastRun` and the offer must come back for a round that raised it again
+    /// — the letter's own `scenePosition` cannot say so, since it was stamped
+    /// before the ruling existed. `nil` is "nothing filed here yet".
+    @State private var turnClauseFiledForRun: String?
+
     // MARK: - Reads
 
     /// Observing `diagnostics.version` forces re-render on every store
@@ -798,6 +807,7 @@ struct DiagnosticsPane: View {
                     VStack(alignment: .leading, spacing: 0) {
                         freshEyesLine
                         roundLine
+                        letterSection
                         // **The state §7.0 exists for.** A round in a pass over a
                         // piece with no declared intent raises no clause and no
                         // strain, so `hasReport` is false — and since P1 that
@@ -821,6 +831,7 @@ struct DiagnosticsPane: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     freshEyesLine
                     roundLine
+                    letterSection
                     thisCheckSection
                     driftLine
                     conformanceSection
@@ -829,6 +840,99 @@ struct DiagnosticsPane: View {
             }
         }
     }
+
+    // MARK: - The letter (editorial letter P1 Task 9)
+
+    /// **The letter, above everything else the report says** (spec §3.5).
+    ///
+    /// It leads because it is what the writer reads first; the notes are the
+    /// margin. Drawn in BOTH arms of `content`, and the no-report arm is not
+    /// an edge case: a round over a piece with no declared intent raises no
+    /// clause and no strain, so its whole output can be one letter — and an
+    /// arm that skipped it would leave that round with nothing on screen but
+    /// an empty state.
+    ///
+    /// **`isEmpty` rather than `letter != nil`.** `about` is always present,
+    /// so a letter carrying only the say-back is a letter with nothing in it;
+    /// drawing a "Letter" heading over one sentence would be a section
+    /// pretending there was one.
+    @ViewBuilder
+    private var letterSection: some View {
+        if let run = lastRun, let letter = run.letter, !letter.isEmpty {
+            LetterSection(
+                letter: letter,
+                signature: LetterSection.signature(
+                    voice: reader.editorName, round: run.round),
+                currentText: currentText,
+                onJump: { jump(toParagraph: $0) },
+                // `promote`'s own verb, one layer out: the exercise is the
+                // thing to DO, and a habit with no exercise never draws the
+                // button, so the `?? habit.name` fallback is a belt on a path
+                // the view already refuses to offer.
+                onAcceptExercise: { habit in
+                    activeDocument()?.createPaneTask(
+                        body: habit.exercise ?? habit.name,
+                        parentTaskId: nil,
+                        paragraphId: habit.refs.first?.paragraphId,
+                        undoManager: undoManager)
+                },
+                onAddTurnClause: turnClauseOffer(for: letter, run: run),
+                // Task 10 writes the letter into research through the existing
+                // promote-to-research path. Until then the control is real and
+                // the write is not.
+                onKeep: {},   // Task 10
+                offerFailure: answerFailures[Self.turnClauseFailureKey])
+            Divider()
+        }
+    }
+
+    /// **Whose gap the offer is for** — `strong_default` and nothing else.
+    ///
+    /// Three refusals, each for its own reason: a writer whose own intent
+    /// already carries the clause (`strong_declared`) has answered it and must
+    /// not be asked again; the weak form and no table at all have no doctrine
+    /// to opt into; and a pane with no project has nowhere to file a ruling,
+    /// which would be a button pressing into nowhere. The fourth — a table
+    /// where every scene turns — is `LetterSection`'s own half of the
+    /// condition.
+    private func turnClauseOffer(
+        for letter: Letter, run: CompilerRun
+    ) -> (() -> Void)? {
+        guard letter.scenePosition == ScenePosition.strongDefault.rawValue,
+              turnClauseFiledForRun != run.id,
+              let store else { return nil }
+        return { addTurnClause(store: store, runId: run.id) }
+    }
+
+    /// **The offer's click, through `RulingPerformer.rule`** — the one door
+    /// into the writer-owned layer (spec §3.4). The sentence is the writer's
+    /// from then on, and the round after this one strains against a clause
+    /// they can find in their own statement.
+    ///
+    /// The failure travels in `answerFailures`, under a key no diagnostic and
+    /// no annotation can mint, so a refused ruling says so beside the button
+    /// rather than leaving a control that looks pressed and an intent that
+    /// never moved.
+    private func addTurnClause(store: ProjectStore, runId: String) {
+        answerFailures[Self.turnClauseFailureKey] = nil
+        Task {
+            do {
+                try await RulingPerformer.rule(
+                    LetterSection.turnClauseRuling,
+                    provenance: "from \(reader.editorName)'s letter",
+                    kind: .intent, forScope: .document(docId),
+                    store: store, world: world)
+                turnClauseFiledForRun = runId
+            } catch {
+                documentLog.error("\u{201C}Add to intent\u{201D} refused for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                answerFailures[Self.turnClauseFailureKey] = error.localizedDescription
+            }
+        }
+    }
+
+    /// The offer's slot in `answerFailures`. A ULID id space cannot produce
+    /// it, so it can never collide with a diagnostic's or an annotation's.
+    static let turnClauseFailureKey = "letter.turn-clause"
 
     /// **The cold-start offer** (spec §4). Understated, on `content`'s
     /// register: no sheet, no alert — the same two-button margin-note shape
@@ -1833,7 +1937,11 @@ private struct CompilerNoteRow: View {
 /// of requirement 3 on this surface. Pressing it makes the same jump the row
 /// makes; the id it carries is a payload and never a label.
 @MainActor
-private struct ExcerptChip: View {
+/// **The words a reference travels as**, never its paragraph id
+/// (requirement 3). Internal rather than file-private since the editorial
+/// letter's own section draws the same chip: a second capsule with the same
+/// job would be two answers to what a reference looks like.
+struct ExcerptChip: View {
     let ref: Diagnostic.Ref
     let onJump: (String) -> Void
 

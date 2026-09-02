@@ -706,6 +706,9 @@ struct DetailPaneToggle<Inspector: View>: View {
                 // surfaces no compiler, which draws no strip.
                 orchestrator: compilerOrchestrator,
                 diagnostics: diagnosticsStore,
+                // The letter's Add to intent drops the derivation cache the
+                // same way the Diagnostics arm's Answer does.
+                world: declaredWorldStore,
                 onSetActivePass: onSetActivePass,
                 compilerModel: compilerModel,
                 onCompilerModelChange: onCompilerModelChange,

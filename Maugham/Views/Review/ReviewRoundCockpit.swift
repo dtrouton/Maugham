@@ -111,6 +111,23 @@ struct ReviewRoundCockpit: View {
     /// `DiagnosticsPane` calls, never a second spelling of the persistence.
     let onCompilerModelChange: (CompilerModelChoice) -> Void
 
+    /// **What the last run's letter says, in one line** (editorial letter P1
+    /// Task 9, spec §3.5) — the one thing, else the say-back. `nil` when the
+    /// run left no letter, which draws no line and no disclosure rather than
+    /// an empty triangle over nothing.
+    ///
+    /// Defaulted so a caller that predates the letter — every probe mount,
+    /// and any host with no sidecar behind it — keeps compiling with a strip
+    /// that simply has no letter in it. `AnnotationsPane` is the one
+    /// production caller and passes both (its own census).
+    var letterLine: String? = nil
+    /// The section the disclosure opens: the host's own `LetterSection`,
+    /// wired to the host's verbs. A closure rather than a `Letter`, because
+    /// Accept as task, Add to intent and Keep all need the host's document,
+    /// project and undo manager — and because Review must open the SAME view
+    /// Author draws rather than a second one that could disagree with it.
+    var letterDisclosure: (() -> AnyView)? = nil
+
     /// **What the last thing the run key did means for THIS document.**
     ///
     /// A separate type from `CompilerOrchestrator.RunState` because that state
@@ -354,6 +371,19 @@ struct ReviewRoundCockpit: View {
             + "that lane, and its editor signs the notes."
     }
 
+    /// **The one thing, else the say-back** — the derivation, in one place,
+    /// so the strip and its host cannot disagree about what the letter's line
+    /// says.
+    ///
+    /// `nil` for no letter and for an EMPTY one: `Letter.isEmpty` ignores
+    /// `about`, so a letter carrying only the say-back has no section to
+    /// disclose, and a line over a disclosure that opens nothing would be a
+    /// control the writer presses twice to learn there was nothing there.
+    static func letterLine(_ letter: Letter?) -> String? {
+        guard let letter, !letter.isEmpty else { return nil }
+        return letter.oneThing ?? letter.about
+    }
+
     // MARK: - Verbs
     //
     // Named rather than inlined into the controls so a test can drive the one
@@ -436,10 +466,43 @@ struct ReviewRoundCockpit: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            letterRow
             runRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12).padding(.vertical, 8)
+    }
+
+    /// **The letter, under the status line and above the buttons** (spec
+    /// §3.5). One line of it, and a disclosure that opens the whole thing
+    /// inline — the reviewer reads what the round came back with without
+    /// leaving the queue for Author's pane.
+    ///
+    /// The line alone draws when a host supplies no disclosure: a caption is
+    /// still worth more than nothing, and a triangle that opens an empty box
+    /// is worse than no triangle.
+    @ViewBuilder
+    private var letterRow: some View {
+        if let letterLine {
+            if let letterDisclosure {
+                DisclosureGroup {
+                    letterDisclosure()
+                } label: {
+                    Text(letterLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                Text(letterLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     /// **Where the reviewer is, and the one control that moves them** — the

@@ -119,7 +119,12 @@ the answer to a failed one. **A run in flight can be cancelled right there** —
 a Cancel button sits beside the checking line for as long as the round is
 running, the same control Diagnostics offers, and pressing it lands you back
 at Run round with nothing held against you: it's the same as a round you
-simply hadn't asked for. An empty queue teaches the
+simply hadn't asked for. **The last round's letter is one line under the
+status line** — the one thing it would have you fix, or what it read the piece
+to be about — and clicking it folds the whole letter open right there, the
+same letter Author shows in Diagnostics, with the same jumps, **Accept as
+task**, **Add to intent** and **Keep this letter**. See
+[The compiler → The letter](compiler.md#the-letter). An empty queue teaches the
 same loop rather than describing an absence: *"Claude proposes; you dispose.
 Run Gould's round (⌘R), or ask Claude in Claude Desktop."* The editor it names
 is whoever reads that piece — Le Guin on a piece you haven't assigned a

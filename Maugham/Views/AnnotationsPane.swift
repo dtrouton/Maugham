@@ -33,6 +33,16 @@ struct AnnotationsPane: View {
     /// the strip): a `nil` here draws no cockpit and never crashes.
     var orchestrator: CompilerOrchestrator?
     var diagnostics: DiagnosticsStore?
+    /// **The derivation cache a ruling has to drop** — the same store
+    /// `DiagnosticsPane` holds, threaded here because the round cockpit's
+    /// letter carries Add to intent (editorial letter P1 Task 9).
+    ///
+    /// Optional for the hosts that surface no compiler, and `nil` costs only
+    /// the invalidation: `RulingPerformer.rule` takes it optionally and the
+    /// next run re-derives from a changed statement either way. `nil` here
+    /// would be the stale-reading defect `DiagnosticsPane.world`'s own doc
+    /// describes, which is why `DetailPaneToggle` passes the real one.
+    var world: DeclaredWorldStore?
     /// Record which pass a piece is being reviewed through — `(docId, passId)`.
     /// The write itself is `ProjectWindow.recordActivePass`, the ONE writer of
     /// `UIState.activePassMemory`; this pane only ever asks for it. Defaulted
@@ -61,6 +71,15 @@ struct AnnotationsPane: View {
     /// registers its undo action against the manager ⌘Z reaches (and clears
     /// the stale native typing-undo stack; the ⌘Z EXC_BAD_ACCESS class).
     @Environment(\.undoManager) private var undoManager
+
+    /// **The run whose turn clause has already been filed** —
+    /// `DiagnosticsPane.turnClauseFiledForRun`'s twin, for the same reason:
+    /// a second press would file the identical ruling twice, and the letter's
+    /// own `scenePosition` was stamped before the ruling existed.
+    @State private var turnClauseFiledForRun: String?
+    /// What a refused Add to intent said. A press that reached the op log and
+    /// was turned away must say so where it happened.
+    @State private var letterOfferFailure: String?
 
     @State private var kindFilter: KindOption = .all
     /// Which review pass the queue is looking through (M3 P2 Task 8).
@@ -627,7 +646,19 @@ struct AnnotationsPane: View {
                 },
                 onCancel: { orchestrator.cancel() },
                 compilerModel: compilerModel,
-                onCompilerModelChange: onCompilerModelChange)
+                onCompilerModelChange: onCompilerModelChange,
+                // **The letter, in one line with the whole of it behind a
+                // disclosure** (spec §3.5). The line comes from the strip's
+                // own static so Author and Review cannot disagree about what
+                // it says; the disclosure opens the SAME `LetterSection`
+                // Author draws, wired to this pane's document and project.
+                letterLine: ReviewRoundCockpit.letterLine(
+                    cockpitLetter(diagnostics, docId: document.docId)),
+                letterDisclosure: cockpitLetter(diagnostics, docId: document.docId)
+                    .map { letter in
+                        { AnyView(letterSection(letter, document: document,
+                                                diagnostics: diagnostics)) }
+                    })
             Divider()
         }
     }
@@ -676,6 +707,79 @@ struct AnnotationsPane: View {
     ) -> Int? {
         _ = diagnostics.version
         return diagnostics.latestRound(forPass: passId, docId: docId)
+    }
+
+    /// The standing run's letter for this piece, version-gated exactly as
+    /// every other read of the sidecar here is. `nil` for no run, no letter,
+    /// or a letter with nothing in it — `ReviewRoundCockpit.letterLine` makes
+    /// the same judgement about emptiness, and this feeds both the line and
+    /// the disclosure so they can never disagree about whether there is one.
+    private func cockpitLetter(
+        _ diagnostics: DiagnosticsStore, docId: String
+    ) -> Letter? {
+        _ = diagnostics.version
+        guard let letter = diagnostics.lastRun(docId: docId)?.letter,
+              !letter.isEmpty else { return nil }
+        return letter
+    }
+
+    /// **The disclosure's contents: Author's own section, in Review's
+    /// column.** Every verb is this pane's — the jump is its event, the task
+    /// is its document, the ruling is its project — so the reviewer can act on
+    /// the letter without leaving the queue.
+    @ViewBuilder
+    private func letterSection(
+        _ letter: Letter, document: Document, diagnostics: DiagnosticsStore
+    ) -> some View {
+        let run = diagnostics.lastRun(docId: document.docId)
+        LetterSection(
+            letter: letter,
+            signature: LetterSection.signature(
+                voice: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
+                round: run?.round),
+            currentText: { document.paragraphs[$0] },
+            onJump: { pid in
+                MaughamEvent.post(
+                    .maughamNavigateToParagraph, to: .keyWindow,
+                    payload: ["paragraph_id": pid])
+            },
+            onAcceptExercise: { habit in
+                document.createPaneTask(
+                    body: habit.exercise ?? habit.name,
+                    parentTaskId: nil,
+                    paragraphId: habit.refs.first?.paragraphId,
+                    undoManager: undoManager)
+            },
+            onAddTurnClause: turnClauseOffer(letter, run: run, docId: document.docId),
+            onKeep: {},   // Task 10
+            offerFailure: letterOfferFailure)
+    }
+
+    /// `DiagnosticsPane.turnClauseOffer`'s rule, restated for this host's own
+    /// values: `strong_default` alone, not already filed for this run, and a
+    /// project to file into.
+    private func turnClauseOffer(
+        _ letter: Letter, run: CompilerRun?, docId: String
+    ) -> (() -> Void)? {
+        guard letter.scenePosition == ScenePosition.strongDefault.rawValue,
+              let run, turnClauseFiledForRun != run.id else { return nil }
+        return { addTurnClause(docId: docId, runId: run.id) }
+    }
+
+    private func addTurnClause(docId: String, runId: String) {
+        letterOfferFailure = nil
+        Task {
+            do {
+                try await RulingPerformer.rule(
+                    LetterSection.turnClauseRuling,
+                    provenance: "from \(cockpitReader?.editorName ?? PieceReader.nobody.editorName)'s letter",
+                    kind: .intent, forScope: .document(docId),
+                    store: store, world: world)
+                turnClauseFiledForRun = runId
+            } catch {
+                letterOfferFailure = error.localizedDescription
+            }
+        }
     }
 
     private func cockpitReportLine(

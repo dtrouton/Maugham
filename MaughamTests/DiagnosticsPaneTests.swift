@@ -76,14 +76,16 @@ final class DiagnosticsPaneTests: XCTestCase {
                          passId: String? = nil, round: Int? = nil,
                          freshEyes: Bool? = nil,
                          mintedNotes: Int? = nil,
-                         openInOtherLanes: Int? = nil) -> CompilerRun {
+                         openInOtherLanes: Int? = nil,
+                         letter: Letter? = nil) -> CompilerRun {
         let wholeSecond = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         return CompilerRun(id: ULID.generate(), at: wholeSecond, model: model,
                            lastOpId: lastOpId, deltaSummary: "1 new, 0 revised \u{00b6}",
                            intentSnapshot: nil, droppedDangling: droppedDangling,
                            clauseStatuses: clauseStatuses, truncatedReader: truncatedReader,
                            passId: passId, round: round, freshEyes: freshEyes,
-                           mintedNotes: mintedNotes, openInOtherLanes: openInOtherLanes)
+                           mintedNotes: mintedNotes, openInOtherLanes: openInOtherLanes,
+                           letter: letter)
     }
 
     private func makeClause(
@@ -3772,6 +3774,397 @@ final class DiagnosticsPaneTests: XCTestCase {
             pump(0.02)
             try? await Task.sleep(for: .milliseconds(20))
         }
+    }
+
+    // MARK: - The letter (editorial letter P1 Task 9)
+
+    /// A letter with a habit that carries an exercise, and a scene that does
+    /// not turn — the fixture every letter test below narrows from.
+    nonisolated private func makeLetter(
+        habitRefs: [Diagnostic.Ref] = [],
+        exercise: String? = "Read the dialogue aloud with the names removed.",
+        scenePosition: String? = ScenePosition.strongDefault.rawValue,
+        turn: String = ""
+    ) -> Letter {
+        Letter(
+            about: "A ghost story told through weather.",
+            oneThing: "Give the reader the dock before the fire.",
+            working: [],
+            habits: [Letter.Habit(
+                name: "Every speech sounds like the same person",
+                refs: habitRefs, cost: "The cast blurs.",
+                lesson: nil, exercise: exercise)],
+            questions: [],
+            scenes: [Letter.Scene(
+                refs: [], wants: "To be let in", changes: "The door opens",
+                turn: turn, charge: nil)],
+            scenePosition: scenePosition)
+    }
+
+    /// **Where the letter draws, in BOTH arms** — after the round line and
+    /// before This check.
+    ///
+    /// A census rather than a mount, because the placement claim is about the
+    /// `content` builder's two branches and a mounted pane only ever renders
+    /// one of them at a time. The `!hasReport` arm matters as much as the
+    /// other: a round over a piece with no declared intent raises no clause
+    /// and no strain, and since P1 its whole output can be one letter.
+    func test_theLetterDrawsAfterTheRoundLineAndBeforeThisCheckInBothArms() throws {
+        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        let body = try XCTUnwrap(
+            source.range(of: "private var content: some View {").map {
+                String(source[$0.upperBound...].prefix(1600))
+            },
+            "`content` is where the placement lives; find it by name if it moved")
+        let arms = body.components(separatedBy: "} else {")
+        XCTAssertGreaterThanOrEqual(
+            arms.count, 2, "content must still have a no-report arm and a report arm")
+        for (index, arm) in arms.enumerated() where arm.contains("roundLine") {
+            guard let round = arm.range(of: "roundLine"),
+                  let letter = arm.range(of: "letterSection"),
+                  let check = arm.range(of: "thisCheckSection") else {
+                return XCTFail(
+                    "arm \(index) draws roundLine but not both letterSection and "
+                    + "thisCheckSection:\n\(arm)")
+            }
+            XCTAssertTrue(
+                round.lowerBound < letter.lowerBound,
+                "the letter follows the round line in arm \(index)")
+            XCTAssertTrue(
+                letter.lowerBound < check.lowerBound,
+                "and precedes This check in arm \(index) \u{2014} the letter is what "
+                + "the writer reads first; the notes are the margin")
+        }
+    }
+
+    /// The letter renders over a run that raised nothing else at all — the
+    /// `!hasReport` arm, on the delivery path rather than at the source.
+    func test_anAllLetterRunStillDrawsItsLetter() throws {
+        let docId = "doc-letter-only"
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.replace(
+            run: makeRun(letter: makeLetter()), diagnostics: [], docId: docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
+            docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains(LetterSection.title),
+            "a run whose whole output was a letter must still show it. Read: \(texts)")
+        XCTAssertTrue(texts.contains("A ghost story told through weather."))
+    }
+
+    /// And over a run that DID raise clauses — the report arm — where it
+    /// still leads.
+    func test_theLetterLeadsTheReportArm() throws {
+        let docId = "doc-letter-report"
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.replace(
+            run: makeRun(
+                clauseStatuses: [makeClause("No one says the word ghost.", "holds")],
+                letter: makeLetter()),
+            diagnostics: [], docId: docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
+            docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
+
+        let texts = try axTexts(in: window)
+        let letter = try XCTUnwrap(
+            texts.firstIndex(of: LetterSection.title),
+            "the letter never reached the report arm. Read: \(texts)")
+        let clause = try XCTUnwrap(
+            texts.firstIndex { $0.contains("No one says the word ghost.") },
+            "the conformance summary never reached the surface. Read: \(texts)")
+        XCTAssertLessThan(
+            letter, clause,
+            "the letter is read before the clause-by-clause report. Read: \(texts)")
+    }
+
+    /// **An empty letter draws no section**, and so does no letter at all.
+    /// `Letter.isEmpty` ignores `about`, so this is the case of a run whose
+    /// letter said only the say-back — and a heading over that alone would be
+    /// a section pretending there was one.
+    func test_anEmptyLetterAndNoLetterBothDrawNothing() throws {
+        let empty = Letter(
+            about: "A ghost story told through weather.", oneThing: nil,
+            working: [], habits: [], questions: [], scenes: nil, scenePosition: nil)
+        for (name, letter) in [("empty", empty), ("absent", nil)] as [(String, Letter?)] {
+            let docId = "doc-\(name)"
+            let diagnostics = DiagnosticsStore(
+                projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+            diagnostics.replace(
+                run: makeRun(letter: letter), diagnostics: [], docId: docId)
+            let window = mount(AnyView(DiagnosticsPane(
+                orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
+                docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
+            let texts = try axTexts(in: window)
+            XCTAssertFalse(
+                texts.contains(LetterSection.title),
+                "a \(name) letter must draw no section. Read: \(texts)")
+        }
+
+        // The control: the same mount with something in the letter draws it.
+        let docId = "doc-letter-control"
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.replace(
+            run: makeRun(letter: makeLetter()), diagnostics: [], docId: docId)
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
+            docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
+        XCTAssertTrue(try axTexts(in: window).contains(LetterSection.title))
+    }
+
+    /// **Accept as task files a real, paragraph-anchored pane task — and the
+    /// manuscript does not move by one byte** (global constraint 1).
+    ///
+    /// Asserted through the deriver rather than the preview `createPaneTask`
+    /// returns, on `DiagnosticPromoteToTaskTests`' rule: a preview can agree
+    /// with itself and be wrong.
+    func test_acceptAsTaskFilesAnAnchoredTaskAndLeavesTheManuscriptAlone() async throws {
+        let (root, docURL) = try makeTestProject(
+            prefix: "LETTERTASK",
+            initialMd: "The fog came in.\n\nIt sat looking over harbour and city.")
+        let document = try await Document.load(
+            url: docURL, device: "macA", session: "s1", presenter: nil)
+        let pid = try XCTUnwrap(document.sequence.first)
+        let diagnostics = DiagnosticsStore(
+            projectRoot: root, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.replace(
+            run: makeRun(letter: makeLetter(
+                habitRefs: [Diagnostic.Ref(paragraphId: pid, excerpt: "The fog came in.")])),
+            diagnostics: [], docId: document.docId)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
+            docId: document.docId, currentText: { document.paragraphs[$0] },
+            compilerModel: .standard, activeDocument: { document })))
+
+        let beforeParagraphs = Deriver.derive(ops: try await document.opLog()).paragraphs
+        // adr-0018-ok: the RENDER is the output constraint 1 is about
+        let beforeBytes = try Data(contentsOf: docURL)
+
+        let accept = try button(labelled: LetterSection.acceptTitle, in: window)
+        _ = accept.perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.3)
+
+        let (derived, _, _) = TaskDeriver.derive(
+            ops: try await document.opLog(), paragraphs: document.paragraphs,
+            docId: document.docId)
+        let task = try XCTUnwrap(
+            derived.first { $0.body.contains("Read the dialogue aloud") },
+            "the exercise never became a task: \(derived.map(\.body))")
+        XCTAssertEqual(task.kind, .paneCreated)
+        XCTAssertEqual(task.anchor?.docId, document.docId)
+        XCTAssertEqual(
+            task.anchor?.paragraphId, pid,
+            "the task anchors at the habit's FIRST ref \u{2014} that is the paragraph "
+            + "the writer goes to to do the exercise")
+
+        let afterParagraphs = Deriver.derive(ops: try await document.opLog()).paragraphs
+        XCTAssertEqual(
+            afterParagraphs, beforeParagraphs,
+            "nothing the letter offers may move manuscript text (global constraint 1)")
+        // adr-0018-ok: the RENDER again, byte for byte
+        XCTAssertEqual(
+            try Data(contentsOf: docURL), beforeBytes,
+            "the manuscript file must be byte-identical before and after")
+        await document.close()
+    }
+
+    /// **The offer is `strong_default`'s alone.** A writer whose own intent
+    /// already carries the clause is never asked for it again — asking would
+    /// file a second, duplicate ruling and read as the app not having listened.
+    func test_theTurnOfferIsOfferedForStrongDefaultAndForNothingElse() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOffer")
+        for position in [ScenePosition.strongDeclared, .weak, .none] {
+            let window = mountLetterPane(
+                store: store, docId: chapter.id,
+                letter: makeLetter(scenePosition: position.rawValue))
+            XCTAssertNil(
+                findButton(labelled: LetterSection.addToIntentTitle, in: window),
+                "\(position.rawValue) must not offer the clause")
+        }
+
+        let offered = mountLetterPane(
+            store: store, docId: chapter.id,
+            letter: makeLetter(scenePosition: ScenePosition.strongDefault.rawValue))
+        XCTAssertNotNil(
+            findButton(labelled: LetterSection.addToIntentTitle, in: offered),
+            "the strong form with no clause of the writer's is exactly the gap the "
+            + "offer exists for")
+
+        let turning = mountLetterPane(
+            store: store, docId: chapter.id,
+            letter: makeLetter(turn: "She stops asking"))
+        XCTAssertNil(
+            findButton(labelled: LetterSection.addToIntentTitle, in: turning),
+            "every scene already turns \u{2014} nothing for the clause to bite on")
+
+        let storeless = mountLetterPane(store: nil, docId: chapter.id, letter: makeLetter())
+        XCTAssertNil(
+            findButton(labelled: LetterSection.addToIntentTitle, in: storeless),
+            "a pane with no project has nowhere to file a ruling, and a button that "
+            + "presses into nowhere is worse than none")
+    }
+
+    /// **Add to intent files the clause in the writer's own layer, with the
+    /// letter's provenance — and the loop closes.** The very next
+    /// `ScenePosition.derive` over the resulting statement answers
+    /// `.strongDeclared`, which is what turns a turn-less scene into a
+    /// conformance strain from the next round on.
+    func test_addToIntentFilesTheClauseAndTheNextDeriveReadsItBack() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "TurnOfferFiles")
+        let window = mountLetterPane(
+            store: store, docId: chapter.id, letter: makeLetter(),
+            reader: .coach(ReviewPass.coachPreset))
+
+        let add = try button(labelled: LetterSection.addToIntentTitle, in: window)
+        _ = add.perform(NSSelectorFromString("accessibilityPerformPress"))
+        try await awaitStatement(kind: .intent, scope: .document(chapter.id), in: store)
+
+        let statement = try XCTUnwrap(
+            store.statement(kind: .intent, scope: .document(chapter.id)))
+        let text = try store.statementText(of: statement)
+        XCTAssertTrue(
+            text.contains(LetterSection.turnClauseRuling),
+            "the writer's own words must be in the statement: \(text)")
+        XCTAssertTrue(
+            text.contains("## Rulings"),
+            "a clause lands as a dated ruling, never as a paragraph appended to the "
+            + "essay: \(text)")
+        XCTAssertTrue(
+            text.contains("from \(ReviewPass.coachPreset.effectiveEditorName)'s letter"),
+            "the provenance says which reader asked: \(text)")
+        XCTAssertEqual(
+            ScenePosition.derive(projectType: .novel, statement: text, passBrief: nil),
+            .strongDeclared,
+            "the loop's whole point: the round after the click strains against a "
+            + "clause the writer can find in their own statement")
+
+        // And the derived render agrees with the op log.
+        let derived = try await derivedText(of: statement, in: url)
+        XCTAssertTrue(derived.contains(LetterSection.turnClauseRuling))
+    }
+
+    /// The offer does not stand again over the run it was just answered for.
+    /// A second press would file the identical ruling twice.
+    func test_theOfferIsGoneOnceTheClauseHasBeenFiledForThisRun() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferOnce")
+        let window = mountLetterPane(
+            store: store, docId: chapter.id, letter: makeLetter())
+        let add = try button(labelled: LetterSection.addToIntentTitle, in: window)
+        _ = add.perform(NSSelectorFromString("accessibilityPerformPress"))
+        try await awaitStatement(kind: .intent, scope: .document(chapter.id), in: store)
+        pump(0.3)
+
+        XCTAssertNil(
+            findButton(labelled: LetterSection.addToIntentTitle, in: window),
+            "the writer answered it; asking again is a nag")
+    }
+
+    /// **Keep this letter is drawn and pressable now**; what it writes is
+    /// Task 10's research note. The closure the pane hands over is a marked
+    /// no-op until then, which is why this asserts the control's presence
+    /// rather than an effect.
+    func test_keepThisLetterIsOnThePaneAndIsWiredToTheHostsClosure() throws {
+        let docId = "doc-keep"
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.replace(
+            run: makeRun(letter: makeLetter()), diagnostics: [], docId: docId)
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
+            docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
+        XCTAssertNotNil(findButton(labelled: LetterSection.keepTitle, in: window))
+
+        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        XCTAssertTrue(
+            source.contains("// Task 10"),
+            "the no-op must say what fills it, or a later reader reads a keep that "
+            + "silently does nothing as finished work")
+    }
+
+    /// **The signature names the piece's reader**, which is the one resolution
+    /// the header and the empty state already read (`PieceReader`).
+    func test_theLetterIsSignedByThePiecesReader() throws {
+        let docId = "doc-signature"
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.replace(
+            run: makeRun(round: 3, letter: makeLetter()), diagnostics: [], docId: docId)
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
+            docId: docId, currentText: { _ in nil }, compilerModel: .standard,
+            reader: .coach(ReviewPass.coachPreset))))
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains(LetterSection.signature(
+                voice: ReviewPass.coachPreset.effectiveEditorName, round: 3)),
+            "Read: \(texts)")
+    }
+
+    /// **The letter's jumps are the pane's own event**, not a second post.
+    ///
+    /// A census because the section takes the jump as a closure and the
+    /// mounted test for it lives in `LetterSectionTests`, which asserts the
+    /// closure is called — what nothing there can see is WHICH closure this
+    /// pane hands over. `jump(toParagraph:)` is the one spelling of
+    /// `.maughamNavigateToParagraph` here (tripwire 21).
+    func test_theLettersJumpsGoThroughThePanesOwnNavigation() throws {
+        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        let section = try XCTUnwrap(
+            source.range(of: "private var letterSection: some View {").map {
+                String(source[$0.upperBound...].prefix(1400))
+            },
+            "`letterSection` is where the wiring lives; find it by name if it moved")
+        XCTAssertTrue(
+            section.contains("onJump: { jump(toParagraph: $0) }"),
+            "the letter must travel through the pane's own navigation, never a "
+            + "second `MaughamEvent.post` spelled at the call site: \(section)")
+        XCTAssertTrue(
+            section.contains("createPaneTask("),
+            "and Accept as task must reach the document's own verb: \(section)")
+        XCTAssertTrue(
+            section.contains("habit.refs.first?.paragraphId"),
+            "anchored at the habit's FIRST ref: \(section)")
+    }
+
+    // MARK: - Letter hosting
+
+    private func mountLetterPane(
+        store: ProjectStore?, docId: String, letter: Letter,
+        reader: PieceReader = .nobody
+    ) -> NSWindow {
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.replace(run: makeRun(letter: letter), diagnostics: [], docId: docId)
+        return mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
+            docId: docId, currentText: { _ in nil }, compilerModel: .standard,
+            store: store, reader: reader)))
+    }
+
+    /// Poll until the ruling's statement exists and carries the clause —
+    /// `RulingPerformer.rule` is async and the press only starts it.
+    private func awaitStatement(
+        kind: Statement.Kind, scope: Statement.Scope, in store: ProjectStore,
+        timeout: TimeInterval = 4
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let statement = store.statement(kind: kind, scope: scope),
+               let text = try? store.statementText(of: statement),
+               text.contains(LetterSection.turnClauseRuling) { return }
+            pump(0.05)
+            try? await Task.sleep(for: .milliseconds(40))
+        }
+        XCTFail("the ruling never landed within \(timeout)s")
     }
 
     // MARK: - Hosting

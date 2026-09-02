@@ -81,9 +81,63 @@ is briefed on when you press ⌘R — nothing more, nothing hidden. Full mechani
 
 The pane reads as a report, in this order:
 
-**This check**, first, and only when the run just raised something — the
-notes it minted, in the order they fall down your manuscript rather than
-newest first, each with **Got it** and **Not this** and a jump chip to the
+### The letter
+
+**The letter comes first**, above everything else, because it's what you read
+first — the notes are the margin. It's a letter about the draft rather than a
+list of findings, and it's signed: *— Le Guin · round 3*, or whoever reads
+this piece.
+
+It says, in this order: what the piece seems to be **about** as read — one
+sentence you can compare against your own intent; **the one thing** to fix if
+you fix only one; **What's working**, and why it works, so the strength is
+repeatable; **Habits**, a pattern across what was read rather than a single
+line, with what it costs the reader; **Questions** the draft raised; and a
+**Scenes** table. A part with nothing in it draws nothing at all — no heading
+over an empty list.
+
+Every reference is the words that paragraph says now, as a chip you click to
+jump there, with *and 2 more* when the note stands on several. You never see a
+paragraph id.
+
+A habit can come with an exercise — a thing to *do*, never a rewrite:
+*rewrite the scene without a single "was"*, *read the dialogue aloud with the
+names removed*. **Accept as task** files it as a task anchored at the first
+paragraph the habit shows in, so you leave a round with something to try. It's
+one undo step, and pressing it again does nothing — the button stays put and
+goes quiet, so you can see it fired.
+
+**The scenes table** has three columns — wants, changes, turn — and a fourth,
+charge, only when the reading is one that has a charge to report. A blank cell
+stays blank: a scene where nothing shifts is an observation, not a verdict.
+Which table you get depends on what you've said about the piece:
+
+- **Nothing at all.** Prose gets the weak form: something should change here,
+  read as observation, with no charge column.
+- **Your own words.** Write *every scene must turn* or *moves by dramatic
+  turns* in your intent — or click the offer below — and a turn-less scene is
+  also raised as a conformance strain, quoting the clause you wrote.
+- **Not scene-driven.** Write *lyric*, *essayistic*, *meander* or *not
+  scene-driven* and there's no table at all.
+
+A screenplay is in the strong form by its own form. So is a prose piece whose
+pass brief asks for it. Neither is a sentence you wrote about this book, so
+neither earns a strain — instead the table ends with one standing line,
+**Hold every scene to a turn?**, and an **Add to intent** button. Clicking it
+files *"Every scene must turn."* as a dated ruling under your intent, in your
+own words, and from the next round on a turn-less scene strains against a
+clause you can find in your own statement. The offer appears on every
+strong-form round until a clause exists, then never again — and it goes away
+the moment you take it.
+
+**Keep this letter** writes the whole letter, with its date and signature, as
+a research note. The run's own letter ages out with the run; a kept one is a
+copy that doesn't. A letter you didn't keep was a letter you read and let go,
+which is what happens to letters.
+
+**This check** follows the letter, and only when the run just raised
+something — the notes it minted, in the order they fall down your manuscript
+rather than newest first, each with **Got it** and **Not this** and a jump chip to the
 words it's about. This is where a continuity question and a reader's report
 land: a continuity question ends as a question rather than a verdict —
 "Is the dock standing again by this scene?" rather than "Contradiction: the

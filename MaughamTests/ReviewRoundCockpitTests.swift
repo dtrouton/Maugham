@@ -1413,6 +1413,134 @@ final class ReviewRoundCockpitTests: XCTestCase {
                       "the strip wraps BELOW the toolbar's divider")
     }
 
+    // MARK: - The letter (editorial letter P1 Task 9)
+
+    nonisolated private static func letter(
+        oneThing: String?, about: String = "A ghost story told through weather."
+    ) -> Letter {
+        Letter(about: about, oneThing: oneThing, working: [],
+               habits: [Letter.Habit(
+                    name: "Every speech sounds like the same person", refs: [],
+                    cost: "The cast blurs.", lesson: nil, exercise: nil)],
+               questions: [], scenes: nil, scenePosition: nil)
+    }
+
+    /// **The one thing, else the say-back.** The cockpit's line is one line,
+    /// and `one_thing` is the letter's own answer to "if you fix one thing" —
+    /// `about` stands in only when the letter had nothing to fix.
+    func test_theLetterLineIsTheOneThingElseTheSayBack() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.letterLine(
+                Self.letter(oneThing: "Give the reader the dock before the fire.")),
+            "Give the reader the dock before the fire.")
+        XCTAssertEqual(
+            ReviewRoundCockpit.letterLine(Self.letter(oneThing: nil)),
+            "A ghost story told through weather.",
+            "a letter with nothing to fix still says what it read")
+        XCTAssertNil(
+            ReviewRoundCockpit.letterLine(nil),
+            "no letter is no line \u{2014} never an empty caption")
+        XCTAssertNil(
+            ReviewRoundCockpit.letterLine(Letter(
+                about: "A ghost story.", oneThing: nil, working: [], habits: [],
+                questions: [], scenes: nil, scenePosition: nil)),
+            "a letter with only its say-back in it is empty (`Letter.isEmpty`), and "
+            + "an empty letter has no section to disclose")
+    }
+
+    /// The line draws under the status line, and the disclosure opens the
+    /// host's own `LetterSection`.
+    func test_theCockpitDrawsTheLetterLineAndDisclosesTheSection() throws {
+        let window = mountCockpit(
+            activePassId: "copyedit", round: 2, reportLine: "Since round 1: 1 new",
+            letterLine: "Give the reader the dock before the fire.",
+            letterDisclosure: { AnyView(Text("THE-LETTER-BODY")) })
+
+        let texts = allLabels(in: window)
+        let status = try XCTUnwrap(
+            texts.firstIndex(of: "Since round 1: 1 new"),
+            "the status line went missing. Read: \(texts)")
+        let letter = try XCTUnwrap(
+            texts.firstIndex(of: "Give the reader the dock before the fire."),
+            "the letter line never reached the strip. Read: \(texts)")
+        XCTAssertLessThan(
+            status, letter,
+            "the letter sits UNDER the status line, not over it. Read: \(texts)")
+
+        let disclosure = try XCTUnwrap(
+            pressableLanePicker(
+                labelled: "Give the reader the dock before the fire.", in: window)
+                ?? disclosureElement(
+                    labelled: "Give the reader the dock before the fire.", in: window),
+            "the letter line must be a disclosure control, not a caption. "
+            + "Pressables: \(pressableLabels(in: window))")
+        press(disclosure)
+        pump(0.3)
+        XCTAssertTrue(
+            allLabels(in: window).contains("THE-LETTER-BODY"),
+            "opening the disclosure must reveal the host's own section. "
+            + "Read: \(allLabels(in: window))")
+    }
+
+    /// No letter, no line and nothing to open — never an empty disclosure
+    /// triangle over a strip with nothing behind it.
+    func test_noLetterDrawsNoLineAndNoDisclosure() throws {
+        let window = mountCockpit(
+            activePassId: "copyedit", round: 2, reportLine: "Since round 1: 1 new")
+        let texts = allLabels(in: window)
+        XCTAssertFalse(
+            texts.contains("Give the reader the dock before the fire."),
+            "Read: \(texts)")
+        XCTAssertFalse(
+            texts.contains(LetterSection.title),
+            "and no section header either. Read: \(texts)")
+    }
+
+    /// **The pane feeds the strip its own document's letter.** Mounted
+    /// through `AnnotationsPane` rather than the strip directly, because the
+    /// claim is about the derivation the pane makes — a strip fed by hand
+    /// proves nothing about what the queue shows.
+    func test_theQueuesStripShowsTheOpenDocumentsLetter() async throws {
+        let fx = try await makeHarness()
+        fx.diagnostics.replace(
+            run: CompilerRun(
+                id: "r-1", at: Date(), model: "test-model", lastOpId: "op-1",
+                deltaSummary: "1 new", intentSnapshot: nil, passId: nil, round: 1,
+                freshEyes: nil,
+                letter: Self.letter(oneThing: "Give the reader the dock before the fire.")),
+            diagnostics: [], docId: fx.document.docId)
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        pump(0.3)
+        XCTAssertTrue(
+            allLabels(in: window).contains("Give the reader the dock before the fire."),
+            "the queue's strip must carry the letter the open piece's last run left. "
+            + "Read: \(allLabels(in: window))")
+    }
+
+    /// **The census the mount cannot make**: the pane derives the line through
+    /// the one static above and builds the disclosure from the same
+    /// `LetterSection` Author draws, rather than a second view of its own.
+    func test_thePaneDerivesTheLineAndDisclosesTheSharedSection() throws {
+        let source = try readSource("Maugham/Views/AnnotationsPane.swift")
+        let cockpit = try XCTUnwrap(
+            source.range(of: "ReviewRoundCockpit(").map {
+                String(source[$0.upperBound...].prefix(1800))
+            },
+            "the cockpit's mount is where the two inputs are fed")
+        XCTAssertTrue(
+            cockpit.contains("letterLine: ReviewRoundCockpit.letterLine("),
+            "the line must come from the one static the test above pins, never from a "
+            + "second `oneThing ?? about` spelled here: \(cockpit)")
+        XCTAssertTrue(
+            cockpit.contains("letterDisclosure:"),
+            "and the disclosure must be fed: \(cockpit)")
+        XCTAssertTrue(
+            source.contains("LetterSection("),
+            "Review discloses the SAME view Author draws \u{2014} a second letter view "
+            + "would be two letters that could disagree about one run")
+    }
+
     // MARK: - Mounting
 
     private func mountCockpit(
@@ -1423,7 +1551,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
         coach: ReviewPass? = nil,
         onCancel: @escaping () -> Void = {},
         compilerModel: CompilerModelChoice = .standard,
-        onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in }
+        onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
+        letterLine: String? = nil,
+        letterDisclosure: (() -> AnyView)? = nil
     ) -> NSWindow {
         mount(AnyView(ReviewRoundCockpit(
             passes: [Self.line, Self.copyedit],
@@ -1436,7 +1566,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
             onSetActivePass: { _ in },
             onCancel: onCancel,
             compilerModel: compilerModel,
-            onCompilerModelChange: onCompilerModelChange)))
+            onCompilerModelChange: onCompilerModelChange,
+            letterLine: letterLine,
+            letterDisclosure: letterDisclosure)))
     }
 
     /// `orchestrator` is explicit and **undefaulted** so the no-compiler host
@@ -1567,6 +1699,37 @@ final class ReviewRoundCockpitTests: XCTestCase {
                 ?? (axAttribute(element, "accessibilityValue") as? String) ?? "nil"
             return "\(role): \(label)"
         }
+    }
+
+    /// A `DisclosureGroup`'s own control, which arrives under its own role
+    /// rather than any of `menuRoles`. Deliberately role-agnostic on the
+    /// label: the claim is "this is pressable", not which AppKit spelling
+    /// macOS picked for a disclosure this year.
+    private func disclosureElement(
+        labelled label: String, in window: NSWindow
+    ) -> AnyObject? {
+        guard let tree = try? axTree(in: window) else { return nil }
+        return tree.first { element in
+            guard let object = element as? NSObject,
+                  object.responds(to: NSSelectorFromString("accessibilityPerformPress"))
+            else { return false }
+            let drawn = (axAttribute(element, "accessibilityLabel") as? String)
+                ?? (axAttribute(element, "accessibilityValue") as? String) ?? ""
+            return drawn == label
+        }
+    }
+
+    private func press(_ element: AnyObject) {
+        _ = (element as? NSObject)?.perform(
+            NSSelectorFromString("accessibilityPerformPress"))
+    }
+
+    private func readSource(_ relativePath: String) throws -> String {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(
+            contentsOf: repoRoot.appendingPathComponent(relativePath), encoding: .utf8)
     }
 
     private func allLabels(in window: NSWindow) -> [String] {
