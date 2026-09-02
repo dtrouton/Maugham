@@ -75,7 +75,9 @@ open document and the directive becomes an orphan while you watch.
 **Glossary** entries — a term and how it's rendered, decided for the whole
 book — are pulled out into a **table** above the other rulings, one row each:
 term, rendering, and a note where there is one, with **Revoke** beside it.
-They live in an edition brief, they come from you or from a glossary proposal
+They belong in an edition brief — that's where the buttons write them, and
+where a translator is briefed with them — though the table draws wherever a
+ruling of that shape turns up. They come from you or from a glossary proposal
 you adopted on a round, and a table is what makes them scannable by someone
 who can't read the language they're in. See
 [The Publish Department](publish-department.md).

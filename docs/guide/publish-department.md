@@ -129,10 +129,11 @@ good news; the first read is skipped when there was nothing translated to
 read, which isn't.
 
 Before you press anything the row tells you what the click costs: **7 legs ·
-~4,300 words briefed**, counted over the chapter you have open. Beside it, once
-the edition has a round or two behind it, is the trend — **notes per round 9 →
-5 → 3** — the last five rounds, oldest first, so you can see the edition
-settling rather than churning.
+~4,300 words briefed**, counted over the chapter you have open — or over the
+whole book, when you have no chapter open and Run Whole Book is the verb the
+figure is for. Beside it, from the first round on, is the trend — **notes per
+round 9 → 5 → 3** — the last five rounds, oldest first, so you can see the
+edition settling rather than churning.
 
 While a round runs the row says which leg it's on: *Reading… (leg 2 of 7)*.
 Only one round runs at a time, across every language and both kinds of run —
@@ -188,7 +189,9 @@ in this order:
 **The reader's report.** The first read beside the second, each with its
 verdict and the paragraph the reader wrote. Read them together and you can
 see whether the middle of the round earned its keep. Where a read didn't
-happen the column says which silence this is, in its own words.
+happen the column says which silence this is, in its own words. Beneath the
+two, under **The collator**, is the collator's own verdict on the chapter as
+a whole — the departures below are the particulars of it.
 
 **Where your prose was changed.** One row per departure: your own paragraph,
 the collator's gloss of what the translation now says, their reason, and what
@@ -216,7 +219,9 @@ settled and the translation stands), **Reader's right** or **Collator's
 right** depending on who raised it (you side with the note; it becomes a
 dated directive on that paragraph and the question is answered), and **Make
 it a rule**. Where a declined note never became a question there's nothing to
-settle, and the row says so rather than drawing a button that would refuse.
+reject: Translator's right comes off that row, and the row says so. The other
+two verbs still apply — your decision stands whether or not there's a thread
+to post it on.
 
 **Questions for you.** The round's own queries, with **Answer** and — where
 the question is about one edition — **Answer as ruling…**, the same pair

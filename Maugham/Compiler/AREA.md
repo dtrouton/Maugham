@@ -829,7 +829,8 @@ blindness.
 - **The two spot-checks are `SpotCheck.swift`** (P4 Task 6), the other tempo
   beside a round: the caret is in a paragraph and the author asks *what does
   this now say?* (**Gloss**) or *does it still say what I wrote?* (**Ask the
-  collator**), each a `Button` in the Translation pane — ⌘⌥L opens the pane,
+  Collator**, `SpotCheck.askTitle`'s own capital), each a `Button` in the
+  Translation pane — ⌘⌥L opens the pane,
   and **no shortcut is bound to either verb**. Spec §9 calls them
   "keystroke-triggered", which is ADR 0028's tempo contrast read correctly: the
   trigger must be a writer's own act rather than a timer or an event, and a
