@@ -29,11 +29,19 @@ public enum ListAnnotationsTool: MCPTool {
         /// null. **Null means every pass, not no pass**: an unstamped note
         /// appears in every pass's queue.
         public let review_pass_id: String?
+        /// The lessons-ledger heading a letter question was raised under
+        /// (editorial letter P2), or absent when the note was raised under no
+        /// habit — which is nearly every note. **`encodeIfPresent`, unlike the
+        /// two fields above**: those emit `null` because absence there carries
+        /// a second meaning a reader must not have to guess at, while a note
+        /// with no heading simply has none, and a key on every row of every
+        /// listing would be payload for a fact that says nothing.
+        public let lesson_heading: String?
 
         enum CodingKeys: String, CodingKey {
             case id, kind, paragraph_id, body, suggested_text, status
             case user_response, created_at, resolved_at, is_stale
-            case triage, review_pass_id
+            case triage, review_pass_id, lesson_heading
         }
 
         // Hand-written so the two M3 P3 fields emit JSON `null` rather than
@@ -56,6 +64,7 @@ public enum ListAnnotationsTool: MCPTool {
             try c.encode(is_stale, forKey: .is_stale)
             try c.encode(triage, forKey: .triage)
             try c.encode(review_pass_id, forKey: .review_pass_id)
+            try c.encodeIfPresent(lesson_heading, forKey: .lesson_heading)
         }
     }
     public static let method = "list_annotations"
@@ -66,7 +75,11 @@ public enum ListAnnotationsTool: MCPTool {
         "read the note and the words stand), `paragraph_id`. Use this to check " +
         "prior editorial conversation on a paragraph before adding new suggestions. " +
         "`review_pass_id` is the review pass a note was written under; a null one " +
-        "belongs to EVERY pass, not to none. `triage` (do/decline/discuss) and " +
+        "belongs to EVERY pass, not to none. `lesson_heading` is the ledger " +
+        "heading a letter question was raised under, when it was. " +
+        "`review_pass_id` `workshop` is the coach's lane (Le Guin's) and is " +
+        "never listed in `get_outline`'s `review_passes`. " +
+        "`triage` (do/decline/discuss) and " +
         "stetting are the writer's own marks — Claude never sets either."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"kinds":{"type":"array","items":{"type":"string"}},"statuses":{"type":"array","items":{"type":"string"}},"paragraph_id":{"type":"string"}},"required":["project_id","document_id"]}"#
@@ -128,6 +141,9 @@ public enum GetAnnotationTool: MCPTool {
         public let triage: String?
         /// See `ListAnnotationsTool.Item.review_pass_id`.
         public let review_pass_id: String?
+        /// See `ListAnnotationsTool.Item.lesson_heading` — the same field
+        /// under the same rule, so the pair cannot disagree about a note.
+        public let lesson_heading: String?
         public let history: [HistoryEntry]
 
         public struct HistoryEntry: Codable, Equatable {
@@ -140,7 +156,7 @@ public enum GetAnnotationTool: MCPTool {
         enum CodingKeys: String, CodingKey {
             case id, kind, paragraph_id, body, suggested_text, prior_text
             case status, user_response, created_at, resolved_at, is_stale
-            case triage, review_pass_id, history
+            case triage, review_pass_id, lesson_heading, history
         }
 
         // `ListAnnotationsTool.Item.encode`'s reasoning, applied to the
@@ -160,6 +176,7 @@ public enum GetAnnotationTool: MCPTool {
             try c.encode(is_stale, forKey: .is_stale)
             try c.encode(triage, forKey: .triage)
             try c.encode(review_pass_id, forKey: .review_pass_id)
+            try c.encodeIfPresent(lesson_heading, forKey: .lesson_heading)
             try c.encode(history, forKey: .history)
         }
     }
@@ -211,6 +228,7 @@ public enum GetAnnotationTool: MCPTool {
                 is_stale: ann.isStale,
                 triage: ann.triage?.rawValue,
                 review_pass_id: ann.reviewPassId,
+                lesson_heading: ann.lessonHeading,
                 history: history)
         }
         let enc = JSONEncoder()
@@ -227,6 +245,7 @@ extension ListAnnotationsTool.Item {
             suggested_text: ann.suggestedText, status: ann.status.rawValue,
             user_response: ann.userResponse, created_at: ann.createdAt,
             resolved_at: ann.resolvedAt, is_stale: ann.isStale,
-            triage: ann.triage?.rawValue, review_pass_id: ann.reviewPassId)
+            triage: ann.triage?.rawValue, review_pass_id: ann.reviewPassId,
+            lesson_heading: ann.lessonHeading)
     }
 }

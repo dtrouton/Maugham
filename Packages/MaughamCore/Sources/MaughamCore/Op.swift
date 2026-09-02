@@ -106,6 +106,17 @@ public struct Op: Codable, Equatable, Sendable {
         public let compilerRound: Int?
         public let compilerFreshEyes: Bool?
         public let compilerFingerprint: String?
+        /// **The habit heading this finding was raised under** (editorial
+        /// letter P2) — a heading from the piece's own lessons ledger, when the
+        /// letter's question came out of a habit the writer has already been
+        /// told about. Nil for every other note, which is nearly all of them:
+        /// a continuity question, a reader's report and anything a person
+        /// wrote have no ledger heading to carry.
+        ///
+        /// A fifth flat scalar rather than a nested value, on the four above's
+        /// own rule — the wire shape here IS flat scalars, and a struct would
+        /// be a second spelling of the same fields.
+        public let compilerLessonHeading: String?
 
         enum CodingKeys: String, CodingKey {
             case sessionId = "session_id"
@@ -138,6 +149,7 @@ public struct Op: Codable, Equatable, Sendable {
             case compilerRound = "compiler_round"
             case compilerFreshEyes = "compiler_fresh_eyes"
             case compilerFingerprint = "compiler_fingerprint"
+            case compilerLessonHeading = "compiler_lesson_heading"
         }
 
         public init(
@@ -156,7 +168,8 @@ public struct Op: Codable, Equatable, Sendable {
             spanSuffix: String? = nil, spanPosHint: Int? = nil,
             triageMark: String? = nil, reviewPassId: String? = nil,
             compilerRunId: String? = nil, compilerRound: Int? = nil,
-            compilerFreshEyes: Bool? = nil, compilerFingerprint: String? = nil
+            compilerFreshEyes: Bool? = nil, compilerFingerprint: String? = nil,
+            compilerLessonHeading: String? = nil
         ) {
             self.sessionId = sessionId
             self.prompt = prompt
@@ -188,6 +201,7 @@ public struct Op: Codable, Equatable, Sendable {
             self.compilerRound = compilerRound
             self.compilerFreshEyes = compilerFreshEyes
             self.compilerFingerprint = compilerFingerprint
+            self.compilerLessonHeading = compilerLessonHeading
         }
     }
 

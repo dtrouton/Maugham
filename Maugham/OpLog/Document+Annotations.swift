@@ -103,6 +103,16 @@ extension Document {
         compilerRound: Int? = nil,
         compilerFreshEyes: Bool? = nil,
         compilerFingerprint: String? = nil,
+        /// **The habit heading this finding was raised under** (editorial
+        /// letter P2) — a heading from the piece's lessons ledger, when the
+        /// letter's question came out of a habit the writer has already been
+        /// told about. A fifth flat scalar beside the four above and defaulted
+        /// like them, so every caller that has no heading to give writes the
+        /// op it wrote before, key and all.
+        ///
+        /// Separate from `compilerRunId` on purpose: it says what the note is
+        /// ABOUT, never who wrote it.
+        compilerLessonHeading: String? = nil,
         /// **The one seam in the announce contract**, on `appendLifecycleOp`'s
         /// rule and for exactly its reason: a caller that appends N ops for ONE
         /// writer-visible event passes `false` and announces ONCE after its
@@ -199,7 +209,8 @@ extension Document {
                 compilerRunId: compilerRunId,
                 compilerRound: compilerRound,
                 compilerFreshEyes: compilerFreshEyes,
-                compilerFingerprint: compilerFingerprint))
+                compilerFingerprint: compilerFingerprint,
+                compilerLessonHeading: compilerLessonHeading))
         try await opStore.append(op)
         appendToMirror(op)
         _hasAnyAnnotationOps = true

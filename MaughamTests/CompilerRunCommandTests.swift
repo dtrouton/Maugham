@@ -1875,6 +1875,10 @@ final class CompilerRunCommandTests: XCTestCase {
     /// socket path.
     private struct LiveDocumentHarness {
         let orchestrator: CompilerOrchestrator
+        /// The PRODUCTION environment the orchestrator was configured with, so
+        /// a test can drive one of its closures (the mint) directly where the
+        /// run cannot yet reach it.
+        let environment: CompilerOrchestrator.Environment
         let diagnostics: DiagnosticsStore
         let document: Document
         /// Held so the stores outlive the environment's weak captures.
@@ -1935,7 +1939,8 @@ final class CompilerRunCommandTests: XCTestCase {
         orchestrator.configure(environment: environment, diagnostics: diagnostics)
 
         return LiveDocumentHarness(
-            orchestrator: orchestrator, diagnostics: diagnostics, document: document,
+            orchestrator: orchestrator, environment: environment,
+            diagnostics: diagnostics, document: document,
             store: store, documentStore: documentStore, declaredWorld: declaredWorld,
             root: root)
     }
@@ -5601,5 +5606,122 @@ final class CompilerRunCommandTests: XCTestCase {
 
         let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
         XCTAssertNil(run.letter)
+    }
+
+    // MARK: - The ledger heading rides the note (editorial letter P2 Task 2)
+
+    /// **The wire, end to end on a live document**: a note written with a
+    /// habit heading carries it on the op, off the op, and onto the
+    /// projection. `addAnnotation` is the one door, so this is the whole
+    /// writing half of the field.
+    ///
+    /// Nothing stamps a heading from a real run yet — Task 4 teaches the
+    /// ingest to — so the argument is passed here directly, which is exactly
+    /// what the mint will do once it has one.
+    func test_aNoteWrittenWithALedgerHeadingCarriesItOnTheOpAndTheProjection() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+
+        let id = try await fx.document.addAnnotation(
+            kind: .query, paragraphId: pid,
+            body: "Whose fear is this, hers or the narrator\u{2019}s?",
+            compilerLessonHeading: "filter words")
+
+        let note = try XCTUnwrap(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+                .first { $0.id == id })
+        XCTAssertEqual(note.lessonHeading, "filter words",
+                       "the heading never reached the projection, so the queue "
+                       + "can never say what habit the question came out of")
+
+        let raw = try rawOpLog(under: fx.root)
+        XCTAssertTrue(raw.contains("\"compiler_lesson_heading\":\"filter words\""),
+                      "the heading was derived but never serialised, so it "
+                      + "syncs to no other device")
+    }
+
+    /// **Every existing caller writes exactly the op it wrote before.** The
+    /// key is absent, not null: an argument nobody passes must leave no trace
+    /// in the op log.
+    func test_aNoteWrittenWithoutOneLeavesNoKeyBehind() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+
+        let id = try await fx.document.addAnnotation(
+            kind: .query, paragraphId: pid, body: "Has anyone said how long yet?")
+
+        let note = try XCTUnwrap(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+                .first { $0.id == id })
+        XCTAssertNil(note.lessonHeading)
+        let raw = try rawOpLog(under: fx.root)
+        XCTAssertFalse(raw.contains("compiler_lesson_heading"),
+                       "an unpassed argument put a key on the wire: \(raw)")
+    }
+
+    /// **The letter's question carries a heading; a continuity question has
+    /// none to carry.** `CompilerNote` is the value that crosses the seam into
+    /// the mint, so a heading dropped here never reaches `addAnnotation` at
+    /// all — and the two kinds are asserted together because the field must be
+    /// carried, not defaulted on by kind.
+    func test_aCompilerNoteCarriesTheLetterQuestionsHeadingAndNothingElses() throws {
+        func diagnostic(kind: DiagnosticKind, heading: String?) -> Diagnostic {
+            var d = Diagnostic(
+                id: "01AAAA", docId: "ch-1",
+                anchor: .init(paragraphId: "ab12", anchorText: "The fog came."),
+                body: "Whose fear is this?", category: nil, runId: "run-7")
+            d.kind = kind
+            d.lessonHeading = heading
+            return d
+        }
+
+        let letter = try XCTUnwrap(
+            CompilerNote(diagnostic: diagnostic(kind: .letterQuestion,
+                                                heading: "filter words")))
+        XCTAssertEqual(letter.kind, .query)
+        XCTAssertEqual(letter.lessonHeading, "filter words",
+                       "the heading was dropped at the seam into the mint")
+
+        let continuity = try XCTUnwrap(
+            CompilerNote(diagnostic: diagnostic(kind: .continuity, heading: nil)))
+        XCTAssertNil(continuity.lessonHeading,
+                     "a continuity question is raised under no habit")
+    }
+
+
+    /// **The mint's own thread**, driven through the PRODUCTION environment.
+    /// Nothing parses a heading off the wire until Task 4, so no run can carry
+    /// one end to end yet — but the loop that puts a note on the document is
+    /// shipped code, and a note handed to it with a heading must arrive with
+    /// one. Without this the last link of the wire has no test at all until a
+    /// later task happens to exercise it.
+    func test_theMintPutsTheNotesHeadingOnTheOpItWrites() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+
+        let outcome = await fx.environment.mintAnnotations(
+            [CompilerNote(kind: .query, paragraphId: pid,
+                          body: "Whose fear is this?",
+                          fingerprint: "letterQuestion\u{1f}\u{1f}\(pid)\u{1f}",
+                          lessonHeading: "filter words"),
+             CompilerNote(kind: .query, paragraphId: pid,
+                          body: "Has anyone said how long yet?",
+                          fingerprint: "continuity\u{1f}\u{1f}\(pid)\u{1f}")],
+            CompilerMintContext(
+                docId: "ch-1", runId: "run-7", passId: "structural", round: 1,
+                freshEyes: false, editorName: "Perkins"))
+        XCTAssertEqual(outcome.minted, 2, "control: both notes minted")
+
+        let notes = fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+        let raised = try XCTUnwrap(notes.first { $0.body == "Whose fear is this?" })
+        let plain = try XCTUnwrap(
+            notes.first { $0.body == "Has anyone said how long yet?" })
+        XCTAssertEqual(raised.lessonHeading, "filter words",
+                       "the mint dropped the heading between the note and the op")
+        XCTAssertNil(plain.lessonHeading,
+                     "the mint put a heading on a note that carried none")
     }
 }

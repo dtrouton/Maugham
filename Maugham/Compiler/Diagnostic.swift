@@ -82,6 +82,15 @@ struct Diagnostic: Identifiable, Codable, Equatable, Sendable {
     /// for both because they are the same thing wearing two schema names, and
     /// a second field would be a second spelling to keep in step.
     var clauseQuote: String?
+    /// **The lessons-ledger heading this finding was raised under** (editorial
+    /// letter P2) — set only on a `.letterQuestion` the run raised out of a
+    /// habit the writer has already been told about, and nil on every other
+    /// kind, which have no ledger to be raised under.
+    ///
+    /// It travels no further than `CompilerNote`: the sidecar keeps
+    /// conformance strains alone, so the only reader of this field is the
+    /// mint, which stamps it onto the note's op.
+    var lessonHeading: String?
 }
 
 /// One compiler pass against a document: what it checked against, and the

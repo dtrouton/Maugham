@@ -76,6 +76,15 @@ public struct Annotation: Equatable, Sendable, Identifiable {
     public let compilerRunId: String?
     public let compilerRound: Int?
     public let compilerFingerprint: String?
+    /// **The habit heading this note was raised under** (editorial letter P2),
+    /// projected from the creation op's `compilerLessonHeading`: a heading
+    /// from the piece's lessons ledger, when the letter's question came out of
+    /// a habit the writer has already been told about. Nil for every note that
+    /// was not — which is nearly all of them, a person's included.
+    ///
+    /// Independent of `compilerRunId`: a heading says what the note is ABOUT,
+    /// never who wrote it, so `isCompilerAuthored` does not read it.
+    public let lessonHeading: String?
 
     /// Did a compiler run write this note? The run id is the sole determinant:
     /// the round and the fingerprint say WHICH run, never WHETHER.
@@ -95,7 +104,8 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         reviewPassId: String? = nil,
         compilerRunId: String? = nil,
         compilerRound: Int? = nil,
-        compilerFingerprint: String? = nil
+        compilerFingerprint: String? = nil,
+        lessonHeading: String? = nil
     ) {
         self.id = id; self.kind = kind; self.paragraphId = paragraphId
         self.body = body; self.suggestedText = suggestedText
@@ -112,6 +122,7 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         self.compilerRunId = compilerRunId
         self.compilerRound = compilerRound
         self.compilerFingerprint = compilerFingerprint
+        self.lessonHeading = lessonHeading
     }
 }
 

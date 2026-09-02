@@ -345,6 +345,11 @@ extension CompilerOrchestrator.Environment {
                             // byte-for-byte what it was.
                             compilerFreshEyes: context.freshEyes ? true : nil,
                             compilerFingerprint: note.fingerprint,
+                            // The habit the question came out of, when it came
+                            // out of one — nil for every other finding, and for
+                            // every letter question raised out of nothing in
+                            // the ledger.
+                            compilerLessonHeading: note.lessonHeading,
                             // One round is ONE event to every surface counting
                             // this project's notes, and each of them walks the
                             // whole project to answer it. Paid back once below.

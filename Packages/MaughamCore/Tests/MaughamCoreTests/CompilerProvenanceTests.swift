@@ -2,10 +2,12 @@ import XCTest
 @testable import MaughamCore
 
 /// M4 P1 Task 2 — compiler-run provenance on the wire and in the projection:
-/// the four flat optional scalars a compiler-authored annotation op carries
+/// the flat optional scalars a compiler-authored annotation op carries
 /// (`compiler_run_id`, `compiler_round`, `compiler_fresh_eyes`,
-/// `compiler_fingerprint`) and the three the deriver projects onto
-/// `Annotation` (fresh eyes is wire-only — nothing reads it off a note).
+/// `compiler_fingerprint`, and the editorial letter P2's own
+/// `compiler_lesson_heading`) and the ones the deriver projects onto
+/// `Annotation` — fresh eyes is wire-only, because nothing reads it off a
+/// note.
 ///
 /// Paragraph ids here are 4-char and drawn from `ParagraphID`'s alphabet
 /// (tripwire 8) so a test that later crosses the `.md` ↔ op-log boundary
@@ -20,7 +22,8 @@ final class CompilerProvenanceTests: XCTestCase {
         compilerRunId: String? = nil,
         compilerRound: Int? = nil,
         compilerFreshEyes: Bool? = nil,
-        compilerFingerprint: String? = nil
+        compilerFingerprint: String? = nil,
+        compilerLessonHeading: String? = nil
     ) -> Op {
         Op(opId: opId, docId: "doc-1", at: Date(timeIntervalSince1970: 1),
            device: "mac", session: "s1",
@@ -32,7 +35,8 @@ final class CompilerProvenanceTests: XCTestCase {
                compilerRunId: compilerRunId,
                compilerRound: compilerRound,
                compilerFreshEyes: compilerFreshEyes,
-               compilerFingerprint: compilerFingerprint))
+               compilerFingerprint: compilerFingerprint,
+               compilerLessonHeading: compilerLessonHeading))
     }
 
     private func derive(_ ops: [Op]) -> [Annotation] {
@@ -101,8 +105,8 @@ final class CompilerProvenanceTests: XCTestCase {
 
     // MARK: - Wire tolerance
 
-    /// A hand-written op-log line from before this milestone — none of the
-    /// four new keys — still decodes, with all four nil. The op log is
+    /// A hand-written op-log line from before M4 P1 — none of that
+    /// milestone's four keys — still decodes, with all four nil. The op log is
     /// append-only, so this tolerance is the whole compatibility story: no
     /// `OpKind` case was added, hence no schema bump.
     func test_aLegacyProvenanceLineDecodesWithAllFourNewFieldsNil() throws {
@@ -150,6 +154,81 @@ final class CompilerProvenanceTests: XCTestCase {
             .contains(#""compiler_fresh_eyes":false"#))
         let back = try JSONDecoder().decode(Op.Provenance.self, from: data)
         XCTAssertEqual(back.compilerFreshEyes, false)
+    }
+
+    // MARK: - The ledger heading (editorial letter P2)
+
+    /// **The phone's tolerance, written as the phone will meet it** — a raw
+    /// op-log line carrying the new key, decoded and derived by the SHARED
+    /// `AnnotationDeriver` (tripwire 19: the phone reimplements none of this,
+    /// so this type IS its decoder). A literal, never a re-encode, because an
+    /// encode-then-decode round trip can only prove the two halves of one
+    /// build agree with each other.
+    func test_aProvenanceLineCarryingTheLedgerHeadingDerivesOntoTheNote() throws {
+        let line = Data((
+            #"{"op_id":"01AAAA","doc_id":"doc-1","at":"1970-01-01T00:00:01Z","#
+            + #""device":"mac","session":"s1","kind":"claude_query","#
+            + #""changes":[{"paragraph_id":"ab12","prior":"Source.","next":""}],"#
+            + #""provenance":{"session_id":"s1","annotation_body":"Whose fear?","#
+            + #""compiler_run_id":"run-7","compiler_lesson_heading":"filter words"}}"#
+        ).utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let op = try decoder.decode(Op.self, from: line)
+        XCTAssertEqual(op.provenance?.compilerLessonHeading, "filter words",
+                       "the key never decoded off the wire")
+        let a = try XCTUnwrap(derive([op]).first)
+        XCTAssertEqual(a.lessonHeading, "filter words",
+                       "the heading decoded but the deriver dropped it, so no "
+                       + "surface can ever offer the writer a choice about it")
+    }
+
+    /// The same line WITHOUT the key: the field is absent, not empty. Every op
+    /// ever written before this milestone is this line.
+    func test_aProvenanceLineWithoutTheLedgerHeadingDerivesToNil() throws {
+        let legacy = Data(
+            #"{"annotation_body":"hi","compiler_run_id":"run-7","session_id":"s1"}"#.utf8)
+        let decoded = try JSONDecoder().decode(Op.Provenance.self, from: legacy)
+        XCTAssertNil(decoded.compilerLessonHeading)
+        let a = try XCTUnwrap(derive([commentOp(opId: "01AAAA", compilerRunId: "run-7")]).first)
+        XCTAssertNil(a.lessonHeading,
+                     "a note raised under no habit must carry no heading")
+    }
+
+    /// The heading is about the NOTE, not about its authorship: a hand-written
+    /// note with no run id still projects a heading if one is on the op, and a
+    /// compiler note with no heading is still compiler-authored.
+    func test_theHeadingAndTheAuthorshipAreIndependent() {
+        let heading = derive([commentOp(
+            opId: "01AAAA", compilerLessonHeading: "filter words")]).first
+        XCTAssertEqual(heading?.lessonHeading, "filter words")
+        XCTAssertFalse(heading?.isCompilerAuthored ?? true,
+                       "a heading is not a claim about who wrote the note")
+        let authored = derive([commentOp(opId: "01BBBB", compilerRunId: "run-7")]).first
+        XCTAssertTrue(authored?.isCompilerAuthored ?? false)
+        XCTAssertNil(authored?.lessonHeading)
+    }
+
+    /// On the wire under its snake_case key, and byte-stable across a
+    /// re-encode — and absent entirely when nil, so every op every existing
+    /// caller writes is unchanged to the byte.
+    func test_theLedgerHeadingRoundTripsAndIsAbsentWhenNil() throws {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+
+        let carried = try enc.encode(commentOp(
+            opId: "01AAAA", compilerRunId: "run-7",
+            compilerLessonHeading: "filter words"))
+        let wire = String(decoding: carried, as: UTF8.self)
+        XCTAssertTrue(wire.contains(#""compiler_lesson_heading":"filter words""#), wire)
+        let back = try JSONDecoder().decode(Op.self, from: carried)
+        XCTAssertEqual(back.provenance?.compilerLessonHeading, "filter words")
+        XCTAssertEqual(try enc.encode(back), carried)
+
+        let bare = String(decoding: try enc.encode(
+            commentOp(opId: "01BBBB", compilerRunId: "run-7")), as: UTF8.self)
+        XCTAssertFalse(bare.contains("compiler_lesson_heading"),
+                       "a nil heading must leave no key behind: \(bare)")
     }
 
     // MARK: - No schema bump

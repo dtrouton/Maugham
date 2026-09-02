@@ -54,12 +54,24 @@ struct CompilerNote: Equatable, Sendable {
     /// second rule: a fingerprint of "nothing" is a bucket, and every
     /// unidentifiable note in a round would collapse into it.
     let fingerprint: String?
+    /// **The habit heading the finding was raised under**, carried to the mint
+    /// so it can be stamped on the note's op (editorial letter P2). Set only
+    /// for a letter question the run raised out of the piece's lessons ledger;
+    /// nil for a continuity question, a reader's report and every note a
+    /// person wrote.
+    ///
+    /// Carried rather than derived from `kind`: a letter question raised out
+    /// of nothing in the ledger has none either, and inferring one from the
+    /// section would put a heading on a note that was never about it.
+    let lessonHeading: String?
 
-    init(kind: AnnotationKind, paragraphId: String?, body: String, fingerprint: String?) {
+    init(kind: AnnotationKind, paragraphId: String?, body: String,
+         fingerprint: String?, lessonHeading: String? = nil) {
         self.kind = kind
         self.paragraphId = paragraphId
         self.body = body
         self.fingerprint = fingerprint
+        self.lessonHeading = lessonHeading
     }
 
     /// The reader's own two-valued kind, as words — and **nothing else**. v2
@@ -122,7 +134,8 @@ struct CompilerNote: Equatable, Sendable {
             kind: paragraphId == nil ? .craftNote : sectionKind,
             paragraphId: paragraphId,
             body: label.map { "\($0) \u{2014} \(diagnostic.body)" } ?? diagnostic.body,
-            fingerprint: RoundFingerprint.make(of: diagnostic)?.stringValue)
+            fingerprint: RoundFingerprint.make(of: diagnostic)?.stringValue,
+            lessonHeading: diagnostic.lessonHeading)
     }
 }
 

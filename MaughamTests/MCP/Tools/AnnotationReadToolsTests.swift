@@ -182,7 +182,8 @@ final class AnnotationReadToolsTests: XCTestCase {
         // to the struct and forgotten in the encoder vanishes with nothing
         // red. This is the shape of an open, triaged, stamped comment — the
         // nil optionals below it use `encodeIfPresent` and are absent by
-        // design (`suggested_text`, `user_response`, `resolved_at`).
+        // design (`suggested_text`, `user_response`, `resolved_at`, and
+        // `lesson_heading`, which this note was not raised under).
         XCTAssertEqual(Set(item.keys), [
             "id", "kind", "paragraph_id", "body", "status", "created_at",
             "is_stale", "triage", "review_pass_id",
@@ -250,7 +251,8 @@ final class AnnotationReadToolsTests: XCTestCase {
         // single-record sibling carries two keys the list has no field for:
         // `history`, and `prior_text`, which an anchored note takes from the
         // paragraph it was written against. The `encodeIfPresent` absentees
-        // here are `suggested_text`, `user_response` and `resolved_at`.
+        // here are `suggested_text`, `user_response`, `resolved_at` and
+        // `lesson_heading`.
         XCTAssertEqual(Set(marked.keys), [
             "id", "kind", "paragraph_id", "body", "prior_text", "status",
             "created_at", "is_stale", "triage", "review_pass_id", "history",
@@ -274,5 +276,96 @@ final class AnnotationReadToolsTests: XCTestCase {
             XCTAssertTrue(text.contains("triage"),
                           "the description must say Claude never sets triage")
         }
+    }
+
+
+    // MARK: - The ledger heading (editorial letter P2 Task 2)
+
+    /// **A read widened, not a new tool**: a note raised under a habit reports
+    /// the heading it was raised under, so an outside reader can see what a
+    /// letter question came out of. The pair is asserted together — the
+    /// single-record sibling agreeing with the list is what keeps two answers
+    /// about one note from existing.
+    func test_bothToolsReportTheLedgerHeadingOfANoteRaisedUnderOne() async throws {
+        let h = try await makeHarness()
+        let pid = try await h.doc.opLog()
+            .first(where: { $0.kind == .bootstrap })!
+            .changes.first!.paragraphId
+
+        let raised = try await h.doc.addAnnotation(
+            kind: .query, paragraphId: pid, body: "Whose fear is this?",
+            compilerLessonHeading: "filter words")
+
+        let listData = try JSONSerialization.data(
+            withJSONObject: [
+                "project_id": h.projectId,
+                "document_id": h.doc.docId,
+            ])
+        let items = try rawArray(
+            try await ListAnnotationsTool.handle(paramsJSON: listData, registry: h.registry))
+        let item = try XCTUnwrap(items.first { $0["id"] as? String == raised })
+        XCTAssertEqual(item["lesson_heading"] as? String, "filter words",
+                       "list_annotations dropped the heading the note carries")
+
+        let getData = try JSONSerialization.data(
+            withJSONObject: [
+                "project_id": h.projectId,
+                "document_id": h.doc.docId,
+                "annotation_id": raised,
+            ])
+        let record = try rawObject(
+            try await GetAnnotationTool.handle(paramsJSON: getData, registry: h.registry))
+        XCTAssertEqual(record["lesson_heading"] as? String, "filter words",
+                       "get_annotation and list_annotations disagree about one "
+                       + "note \u{2014} get the two encoders back in step")
+
+        await h.documentStore.close()
+    }
+
+    /// **A note raised under no habit carries no key.** Unlike `triage` and
+    /// `review_pass_id`, whose absence means something a reader must not have
+    /// to guess at, "no heading" is exactly what it looks like — so the wire
+    /// every existing note goes out on is unchanged.
+    func test_aNoteRaisedUnderNoHabitOmitsTheKeyInBothTools() async throws {
+        let h = try await makeHarness()
+        let pid = try await h.doc.opLog()
+            .first(where: { $0.kind == .bootstrap })!
+            .changes.first!.paragraphId
+        let plain = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "plain")
+
+        let listData = try JSONSerialization.data(
+            withJSONObject: [
+                "project_id": h.projectId,
+                "document_id": h.doc.docId,
+            ])
+        let items = try rawArray(
+            try await ListAnnotationsTool.handle(paramsJSON: listData, registry: h.registry))
+        let item = try XCTUnwrap(items.first { $0["id"] as? String == plain })
+        XCTAssertFalse(item.keys.contains("lesson_heading"),
+                       "a note with no heading emitted the key anyway: \(item.keys)")
+
+        let getData = try JSONSerialization.data(
+            withJSONObject: [
+                "project_id": h.projectId,
+                "document_id": h.doc.docId,
+                "annotation_id": plain,
+            ])
+        let record = try rawObject(
+            try await GetAnnotationTool.handle(paramsJSON: getData, registry: h.registry))
+        XCTAssertFalse(record.keys.contains("lesson_heading"),
+                       "get_annotation emitted a key the list omits")
+
+        await h.documentStore.close()
+    }
+
+    /// The carry the handoff named: `list_annotations`' own description says
+    /// what the new field is, and that `workshop` is the coach's lane — the
+    /// one pass id `get_outline` never lists.
+    func test_theListDescriptionNamesTheHeadingAndTheCoachsLane() {
+        XCTAssertTrue(ListAnnotationsTool.description.contains("lesson_heading"))
+        XCTAssertTrue(ListAnnotationsTool.description.contains("workshop"),
+                      "a reader filtering by pass id must be told the coach's "
+                      + "lane exists and is not in get_outline's list")
     }
 }

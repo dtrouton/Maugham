@@ -198,7 +198,8 @@ public enum AnnotationDeriver {
                 reviewPassId: prov?.reviewPassId,
                 compilerRunId: prov?.compilerRunId,
                 compilerRound: prov?.compilerRound,
-                compilerFingerprint: prov?.compilerFingerprint))
+                compilerFingerprint: prov?.compilerFingerprint,
+                lessonHeading: prov?.compilerLessonHeading))
         }
         // Newest first by createdAt; tie-break by op_id (descending) for
         // stable ordering of same-instant ops.
