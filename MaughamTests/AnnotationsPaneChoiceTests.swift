@@ -240,9 +240,14 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
 
     /// Buttons anywhere in the application's windows — a sheet is its own
     /// window, so the tree under the pane's content view cannot see it.
+    ///
+    /// **On a window the window server has actually shown** (fix wave). See
+    /// ``pressSheetButton(labelled:deadline:)`` for why the extra guard is the
+    /// whole point of this helper now.
     private func sheetButton(labelled label: String) -> NSObject? {
         for window in NSApp.windows {
-            guard let root = window.contentView else { continue }
+            guard window.isVisible, window.isSheet || window.sheetParent != nil,
+                  let root = window.contentView else { continue }
             let buttons = axElements(under: root).filter { element in
                 (axAttribute(element, "accessibilityRole") as? String) == "AXButton"
             }
@@ -252,6 +257,53 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             if let match = match as? NSObject { return match }
         }
         return nil
+    }
+
+    /// **Wait for a sheet's button to be pressABLE, then press it.**
+    ///
+    /// A control's presence in the accessibility tree is not the premise a
+    /// synthetic press needs. `pumpUntil` on EXISTENCE returns the instant
+    /// SwiftUI builds the button, and under seven parallel workers that can be
+    /// before the sheet window has been ordered in — at which point
+    /// `accessibilityPerformPress` does nothing, silently, and the test then
+    /// spends its whole outcome deadline waiting for a write that was never
+    /// asked for. Twice in about five gates
+    /// `test_theKeepButtonInTheRealPaneOpensTheSheetAndFiles` failed exactly
+    /// that way in-suite and passed alone, with the shape that gives it away:
+    /// the 5s existence poll exits early, the 8s ledger poll runs in full, and
+    /// the case takes just under nine seconds to assert `[]`.
+    ///
+    /// So readiness is asked of the WINDOW — visible, and attached as a sheet
+    /// — and one more turn of the run loop is taken after it holds, before the
+    /// press.
+    private func pressSheetButton(
+        labelled label: String, deadline: TimeInterval = 5
+    ) async throws -> NSObject {
+        _ = await pumpUntil(deadline: deadline) {
+            self.sheetButton(labelled: label) != nil
+        }
+        let button = try XCTUnwrap(
+            sheetButton(labelled: label),
+            "no button labelled \u{201C}\(label)\u{201D} reached a visible sheet. "
+            + "Sheet windows: \(NSApp.windows.filter { $0.isSheet || $0.sheetParent != nil }.count), "
+            + "visible: \(NSApp.windows.filter(\.isVisible).count)")
+        pump()
+        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
+        return button
+    }
+
+    /// **A press delivered to a mounted control, once the window is on
+    /// screen.** ``pressSheetButton(labelled:deadline:)``'s reasoning for a
+    /// window this suite mounted itself: `TestWindow.mount` orders the window
+    /// in synchronously, but the press still wants the layout pass that the
+    /// existence poll may have cut short.
+    @discardableResult
+    private func press(_ label: String, in window: NSWindow) throws -> NSObject {
+        let button = try button(labelled: label, in: window)
+        waitUntil({ window.isVisible }, timeout: 2)
+        pump()
+        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
+        return button
     }
 
     private func button(labelled label: String, in window: NSWindow) throws -> NSObject {
@@ -345,9 +397,15 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         XCTAssertEqual(status(fx, id), .open, "premise: the note is open")
 
         let window = mountPane(fx)
-        let press = try button(labelled: QueueLedgerVerbs.choiceTitle, in: window)
-        _ = press.perform(NSSelectorFromString("accessibilityPerformPress"))
+        let press = try press(QueueLedgerVerbs.choiceTitle, in: window)
 
+        // The Keep test's guarded re-press, for the same reason and with the
+        // same safety: `LessonLedgerVerbs.makeChoice` has been find-or-create
+        // by heading since Task 6's fix round, so a second press over a ledger
+        // the first one reached writes nothing.
+        if await !pumpUntil(deadline: 1, { self.choices(fx) == ["Filter words"] }) {
+            _ = press.perform(NSSelectorFromString("accessibilityPerformPress"))
+        }
         _ = await pumpUntil(deadline: 8) { self.choices(fx) == ["Filter words"] }
         XCTAssertEqual(
             choices(fx), ["Filter words"],
@@ -871,8 +929,11 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         windows.append(window)
         pump()
 
-        let commit = try button(labelled: "Keep as lesson", in: window)
-        _ = commit.perform(NSSelectorFromString("accessibilityPerformPress"))
+        // Pressed through the same window-readiness guard as every other
+        // control here. No re-press: there is no outcome to wait on, and a
+        // negative assertion made after a press that did not land would be
+        // the very thing the guard exists to rule out.
+        try press("Keep as lesson", in: window)
         pump(0.2)
         XCTAssertEqual(committed, [],
                        "a sheet prefilled with nothing usable must not be "
@@ -892,8 +953,16 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         windows.append(window)
         pump()
 
-        let commit = try button(labelled: "Keep as lesson", in: window)
-        _ = commit.perform(NSSelectorFromString("accessibilityPerformPress"))
+        let commit = try press("Keep as lesson", in: window)
+        // The guarded re-press, in the one shape a synchronous test can make
+        // it: the closure appends, so an empty list after a second of pumping
+        // is a press that reached nothing. Committing twice would append
+        // twice, which the assertion below would catch — that is why it is
+        // guarded rather than unconditional.
+        waitUntil({ !committed.isEmpty }, timeout: 1)
+        if committed.isEmpty {
+            _ = commit.perform(NSSelectorFromString("accessibilityPerformPress"))
+        }
         pump(0.2)
         XCTAssertEqual(
             committed,
@@ -930,16 +999,21 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         _ = resolved.perform(NSSelectorFromString("accessibilityPerformPress"))
         pump(0.3)
 
-        let keep = try button(labelled: QueueLedgerVerbs.keepTitle, in: window)
-        _ = keep.perform(NSSelectorFromString("accessibilityPerformPress"))
-        _ = await pumpUntil(deadline: 5) {
-            self.sheetButton(labelled: "Keep as lesson") != nil
-        }
-        let commit = try XCTUnwrap(
-            sheetButton(labelled: "Keep as lesson"),
-            "the press must open the sheet")
+        try press(QueueLedgerVerbs.keepTitle, in: window)
+        let commit = try await pressSheetButton(labelled: "Keep as lesson")
 
-        _ = commit.perform(NSSelectorFromString("accessibilityPerformPress"))
+        // **One guarded re-press.** A press that reached no sheet writes
+        // nothing and says nothing, so an empty ledger a second after it is
+        // the only evidence available that it did not land. Pressing again is
+        // safe only since this fix wave made `LessonLedgerVerbs.keepAsLesson`
+        // find-or-create by heading: before it, a second press over a ledger
+        // that HAD taken the first would have filed the sentence twice under
+        // two dates, and the assertion below reads the whole open list.
+        if await !pumpUntil(deadline: 1, {
+            !LessonsLedger.open(in: self.ledger(fx) ?? "").isEmpty
+        }) {
+            _ = commit.perform(NSSelectorFromString("accessibilityPerformPress"))
+        }
         _ = await pumpUntil(deadline: 8) {
             !LessonsLedger.open(in: self.ledger(fx) ?? "").isEmpty
         }
