@@ -598,6 +598,138 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders[0].hasPrefix("FifthCaller.swift:"), offenders[0])
     }
 
+    // MARK: - The lessons ledger is written from one file (editorial letter P2)
+
+    /// Every `RulingPerformer.rule(…)` / `.edit(…)` call site under `dir` whose
+    /// ARGUMENT LIST names `.lessons`, as `file:line`.
+    ///
+    /// **The span is found by anchor, never by a character budget.** These
+    /// calls run to five and six lines, and `kind:` is the fourth label — a
+    /// fixed window would either miss it or swallow the next statement. From
+    /// the call's own open paren the scan balances parens forward to the
+    /// matching close, so the text examined is exactly the arguments however
+    /// they are wrapped.
+    private func lessonsRulingCallSites(in dir: URL) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil)
+        else { return [] }
+        var sites: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let scalars = Array(text)
+            for anchor in ["RulingPerformer.rule(", "RulingPerformer.edit("] {
+                var searchFrom = text.startIndex
+                while let found = text.range(
+                    of: anchor, range: searchFrom..<text.endIndex) {
+                    searchFrom = found.upperBound
+                    let openAt = text.distance(
+                        from: text.startIndex, to: found.upperBound) - 1
+                    let lineStart = text.distance(
+                        from: text.startIndex, to: found.lowerBound)
+                    // A comment naming the verb is not a call of it.
+                    let before = scalars[..<lineStart]
+                    let lineBegan = before.lastIndex(where: \.isNewline)
+                        .map { before.index(after: $0) } ?? before.startIndex
+                    guard !String(before[lineBegan...])
+                        .trimmingCharacters(in: .whitespaces).hasPrefix("//")
+                    else { continue }
+                    guard let closeAt = Self.matchingParen(in: scalars, openAt: openAt)
+                    else { continue }
+                    let arguments = String(scalars[(openAt + 1)..<closeAt])
+                    guard arguments.contains(".lessons") else { continue }
+                    let number = scalars[..<lineStart].filter(\.isNewline).count + 1
+                    sites.append("\(url.lastPathComponent):\(number)")
+                }
+            }
+        }
+        return sites.sorted()
+    }
+
+    /// The index of the `)` closing the `(` at `openAt`, or nil for a file this
+    /// scan cannot balance (which would not compile).
+    private static func matchingParen(in scalars: [Character], openAt: Int) -> Int? {
+        var depth = 0
+        var index = openAt
+        while index < scalars.count {
+            if scalars[index] == "(" { depth += 1 }
+            if scalars[index] == ")" {
+                depth -= 1
+                if depth == 0 { return index }
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    /// **Tripwire: the lessons ledger is written from ONE production file**
+    /// (editorial letter P2, global constraint 14).
+    ///
+    /// The ledger is the writer's own prose and moves only by the writer's
+    /// hand. Three surfaces press on it — Author's letter, Review's cockpit,
+    /// and the queue's *This is a choice* — and each could spell
+    /// `rule(…, kind: .lessons, forScope: .project, …)` for itself. The three
+    /// spellings would then be free to disagree about the scope, the
+    /// provenance or the choice marker, and every disagreement is silent: a
+    /// choice filed at document scope simply never reaches a briefing.
+    ///
+    /// A census rather than a ban — the write is meant to happen, in
+    /// `LessonLedgerVerbs`.
+    func test_theLessonsLedgerIsWrittenFromOneFile() throws {
+        let sites = try lessonsRulingCallSites(in: sourceDir)
+        XCTAssertEqual(
+            Set(sites.compactMap { $0.split(separator: ":").first.map(String.init) }),
+            ["LessonLedgerVerbs.swift"],
+            "a second production file spelling the ledger write is a second answer "
+            + "to where a lesson lives. Route it through LessonLedgerVerbs. Sites:\n"
+            + sites.joined(separator: "\n"))
+        // **Non-vacuous.** A scanner that matched nothing would pass this
+        // census for the wrong reason, and go on passing after the one real
+        // write was deleted.
+        XCTAssertFalse(
+            sites.isEmpty,
+            "the census found no ledger write at all \u{2014} LessonLedgerVerbs "
+            + "must contain at least one")
+    }
+
+    /// CONTROL for the census above: a planted second writer is caught, and
+    /// neither a `.intent` call beside it nor a comment naming the verb is.
+    func test_theLessonsLedgerCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-lessons-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        enum SecondLedgerWriter {
+            static func file(_ store: ProjectStore) async throws {
+                // A comment naming RulingPerformer.rule( with .lessons is not a call.
+                try await RulingPerformer.rule(
+                    LessonsLedger.choiceText("Fragments"),
+                    provenance: "from a letter",
+                    kind: .lessons, forScope: .project,
+                    store: store, world: nil)
+            }
+
+            static func clause(_ store: ProjectStore) async throws {
+                try await RulingPerformer.rule(
+                    "Every scene must turn.", provenance: "from a letter",
+                    kind: .intent, forScope: .project,
+                    store: store, world: nil)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SecondLedgerWriter.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let sites = try lessonsRulingCallSites(in: tmp)
+        XCTAssertEqual(
+            sites.count, 1,
+            "Self-check: the planted ledger write should be the one caught, and "
+            + "neither the `.intent` call nor the comment. Got:\n"
+            + sites.joined(separator: "\n"))
+        XCTAssertEqual(sites.first, "SecondLedgerWriter.swift:4")
+    }
+
     // MARK: - Meta-tests: tripwires fire on planted offenders (task 4.8 / test gap #14)
 
     /// Self-check: prove the op-log filename tripwire FIRES on a planted

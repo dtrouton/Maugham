@@ -115,6 +115,105 @@ final class LetterMarkdownTests: XCTestCase {
         }
     }
 
+    // MARK: - The answer and the not-found list (P2 Task 6)
+
+    /// **The answer leads, under the ask it answers** — the reading order the
+    /// section keeps on screen, in the same words (`LetterSection.askedCaption`
+    /// is the one spelling, so a kept letter and the letter it was kept from
+    /// cannot word it differently).
+    func test_theAnswerLeadsUnderTheAskItAnswers() {
+        var subject = letter()
+        subject.asked = "Is the timeline of the dock clear?"
+        subject.answer = "The dock is still down in this scene."
+        let body = render(subject).body
+
+        guard let caption = body.range(
+                of: LetterSection.askedCaption("Is the timeline of the dock clear?")),
+              let answer = body.range(of: "The dock is still down in this scene."),
+              let about = body.range(of: "You are writing about a house")
+        else { return XCTFail("the answer never rendered:\n\(body)") }
+        XCTAssertTrue(caption.lowerBound < answer.lowerBound, body)
+        XCTAssertTrue(
+            answer.lowerBound < about.lowerBound,
+            "the answer precedes the say-back, as it does on screen:\n\(body)")
+    }
+
+    /// An ask with no answer renders nothing at all, and an answer with no
+    /// remembered ask renders without a caption — the two halves the section
+    /// keeps apart.
+    func test_anAskWithNoAnswerRendersNothingAndAnAnswerAloneRendersUncaptioned() {
+        var asked = letter()
+        asked.asked = "Is the timeline of the dock clear?"
+        XCTAssertFalse(
+            render(asked).body.contains("You asked:"),
+            "a caption over silence would be the note quoting the writer back at "
+            + "themselves:\n\(render(asked).body)")
+
+        var answered = letter()
+        answered.answer = "The dock is still down in this scene."
+        let body = render(answered).body
+        XCTAssertTrue(body.contains("The dock is still down in this scene."), body)
+        XCTAssertFalse(body.contains("You asked:"), body)
+    }
+
+    /// **What the round looked for and did not find**, after the table.
+    ///
+    /// Unfiltered, deliberately, where the screen narrows the same list against
+    /// the writer's ledger: on screen it is an OFFER and must name a row that
+    /// is really there, here it is a record of what this round reported.
+    func test_theNotFoundListRendersAfterTheTable() {
+        var subject = letter(
+            scenes: [Letter.Scene(refs: [], wants: "In", changes: "Nothing",
+                                  turn: "None", charge: nil)])
+        subject.retired = ["Vary the opening.", "Cut the filter words."]
+        let body = render(subject).body
+
+        guard let table = body.range(of: "## \(LetterSection.scenesTitle)"),
+              let heading = body.range(of: "## \(LetterMarkdown.notFoundTitle)")
+        else { return XCTFail("the not-found list never rendered:\n\(body)") }
+        XCTAssertTrue(table.lowerBound < heading.lowerBound, body)
+        XCTAssertTrue(body.contains("- Vary the opening."), body)
+        XCTAssertTrue(body.contains("- Cut the filter words."), body)
+    }
+
+    /// A round that named nothing draws no heading over nothing — the rule
+    /// every other part keeps. Control: the same render with one heading.
+    func test_aRoundThatNamedNothingDrawsNoNotFoundHeading() {
+        XCTAssertFalse(
+            render(letter()).body.contains("## \(LetterMarkdown.notFoundTitle)"))
+
+        var empty = letter()
+        empty.retired = []
+        XCTAssertFalse(
+            render(empty).body.contains("## \(LetterMarkdown.notFoundTitle)"),
+            "an empty list is the same nothing as an absent one")
+
+        var one = letter()
+        one.retired = ["Vary the opening."]
+        XCTAssertTrue(
+            render(one).body.contains("## \(LetterMarkdown.notFoundTitle)"),
+            "the control, or the absences above say nothing")
+    }
+
+    /// **Both new parts pass through the scrub** — a model that leaked an
+    /// anchor into its answer, or into a heading it echoed, must not put a join
+    /// key in the writer's note. Control: the ids are really in the input.
+    func test_theAnswerAndTheNotFoundListAreScrubbedToo() {
+        var subject = letter(about: "A say-back.")
+        subject.asked = "Is the dock \u{00b6}ab3d clear?"
+        subject.answer = "The dock <!-- \u{00b6}cd4e --> is still down."
+        subject.retired = ["Vary the \u{00b6}ef5g opening."]
+        let out = render(subject)
+
+        XCTAssertEqual(Self.paragraphIdTokens(in: out.body), [],
+                       "a kept letter carries no join keys:\n\(out.body)")
+        for id in ["ab3d", "cd4e", "ef5g"] {
+            XCTAssertFalse(out.body.contains(id), "\(id) reached the note:\n\(out.body)")
+        }
+        XCTAssertTrue(out.body.contains("The dock is still down."), out.body)
+        XCTAssertTrue(out.body.contains("- Vary the opening."), out.body)
+    }
+
     /// **An empty part draws no heading** — the rule the on-screen letter
     /// keeps (`LetterSection`'s own doc), for the same reason: a "Habits"
     /// heading over nothing tells the writer their reader had something to say

@@ -133,6 +133,17 @@ enum LessonsLedger {
 
     // MARK: - Classification
 
+    /// What a row is, read from its own text.
+    ///
+    /// The public face of the classification `parse` applies, for a caller
+    /// holding `Ruling`s rather than markdown: `RulingsStratum.currentRows` is
+    /// how a verb addresses the writer's file at the moment of a write (the
+    /// addressing note above) and it answers `[Ruling]`. Without this, asking
+    /// whether one of those rows is still an OPEN lesson would mean reading and
+    /// re-parsing the same statement a second time — and two reads around one
+    /// write is two answers that can straddle it.
+    static func kind(of rulingText: String) -> Kind { classify(rulingText) }
+
     /// **Retirement wins over the choice prefix.** A retired choice is nonsense
     /// the writer can fix by hand; reading it as a live choice would put a
     /// closed decision back in front of them, which is the one direction this

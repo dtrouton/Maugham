@@ -51,6 +51,18 @@ enum LetterMarkdown {
         let lane = scrubbed(laneLine)
         if !lane.isEmpty { out.append("*\(lane)*") }
 
+        // **The answer first, before the say-back** — the reading order the
+        // section keeps on screen (`LetterSection.answerPart`), for its reason:
+        // a writer who asked something reads for that first. The ask draws only
+        // as the answer's caption, in `LetterSection`'s own spelling, so a kept
+        // letter and the letter it was kept from cannot word it differently.
+        if let answer = letter.answer.map(scrubbed), !answer.isEmpty {
+            if let asked = letter.asked.map(scrubbed), !asked.isEmpty {
+                out.append("*\(LetterSection.askedCaption(asked))*")
+            }
+            out.append(answer)
+        }
+
         let about = scrubbed(letter.about)
         if !about.isEmpty { out.append(about) }
         if let oneThing = letter.oneThing.map(scrubbed), !oneThing.isEmpty {
@@ -97,8 +109,30 @@ enum LetterMarkdown {
             }
         }
 
+        // **What the round looked for and did not find** (spec §6), after the
+        // table because it is the letter's last observation rather than one of
+        // its findings.
+        //
+        // **Unfiltered, unlike the screen's.** `LetterSection` narrows the same
+        // list against the writer's ledger, because there it draws an OFFER and
+        // an offer must name a row that is really there. Here it is a record of
+        // what this round reported, and a note that quietly dropped half of it
+        // because the ledger had moved by the time the letter was kept would be
+        // a record of something else.
+        let notFound = letter.retiredHeadings.map(scrubbed).filter { !$0.isEmpty }
+        if !notFound.isEmpty {
+            out.append("## \(notFoundTitle)")
+            out.append(notFound.map { "- \($0)" }.joined(separator: "\n"))
+        }
+
         return (title: title, body: out.joined(separator: "\n\n") + "\n")
     }
+
+    /// What the round's "not found" list is called in the note. Declared here
+    /// for ``exerciseLabel``'s reason: on screen the same headings are a line
+    /// per lesson in the round's own tense, or an offer with a Retire button
+    /// beside it, so `LetterSection` has no heading to borrow.
+    static let notFoundTitle = "Not found this time"
 
     /// What the exercise is called in the note. On screen it is unlabelled
     /// prose under a habit with an **Accept as task** button beside it; there

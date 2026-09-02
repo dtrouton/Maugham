@@ -54,6 +54,40 @@ struct LetterSection: View {
     static let addToBookIntentTitle = "Add to the book's intent"
     static let keepTitle = "Keep this letter"
 
+    /// **The ledger's three verbs, in the writer's register** (P2 Task 6, spec
+    /// §6). Nothing on screen says "lesson heading", "ledger entry" or
+    /// `.lessons`: what the writer reads is what the press does.
+    static let keepAsLessonTitle = "Keep as lesson"
+    static let allChoicesTitle = "These are all choices"
+    static let retireTitle = "Retire"
+    /// What the Retire control reads once it has retired — the press's own
+    /// answer, in place of the offer it replaces. Disabled rather than gone,
+    /// `acceptTitle`'s rule one section up.
+    static let retiredTitle = "Retired."
+
+    /// The caption over the answer: the writer's own ask, quoted back.
+    ///
+    /// **The ask is drawn as well as the answer** because the two are half a
+    /// conversation apart. A writer can clear or rewrite their ask the moment
+    /// the check ends, so an answer standing alone would be a reply to a
+    /// question nothing on screen asked (`Letter.asked`'s own note).
+    static func askedCaption(_ asked: String) -> String {
+        "You asked: \u{201C}\(asked)\u{201D}"
+    }
+
+    /// What a warm round can honestly say about a lesson it did not meet: it
+    /// read a delta, and a three-paragraph delta proves nothing about a habit
+    /// (spec §6). A line, and no button.
+    static func warmRetiredLine(_ heading: String) -> String {
+        "I didn't find \u{201C}\(heading)\u{201D} in what changed."
+    }
+
+    /// What a Fresh Eyes round can say: it read the whole piece cold, which is
+    /// the evidence §6 says a retirement stands on. Drawn with the offer.
+    static func freshRetiredLine(_ heading: String) -> String {
+        "I didn't find \u{201C}\(heading)\u{201D} anywhere in this piece."
+    }
+
     /// **The standing offer at the scene table's foot** (spec §3.4). It is a
     /// question rather than a verdict for the reason the whole
     /// `.strongDefault` arm exists: nothing here may synthesize a clause on
@@ -126,6 +160,38 @@ struct LetterSection: View {
     /// not be mistaken for each other.
     var keepFailure: String? = nil
 
+    /// **The lessons ledger as it stands, read once by the host** (P2 Task 6).
+    /// This view holds no store, so the offers it draws — which habits can
+    /// still be kept, which of the round's "not found" headings name a live
+    /// lesson — are asked of `LessonOffer` against this text.
+    /// `nil` is a project whose writer has kept nothing yet, which is not the
+    /// same as a project with no ledger to consult: nothing has been decided,
+    /// so every habit can be kept and nothing can be retired.
+    var ledgerText: String? = nil
+    /// **`nil` hides Keep as lesson outright**, `onAddTurnClause`'s shape and
+    /// for its reason: a button with nowhere to file is worse than none.
+    var onKeepAsLesson: ((Letter.Habit) -> Void)? = nil
+    /// **`nil` hides These are all choices**, and the host is what decides —
+    /// `LessonOffer.allChoicesIsOffered` needs the run, which this view does
+    /// not hold.
+    var onAllChoices: (() -> Void)? = nil
+    /// **`nil` is a WARM round, and non-nil is Fresh Eyes** — the one input
+    /// that carries the round's own tense into the retired part.
+    ///
+    /// It reads as a plain optional handler and decides copy as well, so it is
+    /// worth saying plainly: only a Fresh Eyes round read the whole piece, so
+    /// only a Fresh Eyes round may offer a retirement (spec §6). The host
+    /// supplies this closure exactly when `run.freshEyes == true`; a warm round
+    /// passes `nil` and gets the line without the button. The alternative — a
+    /// separate `freshEyes` flag beside the closure — is two inputs that can
+    /// disagree, and the disagreement would be a Retire button over a delta.
+    var onRetire: ((String) -> Void)? = nil
+    /// **What a refused ledger verb said**, in the host's own refusal channel —
+    /// `offerFailure`'s twin, one channel for all three verbs. Without it a
+    /// ruling the op log turned away would leave a button that looks pressed
+    /// and a ledger that never moved.
+    var ledgerFailure: String? = nil
+
     /// **Which exercises have been accepted, for this mount and this RUN.** By
     /// INDEX rather than by habit, because a `Letter.Habit` has no id and two
     /// habits could legitimately share a name.
@@ -158,6 +224,67 @@ struct LetterSection: View {
             acceptedExercises = []
         }
         acceptedExercises.insert(index)
+    }
+
+    /// **What this mount has already filed into the ledger, for this RUN** (P2
+    /// Task 6) — kept lessons by habit index, retirements by heading, and the
+    /// one plural press.
+    ///
+    /// One run key for all three, because all three are presses on one letter
+    /// and a letter does not outlive its run. Held across runs the next
+    /// round's first habit would be born disabled, and a disabled *Keep as
+    /// lesson* is the app saying the lesson is already in the ledger —
+    /// `acceptedExercises`' defect, in three more places.
+    ///
+    /// Retirements are keyed by HEADING rather than by index, unlike the
+    /// habits: a retirable heading is a string the letter names, the list it
+    /// sits in is filtered against the writer's file, and an index into a
+    /// filtered list means nothing if the file moves under it.
+    ///
+    /// Deliberately not persisted. What the presses file is durable and
+    /// op-logged; this is only what stops the writer filing the same entry
+    /// twice while reading one letter.
+    @State private var keptLessons: Set<Int> = []
+    @State private var retiredLessons: Set<String> = []
+    @State private var allChoicesFiled = false
+    @State private var ledgerRunId: String?
+
+    private func hasKept(_ index: Int) -> Bool {
+        ledgerRunId == runId && keptLessons.contains(index)
+    }
+
+    private func hasRetired(_ heading: String) -> Bool {
+        ledgerRunId == runId && retiredLessons.contains(heading)
+    }
+
+    private func hasFiledAllChoices() -> Bool {
+        ledgerRunId == runId && allChoicesFiled
+    }
+
+    /// Drop another run's answers before recording this one's — read at render
+    /// time rather than cleared by an `onChange`, so a run swap never draws one
+    /// frame with the previous run's presses in it (`remember(_:)`'s rule).
+    private func forgetAnotherRun() {
+        guard ledgerRunId != runId else { return }
+        ledgerRunId = runId
+        keptLessons = []
+        retiredLessons = []
+        allChoicesFiled = false
+    }
+
+    private func rememberKept(_ index: Int) {
+        forgetAnotherRun()
+        keptLessons.insert(index)
+    }
+
+    private func rememberRetired(_ heading: String) {
+        forgetAnotherRun()
+        retiredLessons.insert(heading)
+    }
+
+    private func rememberAllChoices() {
+        forgetAnotherRun()
+        allChoicesFiled = true
     }
 
     // MARK: - Decisions
@@ -226,6 +353,7 @@ struct LetterSection: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(Self.title)
                 .font(.callout.weight(.semibold))
+            answerPart
             Text(letter.about)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
@@ -235,6 +363,8 @@ struct LetterSection: View {
             habitsPart
             questionsPart
             scenesPart
+            retiredPart
+            ledgerFailurePart
             offerPart
             Text(signature)
                 .font(.caption)
@@ -244,6 +374,34 @@ struct LetterSection: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// **The answer to what the writer asked, first** (P2 Task 6, spec §3.1).
+    /// Before the say-back, because a writer who asked something reads for that
+    /// before anything else, and a reply buried under the letter's own opening
+    /// is a reply they have to hunt for.
+    ///
+    /// The ASK draws only as this answer's caption. An ask with no answer draws
+    /// nothing at all: the letter is never refused over a missing answer, and a
+    /// caption alone would be the app quoting the writer's own question back at
+    /// them with silence under it.
+    @ViewBuilder
+    private var answerPart: some View {
+        if let answer = letter.answer, !answer.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                if let asked = letter.asked,
+                   !asked.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(Self.askedCaption(asked))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text(answer)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     /// Saunders's rule, in its own weight and with no label. A header saying
@@ -299,21 +457,140 @@ struct LetterSection: View {
                         Text(exercise)
                             .font(.caption)
                             .fixedSize(horizontal: false, vertical: true)
-                        Button(Self.acceptTitle) {
-                            remember(index)
-                            onAcceptExercise(habit)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        // **Disabled rather than gone.** A button that
-                        // vanished on its own press would leave the writer
-                        // unsure whether it fired; disabled says it did, and
-                        // says the task is already filed.
-                        .disabled(hasAccepted(index))
                     }
+                    habitVerbs(habit, at: index)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            allChoicesPart
+        }
+    }
+
+    /// **A habit's two buttons, side by side.**
+    ///
+    /// They answer different questions and neither implies the other: *Accept
+    /// as task* files the exercise the round proposed, and needs an exercise to
+    /// exist; *Keep as lesson* commits the habit itself to the ledger, and a
+    /// habit with no exercise is as worth keeping as one with. Drawn together
+    /// because they are the two things a writer does with one habit, and the
+    /// row draws nothing at all when neither stands.
+    @ViewBuilder
+    private func habitVerbs(_ habit: Letter.Habit, at index: Int) -> some View {
+        let exercise = habit.exercise ?? ""
+        let keeps = onKeepAsLesson != nil
+            && LessonOffer.keepIsOffered(habit, ledgerText: ledgerText)
+        if !exercise.isEmpty || keeps {
+            HStack(spacing: 8) {
+                if !exercise.isEmpty {
+                    Button(Self.acceptTitle) {
+                        remember(index)
+                        onAcceptExercise(habit)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    // **Disabled rather than gone.** A button that
+                    // vanished on its own press would leave the writer
+                    // unsure whether it fired; disabled says it did, and
+                    // says the task is already filed.
+                    .disabled(hasAccepted(index))
+                }
+                if keeps, let onKeepAsLesson {
+                    Button(Self.keepAsLessonTitle) {
+                        rememberKept(index)
+                        onKeepAsLesson(habit)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(hasKept(index))
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// **These are all choices** — the seeding gesture (spec §6): a Fresh Eyes
+    /// read over a finished piece, and one press instead of six stets.
+    ///
+    /// Drawn only when the host handed over a way to file it, which is the host
+    /// saying the round was Fresh Eyes and raised more than one habit
+    /// (`LessonOffer.allChoicesIsOffered`). It sits under the habits rather
+    /// than beside any one of them, because it is about all of them.
+    @ViewBuilder
+    private var allChoicesPart: some View {
+        if let onAllChoices {
+            Button(Self.allChoicesTitle) {
+                rememberAllChoices()
+                onAllChoices()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(hasFiledAllChoices())
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// **What the round looked for and did not find** (spec §6), narrowed to
+    /// the lessons the writer's ledger actually carries — a heading the model
+    /// re-spelled, or one already retired, draws nothing at all rather than an
+    /// offer about a row that is not there (`LessonOffer.retirable`).
+    ///
+    /// **The tense is the round's, and it decides whether there is a button.**
+    /// A warm round read a delta, and a three-paragraph delta proves nothing
+    /// about a habit, so it says what it can and offers nothing. A Fresh Eyes
+    /// round read the whole piece cold, which is the evidence a retirement
+    /// stands on. `onRetire` is what carries that distinction in
+    /// (see its own note).
+    @ViewBuilder
+    private var retiredPart: some View {
+        let headings = LessonOffer.retirable(letter, ledgerText: ledgerText)
+        if !headings.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(headings, id: \.self) { heading in
+                    if let onRetire {
+                        HStack(spacing: 8) {
+                            Text(Self.freshRetiredLine(heading))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Button(hasRetired(heading)
+                                   ? Self.retiredTitle : Self.retireTitle) {
+                                rememberRetired(heading)
+                                onRetire(heading)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(hasRetired(heading))
+                            Spacer(minLength: 0)
+                        }
+                    } else {
+                        Text(Self.warmRetiredLine(heading))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// **One refusal channel for all three ledger verbs**, drawn where the
+    /// ledger's own parts end.
+    ///
+    /// Keep as lesson sits in Habits and Retire sits below Scenes, so a
+    /// refusal drawn beside the press would be two slots — and the one for a
+    /// habit would vanish with the button the moment the ledger it failed to
+    /// join was re-read. Red rather than secondary, `keepFailure`'s rule: the
+    /// letter's other captions are where success speaks.
+    @ViewBuilder
+    private var ledgerFailurePart: some View {
+        if let ledgerFailure {
+            Text(ledgerFailure)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

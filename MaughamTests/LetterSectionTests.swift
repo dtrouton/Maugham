@@ -85,6 +85,31 @@ final class LetterSectionTests: XCTestCase {
                questions: [], scenes: nil, scenePosition: nil)
     }
 
+    /// A ledger the writer has really typed: two live lessons and a settled
+    /// choice, in `RulingsSection`'s own shape (a hand-written entry needs no
+    /// `\u{2014} ruled` suffix, which is `LessonsLedger`'s stated tolerance).
+    nonisolated private static let ledger = """
+    ## Rulings
+
+    - Vary the opening.
+    - Cut the filter words.
+    - Choice: Fragments
+    """
+
+    /// The full letter with P2's two new parts filled: an ask and its answer,
+    /// and a heading the round looked for and did not find.
+    nonisolated private static func answeredLetter(
+        answer: String? = "The dock is still down in this scene.",
+        asked: String? = "Is the timeline of the dock clear?",
+        retired: [String]? = ["Vary the opening."]
+    ) -> Letter {
+        var letter = fullLetter()
+        letter.answer = answer
+        letter.asked = asked
+        letter.retired = retired
+        return letter
+    }
+
     // MARK: - Pure: the decisions
 
     /// The signature is the voice's name and the round it signed — never the
@@ -590,8 +615,338 @@ final class LetterSectionTests: XCTestCase {
                     onJump: { _ in }, onAcceptExercise: { _ in },
                     onAddTurnClause: nil,
                     addToIntentTitle: LetterSection.addToIntentTitle,
-                    onKeep: {})
+                    onKeep: {},
+                    onKeepAsLesson: { _ in }, onAllChoices: {})
             }
+        }
+    }
+
+    // MARK: - Mounted: the answer (P2 Task 6)
+
+    /// **The answer draws first, under the ask it answers.** A writer who
+    /// asked something reads for that before anything else, so it precedes
+    /// even the say-back.
+    func test_theAnswerDrawsFirstUnderTheAskItAnswers() throws {
+        let texts = try axTexts(in: mount(Self.answeredLetter()))
+        let caption = LetterSection.askedCaption("Is the timeline of the dock clear?")
+
+        let captionAt = try XCTUnwrap(
+            texts.firstIndex(of: caption), "the ask never drew. Read: \(texts)")
+        let answerAt = try XCTUnwrap(
+            texts.firstIndex(of: "The dock is still down in this scene."),
+            "the answer never drew. Read: \(texts)")
+        let aboutAt = try XCTUnwrap(
+            texts.firstIndex(of: "A ghost story told through weather."))
+
+        XCTAssertLessThan(captionAt, answerAt, "the ask captions the answer")
+        XCTAssertLessThan(
+            answerAt, aboutAt,
+            "the answer precedes the say-back \u{2014} a reply buried under the "
+            + "letter's opening is a reply the writer has to hunt for")
+    }
+
+    /// **An ask with no answer draws nothing at all.** The letter is never
+    /// refused over a missing answer, and a caption alone would be the app
+    /// quoting the writer's own question back at them with silence under it.
+    /// Control: the same mount with an answer.
+    func test_anAskWithNoAnswerDrawsNothing() throws {
+        let caption = LetterSection.askedCaption("Is the timeline of the dock clear?")
+        let silent = try axTexts(in: mount(Self.answeredLetter(answer: nil)))
+        XCTAssertFalse(
+            silent.contains(caption),
+            "there is nothing to caption. Read: \(silent)")
+
+        let answered = try axTexts(in: mount(Self.answeredLetter()))
+        XCTAssertTrue(
+            answered.contains(caption),
+            "the control must draw it, or the absence above says nothing")
+    }
+
+    /// An answer to nothing in particular — a run whose ask was cleared
+    /// between the check and the read — still draws, without a caption.
+    func test_anAnswerWithNoRememberedAskDrawsWithoutACaption() throws {
+        let texts = try axTexts(in: mount(Self.answeredLetter(asked: nil)))
+        XCTAssertTrue(texts.contains("The dock is still down in this scene."))
+        XCTAssertFalse(
+            texts.contains { $0.hasPrefix("You asked:") },
+            "no caption is invented for an ask nothing remembers. Read: \(texts)")
+    }
+
+    // MARK: - Mounted: Keep as lesson (P2 Task 6)
+
+    /// **Keep as lesson hands the habit over, once**, and stands beside Accept
+    /// as task rather than in place of it: the two answer different questions.
+    func test_keepAsLessonHandsTheHabitOverAndThenRefuses() throws {
+        var kept: [Letter.Habit] = []
+        let window = mount(Self.fullLetter(), onKeepAsLesson: { kept.append($0) })
+
+        XCTAssertNotNil(
+            findButton(labelled: LetterSection.acceptTitle, in: window),
+            "Accept as task must still be there \u{2014} Keep is beside it, not "
+            + "instead of it")
+        let labels = try axButtonLabels(in: window)
+        let button = try XCTUnwrap(
+            findButton(labelled: LetterSection.keepAsLessonTitle, in: window),
+            "Keep as lesson never reached the surface: \(labels)")
+        XCTAssertEqual(axEnabled(button), true)
+
+        press(button)
+        pump(0.15)
+        XCTAssertEqual(kept.count, 1)
+        XCTAssertEqual(kept.first?.lesson, "Vary the opening.")
+
+        let after = try XCTUnwrap(
+            findButton(labelled: LetterSection.keepAsLessonTitle, in: window),
+            "disabled rather than gone, `acceptTitle`'s rule")
+        XCTAssertEqual(axEnabled(after), false)
+        press(after)
+        pump(0.15)
+        XCTAssertEqual(
+            kept.count, 1, "a second press would file the same lesson twice")
+    }
+
+    /// A habit with no exercise is still worth keeping: the two buttons are
+    /// independent, and a lesson does not need a thing to do beside it.
+    func test_aHabitWithNoExerciseStillOffersKeepAsLesson() throws {
+        let window = mount(
+            Self.fullLetter(habits: [
+                Letter.Habit(name: "Filter words", refs: [Self.ref("a1b2")],
+                             cost: "The prose steps back.", lesson: nil,
+                             exercise: nil),
+            ]),
+            onKeepAsLesson: { _ in })
+        let labels = try axButtonLabels(in: window)
+        XCTAssertNil(findButton(labelled: LetterSection.acceptTitle, in: window))
+        XCTAssertNotNil(
+            findButton(labelled: LetterSection.keepAsLessonTitle, in: window),
+            "Buttons: \(labels)")
+    }
+
+    /// **Keep is withdrawn once the heading already stands in the ledger.** A
+    /// second Keep would file a duplicate row that then briefs every round
+    /// twice. Control: the same mount over a ledger that does not carry it.
+    func test_keepAsLessonIsHiddenOnceTheLedgerCarriesTheHeading() throws {
+        let standing = mount(
+            Self.fullLetter(), ledgerText: Self.ledger, onKeepAsLesson: { _ in })
+        let labels = try axButtonLabels(in: standing)
+        XCTAssertNil(
+            findButton(labelled: LetterSection.keepAsLessonTitle, in: standing),
+            "\u{201C}Vary the opening.\u{201D} is already a lesson. Buttons: \(labels)")
+
+        let fresh = mount(
+            Self.fullLetter(),
+            ledgerText: "## Rulings\n\n- Something else entirely.",
+            onKeepAsLesson: { _ in })
+        XCTAssertNotNil(
+            findButton(labelled: LetterSection.keepAsLessonTitle, in: fresh),
+            "the control: a ledger that has never carried it still offers")
+    }
+
+    /// A host with nowhere to file hides the button outright —
+    /// `onAddTurnClause`'s rule, for its reason.
+    func test_noKeepHandlerHidesTheButton() throws {
+        let none = mount(Self.fullLetter())
+        XCTAssertNil(findButton(labelled: LetterSection.keepAsLessonTitle, in: none))
+        let some = mount(Self.fullLetter(), onKeepAsLesson: { _ in })
+        XCTAssertNotNil(findButton(labelled: LetterSection.keepAsLessonTitle, in: some))
+    }
+
+    // MARK: - Mounted: These are all choices (P2 Task 6)
+
+    /// The plural press files once and then says so. Whether it is offered at
+    /// all is the host's answer (`LessonOffer.allChoicesIsOffered`), carried
+    /// in as the presence of the closure.
+    func test_theseAreAllChoicesFilesOnceAndThenRefuses() throws {
+        var pressed = 0
+        let window = mount(Self.fullLetter(), onAllChoices: { pressed += 1 })
+        let labels = try axButtonLabels(in: window)
+        let button = try XCTUnwrap(
+            findButton(labelled: LetterSection.allChoicesTitle, in: window),
+            "Buttons: \(labels)")
+        press(button)
+        pump(0.15)
+        XCTAssertEqual(pressed, 1)
+
+        let after = try XCTUnwrap(
+            findButton(labelled: LetterSection.allChoicesTitle, in: window))
+        XCTAssertEqual(axEnabled(after), false)
+        press(after)
+        pump(0.15)
+        XCTAssertEqual(pressed, 1)
+
+        XCTAssertNil(
+            findButton(labelled: LetterSection.allChoicesTitle,
+                       in: mount(Self.fullLetter())),
+            "a host that did not offer it must not draw it")
+    }
+
+    // MARK: - Mounted: what the round did not find (P2 Task 6)
+
+    /// **A warm round says what it can and offers nothing.** It read a delta,
+    /// and a three-paragraph delta proves nothing about a habit (spec §6).
+    func test_aWarmRoundDrawsTheLineWithNoRetireButton() throws {
+        let window = mount(Self.answeredLetter(), ledgerText: Self.ledger)
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains(LetterSection.warmRetiredLine("Vary the opening.")),
+            "Read: \(texts)")
+        XCTAssertFalse(
+            texts.contains(LetterSection.freshRetiredLine("Vary the opening.")),
+            "a warm round must not claim it read the whole piece")
+        let labels = try axButtonLabels(in: window)
+        XCTAssertNil(
+            findButton(labelled: LetterSection.retireTitle, in: window),
+            "Buttons: \(labels)")
+    }
+
+    /// **A Fresh Eyes round read the whole piece cold**, which is the evidence
+    /// a retirement stands on — so it offers, in its own words.
+    func test_aFreshEyesRoundOffersTheRetirementInItsOwnWords() throws {
+        var retired: [String] = []
+        let window = mount(
+            Self.answeredLetter(), ledgerText: Self.ledger,
+            onRetire: { retired.append($0) })
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains(LetterSection.freshRetiredLine("Vary the opening.")),
+            "Read: \(texts)")
+        XCTAssertFalse(texts.contains(LetterSection.warmRetiredLine("Vary the opening.")))
+
+        let labels = try axButtonLabels(in: window)
+        let button = try XCTUnwrap(
+            findButton(labelled: LetterSection.retireTitle, in: window),
+            "Buttons: \(labels)")
+        press(button)
+        pump(0.15)
+        XCTAssertEqual(
+            retired, ["Vary the opening."],
+            "the heading travels verbatim \u{2014} it is what addresses the "
+            + "writer's own file")
+
+        XCTAssertNil(
+            findButton(labelled: LetterSection.retireTitle, in: window),
+            "the offer is spent")
+        let spent = try axButtonLabels(in: window)
+        let after = try XCTUnwrap(
+            findButton(labelled: LetterSection.retiredTitle, in: window),
+            "and says so where it stood: \(spent)")
+        XCTAssertEqual(axEnabled(after), false)
+        press(after)
+        pump(0.15)
+        XCTAssertEqual(retired.count, 1)
+    }
+
+    /// **A heading that names no live lesson draws nothing** (global
+    /// constraint 15) — a near-miss, a settled choice, and one never kept.
+    /// Control: the exact heading, same mount.
+    func test_aRetiredHeadingThatNamesNoLiveLessonDrawsNothing() throws {
+        for (label, heading) in [("a near-miss", "vary the opening"),
+                                 ("a settled choice", "Fragments"),
+                                 ("something never kept", "Weather first.")] {
+            let texts = try axTexts(in: mount(
+                Self.answeredLetter(retired: [heading]),
+                ledgerText: Self.ledger, onRetire: { _ in }))
+            XCTAssertFalse(
+                texts.contains { $0.contains(heading) },
+                "\(label) names no live lesson. Read: \(texts)")
+        }
+
+        let noLedger = try axTexts(in: mount(
+            Self.answeredLetter(), ledgerText: nil, onRetire: { _ in }))
+        XCTAssertFalse(
+            noLedger.contains { $0.hasPrefix("I didn't find") },
+            "a project with no ledger has nothing to retire from. Read: \(noLedger)")
+
+        let exact = try axTexts(in: mount(
+            Self.answeredLetter(), ledgerText: Self.ledger, onRetire: { _ in }))
+        XCTAssertTrue(
+            exact.contains(LetterSection.freshRetiredLine("Vary the opening.")),
+            "the control: the exact heading does draw, or every absence above is "
+            + "evidence about nothing. Read: \(exact)")
+    }
+
+    /// A refused ledger verb says so, in one channel for all three.
+    func test_aRefusedLedgerVerbSaysSo() throws {
+        let refusal = "There is nothing here to rule on yet."
+        XCTAssertTrue(
+            try axTexts(in: mount(Self.fullLetter(), ledgerFailure: refusal))
+                .contains(refusal))
+        XCTAssertFalse(
+            try axTexts(in: mount(Self.fullLetter())).contains(refusal),
+            "and nothing red is drawn when nothing was refused")
+    }
+
+    /// **Every part of a P2 letter, in the schema's reading order** — the
+    /// answer at the top and what the round did not find below the table.
+    func test_aP2LetterRendersItsNewPartsInReadingOrder() throws {
+        let window = mount(
+            Self.answeredLetter(), onAddTurnClause: {}, ledgerText: Self.ledger,
+            onRetire: { _ in })
+        let texts = try axTexts(in: window)
+
+        let expected = [
+            LetterSection.title,
+            LetterSection.askedCaption("Is the timeline of the dock clear?"),
+            "The dock is still down in this scene.",
+            "A ghost story told through weather.",
+            LetterSection.workingTitle,
+            LetterSection.habitsTitle,
+            LetterSection.questionsTitle,
+            LetterSection.scenesTitle,
+            LetterSection.freshRetiredLine("Vary the opening."),
+            LetterSection.turnOfferLine,
+            "\u{2014} Le Guin \u{00b7} round 2",
+            LetterSection.keepTitle,
+        ]
+        let positions = expected.map { texts.firstIndex(of: $0) ?? -1 }
+        for (marker, position) in zip(expected, positions) {
+            XCTAssertGreaterThanOrEqual(
+                position, 0,
+                "\u{201C}\(marker)\u{201D} never reached the surface. Read: \(texts)")
+        }
+        XCTAssertEqual(
+            positions, positions.sorted(),
+            "the answer leads and the not-found list follows the table. "
+            + "Read: \(texts)")
+    }
+
+    /// **The ledger's presses belong to their run too** (P1's own rule, in
+    /// three more places). Held across runs the next round's first habit is
+    /// born disabled, and a disabled Keep as lesson is the app saying the
+    /// lesson is already in the ledger.
+    func test_theLedgerPressesAreRememberedPerRun() throws {
+        let host = RunSwapHost(letter: Self.fullLetter())
+        let window = mount(AnyView(host))
+
+        press(try XCTUnwrap(
+            findButton(labelled: LetterSection.keepAsLessonTitle, in: window)))
+        press(try XCTUnwrap(
+            findButton(labelled: LetterSection.allChoicesTitle, in: window)))
+        pump(0.2)
+        for title in [LetterSection.keepAsLessonTitle, LetterSection.allChoicesTitle] {
+            XCTAssertEqual(
+                axEnabled(try XCTUnwrap(findButton(labelled: title, in: window))),
+                false, "the premise: \(title) is spent for this run")
+        }
+
+        press(try XCTUnwrap(findButton(labelled: RunSwapHost.redrawTitle, in: window)))
+        pump(0.2)
+        for title in [LetterSection.keepAsLessonTitle, LetterSection.allChoicesTitle] {
+            XCTAssertEqual(
+                axEnabled(try XCTUnwrap(findButton(labelled: title, in: window))),
+                false,
+                "a redraw inside one run must not forget the press \u{2014} the "
+                + "writer would file \(title) twice")
+        }
+
+        press(try XCTUnwrap(findButton(labelled: RunSwapHost.nextRunTitle, in: window)))
+        pump(0.25)
+        for title in [LetterSection.keepAsLessonTitle, LetterSection.allChoicesTitle] {
+            XCTAssertEqual(
+                axEnabled(try XCTUnwrap(findButton(labelled: title, in: window))),
+                true,
+                "a new run is a new letter, and a button born disabled tells the "
+                + "writer \(title) fired when it did not")
         }
     }
 
@@ -608,7 +963,12 @@ final class LetterSectionTests: XCTestCase {
         addToIntentTitle: String = LetterSection.addToIntentTitle,
         onKeep: @escaping () -> Void = {},
         offerFailure: String? = nil,
-        keepConfirmation: String? = nil
+        keepConfirmation: String? = nil,
+        ledgerText: String? = nil,
+        onKeepAsLesson: ((Letter.Habit) -> Void)? = nil,
+        onAllChoices: (() -> Void)? = nil,
+        onRetire: ((String) -> Void)? = nil,
+        ledgerFailure: String? = nil
     ) -> NSWindow {
         mount(AnyView(LetterSection(
             letter: letter, runId: runId, signature: signature,
@@ -616,7 +976,10 @@ final class LetterSectionTests: XCTestCase {
             onJump: onJump, onAcceptExercise: onAcceptExercise,
             onAddTurnClause: onAddTurnClause,
             addToIntentTitle: addToIntentTitle, onKeep: onKeep,
-            offerFailure: offerFailure, keepConfirmation: keepConfirmation)))
+            offerFailure: offerFailure, keepConfirmation: keepConfirmation,
+            ledgerText: ledgerText, onKeepAsLesson: onKeepAsLesson,
+            onAllChoices: onAllChoices, onRetire: onRetire,
+            ledgerFailure: ledgerFailure)))
     }
 
     private func mount(_ view: AnyView) -> NSWindow {
