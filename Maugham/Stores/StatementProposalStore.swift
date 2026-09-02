@@ -159,6 +159,13 @@ struct StatementProposalStore {
     }
 
     /// Validate, then overwrite the slot: a new proposal supersedes.
+    ///
+    /// **Returns the proposal RE-READ from disk, not the argument.** The
+    /// file is the truth — `.iso8601` (matching `DesignProposalStore`, and
+    /// every derived sidecar's readability convention) has no fractional
+    /// seconds, so the value a caller holds must be the one `pending(for:)`
+    /// will answer, whole-second `proposedAt` included, or the two would
+    /// silently disagree.
     @discardableResult
     func stage(_ proposal: Proposal) throws -> Proposal {
         try Self.validate(kind: proposal.kind, markdown: proposal.markdown)
@@ -166,15 +173,13 @@ struct StatementProposalStore {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        // Deliberately NOT `.iso8601` (unlike `DesignProposalStore`'s
-        // `proposal.json`, which nothing compares for exact equality):
-        // ISO8601's default formatting truncates to whole seconds, so a
-        // proposal read back would never `==` the in-memory one `stage`
-        // returns. The default strategy round-trips `Date` exactly (a
-        // `Double`, JSON-number-exact both ways).
-        try encoder.encode(proposal).write(
-            to: Self.fileURL(key: proposal.kind.key, in: projectURL), options: .atomic)
-        return proposal
+        encoder.dateEncodingStrategy = .iso8601
+        let url = Self.fileURL(key: proposal.kind.key, in: projectURL)
+        try encoder.encode(proposal).write(to: url, options: .atomic)
+        guard let written = read(key: proposal.kind.key) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return written
     }
 
     /// Clear the slot. An empty slot is not an error — Discard after a
@@ -191,6 +196,7 @@ struct StatementProposalStore {
         let url = Self.fileURL(key: key, in: projectURL)
         guard let data = try? Data(contentsOf: url) else { return nil }  // adr-0018-ok: statement proposal, derived sidecar
         let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(Proposal.self, from: data)
     }
 }
