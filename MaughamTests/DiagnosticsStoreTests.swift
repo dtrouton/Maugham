@@ -764,4 +764,128 @@ final class DiagnosticsStoreTests: XCTestCase {
 
         XCTAssertFalse(store.hasRefusedColdStart(docId: "anything"))
     }
+
+    // MARK: - The writer's ask (editorial letter P2 Task 3)
+
+    /// **Not `/tmp/unused`**, for `refuseColdStart`'s measured reason: `asks`
+    /// is loaded eagerly at `init`, so a fixed path shared across invocations
+    /// of this binary would hand a fresh store a previous run's own write.
+    func test_setAsk_isReadBackAndBumpsVersion() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-ask"
+
+        XCTAssertNil(store.ask(docId: docId))
+        let versionBefore = store.version
+
+        store.setAsk("I'm worried the middle sags.", docId: docId)
+
+        XCTAssertEqual(store.ask(docId: docId), "I'm worried the middle sags.")
+        XCTAssertGreaterThan(store.version, versionBefore,
+            "a SwiftUI field reading `ask(docId:)` through a method observes nothing "
+            + "unless `version` moves")
+    }
+
+    /// The ask is per document, not per project: asking about one chapter
+    /// must not brief the run against another.
+    func test_setAsk_isPerDocument() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+
+        store.setAsk("Does the ending land?", docId: "doc-one")
+
+        XCTAssertEqual(store.ask(docId: "doc-one"), "Does the ending land?")
+        XCTAssertNil(store.ask(docId: "doc-two"))
+    }
+
+    /// Trimmed, and a blank ask is a REMOVAL rather than an empty string —
+    /// a writer who selects the field and deletes it has asked nothing, and
+    /// an empty string kept on disk would brief every later run with a
+    /// question mark of nothing.
+    func test_setAsk_trimsAndAnEmptyAskClears() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-ask-clear"
+
+        store.setAsk("   Does the middle sag?  \n", docId: docId)
+        XCTAssertEqual(store.ask(docId: docId), "Does the middle sag?")
+
+        store.setAsk("   ", docId: docId)
+        XCTAssertNil(store.ask(docId: docId), "whitespace alone is nothing asked")
+
+        store.setAsk("Back again.", docId: docId)
+        store.setAsk(nil, docId: docId)
+        XCTAssertNil(store.ask(docId: docId), "…and so is nil")
+    }
+
+    /// Persisted immediately and survives a relaunch — a fresh store over the
+    /// same root reads it back without `load(docId:)` ever being called,
+    /// since `asks` is read once at `init`.
+    func test_setAsk_survivesRelaunch() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "doc-ask-relaunch"
+
+        let store1 = DiagnosticsStore(projectRoot: project, device: device)
+        store1.setAsk("Is Kelly's grief legible?", docId: docId)
+
+        let store2 = DiagnosticsStore(projectRoot: project, device: device)
+        XCTAssertEqual(store2.ask(docId: docId), "Is Kelly's grief legible?")
+    }
+
+    /// Per device, on the same discipline as every other sidecar here.
+    func test_setAsk_isPerDevice() throws {
+        let project = try makeProject()
+        let docId = "doc-ask-cross-device"
+
+        let storeA = DiagnosticsStore(
+            projectRoot: project, device: DeviceSlug.make(from: "mac-a"))
+        storeA.setAsk("Does the middle sag?", docId: docId)
+
+        let storeB = DiagnosticsStore(
+            projectRoot: project, device: DeviceSlug.make(from: "mac-b"))
+        XCTAssertNil(storeB.ask(docId: docId))
+    }
+
+    /// **An ask can be set on a document the compiler has never read** —
+    /// which is why it cannot live inside `FileContent`, whose whole shape is
+    /// a run that happened. Setting one must fabricate no run.
+    func test_setAsk_worksForADocumentWithNoRunAtAll_andMintsNoRun() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-ask-never-run"
+
+        store.setAsk("What is this even about?", docId: docId)
+
+        XCTAssertEqual(store.ask(docId: docId), "What is this even about?")
+        XCTAssertNil(store.lastRun(docId: docId))
+        XCTAssertEqual(store.live(docId: docId, currentText: { _ in nil }), [])
+    }
+
+    /// Its own file, named for this device (tripwire 24's `.raw`-at-the-
+    /// filename-point rule), and NOT the per-doc sidecar.
+    func test_asksFilename_isPerDevice_andTakesDeviceSlug() {
+        let project = URL(fileURLWithPath: "/tmp/project")
+        let slug = DeviceSlug.make(from: "Denvers-Mac.local")
+
+        XCTAssertEqual(
+            DiagnosticsStore.asksURL(projectRoot: project, device: slug).path,
+            project.appendingPathComponent(".maugham/diagnostics/asks.\(slug.raw).json").path)
+    }
+
+    /// A missing or corrupt asks file reads as empty — the derived-state
+    /// contract every sidecar here follows. Losing it costs the writer the
+    /// question they typed, and nothing else.
+    func test_setAsk_corruptFileReadsAsEmpty() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let url = DiagnosticsStore.asksURL(projectRoot: project, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+
+        XCTAssertNil(store.ask(docId: "anything"))
+    }
 }

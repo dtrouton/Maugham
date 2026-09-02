@@ -61,12 +61,42 @@ struct Letter: Codable, Equatable, Sendable {
     /// said nothing about position.
     var scenePosition: String?
 
+    /// The model's answer to what the writer asked this round (P2 Task 3),
+    /// scrubbed for a leaked paragraph id like `about` and `one_thing` — a
+    /// FIELD rather than an entry, so a leak empties it instead of costing
+    /// the letter everything else it got right.
+    ///
+    /// `nil` when nothing was asked, and also when something was asked and
+    /// the model answered nothing: the letter is never refused over a missing
+    /// answer, exactly as it is never refused over a missing say-back.
+    ///
+    /// **`= nil` is load-bearing, not tidiness.** These two are `var`s with
+    /// default values, so Swift synthesizes memberwise-initializer defaults
+    /// for them (SE-0242) and every `Letter(...)` written before P2 still
+    /// compiles unchanged. Adding them without the default would put two new
+    /// labels on ~20 call sites for no behavioural reason.
+    var answer: String? = nil
+
+    /// The ask exactly as it was briefed, stamped at `record` from the run
+    /// rather than read off the answer (P2 Task 3) — the same discipline as
+    /// `scenePosition`, and for a second reason of its own: the writer can
+    /// clear or rewrite their ask the moment the check ends, and a section
+    /// that said what was answered without saying what was asked would be
+    /// half a conversation.
+    var asked: String? = nil
+
     /// `about` is the only always-present part of a letter, so it is not what
     /// decides emptiness. A letter is empty when every other part is: no
-    /// `oneThing`, no working/habit/question entries, and `scenes` either
-    /// `nil` or itself empty.
+    /// `oneThing`, no working/habit/question entries, no `answer`, and
+    /// `scenes` either `nil` or itself empty.
+    ///
+    /// **`answer` counts and `asked` does not** (P2 Task 3). An answer is a
+    /// part of the letter the writer reads; the ask is a stamp saying what
+    /// the run was briefed on, the way `scenePosition` is a stamp saying what
+    /// form it was told this piece takes. A letter carrying only the stamp
+    /// answered nothing and has nothing to show.
     var isEmpty: Bool {
         oneThing == nil && working.isEmpty && habits.isEmpty && questions.isEmpty
-            && (scenes?.isEmpty ?? true)
+            && answer == nil && (scenes?.isEmpty ?? true)
     }
 }

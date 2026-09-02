@@ -486,6 +486,13 @@ final class CompilerOrchestrator {
         /// and the answer that supersedes it can never disagree about what
         /// form the model was told this piece takes.
         let scenePosition: ScenePosition
+        /// **What the writer asked of this run, read at the keystroke and
+        /// carried** (P2 Task 3). Carried for the lane's and the position's
+        /// reason, plus one of its own: the field is expected to be cleared
+        /// or rewritten the moment the check ends — a writer asks, reads the
+        /// answer, asks something else — so the run must stamp what it was
+        /// actually briefed on rather than whatever the field says by then.
+        let ask: String?
         /// Whether this round was read cold (⌘⇧R) — carried for the same
         /// reason the lane is: the preview and the answer must describe one
         /// round, and the pane draws its header off this stamp.
@@ -713,6 +720,25 @@ final class CompilerOrchestrator {
         // is load-bearing rather than a backstop there.
         let dispositions = freshEyes ? [] : environment.annotationContext(docId)
 
+        // **What the writer asked of this run**, read at the same instant as
+        // the lane and the dispositions and carried for the same reason: they
+        // can clear the field while the check runs, and the run was briefed on
+        // what stood when they pressed ⌘R.
+        //
+        // **Asked of the store rather than through an `Environment` closure.**
+        // The orchestrator already holds `DiagnosticsStore` — it is the
+        // parameter this method is given — and the ask lives there beside the
+        // refusal memory, so a closure would be a second route to a store
+        // already in hand.
+        //
+        // **A cold read is briefed on it, where it is briefed on no round and
+        // no dispositions.** Fresh eyes means a reader who has not seen the
+        // piece, not a reader who has not met the writer: the ask is the
+        // writer's own question about the prose, and refusing to hear it on
+        // ⌘⇧R would answer a question nobody asked while ignoring the one
+        // they did.
+        let ask = diagnostics.ask(docId: docId)
+
         let briefing = environment.intent(docId)
         // The essay half alone (spec §3.2). **This is the atomic switch**: the
         // strata below the essay reach the run as the derived clauses resolved
@@ -813,6 +839,7 @@ final class CompilerOrchestrator {
                 scenePosition: scenePosition,
                 previousRound: previousRound,
                 dispositions: dispositions,
+                ask: ask,
                 previousBriefingHash: previousHash)
 
             // **Armed immediately before the send, and never earlier.** A run
@@ -823,7 +850,7 @@ final class CompilerOrchestrator {
                 generation: generation, docId: docId, runId: runId, model: model,
                 lastOpId: lastOpId, deltaSummary: deltaSummary,
                 intentSnapshot: briefing?.statementText, activePass: activePass, round: round,
-                scenePosition: scenePosition, freshEyes: freshEyes)
+                scenePosition: scenePosition, ask: ask, freshEyes: freshEyes)
             runner.setPartialHandler { [weak self] chunk in
                 self?.receivePartial(chunk, generation: generation)
             }
@@ -833,7 +860,8 @@ final class CompilerOrchestrator {
                               deltaSummary: deltaSummary,
                               intentSnapshot: briefing?.statementText,
                               activePass: activePass, round: round,
-                              scenePosition: scenePosition, freshEyes: freshEyes,
+                              scenePosition: scenePosition, ask: ask,
+                              freshEyes: freshEyes,
                               briefingHash: briefingHash, model: model,
                               generation: generation)
         }
@@ -901,6 +929,12 @@ final class CompilerOrchestrator {
                              // letter's scene section under the writer as the
                              // check ended.
                              scenePosition: run.scenePosition,
+                             // The ask the run was briefed on, stamped on the
+                             // preview exactly as `finish` stamps it on the
+                             // answer — a preview that disagreed would change
+                             // what the letter says it was asked as the check
+                             // ended.
+                             ask: run.ask,
                              // A preview has minted nothing: the notes it would
                              // mint are minted at `finish` or not at all, so
                              // `nil` here is "no mint has happened" rather than
@@ -948,7 +982,7 @@ final class CompilerOrchestrator {
         id: String, model: String, lastOpId: String?, deltaSummary: String,
         intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
         outcome: DiagnosticIngest.SectionedOutcome, scenePosition: ScenePosition,
-        mintedNotes: Int?, openInOtherLanes: Int?
+        ask: String?, mintedNotes: Int?, openInOtherLanes: Int?
     ) -> CompilerRun {
         // **The letter's one mutable field, stamped here** (spec §3.4). The
         // position is the run's, not the model's: it is derived app-side at
@@ -962,6 +996,13 @@ final class CompilerOrchestrator {
         // `nil`: the position is a fact about a letter, not about a run.
         var letter = outcome.letter
         letter?.scenePosition = scenePosition.rawValue
+        // **The letter's second stamp, beside the position and for the same
+        // reason** (P2 Task 3): what the writer asked is the run's own fact,
+        // read at the keystroke, and the record must carry it rather than
+        // anything the answer echoed back. It is also what lets the section
+        // say what was asked after the writer has cleared the field — which
+        // they do the moment they have read the answer.
+        letter?.asked = ask
         return CompilerRun(
             id: id, at: Date(), model: model, lastOpId: lastOpId,
             deltaSummary: deltaSummary, intentSnapshot: intentSnapshot,
@@ -1187,8 +1228,8 @@ final class CompilerOrchestrator {
     private func finish(
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
         deltaSummary: String, intentSnapshot: String?, activePass: ActivePass?, round: Int?,
-        scenePosition: ScenePosition, freshEyes: Bool, briefingHash: String?, model: String,
-        generation: Int
+        scenePosition: ScenePosition, ask: String?, freshEyes: Bool, briefingHash: String?,
+        model: String, generation: Int
     ) async {
         let passId = activePass?.id
         switch event {
@@ -1282,7 +1323,8 @@ final class CompilerOrchestrator {
                 // and the writer may have moved the piece to another pass
                 // while it ran.
                 passId: passId, round: round, freshEyes: freshEyes,
-                outcome: outcome, scenePosition: scenePosition, mintedNotes: mint.minted,
+                outcome: outcome, scenePosition: scenePosition, ask: ask,
+                mintedNotes: mint.minted,
                 openInOtherLanes: mint.openInOtherLanes)
             // Dropped rather than discarded: `replace` below supersedes the
             // preview wholesale, so taking it off the pane first would blink

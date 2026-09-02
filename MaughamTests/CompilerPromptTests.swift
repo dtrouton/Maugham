@@ -682,6 +682,134 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertLessThan(scenes.lowerBound, delta.lowerBound)
     }
 
+    // MARK: - The writer's ask (editorial letter P2 Task 3)
+
+    /// The writer's own words, quoted, plus the instruction to answer them
+    /// first. Their sentence is marked off by guillemets so a two-sentence
+    /// ask cannot read as one sentence of theirs and one of ours.
+    func test_theAskCarriesTheWritersWordsAndSaysToAnswerThemFirst() {
+        guard let section = CompilerPrompt.askSection("I'm worried the middle sags.")
+        else { return XCTFail("an ask the writer typed must reach the run") }
+
+        XCTAssertTrue(section.contains("\u{00ab}I'm worried the middle sags.\u{00bb}"),
+                      "their words, quoted rather than paraphrased into an "
+                      + "instruction; got \(section)")
+        XCTAssertTrue(section.lowercased().contains("before anything else"),
+                      "…and the letter answers it first; got \(section)")
+        XCTAssertTrue(section.contains("answer"),
+                      "…in the field the schema asks for; got \(section)")
+    }
+
+    /// Nothing asked is no section at all, on `passSection`/`roundSection`/
+    /// `scenePositionSection`'s rule — a section saying the writer asked
+    /// nothing would spend standing words telling the model to do nothing.
+    /// Blank is guarded here as well as in `DiagnosticsStore.setAsk`, because
+    /// this function is reachable by any caller.
+    func test_anAbsentOrBlankAskIsNoSectionAtAll() {
+        XCTAssertNil(CompilerPrompt.askSection(nil))
+        XCTAssertNil(CompilerPrompt.askSection(""))
+        XCTAssertNil(CompilerPrompt.askSection("   \n  "))
+    }
+
+    /// Its place in the message: after the writer's dispositions, before the
+    /// delta. The ask is the last of the per-run frame and the closest thing
+    /// to the prose, because it is the writer's own words about the prose
+    /// immediately below it.
+    func test_theAskSitsBetweenTheDispositionsAndTheDelta() {
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(new: [.init(paragraphId: "p1", text: "The fog came.")]),
+            world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            dispositions: [Self.standingQuestion],
+            ask: "Does the middle sag?",
+            previousBriefingHash: nil)
+        guard let dispositions = message.range(of: CompilerPrompt.standingNotesHeading),
+              let ask = message.range(
+                of: CompilerPrompt.askSection("Does the middle sag?") ?? "!"),
+              let delta = message.range(of: "This run's delta:")
+        else { return XCTFail("expected the dispositions, the ask and the delta; got \(message)") }
+        XCTAssertLessThan(dispositions.lowerBound, ask.lowerBound)
+        XCTAssertLessThan(ask.lowerBound, delta.lowerBound)
+    }
+
+    /// **The ask never folds into the briefing hash** (global constraint 5,
+    /// and `test_theScenePositionNeverFoldsIntoTheBriefingHash`'s own shape),
+    /// with one reason sharper than its neighbours': an ask is EXPECTED to
+    /// change every round — that is what it is for — so a hash covering it
+    /// would never match its predecessor, and the essay, the declared world
+    /// and the bible slice would re-embed in full on every ⌘R the writer
+    /// asked anything on.
+    func test_theAskNeverFoldsIntoTheBriefingHash() {
+        let world = makeWorld(clauses: [.init(quote: "Keep it wry.", check: "tone check")])
+        let facts = [makeFact(subject: "Kelly", fact: "Kelly grew up on the coast.")]
+
+        let (_, firstHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [],
+            ask: "Does the middle sag?", previousBriefingHash: nil)
+        XCTAssertNotNil(firstHash)
+
+        let (secondMessage, secondHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [],
+            ask: "Is Kelly legible?", previousBriefingHash: firstHash)
+
+        XCTAssertEqual(secondHash, firstHash,
+                       "the intent did not move; an ask that folded into the hash "
+                       + "would re-embed the whole briefing every round the writer "
+                       + "asked something new")
+        XCTAssertTrue(secondMessage.lowercased().contains("unchanged"))
+        XCTAssertFalse(secondMessage.contains("Essay text."))
+        XCTAssertTrue(secondMessage.contains("Is Kelly legible?"),
+                      "…and the ask still travels")
+    }
+
+    /// The control for the pin above: the hash DOES move when the thing it is
+    /// about moves. Without this, a `briefingHashInput` that had quietly
+    /// stopped hashing anything at all would pass the pin.
+    func test_theBriefingHashStillMovesWhenTheEssayDoes() {
+        let (_, firstHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            ask: "Does the middle sag?", previousBriefingHash: nil)
+        let (_, secondHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "A different essay.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            ask: "Does the middle sag?", previousBriefingHash: firstHash)
+
+        XCTAssertNotNil(firstHash)
+        XCTAssertNotEqual(secondHash, firstHash)
+    }
+
+    /// The letter's schema asks for `answer` FIRST, because it is the first
+    /// thing the model is told to write: a question the writer typed is
+    /// answered before the reading it prompted.
+    func test_theLetterSchemaAsksForTheAnswerFirst() {
+        guard let letterLine = CompilerPrompt.sectionSchemaDescription
+            .components(separatedBy: "\n")
+            .first(where: { $0.contains("\"section\":\"letter\"") })
+        else { return XCTFail("the letter's schema line went missing") }
+        guard let answer = letterLine.range(of: "\"answer\""),
+              let about = letterLine.range(of: "\"about\"")
+        else { return XCTFail("expected both keys on the letter line; got \(letterLine)") }
+        XCTAssertLessThan(answer.lowerBound, about.lowerBound)
+    }
+
+    /// The standing instruction says what an answer IS, for every voice —
+    /// the same reason the rest of `letterInstruction` is general.
+    func test_theLetterInstructionSaysHowAnAskIsAnswered() {
+        let letter = CompilerPrompt.letterInstruction.lowercased()
+        for (phrase, why) in [
+            ("answer it in answer before anything else", "the ask is answered first"),
+            ("your own register", "…in the letter's own voice, not a form reply"),
+            ("an opinion where they asked for one", "…and an opinion when one is asked for"),
+            ("answer is null when they asked nothing", "…and null when nothing was asked"),
+        ] {
+            XCTAssertTrue(letter.contains(phrase),
+                          "the letter instruction stopped saying \"\(phrase)\" — \(why)")
+        }
+    }
+
     // MARK: - The writer's dispositions (M4 P1 Task 4)
 
     private static let standingQuestion = CompilerAnnotationDisposition(
@@ -1223,6 +1351,22 @@ final class CompilerPromptTests: XCTestCase {
     /// wording pass may grow a sentence or two without becoming a silent
     /// regression, and a failure here means the budget was actually spent and
     /// asks the editor to look, not to raise the number by reflex.
+    ///
+    /// **Measured again at the ask (P2 Task 3), and the 564 above was already
+    /// stale: the true total at that point was 593**, `letterInstruction`
+    /// having grown by a census fix (`c9639832`) after P1 Task 2 recorded its
+    /// number. That is the hazard a measured budget exists to catch, and it
+    /// only catches it when somebody re-measures, so both of this task's
+    /// numbers are recorded here rather than one:
+    ///
+    /// - **556 words** once `letterInstruction` was rewritten tighter — the
+    ///   same clauses in fewer words, every one of them still pinned by
+    ///   `test_theLetterInstructionCarriesItsDoctrineClauseByClause`.
+    /// - **593 words** with the ask's own sentence added back on top.
+    ///
+    /// So the room for the ask was BOUGHT rather than borrowed from the
+    /// ceiling: the standing cost of every run is exactly what it was before
+    /// this task, with one more thing said in it. The ceiling stays 715.
     func test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget() {
         let disciplines = [
             CompilerPrompt.readerBarInstruction,

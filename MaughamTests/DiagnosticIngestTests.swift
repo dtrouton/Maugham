@@ -149,6 +149,10 @@ final class DiagnosticIngestTests: XCTestCase {
             // the parser looks for that the prompt never asks for is a field
             // that will always be absent, and nothing would say so.
             DiagnosticIngest.SectionField.letter,
+            // The letter's answer to the writer's ask (P2 Task 3) — read as a
+            // field, so the name the parser looks for has to be the name the
+            // prompt asks for, exactly like the twelve keys below it.
+            DiagnosticIngest.SectionField.answer,
             DiagnosticIngest.SectionField.about,
             DiagnosticIngest.SectionField.oneThing,
             DiagnosticIngest.SectionField.working,
@@ -1300,6 +1304,67 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertNil(letter.oneThing)
         XCTAssertEqual(letter.working.map(\.what), ["The second turn"],
                        "control: the rest of the letter is untouched")
+    }
+
+    // MARK: - The letter's answer (editorial letter P2 Task 3)
+
+    /// The answer parses off the letter line like any other field.
+    func test_theLettersAnswerParses() throws {
+        let line = """
+            {"section":"letter","answer":"It sags where the scenes stop turning.",\
+            "about":"A woman waits."}
+            """
+        let letter = try XCTUnwrap(try XCTUnwrap(parseSection(line)).letter)
+        XCTAssertEqual(letter.answer, "It sags where the scenes stop turning.")
+        XCTAssertEqual(letter.about, "A woman waits.")
+        XCTAssertNil(letter.asked,
+                     "what was asked is stamped by the run, never read off the wire")
+    }
+
+    /// **An answer alone is a letter.** A section carrying nothing but an
+    /// answer still parses — `answer` is one of the recognised keys, so the
+    /// "no recognised key yields no letter" guard must not swallow it.
+    func test_anAnswerAloneIsEnoughToYieldALetter() throws {
+        let line = """
+            {"section":"letter","answer":"Yes, and here is where."}
+            """
+        let letter = try XCTUnwrap(try XCTUnwrap(parseSection(line)).letter)
+        XCTAssertEqual(letter.answer, "Yes, and here is where.")
+        XCTAssertEqual(letter.about, "", "…with no say-back, which is not a refusal")
+        XCTAssertFalse(letter.isEmpty, "an answer is content the writer reads")
+    }
+
+    /// **A leaked id empties the answer rather than dropping the letter** —
+    /// `about` and `one_thing`'s rule, because `answer` is a field too. It
+    /// empties to nil rather than the empty string: the answer is optional
+    /// where the say-back is not, and `""` would draw an answer with nothing
+    /// in it.
+    func test_aLeakedIdEmptiesTheAnswerRatherThanDroppingTheLetter() throws {
+        let line = """
+            {"section":"letter","answer":"Yes — look at [a1b2].",\
+            "working":[{"refs":["c3d4"],"what":"The second turn","why":"It is unannounced."}]}
+            """
+        let letter = try XCTUnwrap(try XCTUnwrap(parseSection(line)).letter,
+                                   "the letter itself must survive")
+        XCTAssertNil(letter.answer)
+        XCTAssertEqual(letter.working.map(\.what), ["The second turn"],
+                       "control: the rest of the letter is untouched")
+    }
+
+    /// A run the writer asked nothing on answers nothing, and a null answer
+    /// is the same as an absent one.
+    func test_aNullOrAbsentAnswerIsNil() throws {
+        for line in [
+            """
+            {"section":"letter","answer":null,"about":"A woman waits."}
+            """,
+            """
+            {"section":"letter","about":"A woman waits."}
+            """,
+        ] {
+            let letter = try XCTUnwrap(try XCTUnwrap(parseSection(line)).letter, line)
+            XCTAssertNil(letter.answer, line)
+        }
     }
 
     /// **A fix-shaped question is dropped, and it is dropped because it must

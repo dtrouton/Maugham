@@ -83,4 +83,57 @@ final class LetterTests: XCTestCase {
             scenes: letter.scenes, scenePosition: letter.scenePosition)
         XCTAssertFalse(letter.isEmpty)
     }
+
+    // MARK: - The ask and its answer (editorial letter P2 Task 3)
+
+    /// An answer is a part of the letter the writer reads, so a letter that
+    /// carries only an answer has something to show.
+    func test_isEmpty_isFalseWhenTheAnswerIsPresentAlone() {
+        var letter = emptyLetter()
+        letter.answer = "The middle sags because Marta stops wanting anything."
+        XCTAssertFalse(letter.isEmpty)
+    }
+
+    /// The control for the rule above: `asked` is a STAMP saying what the run
+    /// was briefed on, the way `scenePosition` is a stamp saying what form it
+    /// was told this piece takes — a letter carrying only the stamp answered
+    /// nothing and has nothing to show.
+    func test_isEmpty_staysTrueWhenOnlyTheAskWasStamped() {
+        var letter = emptyLetter()
+        letter.asked = "Does the middle sag?"
+        XCTAssertTrue(letter.isEmpty,
+                      "what was asked is a fact about the run; only an answer is content")
+    }
+
+    /// Both new fields round-trip, and both are `var` because the run stamps
+    /// one of them after the parse.
+    func test_theAnswerAndTheAskRoundTripThroughJSON() throws {
+        var letter = fullLetter()
+        letter.answer = "It sags where the scenes stop turning."
+        letter.asked = "Does the middle sag?"
+
+        let decoded = try JSONDecoder().decode(
+            Letter.self, from: try JSONEncoder().encode(letter))
+
+        XCTAssertEqual(decoded, letter)
+        XCTAssertEqual(decoded.answer, "It sags where the scenes stop turning.")
+        XCTAssertEqual(decoded.asked, "Does the middle sag?")
+    }
+
+    /// **A sidecar written before P2 decodes clean** — literal JSON rather
+    /// than an encode of today's type, because an encode could only ever
+    /// produce today's shape and would pin nothing. This is the additive
+    /// contract the type's own doc comment promises.
+    func test_aLetterWrittenBeforeTheAskDecodesWithBothFieldsNil() throws {
+        let json = """
+            {"about":"The middle third pulls its punches.","working":[],\
+            "habits":[],"questions":[],"scenePosition":"weak"}
+            """
+        let decoded = try JSONDecoder().decode(Letter.self, from: Data(json.utf8))
+
+        XCTAssertNil(decoded.answer)
+        XCTAssertNil(decoded.asked)
+        XCTAssertEqual(decoded.scenePosition, "weak")
+        XCTAssertTrue(decoded.isEmpty)
+    }
 }

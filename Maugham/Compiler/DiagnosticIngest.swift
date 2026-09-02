@@ -137,6 +137,11 @@ extension DiagnosticIngest {
         /// the continuity section's array on purpose: it is the same word for
         /// the same shape of answer, read out of a different object.
         static let letter = "letter"
+        /// The letter's answer to what the writer asked this round (P2
+        /// Task 3). FIRST in the letter's schema line, because it is the
+        /// first thing the model is told to write — a question the writer
+        /// typed is answered before the reading it prompted.
+        static let answer = "answer"
         static let about = "about"
         static let oneThing = "one_thing"
         static let working = "working"
@@ -562,8 +567,9 @@ extension DiagnosticIngest {
         _ object: [String: Any], runId: String, docId: String, live: (String) -> String?
     ) -> PartialSection {
         let recognised = [
-            SectionField.about, SectionField.oneThing, SectionField.working,
-            SectionField.habits, SectionField.questions, SectionField.scenes,
+            SectionField.answer, SectionField.about, SectionField.oneThing,
+            SectionField.working, SectionField.habits, SectionField.questions,
+            SectionField.scenes,
         ]
         guard recognised.contains(where: { object[$0] != nil }) else {
             return PartialSection(
@@ -655,6 +661,12 @@ extension DiagnosticIngest {
         // of the rule that a letter is never refused for a missing say-back.
         let about = nonEmptyString(object[SectionField.about])
         let oneThing = nonEmptyString(object[SectionField.oneThing])
+        // **`answer` is a field on the same terms** (P2 Task 3), so a leaked
+        // id empties it and costs the writer nothing else. It empties to
+        // `nil` rather than `""` like `about`, because the letter's answer is
+        // optional where the say-back is not: an empty string here would draw
+        // an answer section with nothing in it.
+        let answer = nonEmptyString(object[SectionField.answer])
 
         let letter = Letter(
             about: letterProseLeaksAnId([about], live) ? "" : (about ?? ""),
@@ -663,7 +675,12 @@ extension DiagnosticIngest {
             habits: Array(habits.prefix(letterHabitsCap)),
             questions: questions,
             scenes: scenes,
-            scenePosition: nil)
+            scenePosition: nil,
+            answer: letterProseLeaksAnId([answer], live) ? nil : answer,
+            // Stamped at `record` from the run rather than read off the wire:
+            // what was ASKED is the app's own fact, and a model echoing it
+            // back would be the letter telling us what we told it.
+            asked: nil)
 
         return PartialSection(
             accepted: notes, facts: [], conformance: [], droppedDangling: 0,

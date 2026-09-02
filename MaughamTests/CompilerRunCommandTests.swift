@@ -5498,6 +5498,74 @@ final class CompilerRunCommandTests: XCTestCase {
         }
     }
 
+    // MARK: - The writer's ask (editorial letter P2 Task 3)
+
+    /// **What the writer asked reaches the run, and the run stamps it back**
+    /// (P2 §3.7). The ask is read off `DiagnosticsStore` at the keystroke —
+    /// the orchestrator already holds the store — briefed outside the hash,
+    /// and stamped onto the letter at `record` so the section can still say
+    /// what was asked after the writer has cleared the field.
+    func test_aRunBriefsTheWritersAskAndStampsItOntoItsLetter() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        harness.diagnostics.setAsk("I'm worried the middle sags.", docId: docId)
+        runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertTrue(
+            runner.sends.first?.message.contains("I'm worried the middle sags.") ?? false,
+            "the ask must reach the briefing; got \(runner.sends.first?.message ?? "nothing")")
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.letter?.about, "A woman waits out a fog.",
+                       "control: the letter itself really did land")
+        XCTAssertEqual(run.letter?.asked, "I'm worried the middle sags.")
+    }
+
+    /// The control: a run the writer asked nothing on briefs no ask and
+    /// stamps none, so the stamp above is reading a real value rather than
+    /// echoing whatever the letter already carried.
+    func test_aRunWithNoAskBriefsNothingAndStampsNil() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertFalse(
+            runner.sends.first?.message.lowercased().contains("the writer asks") ?? true,
+            "no ask, no section")
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertNotNil(run.letter, "control: the letter itself still landed")
+        XCTAssertNil(run.letter?.asked)
+    }
+
+    /// **The ask the run was BRIEFED on is what it stamps**, not whatever the
+    /// field says by the time the answer lands. A writer reads the answer and
+    /// immediately asks something else — or clears the field — and a stamp
+    /// re-read at `record` would put that second question above the first
+    /// question's answer.
+    func test_theStampIsTheAskTheRunWasBriefedOnEvenIfTheWriterClearsIt() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        harness.diagnostics.setAsk("Does the middle sag?", docId: docId)
+        runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        harness.diagnostics.setAsk(nil, docId: docId)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.letter?.asked, "Does the middle sag?")
+        XCTAssertNil(harness.diagnostics.ask(docId: docId),
+                     "control: the writer really did clear it")
+    }
+
     /// **The run derives over the WHOLE statement, not the essay half it
     /// briefs with** (spec §3.4, and the reason Task 9's offer works at all).
     ///

@@ -137,10 +137,27 @@ final class DiagnosticsStore {
     /// nothing worse than the offer asking once more.
     private var refusedColdStart: Set<String>
 
+    /// What the writer has asked of the next run, per document, on THIS
+    /// device — "I'm worried the middle sags" (editorial letter P2 §3.7).
+    ///
+    /// **Beside `FileContent` rather than inside it, for `refusedColdStart`'s
+    /// reason and one sharper.** An ask is written BEFORE a run, and the
+    /// sidecar is written by one: a writer can type an ask into a document the
+    /// compiler has never read, and there is no `CompilerRun` to hang it off.
+    /// Putting it in the per-doc file would mean fabricating a run that never
+    /// happened, and every ask would be lost the moment the writer typed it.
+    ///
+    /// One small file for the whole project, keyed by docId, on the same
+    /// derived-state contract as everything else here — except that this one
+    /// is the writer's own words rather than a run's output, which is why it
+    /// is persisted the instant it is set rather than at the next run.
+    private var asks: [String: String]
+
     init(projectRoot: URL, device: DeviceSlug) {
         self.projectRoot = projectRoot
         self.device = device
         self.refusedColdStart = Self.loadRefusedColdStart(projectRoot: projectRoot, device: device)
+        self.asks = Self.loadAsks(projectRoot: projectRoot, device: device)
     }
 
     /// Read this device's sidecar for `docId` into memory. A missing or
@@ -485,6 +502,40 @@ final class DiagnosticsStore {
         version += 1
     }
 
+    // MARK: - The writer's ask (editorial letter P2 §3.7)
+
+    /// What the writer has asked of the next run against `docId`, or `nil`
+    /// when they have asked nothing. Read by `CompilerOrchestrator.beginRun`
+    /// at the keystroke, and by the field that holds it.
+    func ask(docId: String) -> String? {
+        asks[docId]
+    }
+
+    /// Set — or, with `nil` or blank, clear — the ask for `docId`.
+    ///
+    /// **Trimmed, and an empty ask is a removal rather than an empty string.**
+    /// A writer who selects the field's text and deletes it has cleared their
+    /// ask, and an empty string kept on disk would brief every later run with
+    /// a question mark of nothing. `ask(docId:)` answering `nil` is the one
+    /// spelling of "nothing was asked", so there is no second empty state for
+    /// the prompt to guard against.
+    ///
+    /// Persisted immediately, on `refuseColdStart`'s discipline: a decision
+    /// the writer made must survive a relaunch. `version` moves so an
+    /// observing field or pane re-reads it — a SwiftUI reader that only
+    /// touched `ask(docId:)` would observe nothing, because a plain
+    /// Dictionary read through a method is not a tracked access.
+    func setAsk(_ text: String?, docId: String) {
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            asks[docId] = nil
+        } else {
+            asks[docId] = trimmed
+        }
+        persistAsks()
+        version += 1
+    }
+
     /// `.maugham/diagnostics/<docId>.<slug>.json` — per-device so two
     /// machines running the compiler against the same doc never race each
     /// other's sidecar. `.raw` is interpolated only here (tripwire 24).
@@ -521,6 +572,37 @@ final class DiagnosticsStore {
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if let data = try? JSONEncoder().encode(refusedColdStart.sorted()) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// `.maugham/diagnostics/asks.<slug>.json` — one per-device file for the
+    /// whole project, keyed by docId, for the reason `asks` gives. `.raw` is
+    /// interpolated only here (tripwire 24), a third site in this file
+    /// building a third genuinely different filename.
+    static func asksURL(projectRoot: URL, device: DeviceSlug) -> URL {
+        projectRoot
+            .appendingPathComponent(".maugham/diagnostics")
+            .appendingPathComponent("asks.\(device.raw).json")
+    }
+
+    private static func loadAsks(
+        projectRoot: URL, device: DeviceSlug
+    ) -> [String: String] {
+        let url = asksURL(projectRoot: projectRoot, device: device)
+        guard let data = try? Data(contentsOf: url), // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+              let asks = try? JSONDecoder().decode([String: String].self, from: data)
+        else { return [:] }
+        return asks
+    }
+
+    private func persistAsks() {
+        let url = Self.asksURL(projectRoot: projectRoot, device: device)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        if let data = try? encoder.encode(asks) {
             try? data.write(to: url, options: .atomic)
         }
     }

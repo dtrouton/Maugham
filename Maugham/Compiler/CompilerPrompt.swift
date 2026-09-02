@@ -57,7 +57,8 @@ enum CompilerPrompt {
         "refs":[<paragraph id>...]}]}
         {"section":"intent_drift","verdict":"holds"|"drifted","note":<one \
         sentence, only when drifted>}
-        {"section":"letter","about":<string>,"one_thing":<string or null>,\
+        {"section":"letter","answer":<string or null>,"about":<string>,\
+        "one_thing":<string or null>,\
         "working":[{"refs":[<paragraph id>...],"what":<string>,"why":\
         <string>}],"habits":[{"name":<string>,"refs":[<paragraph id>...],\
         "cost":<string>,"lesson":<string or null>,"exercise":<string or \
@@ -166,26 +167,27 @@ enum CompilerPrompt {
     /// counts it into the standing per-run overhead every call pays.
     static let letterInstruction = """
         The letter is about the manuscript as a whole rather than one more \
-        note: it says what no single anchored finding can. about is one \
-        sentence — what this piece seems to be about as you read it, not \
-        what it set out to be. one_thing is the single thing to fix if the \
-        writer fixes only one, and null when there is nothing to fix. Name \
-        what is working before what is not, and with each one the principle \
-        behind it, so the writer can repeat it on purpose. A habit is a \
-        pattern across everything you read rather than one instance of it — \
-        at most 2 habits, at most 4 refs each — and one worth testing by \
-        name is voice distinctness: could each character be identified by \
-        their lines alone? An exercise is a thing to go and do, never a \
-        rewrite of the writer's words. In the letter you ask and nothing \
-        else: at most 3 questions, and never a suggested change. Where the \
-        pinned references hold the writer's own pieces, measure this one \
-        against those by name before you measure it against any rule. One \
-        issue still gets one entry — something already filed as a strain, a \
-        continuity question or a reader's report does not come back here as \
-        a habit or a question. Write only the parts your pass brief allows \
-        you; with no brief, write all of them. Where you were given a delta, \
-        the letter is about that delta; on a cold reading of the whole \
-        piece, it is about the whole piece.
+        note: it says what no anchored finding can. about is one sentence — \
+        what this piece seems to be about as you read it, not what it set \
+        out to be. one_thing is the single thing to fix if the writer fixes \
+        only one, and null when there is nothing. Name what works before \
+        what does not, and with each the principle behind it, so the writer \
+        can repeat it on purpose. A habit is a pattern across everything you \
+        read rather than one instance — at most 2 habits, 4 refs each — and \
+        one worth testing by name is voice distinctness: could each \
+        character be identified by their lines alone? An exercise is a thing \
+        to go and do, never a rewrite of the writer's words. You ask and \
+        nothing else: at most 3 questions, never a suggested change. Where \
+        the pinned references hold the writer's own pieces, measure this one \
+        against those by name before any rule. One issue still gets one \
+        entry: what is already filed as a strain, a continuity question or a \
+        reader's report does not return here. Write only the parts your pass \
+        brief allows; with no brief, write all of them. About the delta you \
+        were given; on a cold reading, about the whole piece. Where the \
+        writer has asked something, answer it in answer before anything \
+        else, directly and in your own register — an opinion where they \
+        asked for one, never a rewrite; answer is null when they asked \
+        nothing.
         """
 
     /// Sent once, when the warm session is spawned — never repeated per run.
@@ -245,6 +247,7 @@ enum CompilerPrompt {
         scenePosition: ScenePosition = .none,
         previousRound: PriorRound? = nil,
         dispositions: [CompilerAnnotationDisposition] = [],
+        ask: String? = nil,
         previousBriefingHash: String?
     ) -> (message: String, briefingHash: String?) {
         var sections: [String] = []
@@ -296,6 +299,18 @@ enum CompilerPrompt {
         }
         if let dispositions = dispositionsSection(dispositions) {
             sections.append(dispositions)
+        }
+        // Last of the per-run frame, and closest to the delta on purpose: the
+        // ask is the writer's own words about the prose immediately below it,
+        // so it is the final thing said before the prose itself. **Out of
+        // `briefingHashInput` for its four neighbours' reason** (global
+        // constraint 5) and one of its own: an ask is expected to change every
+        // round — that is what it is for — and a hash covering it would never
+        // match its predecessor, so the essay, the declared world and the
+        // bible slice would re-embed in full on every ⌘R a writer asked
+        // anything on.
+        if let ask = askSection(ask) {
+            sections.append(ask)
         }
 
         sections.append(deltaSection(delta))
@@ -585,6 +600,36 @@ enum CompilerPrompt {
             .trimmingCharacters(in: .whitespaces)
         guard collapsed.count > dispositionExcerptLimit else { return collapsed }
         return collapsed.prefix(dispositionExcerptLimit) + "\u{2026}"
+    }
+
+    // MARK: - The writer's ask (editorial letter P2 §3.7)
+
+    /// What the writer asked of THIS run, in their own words — "I'm worried
+    /// the middle sags" — and the instruction to answer it before anything
+    /// else.
+    ///
+    /// **Their words are quoted, never paraphrased into an instruction.** An
+    /// ask is the one part of a briefing the writer typed themselves, and the
+    /// letter answers a person rather than a directive; the guillemets mark
+    /// where their sentence starts and stops so a two-sentence ask cannot read
+    /// as one sentence of theirs and one of ours.
+    ///
+    /// `nil` for a nil or blank ask, on `passSection`/`roundSection`/
+    /// `scenePositionSection`'s rule: the call site composes optional sections
+    /// in one spelling, and a section saying the writer asked nothing would
+    /// spend words telling the model to do nothing. Blank is guarded here as
+    /// well as in `DiagnosticsStore.setAsk` because this function is public
+    /// and a second caller must not be able to brief an empty question.
+    ///
+    /// **Never folded into `briefingHashInput`** — see the append site.
+    static func askSection(_ ask: String?) -> String? {
+        guard let ask, !ask.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return """
+            The writer asks, this round: \u{00ab}\(cleaned(ask))\u{00bb}
+            Answer it in the letter's answer field before anything else you \
+            have to say, and let the rest of the letter follow.
+            """
     }
 
     // MARK: - The previous round (M3-P3 §6)
