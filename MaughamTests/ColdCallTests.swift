@@ -161,6 +161,8 @@ final class ColdCallTests: XCTestCase {
         let session = runner as? ClaudeCLISession
         XCTAssertNotNil(session, "production spawns the real CLI session")
         XCTAssertEqual(session?.confinement, .sealed)
+        XCTAssertEqual(session?.runTimeout, ClaudeCLISession.translationRunTimeout,
+                       "a cold read of a whole chapter gets the translation cast's budget, not the compiler's")
         session?.shutdown()
     }
 }

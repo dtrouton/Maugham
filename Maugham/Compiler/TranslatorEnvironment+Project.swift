@@ -115,7 +115,8 @@ extension TranslatorOrchestrator.Environment {
                     model: model,
                     confinement: .bridged(mcpConfigPath: configURL),
                     cliOverride: nil,
-                    isEnabled: { [weak preferences] in preferences?.mcpEnabled ?? false })
+                    isEnabled: { [weak preferences] in preferences?.mcpEnabled ?? false },
+                    runTimeout: ClaudeCLISession.translationRunTimeout)
             },
             ingest: { [weak store, weak documentStore] report, context in
                 guard let store else {

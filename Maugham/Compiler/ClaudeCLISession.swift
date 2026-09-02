@@ -42,7 +42,9 @@ final class ClaudeCLISession: CompilerRunner {
     /// Reads `UserPreferences.mcpEnabled`. Consulted before *every* spawn.
     private let isEnabled: () -> Bool
     private let idleTimeout: TimeInterval
-    private let runTimeout: TimeInterval
+    /// Readable, like `confinement`, for exactly one assertion: the two
+    /// translation factories hand their sessions `translationRunTimeout`.
+    let runTimeout: TimeInterval
     /// How long the death join will wait for the child's exit once stdout has
     /// reached EOF, before falling back to the statusless sentence. See
     /// `tryCompleteDeath`.
@@ -76,6 +78,21 @@ final class ClaudeCLISession: CompilerRunner {
     /// now quote it in prose (`AREA.md`, `DeclaredWorldDeriver.defaultDeadline`'s
     /// comparison) and a number with no home is a number that goes stale.
     nonisolated static let defaultRunTimeout: TimeInterval = 300
+
+    /// **The per-turn budget for the translation cast — 900 s (2026-09-02,
+    /// Denver's ruling).** A compiler turn sends a delta and reads back a
+    /// short report; a translate leg sends a chapter's whole work-list and
+    /// waits for the whole chapter back in the target language, and the fix
+    /// legs resend the full noted set — output is the slow direction, and a
+    /// long chapter ran past `defaultRunTimeout` on its own, killing the leg
+    /// with nothing written. Applied by `TranslatorEnvironment+Project`'s
+    /// runner and `ColdCall.productionRunnerFactory` (a cold read of a whole
+    /// chapter has the same shape); the compiler and the designer keep the
+    /// default. Above `idleTimeout` on purpose and safely: the idle timer
+    /// checks `inFlight` before it fires, so it cannot end a turn in
+    /// progress. The structural fix — chunking the work-list so one leg is
+    /// several bounded turns — is a roadmap follow-on, not this constant.
+    nonisolated static let translationRunTimeout: TimeInterval = 900
 
     /// **What the spawned CLI can reach — a spawn-argument fact, not a
     /// setting** (translation pipeline spec §11).

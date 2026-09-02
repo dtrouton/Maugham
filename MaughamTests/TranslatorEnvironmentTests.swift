@@ -963,4 +963,23 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertEqual(landed.first?.language, "es")
         _ = docId
     }
+
+    // MARK: - The translation cast's per-turn budget (2026-09-02)
+
+    /// **The production runner is a bridged session on the translation
+    /// budget, not the compiler's.** A translate leg sends a chapter's whole
+    /// work-list in one turn; `ClaudeCLISession.defaultRunTimeout` was measured
+    /// on a compiler delta and killed long chapters with nothing written.
+    /// `runTimeout` is readable for exactly this assertion.
+    func test_theProductionRunnerCarriesTheTranslationBudget() async throws {
+        let harness = try await makeHarness()
+        let configURL = harness.projectURL.appendingPathComponent("mcp-config.json")
+        let made = harness.environment.makeRunner(configURL, "haiku")
+        let session = try XCTUnwrap(made as? ClaudeCLISession,
+                                    "production spawns the real CLI session")
+        XCTAssertEqual(session.runTimeout, ClaudeCLISession.translationRunTimeout)
+        XCTAssertEqual(session.confinement, .bridged(mcpConfigPath: configURL),
+                       "the budget changed; the confinement did not")
+        session.shutdown()
+    }
 }

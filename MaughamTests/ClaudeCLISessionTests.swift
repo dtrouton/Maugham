@@ -521,6 +521,16 @@ final class ClaudeCLISessionTests: XCTestCase {
 
     /// A turn that outruns its budget is reported as a timeout, not left
     /// hanging.
+    /// The translation cast's budget is a named constant beside the compiler's,
+    /// so the number quoted in `AREA.md` has a home; it must stay above the
+    /// compiler's (the reason it exists) and finite (the reason a budget exists).
+    func test_theTranslationBudgetIsLongerThanTheCompilersAndStillBounded() {
+        XCTAssertEqual(ClaudeCLISession.translationRunTimeout, 900)
+        XCTAssertGreaterThan(ClaudeCLISession.translationRunTimeout,
+                             ClaudeCLISession.defaultRunTimeout)
+        XCTAssertLessThan(ClaudeCLISession.translationRunTimeout, 3600)
+    }
+
     func test_runTimeout() async throws {
         let cli = try makeFakeCLI(mode: .slowWhileFlagged)
         try Data().write(to: slowFlagURL)   // never lifted: the turn never lands
