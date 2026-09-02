@@ -2,7 +2,7 @@
 
 ## State
 
-- **Local `main` is at `6194e3b4`** — editorial letter **P1** merged by fast-forward (21 commits, 59 files, +8811/−251). **UNPUSHED.** The milestone (P1 → P2 → P3) ships whole; do not push or tag until P3 is merged and Denver has smoked.
+- **Local `main` was at `6194e3b4` after P1** (now `2701b416` after P2 — see the P2 addendum) — editorial letter **P1** merged by fast-forward (21 commits, 59 files, +8811/−251). **UNPUSHED.** The milestone (P1 → P2 → P3) ships whole; do not push or tag until P3 is merged and Denver has smoked.
 - Origin's `main` is `881c758e` (verified with `git rev-parse origin/main`). Everything from `6373684c` onward is local.
 - Full gate (`./scripts/test.sh full`) and a Release build are both green on `6194e3b4`; no warnings in any branch file; the gate's skips are the known set (perf probes, oplog baselines, locked-screen click tests, cross-volume swap).
 - The plan workspace (`.superpowers/sdd/2026-09-01-editorial-letter-p1-…`) is deleted; git history is the record. The per-task reports are gone with it — the ledger's rulings are reproduced below.
@@ -92,7 +92,7 @@ Rule 11 applies: **re-derive P2 against the built code**, not against the spec's
 
 ## State
 
-- **Branch `claude/editorial-letter-p2-2026-09-02`.** HEAD is the fix-wave commit; `git log 0db22789..HEAD` is the record (`0db22789` is the P2 plan commit, on top of P1's `6194e3b4`). **Not merged, not pushed.** The milestone (P1 → P2 → P3) still ships whole: do not push or tag until P3 is merged and Denver has smoked.
+- **Local `main` is at `2701b416`** — editorial letter **P2** merged by fast-forward (branch `claude/editorial-letter-p2-2026-09-02`, since deleted); `git log 0db22789..2701b416` is the record (`0db22789` is the P2 plan commit, on top of P1's `6194e3b4`). Full gate (`./scripts/test.sh full`, no real failures, the known skip set) and a Release build are both green on `2701b416`. **UNPUSHED.** The milestone (P1 → P2 → P3) still ships whole: do not push or tag until P3 is merged and Denver has smoked.
 - Origin's `main` is `881c758e` (verified with `git rev-parse origin/main`). Everything from `6373684c` onward is local.
 - The plan and spec are `docs/superpowers/plans/2026-09-02-editorial-letter-p2-the-ask-and-the-ledger.md` (written against the built P1 code, rule 11) and the spec's §3.7 and §6.
 - The SDD workspace `.superpowers/sdd/2026-09-02-editorial-letter-p2-…` will be deleted with the branch; the rulings and carries below are the record.
