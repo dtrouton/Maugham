@@ -1362,6 +1362,49 @@ final class CompilerPromptTests: XCTestCase {
             """))
     }
 
+    /// **Each arm of the guard on its own.** The section is nil only when all
+    /// three are empty, so a ledger that is nothing but a preamble and one
+    /// that is nothing but choices each brief — and each, being a section,
+    /// contributes to the hash. Without these two the guard could have been
+    /// written as "no open lesson" and every test above would still pass.
+    func test_aPreambleAloneAndChoicesAloneEachBriefAndHash() {
+        let preambleOnly = "I keep learning the same two things."
+        let choicesOnly = """
+            ## Rulings
+
+            - Choice: Present tense throughout — ruled 1 Sep 2026, Denver
+            """
+
+        let preamble = CompilerPrompt.lessonsSection(preambleOnly)
+        XCTAssertNotNil(preamble)
+        XCTAssertEqual(preamble?.contains("I keep learning the same two things."), true)
+
+        let choices = CompilerPrompt.lessonsSection(choicesOnly)
+        XCTAssertNotNil(choices)
+        XCTAssertEqual(choices?.contains("Present tense throughout"), true)
+
+        // …and each is enough to have a hash with nothing else declared.
+        for ledger in [preambleOnly, choicesOnly] {
+            let (_, hash) = CompilerPrompt.runMessageV2(
+                delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
+                paletteListing: [], pinnedListing: [],
+                lessons: ledger, previousBriefingHash: nil)
+            XCTAssertNotNil(hash, ledger)
+        }
+    }
+
+    /// The ledger's preamble is labelled like every sibling section, so a
+    /// preamble-only ledger does not arrive as an unattributed paragraph under
+    /// the bible's list.
+    func test_theLedgersPreambleIsLabelled() throws {
+        let section = try XCTUnwrap(
+            CompilerPrompt.lessonsSection("I keep learning the same two things."))
+        guard let label = section.range(of: "What the writer has learned"),
+              let essay = section.range(of: "I keep learning the same two things.")
+        else { return XCTFail("expected the label above the preamble; got \(section)") }
+        XCTAssertLessThan(label.lowerBound, essay.lowerBound)
+    }
+
     /// The ledger rides the message, after the bible and inside the hash-gated
     /// briefing — it is a thing the writer has DECLARED, like the essay and the
     /// world above it, rather than per-run context like the ask.

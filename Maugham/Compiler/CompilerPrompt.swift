@@ -233,13 +233,18 @@ enum CompilerPrompt {
     /// paragraph id, because a fact's `establishedAt` is an anchor for the
     /// pane's excerpt chip, not quotable prose this function has in hand.
     ///
-    /// `briefingHash` covers essay + world + facts as ONE unit (the diff-in
-    /// rule widened from v1's intent-only hash): unchanged since the last
-    /// run's hash → a single marker line replaces all three; changed → all
-    /// three re-embed together, never partially. `nil` when there is
-    /// nothing declared at all (no essay, an empty or absent world, no
-    /// facts) — an empty declared world is a valid, un-hashed state (spec
-    /// §7: the conformance section is simply absent).
+    /// `briefingHash` covers essay + world + facts + the lessons ledger as ONE
+    /// unit (the diff-in rule widened from v1's intent-only hash, and again at
+    /// P2 Task 4): unchanged since the last run's hash → a single marker line
+    /// replaces all four; changed → all four re-embed together, never
+    /// partially. `nil` when there is nothing declared at all — no essay, an
+    /// empty or absent world, no facts, and a ledger with nothing live in it —
+    /// an empty declared world is a valid, un-hashed state (spec §7: the
+    /// conformance section is simply absent). A writer with a ledger and no
+    /// intent statement HAS declared something, so that alone is a hash.
+    ///
+    /// **The ledger's member is the rendered section, not its markdown** —
+    /// see `briefingHashInput`, where the reason lives.
     ///
     /// `previousRound` is per-run state and is **never** part of that hash —
     /// see `roundSection`. Defaulted because "there is no previous round" is
@@ -395,7 +400,15 @@ enum CompilerPrompt {
         guard !essay.isEmpty || !open.isEmpty || !choices.isEmpty else { return nil }
 
         var lines: [String] = []
-        if !essay.isEmpty { lines.append(essay) }
+        // **Labelled like every sibling section** ("Declared intent (essay):",
+        // "Established so far:"). Without it a ledger that is only a preamble
+        // arrives as an unattributed paragraph directly under the bible's
+        // list, reading as one more thing established rather than as the
+        // writer talking about their own work.
+        if !essay.isEmpty {
+            lines.append("What the writer has learned (their own words):")
+            lines.append(essay)
+        }
         if !open.isEmpty {
             lines.append(
                 "Lessons the writer is working on — cite one by its heading, "

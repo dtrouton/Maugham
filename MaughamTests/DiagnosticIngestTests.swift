@@ -1193,6 +1193,38 @@ final class DiagnosticIngestTests: XCTestCase {
         }
     }
 
+    /// **A habit past the cap is not a habit this letter raised.** The cap
+    /// decides which habits the letter HAS, so it is applied before the
+    /// citations are checked against them — taken off the uncapped list, a
+    /// third habit's heading would stamp a question about a habit no surface
+    /// ever shows.
+    func test_aQuestionCitingAHabitPastTheCapCarriesNothing() throws {
+        func line(citing cited: String) -> String {
+            """
+            {"section":"letter","habits":[\
+            {"name":"First","refs":["c3d4"],"cost":"A cost."},\
+            {"name":"Second","refs":["c3d4"],"cost":"A cost."},\
+            {"name":"Third","refs":["c3d4"],"cost":"A cost."}],\
+            "questions":[{"refs":["c3d4"],"habit":"\(cited)",\
+            "question":"Whose fear is this?"}]}
+            """
+        }
+
+        let past = try XCTUnwrap(parseSection(line(citing: "Third")))
+        XCTAssertEqual(try XCTUnwrap(past.letter).habits.count,
+                       DiagnosticIngest.letterHabitsCap,
+                       "precondition: the third habit was dropped by the cap")
+        XCTAssertNil(try XCTUnwrap(past.letter?.questions.first).lessonHeading,
+                     "a question was stamped with a habit the letter never shows")
+        XCTAssertNil(past.accepted.first?.lessonHeading)
+
+        // Control: the second habit is inside the cap, and citing it stamps.
+        let inside = try XCTUnwrap(parseSection(line(citing: "Second")))
+        XCTAssertEqual(try XCTUnwrap(inside.letter?.questions.first).lessonHeading,
+                       "Second")
+        XCTAssertEqual(inside.accepted.first?.lessonHeading, "Second")
+    }
+
     /// The briefed lessons this reading found no instance of, verbatim, in
     /// the order the model gave them. Nothing is matched to the writer's file
     /// here — that is the offer's job at the point of the write.

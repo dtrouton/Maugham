@@ -599,7 +599,7 @@ extension DiagnosticIngest {
                     refs: letterRefs(item[SectionField.refs], live).refs, what: what, why: why)
             }
 
-        let habits: [Letter.Habit] = entries(object[SectionField.habits])
+        let raisedHabits: [Letter.Habit] = entries(object[SectionField.habits])
             .compactMap { item in
                 guard let name = nonEmptyString(item[SectionField.habitName]),
                       let cost = nonEmptyString(item[SectionField.cost])
@@ -618,6 +618,13 @@ extension DiagnosticIngest {
                         .refs.prefix(letterHabitRefsCap)),
                     cost: cost, lesson: lesson, exercise: exercise)
             }
+
+        // **Capped HERE, above the questions loop, rather than at the `Letter`
+        // below.** The cap is what decides which habits this letter HAS, and a
+        // question is stamped only with one of them (next paragraph) — take
+        // the names off the uncapped list and a third habit's heading could
+        // stamp a question about a habit the letter never shows.
+        let habits = Array(raisedHabits.prefix(letterHabitsCap))
 
         // **Read after the habits, because a citation is checked against
         // them** (global constraint 15). The model was briefed on the ledger
@@ -717,7 +724,7 @@ extension DiagnosticIngest {
             about: letterProseLeaksAnId([about], live) ? "" : (about ?? ""),
             oneThing: letterProseLeaksAnId([oneThing], live) ? nil : oneThing,
             working: Array(working.prefix(letterWorkingCap)),
-            habits: Array(habits.prefix(letterHabitsCap)),
+            habits: habits,
             questions: questions,
             scenes: scenes,
             scenePosition: nil,
