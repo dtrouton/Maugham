@@ -756,13 +756,19 @@ struct AnnotationsPane: View {
     }
 
     /// `DiagnosticsPane.turnClauseOffer`'s rule, restated for this host's own
-    /// values: `strong_default` alone, not already filed for this run, and a
-    /// project to file into.
+    /// values: `strong_default` alone, not already filed for this run, and —
+    /// the durable half — a live statement that does not already carry the
+    /// clause. Both tenses are asked for the reason that pane's own doc gives
+    /// at length: the run's stamp was decided before the round began and
+    /// cannot know about a ruling filed since, so without the live read a
+    /// reopened queue offers again over the same run.
     private func turnClauseOffer(
         _ letter: Letter, run: CompilerRun?, docId: String
     ) -> (() -> Void)? {
         guard letter.scenePosition == ScenePosition.strongDefault.rawValue,
-              let run, turnClauseFiledForRun != run.id else { return nil }
+              let run, turnClauseFiledForRun != run.id,
+              ScenePosition.live(store: store, docId: docId) != .strongDeclared
+        else { return nil }
         return { addTurnClause(docId: docId, runId: run.id) }
     }
 

@@ -119,3 +119,42 @@ enum ScenePosition: String, Codable, Equatable, Sendable {
         return strongWithoutAClause ? .strongDefault : .weak
     }
 }
+
+
+extension ScenePosition {
+
+    /// **The position as the writer's statement stands NOW**, for a surface
+    /// deciding whether they have already declared the clause.
+    ///
+    /// `Letter.scenePosition` is a stamp: it records what the run was told,
+    /// decided before the round began, and it cannot know about a ruling filed
+    /// since. Task 9's Add-to-intent offer is the case that turns on the
+    /// difference — asked against the stamp alone the offer returns on every
+    /// reopened pane over the same run, and a second click files a duplicate
+    /// ruling saying what the statement already says.
+    ///
+    /// **`effectiveIntent(forDocId:)` + `statementText(of:)`, in that order**
+    /// — `IntentDrift.mayTrailDraft`'s spelling, and for its reason: that pair
+    /// is the piece-first, project-fallback resolution the run's own briefing
+    /// uses, so a book-level clause silences the offer on every chapter under
+    /// it exactly as it silences the strain the offer exists to enable.
+    ///
+    /// `passBrief` is `nil` deliberately. The brief can only push a piece INTO
+    /// the strong form, never out of it, and the whole question here is
+    /// whether the writer's own words carry the clause — a brief that answered
+    /// it would be the app declaring on their behalf, which is what
+    /// `.strongDefault` exists to refuse.
+    ///
+    /// RULING-54: an unreadable statement reads as an absent one, so the offer
+    /// stands. `RulingPerformer.rule` refuses that write loudly on its own
+    /// side, and the surface shows the refusal — a silent withdrawal of the
+    /// offer would leave the writer with neither the clause nor the reason.
+    @MainActor
+    static func live(store: ProjectStore, docId: String) -> ScenePosition {
+        let resolved = store.effectiveIntent(forDocId: docId)
+        return derive(
+            projectType: store.manifest.type,
+            statement: resolved.flatMap { try? store.statementText(of: $0) },
+            passBrief: nil)
+    }
+}

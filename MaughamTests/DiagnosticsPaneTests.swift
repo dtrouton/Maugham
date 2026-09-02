@@ -4135,6 +4135,73 @@ final class DiagnosticsPaneTests: XCTestCase {
             "anchored at the habit's FIRST ref: \(section)")
     }
 
+    /// **The offer's memory is the writer's intent, not this pane's state.**
+    ///
+    /// A fresh pane over the SAME run must not offer a clause the statement
+    /// already carries — the run's stamped `scenePosition` was decided before
+    /// the ruling existed and cannot say so, so the host asks the live
+    /// statement. `mountLetterPane` builds a new `DiagnosticsStore` every
+    /// call, so the per-mount `turnClauseFiledForRun` cannot be what carries
+    /// this: only the live read can.
+    func test_aFreshPaneDoesNotOfferAClauseTheIntentAlreadyCarries() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferLive")
+
+        // The control, first: nothing declared, so the offer stands.
+        XCTAssertNotNil(
+            findButton(
+                labelled: LetterSection.addToIntentTitle,
+                in: mountLetterPane(
+                    store: store, docId: chapter.id, letter: makeLetter())),
+            "a strong-default run over a piece with no clause must offer one, or "
+            + "the absence below is evidence about nothing")
+
+        try await RulingPerformer.rule(
+            LetterSection.turnClauseRuling, provenance: "from Le Guin's letter",
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
+
+        XCTAssertNil(
+            findButton(
+                labelled: LetterSection.addToIntentTitle,
+                in: mountLetterPane(
+                    store: store, docId: chapter.id, letter: makeLetter())),
+            "the clause is in the writer's own intent now \u{2014} reopening the pane "
+            + "must not ask for it again, and a second click would file a duplicate")
+    }
+
+    /// And the clause counts wherever the piece would actually READ it from.
+    /// `effectiveIntent` is piece-first with a project fallback, so a book-level
+    /// declaration silences the offer on every chapter under it — the same
+    /// resolution the run itself is briefed through.
+    func test_aProjectLevelClauseSilencesTheOfferOnAChapter() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferProject")
+        try await RulingPerformer.rule(
+            LetterSection.turnClauseRuling, provenance: "from Le Guin's letter",
+            kind: .intent, forScope: .project, store: store, world: nil)
+
+        XCTAssertNil(
+            findButton(
+                labelled: LetterSection.addToIntentTitle,
+                in: mountLetterPane(
+                    store: store, docId: chapter.id, letter: makeLetter())),
+            "the chapter reads the book's intent when it has none of its own; "
+            + "offering here would ask for a clause the run is already briefed on")
+    }
+
+    /// **The census the behavioural test cannot make**: BOTH hosts ask the
+    /// live statement, through the one spelling. A host that kept only its own
+    /// per-mount state would pass every test above that mounts it once.
+    func test_bothHostsAskTheLiveStatementBeforeOfferingTheClause() throws {
+        for path in ["Maugham/Views/DiagnosticsPane.swift",
+                     "Maugham/Views/AnnotationsPane.swift"] {
+            let source = try readSource(path)
+            XCTAssertTrue(
+                source.contains("ScenePosition.live("),
+                "\(path) must decide the offer against the intent as it stands now, "
+                + "never against per-mount state alone \u{2014} reopening the pane "
+                + "would otherwise ask for a clause the writer has already given")
+        }
+    }
+
     // MARK: - Letter hosting
 
     private func mountLetterPane(

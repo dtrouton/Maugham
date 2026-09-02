@@ -888,19 +888,32 @@ struct DiagnosticsPane: View {
 
     /// **Whose gap the offer is for** — `strong_default` and nothing else.
     ///
-    /// Three refusals, each for its own reason: a writer whose own intent
-    /// already carries the clause (`strong_declared`) has answered it and must
-    /// not be asked again; the weak form and no table at all have no doctrine
-    /// to opt into; and a pane with no project has nowhere to file a ruling,
-    /// which would be a button pressing into nowhere. The fourth — a table
-    /// where every scene turns — is `LetterSection`'s own half of the
+    /// Four refusals, each for its own reason: the weak form and no table at
+    /// all have no doctrine to opt into; a pane with no project has nowhere to
+    /// file a ruling, which would be a button pressing into nowhere; and a
+    /// writer whose intent already carries the clause has answered it and must
+    /// not be asked twice — asked in BOTH tenses, because they are different
+    /// questions. `letter.scenePosition` is what the RUN was told, decided
+    /// before the round began; `ScenePosition.live` is what their statement
+    /// says NOW, which is the only one that can know about a ruling filed since
+    /// (Denver's ruling on Task 9's concern 4). Without the live half, a
+    /// reopened pane over the same run offers again and a second click files a
+    /// duplicate saying what the statement already says. The fifth refusal — a
+    /// table where every scene turns — is `LetterSection`'s own half of the
     /// condition.
+    ///
+    /// `turnClauseFiledForRun` is kept for immediate feedback within one mount
+    /// and is no longer load-bearing: the live read answers the same question
+    /// durably, and `test_aFreshPaneDoesNotOfferAClauseTheIntentAlreadyCarries`
+    /// mounts a fresh pane precisely so the state cannot be what passes it.
     private func turnClauseOffer(
         for letter: Letter, run: CompilerRun
     ) -> (() -> Void)? {
         guard letter.scenePosition == ScenePosition.strongDefault.rawValue,
               turnClauseFiledForRun != run.id,
-              let store else { return nil }
+              let store,
+              ScenePosition.live(store: store, docId: docId) != .strongDeclared
+        else { return nil }
         return { addTurnClause(store: store, runId: run.id) }
     }
 
