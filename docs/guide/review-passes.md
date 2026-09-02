@@ -55,6 +55,12 @@ row, or any group row, and the centre column shows the board instead of a
 corkboard: one row per piece, one column per pass, a chip at every
 intersection saying where that piece stands.
 
+One line sits above the grid saying who holds the coach's seat — *Le Guin
+reads any piece with no editor assigned*, or *The seat is vacant — an
+unassigned piece gets the plain reader*. It is context for every row whose
+chips are all untouched, not a control: vacating is Project Settings' row.
+She is never a column here, and no piece is ever "done" with her.
+
 - **Click a chip** to open that piece through that pass — it becomes the
   piece's active pass, which is what the queue and the compiler read next.
 - **Right-click a chip** to ask that pass's editor for a round right
@@ -79,7 +85,10 @@ here: the queue carries a **pass filter** alongside its others. Choosing a
 pass shows every note stamped with it *plus* every unstamped note — a note
 only carries a pass if one was active when it was written, so "unstamped"
 covers everything older than passes, everything Claude wrote against a closed
-piece, and everything made with nothing chosen. Left alone, the filter
+piece, and everything made with nothing chosen. **Le Guin's notes show
+under every pass**, for the same reason: she isn't a pass, so no choice in
+that menu could bring them back once a piece she read is handed to Perkins
+or Lish. Left alone, the filter
 follows the piece's own active pass — the one a board chip click just set —
 so clicking through from the board lands you already narrowed to the pass you
 came from. Narrow that filter — or Kind, Author, or Triage — down to nothing
@@ -99,8 +108,10 @@ exists, and two buttons doing exactly what ⌘R and ⌘⇧R do, **Run round** an
 find ⌘R's other home. **The lane line is itself the pass picker** — click it
 to read the piece through a different pass, with the one it's in checked, so
 changing lanes never means going back to the board to click another chip. No
-pass active on this piece yet? The same control says *Set a pass* instead —
-choose one and the lane appears. **A check that fails says so right there**,
+pass active on this piece yet? The line names the coach instead — *Le Guin
+reads this piece* before her first round, *Le Guin · round 3* after — because
+the piece already has a reader; the control is still the picker, so choosing
+a pass hands it over. With the seat vacated it says *Set a pass*. **A check that fails says so right there**,
 in red, in place of the usual line — *"The check took too long and was
 stopped"* — rather than leaving the strip looking like a round that simply
 came back with nothing, and both buttons stay live, because another round is
@@ -123,7 +134,10 @@ order, not a workflow the app enforces.
 ## Rounds and Fresh Eyes
 
 Press **⌘R** — *Check Writing* — while a piece has an active pass, and the
-run is a numbered **round** in that pass's own count. The report leads with
+run is a numbered **round** in that pass's own count. A piece with no pass
+set is the coach's, so its rounds are numbered in **her** lane and the
+cockpit counts them the same way — it is only with the seat vacated that a
+run belongs to no lane and mints no round at all. The report leads with
 the distance travelled: *"Since round 4: 2 resolved · 1 persisting · 1 new"*
 — counted from your own queue: notes from an earlier round of this pass
 that you've settled since the last one, notes from an earlier round still

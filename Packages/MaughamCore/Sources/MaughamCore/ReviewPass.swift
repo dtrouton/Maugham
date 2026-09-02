@@ -91,6 +91,34 @@ public struct ReviewPass: Codable, Equatable, Identifiable, Sendable {
     public static let coachPreset = ReviewPass(
         id: "workshop", name: "Workshop", brief: workshopBrief, editorName: "Le Guin")
 
+    /// **Turn a stamp into a pass: the ladder first, then the seat.**
+    ///
+    /// A note carries a `reviewPassId` and a surface that wants to NAME one
+    /// has two places to look, because the coach files rounds under her own
+    /// lane and is deliberately absent from `effectiveReviewPasses`. Searching
+    /// only the ladder renders her notes under the raw id `workshop` — a
+    /// schema key on screen where an editor's name belongs.
+    ///
+    /// Two spellings reach this one search: `ProjectManifest.pass(id:)` for a
+    /// caller holding a manifest, and this static for a store-free view that
+    /// was handed `passes` and `coach` as values (tripwire 4 — the Review
+    /// board reads no store). They must not be two searches.
+    ///
+    /// **A NAMING question, never a ladder one.** A caller asking which passes
+    /// a piece can be ruled on, which chip menu to draw, or which lane the
+    /// picker offers reads the ladder directly and must not come here: the
+    /// coach is not a stage, and offering her as one is what spec §4.1 forbids.
+    ///
+    /// The ladder wins on a colliding id. That project cannot be built
+    /// (`ReviewPassEditorLogic` refuses to save a stage carrying the coach's
+    /// id) but the order is fixed rather than left to chance.
+    public static func pass(
+        id: String, in passes: [ReviewPass], coach: ReviewPass?
+    ) -> ReviewPass? {
+        if let stage = passes.first(where: { $0.id == id }) { return stage }
+        return coach?.id == id ? coach : nil
+    }
+
     // MARK: - Preset briefs
 
     /// Perkins reads for structure: whether the shape delivers on the

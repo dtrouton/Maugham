@@ -297,6 +297,38 @@ final class AnnotationPassStampTests: XCTestCase {
         XCTAssertTrue(AnnotationPassFilter.matches(note("b", pass: nil), passId: nil))
     }
 
+    /// **The coach's lane is never filtered out** (editorial letter P1,
+    /// Task 6, controller ruling 1).
+    ///
+    /// Her notes are stamped with her own lane id, and she is deliberately
+    /// not a selectable lane — she is not in `effectiveReviewPasses`, so the
+    /// toolbar's pass menu cannot offer her and `AnnotationPassFilter.resolved`
+    /// can never answer her id. Filter her out under a stage and there is NO
+    /// selection left that brings her back: assign a coached piece to a pass
+    /// and every letter she wrote about it disappears from the queue, with
+    /// no control on screen to say why. So her stamp behaves like an
+    /// unstamped note: in every pass's queue.
+    func test_theCoachsNotesSurviveEveryFilterValue() {
+        let letter = note("a", pass: ReviewPass.coachPreset.id)
+        XCTAssertTrue(
+            AnnotationPassFilter.matches(letter, passId: "line"),
+            "a coached piece assigned to Line must keep her letter in view")
+        for pass in ReviewPass.presets {
+            XCTAssertTrue(AnnotationPassFilter.matches(letter, passId: pass.id),
+                          "her notes must show under \(pass.id)")
+        }
+        XCTAssertTrue(AnnotationPassFilter.matches(letter, passId: nil),
+                      "and under every pass")
+    }
+
+    /// The control for the rule above: a STAGE's stamp is still hidden under
+    /// another stage. The coach's exemption is hers alone, and a filter that
+    /// stopped filtering would pass the test above for the wrong reason.
+    func test_aStageStampIsStillHiddenUnderAnotherStage() {
+        XCTAssertFalse(
+            AnnotationPassFilter.matches(note("a", pass: "line"), passId: "structural"))
+    }
+
     // MARK: - 5. What the queue defaults to
 
     /// The end of the board's click-through (P1 wires the chip to record the

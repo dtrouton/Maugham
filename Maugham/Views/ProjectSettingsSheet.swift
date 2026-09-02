@@ -65,6 +65,7 @@ struct ProjectSettingsSheet: View {
                 }
 
                 screenplaySection()
+                coachSection()
                 reviewPassesSection()
             }
             .formStyle(.grouped)
@@ -129,6 +130,61 @@ struct ProjectSettingsSheet: View {
     private func applyGutterToggle(_ newValue: Bool) async {
         // Persist as nil when value matches default (show), else explicit.
         try? await store.setShowElementGutter(newValue ? nil : false)
+    }
+
+    // MARK: - The coach's seat (editorial letter P1, Task 6)
+
+    /// **One row, above the ladder, and the one off switch for the seat**
+    /// (spec §4.1).
+    ///
+    /// It sits BEFORE the pass list because the coach is not a pass: she is
+    /// read by every piece the ladder has nothing to say about, and a row
+    /// underneath the list would read as a fifth stage.
+    ///
+    /// **No draft buffer.** The Review Passes section below batches its edits
+    /// behind an explicit Save because it is an array of names a writer types;
+    /// this is one Bool, and a Save button over a single switch is a control
+    /// whose state the writer has to remember. It writes straight through
+    /// `ProjectStore.setCoachVacated` — the one verb, deliberately not
+    /// `setReviewPasses`, since the coach is never in that array.
+    ///
+    /// Nothing is confirmed and nothing is destroyed: her past rounds stay in
+    /// the diagnostics sidecar as history, and Restore brings her back where
+    /// she left off, which is what the footer says.
+    @ViewBuilder
+    private func coachSection() -> some View {
+        let coach = store.manifest.effectiveCoach
+        Section {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(coach?.effectiveEditorName
+                         ?? ReviewPass.coachPreset.effectiveEditorName)
+                        .foregroundStyle(coach == nil ? .secondary : .primary)
+                    Text(coach == nil
+                         ? "The seat is vacant. An unassigned piece is read by "
+                           + "the plain all-altitudes reader, signed \u{201C}Claude\u{201D}."
+                         : "Reads any piece you haven\u{2019}t assigned a pass to, "
+                           + "and signs what she writes.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(coach == nil ? "Restore" : "Vacate") {
+                    let vacated = (coach != nil)
+                    Task { try? await store.setCoachVacated(vacated) }
+                }
+                .help(coach == nil
+                      ? "Put the coach back in the seat"
+                      : "Hand unassigned pieces back to the plain reader. Her "
+                        + "past rounds stay in the piece\u{2019}s history.")
+            }
+        } header: {
+            Text("Coach")
+        } footer: {
+            Text("The coach is not a pass \u{2014} she is never a column on the board and never something a piece is done with. Vacating loses nothing: her rounds stay in each piece\u{2019}s history, and restoring the seat brings her back where she left off.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - Review Passes (M3 P1 Task 9)

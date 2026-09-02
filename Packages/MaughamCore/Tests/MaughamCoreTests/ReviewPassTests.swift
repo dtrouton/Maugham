@@ -348,4 +348,58 @@ final class ReviewPassTests: XCTestCase {
         let resaved = try wire(manifest)
         XCTAssertTrue(resaved.contains(#""coachVacated" : false"#), resaved)
     }
+
+    // MARK: - Naming a stamp (editorial letter P1, Task 6)
+
+    /// **A stamp resolves against the ladder first and the seat second.** A
+    /// note carries a `reviewPassId` and three surfaces turn one into a name;
+    /// once the coach files rounds under her own lane, a resolver that knows
+    /// only `effectiveReviewPasses` renders her notes under the raw id
+    /// `workshop` — a schema key on screen where an editor's name belongs.
+    func test_aStampResolvesAgainstTheLadderThenTheSeat() throws {
+        let manifest = try ProjectManifest.decodeGuardingSchema(
+            manifestJSON(schemaVersion: ProjectManifest.currentSchemaVersion))
+        XCTAssertEqual(manifest.pass(id: "line")?.name, "Line",
+                       "a stage still resolves to its own pass")
+        XCTAssertEqual(manifest.pass(id: ReviewPass.coachPreset.id),
+                       ReviewPass.coachPreset,
+                       "the coach's lane id resolves to the coach")
+    }
+
+    /// The ladder WINS. A project that named a stage with the coach's id
+    /// cannot exist (`ReviewPassEditorLogic` refuses it), but the order is
+    /// asserted so a later change cannot silently make the seat shadow a
+    /// pass the writer actually customized.
+    func test_theLadderWinsOverTheSeatOnACollidingId() {
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(timeIntervalSince1970: 0),
+            modified: Date(timeIntervalSince1970: 0),
+            structure: [], research: [],
+            reviewPasses: [ReviewPass(id: "workshop", name: "My Workshop")])
+        XCTAssertEqual(manifest.pass(id: "workshop")?.name, "My Workshop")
+    }
+
+    /// **A vacated seat resolves to nothing**, because the search is
+    /// `effectiveReviewPasses` then `effectiveCoach` and the second is nil
+    /// once the writer has vacated. The consequence is deliberate and
+    /// narrow: a note Le Guin already filed still counts and still shows
+    /// (`AnnotationPassFilter` keys on her lane id, not on the seat), but a
+    /// surface that turns its stamp into a NAME falls back to the raw id,
+    /// exactly as it does for a pass the writer deleted.
+    func test_aVacatedSeatResolvesToNothingAndTheStampFallsBackToItsId() throws {
+        let manifest = try ProjectManifest.decodeGuardingSchema(
+            manifestJSON(schemaVersion: ProjectManifest.currentSchemaVersion,
+                         coachVacatedJSON: "true"))
+        XCTAssertNil(manifest.effectiveCoach, "premise: the seat is vacant")
+        XCTAssertNil(manifest.pass(id: ReviewPass.coachPreset.id))
+    }
+
+    /// An id naming nothing at all is nil, not the coach and not a stage —
+    /// the callers' "count it under its raw id" arm depends on it.
+    func test_anUnknownStampResolvesToNothing() throws {
+        let manifest = try ProjectManifest.decodeGuardingSchema(
+            manifestJSON(schemaVersion: ProjectManifest.currentSchemaVersion))
+        XCTAssertNil(manifest.pass(id: "retired-pass"))
+    }
 }

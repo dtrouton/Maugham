@@ -56,7 +56,26 @@ struct ReviewRoundCockpit: View {
     /// The newest round number in that lane, or `nil` before any
     /// (`DiagnosticsStore.latestRound(forPass:docId:)`, which consults the
     /// standing run before the ring — the one spelling).
+    ///
+    /// **The lane it counts is the piece's, which is the coach's when no
+    /// stage is set**: the pane asks `latestRound` with `pass?.id ?? coach?.id`
+    /// so her numbered rounds reach this strip (editorial letter P1, Task 6).
     let round: Int?
+    /// **Who holds the coach's seat** — `ProjectManifest.effectiveCoach`, nil
+    /// once the writer has vacated it (spec §4.1).
+    ///
+    /// Read for ONE thing: what the lane label says over a piece with no
+    /// stage assigned. She reads any unassigned piece, so "Set a pass" over
+    /// one is not merely terse but wrong — ⌘R already files a numbered round
+    /// in her lane and the notes already arrive signed by her.
+    ///
+    /// She never reaches `lanePickerItems`. She is not a lane a piece can be
+    /// moved into: `ActivePassMemory.validatedActivePass` refuses her id
+    /// because she is absent from `effectiveReviewPasses`, so a menu item
+    /// offering her would be a control that does nothing. Handing a piece
+    /// BACK to her is setting its pass to untouched on the board, which is
+    /// what the guide says (`docs/guide/review-passes.md`).
+    let coach: ReviewPass?
     let phase: RunPhase
     /// What the last round says about itself — the fresh-eyes header or the
     /// since-last-round comparison, resolved by `reportLine(history:run:annotations:)`.
@@ -171,9 +190,34 @@ struct ReviewRoundCockpit: View {
     /// the passless arm, so a piece already in a pass could only be moved to
     /// another lane by going back to the board and clicking a different chip —
     /// the exact undiscoverability the strip was built to end.
-    static func laneLabel(pass: ReviewPass?, round: Int?) -> String {
-        guard let pass else { return setAPassTitle }
-        return laneLine(pass: pass, round: round)
+    /// **Three arms since the seat exists** (editorial letter P1, Task 6): a
+    /// stage's lane line, the coach's own line over an unassigned piece, and
+    /// the invitation when nobody is reading it at all.
+    ///
+    /// A stage always wins. The coach reads what nobody was ASSIGNED, so a
+    /// piece handed to Lish reads through Lish whatever the seat says — the
+    /// label answers the piece's question, never the project's.
+    static func laneLabel(pass: ReviewPass?, round: Int?, coach: ReviewPass?) -> String {
+        if let pass { return laneLine(pass: pass, round: round) }
+        if let coach { return coachLine(coach: coach, round: round) }
+        return setAPassTitle
+    }
+
+    /// **"Le Guin reads this piece", then "Le Guin · round 3"** — an
+    /// introduction before her first round and the lane line's own shape
+    /// after it.
+    ///
+    /// Deliberately NOT `laneLine`'s "round —" over the first state. A stage
+    /// with no round yet is a lane the writer just chose and the em dash says
+    /// "nothing has run in it"; the coach was never chosen, so her first
+    /// appearance has to say what she IS before it can say what she has
+    /// counted. And her PASS name is never drawn — "Workshop · Le Guin" would
+    /// put a lane on screen that no control can select and the board never
+    /// shows.
+    static func coachLine(coach: ReviewPass, round: Int?) -> String {
+        let name = coach.effectiveEditorName
+        guard let round else { return "\(name) reads this piece" }
+        return "\(name) \u{00b7} round \(round)"
     }
 
     /// One row of the lane picker: a pass the project names, and whether it is
@@ -284,6 +328,21 @@ struct ReviewRoundCockpit: View {
     static let setAPassHelp =
         "Which pass is this piece being read through? The round is filed in "
         + "that lane, and its editor signs the notes."
+
+    /// The same question, plus the answer that already holds while nobody has
+    /// chosen one (editorial letter P1, Task 6). Over a coached piece the
+    /// bare invitation implies the round has no reader and no lane, and both
+    /// are false — so the tooltip says whose it is until a pass is set.
+    ///
+    /// Only the unassigned-and-held state gains the sentence: with a stage
+    /// active the piece is that editor's and the seat has nothing to do with
+    /// it, and with the seat vacant there is nobody to name.
+    static func setAPassHelp(pass: ReviewPass?, coach: ReviewPass?) -> String {
+        guard pass == nil, let coach else { return setAPassHelp }
+        return "Which pass is this piece being read through? Until you set "
+            + "one it is \(coach.effectiveEditorName)'s. The round is filed in "
+            + "that lane, and its editor signs the notes."
+    }
 
     // MARK: - Verbs
     //
@@ -412,13 +471,17 @@ struct ReviewRoundCockpit: View {
                     }
                 }
             } label: {
-                Text(Self.laneLabel(pass: activePass, round: round))
-                    .font(activePass == nil ? .callout : .callout.weight(.medium))
+                Text(Self.laneLabel(pass: activePass, round: round, coach: coach))
+                    // The coach's line is a lane the piece is really in, so it
+                    // carries the lane line's own weight; only the invitation
+                    // — nobody reading at all — stays light.
+                    .font(activePass == nil && coach == nil
+                          ? .callout : .callout.weight(.medium))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .menuStyle(.borderlessButton)
-            .help(Self.setAPassHelp)
+            .help(Self.setAPassHelp(pass: activePass, coach: coach))
             Spacer(minLength: 0)
         }
     }

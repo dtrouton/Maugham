@@ -51,6 +51,10 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// A pass a writer named themselves and never gave an editor — its
     /// `effectiveEditorName` falls back to its own name.
     private static let betaRead = ReviewPass(id: "beta", name: "Beta Read")
+    /// The coach, as the pane hands her over: `ProjectManifest.effectiveCoach`,
+    /// which is `ReviewPass.coachPreset` while the seat is held and nil once
+    /// it has been vacated.
+    private static let coach = ReviewPass.coachPreset
 
     // MARK: - The lane line
 
@@ -335,19 +339,151 @@ final class ReviewRoundCockpitTests: XCTestCase {
             + "chip click. Pressable elements: \(pressableLabels(in: assigned))")
     }
 
-    /// The label the picker carries in each state, without a window — the two
+    /// **Mounted: an unassigned piece under a held seat names the coach**,
+    /// and the row is still the picker rather than a caption — the writer can
+    /// hand the piece to a stage from exactly where they read who has it.
+    func test_theMountedStripNamesTheCoachOverAnUnassignedPiece() throws {
+        let window = mountCockpit(activePassId: nil, round: nil, coach: Self.coach)
+        let expected = ReviewRoundCockpit.laneLabel(
+            pass: nil, round: nil, coach: Self.coach)
+        XCTAssertEqual(expected, "Le Guin reads this piece", "premise")
+        XCTAssertTrue(
+            allLabels(in: window).contains { $0.contains(expected) },
+            "the strip must say who is reading this piece \u{2014} got "
+            + "\(allLabels(in: window))")
+        XCTAssertFalse(
+            allLabels(in: window).contains {
+                $0 == ReviewRoundCockpit.setAPassTitle
+            },
+            "\u{2026}and must NOT say the piece has no reader while she holds "
+            + "the seat. Got \(allLabels(in: window))")
+        XCTAssertNotNil(
+            pressableLanePicker(labelled: expected, in: window),
+            "her line must still be the pressable picker, so the piece can be "
+            + "handed to a stage from here. Pressable elements: "
+            + "\(pressableLabels(in: window))")
+    }
+
+    /// **Mounted control: a vacated seat is the invitation again.** The same
+    /// unassigned piece, the same mount, one value different.
+    func test_theMountedStripSaysSetAPassWhenTheSeatIsVacant() throws {
+        let window = mountCockpit(activePassId: nil, round: nil, coach: nil)
+        XCTAssertTrue(
+            allLabels(in: window).contains {
+                $0.contains(ReviewRoundCockpit.setAPassTitle)
+            },
+            "with nobody in the seat the invitation returns \u{2014} got "
+            + "\(allLabels(in: window))")
+        XCTAssertFalse(
+            allLabels(in: window).contains { $0.contains("Le Guin") },
+            "and her name must not survive her absence. Got "
+            + "\(allLabels(in: window))")
+    }
+
+    /// **Mounted: her round number shows.** A coached round is numbered like
+    /// any pass's, and the strip is where the writer reads it.
+    func test_theMountedStripCountsTheCoachsRounds() throws {
+        let window = mountCockpit(activePassId: nil, round: 3, coach: Self.coach)
+        XCTAssertTrue(
+            allLabels(in: window).contains { $0.contains("Le Guin \u{00b7} round 3") },
+            "got \(allLabels(in: window))")
+    }
+
+    /// The label the picker carries in each state, without a window — the
     /// arms `laneLabel` chooses between.
     func test_theLaneLabelIsTheLaneLineOrTheInvitation() {
         XCTAssertEqual(
-            ReviewRoundCockpit.laneLabel(pass: Self.copyedit, round: 3),
+            ReviewRoundCockpit.laneLabel(pass: Self.copyedit, round: 3, coach: nil),
             ReviewRoundCockpit.laneLine(pass: Self.copyedit, round: 3),
             "with a pass active the picker's label IS the lane line \u{2014} a "
             + "second spelling here is a strip that can name one lane and "
             + "change another")
         XCTAssertEqual(
-            ReviewRoundCockpit.laneLabel(pass: nil, round: nil),
+            ReviewRoundCockpit.laneLabel(pass: nil, round: nil, coach: nil),
             ReviewRoundCockpit.setAPassTitle,
-            "and before any pass it is the invitation")
+            "and with no pass and a VACATED seat it is the invitation")
+    }
+
+    // MARK: - Pure: the seat (editorial letter P1, Task 6)
+
+    /// **An unassigned piece with the seat held is hers, and the strip says
+    /// her name** (spec §4.1 "Where the seat is seen").
+    ///
+    /// "Set a pass" over a coached piece is not merely terse, it is wrong:
+    /// the piece already has a reader, ⌘R already files a numbered round in
+    /// her lane, and the notes already arrive signed by her. A strip that
+    /// says nobody is reading it describes a state the app is not in.
+    func test_theLaneLabelNamesTheCoachOverAnUnassignedPiece() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLabel(pass: nil, round: nil, coach: Self.coach),
+            "Le Guin reads this piece",
+            "before her first round the line is an introduction, not a count")
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLabel(pass: nil, round: 3, coach: Self.coach),
+            "Le Guin \u{00b7} round 3",
+            "after one it is the lane line's own shape \u{2014} her rounds are "
+            + "numbered like any pass's")
+    }
+
+    /// **A stage beats the seat.** The coach reads what nobody was assigned;
+    /// hand the piece to Lish and the strip must name Lish, whatever the seat
+    /// says. Without this the label would answer the project's question
+    /// rather than the piece's.
+    func test_aStageBeatsTheSeat() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLabel(pass: Self.copyedit, round: 3, coach: Self.coach),
+            ReviewRoundCockpit.laneLine(pass: Self.copyedit, round: 3),
+            "an assigned piece reads through its own pass")
+    }
+
+    /// **A vacated seat is "Set a pass" again**, and the coach's name must
+    /// not survive her absence: with no coach and no pass, nobody is reading
+    /// this piece and the invitation is the honest line.
+    func test_aVacatedSeatRestoresTheInvitation() {
+        let label = ReviewRoundCockpit.laneLabel(pass: nil, round: nil, coach: nil)
+        XCTAssertEqual(label, ReviewRoundCockpit.setAPassTitle)
+        XCTAssertFalse(label.contains("Le Guin"),
+                       "a vacated seat names nobody")
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLabel(pass: nil, round: 4, coach: nil),
+            ReviewRoundCockpit.setAPassTitle,
+            "and a round number left over from before she was vacated names "
+            + "nobody either \u{2014} the lane line needs a reader to be about")
+    }
+
+    /// **The picker still offers exactly the stages.** She is not a lane a
+    /// piece can be moved into: putting her in the menu would be a control
+    /// that writes her id into `ActivePassMemory`, where `validatedActivePass`
+    /// refuses it — a menu item that does nothing.
+    func test_thePickerStillOffersExactlyTheStages() {
+        let items = ReviewRoundCockpit.lanePickerItems(
+            passes: [Self.line, Self.copyedit], current: nil)
+        XCTAssertEqual(items.map(\.id), ["line", "copyedit"])
+        XCTAssertFalse(items.contains { $0.id == ReviewPass.coachPreset.id },
+                       "the coach is not a selectable lane")
+    }
+
+    /// The picker's truth table cannot SEE the seat — the census half of the
+    /// rule above, because the drawn menu is headless-unreachable (see the
+    /// type doc). `lanePickerItems` takes the ladder and nothing else, so
+    /// there is no argument through which the coach could reach the menu.
+    func test_thePickersTruthTableCannotSeeTheSeat() throws {
+        let source = try Self.source(of: "Views/Review/ReviewRoundCockpit.swift")
+        let items = try XCTUnwrap(
+            Self.declaration(named: "static func lanePickerItems(", in: source),
+            "the picker's item list must still be a readable declaration for "
+            + "this census to have a subject")
+        XCTAssertFalse(items.contains("coach"),
+                       "the seat must not reach the lane picker \u{2014} she is "
+                       + "not a lane a piece can be moved into, and an item "
+                       + "writing her id would be refused by validatedActivePass. "
+                       + "Got:\n\(items)")
+        let picker = try XCTUnwrap(
+            Self.declaration(named: "private var lanePicker:", in: source))
+        XCTAssertTrue(
+            picker.contains("Self.lanePickerItems(") && picker.contains("passes: passes"),
+            "and the drawn menu iterates exactly that list, over the ladder it "
+            + "was handed. Got:\n\(picker)")
     }
 
     // MARK: - Pure: the picker's checkmark truth table
@@ -403,6 +539,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
             passes: [Self.line, Self.copyedit],
             activePassId: nil,
             round: nil,
+            coach: nil,
             phase: .idle,
             reportLine: nil,
             onRun: { _ in },
@@ -1057,6 +1194,27 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// (`AnnotationsQueueToolbarWidthTests`) measures the row as declared —
     /// a control added there would inflate the pane's layout width and centre
     /// every annotation body against a width the column does not have.
+    /// **The pane hands the strip the seat, and counts HER lane.** Two
+    /// wirings a mount cannot see, and each fails silently on its own: with
+    /// no `coach:` the strip says "Set a pass" over a piece Le Guin has read
+    /// three times, and with `passId: pass?.id` alone `latestRound` is asked
+    /// about no lane at all and reports no round over those same three.
+    func test_theProductionMountFeedsTheStripTheSeatAndHerLane() throws {
+        let pane = try Self.source(of: "Views/AnnotationsPane.swift")
+        let cockpit = try XCTUnwrap(
+            Self.declaration(named: "private var roundCockpit: some View {", in: pane),
+            "the strip's mount must still be a readable declaration")
+        XCTAssertTrue(cockpit.contains("store.manifest.effectiveCoach"),
+                      "the mount reads the seat through `effectiveCoach` "
+                      + "\u{2014} the one spelling of \u{201C}is the seat "
+                      + "held\u{201D}. Got:\n\(cockpit)")
+        XCTAssertTrue(cockpit.contains("coach: coach"),
+                      "\u{2026}and threads it into the strip. Got:\n\(cockpit)")
+        XCTAssertTrue(cockpit.contains("pass?.id ?? coach?.id"),
+                      "\u{2026}and asks `latestRound` about the lane the piece "
+                      + "actually files in: its stage, else hers. Got:\n\(cockpit)")
+    }
+
     func test_theStripLivesBelowTheToolbarAndNotInsideIt() throws {
         let toolbar = try Self.source(of: "Views/Review/AnnotationsQueueToolbar.swift")
         XCTAssertFalse(toolbar.contains("ReviewRoundCockpit"),
@@ -1079,12 +1237,14 @@ final class ReviewRoundCockpitTests: XCTestCase {
         round: Int?,
         phase: ReviewRoundCockpit.RunPhase = .idle,
         reportLine: String? = nil,
+        coach: ReviewPass? = nil,
         onCancel: @escaping () -> Void = {}
     ) -> NSWindow {
         mount(AnyView(ReviewRoundCockpit(
             passes: [Self.line, Self.copyedit],
             activePassId: activePassId,
             round: round,
+            coach: coach,
             phase: phase,
             reportLine: reportLine,
             onRun: { _ in },

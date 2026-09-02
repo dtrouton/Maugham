@@ -89,6 +89,18 @@ struct ReviewBoardPane: View {
     /// They get no entry in `openNotes` — a zero would be a lie — so the column
     /// says "unknown" for them instead of "none".
     let unreadableDocIds: Set<String>
+    /// **Who holds the coach's seat** — `ProjectManifest.effectiveCoach`, nil
+    /// once the writer has vacated it (editorial letter P1, spec §4.1).
+    ///
+    /// She is NOT a fifth column and never enters `passes`: no chip, no
+    /// header, no Done/Skipped menu, nothing to rule on. The board reads her
+    /// for two things and only two — the seat row above the grid, and naming
+    /// her lane in the open-notes split, where her stamp would otherwise
+    /// print as the raw id `workshop`.
+    ///
+    /// The board has no selected piece, so it says nothing per piece: it
+    /// states the project-level fact that governs every row with no pass set.
+    let coach: ReviewPass?
     /// A count was clicked: take the writer to that piece's notes. Like
     /// `onNavigate`, the payload is the ROW's own id and the decision about
     /// what it means belongs to the mount.
@@ -130,7 +142,11 @@ struct ReviewBoardPane: View {
     static let openNotesColumnWidth: CGFloat = 62
     private static let horizontalPadding: CGFloat = 10
     private static let groupIndent: CGFloat = 14
-    private static let pieceRowHeight: CGFloat = 30
+    /// One piece row. Internal rather than private because
+    /// `ReviewBoardPaneTests`' geometry-free sweep samples at a pitch below it
+    /// — a sweep coarser than a row can fall between two of them and report
+    /// "nothing clickable" over a board full of chips.
+    static let pieceRowHeight: CGFloat = 30
     /// The reference row is deliberately shorter than a piece row: it carries
     /// no chips and no decision, and its thinness is what says so at a glance.
     private static let referenceRowHeight: CGFloat = 22
@@ -155,6 +171,7 @@ struct ReviewBoardPane: View {
         let rows = ReviewBoardRows.derive(structure: structure)
         return VStack(spacing: 0) {
             header
+            seatRow
             Divider()
             if rows.isEmpty {
                 ContentUnavailableView {
@@ -176,6 +193,40 @@ struct ReviewBoardPane: View {
             Spacer()
         }
         .padding(8)
+    }
+
+    /// **One line, above the grid, saying who reads a piece nobody assigned**
+    /// (editorial letter P1, spec §4.1 "Where the seat is seen").
+    ///
+    /// It sits between the title and the grid's own divider rather than in a
+    /// column, because it is not a fact about any piece: the board has no
+    /// selected row, and the seat governs every row whose chips are all
+    /// untouched. Quiet type on purpose — it is context for the grid below,
+    /// not a control, and there is nothing here to press. Vacating is Project
+    /// Settings' row, one door, the way the guide already says.
+    ///
+    /// **The vacant case draws a sentence rather than nothing.** An absent row
+    /// would leave a writer who vacated the seat unable to tell that state
+    /// from a build that never had one, and the plain reader an unassigned
+    /// piece falls back to is worth naming.
+    private var seatRow: some View {
+        HStack {
+            Text(Self.seatLine(coach: coach))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.bottom, 6)
+    }
+
+    /// The seat row's two sentences, pure so the copy is assertable with
+    /// nothing mounted.
+    static func seatLine(coach: ReviewPass?) -> String {
+        guard let coach else {
+            return "The seat is vacant \u{2014} an unassigned piece gets the plain reader"
+        }
+        return "\(coach.effectiveEditorName) reads any piece with no editor assigned"
     }
 
     /// The grid. `GeometryReader` is here for one reason: the content is as
@@ -281,7 +332,8 @@ struct ReviewBoardPane: View {
             piece: item.title,
             summary: openNotes[item.id],
             isUnreadable: unreadableDocIds.contains(item.id),
-            passes: passes)
+            passes: passes,
+            coach: coach)
         switch cell.kind {
         case .none:
             Color.clear
@@ -540,7 +592,10 @@ enum ReviewBoardOpenNotes {
         piece: String,
         summary: OpenNotesSummary?,
         isUnreadable: Bool,
-        passes: [ReviewPass]
+        passes: [ReviewPass],
+        /// The seat, for naming her lane alone — she is never a column
+        /// (editorial letter P1, Task 6).
+        coach: ReviewPass? = nil
     ) -> Cell {
         if isUnreadable {
             return Cell(
@@ -554,7 +609,7 @@ enum ReviewBoardOpenNotes {
         }
         let noun = summary.total == 1 ? "open note" : "open notes"
         let head = "\(piece) — \(summary.total) \(noun)"
-        let split = breakdown(summary, passes: passes)
+        let split = breakdown(summary, passes: passes, coach: coach)
         return Cell(kind: .count, text: "\(summary.total)",
                     label: split.isEmpty ? head : "\(head): \(split)")
     }
@@ -566,7 +621,7 @@ enum ReviewBoardOpenNotes {
     /// started using passes: "3 open notes: 3 unstamped" is a sentence that
     /// tells the writer nothing they did not just read.
     private static func breakdown(
-        _ summary: OpenNotesSummary, passes: [ReviewPass]
+        _ summary: OpenNotesSummary, passes: [ReviewPass], coach: ReviewPass?
     ) -> String {
         guard !summary.byPass.isEmpty else { return "" }
         var parts: [String] = []
@@ -576,14 +631,25 @@ enum ReviewBoardOpenNotes {
             parts.append("\(n) \(pass.name)")
             accounted += n
         }
-        // A stamp naming a pass this project no longer lists: counted under its
-        // raw id rather than dropped, because the note exists and the total
-        // already includes it — a split that silently came up short would make
-        // the two numbers disagree with nothing to explain it.
-        let known = Set(passes.map(\.id))
+        // **Everything else the piece is stamped with, named where a name
+        // exists.** Two kinds land here: the coach's own lane — she files
+        // rounds like any pass and is deliberately absent from the ladder, so
+        // without this her split would print the raw id `workshop`, a schema
+        // key where an editor's name belongs — and a pass the project no
+        // longer lists, which keeps its raw id because there is nothing left
+        // to call it.
+        //
+        // Either way it is COUNTED. The note exists and the total already
+        // includes it; a split that silently came up short would make the two
+        // numbers on screen disagree with nothing to explain it.
+        //
+        // The naming goes through the one search (`ReviewPass.pass(id:in:coach:)`),
+        // so a vacated seat falls back to the raw id exactly as a retired pass
+        // does, and the ladder still wins on a colliding id.
+        let accountedIds = Set(passes.map(\.id))
         for (id, n) in summary.byPass.sorted(by: { $0.key < $1.key })
-        where !known.contains(id) && n > 0 {
-            parts.append("\(n) \(id)")
+        where !accountedIds.contains(id) && n > 0 {
+            parts.append("\(n) \(ReviewPass.pass(id: id, in: passes, coach: coach)?.name ?? id)")
             accounted += n
         }
         let unstamped = summary.total - accounted

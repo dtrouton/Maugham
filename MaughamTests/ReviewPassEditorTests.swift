@@ -281,6 +281,48 @@ final class ReviewPassEditorTests: XCTestCase {
         await ds.close()
     }
 
+    /// **The seat never touches the ladder.** Vacating is not a pass edit:
+    /// if it reached `reviewPasses` it would either add a fifth stage or
+    /// silently rewrite a customized list, which is the one thing spec §4.1
+    /// forbids.
+    func test_setCoachVacated_leavesTheLadderExactlyAsItWas() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let custom = [ReviewPass(id: "beta", name: "Beta Read")]
+        try await store.setReviewPasses(custom)
+
+        try await store.setCoachVacated(true)
+
+        XCTAssertEqual(store.manifest.reviewPasses, custom)
+        XCTAssertEqual(store.manifest.effectiveReviewPasses, custom)
+        await ds.close()
+    }
+
+    /// **The sheet's row writes through that verb and holds no draft.** The
+    /// pass list batches behind an explicit Save because it is an array of
+    /// names being typed; the seat is one Bool, and a Save button over a
+    /// single switch is a control whose state the writer has to remember.
+    func test_theSettingsRowWritesTheSeatDirectlyAndAboveTheLadder() throws {
+        let sheet = try Self.source(of: "Views/ProjectSettingsSheet.swift")
+        let section = try XCTUnwrap(
+            Self.declaration(named: "private func coachSection() -> some View {",
+                             in: sheet),
+            "the sheet must carry a readable coach section for this census to "
+            + "have a subject")
+        XCTAssertTrue(section.contains("store.setCoachVacated("),
+                      "the row calls the store verb directly. Got:\n\(section)")
+        XCTAssertFalse(section.contains("setReviewPasses("),
+                       "\u{2026}and never the pass-list verb \u{2014} the coach "
+                       + "is never in that array. Got:\n\(section)")
+
+        let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: sheet))
+        let coach = try XCTUnwrap(body.range(of: "coachSection()"),
+                                  "the section must be mounted at all")
+        let ladder = try XCTUnwrap(body.range(of: "reviewPassesSection()"))
+        XCTAssertTrue(coach.lowerBound < ladder.lowerBound,
+                      "the seat sits ABOVE the ladder \u{2014} below it the row "
+                      + "reads as a fifth stage")
+    }
+
     /// **A stage may never carry the coach's id** (spec §4.1): the ladder is
     /// stages only, and a `workshop` stage would put her in
     /// `effectiveReviewPasses`, where `ReviewStatus.derived`, the board's
@@ -307,5 +349,37 @@ final class ReviewPassEditorTests: XCTestCase {
         // And what it mints is savable — the reservation must not produce an
         // id the editor then refuses.
         XCTAssertTrue(ReviewPassEditorLogic.isSavable(minted))
+    }
+
+    // MARK: - Census helpers
+
+    private static func source(of relativePath: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // MaughamTests/
+            .deletingLastPathComponent()   // repo root
+        return try String(
+            contentsOf: root.appendingPathComponent("Maugham/\(relativePath)"),
+            encoding: .utf8)
+    }
+
+    /// The text from `name` to the end of its brace-balanced body
+    /// (`ReviewRoundCockpitTests`' reader, shared by every census in the suite).
+    private static func declaration(named name: String, in source: String) -> String? {
+        guard let start = source.range(of: name) else { return nil }
+        var depth = 0
+        var index = start.lowerBound
+        var seenOpen = false
+        while index < source.endIndex {
+            let character = source[index]
+            if character == "{" { depth += 1; seenOpen = true }
+            if character == "}" {
+                depth -= 1
+                if seenOpen && depth == 0 {
+                    return String(source[start.lowerBound...index])
+                }
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 }

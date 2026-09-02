@@ -1351,6 +1351,7 @@ struct ReviewCentreProbeView: View {
             // not move the centre.
             openNotes: [:],
             unreadableDocIds: [],
+            coach: store.manifest.effectiveCoach,
             onOpenNotes: { box.openedNotesFor.append($0) },
             onNavigate: { pieceId, passId in
                 box.subject = .item(pieceId)

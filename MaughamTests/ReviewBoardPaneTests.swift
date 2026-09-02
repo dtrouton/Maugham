@@ -403,6 +403,58 @@ final class ReviewBoardPaneTests: XCTestCase {
         XCTAssertTrue(calls.navigations.allSatisfy { $0.piece == "ref" })
     }
 
+    // MARK: - Mounted: the seat (editorial letter P1, Task 6)
+
+    /// **The board says who holds the coach's seat, once, above the grid**
+    /// (spec §4.1 "Where the seat is seen").
+    ///
+    /// The board has no selected piece, so it cannot say anything per piece —
+    /// what it CAN say is the project-level fact that governs every row with
+    /// no chip set: an unassigned piece already has a reader. Without the row
+    /// the seat is invisible from the one surface a reviewer opens to see
+    /// where every piece stands.
+    func test_theBoardNamesWhoHoldsTheSeat() async throws {
+        let window = mount(structure: [doc("ch1", "Chapter One")],
+                           coach: ReviewPass.coachPreset)
+        _ = try await chipsSettling(in: window, expecting: Self.passes.count)
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains { $0.contains(
+                "Le Guin reads any piece with no editor assigned") },
+            "the held seat must be named above the grid \u{2014} got \(texts)")
+    }
+
+    /// **The vacant seat says so**, rather than saying nothing: a board with
+    /// no row at all leaves a writer who vacated the seat unable to tell that
+    /// state from a build that never had one, and the sentence names what an
+    /// unassigned piece gets instead.
+    func test_theBoardSaysTheSeatIsVacantWhenItIs() async throws {
+        let window = mount(structure: [doc("ch1", "Chapter One")], coach: nil)
+        _ = try await chipsSettling(in: window, expecting: Self.passes.count)
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains { $0.contains(
+                "The seat is vacant \u{2014} an unassigned piece gets the plain reader") },
+            "got \(texts)")
+        XCTAssertFalse(texts.contains { $0.contains("Le Guin") },
+                       "and nobody is named. Got \(texts)")
+    }
+
+    /// **The seat is not a column.** She is not a pass, so the grid must be
+    /// untouched: four chips for one piece with the seat held, exactly as
+    /// with it vacant. The row above the grid is the whole of the change.
+    func test_theSeatAddsNoColumnAndNoChip() async throws {
+        let held = mount(structure: [doc("ch1", "Chapter One")],
+                         coach: ReviewPass.coachPreset)
+        let heldChips = try await chipsSettling(in: held, expecting: Self.passes.count)
+        XCTAssertEqual(heldChips.count, Self.passes.count,
+                       "the coach must add no fifth chip \u{2014} she is not a "
+                       + "stage and a piece is never \u{201C}done\u{201D} with her")
+        let headers = try axTexts(in: held)
+        XCTAssertFalse(headers.contains { $0 == ReviewPass.coachPreset.name },
+                       "\u{2026}and no column header of her own. Got \(headers)")
+    }
+
     // MARK: - Mounted: one chip per (piece × pass)
 
     /// **The grid is a grid.** Three pieces, four passes, twelve chips — and
@@ -584,6 +636,38 @@ final class ReviewBoardPaneTests: XCTestCase {
             summary: OpenNotesSummary(total: 2, byPass: ["line": 1, "sensitivity": 1]),
             isUnreadable: false, passes: Self.passes)
         XCTAssertEqual(cell.label, "Chapter One — 2 open notes: 1 Line, 1 sensitivity")
+    }
+
+    /// **The coach's lane is named, not spelled** (editorial letter P1, Task 6).
+    ///
+    /// She files rounds under her own lane id and is deliberately absent from
+    /// `effectiveReviewPasses`, so the retired-pass arm above catches her:
+    /// without the seat this tooltip reads "1 workshop", a schema key on
+    /// screen where an editor's name belongs. Her split comes LAST, after the
+    /// project's own passes and before the unstamped remainder — she is not
+    /// a column on the board and has no place in its order.
+    func test_theCoachsNotesAreNamedRatherThanSpelledAsAnId() {
+        let cell = ReviewBoardOpenNotes.cell(
+            piece: "Chapter One",
+            summary: OpenNotesSummary(
+                total: 3, byPass: ["line": 1, ReviewPass.coachPreset.id: 2]),
+            isUnreadable: false, passes: Self.passes,
+            coach: ReviewPass.coachPreset)
+        XCTAssertEqual(cell.label, "Chapter One — 3 open notes: 1 Line, 2 Workshop")
+        XCTAssertFalse(cell.label.contains("workshop"),
+                       "the raw lane id must not reach the tooltip")
+    }
+
+    /// The control: with the seat VACANT her stamp falls back to its raw id,
+    /// exactly as a retired pass's does. The count still adds up, which is
+    /// the rule this whole arm exists for.
+    func test_aVacatedSeatCountsHerOldNotesUnderTheirRawId() {
+        let cell = ReviewBoardOpenNotes.cell(
+            piece: "Chapter One",
+            summary: OpenNotesSummary(
+                total: 2, byPass: [ReviewPass.coachPreset.id: 2]),
+            isUnreadable: false, passes: Self.passes, coach: nil)
+        XCTAssertEqual(cell.label, "Chapter One — 2 open notes: 2 workshop")
     }
 
     /// **RULING-54's honesty half, in one cell.** The walk skips a document
@@ -914,7 +998,13 @@ final class ReviewBoardPaneTests: XCTestCase {
 
         for expected in ["title: store.manifest.title",
                          "structure: store.manifest.structure",
-                         "passes: store.manifest.effectiveReviewPasses"] {
+                         "passes: store.manifest.effectiveReviewPasses",
+                         // The seat, and `effectiveCoach` rather than the raw
+                         // flag: a mount reading `coachVacated` itself would be
+                         // a second spelling of "is the seat held", and a board
+                         // that never got the value draws the vacant sentence
+                         // over a project whose pieces Le Guin is reading.
+                         "coach: store.manifest.effectiveCoach"] {
             XCTAssertTrue(code.contains { $0.contains(expected) },
                           "the mount must pass `\(expected)`")
         }
@@ -926,12 +1016,14 @@ final class ReviewBoardPaneTests: XCTestCase {
                        passes: [ReviewPass] = ReviewBoardPaneTests.passes,
                        openNotes: [String: OpenNotesSummary] = [:],
                        unreadable: Set<String> = [],
+                       coach: ReviewPass? = nil,
                        width: CGFloat = 700) -> NSWindow {
         let calls = self.calls
         let window = TestWindow.mount(AnyView(
             ReviewBoardPane(title: "The Project", structure: structure, passes: passes,
                             openNotes: openNotes,
                             unreadableDocIds: unreadable,
+                            coach: coach,
                             onOpenNotes: { calls.opened.append($0) },
                             onNavigate: { piece, pass in
                                 calls.navigations.append(BoardClick(piece: piece, pass: pass))
@@ -1038,15 +1130,27 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// the question is "is there anything clickable HERE at all" rather than
     /// "does this control work" — it needs no row geometry, so it cannot be
     /// wrong about where a row ended up.
+    ///
+    /// **The vertical pitch is below the board's own row height**, so no grid
+    /// row can fall BETWEEN two sample points. It was a flat eight rows over
+    /// the window's height until the seat row (editorial letter P1, Task 6)
+    /// moved the grid down by its own ~20pt and
+    /// `test_control_theSameSweepOverALoosePieceDoesReachAChip` stopped
+    /// reaching a chip: a sweep whose resolution is tuned to one layout
+    /// reports "nothing clickable" the next time anything above the grid
+    /// changes height, and the negative test it controls for goes green for
+    /// the wrong reason.
     private func sweepClicks(over window: NSWindow) async {
         guard let content = window.contentView else { return }
         let bounds = content.bounds
-        for row in 1...8 {
+        let pitch = ReviewBoardPane.pieceRowHeight - 6
+        var y = pitch / 2
+        while y < bounds.height {
             for column in 1...5 {
-                let point = CGPoint(x: bounds.width * CGFloat(column) / 6,
-                                    y: bounds.height * CGFloat(row) / 9)
+                let point = CGPoint(x: bounds.width * CGFloat(column) / 6, y: y)
                 await click(at: content.convert(point, to: nil), in: window)
             }
+            y += pitch
         }
         pump(0.2)
     }

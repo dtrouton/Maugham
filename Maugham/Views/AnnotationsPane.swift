@@ -591,10 +591,23 @@ struct AnnotationsPane: View {
     private var roundCockpit: some View {
         if !scope.isProject, let document, let orchestrator, let diagnostics {
             let pass = cockpitActivePass
+            // **The seat, for the label alone** (editorial letter P1, Task 6).
+            // `effectiveCoach` rather than `PieceReader`: the strip already
+            // holds the piece's resolved stage beside it, and the two values
+            // together are exactly the resolution's arms — a second reader
+            // here would be a copy of `reader(forPiece:memory:)` with nothing
+            // keeping the two in step.
+            let coach = store.manifest.effectiveCoach
             ReviewRoundCockpit(
                 passes: reviewPasses,
                 activePassId: pass?.id,
-                round: cockpitRound(diagnostics, docId: document.docId, passId: pass?.id),
+                // **Her lane, when the piece has no stage.** `latestRound` is
+                // asked about a LANE id, and an unassigned coached piece files
+                // its rounds under hers — asking with `nil` would report no
+                // round over a piece she has read three times.
+                round: cockpitRound(diagnostics, docId: document.docId,
+                                    passId: pass?.id ?? coach?.id),
+                coach: coach,
                 phase: ReviewRoundCockpit.phase(
                     runState: orchestrator.runState, docId: document.docId),
                 reportLine: cockpitReportLine(diagnostics, docId: document.docId),
