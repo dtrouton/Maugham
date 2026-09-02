@@ -53,20 +53,21 @@ Decisions and small debts, not defects. Everything the ledger recorded as `minor
 5. **T2** — the tool layer calls `TranslationReviewIndicator.displayLabel` (a view-layer symbol; brief-mandated).
 6. **T2** — `glossaryEntries` is permanently 0 on the visual-language `Result`.
 7. **T2** — RED evidence for the census widening was inferred, not observed.
-8. **T3** — two concurrent `adopt` calls can both pass the pending guard (T5's `proposalBusy` disables the buttons, which narrows but does not close the window).
-9. **T3** — the banner label carries the language tag ("Spanish (es) edition brief") — consistent with the desk row's own label, left as is.
-10. **T3** — copy statics are partly unasserted.
-11. **T3** — `glossaryEntries`'s `try?` is unreachable-safe.
-12. **T3** — a type doc comment name-drops `rollbackUnusedStatement`, which `adopt` never calls.
-13. **T4** — an unreachable terminal `break` in `StatementProposalDiff.lines`.
-14. **T4** — a shadowed `model` local in the banner's body.
-15. **T5** — `proposalNotice` interpolates a non-`Failure` error as a reflection dump rather than through `description`/`localizedDescription`.
-16. **T5** — `Date()` read on the body path makes the banner's subtree compare unequal every pass.
-17. **T5** — `proposalBusy` leaves the editor typeable in a sub-turn window before the disable lands.
-18. **T5** — the notice stays sticky until the slot next changes.
-19. **T5** — `reloadProposal()` after each verb duplicates the event-driven re-read (harmless).
-20. **T6** — two language-naming vocabularies coexist on the desk: the row/help text uses `displayLabel` (with the tag) while the no-row line uses `languageName` (without) — a brief self-contradiction, disclosed rather than resolved.
-21. **T6** — `VisualLanguageProposalModifier` is attached unconditionally with a `"/"` sentinel URL (functionally equivalent to a conditional attach).
+8. **T3** — `discard` throwing after the write skips the event post and the undo registration (plan-mandated order).
+9. **T3** — two concurrent `adopt` calls can both pass the pending guard (T5's `proposalBusy` disables the buttons, which narrows but does not close the window).
+10. **T3** — the banner label carries the language tag ("Spanish (es) edition brief") — consistent with the desk row's own label, left as is.
+11. **T3** — copy statics are partly unasserted.
+12. **T3** — `glossaryEntries`'s `try?` is unreachable-safe.
+13. **T3** — a type doc comment name-drops `rollbackUnusedStatement`, which `adopt` never calls.
+14. **T4** — an unreachable terminal `break` in `StatementProposalDiff.lines`.
+15. **T4** — a shadowed `model` local in the banner's body.
+16. **T5** — `proposalNotice` interpolates a non-`Failure` error as a reflection dump rather than through `description`/`localizedDescription`.
+17. **T5** — `Date()` read on the body path makes the banner's subtree compare unequal every pass.
+18. **T5** — `proposalBusy` leaves the editor typeable in a sub-turn window before the disable lands.
+19. **T5** — the notice stays sticky until the slot next changes.
+20. **T5** — `reloadProposal()` after each verb duplicates the event-driven re-read (harmless).
+21. **T6** — two language-naming vocabularies coexist on the desk: the row/help text uses `displayLabel` (with the tag) while the no-row line uses `languageName` (without) — a brief self-contradiction, disclosed rather than resolved.
+22. **T6** — `VisualLanguageProposalModifier` is attached unconditionally with a `"/"` sentinel URL (functionally equivalent to a conditional attach).
 
 **Still standing from P1–P4:** the declined "reply" lives in the query **body** under the translator's name (no reply primitive); leg 4 skips when leg 3 wrote nothing; a failed round stops a book queue; `languageQueries` reads the OPEN document only, so a closed chapter's prior queries are not briefed in a book queue; a cancel landing inside `mintDeclinedQueries` leaves minted queries absent from the record; a round-number collision is reachable only by starting a run in the instant after a `shutdown()` while the old round resolves a cold leg; `translation_status` decodes a per-language ledger once per row; `authorLanguage` re-reads `config.json` per gather; cross-object cancel is pinned per object rather than by one spanning test; a same-day directive re-directs its paragraph for the rest of the day.
 
