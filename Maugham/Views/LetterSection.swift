@@ -168,23 +168,30 @@ struct LetterSection: View {
     /// same as a project with no ledger to consult: nothing has been decided,
     /// so every habit can be kept and nothing can be retired.
     var ledgerText: String? = nil
+    /// **Whether the round that wrote this letter read the whole piece cold**
+    /// (fix round 1, Important 2). Task 7 passes `run.freshEyes == true`.
+    ///
+    /// **A stated fact, not a shape inferred from which closures arrived.**
+    /// It decides two things the writer reads as claims about the reading:
+    /// whether a not-found heading is reported as *anywhere in this piece* or
+    /// only *in what changed*, and whether the plural choice press stands at
+    /// all. Carried as the presence of `onRetire` — the first spelling of this
+    /// input — a host that wired the handler unconditionally would make the app
+    /// SAY something false over a three-paragraph delta, with nothing red
+    /// anywhere. `false` is the safe default: the warm line is true of every
+    /// round, and the cold claim is true only of a cold one.
+    var freshEyes: Bool = false
     /// **`nil` hides Keep as lesson outright**, `onAddTurnClause`'s shape and
     /// for its reason: a button with nowhere to file is worse than none.
     var onKeepAsLesson: ((Letter.Habit) -> Void)? = nil
-    /// **`nil` hides These are all choices**, and the host is what decides —
-    /// `LessonOffer.allChoicesIsOffered` needs the run, which this view does
-    /// not hold.
+    /// **`nil` hides These are all choices**; so does a warm run, and so does a
+    /// letter with fewer than two habits (`LessonOffer.allChoicesIsOffered`,
+    /// which this view calls rather than restates). The closure says the host
+    /// has somewhere to file; ``freshEyes`` says the reading earns the offer.
     var onAllChoices: (() -> Void)? = nil
-    /// **`nil` is a WARM round, and non-nil is Fresh Eyes** — the one input
-    /// that carries the round's own tense into the retired part.
-    ///
-    /// It reads as a plain optional handler and decides copy as well, so it is
-    /// worth saying plainly: only a Fresh Eyes round read the whole piece, so
-    /// only a Fresh Eyes round may offer a retirement (spec §6). The host
-    /// supplies this closure exactly when `run.freshEyes == true`; a warm round
-    /// passes `nil` and gets the line without the button. The alternative — a
-    /// separate `freshEyes` flag beside the closure — is two inputs that can
-    /// disagree, and the disagreement would be a Retire button over a delta.
+    /// **`nil` hides the Retire button and nothing else.** The line above it is
+    /// drawn either way, in the tense ``freshEyes`` decides — a host with
+    /// nowhere to file still owes the writer the observation.
     var onRetire: ((String) -> Void)? = nil
     /// **What a refused ledger verb said**, in the host's own refusal channel —
     /// `offerFailure`'s twin, one channel for all three verbs. Without it a
@@ -374,6 +381,22 @@ struct LetterSection: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // **A refused write gives the control back** (fix round 1, Important
+        // 1). Every ledger press is remembered BEFORE its handler runs, which
+        // is what stops a double file — but a write the op log turned away
+        // then leaves a disabled button over a ledger that never moved, and
+        // the writer has nothing left to press. One channel clears all three
+        // memories because the writer can only be mid-one-press.
+        //
+        // An `onChange` here where the run key deliberately avoids one: a run
+        // swap must be right on the FIRST frame, and a refusal arrives long
+        // after the press that caused it.
+        .onChange(of: ledgerFailure) { _, failure in
+            guard failure != nil else { return }
+            keptLessons = []
+            retiredLessons = []
+            allChoicesFiled = false
+        }
     }
 
     /// **The answer to what the writer asked, first** (P2 Task 6, spec §3.1).
@@ -511,13 +534,15 @@ struct LetterSection: View {
     /// **These are all choices** — the seeding gesture (spec §6): a Fresh Eyes
     /// read over a finished piece, and one press instead of six stets.
     ///
-    /// Drawn only when the host handed over a way to file it, which is the host
-    /// saying the round was Fresh Eyes and raised more than one habit
-    /// (`LessonOffer.allChoicesIsOffered`). It sits under the habits rather
-    /// than beside any one of them, because it is about all of them.
+    /// Drawn when the host handed over a way to file it AND the reading earns
+    /// it — a cold read of the whole piece with more than one habit in it,
+    /// which is `LessonOffer.allChoicesIsOffered`'s question and not this
+    /// view's to restate (fix round 1). It sits under the habits rather than
+    /// beside any one of them, because it is about all of them.
     @ViewBuilder
     private var allChoicesPart: some View {
-        if let onAllChoices {
+        if let onAllChoices,
+           LessonOffer.allChoicesIsOffered(letter, freshEyes: freshEyes) {
             Button(Self.allChoicesTitle) {
                 rememberAllChoices()
                 onAllChoices()
@@ -534,19 +559,23 @@ struct LetterSection: View {
     /// re-spelled, or one already retired, draws nothing at all rather than an
     /// offer about a row that is not there (`LessonOffer.retirable`).
     ///
-    /// **The tense is the round's, and it decides whether there is a button.**
-    /// A warm round read a delta, and a three-paragraph delta proves nothing
-    /// about a habit, so it says what it can and offers nothing. A Fresh Eyes
-    /// round read the whole piece cold, which is the evidence a retirement
-    /// stands on. `onRetire` is what carries that distinction in
-    /// (see its own note).
+    /// **The tense is ``freshEyes``', and the button needs it too** (fix round
+    /// 1). A warm round read a delta, and a three-paragraph delta proves
+    /// nothing about a habit, so it says what it can and offers nothing. Only
+    /// a Fresh Eyes round read the whole piece cold, which is the evidence a
+    /// retirement stands on.
+    ///
+    /// A cold round whose host handed over no handler still draws the WARM
+    /// line rather than the cold claim without a button: the sentence is what
+    /// the writer reads as the app's account of what it did, and an unfilable
+    /// offer is no reason to overstate it.
     @ViewBuilder
     private var retiredPart: some View {
         let headings = LessonOffer.retirable(letter, ledgerText: ledgerText)
         if !headings.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(headings, id: \.self) { heading in
-                    if let onRetire {
+                    if freshEyes, let onRetire {
                         HStack(spacing: 8) {
                             Text(Self.freshRetiredLine(heading))
                                 .font(.caption)

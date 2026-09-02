@@ -267,7 +267,14 @@ enum LessonOffer {
     /// therefore a claim about the piece rather than about a three-paragraph
     /// delta — and over a single habit it is *This is a choice* wearing a
     /// plural's clothes, where the writer already has that habit's own button.
+    static func allChoicesIsOffered(_ letter: Letter, freshEyes: Bool) -> Bool {
+        freshEyes && letter.habits.count >= 2
+    }
+
+    /// The same question asked of a run, for a caller that holds one. It
+    /// delegates rather than restating the rule, so the view and the host
+    /// cannot come to different answers about the same letter.
     static func allChoicesIsOffered(_ letter: Letter, run: CompilerRun?) -> Bool {
-        run?.freshEyes == true && letter.habits.count >= 2
+        allChoicesIsOffered(letter, freshEyes: run?.freshEyes == true)
     }
 }

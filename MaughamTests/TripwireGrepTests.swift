@@ -600,8 +600,14 @@ final class TripwireGrepTests: XCTestCase {
 
     // MARK: - The lessons ledger is written from one file (editorial letter P2)
 
-    /// Every `RulingPerformer.rule(…)` / `.edit(…)` call site under `dir` whose
-    /// ARGUMENT LIST names `.lessons`, as `file:line`.
+    /// Every `RulingPerformer` verb call site under `dir` whose ARGUMENT LIST
+    /// names `.lessons`, as `file:line`.
+    ///
+    /// **All four verbs, not just the two the ledger uses** (fix round 1). The
+    /// point of the census is that one file decides what happens to a lesson,
+    /// and `revoke` is the sharpest way to break that from outside: a second
+    /// file calling it with `kind: .lessons` would DELETE an entry, which is
+    /// the one thing spec §6 says must never happen to one.
     ///
     /// **The span is found by anchor, never by a character budget.** These
     /// calls run to five and six lines, and `kind:` is the fourth label — a
@@ -617,7 +623,8 @@ final class TripwireGrepTests: XCTestCase {
         for case let url as URL in walker where url.pathExtension == "swift" {
             let text = try String(contentsOf: url, encoding: .utf8)
             let scalars = Array(text)
-            for anchor in ["RulingPerformer.rule(", "RulingPerformer.edit("] {
+            for anchor in ["RulingPerformer.rule(", "RulingPerformer.edit(",
+                           "RulingPerformer.revoke(", "RulingPerformer.restore("] {
                 var searchFrom = text.startIndex
                 while let found = text.range(
                     of: anchor, range: searchFrom..<text.endIndex) {
@@ -728,6 +735,35 @@ final class TripwireGrepTests: XCTestCase {
             + "neither the `.intent` call nor the comment. Got:\n"
             + sites.joined(separator: "\n"))
         XCTAssertEqual(sites.first, "SecondLedgerWriter.swift:4")
+    }
+
+    /// CONTROL, the sharp arm: a planted `revoke` carrying `.lessons` is caught
+    /// too. It is the one call that would DELETE an entry, which spec §6 says
+    /// must never happen to a lesson — and until fix round 1 the census
+    /// anchored only `rule(` and `edit(`, so it would have sailed through.
+    func test_theLessonsLedgerCensusCatchesARevokeToo() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-lessons-revoke-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        enum LedgerDeleter {
+            static func drop(_ id: String, _ store: ProjectStore) async throws {
+                try await RulingPerformer.revoke(
+                    rulingId: id,
+                    kind: .lessons, forScope: .project,
+                    store: store, world: nil)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("LedgerDeleter.swift"),
+                  atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            try lessonsRulingCallSites(in: tmp), ["LedgerDeleter.swift:3"],
+            "a revoke against the ledger deletes a lesson, and the census must "
+            + "see it")
     }
 
     // MARK: - Meta-tests: tripwires fire on planted offenders (task 4.8 / test gap #14)
