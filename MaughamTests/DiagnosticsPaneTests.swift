@@ -674,6 +674,15 @@ final class DiagnosticsPaneTests: XCTestCase {
             "the appended segment is last, so its badge does not shift at all")
     }
 
+    /// **The Visual Language segment badges too** (translation pipeline P5) —
+    /// a proposal waiting on the writer is exactly the "something changed
+    /// while you weren't looking" signal the inbox and diagnostics badges are
+    /// for. Its own offset, on the same derivation as the other two.
+    func test_theVisualLanguageSegmentBadgesWhenAProposalStands() {
+        XCTAssertEqual(DetailPaneToggle<AnyView>.badgeOffset(of: .visualLanguage, in: [.diagnostics, .intent, .visualLanguage, .inspector]), 1)
+        XCTAssertTrue(DetailPaneToggle<AnyView>.visualLanguageBadgeHelp.contains("⌘⌥V"))
+    }
+
     // MARK: - Empty state
 
     /// **A failed check may not wear the seal.** `checkmark.seal` over

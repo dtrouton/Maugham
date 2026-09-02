@@ -54,6 +54,19 @@ struct DepartmentPane: View {
     /// F-D fixes is a surface that omitted this fact and read as an honest
     /// answer; a defaulted `[]` is that omission spelled as a convenience.
     var unreadable: [EditionStatus.UnreadableDocument]
+    /// **Which languages have a proposed edition brief waiting** (translation
+    /// pipeline P5) — the badge a language row carries when Claude has staged
+    /// one, drawn beside the language's own name. Lowercased tags, matching
+    /// `ProposableStatement.key`'s own casing (`DepartmentPaneHost
+    /// .proposedLanguages`), so a row whose own `language` came back a
+    /// different case still finds its mark.
+    var proposedBriefs: Set<String> = []
+    /// **A proposed brief for a language the desk has no row for at all** —
+    /// Claude proposed an edition the book has never had a paragraph
+    /// translated into, so there is no row for the badge above to sit on. Its
+    /// own line at the foot of the section, sorted, with the same door a row
+    /// would have offered.
+    var proposedWithoutRow: [String] = []
     /// **The Design row, whole** (Task 4) — who designs this book, what the
     /// newest round produced, what a round in flight is doing, and whether
     /// either verb may be pressed.
@@ -398,6 +411,21 @@ struct DepartmentPane: View {
                         }
                         addLanguageButton
                     }
+                    // **A proposed brief for a language nothing else on the
+                    // desk names** — no row above carries its badge, so it
+                    // gets a line of its own rather than going unseen.
+                    ForEach(proposedWithoutRow, id: \.self) { language in
+                        HStack {
+                            Text(DepartmentDesk.proposedWithoutRowLine(language: language))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button(DepartmentDesk.editionBriefTitle) {
+                                openEditionBrief(language)
+                            }
+                            .controlSize(.small)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 10)
@@ -628,6 +656,17 @@ struct DepartmentPane: View {
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                // A proposed brief waiting on the writer, on the design row's
+                // own badge shape (`design.pendingBadge`) — the same visual
+                // vocabulary for the same kind of fact, one column apart.
+                if proposedBriefs.contains(row.language) {
+                    Text(DepartmentDesk.proposedBadge)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+                        .help(DepartmentDesk.proposedHelp(language: row.language))
+                }
                 Spacer(minLength: 6)
                 renameButton(DepartmentDesk.renameTitle(translator: row.translator)) {
                     renameTranslator(row.language)
@@ -918,5 +957,31 @@ enum DepartmentDesk {
         "Register, idiom policy and what stays untranslated for the "
             + "\(TranslationReviewIndicator.displayLabel(forLanguageTag: language)) "
             + "edition"
+    }
+
+    // MARK: - The "proposed" mark (translation pipeline P5)
+
+    /// The badge itself, on a row that already has a proposed brief waiting.
+    static let proposedBadge = "Proposed"
+
+    static func proposedHelp(language: String) -> String {
+        "Claude proposed a brief for "
+            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + ". Open Edition Brief to adopt or discard it."
+    }
+
+    /// The foot-of-section line for a language with no row of its own yet.
+    ///
+    /// **`TranslationPipeline.Environment.languageName`, not
+    /// `TranslationReviewIndicator.displayLabel`** — the row's own badge
+    /// (`proposedHelp`) uses the row's vocabulary, tag and all, because it
+    /// sits beside a name the row already prints that way. This line has no
+    /// row to agree with: it is naming a language the desk has never shown
+    /// before, in a sentence with no tag anywhere else in it, and "Italian
+    /// (it)" reads as a fragment of some other UI pasted in.
+    static func proposedWithoutRowLine(language: String) -> String {
+        "Claude proposed a brief for "
+            + TranslationPipeline.Environment.languageName(tag: language)
+            + " — open it to adopt or discard."
     }
 }
