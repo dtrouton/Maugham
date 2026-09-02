@@ -538,22 +538,24 @@ struct AnnotationsPane: View {
         // from a test, and a panel the headless worker has to dismiss is a
         // gate that hangs.
         //
-        // **Just stet carries `.cancel`** so Escape performs it. It is what the
-        // writer already pressed — the offer interrupted a stet, and the least
-        // committal way out of it is the stet itself, never nothing at all.
+        // **Three buttons, and Cancel is the one that carries `.cancel`**
+        // (Denver's ruling, fix round 1). Escape ABANDONS: the offer goes away
+        // and the note is left exactly as the writer found it. Giving the role
+        // to **Just stet** would make Escape settle a note — a keystroke that
+        // resolves something is not a way out of a question, and the writer who
+        // hit it to make the dialog go away would find the note gone from their
+        // queue. Both real answers are pressed on purpose.
         .alert(
             QueueLedgerVerbs.secondStetTitle(choiceOffer?.heading ?? ""),
             isPresented: Binding(
                 get: { choiceOffer != nil },
-                // A dismissal that is neither answer — Escape without the
-                // cancel button, a click away — drops the offer and leaves the
-                // note exactly as the writer found it.
                 set: { if !$0 { setChoiceOffer(nil) } }),
             presenting: choiceOffer
         ) { offer in
             Button(QueueLedgerVerbs.makeItAChoiceTitle, action: offer.makeItAChoice)
-            Button(QueueLedgerVerbs.justStetTitle, role: .cancel,
-                   action: offer.justStet)
+            Button(QueueLedgerVerbs.justStetTitle, action: offer.justStet)
+            Button(QueueLedgerVerbs.cancelTitle, role: .cancel,
+                   action: offer.cancel)
         } message: { _ in
             Text(QueueLedgerVerbs.secondStetHelp)
         }
@@ -1602,7 +1604,8 @@ struct AnnotationsPane: View {
                 justStet: {
                     setChoiceOffer(nil)
                     performStet(document, ann)
-                }))
+                },
+                cancel: { setChoiceOffer(nil) }))
             return
         }
         performStet(document, ann)
@@ -1643,11 +1646,21 @@ struct AnnotationsPane: View {
     private func performChoice(_ document: Document, _ ann: Annotation) {
         stetFlourishIds.insert(ann.id)
         Task {
-            ledgerNotice = await QueueLedgerVerbs.makeChoice(
+            let refusal = await QueueLedgerVerbs.makeChoice(
                 ann, in: document, store: store, world: world,
                 undoManager: undoManager)
+            ledgerNotice = refusal
             letterLedgerRevision += 1
             noteChanged()
+            // **A refusal takes the mark off at once** — `runBulk`'s own guard,
+            // for its reason: the flourish says "this note has been let
+            // stand", and a row wearing it for 2.5s over a note that is still
+            // open is the surface lying about what happened. Sleeping first
+            // would put the lie on screen for exactly as long as the truth.
+            guard refusal == nil else {
+                stetFlourishIds.remove(ann.id)
+                return
+            }
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             stetFlourishIds.remove(ann.id)
         }

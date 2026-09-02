@@ -43,9 +43,15 @@ enum QueueLedgerVerbs {
     /// The row's verb on an accepted craft note — spec §6's second door.
     static let keepTitle = "Keep as lesson\u{2026}"
 
-    /// The second stet's two answers.
+    /// The second stet's two answers, and the way out that is neither.
+    ///
+    /// **Cancel exists and carries the alert's `.cancel` role** (Denver's
+    /// ruling, fix round 1). Escape has to abandon: a keystroke that settles a
+    /// note is not a way out of a question, and a writer who pressed it to make
+    /// the dialog go away would find the note gone from their queue.
     static let makeItAChoiceTitle = "Make it a choice"
     static let justStetTitle = "Just stet"
+    static let cancelTitle = "Cancel"
 
     /// The second stet's question, carrying the heading verbatim (global
     /// constraint 15): what is filed is exactly the entry the round was briefed
@@ -289,6 +295,10 @@ struct ChoiceOffer: Identifiable {
     let heading: String
     let makeItAChoice: () -> Void
     let justStet: () -> Void
+    /// Abandon: the offer goes away and the note is left exactly as the writer
+    /// found it. What Escape does, and the only one of the three that touches
+    /// neither the ledger nor the note.
+    let cancel: () -> Void
 
     var id: String { annotationId }
 }
@@ -322,7 +332,9 @@ struct LessonHeadingSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Keep as Lesson")
+            // Sentence case, the register the verb and the guide both use
+            // (constraint 12) — never Title Case invented at the sheet.
+            Text("Keep as lesson")
                 .font(.headline)
             TextEditor(text: $heading)
                 .frame(minHeight: 90)
@@ -335,7 +347,7 @@ struct LessonHeadingSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel)
-                Button("Keep as Lesson") { onCommit(trimmed) }
+                Button("Keep as lesson") { onCommit(trimmed) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .disabled(trimmed.isEmpty)

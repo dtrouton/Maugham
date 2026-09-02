@@ -327,10 +327,14 @@ a separate decision written into a separate file.
 
 You don't have to know in advance that you want this. **Stet** a question under
 a habit a second time and Maugham asks — *Make "filter words" a choice?* —
-with **Make it a choice** and **Just stet**. A first stet, or a stet of a note
-raised under nothing, is a plain stet and says nothing. Nothing is ever filed
-without you pressing it: the ledger is your prose and it moves only by your
-hand.
+with **Make it a choice**, **Just stet**, and **Cancel**. Escape is Cancel: the
+question goes away and the note is left exactly where you found it, still open.
+A first stet, or a stet of a note raised under nothing, is a plain stet and says
+nothing. Nothing is ever filed without you pressing it: the ledger is your prose
+and it moves only by your hand.
+
+Filing the same habit as a choice twice does nothing the second time. One
+decision is one line in your ledger, however many notes it came up under.
 
 **Keep it as a lesson.** A craft note you've **accepted** carries **Keep as
 lesson…**, which opens a field prefilled with the note so you can shorten it to

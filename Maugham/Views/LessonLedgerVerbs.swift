@@ -106,12 +106,33 @@ enum LessonLedgerVerbs {
     /// briefs every round as something the writer decided. `keepAsLesson`
     /// needs no such check: its heading IS the ruling, so the performer's own
     /// refusal is exact.
+    ///
+    /// **Find-or-create BY HEADING** — `RulingPerformer.rule`'s own shape one
+    /// level up, and it is not a nicety (fix round 1). *These are all choices*
+    /// asks the offer whether a habit is already in the ledger, but the queue's
+    /// **This is a choice** is a pure annotation predicate: two open questions
+    /// raised under the same habit each draw the verb, and pressing both would
+    /// file the same decision twice under two dates. A duplicate row then
+    /// briefs every later round twice about one thing. So a heading already
+    /// standing as a choice returns having written nothing — a success, because
+    /// the writer's decision IS in the ledger and refusing would report an
+    /// error over a state they asked for.
+    ///
+    /// Matched through `LessonsLedger.matches` on the ledger as it stands at
+    /// the moment of the write (the addressing note above), never against a
+    /// remembered read. A heading standing as a live LESSON or a RETIRED one is
+    /// deliberately not caught here: those are different rows saying different
+    /// things, and collapsing them would silently swallow the writer moving a
+    /// habit from one to the other.
     static func makeChoice(
         _ heading: String, provenance: String,
         store: ProjectStore, world: DeclaredWorldStore?
     ) async throws {
         guard !heading.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { throw RulingFailure.emptyRuling }
+        let standing = LessonsLedger.choices(in: ledgerText(store: store) ?? "")
+        guard !standing.contains(where: { LessonsLedger.matches(heading, heading: $0) })
+        else { return }
         try await RulingPerformer.rule(
             LessonsLedger.choiceText(heading), provenance: provenance,
             kind: .lessons, forScope: .project, store: store, world: world)
