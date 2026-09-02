@@ -558,7 +558,12 @@ struct DetailPaneToggle<Inspector: View>: View {
                 // …and the cache that answer invalidates. Without it the next
                 // run checks the writer against a world derived before their
                 // ruling existed, and nothing anywhere says so.
-                world: declaredWorldStore)
+                world: declaredWorldStore,
+                // Who reads THIS piece — the one resolution (`PieceReader`),
+                // read the same way the round cockpit's own line does.
+                reader: store.manifest.reader(
+                    forPiece: activeDocId, memory: ds.uiState.activePassMemory),
+                onOpenBoard: { Self.openBoardInReview(selectedSubject: $selectedSubject) })
         } else {
             ContentUnavailableView(
                 "Select a document",
@@ -566,6 +571,28 @@ struct DetailPaneToggle<Inspector: View>: View {
                 description: Text("Open a manuscript, then press \u{2318}R to check your writing."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// **Opening the board from the Diagnostics header's reader line.**
+    /// Mirrors `MaughamApp.postPersona`/`ProjectWindow`'s persona-bar post —
+    /// same event, same payload key — then sets the subject to `.project`
+    /// because the board is Review's project-level centre
+    /// (`ProjectWindow.reviewCentreShowsBoard`): a chapter subject would open
+    /// that chapter's editor instead of the grid the writer just asked to
+    /// see. Unlike `annotationsPane`'s `onTravel`
+    /// closure at `:675`, which deliberately carries NO persona (a reviewer
+    /// following a note about another chapter stays in Review), this one
+    /// exists to change persona — the reader line's whole point is "go
+    /// change who reads this".
+    ///
+    /// A named `static func` rather than an inline closure so
+    /// `DiagnosticsPaneTests` can pin the exact event spelling without
+    /// mounting this view — the call site above is the one production
+    /// caller.
+    static func openBoardInReview(selectedSubject: Binding<BinderSubject?>) {
+        MaughamEvent.post(.maughamSetPersona, to: .keyWindow,
+                           payload: [MaughamEvent.personaKey: Persona.review.rawValue])
+        selectedSubject.wrappedValue = .project
     }
 
     /// **This switch is why a new right-pane surface touches this file.**

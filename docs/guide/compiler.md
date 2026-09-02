@@ -3,11 +3,15 @@
 Maugham can read what you have just written and check it two ways at once —
 as a continuity editor, against what you've declared and what the manuscript
 has already established, and as a first reader, reporting what happens in the
-reading itself. Press **⌘R** — *Check Writing* — and the report appears in the
-**Diagnostics** pane (⌘⌥D), which leads the pane picker in the **Author**
-persona (⌘2). A capsule flashes **Checking…**, the same register as ⌘S's;
-press ⌘R again while one is already running and it flashes **Still
-checking…** instead of starting a second one.
+reading itself. Press **⌘R** — *Check Writing* — and the piece's reader does
+the reading: **Le Guin**, the coach, for any piece you haven't put in a pass of
+your own — which, until you open Review, is every piece you have — or that
+pass's own editor once you have. The report appears in the **Diagnostics** pane
+(⌘⌥D), which leads the pane picker in the **Author** persona (⌘2); its header
+names who just read the piece, and that line takes you to **Review** (⌘3) if
+you want to change who it is. A capsule flashes **Checking…**, the same
+register as ⌘S's; press ⌘R again while one is already running and it flashes
+**Still checking…** instead of starting a second one.
 
 The report arrives in sections rather than all at once. Your clauses come back
 first, so you are reading the conformance summary while the reader's report is

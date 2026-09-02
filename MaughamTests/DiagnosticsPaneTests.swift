@@ -958,6 +958,177 @@ final class DiagnosticsPaneTests: XCTestCase {
                        DetailSegment.intent.rawValue)
     }
 
+    // MARK: - Who reads this piece (editorial letter P1 Task 7)
+    //
+    // `PieceReader` is the one resolution (`PieceReaderTests` pins the rule
+    // itself); these pin the header's line and the empty-state promise it
+    // computes from the SAME value, so the two surfaces cannot name two
+    // different people.
+
+    func test_readerCopy_stageNamesTheStagesEditorAndPassName() {
+        XCTAssertEqual(
+            DiagnosticsPane.readerCopy(for: .stage(ReviewPass.presets[1])),
+            "Lish \u{00b7} Line")
+    }
+
+    /// **Never her pass name** — "Workshop" appears on no surface a writer
+    /// has ever seen (`ReviewPass.laneDisplayName`'s own rule); the coach
+    /// reads as an introduction exactly as her round-cockpit line does.
+    func test_readerCopy_coachReadsAsAnIntroductionNeverHerPassName() {
+        let line = DiagnosticsPane.readerCopy(for: .coach(ReviewPass.coachPreset))
+        XCTAssertEqual(line, "Le Guin reads this piece")
+        XCTAssertFalse(line.contains("Workshop"), "got: \(line)")
+    }
+
+    func test_readerCopy_nobodyIsSignedClaude() {
+        XCTAssertEqual(DiagnosticsPane.readerCopy(for: .nobody), "Claude reads this piece")
+    }
+
+    /// **One input, two readers.** A test constructing the pane with a coach
+    /// reader gets the coach's name in both the header line and the
+    /// empty-state promise; the stage arm is the control, since it carries a
+    /// different shape ("editor · pass name") and must still agree on WHO.
+    func test_theHeaderLineAndTheEmptyStatePromiseNameTheSameReader_coach() {
+        let reader = PieceReader.coach(ReviewPass.coachPreset)
+        let header = DiagnosticsPane.readerCopy(for: reader)
+        let empty = DiagnosticsPane.emptyState(for: .neverRun, readerName: reader.editorName)
+        XCTAssertTrue(header.contains("Le Guin"), "got: \(header)")
+        XCTAssertTrue(empty.description.contains("Le Guin"), "got: \(empty.description)")
+    }
+
+    func test_theHeaderLineAndTheEmptyStatePromiseNameTheSameReader_stage() {
+        let reader = PieceReader.stage(ReviewPass.presets[2])
+        let header = DiagnosticsPane.readerCopy(for: reader)
+        let empty = DiagnosticsPane.emptyState(for: .neverRun, readerName: reader.editorName)
+        XCTAssertTrue(header.contains("Gould"), "got: \(header)")
+        XCTAssertTrue(empty.description.contains("Gould"), "got: \(empty.description)")
+    }
+
+    func test_emptyState_neverRun_promiseNamesTheGivenReader() {
+        let empty = DiagnosticsPane.emptyState(for: .neverRun, readerName: "Le Guin")
+        XCTAssertEqual(empty.description, "Press \u{2318}R and Le Guin reads what you've written.")
+    }
+
+    /// **`.nobody` reads exactly as before, apart from the new line** — the
+    /// pane's default `reader`, so every caller that has not been given one
+    /// (and every OTHER `emptyState` test in this file, which passes no
+    /// `readerName`) keeps its old behaviour.
+    func test_emptyState_neverRun_defaultsToClaudeWhenNoReaderIsGiven() {
+        let empty = DiagnosticsPane.emptyState(for: .neverRun)
+        XCTAssertEqual(empty.description, "Press \u{2318}R and Claude reads what you've written.")
+    }
+
+    /// The mounted pane: a coach reader's name reaches both the header's
+    /// reader line and the "Not checked yet" promise beneath it, off the one
+    /// `reader` input this pane was given.
+    func test_mountedPane_headerAndEmptyStateNameTheSameReader_coach() throws {
+        let docId = "doc-reader-coach"
+        let diagnosticsStore = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnosticsStore, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            reader: .coach(ReviewPass.coachPreset))))
+        pump(0.2)
+
+        let labels = allLabels(in: window)
+        XCTAssertTrue(labels.contains("Le Guin reads this piece"), "got: \(labels)")
+        XCTAssertTrue(
+            labels.contains { $0.contains("Le Guin reads what you've written") },
+            "the empty-state promise must name the same editor the header does; got \(labels)")
+    }
+
+    /// Control: a stage reader's own editor reaches both surfaces too, in the
+    /// header's different ("editor · pass") shape.
+    func test_mountedPane_headerAndEmptyStateNameTheSameReader_stage() throws {
+        let docId = "doc-reader-stage"
+        let diagnosticsStore = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnosticsStore, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            reader: .stage(ReviewPass.presets[2]))))
+        pump(0.2)
+
+        let labels = allLabels(in: window)
+        XCTAssertTrue(labels.contains("Gould \u{00b7} Copyedit"), "got: \(labels)")
+        XCTAssertTrue(
+            labels.contains { $0.contains("Gould reads what you've written") },
+            "got: \(labels)")
+    }
+
+    /// **`.nobody` — the pane's default — reads exactly as it did before the
+    /// seat existed, apart from the new line.**
+    func test_mountedPane_readsAsTodayApartFromTheNewLine_nobody() throws {
+        let docId = "doc-reader-nobody"
+        let diagnosticsStore = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnosticsStore, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard)))
+        pump(0.2)
+
+        let labels = allLabels(in: window)
+        XCTAssertTrue(labels.contains("Claude reads this piece"), "got: \(labels)")
+        XCTAssertTrue(
+            labels.contains { $0.contains("Claude reads what you've written") },
+            "got: \(labels)")
+    }
+
+    /// The reader line's only action is travel: pressing it calls
+    /// `onOpenBoard` and nothing else — no picker, per spec §4.2.
+    func test_readerLineButton_callsOnOpenBoard() throws {
+        let docId = "doc-reader-open-board"
+        let diagnosticsStore = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let calls = CallCounter()
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnosticsStore, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard,
+            reader: .coach(ReviewPass.coachPreset),
+            onOpenBoard: { calls.count += 1 })))
+        pump(0.2)
+
+        let readerButton = try button(labelled: "Le Guin reads this piece", in: window)
+        _ = readerButton.perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.2)
+
+        XCTAssertEqual(calls.count, 1, "pressing the reader line must call onOpenBoard exactly once")
+    }
+
+    /// **`DetailPaneToggle.openBoardInReview`'s exact event spelling**, pinned
+    /// without mounting `DetailPaneToggle` itself (it pulls in the whole
+    /// project store) — the same technique `notesPosted` uses, over the
+    /// production static the diagnostics pane's `onOpenBoard` closure calls.
+    /// Posts `.maughamSetPersona` with `Persona.review` — the same event
+    /// `MaughamApp.postPersona`/the persona bar post — and sets the subject to
+    /// `.project`, because the board is Review's project-level centre
+    /// (`ProjectWindow.reviewCentreShowsBoard`): a chapter subject would open
+    /// that chapter's editor instead of the grid the writer asked to see.
+    func test_openBoardInReview_postsThePersonaEventAndSelectsTheProjectSubject() {
+        var subject: BinderSubject? = .item("ch-3")
+        let binding = Binding<BinderSubject?>(get: { subject }, set: { subject = $0 })
+        let box = PostBox()
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamSetPersona, object: nil, queue: nil
+        ) { box.record($0) }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        DetailPaneToggle<EmptyView>.openBoardInReview(selectedSubject: binding)
+
+        XCTAssertEqual(subject, .project,
+            "the board is Review's project-level centre; a chapter subject would open that chapter instead")
+        XCTAssertEqual(box.received.count, 1, "must post exactly one persona-change event")
+        XCTAssertEqual(box.received.first?.userInfo?[MaughamEvent.personaKey] as? String,
+                       Persona.review.rawValue)
+    }
+
+    private final class CallCounter { var count = 0 }
+
     // MARK: - Drift (spec §4's last bullet, computed in Stage 3 by `DriftDetector`)
     //
     // `DriftDetector.drift` has its own suite (`DriftDetectorTests`) for

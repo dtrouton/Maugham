@@ -102,6 +102,19 @@ struct DiagnosticsPane: View {
     /// passed `nil` here because no pane held the store; `ProjectWindow` builds
     /// one now, and this is where it arrives.
     var world: DeclaredWorldStore? = nil
+    /// **Who reads this piece** — the one resolution (`PieceReader`, spec
+    /// §4.1). Defaulted to `.nobody` for every caller that has not been given
+    /// one, which reads exactly as this pane did before the seat existed:
+    /// "Claude reads this piece" and "Press ⌘R and Claude reads what you've
+    /// written." Named by the header's reader line and the empty state's
+    /// promise — one input, two readers, so neither can name someone the
+    /// other doesn't.
+    var reader: PieceReader = .nobody
+    /// What pressing the reader line does — travel to Review, where the seat
+    /// is actually held. The line names but never picks (spec §4.2); a
+    /// caller that has not been given a destination gets a no-op rather than
+    /// a button that presses into nowhere.
+    var onOpenBoard: () -> Void = {}
 
     @Environment(\.undoManager) private var undoManager
 
@@ -513,37 +526,51 @@ struct DiagnosticsPane: View {
 
     @ViewBuilder
     private var header: some View {
-        // No spinner: the register is understated, and the state word in
-        // `headerLine` ("Checking 14 new paragraphs…") already says what's
-        // happening — an indeterminate control here would only animate to say
-        // it twice.
-        HStack(spacing: 8) {
-            // **This wraps, and it must NOT be made to wrap with
-            // `fixedSize(horizontal: false, vertical: true)`.** A `Text`
-            // already reports its WRAPPED height as its ideal for whatever
-            // width it is proposed, so it wraps here without the modifier;
-            // what the modifier adds is an *unbreakable minimum* height, and
-            // AppKit resolves that minimum at a probe width far narrower than
-            // the column — `cliNotFound`'s sentence came back ~400pt tall.
-            // `NSSplitView` takes the tallest column, so a pane that cannot be
-            // broken grows all three columns past the window: the tree is laid
-            // out taller than the window and shows a band the writer cannot
-            // scroll back up from, and the centre column's content is pushed
-            // above the visible region. There is no max-height constraint for
-            // AppKit to break here, which is why this fails differently from
-            // the WIDTH conflict `DetailColumnWidthTests` documents.
-            // Measured 2026-08-08 (macOS 26.5); see
-            // `DiagnosticsPaneColumnHeightTests`.
-            Text(headerLine)
-                .font(.caption)
-                .foregroundStyle(isFailureState ? Color.red : .secondary)
-            Spacer()
-            if case .running = state {
-                Button("Cancel") { orchestrator.cancel() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+        VStack(alignment: .leading, spacing: 2) {
+            // No spinner: the register is understated, and the state word in
+            // `headerLine` ("Checking 14 new paragraphs…") already says what's
+            // happening — an indeterminate control here would only animate to say
+            // it twice.
+            HStack(spacing: 8) {
+                // **This wraps, and it must NOT be made to wrap with
+                // `fixedSize(horizontal: false, vertical: true)`.** A `Text`
+                // already reports its WRAPPED height as its ideal for whatever
+                // width it is proposed, so it wraps here without the modifier;
+                // what the modifier adds is an *unbreakable minimum* height, and
+                // AppKit resolves that minimum at a probe width far narrower than
+                // the column — `cliNotFound`'s sentence came back ~400pt tall.
+                // `NSSplitView` takes the tallest column, so a pane that cannot be
+                // broken grows all three columns past the window: the tree is laid
+                // out taller than the window and shows a band the writer cannot
+                // scroll back up from, and the centre column's content is pushed
+                // above the visible region. There is no max-height constraint for
+                // AppKit to break here, which is why this fails differently from
+                // the WIDTH conflict `DetailColumnWidthTests` documents.
+                // Measured 2026-08-08 (macOS 26.5); see
+                // `DiagnosticsPaneColumnHeightTests`.
+                Text(headerLine)
+                    .font(.caption)
+                    .foregroundStyle(isFailureState ? Color.red : .secondary)
+                Spacer()
+                if case .running = state {
+                    Button("Cancel") { orchestrator.cancel() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                gearMenu
             }
-            gearMenu
+            // **A label whose only action is travel — no picker here** (spec
+            // §4.2). Changing who holds the seat is Review's own control (the
+            // board's coach line, or the Inspector's pass rows); this line
+            // only says who it is today and takes the writer to where that's
+            // changed.
+            Button(action: onOpenBoard) {
+                Text(readerLine)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Change who reads in Review")
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
     }
@@ -554,6 +581,28 @@ struct DiagnosticsPane: View {
     }
 
     private var headerLine: String { Self.headerCopy(for: state, wetInk: wetInk) }
+
+    /// **"Le Guin reads this piece", "Le Guin · Structural", "Claude reads
+    /// this piece"** — the same resolution the round cockpit's `coachLine`
+    /// draws, in the header's own shape: a stage names its lane after the
+    /// editor, since that is the word the board and the ladder already use
+    /// for it; the coach and the vacant seat both read as an introduction,
+    /// because neither is ever a lane a control can select
+    /// (`ReviewPass.laneDisplayName`'s reasoning — her pass name, "Workshop",
+    /// is never drawn).
+    ///
+    /// Static and pure for `emptyState`'s reason: every sentence this pane can
+    /// say is assertable without mounting anything, and a test constructing
+    /// one `PieceReader` gets the header's answer and the empty state's from
+    /// the same value rather than two independently-spelled copies.
+    static func readerCopy(for reader: PieceReader) -> String {
+        if case .stage(let pass) = reader {
+            return "\(reader.editorName) \u{00b7} \(pass.name)"
+        }
+        return "\(reader.editorName) reads this piece"
+    }
+
+    private var readerLine: String { Self.readerCopy(for: reader) }
 
     /// The header's one line, per state. Static and exhaustive for
     /// `emptyState`'s reason: every sentence the pane can say is then assertable
@@ -772,7 +821,8 @@ struct DiagnosticsPane: View {
                         // the writer's entire feedback from an expensive keystroke:
                         // one sentence saying how many notes went somewhere else.
                         thisCheckSection
-                        let empty = Self.emptyState(for: state, wetInk: wetInk)
+                        let empty = Self.emptyState(
+                            for: state, wetInk: wetInk, readerName: reader.editorName)
                         ContentUnavailableView(
                             empty.title,
                             systemImage: empty.symbol,
@@ -1260,7 +1310,8 @@ struct DiagnosticsPane: View {
     /// sentence rather than joining it, on `queuedNotesSentence`'s own rule
     /// that two sentences about one fact are two sentences that can disagree.
     static func emptyState(
-        for state: HeaderState, wetInk: WetInk = .none
+        for state: HeaderState, wetInk: WetInk = .none,
+        readerName: String = PieceReader.nobody.editorName
     ) -> (title: String, symbol: String, description: String) {
         // **Ordered above every arm below**, including the failure and
         // never-run ones, is deliberate only in appearance: `wetInk` is
@@ -1279,7 +1330,7 @@ struct DiagnosticsPane: View {
         switch state {
         case .neverRun:
             return ("Not checked yet", "checkmark.seal",
-                    "Press \u{2318}R to ask Claude for notes on what you've written.")
+                    "Press \u{2318}R and \(readerName) reads what you've written.")
         case .running(let checking):
             guard let phrase = RoundNarrative.paragraphPhrase(checking) else {
                 return ("Checking\u{2026}", "hourglass",
