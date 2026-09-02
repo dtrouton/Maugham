@@ -171,8 +171,10 @@ and loaded by `Maugham/Help/SkillIndex.swift` (modeled on `HelpTopicIndex`; stri
 load in dev builds, skip-with-log in release so one malformed skill can't take the server
 down). It's a fourth bundled content root alongside `docs/guide/` (help topics) and
 `Maugham/Resources/Samples/` (sample projects) — same discipline: edit the bundled file,
-don't add a second copy. Three skills are served today: `transcribing-notebooks`,
-`editing-pass`, `translation-pass`. A fourth folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
+don't add a second copy. Five skills are served today: `edition-brief`,
+`editing-pass`, `transcribing-notebooks`, `translation-pass`, `visual-language`
+(the first and last are the translation pipeline P5 interviews; each ends by
+calling its propose tool). A sixth folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
 Claude Code router template — `SkillIndex` loads it but `skills/list`/`skills/get`/`get_help`
 never serve it; it reaches the world only via `ClaudeCodeSkillInstall`'s installer, wired
 into `Views/HelpClaudeDesktopSheet.swift`'s Claude Code section (copyable variant-aware

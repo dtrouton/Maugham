@@ -38,7 +38,9 @@ Two consequences for a session working from outside:
   glossary entry has the shape `- «October» → «Octubre» (the month, never a
   name)`. The in-app translator is briefed with all of it, and a pass that
   ignores it will be undone by the next round. Honor them exactly; they are
-  decisions, not suggestions.
+  decisions, not suggestions. No brief for the language yet? Run the
+  `edition-brief` skill first — it interviews the writer and proposes one
+  they adopt in Maugham — rather than deciding register on your own.
 - **`translation_status`'s `last_round` is where you see what the pipeline
   already did** for a `(document, language)` pair: the round `number`, the two
   readers' verdicts (`leg2_verdict`, `leg4_verdict`), the note, departure and
