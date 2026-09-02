@@ -639,6 +639,26 @@ struct AnnotationsPane: View {
         return reviewPasses.first { $0.id == id }
     }
 
+    /// **Who reads this piece** — the one resolution (`PieceReader`, spec §4.1),
+    /// asked here so the empty queue's offer names the same editor the run
+    /// will sign with.
+    ///
+    /// Deliberately not a second copy of `cockpitActivePass`: that value is
+    /// the piece's STAGE and must stay nil over a coached piece, because the
+    /// cockpit's lane label takes its coach arm on exactly that. This answers
+    /// the whole question — stage, coach, or nobody — and the two agree by
+    /// construction, since the resolution reads `validatedActivePass` too.
+    ///
+    /// The offer reads `activePass?.editorName` rather than `editorName`,
+    /// because a piece nobody reads has no editor to name in an invitation:
+    /// `editorName` is never nil (it falls back to "Claude", the byline a
+    /// passless run signs with), and naming that in "Run Claude's round" would
+    /// invent a personification the seat-vacant case exists to avoid.
+    private var cockpitReader: PieceReader? {
+        guard let docId = document?.docId else { return nil }
+        return store.manifest.reader(forPiece: docId, memory: activePassMemory)
+    }
+
     /// The lane's newest round number. `latestRound` consults the standing run
     /// before the ring — the ONE spelling of "which round is this lane on",
     /// shared with the round mint, so the strip and the run cannot disagree.
@@ -786,11 +806,17 @@ struct AnnotationsPane: View {
                 // Review is built around. Both are named now, the round first
                 // and by the editor who reads it
                 // (`ReviewRoundCockpit.emptyQueueTeaching`).
+                //
+                // **The editor comes from the one reader resolution**
+                // (`cockpitReader`, editorial letter P1 Task 6 fix round), so
+                // an unassigned piece under a held seat offers Le Guin's round
+                // rather than falling back to "ask Claude in Claude Desktop" —
+                // the round it offers is the round the run would actually make.
                 ContentUnavailableView(
                     "No annotations",
                     systemImage: "bubble.left.and.bubble.right",
                     description: Text(ReviewRoundCockpit.emptyQueueTeaching(
-                        editorName: cockpitActivePass?.effectiveEditorName)))
+                        editorName: cockpitReader?.activePass?.editorName)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {

@@ -121,7 +121,9 @@ running, the same control Diagnostics offers, and pressing it lands you back
 at Run round with nothing held against you: it's the same as a round you
 simply hadn't asked for. An empty queue teaches the
 same loop rather than describing an absence: *"Claude proposes; you dispose.
-Run Gould's round (⌘R), or ask Claude in Claude Desktop."*
+Run Gould's round (⌘R), or ask Claude in Claude Desktop."* The editor it names
+is whoever reads that piece — Le Guin on a piece you haven't assigned a
+pass to, and nobody at all once the seat is vacated.
 
 **A quiet nudge, not a gate.** Work a piece through a later pass while an
 earlier one is still open, and a caption says so — *"Structural still open on

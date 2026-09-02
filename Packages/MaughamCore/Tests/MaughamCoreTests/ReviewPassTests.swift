@@ -380,19 +380,37 @@ final class ReviewPassTests: XCTestCase {
         XCTAssertEqual(manifest.pass(id: "workshop")?.name, "My Workshop")
     }
 
-    /// **A vacated seat resolves to nothing**, because the search is
-    /// `effectiveReviewPasses` then `effectiveCoach` and the second is nil
-    /// once the writer has vacated. The consequence is deliberate and
-    /// narrow: a note Le Guin already filed still counts and still shows
-    /// (`AnnotationPassFilter` keys on her lane id, not on the seat), but a
-    /// surface that turns its stamp into a NAME falls back to the raw id,
-    /// exactly as it does for a pass the writer deleted.
-    func test_aVacatedSeatResolvesToNothingAndTheStampFallsBackToItsId() throws {
+    /// **A vacated seat still names the notes she already wrote** (Denver's
+    /// ruling, Task 6 fix round).
+    ///
+    /// Vacating says who reads a piece NEXT; it cannot unsay who wrote a note
+    /// sitting in the queue. A search that consulted `effectiveCoach` would
+    /// turn every letter she left behind into the raw id `workshop` the moment
+    /// the writer vacated, and a schema key is never writer-visible copy.
+    func test_aVacatedSeatStillNamesTheNotesSheAlreadyWrote() throws {
         let manifest = try ProjectManifest.decodeGuardingSchema(
             manifestJSON(schemaVersion: ProjectManifest.currentSchemaVersion,
                          coachVacatedJSON: "true"))
         XCTAssertNil(manifest.effectiveCoach, "premise: the seat is vacant")
-        XCTAssertNil(manifest.pass(id: ReviewPass.coachPreset.id))
+        XCTAssertEqual(manifest.pass(id: ReviewPass.coachPreset.id),
+                       ReviewPass.coachPreset,
+                       "a name a note already carries outlives the seat")
+    }
+
+    /// **What a lane is CALLED on screen.** A stage answers its own name —
+    /// the word on the board's column header. The coach answers her editor
+    /// name, because "Workshop" appears on no surface a writer has ever seen:
+    /// she is never a column and never a ladder row, so her pass name in a
+    /// tooltip would be as opaque as the id it replaced.
+    func test_theCoachsLaneIsCalledByHerNameAndAStagesByItsOwn() {
+        XCTAssertEqual(ReviewPass.coachPreset.laneDisplayName, "Le Guin")
+        XCTAssertNotEqual(ReviewPass.coachPreset.laneDisplayName,
+                          ReviewPass.coachPreset.name,
+                          "her pass name is not the word for her lane")
+        for stage in ReviewPass.presets {
+            XCTAssertEqual(stage.laneDisplayName, stage.name,
+                           "a stage is called what its column is called")
+        }
     }
 
     /// An id naming nothing at all is nil, not the coach and not a stage —

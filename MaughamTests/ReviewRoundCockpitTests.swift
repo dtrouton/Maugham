@@ -260,6 +260,91 @@ final class ReviewRoundCockpitTests: XCTestCase {
         XCTAssertTrue(withoutPass.contains("Claude Desktop"))
     }
 
+    // MARK: - The empty queue names the piece's own reader (Task 6 fix round)
+
+    /// **An unassigned piece under a held seat offers HER round**, not "ask
+    /// Claude in Claude Desktop".
+    ///
+    /// The teaching's whole job is to name the loop the writer is one
+    /// keystroke from. Over a coached piece \u{2318}R runs Le Guin's round and
+    /// signs her name to what comes back, so an empty state that names nobody
+    /// describes an app the writer is not in.
+    ///
+    /// Driven through the real pane on a document with no notes, so it is the
+    /// wiring under test and not `emptyQueueTeaching`'s own truth table (which
+    /// `test_theEmptyQueueNamesBothWaysItFills` owns).
+    func test_theEmptyQueueOffersTheCoachsRoundOverAnUnassignedPiece() async throws {
+        let fx = try await makeHarness()
+        XCTAssertEqual(fx.store.manifest.effectiveCoach, ReviewPass.coachPreset,
+                       "premise: the seat is held")
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        let labels = allLabels(in: window)
+        XCTAssertTrue(
+            labels.contains { $0.contains(
+                RoundNarrative.runRoundTitle(editorName: "Le Guin")) },
+            "the empty queue must offer the round \u{2318}R would actually run "
+            + "\u{2014} got \(labels)")
+    }
+
+    /// **Control: an assigned piece names its own stage's editor.** The seat
+    /// governs pieces nobody was assigned, and a teaching that named her over
+    /// a piece handed to Gould would be naming the wrong editor entirely.
+    func test_theEmptyQueueNamesTheStagesEditorOnAnAssignedPiece() async throws {
+        let fx = try await makeHarness()
+        fx.documentStore.updateUIState {
+            $0.activePassMemory.record(piece: fx.document.docId, passId: "copyedit")
+        }
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        let labels = allLabels(in: window)
+        XCTAssertTrue(
+            labels.contains { $0.contains(
+                RoundNarrative.runRoundTitle(editorName: "Gould")) },
+            "got \(labels)")
+        XCTAssertFalse(labels.contains { $0.contains("Le Guin") },
+                       "the seat must not speak over a piece with a stage set. "
+                       + "Got \(labels)")
+    }
+
+    /// **Control: a vacated seat is M2's sentence again.** Nobody reads this
+    /// piece, so there is no editor to name and the teaching falls back to the
+    /// keystroke alone \u{2014} never to "Claude", which is the byline a
+    /// passless run signs with and not a personification to invite.
+    func test_theEmptyQueueNamesNobodyWhenTheSeatIsVacantAndNoPassIsSet() async throws {
+        let fx = try await makeHarness()
+        try await fx.store.setCoachVacated(true)
+        XCTAssertNil(fx.store.manifest.effectiveCoach, "premise: the seat is vacant")
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        let labels = allLabels(in: window)
+        XCTAssertTrue(labels.contains { $0.contains("\u{2318}R") },
+                      "the keystroke is still named \u{2014} got \(labels)")
+        XCTAssertFalse(labels.contains { $0.contains("Le Guin") },
+                       "and nobody is. Got \(labels)")
+        XCTAssertFalse(
+            labels.contains { $0.contains(
+                RoundNarrative.runRoundTitle(editorName: "Claude")) },
+            "\u{2026}least of all \u{201C}Claude\u{201D}, which is a byline "
+            + "and not an editor to invite. Got \(labels)")
+    }
+
+    /// The pane asks the ONE reader resolution, and asks it for the arm that
+    /// can be nil. `editorName` is never nil — it falls back to "Claude" — so
+    /// a site reading it instead would invent "Run Claude's round" for a piece
+    /// nobody reads, which is exactly the sentence the vacated case avoids.
+    func test_theEmptyStateReadsTheOneResolutionAndItsNilableArm() throws {
+        let pane = try Self.source(of: "Views/AnnotationsPane.swift")
+        let reader = try XCTUnwrap(
+            Self.declaration(named: "private var cockpitReader: PieceReader? {", in: pane),
+            "the pane must resolve the piece's reader in one readable place")
+        XCTAssertTrue(reader.contains("store.manifest.reader(forPiece:"),
+                      "through the one resolution and never a second derivation. "
+                      + "Got:\n\(reader)")
+        XCTAssertTrue(pane.contains("editorName: cockpitReader?.activePass?.editorName"),
+                      "and the offer reads the arm that is nil for nobody")
+    }
+
     /// **The Run button's tooltip names the round the press would produce** —
     /// the shared offer plus its number, which is the one thing the empty
     /// state's copy and the board chip's verb do not carry.

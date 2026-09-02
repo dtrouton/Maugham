@@ -223,15 +223,16 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// (`ReviewPassEditorLogic` refuses to save a stage carrying the coach's
     /// id) but the order is fixed here rather than left to chance.
     ///
-    /// A vacated seat answers nil for her id, exactly as a deleted pass
-    /// does for its own — her past notes still count and still show, keyed
-    /// on the lane id itself, but a surface naming that stamp falls back to
-    /// the raw id.
+    /// **A vacated seat still names the notes she already wrote.** Vacating
+    /// says who reads a piece next; it cannot unsay who wrote a note sitting
+    /// in the queue. So this asks `ReviewPass.pass(id:in:)`, which resolves
+    /// her id against `ReviewPass.coachPreset` unconditionally, and the seat
+    /// is not part of the question (Denver's ruling, Task 6 fix round).
     /// The search itself is `ReviewPass.pass(id:in:coach:)`, shared with the
     /// store-free surfaces that were handed the two lists as values — one
     /// search, two spellings, never two answers.
     public func pass(id: String) -> ReviewPass? {
-        ReviewPass.pass(id: id, in: effectiveReviewPasses, coach: effectiveCoach)
+        ReviewPass.pass(id: id, in: effectiveReviewPasses)
     }
 
     /// The project's publish department (schema 8) — its named translators and

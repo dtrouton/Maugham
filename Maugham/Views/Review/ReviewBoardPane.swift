@@ -94,9 +94,11 @@ struct ReviewBoardPane: View {
     ///
     /// She is NOT a fifth column and never enters `passes`: no chip, no
     /// header, no Done/Skipped menu, nothing to rule on. The board reads her
-    /// for two things and only two — the seat row above the grid, and naming
-    /// her lane in the open-notes split, where her stamp would otherwise
-    /// print as the raw id `workshop`.
+    /// for ONE thing: the seat row above the grid. Naming her lane in the
+    /// open-notes split deliberately does NOT consult her — a stamp names who
+    /// WROTE the note, and vacating the seat cannot unsay that, so the naming
+    /// goes through `ReviewPass.pass(id:in:)` (Denver's ruling, Task 6 fix
+    /// round).
     ///
     /// The board has no selected piece, so it says nothing per piece: it
     /// states the project-level fact that governs every row with no pass set.
@@ -332,8 +334,7 @@ struct ReviewBoardPane: View {
             piece: item.title,
             summary: openNotes[item.id],
             isUnreadable: unreadableDocIds.contains(item.id),
-            passes: passes,
-            coach: coach)
+            passes: passes)
         switch cell.kind {
         case .none:
             Color.clear
@@ -592,10 +593,7 @@ enum ReviewBoardOpenNotes {
         piece: String,
         summary: OpenNotesSummary?,
         isUnreadable: Bool,
-        passes: [ReviewPass],
-        /// The seat, for naming her lane alone — she is never a column
-        /// (editorial letter P1, Task 6).
-        coach: ReviewPass? = nil
+        passes: [ReviewPass]
     ) -> Cell {
         if isUnreadable {
             return Cell(
@@ -609,7 +607,7 @@ enum ReviewBoardOpenNotes {
         }
         let noun = summary.total == 1 ? "open note" : "open notes"
         let head = "\(piece) — \(summary.total) \(noun)"
-        let split = breakdown(summary, passes: passes, coach: coach)
+        let split = breakdown(summary, passes: passes)
         return Cell(kind: .count, text: "\(summary.total)",
                     label: split.isEmpty ? head : "\(head): \(split)")
     }
@@ -621,7 +619,7 @@ enum ReviewBoardOpenNotes {
     /// started using passes: "3 open notes: 3 unstamped" is a sentence that
     /// tells the writer nothing they did not just read.
     private static func breakdown(
-        _ summary: OpenNotesSummary, passes: [ReviewPass], coach: ReviewPass?
+        _ summary: OpenNotesSummary, passes: [ReviewPass]
     ) -> String {
         guard !summary.byPass.isEmpty else { return "" }
         var parts: [String] = []
@@ -643,13 +641,15 @@ enum ReviewBoardOpenNotes {
         // includes it; a split that silently came up short would make the two
         // numbers on screen disagree with nothing to explain it.
         //
-        // The naming goes through the one search (`ReviewPass.pass(id:in:coach:)`),
-        // so a vacated seat falls back to the raw id exactly as a retired pass
-        // does, and the ladder still wins on a colliding id.
+        // The naming goes through the one search (`ReviewPass.pass(id:in:)`)
+        // and its `laneDisplayName`, which answers her EDITOR name rather than
+        // her pass name — "Workshop" is on no surface a writer has ever seen.
+        // The seat is NOT consulted: vacating says who reads next, not who
+        // wrote what is already in the queue (Denver's ruling).
         let accountedIds = Set(passes.map(\.id))
         for (id, n) in summary.byPass.sorted(by: { $0.key < $1.key })
         where !accountedIds.contains(id) && n > 0 {
-            parts.append("\(n) \(ReviewPass.pass(id: id, in: passes, coach: coach)?.name ?? id)")
+            parts.append("\(n) \(ReviewPass.pass(id: id, in: passes)?.laneDisplayName ?? id)")
             accounted += n
         }
         let unstamped = summary.total - accounted

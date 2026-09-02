@@ -642,32 +642,40 @@ final class ReviewBoardPaneTests: XCTestCase {
     ///
     /// She files rounds under her own lane id and is deliberately absent from
     /// `effectiveReviewPasses`, so the retired-pass arm above catches her:
-    /// without the seat this tooltip reads "1 workshop", a schema key on
-    /// screen where an editor's name belongs. Her split comes LAST, after the
-    /// project's own passes and before the unstamped remainder — she is not
-    /// a column on the board and has no place in its order.
+    /// without the resolution this tooltip reads "1 workshop", a schema key on
+    /// screen where an editor's name belongs. The word is her EDITOR name, not
+    /// her pass name — "Workshop" is on no surface a writer has ever seen. Her
+    /// split comes after the project's own passes and before the unstamped
+    /// remainder: she is not a column and has no place in the board's order.
     func test_theCoachsNotesAreNamedRatherThanSpelledAsAnId() {
         let cell = ReviewBoardOpenNotes.cell(
             piece: "Chapter One",
             summary: OpenNotesSummary(
                 total: 3, byPass: ["line": 1, ReviewPass.coachPreset.id: 2]),
-            isUnreadable: false, passes: Self.passes,
-            coach: ReviewPass.coachPreset)
-        XCTAssertEqual(cell.label, "Chapter One — 3 open notes: 1 Line, 2 Workshop")
+            isUnreadable: false, passes: Self.passes)
+        XCTAssertEqual(cell.label, "Chapter One \u{2014} 3 open notes: 1 Line, 2 Le Guin")
         XCTAssertFalse(cell.label.contains("workshop"),
-                       "the raw lane id must not reach the tooltip")
+                       "the raw lane id must never be writer-visible copy")
+        XCTAssertFalse(cell.label.contains("Workshop"),
+                       "\u{2026}and neither is her pass name, which names no "
+                       + "column, no ladder row and nothing in the guide")
     }
 
-    /// The control: with the seat VACANT her stamp falls back to its raw id,
-    /// exactly as a retired pass's does. The count still adds up, which is
-    /// the rule this whole arm exists for.
-    func test_aVacatedSeatCountsHerOldNotesUnderTheirRawId() {
+    /// **Vacating the seat does not unname the notes she already wrote**
+    /// (Denver's ruling, Task 6 fix round). The board takes the seat for its
+    /// row above the grid; the split takes it for nothing, because a stamp
+    /// says who WROTE a note and that cannot be revoked later.
+    ///
+    /// The cell is built through the same call the pane makes, which has no
+    /// seat argument to pass — that absence IS the ruling.
+    func test_aVacatedSeatStillNamesHerOldNotes() {
         let cell = ReviewBoardOpenNotes.cell(
             piece: "Chapter One",
             summary: OpenNotesSummary(
                 total: 2, byPass: [ReviewPass.coachPreset.id: 2]),
-            isUnreadable: false, passes: Self.passes, coach: nil)
-        XCTAssertEqual(cell.label, "Chapter One — 2 open notes: 2 workshop")
+            isUnreadable: false, passes: Self.passes)
+        XCTAssertEqual(cell.label, "Chapter One \u{2014} 2 open notes: 2 Le Guin",
+                       "her name outlives her seat")
     }
 
     /// **RULING-54's honesty half, in one cell.** The walk skips a document

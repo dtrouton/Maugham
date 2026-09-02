@@ -101,22 +101,41 @@ public struct ReviewPass: Codable, Equatable, Identifiable, Sendable {
     ///
     /// Two spellings reach this one search: `ProjectManifest.pass(id:)` for a
     /// caller holding a manifest, and this static for a store-free view that
-    /// was handed `passes` and `coach` as values (tripwire 4 — the Review
-    /// board reads no store). They must not be two searches.
+    /// was handed `passes` as a value (tripwire 4 — the Review board reads no
+    /// store). They must not be two searches.
     ///
     /// **A NAMING question, never a ladder one.** A caller asking which passes
     /// a piece can be ruled on, which chip menu to draw, or which lane the
     /// picker offers reads the ladder directly and must not come here: the
     /// coach is not a stage, and offering her as one is what spec §4.1 forbids.
     ///
+    /// **The seat is not a parameter, and that is the point** (Denver's
+    /// ruling, editorial letter P1 Task 6 fix round). Vacating the seat says
+    /// who reads a piece NEXT; it cannot unsay who wrote a note already in the
+    /// queue. A search that consulted `effectiveCoach` would turn every letter
+    /// she left behind into the raw id `workshop` the moment the writer
+    /// vacated — a schema key as writer-visible copy, which is the one thing
+    /// this search exists to prevent.
+    ///
     /// The ladder wins on a colliding id. That project cannot be built
     /// (`ReviewPassEditorLogic` refuses to save a stage carrying the coach's
     /// id) but the order is fixed rather than left to chance.
-    public static func pass(
-        id: String, in passes: [ReviewPass], coach: ReviewPass?
-    ) -> ReviewPass? {
+    public static func pass(id: String, in passes: [ReviewPass]) -> ReviewPass? {
         if let stage = passes.first(where: { $0.id == id }) { return stage }
-        return coach?.id == id ? coach : nil
+        return id == coachPreset.id ? coachPreset : nil
+    }
+
+    /// **The words this lane is known by on screen**, for a surface splitting
+    /// notes by the pass that wrote them.
+    ///
+    /// A stage answers its own name, because that is the word on the board's
+    /// column header and in the piece's ladder. The coach answers her EDITOR
+    /// name: her pass name, "Workshop", appears on no surface a writer has
+    /// ever seen — she is never a column, never a ladder row, and the guide
+    /// calls her Le Guin throughout — so "2 Workshop" in a tooltip is as
+    /// opaque as the id it replaced.
+    public var laneDisplayName: String {
+        id == Self.coachPreset.id ? effectiveEditorName : name
     }
 
     // MARK: - Preset briefs
