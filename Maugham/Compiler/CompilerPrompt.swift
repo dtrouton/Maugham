@@ -62,9 +62,11 @@ enum CompilerPrompt {
         "working":[{"refs":[<paragraph id>...],"what":<string>,"why":\
         <string>}],"habits":[{"name":<string>,"refs":[<paragraph id>...],\
         "cost":<string>,"lesson":<string or null>,"exercise":<string or \
-        null>}],"questions":[{"refs":[<paragraph id>...],"question":\
-        <string>}],"scenes":[{"refs":[<paragraph id>...],"wants":<string>,\
-        "changes":<string>,"turn":<string>,"charge":"+"|"-"|null}] or null}
+        null>}],"questions":[{"refs":[<paragraph id>...],"habit":\
+        <habit name or null>,"question":<string>}],"scenes":[{"refs":\
+        [<paragraph id>...],"wants":<string>,"changes":<string>,"turn":\
+        <string>,"charge":"+"|"-"|null}] or null,"retired":[<lesson \
+        heading>...]}
         The fifth line answers one question about this reading as a whole: \
         has the draft drifted from the declared intent? Weigh the prose in \
         this run's delta against the intent declared above — holds when \
@@ -187,7 +189,12 @@ enum CompilerPrompt {
         writer has asked something, answer it in answer before anything \
         else, directly and in your own register — an opinion where they \
         asked for one, never a rewrite; answer is null when they asked \
-        nothing.
+        nothing. A habit the ledger above already names is reported under \
+        that heading, verbatim, with lesson null — the writer has the \
+        lesson. A question raised under one of those habits names it in \
+        habit, spelled as briefed. retired lists every briefed lesson you \
+        looked for and found no instance of, verbatim, and is empty when \
+        there are none.
         """
 
     /// Sent once, when the warm session is spawned — never repeated per run.
@@ -248,11 +255,18 @@ enum CompilerPrompt {
         previousRound: PriorRound? = nil,
         dispositions: [CompilerAnnotationDisposition] = [],
         ask: String? = nil,
+        lessons: String? = nil,
         previousBriefingHash: String?
     ) -> (message: String, briefingHash: String?) {
         var sections: [String] = []
 
-        let hash = briefingHashInput(essay: essay, world: world, bibleFacts: bibleFacts)
+        // Assembled once and used twice — the hash is over the ledger AS
+        // BRIEFED rather than over the writer's file, so retiring a lesson
+        // (which changes the file and nothing the model is told) leaves the
+        // hash where it was. See `briefingHashInput`.
+        let lessonsSection = lessonsSection(lessons)
+        let hash = briefingHashInput(
+            essay: essay, world: world, bibleFacts: bibleFacts, lessons: lessonsSection)
             .map(sha256Hex)
         if let hash, hash == previousBriefingHash {
             sections.append("Declared world and bible: unchanged since last run.")
@@ -265,6 +279,14 @@ enum CompilerPrompt {
             }
             if !bibleFacts.isEmpty {
                 sections.append(bibleSection(bibleFacts))
+            }
+            // Last of the four, and inside the gate with them: the ledger is
+            // something the writer has DECLARED — like the essay, the world
+            // and the facts above it — rather than context that moves with the
+            // run, so all four diff in as one unit and a round that changed
+            // none of them is told so in one line.
+            if let lessonsSection {
+                sections.append(lessonsSection)
             }
         }
 
@@ -341,16 +363,72 @@ enum CompilerPrompt {
         return lines.joined(separator: "\n")
     }
 
+    // MARK: - The lessons ledger (editorial letter P2 §3.8)
+
+    /// **What the writer has learned, as this run is told it** — their own
+    /// preamble, the lessons they are still working on, and the choices they
+    /// have settled.
+    ///
+    /// **A retired entry is briefed to nobody.** Retiring is how a writer says
+    /// they are done with a lesson, and putting it back in front of the model
+    /// is the one thing retiring it was for. The two live kinds are stated
+    /// separately because they ask for opposite behaviour: an open lesson is
+    /// something to look for and report under its own heading, a settled
+    /// choice is something never to raise at all.
+    ///
+    /// `nil` when there is nothing live to say — no preamble, no open lesson,
+    /// no choice — on `askSection`/`passSection`/`scenePositionSection`'s
+    /// rule: the call site composes optional sections in one spelling, and a
+    /// section saying the writer has learned nothing would spend words telling
+    /// the model to do nothing. **That `nil` is also what keeps a retirement
+    /// out of the briefing hash** — see `briefingHashInput`.
+    static func lessonsSection(_ markdown: String?) -> String? {
+        guard let markdown else { return nil }
+        // Asked of `LessonsLedger` three times rather than filtered here off
+        // one parse: which rows are open and which are settled is that type's
+        // grammar, and a filter spelled here would be a second owner of it.
+        // The cost is three parses of one small file, once per keystroke.
+        let essay = cleaned(LessonsLedger.parse(markdown).essay)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let open = LessonsLedger.open(in: markdown)
+        let choices = LessonsLedger.choices(in: markdown)
+        guard !essay.isEmpty || !open.isEmpty || !choices.isEmpty else { return nil }
+
+        var lines: [String] = []
+        if !essay.isEmpty { lines.append(essay) }
+        if !open.isEmpty {
+            lines.append(
+                "Lessons the writer is working on — cite one by its heading, "
+                    + "verbatim, with lesson null:")
+            lines.append(contentsOf: open.map { "- \(cleaned($0))" })
+        }
+        if !choices.isEmpty {
+            lines.append("Choices the writer has made — never raise these:")
+            lines.append(contentsOf: choices.map { "- \(cleaned($0))" })
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// The one place the v2 briefing hash's input is assembled, so the hash
     /// gate and the embed decision can never compute it two ways. `nil`
     /// when essay, world (empty counts as absent) and facts are ALL absent
     /// — nothing to diff in means no hash to track.
+    ///
+    /// **`lessons` is the rendered SECTION, not the ledger's markdown** (P2
+    /// Task 4). The hash exists to answer "has what this run is told changed?",
+    /// and a ledger's file moves for reasons the briefing never sees: retiring
+    /// an entry rewrites the writer's line and removes it from the section, so
+    /// hashing the file would re-embed the essay, the whole declared world and
+    /// the bible slice to communicate a deletion. Hashing what is actually
+    /// said keeps the marker line honest in both directions.
     private static func briefingHashInput(
-        essay: String?, world: DerivedWorld?, bibleFacts: [BibleFact]
+        essay: String?, world: DerivedWorld?, bibleFacts: [BibleFact], lessons: String?
     ) -> String? {
         let essayEmpty = essay?.isEmpty ?? true
         let worldEmpty = world.map { $0.clauses.isEmpty && $0.rules.isEmpty } ?? true
-        guard !essayEmpty || !worldEmpty || !bibleFacts.isEmpty else { return nil }
+        let lessonsEmpty = lessons?.isEmpty ?? true
+        guard !essayEmpty || !worldEmpty || !bibleFacts.isEmpty || !lessonsEmpty
+        else { return nil }
 
         var parts: [String] = ["essay:\(essay ?? "")"]
         if let world {
@@ -361,6 +439,7 @@ enum CompilerPrompt {
                     .joined(separator: ";"))
         }
         parts.append("facts:" + bibleFacts.map { "\($0.subject)|\($0.fact)" }.joined(separator: ";"))
+        parts.append("lessons:\(lessons ?? "")")
         return parts.joined(separator: "\n")
     }
 

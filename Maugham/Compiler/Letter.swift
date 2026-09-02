@@ -31,6 +31,21 @@ struct Letter: Codable, Equatable, Sendable {
     struct Question: Codable, Equatable, Sendable {
         let refs: [Diagnostic.Ref]
         let question: String
+        /// **The lessons-ledger heading this question was raised under** (P2
+        /// Task 4), or `nil` when it was raised under none — which is the
+        /// ordinary answer, and also what an unrecognised heading resolves to
+        /// (`DiagnosticIngest.parseLetter` matches the model's `habit` against
+        /// the habits in the same letter through `LessonsLedger.matches`;
+        /// global constraint 15).
+        ///
+        /// **A `let` with no default, so every construction site names it.**
+        /// It is parsed at ingest like `refs` and `question` beside it, never
+        /// stamped onto an already-parsed letter the way `scenePosition`,
+        /// `answer` and `asked` are — and a `let` carrying a default is not in
+        /// the memberwise initializer at all, so it could not be parsed into.
+        /// Decoding an older sidecar is unaffected: the synthesized
+        /// `init(from:)` reads an absent optional as `nil` (constraint 17).
+        let lessonHeading: String?
     }
 
     /// One scene-level note — what the scene wants, what changes in it, its
@@ -85,6 +100,25 @@ struct Letter: Codable, Equatable, Sendable {
     /// half a conversation.
     var asked: String? = nil
 
+    /// **The briefed lessons this reading looked for and found no instance
+    /// of** (P2 Task 4), verbatim as they were briefed — what the writer may
+    /// now be done with, rather than something the reading found in the prose.
+    ///
+    /// Optional rather than `[String]`, and that is the tolerated-missing
+    /// discipline rather than a shade of meaning: `Letter`'s `Codable` is
+    /// synthesized, so a non-optional array would throw on every sidecar
+    /// written before this field existed (constraint 17). Nothing downstream
+    /// distinguishes absent from empty — read it through `retiredHeadings`.
+    ///
+    /// **Nothing here is matched to the writer's file.** A heading the model
+    /// misspelled names no entry, and resolving that is the offer's job at the
+    /// point of the write (global constraint 15), not the parser's.
+    var retired: [String]? = nil
+
+    /// `retired` with the absent/empty distinction collapsed — the one shape
+    /// every reader wants, so no caller has to spell `?? []`.
+    var retiredHeadings: [String] { retired ?? [] }
+
     /// `about` is the only always-present part of a letter, so it is not what
     /// decides emptiness. A letter is empty when every other part is: no
     /// `oneThing`, no working/habit/question entries, no `answer`, and
@@ -95,8 +129,13 @@ struct Letter: Codable, Equatable, Sendable {
     /// the run was briefed on, the way `scenePosition` is a stamp saying what
     /// form it was told this piece takes. A letter carrying only the stamp
     /// answered nothing and has nothing to show.
+    ///
+    /// **`retired` counts** (P2 Task 4), on `answer`'s side of that line: a
+    /// letter that raised nothing but named a lesson the writer no longer
+    /// commits is a letter with something in it — the retirement offer is
+    /// drawn from exactly this.
     var isEmpty: Bool {
         oneThing == nil && working.isEmpty && habits.isEmpty && questions.isEmpty
-            && answer == nil && (scenes?.isEmpty ?? true)
+            && answer == nil && (scenes?.isEmpty ?? true) && retiredHeadings.isEmpty
     }
 }

@@ -1296,11 +1296,228 @@ final class CompilerPromptTests: XCTestCase {
             ("at most 2", "the habits cap the ingest also enforces"),
             ("at most 3 questions", "the questions cap the ingest also enforces"),
             ("one_thing", "the single thing to fix if only one"),
+            // The ledger's three clauses (P2 Task 4).
+            ("verbatim", "a known habit is reported under its own heading"),
+            ("lesson null", "…and the writer already has the lesson for it"),
+            ("retired", "what the reading looked for and did not find"),
         ]
         for (phrase, why) in clauses {
             XCTAssertTrue(letter.contains(phrase),
                           "the letter instruction stopped saying \"\(phrase)\" — \(why)")
         }
+    }
+
+    // MARK: - The lessons ledger (editorial letter P2 Task 4)
+
+    /// A hand-typed ledger of the shape `LessonsLedger` reads: one open
+    /// lesson, one settled choice, one retired entry, under a preamble.
+    private static let ledger = """
+        I keep learning the same two things.
+
+        ## Rulings
+
+        - Filter words — ruled 1 Sep 2026, Denver
+        - Choice: Present tense throughout — ruled 1 Sep 2026, Denver
+        - Throat-clearing (retired 2 Sep 2026) — ruled 1 Sep 2026, Denver
+        """
+
+    /// **What the ledger is briefed as**: the writer's own preamble, the open
+    /// lessons under the heading that tells the model how to cite one, and the
+    /// settled choices under the heading that tells it not to raise them.
+    func test_theLedgerIsBriefedAsItsEssayItsLessonsAndItsChoices() throws {
+        let section = try XCTUnwrap(CompilerPrompt.lessonsSection(Self.ledger))
+        XCTAssertTrue(section.contains("I keep learning the same two things."))
+        XCTAssertTrue(section.contains("Lessons the writer is working on"))
+        XCTAssertTrue(section.contains("Filter words"))
+        XCTAssertTrue(section.contains("Choices the writer has made"))
+        XCTAssertTrue(section.contains("Present tense throughout"))
+        XCTAssertFalse(section.contains("Choice: Present tense"),
+                       "the marker is the app's grammar, not something to brief")
+    }
+
+    /// **A retired lesson is briefed to nobody.** It is the one entry kind the
+    /// writer is done with, and re-raising it is exactly what retiring it was
+    /// for.
+    func test_aRetiredLessonIsBriefedToNobody() throws {
+        let section = try XCTUnwrap(CompilerPrompt.lessonsSection(Self.ledger))
+        XCTAssertFalse(section.contains("Throat-clearing"))
+    }
+
+    /// Nothing to say is no section at all, on `askSection`/`passSection`'s
+    /// rule — and a ledger of nothing but retired entries has nothing to say,
+    /// which is the case that matters for the hash below.
+    func test_aLedgerWithNothingLiveInItIsNoSectionAtAll() {
+        XCTAssertNil(CompilerPrompt.lessonsSection(nil))
+        XCTAssertNil(CompilerPrompt.lessonsSection(""))
+        XCTAssertNil(CompilerPrompt.lessonsSection("""
+            ## Rulings
+
+            - Throat-clearing (retired 2 Sep 2026) — ruled 1 Sep 2026, Denver
+            """))
+        // Control: one open lesson and there is a section.
+        XCTAssertNotNil(CompilerPrompt.lessonsSection("""
+            ## Rulings
+
+            - Filter words — ruled 1 Sep 2026, Denver
+            """))
+    }
+
+    /// The ledger rides the message, after the bible and inside the hash-gated
+    /// briefing — it is a thing the writer has DECLARED, like the essay and the
+    /// world above it, rather than per-run context like the ask.
+    func test_theLedgerRidesTheBriefingAfterTheBible() throws {
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay text.",
+            bibleFacts: [makeFact(subject: "Kelly", fact: "Kelly grew up on the coast.")],
+            paletteListing: [], pinnedListing: [],
+            lessons: Self.ledger, previousBriefingHash: nil)
+        guard let bible = message.range(of: "Established so far:"),
+              let lessons = message.range(of: "Lessons the writer is working on"),
+              let delta = message.range(of: "This run's delta:")
+        else { return XCTFail("expected the bible, the ledger and the delta; got \(message)") }
+        XCTAssertLessThan(bible.lowerBound, lessons.lowerBound)
+        XCTAssertLessThan(lessons.lowerBound, delta.lowerBound)
+    }
+
+    /// **The ledger folds INTO the briefing hash** (global constraint 13), and
+    /// this is the direction that matters: a lesson the writer kept between two
+    /// runs must reach the second one, and a hash blind to it would answer
+    /// "unchanged since last run" over a briefing that had changed.
+    func test_aChangedLedgerChangesTheBriefingHash() {
+        let (_, firstHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            lessons: Self.ledger, previousBriefingHash: nil)
+        let (secondMessage, secondHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            lessons: Self.ledger + "\n- Over-explaining — ruled 2 Sep 2026, Denver",
+            previousBriefingHash: firstHash)
+
+        XCTAssertNotNil(firstHash)
+        XCTAssertNotEqual(secondHash, firstHash,
+                          "a lesson the writer kept between two runs never "
+                          + "reached the second one")
+        XCTAssertFalse(secondMessage.lowercased().contains("unchanged since last run"))
+        XCTAssertTrue(secondMessage.contains("Over-explaining"))
+        XCTAssertTrue(secondMessage.contains("Essay text."),
+                      "the briefing diffs in as ONE unit — the essay re-embeds too")
+    }
+
+    /// The control for the pin above: the same ledger twice does not move the
+    /// hash, so "unchanged since last run" still fires for a writer who kept
+    /// no new lesson. Without this, a `briefingHashInput` that hashed the
+    /// ledger by identity would pass the pin and re-embed everything forever.
+    func test_theSameLedgerTwiceLeavesTheHashWhereItWas() {
+        let (_, firstHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            lessons: Self.ledger, previousBriefingHash: nil)
+        let (secondMessage, secondHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            lessons: Self.ledger, previousBriefingHash: firstHash)
+
+        XCTAssertEqual(secondHash, firstHash)
+        XCTAssertTrue(secondMessage.lowercased().contains("unchanged since last run"))
+        XCTAssertFalse(secondMessage.contains("Filter words"),
+                       "the ledger re-embedded over a marker line that said it had not")
+    }
+
+    /// **"Unchanged since last run" fires only when the ledger is also
+    /// unchanged.** The marker line covers the essay, the world, the bible AND
+    /// the ledger as one unit, so a run whose ledger moved gets all four back
+    /// in full rather than a marker that lies about one of them.
+    func test_theMarkerLineCoversTheLedgerToo() {
+        let world = makeWorld(clauses: [.init(quote: "Keep it wry.", check: "tone check")])
+        let facts = [makeFact(subject: "Kelly", fact: "Kelly grew up on the coast.")]
+        let (_, firstHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [],
+            lessons: Self.ledger, previousBriefingHash: nil)
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [],
+            lessons: "## Rulings\n\n- Over-explaining — ruled 2 Sep 2026, Denver",
+            previousBriefingHash: firstHash)
+
+        XCTAssertFalse(message.lowercased().contains("unchanged since last run"))
+        XCTAssertTrue(message.contains("Essay text."))
+        XCTAssertTrue(message.contains("Keep it wry."))
+        XCTAssertTrue(message.contains("Kelly grew up on the coast."))
+        XCTAssertTrue(message.contains("Over-explaining"))
+    }
+
+    /// **A ledger with nothing live in it contributes nothing to the hash.**
+    /// The hash is over what is BRIEFED, not over the writer's file: a run
+    /// where the only change was retiring a lesson has nothing new to say to
+    /// the model, and re-embedding the whole declared world to say it would be
+    /// the diff-in rule paying for a section that is not there.
+    func test_aLedgerOfOnlyRetiredEntriesLeavesTheHashWhereItWas() {
+        let retiredOnly = """
+            ## Rulings
+
+            - Throat-clearing (retired 2 Sep 2026) — ruled 1 Sep 2026, Denver
+            """
+        let (_, without) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        let (message, with) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            lessons: retiredOnly, previousBriefingHash: nil)
+
+        XCTAssertEqual(with, without)
+        XCTAssertFalse(message.contains("Throat-clearing"))
+
+        // Control: one OPEN lesson is briefed, and the hash moves with it.
+        let (openMessage, open) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            lessons: retiredOnly + "\n- Filter words — ruled 1 Sep 2026, Denver",
+            previousBriefingHash: nil)
+        XCTAssertNotEqual(open, without)
+        XCTAssertTrue(openMessage.contains("Filter words"))
+    }
+
+    /// **A ledger alone is enough to have a hash at all.** The all-absent
+    /// guard answers `nil` when there is nothing declared to diff in; a writer
+    /// with no intent statement and a ledger has declared something, and a
+    /// `nil` hash there would re-embed the ledger every single run.
+    func test_aLedgerAloneIsSomethingDeclared() {
+        let (message, hash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            lessons: Self.ledger, previousBriefingHash: nil)
+        XCTAssertNotNil(hash)
+        XCTAssertTrue(message.contains("Filter words"))
+
+        // Control: nothing declared anywhere is still no hash.
+        let (_, none) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        XCTAssertNil(none)
+    }
+
+    /// The letter's schema asks for the two keys the ledger adds: a habit
+    /// citation on each question, and the letter-wide list of what the reading
+    /// looked for and did not find.
+    func test_theLetterSchemaAsksForTheHabitCitationAndRetired() throws {
+        let letterLine = try XCTUnwrap(
+            CompilerPrompt.sectionSchemaDescription
+                .components(separatedBy: "\n")
+                .first(where: { $0.contains("\"section\":\"letter\"") }),
+            "the letter's schema line went missing")
+        guard let questions = letterLine.range(of: "\"questions\""),
+              let habit = letterLine.range(of: "\"habit\""),
+              let scenes = letterLine.range(of: "\"scenes\""),
+              let retired = letterLine.range(of: "\"retired\"")
+        else { return XCTFail("expected all four keys; got \(letterLine)") }
+        XCTAssertLessThan(questions.lowerBound, habit.lowerBound,
+                          "habit is a key of the question entry, not of the letter")
+        XCTAssertLessThan(habit.lowerBound, scenes.lowerBound)
+        XCTAssertLessThan(scenes.lowerBound, retired.lowerBound,
+                          "retired comes last, after the scene table")
     }
 
     /// **Exactly six section lines, and the sixth is the letter.**
@@ -1367,6 +1584,13 @@ final class CompilerPromptTests: XCTestCase {
     /// So the room for the ask was BOUGHT rather than borrowed from the
     /// ceiling: the standing cost of every run is exactly what it was before
     /// this task, with one more thing said in it. The ceiling stays 715.
+    ///
+    /// **Re-measured at 651 words when the ledger's three sentences joined
+    /// `letterInstruction` (P2 Task 4)** — how a known habit is reported, how
+    /// a question names the habit it was raised under, and what `retired`
+    /// lists. That is 58 words for the whole ledger half of this feature, paid
+    /// out of the headroom Task 3's tightening left rather than out of the
+    /// ceiling, which stays 715 with 64 words of room still in it.
     func test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget() {
         let disciplines = [
             CompilerPrompt.readerBarInstruction,

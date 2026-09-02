@@ -82,7 +82,8 @@ final class LetterMarkdownTests: XCTestCase {
                                   cost: "The reader stops looking.",
                                   lesson: "Trust the image.",
                                   exercise: "Cut every sentence that says why.")],
-            questions: [Letter.Question(refs: [], question: "Whose house is it?")],
+            questions: [Letter.Question(refs: [], question: "Whose house is it?",
+                                        lessonHeading: nil)],
             scenes: [Letter.Scene(refs: [], wants: "In", changes: "Nothing",
                                   turn: "None", charge: "-")]))
         let body = out.body
@@ -143,7 +144,7 @@ final class LetterMarkdownTests: XCTestCase {
         let body = render(letter(
             questions: [Letter.Question(
                 refs: [ref("ab3d", "The house stood where the road bent.")],
-                question: "Whose house is it?")])).body
+                question: "Whose house is it?", lessonHeading: nil)])).body
         XCTAssertTrue(body.contains("*The house stood where the road bent.*"), body)
     }
 
@@ -220,7 +221,7 @@ final class LetterMarkdownTests: XCTestCase {
             habits: [Letter.Habit(name: "Explaining", refs: [ref("cd4e", "Second.")],
                                   cost: "Cost.", lesson: "Lesson.", exercise: "Exercise.")],
             questions: [Letter.Question(refs: [ref("ef5g", "Third.")],
-                                        question: "Whose house?")],
+                                        question: "Whose house?", lessonHeading: nil)],
             scenes: [Letter.Scene(refs: [ref("gh6j", "Fourth.")], wants: "In",
                                   changes: "Out", turn: "None", charge: "-")]))
         XCTAssertEqual(Self.paragraphIdTokens(in: out.body), [],
@@ -243,7 +244,7 @@ final class LetterMarkdownTests: XCTestCase {
             oneThing: "One thing \u{00b6}cd4e trailing.",
             questions: [Letter.Question(
                 refs: [ref("ef5g", "An excerpt <!-- \u{00b6}gh6j --> with one too.")],
-                question: "Whose house?")]))
+                question: "Whose house?", lessonHeading: nil)]))
         XCTAssertEqual(Self.paragraphIdTokens(in: out.body), [],
                        "the scrub let one through:\n\(out.body)")
         // The prose around the anchor survives — the scrub takes the id, not

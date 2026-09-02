@@ -269,6 +269,22 @@ final class CompilerOrchestrator {
         /// answer and mints nothing (M1A's rule): the run proceeds with nothing
         /// declared, and the conformance section simply has nothing to check.
         var intent: @MainActor (String) -> IntentBriefing?
+        /// **The lessons ledger, whole** (`Statement.Kind.lessons`, editorial
+        /// letter P2 Task 4) — the writer's own record of what they are
+        /// working on, what they have settled, and what they have retired.
+        /// `nil` is a project with no ledger, which is every project until the
+        /// writer keeps their first lesson; the briefing simply carries none.
+        ///
+        /// **It takes nothing, and it is the one closure here that does.** The
+        /// ledger has project scope by construction — `StatementConvention`
+        /// answers no path for a document-scoped one — so a docId parameter
+        /// would be an argument this closure could only ignore, and a seam
+        /// suggesting a per-piece ledger that cannot exist.
+        ///
+        /// Defaulted to nothing, on `activePass`/`projectType`'s rule, so
+        /// every `Environment` built before the ledger existed still compiles
+        /// and still runs.
+        var lessons: @MainActor () -> String? = { nil }
         /// **The review pass the writer has active on this piece** — the
         /// round's comparison lane, asked once per run at the keystroke.
         ///
@@ -739,6 +755,11 @@ final class CompilerOrchestrator {
         // they did.
         let ask = diagnostics.ask(docId: docId)
 
+        // **The ledger, read beside the intent** and hashed with it (Task 4):
+        // both are declarations the writer has made rather than per-run
+        // context, so both diff in as one unit and a round that changed
+        // neither is told so in one line.
+        let lessons = environment.lessons()
         let briefing = environment.intent(docId)
         // The essay half alone (spec §3.2). **This is the atomic switch**: the
         // strata below the essay reach the run as the derived clauses resolved
@@ -840,6 +861,7 @@ final class CompilerOrchestrator {
                 previousRound: previousRound,
                 dispositions: dispositions,
                 ask: ask,
+                lessons: lessons,
                 previousBriefingHash: previousHash)
 
             // **Armed immediately before the send, and never earlier.** A run

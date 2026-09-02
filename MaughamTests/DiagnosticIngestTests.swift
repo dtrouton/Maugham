@@ -170,6 +170,12 @@ final class DiagnosticIngestTests: XCTestCase {
             DiagnosticIngest.SectionField.charge,
             DiagnosticIngest.SectionField.chargePositive,
             DiagnosticIngest.SectionField.chargeNegative,
+            // The ledger's two keys (P2 Task 4). `habit` is read off each
+            // question entry and `retired` off the letter object; both are
+            // parsed, so both have to be asked for, on the same rule as every
+            // name above them.
+            DiagnosticIngest.SectionField.habit,
+            DiagnosticIngest.SectionField.retired,
         ]
         for name in names {
             XCTAssertTrue(
@@ -1121,6 +1127,121 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertNotNil(
             parseSection("{\"section\":\"letter\",\"working\":[]}")?.letter,
             "an empty part is still an answer — the schema asks for the array")
+    }
+
+    // MARK: v2 — the ledger in the letter (editorial letter P2 Task 4)
+
+    /// A letter whose habits and questions both name the ledger, so the
+    /// stamping can be read off one line: `Filter words` is a habit this same
+    /// letter raised, and the question says it was raised under it.
+    private var ledgerLetterLine: String {
+        """
+        {"section":"letter","about":"A woman waits out a fog.",\
+        "habits":[{"name":"Filter words","refs":["c3d4"],\
+        "cost":"The reader is held one step back.","lesson":null,\
+        "exercise":"Read it aloud with the names removed."}],\
+        "questions":[{"refs":["c3d4"],"habit":"Filter words",\
+        "question":"Whose fear is this, hers or the narrator's?"},\
+        {"refs":["a1b2"],"habit":null,"question":"Is the fog the antagonist?"}],\
+        "retired":["Throat-clearing","Over-explaining"]}
+        """
+    }
+
+    /// **The habit a question was raised under rides both halves of what the
+    /// parse produces**: the letter's own `Question`, which the letter section
+    /// draws, and the `Diagnostic` that becomes a `.query` in the queue. They
+    /// are asserted together because a stamp on one and not the other is a
+    /// queue row and a letter row disagreeing about the same question.
+    func test_aQuestionRaisedUnderAKnownHabitCarriesItsHeading() throws {
+        let section = try XCTUnwrap(parseSection(ledgerLetterLine))
+        let letter = try XCTUnwrap(section.letter)
+
+        let raised = try XCTUnwrap(letter.questions.first)
+        XCTAssertEqual(raised.lessonHeading, "Filter words",
+                       "the habit the question cites never reached the letter")
+        let note = try XCTUnwrap(
+            section.accepted.first { $0.body == raised.question },
+            "expected the cited question to mint a diagnostic")
+        XCTAssertEqual(note.lessonHeading, "Filter words",
+                       "the heading never reached the note the queue will carry")
+
+        // Control, in the same letter: a question raised under nothing carries
+        // nothing, so the stamp is the citation's doing and not the kind's.
+        let plain = try XCTUnwrap(letter.questions.last)
+        XCTAssertNil(plain.lessonHeading)
+        XCTAssertNil(section.accepted.first { $0.body == plain.question }?.lessonHeading)
+    }
+
+    /// **A habit the letter never raised names nothing** (global constraint
+    /// 15): the app decides whether the model's spelling matches, and a
+    /// near-miss draws nothing rather than the wrong ledger row. The
+    /// case-change case is the sharp one — `LessonsLedger.matches` is
+    /// deliberately case-sensitive, because a heading that came back in a
+    /// different case is one the model rewrote.
+    func test_aQuestionCitingAHabitTheLetterNeverRaisedCarriesNothing() throws {
+        for cited in ["Filler words", "filter words", "Filter words."] {
+            let line = """
+                {"section":"letter","habits":[{"name":"Filter words",\
+                "refs":["c3d4"],"cost":"A cost."}],\
+                "questions":[{"refs":["c3d4"],"habit":"\(cited)",\
+                "question":"Whose fear is this?"}]}
+                """
+            let section = try XCTUnwrap(parseSection(line), cited)
+            XCTAssertNil(try XCTUnwrap(section.letter?.questions.first).lessonHeading,
+                         "\"\(cited)\" was matched to a habit it does not name")
+            XCTAssertNil(section.accepted.first?.lessonHeading, cited)
+        }
+    }
+
+    /// The briefed lessons this reading found no instance of, verbatim, in
+    /// the order the model gave them. Nothing is matched to the writer's file
+    /// here — that is the offer's job at the point of the write.
+    func test_retiredHeadingsSurviveTheParseVerbatim() throws {
+        let letter = try XCTUnwrap(try XCTUnwrap(parseSection(ledgerLetterLine)).letter)
+        XCTAssertEqual(letter.retiredHeadings, ["Throat-clearing", "Over-explaining"])
+        XCTAssertFalse(letter.isEmpty,
+                       "a letter that named a lesson to retire has something in it")
+    }
+
+    /// Absent is empty, and both are the ordinary answer: most readings find
+    /// an instance of everything they were briefed on.
+    func test_aLetterWithNoRetiredArrayHasNoRetiredHeadings() throws {
+        let letter = try XCTUnwrap(try XCTUnwrap(parseSection(letterLine)).letter)
+        XCTAssertEqual(letter.retiredHeadings, [])
+        XCTAssertNil(letter.retired, "absent stays absent on the way to the sidecar")
+    }
+
+    /// The cap the schema does not state and the parse enforces anyway, on
+    /// `readerReportCap`'s rule: the section is the unit that arrives, and a
+    /// reading that retired everything it was briefed on is a reading that
+    /// stopped looking.
+    func test_retiredIsCappedLikeEveryOtherLetterPart() throws {
+        let names = (1...9).map { "\"Lesson \($0)\"" }.joined(separator: ",")
+        let line = "{\"section\":\"letter\",\"retired\":[\(names)]}"
+        let letter = try XCTUnwrap(try XCTUnwrap(parseSection(line)).letter)
+        XCTAssertEqual(letter.retiredHeadings.count, DiagnosticIngest.letterRetiredCap)
+        XCTAssertEqual(letter.retiredHeadings.first, "Lesson 1",
+                       "the cap takes the tail, not the head")
+    }
+
+    /// A retired heading is prose like every other prose field, so a leaked
+    /// paragraph id costs that ENTRY and nothing else — the letter keeps the
+    /// headings that were clean.
+    func test_aRetiredHeadingCarryingAParagraphIdIsDropped() throws {
+        let line = """
+            {"section":"letter","retired":["Throat-clearing",\
+            "Over-explaining, as in c3d4","Filter words"]}
+            """
+        let letter = try XCTUnwrap(try XCTUnwrap(parseSection(line)).letter)
+        XCTAssertEqual(letter.retiredHeadings, ["Throat-clearing", "Filter words"])
+    }
+
+    /// `retired` is a recognised part, so a letter carrying nothing else is
+    /// still a letter — the retirement offer is drawn from exactly this.
+    func test_aLetterOfNothingButRetiredIsStillALetter() throws {
+        let section = try XCTUnwrap(
+            parseSection("{\"section\":\"letter\",\"retired\":[\"Throat-clearing\"]}"))
+        XCTAssertEqual(section.letter?.retiredHeadings, ["Throat-clearing"])
     }
 
     /// `scenes` absent or null is `nil` and not `[]`: the position said there

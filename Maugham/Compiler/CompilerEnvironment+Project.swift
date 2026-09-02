@@ -147,6 +147,24 @@ extension CompilerOrchestrator.Environment {
                     // caches, and one of them is never hit).
                     scopeKey: DeclaredWorldStore.scopeKey(for: resolved.scope))
             },
+            lessons: { [weak store] in
+                // The ledger has project scope by construction (Task 1:
+                // `StatementConvention.newPath` answers nil for a
+                // document-scoped one), so there is nothing to resolve
+                // piece-first here the way `intent` above must.
+                //
+                // RULING-54: `statementText` throws on an unreadable file, and
+                // this is a fringe reader like `StatementPane.rulings` — a run
+                // briefed on no ledger is the same run every project got
+                // before the writer kept their first lesson, and the pane's own
+                // editor owns surfacing the refusal. RESIDUAL, recorded with
+                // `intent`'s: a ledger the writer DID declare that has become
+                // unreadable briefs as absent with no run-side signal.
+                guard let store,
+                      let ledger = store.statement(kind: .lessons, scope: .project)
+                else { return nil }
+                return try? store.statementText(of: ledger)
+            },
             activePass: { [weak store, weak documentStore] docId in
                 // **`ProjectManifest.reader(forPiece:memory:)` — the one
                 // resolution** (editorial letter P1, spec §4.1). Who reads a

@@ -71,7 +71,8 @@ final class LetterSectionTests: XCTestCase {
             habits: habits,
             questions: [
                 Letter.Question(refs: [ref("a1b2"), ref("c3d4"), ref("e5f6")],
-                                question: "Is the dock standing again by this scene?"),
+                                question: "Is the dock standing again by this scene?",
+                                lessonHeading: nil),
             ],
             scenes: scenes,
             scenePosition: scenePosition)
@@ -340,7 +341,8 @@ final class LetterSectionTests: XCTestCase {
             about: "A ghost story.", oneThing: nil, working: [], habits: [],
             questions: [Letter.Question(
                 refs: [Self.ref("a1b2", " "), Self.ref("c3d4", " ")],
-                question: "Is the dock standing again by this scene?")],
+                question: "Is the dock standing again by this scene?",
+                lessonHeading: nil)],
             scenes: nil, scenePosition: nil)
         let bare = try axTexts(in: mount(blankRefs, currentText: { _ in "" }))
         XCTAssertTrue(bare.contains("and 1 more"), "Read: \(bare)")

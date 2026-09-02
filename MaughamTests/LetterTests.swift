@@ -17,7 +17,8 @@ final class LetterTests: XCTestCase {
             habits: [Letter.Habit(
                 name: "throat-clearing", refs: [makeRef()], cost: "buries the turn",
                 lesson: "cut the first line", exercise: "delete every paragraph's first sentence")],
-            questions: [Letter.Question(refs: [makeRef()], question: "does Marta know this yet?")],
+            questions: [Letter.Question(refs: [makeRef()], question: "does Marta know this yet?",
+                                        lessonHeading: nil)],
             scenes: [Letter.Scene(
                 refs: [makeRef()], wants: "to leave", changes: "she can't",
                 turn: "the door is locked", charge: "dread")],
@@ -135,5 +136,65 @@ final class LetterTests: XCTestCase {
         XCTAssertNil(decoded.asked)
         XCTAssertEqual(decoded.scenePosition, "weak")
         XCTAssertTrue(decoded.isEmpty)
+    }
+
+    // MARK: - The ledger (editorial letter P2 Task 4)
+
+    /// A letter that raised nothing but named a lesson the writer may now be
+    /// done with is a letter with something in it — the retirement offer is
+    /// drawn from exactly this, and an `isEmpty` letter draws no section at
+    /// all.
+    func test_isEmpty_isFalseWhenTheLetterOnlyRetiresSomething() {
+        var letter = emptyLetter()
+        XCTAssertTrue(letter.isEmpty, "control: the same letter with nothing in it")
+        letter.retired = ["Throat-clearing"]
+        XCTAssertFalse(letter.isEmpty)
+    }
+
+    /// Absent and empty are the same answer downstream, and `retiredHeadings`
+    /// is where that collapse happens so no caller has to spell it.
+    func test_anEmptyRetiredListIsTheSameAsNone() {
+        var letter = emptyLetter()
+        XCTAssertEqual(letter.retiredHeadings, [])
+        letter.retired = []
+        XCTAssertEqual(letter.retiredHeadings, [])
+        XCTAssertTrue(letter.isEmpty, "an empty list retires nothing")
+    }
+
+    /// The habit a question was raised under and the letter's retirements both
+    /// survive the sidecar.
+    func test_theHabitHeadingAndTheRetiredListRoundTripThroughJSON() throws {
+        var letter = fullLetter()
+        letter.retired = ["Throat-clearing", "Over-explaining"]
+        letter = Letter(
+            about: letter.about, oneThing: letter.oneThing, working: letter.working,
+            habits: letter.habits,
+            questions: [Letter.Question(refs: [makeRef()], question: "does Marta know?",
+                                        lessonHeading: "Filter words")],
+            scenes: letter.scenes, scenePosition: letter.scenePosition,
+            answer: letter.answer, asked: letter.asked, retired: letter.retired)
+
+        let decoded = try JSONDecoder().decode(
+            Letter.self, from: try JSONEncoder().encode(letter))
+
+        XCTAssertEqual(decoded, letter)
+        XCTAssertEqual(decoded.questions.first?.lessonHeading, "Filter words")
+        XCTAssertEqual(decoded.retiredHeadings, ["Throat-clearing", "Over-explaining"])
+    }
+
+    /// **A sidecar written before the ledger decodes clean**, question by
+    /// question: literal JSON, so the tolerated-missing contract is pinned
+    /// against the shape that is actually on disk rather than against an
+    /// encode of today's type.
+    func test_aLetterWrittenBeforeTheLedgerDecodesWithNoHeadingsAtAll() throws {
+        let json = """
+            {"about":"The middle third pulls its punches.","working":[],\
+            "habits":[],"questions":[{"refs":[],"question":"does Marta know?"}]}
+            """
+        let decoded = try JSONDecoder().decode(Letter.self, from: Data(json.utf8))
+
+        XCTAssertNil(decoded.questions.first?.lessonHeading)
+        XCTAssertNil(decoded.retired)
+        XCTAssertEqual(decoded.retiredHeadings, [])
     }
 }

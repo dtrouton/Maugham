@@ -155,6 +155,13 @@ extension DiagnosticIngest {
         static let cost = "cost"
         static let lesson = "lesson"
         static let exercise = "exercise"
+        /// The lessons-ledger heading a letter question was raised under (P2
+        /// Task 4) — a key of the QUESTION entry, not of the letter, and
+        /// spelled singular where `habits` beside it is the array of habits
+        /// the letter raised. It is the model echoing back a heading it was
+        /// briefed on; whether it names one is decided app-side
+        /// (`LessonsLedger.matches`, global constraint 15).
+        static let habit = "habit"
         static let scenes = "scenes"
         static let wants = "wants"
         static let changes = "changes"
@@ -165,6 +172,11 @@ extension DiagnosticIngest {
         /// contract, so it has to be a value the prompt asked for.
         static let chargePositive = "+"
         static let chargeNegative = "-"
+
+        /// The briefed lessons this reading found no instance of (P2 Task 4)
+        /// — a key of the LETTER, last in its schema line, because it is a
+        /// statement about the reading as a whole rather than a part of it.
+        static let retired = "retired"
 
         /// Every paragraph reference travels here, in every section.
         static let refs = "refs"
@@ -569,7 +581,7 @@ extension DiagnosticIngest {
         let recognised = [
             SectionField.answer, SectionField.about, SectionField.oneThing,
             SectionField.working, SectionField.habits, SectionField.questions,
-            SectionField.scenes,
+            SectionField.scenes, SectionField.retired,
         ]
         guard recognised.contains(where: { object[$0] != nil }) else {
             return PartialSection(
@@ -607,6 +619,14 @@ extension DiagnosticIngest {
                     cost: cost, lesson: lesson, exercise: exercise)
             }
 
+        // **Read after the habits, because a citation is checked against
+        // them** (global constraint 15). The model was briefed on the ledger
+        // and echoes a heading back; nothing here trusts that spelling to
+        // address the writer's file, so a question is stamped only where its
+        // `habit` names a habit THIS letter raised — a near-miss stamps
+        // nothing rather than the wrong ledger row.
+        let habitNames = habits.map(\.name)
+
         var questions: [Letter.Question] = []
         var notes: [Diagnostic] = []
         for item in entries(object[SectionField.questions]) {
@@ -621,13 +641,27 @@ extension DiagnosticIngest {
                   !isFixShaped(question)
             else { continue }
             let resolved = letterRefs(item[SectionField.refs], live)
-            questions.append(Letter.Question(refs: resolved.refs, question: question))
+            // No id-leak scrub of its own: what survives is one of `habitNames`
+            // verbatim, and every one of those was scrubbed as the habit was
+            // parsed. Anything else — including a heading with an id in it —
+            // matches nothing and resolves to nil.
+            let raisedUnder = nonEmptyString(item[SectionField.habit]).flatMap { cited in
+                habitNames.first { LessonsLedger.matches(cited, heading: $0) }
+            }
+            questions.append(
+                Letter.Question(
+                    refs: resolved.refs, question: question, lessonHeading: raisedUnder))
             guard let anchor = resolved.anchor else { continue }
-            notes.append(
-                Diagnostic(
-                    id: ULID.generate(), docId: docId, anchor: anchor, body: question,
-                    category: nil, runId: runId, kind: .letterQuestion, refs: resolved.refs,
-                    clauseQuote: nil))
+            var note = Diagnostic(
+                id: ULID.generate(), docId: docId, anchor: anchor, body: question,
+                category: nil, runId: runId, kind: .letterQuestion, refs: resolved.refs,
+                clauseQuote: nil)
+            // The same heading on both halves of what this loop produces: the
+            // letter's own question, which the letter section draws, and the
+            // note that becomes a `.query` in the queue. A stamp on one and not
+            // the other is two surfaces disagreeing about the same question.
+            note.lessonHeading = raisedUnder
+            notes.append(note)
         }
 
         let scenes: [Letter.Scene]? = (object[SectionField.scenes] as? [Any]).map { raw in
@@ -668,6 +702,17 @@ extension DiagnosticIngest {
         // an answer section with nothing in it.
         let answer = nonEmptyString(object[SectionField.answer])
 
+        // **Entries, not a field**: a heading carrying a leaked paragraph id
+        // costs that heading and leaves the rest of the list intact, the way a
+        // working entry or a habit is dropped alone. Nothing is matched to the
+        // writer's ledger here — resolving a heading to a row the app may
+        // rewrite is the offer's job at the point of the write (global
+        // constraint 15), and a heading that names nothing simply draws no
+        // offer.
+        let retired = (object[SectionField.retired] as? [Any] ?? [])
+            .compactMap { nonEmptyString($0) }
+            .filter { !letterProseLeaksAnId([$0], live) }
+
         let letter = Letter(
             about: letterProseLeaksAnId([about], live) ? "" : (about ?? ""),
             oneThing: letterProseLeaksAnId([oneThing], live) ? nil : oneThing,
@@ -680,7 +725,13 @@ extension DiagnosticIngest {
             // Stamped at `record` from the run rather than read off the wire:
             // what was ASKED is the app's own fact, and a model echoing it
             // back would be the letter telling us what we told it.
-            asked: nil)
+            asked: nil,
+            // Absent stays absent, so a letter that said nothing about
+            // retirement does not decode as one that retired nothing —
+            // indistinguishable downstream (`retiredHeadings`), and the
+            // distinction costs nothing to keep.
+            retired: object[SectionField.retired] == nil
+                ? nil : Array(retired.prefix(letterRetiredCap)))
 
         return PartialSection(
             accepted: notes, facts: [], conformance: [], droppedDangling: 0,
@@ -694,6 +745,12 @@ extension DiagnosticIngest {
     static let letterHabitsCap = 2
     static let letterHabitRefsCap = 4
     static let letterQuestionsCap = 3
+    /// **The cap the schema does not state** (P2 Task 4), enforced here on
+    /// `readerReportCap`'s rule all the same: a reading that retired everything
+    /// it was briefed on is a reading that stopped looking, and the writer's
+    /// ledger must not be emptied by one careless letter. Six is more open
+    /// lessons than a ledger is meant to carry at once.
+    static let letterRetiredCap = 6
 
     /// One array of section entries, as objects. A non-array, or an element
     /// that is not an object, is simply absent — the letter drops a malformed

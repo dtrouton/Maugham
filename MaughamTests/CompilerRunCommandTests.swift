@@ -261,6 +261,11 @@ final class CompilerRunCommandTests: XCTestCase {
         cachedWorld: DerivedWorld? = nil,
         derivedWorld: DerivedWorld? = nil,
         bibleFacts: [BibleFact] = [],
+        /// The project's lessons ledger, whole — the markdown
+        /// `Environment.lessons` answers. `nil`, the default, is a project
+        /// whose writer has kept no lesson yet, which is what every test
+        /// written before the ledger existed was reading.
+        lessons: String? = nil,
         /// The review pass active on the piece when a run starts. `nil` — the
         /// default, and every pre-P3 test's world — is the passless lane.
         activePass: String? = nil,
@@ -307,6 +312,7 @@ final class CompilerRunCommandTests: XCTestCase {
                             statementText: $0, scopeKey: "doc-doc-1")
                     }
                 },
+                lessons: { lessons },
                 activePass: { id in id == self.docId ? Self.lane(pass.value) : nil },
                 projectType: { _ in projectType },
                 cachedWorld: { _ in cachedWorld },
@@ -5674,6 +5680,194 @@ final class CompilerRunCommandTests: XCTestCase {
 
         let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
         XCTAssertNil(run.letter)
+    }
+
+    // MARK: - The ledger in the briefing (editorial letter P2 Task 4)
+
+    /// A ledger of the shape `LessonsLedger` reads, with one entry of each
+    /// kind under the writer's own preamble.
+    private static let ledger = """
+        I keep learning the same two things.
+
+        ## Rulings
+
+        - Filter words — ruled 1 Sep 2026, Denver
+        - Choice: Present tense throughout — ruled 1 Sep 2026, Denver
+        - Throat-clearing (retired 2 Sep 2026) — ruled 1 Sep 2026, Denver
+        """
+
+    /// **Every round is briefed on the ledger** — the writer's preamble, the
+    /// lessons still open, and the choices already settled — and on none of
+    /// what they have retired.
+    func test_aRunIsBriefedOnTheProjectsLedger() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), lessons: Self.ledger)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = try XCTUnwrap(runner.sends.first?.message)
+        XCTAssertTrue(message.contains("Lessons the writer is working on"), message)
+        XCTAssertTrue(message.contains("Filter words"), message)
+        XCTAssertTrue(message.contains("Present tense throughout"), message)
+        XCTAssertFalse(message.contains("Throat-clearing"),
+                       "a lesson the writer retired was put back in front of "
+                       + "the reader; got \(message)")
+    }
+
+    /// Control for the pin above, and the ordinary case: a project whose
+    /// writer has kept no lesson yet is briefed on no ledger at all.
+    func test_aProjectWithNoLedgerIsBriefedOnNone() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertFalse(
+            try XCTUnwrap(runner.sends.first?.message)
+                .contains("Lessons the writer is working on"))
+    }
+
+    /// **A cold reader is told the ledger again, in full.** `sentBriefing`
+    /// clears with the session, and the ledger diffs in with the essay, the
+    /// world and the bible as one unit — so the replacement process, which has
+    /// read nothing, gets all four rather than the marker line.
+    func test_freshEyesRebriefsTheLedgerWhole() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), lessons: Self.ledger)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[0].message.contains("Filter words"))
+        XCTAssertEqual(harness.spawns, 1)
+
+        // Control: the warm process has already read it, so the second run
+        // gets the marker line and no ledger.
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(2, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[1].message.contains("unchanged since last run"))
+        XCTAssertFalse(runner.sends[1].message.contains("Filter words"),
+                       "control: a warm session is not re-told the ledger")
+        XCTAssertEqual(harness.spawns, 1)
+
+        harness.setReading(readingAfterAThirdParagraph())
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(3, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.spawns, 2, "the cold read runs on a new process")
+        XCTAssertTrue(runner.sends[2].message.contains("Filter words"),
+                      "the replacement has read nothing and must be told the "
+                      + "ledger whole; got \(runner.sends[2].message)")
+    }
+
+    /// A turn whose letter raises one habit and asks two questions about the
+    /// same live paragraph: one raised under that habit, one raised under a
+    /// habit this letter never named.
+    private static func aLetterCitingHabits(
+        about paragraphId: String, cited: String
+    ) -> String {
+        """
+        {"section":"conformance","checks":[]}
+        {"section":"continuity","questions":[]}
+        {"section":"reader","reports":[]}
+        {"section":"facts","candidates":[]}
+        {"section":"intent_drift","verdict":"holds"}
+        {"section":"letter","about":"A woman waits out a fog.",\
+        "habits":[{"name":"Filter words","refs":["\(paragraphId)"],\
+        "cost":"The reader is held one step back."}],\
+        "questions":[{"refs":["\(paragraphId)"],"habit":"\(cited)",\
+        "question":"Whose fear is this, hers or the narrator's?"}],\
+        "scenes":null,"retired":["Throat-clearing"]}
+        """
+    }
+
+    /// **The wire, end to end through a real run** (Task 2 built it, this task
+    /// stamps it): a letter question raised under a habit the same letter named
+    /// reaches the queue as a `.query` carrying that heading. Nothing between
+    /// the parse and the op may drop it — this is the first test in which a
+    /// RUN, rather than a hand-built note, puts one there.
+    func test_aRunsQuestionReachesTheQueueCarryingItsHabitHeading() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        runner.nextEvent = .resultText(
+            Self.aLetterCitingHabits(about: pid, cited: "Filter words"))
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await settle()
+
+        let note = try XCTUnwrap(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+                .first { $0.body.hasPrefix("Whose fear is this") },
+            "the letter's question never reached the queue at all")
+        XCTAssertEqual(note.lessonHeading, "Filter words",
+                       "the habit the question was raised under was lost "
+                       + "somewhere between the wire and the op")
+        XCTAssertEqual(fx.diagnostics.lastRun(docId: "ch-1")?.letter?.retiredHeadings,
+                       ["Throat-clearing"],
+                       "…and what the reading did not find rode the record")
+    }
+
+    /// The control: a question citing a habit this letter never raised is
+    /// minted like any other question and stamped with nothing. Without it,
+    /// a parser that stamped every question with whatever string arrived would
+    /// pass the pin above.
+    func test_aRunsQuestionCitingAnUnknownHabitCarriesNothing() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        runner.nextEvent = .resultText(
+            Self.aLetterCitingHabits(about: pid, cited: "Filler words"))
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await settle()
+
+        let note = try XCTUnwrap(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+                .first { $0.body.hasPrefix("Whose fear is this") },
+            "control: the question is minted whatever it cites")
+        XCTAssertNil(note.lessonHeading,
+                     "a heading naming no habit in this letter was stamped anyway")
+    }
+
+    /// **The production closure reads the writer's real `lessons.md`** — the
+    /// half no hand-built `Environment` can prove. A ledger created through
+    /// `ProjectStore` and written through the shared append path reaches the
+    /// run's message; nothing here stubs the read.
+    func test_theProductionEnvironmentBriefsTheLedgerOnDisk() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+
+        // Control first: with no ledger on disk, no ledger in the briefing.
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await settle()
+        XCTAssertFalse(runner.sends[0].message.contains("Lessons the writer is working on"))
+
+        let ledger = try await fx.store.createStatement(kind: .lessons, scope: .project)
+        try await fx.store.appendToStatement(
+            "## Rulings\n\n- Filter words — ruled 1 Sep 2026, Denver",
+            to: ledger, session: "test-\(UUID().uuidString)")
+
+        fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(2, on: runner)
+        await settle()
+
+        XCTAssertTrue(runner.sends[1].message.contains("Filter words"),
+                      "the ledger the writer keeps on disk never reached the "
+                      + "run; got \(runner.sends[1].message)")
     }
 
     // MARK: - The ledger heading rides the note (editorial letter P2 Task 2)
