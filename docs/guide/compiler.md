@@ -262,8 +262,8 @@ pass side of this.
 
 **⌘⇧R** — *Fresh Eyes* — asks for a different kind of read: it ends the
 warm session and reads the whole piece cold, briefed on your intent, your
-rulings, and the bible, but deliberately not on anything an earlier round
-found. Its report says so where the since-last-round line would otherwise
+rulings, your lessons ledger, and the bible, but deliberately not on anything
+an earlier round found. Its report says so where the since-last-round line would otherwise
 be: *"Fresh eyes"*, or *"Fresh eyes · round 3"* when it's also filed against
 a pass — and, when the cold read turned up something already open in another
 pass, *"Fresh eyes · round 3 · 1 was already open in another lane"*, since the
@@ -396,7 +396,9 @@ Checks use your own Claude account.
 It reads your manuscript and writes nothing into it. It cannot edit your prose,
 your research, your palette, or your intent — including the rulings and the
 bible it reads you against, which only you, through **Answer**, **Bless**, and
-**Correct**, can add to.
+**Correct**, can add to. It never writes your lessons ledger either. A check can
+notice a habit and say it found no instance of a lesson you're carrying, but
+every entry in that ledger got there because you pressed something.
 
 Notes live on the Mac that produced them and are not synced. Losing them costs
 nothing: press ⌘R again.

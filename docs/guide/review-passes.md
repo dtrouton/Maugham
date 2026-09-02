@@ -158,8 +158,8 @@ the next check in it starts back at round 1, with nothing to compare against.
 
 **⌘⇧R** — *Fresh Eyes* — is a different kind of run: it ends the warm
 session and reads the whole piece cold, as if for the first time. It's still
-briefed on your intent, your rulings, and the bible, but not on anything a
-previous round found — that's the point of asking for fresh eyes. Its report
+briefed on your intent, your rulings, your lessons ledger, and the bible, but
+not on anything a previous round found — that's the point of asking for fresh eyes. Its report
 says so at the top, in place of the since-last-round line: *"Fresh eyes"*, or
 *"Fresh eyes · round 3"* when it's also filed against a pass. A cold read that
 re-raised something you're holding in another pass says that here too —
@@ -186,10 +186,13 @@ lists is a pass you deleted, kept so the states come back if you add it
 again — plus the project's own pass ladder in order, each pass carrying its
 **brief** (`null` for a custom pass with none of its own — see above), the
 same doctrine a round is signed against;
-`list_annotations` and `get_annotation` report a note's triage mark and which
-pass it's stamped with. The coach is not in that ladder and never appears in
+`list_annotations` and `get_annotation` report a note's triage mark, which
+pass it's stamped with, and — for a question a check raised under a habit your
+ledger already names — that heading, so Claude can see which standing lesson a
+note came out of. The coach is not in that ladder and never appears in
 it — she isn't a pass — so her brief isn't reported there either: hers is the
 preset's, fixed, and unlike a pass's it isn't something you can edit.
 None of it is something Claude can write. Triage,
-Stet, and a piece's pass states are yours alone — the same membrane that
-keeps Claude out of your manuscript keeps it out of your review workflow too.
+Stet, a piece's pass states, and your lessons ledger — which `read_lessons`
+gives Claude in full — are yours alone: the same membrane that keeps Claude out
+of your manuscript keeps it out of your review workflow too.

@@ -63,6 +63,60 @@ is derived at the keystroke, carried on `StreamingRun`, and stamped onto
 `Letter.scenePosition` in the one `record(...)` spelling, so a preview and the
 answer that supersedes it cannot disagree — its raw values are a disk format.
 
+**The writer's ask lives beside the sidecar, never inside it** (spec §3.7, P2
+Task 3). `DiagnosticsStore` keeps one per-device file for the whole project,
+`.maugham/diagnostics/asks.<slug>.json`, keyed by docId (`asksURL` — a filename
+of its own, and one more place `.raw` is interpolated, tripwire 24). It is NOT a field on `FileContent`, and the reason
+is that the sidecar is written by a run: an ask is typed *before* one, so a
+writer can ask something of a document the compiler has never read, and there
+would be no `CompilerRun` to hang it off. The field itself commits on submit
+and on focus loss and never per keystroke (`AskField`) — `setAsk` rewrites the
+file and bumps `version` on every call — while every keystroke is *noted* into
+an in-memory `pendingAsks` buffer that writes nothing. `CompilerOrchestrator.beginRun`
+calls `commitPendingAsk(docId:)` and then reads the ask, which is why a worry
+typed and not submitted still reaches the round it was typed for: ⌘R is a menu
+command that never touches the first responder, and `beginRun` is the one line
+every trigger passes (both keystrokes, the cockpit's buttons, the cold-start
+offer). `setAsk` REFUSES over `DiagnosticsStore.askLimit` and answers `false`
+rather than throwing — nothing failed, and the writer keeps their words in the
+field to shorten. The ask is then carried on `StreamingRun.ask`, stamped onto
+`Letter.asked` in the same `record(...)` spelling the position uses, and briefed
+through `askSection` — **outside `briefingHashInput`**, because an ask is
+expected to change every round and a hash covering it would re-embed the essay,
+the declared world and the bible slice on every ⌘R a writer asked anything on.
+
+**The lessons ledger is a statement, and the briefing folds the SECTION rather
+than the file** (spec §6, P2 Task 4). `LessonsLedger` is the grammar: a `##
+Rulings` row of the `.lessons` statement reads as a live lesson, a settled
+`Choice: `, or a `(retired <date>)` entry, over the ruling's TEXT and never the
+whole line. `Environment.lessons` reads it whole, `CompilerPrompt.lessonsSection`
+renders the preamble, the open lessons and the choices (a retired entry is
+briefed to nobody), and that RENDERED section is what `briefingHashInput` folds
+— not the ledger's markdown. Hashing the file would mean retiring one entry,
+which only ever *removes* something from the briefing, re-embedding the essay,
+the whole declared world and the bible slice to communicate a deletion. The
+ledger sits inside the hashed unit beside the essay, the declared world and the
+bible slice because it is something the writer DECLARED; the ask sits outside it with the per-run frame.
+**Identity is the heading, decided app-side** (`LessonOffer.retirable` narrowing
+the letter's own `retired` list to the ledger's live lessons through
+`LessonsLedger.matches`, exact after trimming and case-sensitive), so a heading the model re-spelled draws no offer
+rather than retiring a row the writer never named. **Every write goes through
+one file**, `Maugham/Views/LessonLedgerVerbs.swift` — the only production file
+that names `.lessons` to `RulingPerformer`, censused by
+`TripwireGrepTests.test_theLessonsLedgerIsWrittenFromOneFile` with a planted
+offender and a companion that catches a `revoke(` as well as a `rule(`.
+
+**A letter question can carry the habit it was raised under, and the stamp has
+a wire** (P2 Tasks 2/4). `parseLetter` caps the habits FIRST and takes the
+citable names off the capped list, so a habit the letter does not show cannot
+stamp a question about it; the model's `habit` key is then matched against those
+names through `LessonsLedger.matches`, and a near-miss stamps nothing. The
+heading rides `Letter.Question.lessonHeading` for the section to draw and
+`Diagnostic.lessonHeading` for the mint, which puts it on
+`Op.Provenance.compilerLessonHeading` and so onto `Annotation.lessonHeading` —
+what the queue's *This is a choice* and the second-stet offer read. It never
+reaches the sidecar: the sidecar keeps conformance strains alone.
+
 `CompilerPrompt.sectionSchemaDescription` is what is asked for and
 `DiagnosticIngest.parseSection`/`parseAll` is what reads it. **The v1 contract
 is gone**: `runMessage`, `CompilerContext` and `DiagnosticIngest.parse` were
