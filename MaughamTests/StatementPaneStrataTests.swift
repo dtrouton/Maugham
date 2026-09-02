@@ -1362,6 +1362,144 @@ final class StatementPaneStrataTests: XCTestCase {
                        + textView.string)
     }
 
+    // MARK: - The proposal gate (translation pipeline P5)
+    /// **A proposal staged behind the pane draws the gate without a remount**,
+    /// and the writer's own Adopt puts the words in the editor and clears the
+    /// banner.
+    ///
+    /// The press is the point. The gate is reached from nowhere else — nothing
+    /// but this button calls `StatementProposalGate.adopt` — so a test that
+    /// called the gate itself would leave the whole delivery path untested and,
+    /// worse, could not reach the case this task exists for: on a scope with no
+    /// statement the host has already resolved the absence, and only the pane's
+    /// own `adopt` learns that the adoption CREATED one.
+    func test_aStagedProposalReachesTheMountedPaneAndAdoptWritesTheEssay() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "mounted-proposal")
+        defer { fixture.tearDown() }
+        let window = await fixture.host(kind: .visualLanguage, subject: .project)
+        let title = StatementProposalCopy.bannerTitle(.init(
+            kind: .visualLanguage, markdown: "x", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        XCTAssertTrue(try fixture.staticTexts(in: window, containing: title).isEmpty)
+        XCTAssertNil(fixture.store.statement(kind: .visualLanguage, scope: .project),
+                     "this case is about a scope the host resolved as EMPTY")
+
+        _ = try StatementProposalStore(projectURL: fixture.projectURL).stage(.init(
+            kind: .visualLanguage, markdown: "Serif, generous leading.",
+            rationale: "the sample pages are dense", proposedAt: Date(), author: "Claude"))
+        MaughamEvent.postStatementProposalsChanged(projectURL: fixture.projectURL)
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(title, in: window) }
+        XCTAssertFalse(try fixture.staticTexts(in: window, containing: title).isEmpty,
+                       "a proposal that landed while the pane was open never reached the gate")
+        XCTAssertFalse(try fixture.staticTexts(in: window, containing: "the sample pages are dense").isEmpty)
+
+        XCTAssertTrue(try fixture.pressButton(
+            labelled: StatementProposalCopy.adoptAccessibilityLabel(.visualLanguage), in: window))
+        await fixture.pumpUntil(deadline: 5) { !fixture.shows(title, in: window) }
+        XCTAssertTrue(try fixture.staticTexts(in: window, containing: title).isEmpty,
+                      "Adopt clears the gate")
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.firstTextView(in: window)?.string.contains("Serif, generous leading.") == true
+        }
+        XCTAssertEqual(fixture.firstTextView(in: window)?.string.contains("Serif, generous leading."),
+                       true, "the adopted words did not reach the mounted editor")
+        XCTAssertNil(StatementProposalStore(projectURL: fixture.projectURL).pending(for: .visualLanguage),
+                     "the adopted slot is still pending")
+    }
+
+    /// **The common case: Adopt over a statement the writer already has**, and
+    /// it costs no reload at all.
+    ///
+    /// The two cases above both mint — the scope was empty, so the pane's
+    /// `adopt` bumps `hostGeneration` and the host remounts. That arm is the
+    /// exception. Ordinarily a writer revising a visual language they already
+    /// have has a live `Document` bound, `mutateStatementText` finds it through
+    /// `openStatementDocument(id:)` and writes into it, and the editor's own
+    /// binding shows the new essay on the next frame — the path a ruling
+    /// landing from a run takes (`test_aRulingReachesTheMountedPane`).
+    ///
+    /// **"No remount" is asserted as the thing it means on screen**: the same
+    /// `NSTextView` instance is still mounted afterwards. A remount would
+    /// build a new one — which is exactly how the `.id(hostGeneration)` was
+    /// falsified — and would take the caret, the first responder and the
+    /// pane's own undo stack with it.
+    func test_adoptOverABoundDocumentWritesThroughItWithNoRemount() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "mounted-bound-adopt")
+        defer { fixture.tearDown() }
+        let statement = try await fixture.store.createStatement(
+            kind: .visualLanguage, scope: .project)
+        try await fixture.store.mutateStatementText(
+            of: statement, session: "test") { _ in "Old look." }
+
+        let window = await fixture.host(kind: .visualLanguage, subject: .project)
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.firstTextView(in: window)?.string.contains("Old look.") == true
+        }
+        XCTAssertEqual(fixture.firstTextView(in: window)?.string.contains("Old look."), true,
+                       "the host never bound the existing statement, so this case is vacuous")
+        let mountedBefore = ObjectIdentifier(try fixture.textView(in: window))
+
+        let title = StatementProposalCopy.bannerTitle(.init(
+            kind: .visualLanguage, markdown: "x", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        _ = try StatementProposalStore(projectURL: fixture.projectURL).stage(.init(
+            kind: .visualLanguage, markdown: "Serif, generous leading.", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        MaughamEvent.postStatementProposalsChanged(projectURL: fixture.projectURL)
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(title, in: window) }
+        XCTAssertFalse(try fixture.staticTexts(in: window, containing: title).isEmpty)
+
+        XCTAssertTrue(try fixture.pressButton(
+            labelled: StatementProposalCopy.adoptAccessibilityLabel(.visualLanguage), in: window))
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.firstTextView(in: window)?.string.contains("Serif, generous leading.") == true
+        }
+        XCTAssertEqual(
+            fixture.firstTextView(in: window)?.string.contains("Serif, generous leading."), true,
+            "the adopted words did not reach the bound editor")
+        XCTAssertEqual(fixture.firstTextView(in: window)?.string.contains("Old look."), false,
+                       "the replaced text is still on screen")
+        await fixture.pumpUntil(deadline: 5) { !fixture.shows(title, in: window) }
+        XCTAssertTrue(try fixture.staticTexts(in: window, containing: title).isEmpty,
+                      "Adopt clears the gate")
+        XCTAssertEqual(ObjectIdentifier(try fixture.textView(in: window)), mountedBefore,
+                       "the host remounted over a bound Document — `hostGeneration` moved on an "
+                       + "adoption that created nothing")
+    }
+
+    /// **Discard clears the gate and touches nothing the writer wrote** — the
+    /// other verb, through the same mounted button.
+    func test_discardClearsTheGateAndLeavesTheStatementAlone() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "mounted-discard")
+        defer { fixture.tearDown() }
+        let statement = try await fixture.store.createStatement(kind: .visualLanguage, scope: .project)
+        try await fixture.store.mutateStatementText(
+            of: statement, session: "test") { _ in "The writer's own look." }
+
+        let window = await fixture.host(kind: .visualLanguage, subject: .project)
+        let title = StatementProposalCopy.bannerTitle(.init(
+            kind: .visualLanguage, markdown: "x", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        _ = try StatementProposalStore(projectURL: fixture.projectURL).stage(.init(
+            kind: .visualLanguage, markdown: "Grotesque, tight.", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        MaughamEvent.postStatementProposalsChanged(projectURL: fixture.projectURL)
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(title, in: window) }
+        XCTAssertFalse(try fixture.staticTexts(in: window, containing: title).isEmpty)
+
+        XCTAssertTrue(try fixture.pressButton(
+            labelled: StatementProposalCopy.discardAccessibilityLabel(.visualLanguage), in: window))
+        await fixture.pumpUntil(deadline: 5) { !fixture.shows(title, in: window) }
+        XCTAssertTrue(try fixture.staticTexts(in: window, containing: title).isEmpty,
+                      "Discard clears the gate")
+        XCTAssertNil(StatementProposalStore(projectURL: fixture.projectURL).pending(for: .visualLanguage))
+        XCTAssertEqual(try fixture.store.statementText(of: statement), "The writer's own look.",
+                       "Discard rewrote the writer's statement")
+        XCTAssertFalse(
+            try fixture.staticTexts(in: window, containing: StatementProposalCopy.discardedLine).isEmpty,
+            "the pane said nothing about what it just did")
+    }
+
     // MARK: - The edition brief is a first-class statement surface (P4 Task 7)
 
     /// **The bible belongs to the craft intent alone, and it is asked its own

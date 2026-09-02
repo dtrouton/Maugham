@@ -54,6 +54,10 @@ freeform prose about feel and type, plus `image_paths`, the pictures it is
 built on. Read it before writing a template and before revising one — the
 second is where the look quietly drifts, because a session that re-decides
 from scratch produces a piece six that does not match pieces one to five.
+If it does not exist, do not invent one: run the `visual-language` skill
+(get_help topic `"skills"`, then `"visual-language"`) — it interviews the
+writer and proposes a statement they adopt in Maugham, and only then author
+the template against what they adopted.
 
 **Two things are worth knowing before you go looking.** The sensory
 palette is a different object that looks like this one: it is the
@@ -65,8 +69,8 @@ rather than guessing from its filename.
 
 Absence is an answer: `exists: false` means the writer has not declared a
 look, not that they forgot. That is the moment to ask what the book should
-feel like — and what they tell you belongs in the Visual Language pane,
-where it will still be there for the next edition.
+feel like — and the `visual-language` skill is how the writer's answer
+reaches the pane.
 
 A project may also declare named **imprints** in `config.json` — a special
 edition with its own template, its own rendered set, its own look. An

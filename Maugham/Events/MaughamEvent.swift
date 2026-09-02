@@ -131,6 +131,14 @@ enum MaughamEvent {
         post(.maughamDesignProposalsChanged, to: .project(for: projectURL))
     }
 
+    /// **The one spelling of the statement-proposals-changed post** (P5).
+    /// Posted by the two propose tools after staging and by
+    /// `StatementProposalGate` after Adopt or Discard. `projectURL` is the
+    /// project ROOT, matching what `.onProjectEvent` subscribes with.
+    static func postStatementProposalsChanged(projectURL: URL) {
+        post(.maughamStatementProposalsChanged, to: .project(for: projectURL))
+    }
+
     /// **The one spelling of the round-ended post.** Posted by the window's
     /// pipeline wiring (`TranslationPipeline.Environment.onRoundEnded`) after a
     /// round is written to `TranslationRoundStore`. `projectURL` is the project

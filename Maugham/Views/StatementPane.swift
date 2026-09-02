@@ -165,6 +165,7 @@ struct StatementPane: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
+            proposalGate
             // **No `.id()`, deliberately.** Keying the host on the scope looked
             // right — a scope switch does want a fresh `Document` — but it made
             // the switch a REMOUNT, which splits the close of the outgoing
@@ -177,12 +178,48 @@ struct StatementPane: View {
             StatementEditorHost(
                 store: store, documentStore: documentStore,
                 kind: kind, scope: scope)
+                // **The one `.id()` the paragraph above allows, and it is a
+                // different case entirely.** `hostGeneration` never moves for a
+                // scope change; it moves only when an Adopt CREATED the
+                // statement this host had already resolved as absent (see
+                // `adopt`). The hazard above is the close of an outgoing
+                // `Document` racing the load of an incoming one — and on that
+                // one path the host bound no `Document` at all, so there is
+                // nothing to close and nothing to race.
+                .id(hostGeneration)
             strata
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: liveParagraphTaskKey) {
             await resolveLiveParagraphIds()
         }
+        .task(id: ProposalTaskKey(
+            slot: Self.proposalSlot(kind: kind, scope: scope),
+            reloads: proposalReloads, windowResolved: window != nil)) {
+            reloadProposal()
+        }
+        // `.project`-scoped: a window on another book must not re-read this
+        // one's slot, and a closed window must read nothing at all (tripwire
+        // 21). It is what lets a tool staging a proposal behind an open pane
+        // draw the gate with no remount and no poll.
+        .onProjectEvent(.maughamStatementProposalsChanged, url: store.url, window: window) { _ in
+            proposalReloads += 1
+        }
+        // **A sentence about the last proposal must not stand over the next
+        // one, or over another statement.** Both clears are `onChange` rather
+        // than a line in `reloadProposal`, which would race: the verbs set
+        // their sentence in a `Task` continuation, while the `.task` above
+        // restarts on SwiftUI's own schedule, so a clear inside the read could
+        // land after the write it is supposed to precede. A proposal ARRIVING
+        // is the transition that matters — one leaving is a verb about to say
+        // what it did.
+        .onChange(of: pendingProposal) { _, arriving in
+            if arriving != nil { proposalNotice = nil }
+        }
+        .onChange(of: Self.proposalSlot(kind: kind, scope: scope)) { _, _ in
+            proposalNotice = nil
+        }
+        .background(WindowAccessor(window: $window))
     }
 
     /// Everything that can move an orphan verdict, so the `.task` below
@@ -275,6 +312,161 @@ struct StatementPane: View {
             }
             liveParagraphIds = ids
         }
+    }
+
+    // MARK: - The proposal gate (translation pipeline P5, spec §10)
+
+    /// Which proposal slot this pane's statement can have, or nil.
+    ///
+    /// Pure and static, like `effectiveScope` and `headerCaption`, so
+    /// `StatementPaneTests` asks it over the product of its inputs rather than
+    /// the one path a plan happened to name. Craft intent has no slot at all —
+    /// it is the writer's own yardstick and `ProposableStatement` has no case
+    /// to reach it with — and a `.document` scope is intent by construction, so
+    /// a brief and the visual language are project-scope only.
+    static func proposalSlot(kind: Statement.Kind, scope: Statement.Scope) -> ProposableStatement? {
+        guard case .project = scope else { return nil }
+        return ProposableStatement(kind: kind)
+    }
+
+    /// The proposal standing for this pane's statement, or nil. Read in a
+    /// `.task`, never on a body path — see `reloadProposal`.
+    @State private var pendingProposal: StatementProposalStore.Proposal?
+    /// Bumped by `.maughamStatementProposalsChanged` so the `.task` re-keys and
+    /// re-reads the slot. A counter rather than an `await` in the notification
+    /// closure, `DepartmentPaneHost`'s idiom: the `.task` owns cancellation.
+    @State private var proposalReloads = 0
+    /// What the gate last said — a refusal, or the sentence an adoption or a
+    /// discard left behind. Sticky until the slot itself changes, because the
+    /// banner it was drawn in is gone by the time an Adopt has anything to say.
+    @State private var proposalNotice: String?
+    /// An adoption in flight. It disables both verbs, which is also the guard
+    /// against two `adopt` calls passing `StatementProposalGate`'s pending
+    /// check at once: the second press cannot happen, and `adopt` refuses one
+    /// that somehow does.
+    @State private var proposalBusy = false
+    /// Bumped ONLY by an Adopt that created the statement — see the `.id()` in
+    /// `body`.
+    @State private var hostGeneration = 0
+    /// This pane's hosting window, for the ADR 0021 receive helper's liveness
+    /// guard — resolved through `WindowAccessor` because a cached `nil` is not
+    /// a close check (`MaughamEvent.isLive`).
+    @State private var window: NSWindow?
+    @Environment(\.undoManager) private var undoManager
+
+    private struct ProposalTaskKey: Equatable {
+        let slot: ProposableStatement?
+        let reloads: Int
+        /// **Whether this pane can hear the changed event yet**, and it is in
+        /// the key because until it can, a proposal staged behind it is a post
+        /// nothing catches. `WindowAccessor` resolves the window on an async
+        /// hop after the mount, and `MaughamEvent.shouldDeliver` drops a
+        /// `.project` post whose receiver has no live window — so a tool that
+        /// stages one in the pane's first frames would leave the gate blank
+        /// until something else happened to re-key this task. Re-reading the
+        /// slot the moment the window arrives costs one JSON read, once, and
+        /// closes the window (measured: the resolve landed 20 ms after the
+        /// post in `test_discardClearsTheGateAndLeavesTheStatementAlone`).
+        let windowResolved: Bool
+    }
+
+    /// Reads the slot. **In a `.task`, never on a body path** (tripwire 4) — it
+    /// is a JSON read under `.maugham/`. Re-keyed by the changed event, so a
+    /// tool staging a proposal behind an open pane draws the gate without a
+    /// remount and without a poll.
+    private func reloadProposal() {
+        guard let slot = Self.proposalSlot(kind: kind, scope: scope) else {
+            pendingProposal = nil
+            return
+        }
+        pendingProposal = StatementProposalStore(projectURL: store.url).pending(for: slot)
+    }
+
+    /// The gate above the editor: the banner while a proposal stands, and
+    /// whatever the last verb said once it does not.
+    ///
+    /// The `current:` text is `store.statementText(of:)` — the same fringe read
+    /// `rulings` already makes synchronously in `body`, for the same reason it
+    /// is safe there (the live `Document` when the pane has one open, else the
+    /// derivation cache), and with the same `try?`: an unreadable statement
+    /// draws a diff against nothing rather than a second copy of the editor's
+    /// own refusal.
+    @ViewBuilder
+    private var proposalGate: some View {
+        if let proposal = pendingProposal {
+            let statement = store.statement(kind: kind, scope: scope)
+            StatementProposalBanner(
+                proposal: proposal,
+                current: statement.flatMap { try? store.statementText(of: $0) },
+                statementExists: statement != nil,
+                now: Date(),
+                notice: proposalNotice,
+                busy: proposalBusy,
+                onAdopt: { adopt(proposal) },
+                onDiscard: { discard(proposal) })
+            Divider()
+        } else if let proposalNotice {
+            // The banner is where a notice belongs while there is one; an Adopt
+            // and a Discard both END the banner, so their own sentence would
+            // otherwise be written to a state nothing renders.
+            Text(proposalNotice)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+        }
+    }
+
+    /// The writer's Adopt. `StatementProposalGate` does the writing; this owns
+    /// the busy flag, the sentence, and the one case the host cannot see for
+    /// itself.
+    private func adopt(_ proposal: StatementProposalStore.Proposal) {
+        // Re-entrancy: the buttons are disabled while this is true, so this is
+        // the belt for a press that arrives anyway (a synthesised one, an
+        // accessibility client). Two adoptions can otherwise both pass the
+        // gate's own pending check before either discards the slot.
+        guard !proposalBusy else { return }
+        proposalBusy = true
+        let undoManager = undoManager
+        Task { @MainActor in
+            defer { proposalBusy = false }
+            do {
+                let adoption = try await StatementProposalGate.adopt(
+                    proposal, store: store, world: world,
+                    undoManager: undoManager, workTaskSink: { _ in })
+                proposalNotice = StatementProposalCopy.adoptedLine(
+                    glossary: adoption.glossaryAppended)
+                if adoption.created {
+                    // **The host resolved this scope as having no statement,
+                    // and nothing tells it otherwise.** `reconcile` re-runs on
+                    // a SCOPE change alone, and the scope has not changed — so
+                    // the editor would go on showing the empty draft it mounted
+                    // over a statement that now has the adopted words in it.
+                    // Safe as a remount precisely because `created` is true:
+                    // the host bound no `Document` for an absent statement, so
+                    // the close/load ordering hazard `body` describes has
+                    // nothing to close.
+                    hostGeneration += 1
+                }
+            } catch {
+                proposalNotice = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
+            }
+            reloadProposal()
+        }
+    }
+
+    /// The writer's Discard. Clears the slot and nothing else — no statement of
+    /// theirs is touched, which is what `discardHelp` promises.
+    private func discard(_ proposal: StatementProposalStore.Proposal) {
+        do {
+            try StatementProposalGate.discard(proposal.kind, store: store)
+            proposalNotice = StatementProposalCopy.discardedLine
+        } catch {
+            proposalNotice = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
+        }
+        reloadProposal()
     }
 
     // MARK: - The two strata under the essay (declared-world Task 6)

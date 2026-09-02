@@ -4,9 +4,9 @@ The local MCP server that lets Claude Desktop read and contribute to projects. R
 
 ## What this area owns
 
-The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the **two write paths into the planning plane** — `add_note` under `research/`, and (1C-c3) `add_canvas_scraps` onto the planning canvas — the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket. **Manuscript text is never one of them**; see tripwire 4, which is where that half of the rule is stated and where it does not soften.
+The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the **two write paths into the planning plane** — `add_note` under `research/`, and (1C-c3) `add_canvas_scraps` onto the planning canvas — plus **two tools that stage rather than write**: `propose_edition_brief`/`propose_visual_language` (translation pipeline P5) drop a draft into `StatementProposalStore` that only the writer's own click at `StatementPane`'s gate turns into a statement — the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket. **Manuscript text is never one of them**; see tripwire 4, which is where that half of the rule is stated and where it does not soften.
 
-## Tool catalogue (56)
+## Tool catalogue (58)
 
 **Discovery / identity**
 - `list_projects` — enumerate all open Maugham projects
@@ -37,6 +37,8 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `read_craft_intent` — the writer's optional freeform statement of what a piece needs sensorially; absence returns `exists: false`, never an error. Since M1A it answers off a `Statement` and `item_id` names **any manuscript document**, not a Collection loose piece alone (a widening of an existing read, so the tool count did not move); the read derives from the op log — the open pane's `Document` through `ProjectStore.openStatementDocument(id:)`, else `derivedCache` — never the `.md`
 - `read_visual_language` — the book's look: the writer's freeform prose about typography and feel, plus `image_paths`, the images it references. **M1A's second named protection** (spec §10) — visual language gets a consumer in the milestone that builds it, and the other half of that protection is the section in `docs/skills/maugham-bootstrap/SKILL.md` telling a Claude authoring a template to read this first; a tool nobody is told to call leaves it unmet. **Project scope only, and the schema says so by taking `project_id` and nothing else**: `StatementConvention.newPath` has no row for `(.visualLanguage, .document)`, so an `item_id` would promise a scope the store refuses to create. Absence is `exists: false`, never an error, and mints nothing. The prose derives from the op log through `ProjectStore.statementText(of:)` — the ONE spelling of ADR 0018's two branches for statements, shared with `read_craft_intent` so the two readers cannot disagree about which text is real — and the images are scanned out of that same text (`MarkdownBlockParser.findInlineImages`, unanchored, so an image referenced mid-paragraph counts) and resolved through `ProjectStore.resolveImageRef`. **Paths, not pixels, deliberately**, exactly as `list_canvas` reports no path: nothing in this catalogue reads a file by project-relative path, so the field says WHICH images the look is built on and the description tells Claude to ask the writer about any it needs to see. The edge, stated rather than implied: `read_document` is the only image reader here and it takes a research item id, so a visual-language image that is also a research item is reachable and a loose file at the project root is not. **Paragraph anchors got their own consumer in the milestone that built them** (imprints P3, 2026-08-28): `\hypertarget`/`id="p-<tag>-<¶id>"` on every emitted paragraph, and `\MaughamCrossLink`/`<a href>` linking a slugline to its counterpart in another compiled body. `docs/skills/maugham-bootstrap/SKILL.md` names the anchor form and the cross-link command for a template-authoring Claude, the same protection `read_visual_language` got above. **No MCP tool reads an anchor or a cross-link, and that is deliberate** — they exist for a template and for a reader following a link inside the compiled artifact, not for Claude to look up a paragraph's rendered position.
 - `read_edition_brief` — the third `Statement.Kind`, alongside intent and visual language: the writer's doctrine for one translated edition (register, idiom policy, and any rulings a translation session has settled there — `RulingPerformer` can write a `## Rulings` section into it, `StatementEssay.carriesRulings` says so). Mirrors `read_visual_language`'s shape exactly — resolve the project, look the statement up through `StatementLookup`, derive its prose through `ProjectStore.statementText(of:)` (never the `.md`, tripwire 20) — but keyed by `language` (`Statement.Kind.editionBrief(String)`) rather than being a singleton, since a book can have many editions. Project scope only, same reasoning as visual language: `StatementConvention.newPath` has no row for `(.editionBrief, .document)`. Absence is `exists: false` with empty `markdown`, never an error, and mints nothing — the read exists so an outside translator finds a prior session's rulings instead of re-deciding register from scratch.
+- `propose_edition_brief` — STAGE a draft brief for one language (`language`, `markdown`, `rationale?`), mirroring `read_edition_brief`'s shape. Writes nothing to a statement: validates (project, tag, and a `## Rulings` section that may hold only glossary-shaped lines — `StatementProposalStore.validate`), overwrites the one slot at `.maugham/statements/proposals/edition-brief-<tag>.json`, posts `.maughamStatementProposalsChanged` (project scope). The desk's Edition Brief door presents `StatementPane`, where the gate draws (`StatementProposalGate.adopt` — the only write, a click) — the writer adopts it there or discards it. Neither propose tool is in `CompilerAllowlist`; `CompilerAllowlistTests.statementWriters` catches `write_edition_brief` and `propose_craft_intent` and passes these two by name. Translation pipeline spec §10; ADR 0030 §7.
+- `propose_visual_language` — the same, for the book's look (`markdown`, `rationale?`), slot `visual-language.json`; a `## Rulings` section is refused because visual language has no strata. Adopted in the Visual Language pane (⌘⌥V), whose picker segment carries a "proposed" badge while a slot stands.
 - `list_palette_cards` — summaries of the project's sensory-palette cards (subject-keyed research assets: locations, characters, motifs)
 - `read_palette_card` — a card's full markdown plus image thumbnails (crop-on-demand for a single image via `image`)
 
@@ -94,8 +96,8 @@ A **separate** catalog, `TestMCPToolCatalog`, that mirrors `MCPToolCatalog`'s sh
 (`register(router:registry:)`) but is registered onto the **same dev-build Unix socket**
 only inside `#if MAUGHAM_DEV_BUILD` in `MaughamApp.registerTools` — absent from the stable
 binary entirely (enforced by `TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`).
-It exists for **Claude Code**, not Claude Desktop, and is not part of the production 56-tool
-count above — the "Tool catalogue (56)" heading is unaffected by these tools.
+It exists for **Claude Code**, not Claude Desktop, and is not part of the production 58-tool
+count above — the "Tool catalogue (58)" heading is unaffected by these tools.
 
 Purpose: let Claude Code drive the full create → edit → autosave → checkpoint → quit →
 relaunch → verify loop end to end without the owner acting as a human tester, so the
@@ -169,8 +171,10 @@ and loaded by `Maugham/Help/SkillIndex.swift` (modeled on `HelpTopicIndex`; stri
 load in dev builds, skip-with-log in release so one malformed skill can't take the server
 down). It's a fourth bundled content root alongside `docs/guide/` (help topics) and
 `Maugham/Resources/Samples/` (sample projects) — same discipline: edit the bundled file,
-don't add a second copy. Three skills are served today: `transcribing-notebooks`,
-`editing-pass`, `translation-pass`. A fourth folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
+don't add a second copy. Five skills are served today: `edition-brief`,
+`editing-pass`, `transcribing-notebooks`, `translation-pass`, `visual-language`
+(the first and last are the translation pipeline P5 interviews; each ends by
+calling its propose tool). A sixth folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
 Claude Code router template — `SkillIndex` loads it but `skills/list`/`skills/get`/`get_help`
 never serve it; it reaches the world only via `ClaudeCodeSkillInstall`'s installer, wired
 into `Views/HelpClaudeDesktopSheet.swift`'s Claude Code section (copyable variant-aware

@@ -33,7 +33,7 @@ Read:
 - Read your planning canvas — every card, region and line, and what each has already produced
 - Read your session stats ("how much have I written this week?")
 - Filter chapters by tag
-- Load Maugham's own task procedures ("skills") for jobs like notebook-photo transcription or an editing pass — automatically in Claude Code once the skill is installed, or in any client by asking Claude to call `get_help` with topic `"skills"`
+- Load Maugham's own task procedures ("skills") for jobs like notebook-photo transcription, or an editing pass, or an interview that drafts an edition brief or a visual language for you to adopt — automatically in Claude Code once the skill is installed, or in any client by asking Claude to call `get_help` with topic `"skills"`
 
 Write:
 
@@ -41,6 +41,7 @@ Write:
 - Link research notes to chapters
 - Unlink as needed
 - Promote a capture-inbox entry into research — unscoped, or scoped to a chapter/piece
+- Propose an edition brief or a visual language — a draft staged for you, shown as a diff against your own text with Adopt / Discard; Claude never writes a statement for you
 - Move research items (including whole groups) between shared research, a group, and a collection piece's research folder — link associations update automatically
 - Add text notes and suggested changes to the Annotations pane (non-destructive proposals you review, accept, reject, or undo with ⌘Z)
 - Add cards to your **planning canvas** — the case it is built for is a page you wrote on paper and photographed. Claude cannot choose where a card goes: everything it adds lands together in one labelled region, placed clear of your own work, with the page it read at the top of it. Its cards are drawn perfectly straight where yours lean, so a card that leans is one of yours, and one ⌘Z takes back a whole batch. See [Getting Started → What Claude can put on the canvas](getting-started.md#what-claude-can-put-on-the-canvas)

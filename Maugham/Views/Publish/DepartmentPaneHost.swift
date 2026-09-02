@@ -85,6 +85,16 @@ struct DepartmentPaneHost: View {
     /// row's second line and its badge (Task 4). Derived off the body path
     /// because it reads `.maugham/design/proposals/`.
     @State private var proposals: [DesignProposalStore.Proposal] = []
+    /// **Every pending statement proposal** (translation pipeline P5) — an
+    /// edition brief or the visual language, staged under
+    /// `.maugham/statements/proposals/` and waiting on a writer's Adopt or
+    /// Discard. Read in the same `.task` pass as `proposals` above, because
+    /// both are the same kind of fact (something Claude staged that the desk
+    /// must mark) even though they land in different places on the pane: the
+    /// design proposal on its own row, a statement proposal as a badge on the
+    /// language row it is about — or, for a language the desk has no row for
+    /// yet, a line of its own (`proposedWithoutRow`).
+    @State private var statementProposals: [StatementProposalStore.Proposal] = []
     /// The edition whose brief is on screen, or nil for the desk itself.
     @State private var openBrief: OpenedBrief?
     /// A door that would not open. Cleared on the next attempt.
@@ -219,6 +229,16 @@ struct DepartmentPaneHost: View {
         /// an imprint written while the desk sits perfectly idle arrives on the
         /// next pass rather than instantly.
         let configModified: Date?
+        /// **Whether this pane can hear a project-scoped event yet** (measured
+        /// defect, translation pipeline P5 Task 6). `WindowAccessor` resolves
+        /// `window` on an async hop after mount, and `MaughamEvent
+        /// .shouldDeliver` drops a `.project` post whose receiver has no live
+        /// window — so a proposal, or a round ending, in this pane's first
+        /// frames is a post nothing catches, and nothing re-keys this `.task`
+        /// afterwards to pick it up. `StatementPane.ProposalTaskKey` carries
+        /// the same field for the same reason. Re-deriving the moment the
+        /// window arrives costs one extra pass, once, and closes the window.
+        let windowResolved: Bool
     }
 
     var reloadKey: ReloadKey {
@@ -227,7 +247,8 @@ struct DepartmentPaneHost: View {
                   designerBusy: designer?.isRunning ?? false,
                   pipelineLanguage: pipeline?.status.language,
                   imprint: documentStore.uiState.publishImprint,
-                  configModified: Self.configModified(in: projectURL))
+                  configModified: Self.configModified(in: projectURL),
+                  windowResolved: window != nil)
     }
 
     /// The publish config's modification date, or nil when there is no config
@@ -266,6 +287,15 @@ struct DepartmentPaneHost: View {
                         url: projectURL, window: window) { _ in
             refreshes += 1
         }
+        // **A statement proposal staged, adopted or discarded** (translation
+        // pipeline P5) — an edition brief or the visual language. Same shape
+        // as the design event above and for the same reason: neither the
+        // manifest nor the annotations move when Claude stages one, or when
+        // the gate one column over answers it.
+        .onProjectEvent(.maughamStatementProposalsChanged,
+                        url: projectURL, window: window) { _ in
+            refreshes += 1
+        }
         // **A round that has ended** (translation pipeline P4). It is filed to
         // `TranslationRoundStore`, which touches neither the manifest nor the
         // annotations — and the `ReloadKey`'s pipeline join carries the
@@ -288,6 +318,8 @@ struct DepartmentPaneHost: View {
             title: store.manifest.title,
             languages: languages,
             unreadable: unreadable,
+            proposedBriefs: Self.proposedLanguages(statementProposals),
+            proposedWithoutRow: Self.proposedWithoutRow(statementProposals, rows: languages),
             design: designRow,
             openEditionBrief: { language in
                 Task { await present(language: language) }
@@ -975,6 +1007,12 @@ struct DepartmentPaneHost: View {
             _departmentLog.error(
                 "could not list the project's design proposals: \(error, privacy: .public)")
         }
+
+        // **Every pending statement proposal** (translation pipeline P5) —
+        // `pendingAll()` is tolerant of an unreadable slot on its own
+        // (`StatementProposalStore`'s own posture), so there is no `catch`
+        // to keep the previous listing standing behind here.
+        statementProposals = StatementProposalStore(projectURL: projectURL).pendingAll()
     }
 
     /// The open chapter's word budget, per language row. Empty when the window
@@ -1164,5 +1202,34 @@ struct DepartmentPaneHost: View {
         "Couldn’t open the "
             + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
             + " edition brief. Check that the project folder is still where it was."
+    }
+
+    // MARK: - The "proposed" mark (translation pipeline P5)
+
+    /// **Which languages have a proposed edition brief pending**, from the
+    /// listing this host already read — never re-read here, so the badge and
+    /// the door it opens describe the same slot. Lowercased, matching
+    /// `ProposableStatement.key`'s own casing.
+    ///
+    /// A visual-language proposal contributes nothing: it has no language and
+    /// marks the Visual Language segment instead (`DetailPaneToggle`).
+    static func proposedLanguages(_ proposals: [StatementProposalStore.Proposal]) -> Set<String> {
+        Set(proposals.compactMap {
+            if case .editionBrief(let language) = $0.kind { return language.lowercased() }
+            return nil
+        })
+    }
+
+    /// **A proposed brief for a language the desk has no row for at all** —
+    /// sorted, for the foot-of-section line. Filtered against the desk's own
+    /// rows rather than the manifest's stored translators: a row is what the
+    /// badge above sits on, so what is missing a row is what is missing a
+    /// badge.
+    static func proposedWithoutRow(
+        _ proposals: [StatementProposalStore.Proposal],
+        rows: [EditionStatus.LanguageRow]
+    ) -> [String] {
+        let present = Set(rows.map { $0.language.lowercased() })
+        return proposedLanguages(proposals).filter { !present.contains($0) }.sorted()
     }
 }

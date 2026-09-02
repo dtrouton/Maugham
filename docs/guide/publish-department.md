@@ -331,6 +331,12 @@ click after opens the same one. Like the others, it carries its own
 **Rulings** section — dated, itemized decisions the translator is expected
 to honor exactly as written, not treat as a suggestion.
 
+A **Proposed** mark on a language row means Claude has drafted a brief for
+that edition (through the `edition-brief` skill); open Edition Brief to see
+the diff and Adopt or Discard it. A proposal for a language the desk has no
+row for yet is listed beneath the rows with its own Edition Brief door —
+adopting it is how that edition gets its first brief.
+
 ## Answering a translator
 
 A translator's query and a whole-document question (voice, an honorific,

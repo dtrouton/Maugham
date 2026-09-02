@@ -80,6 +80,24 @@ final class DepartmentPaneTests: XCTestCase {
         XCTAssertEqual(DepartmentDesk.queryLine(openQueries: 5), "5 open queries")
     }
 
+    // MARK: - The "proposed" mark (translation pipeline P5)
+
+    func test_aPendingBriefProposalMarksItsRowAndOnlyItsRow() throws {
+        let proposals: [StatementProposalStore.Proposal] = [
+            .init(kind: .editionBrief("es"), markdown: "x", rationale: nil, proposedAt: Date(), author: "Claude"),
+            .init(kind: .visualLanguage, markdown: "x", rationale: nil, proposedAt: Date(), author: "Claude"),
+        ]
+        XCTAssertEqual(DepartmentPaneHost.proposedLanguages(proposals), ["es"])
+        let rows = [EditionStatus.LanguageRow(language: "es", translator: nil, fresh: 0, stale: 0, missing: 0, openQueries: 0)]
+        XCTAssertEqual(DepartmentPaneHost.proposedWithoutRow(proposals, rows: rows), [])
+        XCTAssertEqual(DepartmentPaneHost.proposedWithoutRow(proposals, rows: []), ["es"],
+                       "a proposal for a language the desk has no row for still needs a door")
+        XCTAssertEqual(DepartmentDesk.proposedBadge, "Proposed")
+        XCTAssertEqual(DepartmentDesk.proposedWithoutRowLine(language: "it"),
+                       "Claude proposed a brief for Italian — open it to adopt or discard.")
+        XCTAssertTrue(DepartmentDesk.proposedHelp(language: "es").contains("Edition Brief"))
+    }
+
     // MARK: - The rows are translation_status's own numbers (Task 2)
 
     /// **The desk and the tool cannot disagree, because there is one
@@ -1156,6 +1174,7 @@ final class DepartmentPaneTests: XCTestCase {
 
         for forbidden in ["ProjectStore", "DocumentStore", "TranslationStore",
                           "DesignProposalStore", "PublishConfigStore",
+                          "StatementProposalStore",
                           "FileManager", "contentsOf"] {
             XCTAssertFalse(code.contains { $0.contains(forbidden) },
                            "`\(forbidden)` appears on the pane's path — the desk "

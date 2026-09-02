@@ -98,7 +98,7 @@ final class SkillIndexTests: XCTestCase {
         // The real bundled content: all skills present with descriptions.
         let index = try SkillIndex.bundled()
         XCTAssertEqual(index.skills.map(\.name),
-                       ["editing-pass", "transcribing-notebooks", "translation-pass"])
+                       ["editing-pass", "edition-brief", "transcribing-notebooks", "translation-pass", "visual-language"])
         XCTAssertNotNil(index.bootstrapTemplate)
         for skill in index.skills {
             XCTAssertFalse(skill.description.isEmpty)
