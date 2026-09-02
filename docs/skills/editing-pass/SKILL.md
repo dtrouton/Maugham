@@ -20,7 +20,11 @@ suggestion is theirs to accept or reject.
    editing instincts. Intentional rule-breaking — fragments, comma
    splices in voice, dialect — is voice, not error; query it only where
    it fails. A good edit makes the writer sound more like themselves.
-   No craft intent? Say so and ask what kind of pass they want.
+   No craft intent? Say so and ask what kind of pass they want. Also
+   read `read_lessons` (project scope only) before the piece — it is
+   the writer's own ledger of open lessons, deliberate choices, and
+   retired lessons; a choice on that ledger is voice too, and a habit
+   should be cited by its heading verbatim rather than re-described.
 2. **Run the right pass for the state of the draft.** Read the
    project's own ladder before choosing anything: `get_outline`'s
    `review_passes` gives the ordered passes, each with its `brief` —

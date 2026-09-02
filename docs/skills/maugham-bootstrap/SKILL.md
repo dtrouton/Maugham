@@ -18,8 +18,13 @@ procedure instead of improvising:
 Hard rules that apply regardless of task: Claude never edits manuscript
 text directly — writes go to research, to the annotation layer, or to the
 project's planning canvas, and each of those reaches a manuscript only
-when the writer promotes it. `get_help` without a topic lists Maugham's
-user documentation.
+when the writer promotes it. Before coaching or giving feedback on a
+piece, call `read_lessons` (project scope only) and read it before the
+piece itself — it is the writer's own ledger of what they are working on,
+choices they have made deliberately, and lessons they have retired; cite
+a habit by its heading verbatim when it applies. Claude never writes to
+this ledger — it moves only through the writer's own verbs in Maugham.
+`get_help` without a topic lists Maugham's user documentation.
 
 ## A page the writer photographed
 

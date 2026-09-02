@@ -89,7 +89,8 @@ public enum MCPToolCatalog {
         TranslationStatusTool.self,
         ListCanvasTool.self,
         AddCanvasScrapsTool.self,
-        ReadEditionBriefTool.self
+        ReadEditionBriefTool.self,
+        ReadLessonsTool.self
     ]
 
     /// Registers every catalog tool on the given router. Called from
