@@ -254,6 +254,18 @@ final class LetterMarkdownTests: XCTestCase {
         XCTAssertTrue(out.body.contains("An excerpt"), out.body)
     }
 
+    /// **The scrub touches the anchor and nothing else.** A writer who double-
+    /// spaces after a full stop keeps their own habit; the collapse exists
+    /// only to close the gap an inline anchor leaves behind it.
+    func test_theScrubLeavesProseItTookNothingOutOfAlone() {
+        XCTAssertEqual(
+            LetterMarkdown.scrubbed("She left.  He stayed."),
+            "She left.  He stayed.")
+        XCTAssertEqual(
+            LetterMarkdown.scrubbed("She left. <!-- \u{00b6}ab3d --> He stayed."),
+            "She left. He stayed.")
+    }
+
     /// Self-check: the matcher this file's negative assertions stand on does
     /// fire on a planted id. Without this, a broken regex would make every
     /// assertion above pass over any output at all.

@@ -168,13 +168,22 @@ enum LetterMarkdown {
     /// space the removal leaves is what keeps that readable.
     static func scrubbed(_ text: String) -> String {
         var out = text
+        var removedSomething = false
         for pattern in [anchorCommentPattern, bareAnchorTokenPattern] {
+            let range = NSRange(location: 0, length: (out as NSString).length)
+            guard pattern.firstMatch(in: out, range: range) != nil else { continue }
+            removedSomething = true
             out = pattern.stringByReplacingMatches(
-                in: out, range: NSRange(location: 0, length: (out as NSString).length),
-                withTemplate: "")
+                in: out, range: range, withTemplate: "")
         }
         out = MarkdownDisplayFilter.stripTaskAnchorsInline(out)
-        while out.contains("  ") {
+        // **Collapse only where something was taken out.** Removing an inline
+        // anchor leaves the two spaces that bracketed it against each other,
+        // and a doubled space mid-sentence reads as a typo the writer did not
+        // make. Doing it unconditionally would be worse in the other
+        // direction: a writer who double-spaces after a full stop would find
+        // their own habit quietly undone in every letter they kept.
+        while removedSomething, out.contains("  ") {
             out = out.replacingOccurrences(of: "  ", with: " ")
         }
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
