@@ -738,11 +738,7 @@ struct AnnotationsPane: View {
                 voice: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
                 round: run?.round),
             currentText: { document.paragraphs[$0] },
-            onJump: { pid in
-                MaughamEvent.post(
-                    .maughamNavigateToParagraph, to: .keyWindow,
-                    payload: ["paragraph_id": pid])
-            },
+            onJump: { jump(toParagraph: $0) },
             onAcceptExercise: { habit in
                 document.createPaneTask(
                     body: habit.exercise ?? habit.name,
@@ -755,37 +751,19 @@ struct AnnotationsPane: View {
             offerFailure: letterOfferFailure)
     }
 
-    /// `DiagnosticsPane.turnClauseOffer`'s rule, restated for this host's own
-    /// values: `strong_default` alone, not already filed for this run, and —
-    /// the durable half — a live statement that does not already carry the
-    /// clause. Both tenses are asked for the reason that pane's own doc gives
-    /// at length: the run's stamp was decided before the round began and
-    /// cannot know about a ruling filed since, so without the live read a
-    /// reopened queue offers again over the same run.
+    /// **The offer, decided and written by `TurnClauseOffer`** — the one
+    /// builder Author's Diagnostics pane calls too (fix round 1, Minor 4).
+    /// The predicate and the ruling live there; this supplies the queue's own
+    /// values and its own refusal channel.
     private func turnClauseOffer(
         _ letter: Letter, run: CompilerRun?, docId: String
     ) -> (() -> Void)? {
-        guard letter.scenePosition == ScenePosition.strongDefault.rawValue,
-              let run, turnClauseFiledForRun != run.id,
-              ScenePosition.live(store: store, docId: docId) != .strongDeclared
-        else { return nil }
-        return { addTurnClause(docId: docId, runId: run.id) }
-    }
-
-    private func addTurnClause(docId: String, runId: String) {
-        letterOfferFailure = nil
-        Task {
-            do {
-                try await RulingPerformer.rule(
-                    LetterSection.turnClauseRuling,
-                    provenance: "from \(cockpitReader?.editorName ?? PieceReader.nobody.editorName)'s letter",
-                    kind: .intent, forScope: .document(docId),
-                    store: store, world: world)
-                turnClauseFiledForRun = runId
-            } catch {
-                letterOfferFailure = error.localizedDescription
-            }
-        }
+        TurnClauseOffer.handler(
+            letter: letter, run: run, docId: docId, store: store, world: world,
+            voice: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
+            filedRunId: turnClauseFiledForRun,
+            onFiled: { turnClauseFiledForRun = $0 },
+            onFailure: { letterOfferFailure = $0 })
     }
 
     private func cockpitReportLine(
@@ -1575,11 +1553,18 @@ struct AnnotationsPane: View {
         if let pid = ann.paragraphId { info["paragraph_id"] = pid }
         MaughamEvent.post(
             .maughamNavigateToAnnotation, to: .keyWindow, payload: info)
-        if let pid = ann.paragraphId {
-            MaughamEvent.post(
-                .maughamNavigateToParagraph, to: .keyWindow,
-                payload: ["paragraph_id": pid])
-        }
+        if let pid = ann.paragraphId { jump(toParagraph: pid) }
+    }
+
+    /// **The one place this file posts `.maughamNavigateToParagraph`** (fix
+    /// round 1, Minor 5; tripwire 21). A row's jump carries a span as well and
+    /// posts its own annotation event first; the letter's carries only the
+    /// paragraph. Both end here, so the payload key and the scope are spelled
+    /// once.
+    private func jump(toParagraph pid: String) {
+        MaughamEvent.post(
+            .maughamNavigateToParagraph, to: .keyWindow,
+            payload: ["paragraph_id": pid])
     }
 }
 

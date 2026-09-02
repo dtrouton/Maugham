@@ -379,9 +379,19 @@ struct ReviewRoundCockpit: View {
     /// `about`, so a letter carrying only the say-back has no section to
     /// disclose, and a line over a disclosure that opens nothing would be a
     /// control the writer presses twice to learn there was nothing there.
+    /// **Blank is absent, not a line** (fix round 1, Minor 2). `one_thing` is
+    /// `<string|null>` on the wire and a model writing `""` for "nothing to
+    /// fix" is well within it; taken literally that drew an empty caption
+    /// under the status line with a disclosure triangle beside it. Both halves
+    /// are trimmed, and a letter whose every line is blank has no line at all.
     static func letterLine(_ letter: Letter?) -> String? {
         guard let letter, !letter.isEmpty else { return nil }
-        return letter.oneThing ?? letter.about
+        for candidate in [letter.oneThing, letter.about] {
+            let trimmed = (candidate ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
     }
 
     // MARK: - Verbs

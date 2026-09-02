@@ -1448,6 +1448,29 @@ final class ReviewRoundCockpitTests: XCTestCase {
             + "an empty letter has no section to disclose")
     }
 
+    /// **A blank one thing is not a line.** `one_thing` is `<string|null>` on
+    /// the wire and a model writing `""` is well within it; taken literally it
+    /// drew an empty caption with a disclosure triangle beside it.
+    func test_aBlankOneThingFallsBackToTheSayBack() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.letterLine(Self.letter(oneThing: "")),
+            "A ghost story told through weather.",
+            "an empty one thing is nothing to say, not something to draw")
+        XCTAssertEqual(
+            ReviewRoundCockpit.letterLine(Self.letter(oneThing: "   \n ")),
+            "A ghost story told through weather.",
+            "and whitespace is the same blank")
+        XCTAssertEqual(
+            ReviewRoundCockpit.letterLine(
+                Self.letter(oneThing: "  Give the reader the dock.  ")),
+            "Give the reader the dock.",
+            "the line is trimmed either way \u{2014} a leading newline in a caption "
+            + "pushes the strip's own layout around")
+        XCTAssertNil(
+            ReviewRoundCockpit.letterLine(Self.letter(oneThing: "", about: "  ")),
+            "a letter whose every line is blank has no line at all")
+    }
+
     /// The line draws under the status line, and the disclosure opens the
     /// host's own `LetterSection`.
     func test_theCockpitDrawsTheLetterLineAndDisclosesTheSection() throws {

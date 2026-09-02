@@ -320,6 +320,35 @@ final class LetterSectionTests: XCTestCase {
             + "writer is being asked about")
     }
 
+    /// **The count survives a first ref with no words left in it** (fix round
+    /// 1, Minor 3). A habit citing three paragraphs stands on three whether or
+    /// not the first of them still reads as anything — drawing the count only
+    /// beside a chip made the row claim one place where there were three.
+    func test_andNMoreIsDrawnEvenWhenTheFirstRefHasNoWordsLeft() throws {
+        let window = mount(
+            Self.fullLetter(),
+            currentText: { _ in "" })   // every paragraph rewritten to nothing
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains("and 2 more"),
+            "the count is a fact about the note, not about the chip. Read: \(texts)")
+
+        // The chip itself is correctly absent: a button labelled nothing is
+        // worse than no button. The fixture's refs carry excerpts, so the
+        // fallback is what has to be defeated here.
+        let blankRefs = Letter(
+            about: "A ghost story.", oneThing: nil, working: [], habits: [],
+            questions: [Letter.Question(
+                refs: [Self.ref("a1b2", " "), Self.ref("c3d4", " ")],
+                question: "Is the dock standing again by this scene?")],
+            scenes: nil, scenePosition: nil)
+        let bare = try axTexts(in: mount(blankRefs, currentText: { _ in "" }))
+        XCTAssertTrue(bare.contains("and 1 more"), "Read: \(bare)")
+        XCTAssertFalse(
+            bare.contains { $0.contains("\u{201C}") },
+            "and no chip is drawn for a paragraph with no words. Read: \(bare)")
+    }
+
     /// **Accept as task hands the habit over, once.** The button is disabled
     /// after the press rather than removed: a control that vanished on its own
     /// press leaves the writer unsure whether it fired.

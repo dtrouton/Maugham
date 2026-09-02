@@ -159,8 +159,12 @@ struct LetterSection: View {
             excerpt: DiagnosticsPane.truncatedDriftQuote(words))
     }
 
-    /// "and N more" for the refs a row does not draw a chip for. `nil` for a
-    /// row with one ref or none, which is most of them.
+    /// "and N more" for the refs beyond the first. `nil` for a row with one
+    /// ref or none, which is most of them.
+    ///
+    /// It counts the refs the ENTRY carries, not the ones a chip was drawn
+    /// for: a habit citing three paragraphs stands on three whether or not the
+    /// first of them still has words in it (fix round 1, Minor 3).
     static func andMore(_ refs: [Diagnostic.Ref]) -> String? {
         guard refs.count > 1 else { return nil }
         return "and \(refs.count - 1) more"
@@ -384,11 +388,20 @@ struct LetterSection: View {
     /// reference they have to hunt for.
     @ViewBuilder
     private func refRow(_ refs: [Diagnostic.Ref]) -> some View {
-        if let first = refs.first,
-           let chip = Self.chipRef(for: first, currentText: currentText) {
+        let chip = refs.first.flatMap {
+            Self.chipRef(for: $0, currentText: currentText)
+        }
+        let more = Self.andMore(refs)
+        // **The count does not depend on the chip** (fix round 1, Minor 3).
+        // Drawn only inside `if let chip`, "and 2 more" vanished whenever the
+        // FIRST ref had no words left in it — a paragraph rewritten to nothing
+        // — and the row then claimed the habit stood on one place when it
+        // stood on three. The chip is a way to travel; the count is a fact
+        // about the note.
+        if chip != nil || more != nil {
             HStack(spacing: 6) {
-                ExcerptChip(ref: chip, onJump: onJump)
-                if let more = Self.andMore(refs) {
+                if let chip { ExcerptChip(ref: chip, onJump: onJump) }
+                if let more {
                     Text(more)
                         .font(.caption2)
                         .foregroundStyle(.secondary)

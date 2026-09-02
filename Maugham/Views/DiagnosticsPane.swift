@@ -869,8 +869,15 @@ struct DiagnosticsPane: View {
                 // thing to DO, and a habit with no exercise never draws the
                 // button, so the `?? habit.name` fallback is a belt on a path
                 // the view already refuses to offer.
+                //
+                // **`paneDocument`, not `activeDocument()`** (fix round 1):
+                // the guard is the pane's own — the window's active document
+                // IS this pane's subject, or there is no queue and no task to
+                // file. Anchoring a habit's exercise onto another chapter's
+                // document would be a task the writer cannot account for from
+                // anything on their screen.
                 onAcceptExercise: { habit in
-                    activeDocument()?.createPaneTask(
+                    paneDocument?.createPaneTask(
                         body: habit.exercise ?? habit.name,
                         parentTaskId: nil,
                         paragraphId: habit.refs.first?.paragraphId,
@@ -886,61 +893,18 @@ struct DiagnosticsPane: View {
         }
     }
 
-    /// **Whose gap the offer is for** — `strong_default` and nothing else.
-    ///
-    /// Four refusals, each for its own reason: the weak form and no table at
-    /// all have no doctrine to opt into; a pane with no project has nowhere to
-    /// file a ruling, which would be a button pressing into nowhere; and a
-    /// writer whose intent already carries the clause has answered it and must
-    /// not be asked twice — asked in BOTH tenses, because they are different
-    /// questions. `letter.scenePosition` is what the RUN was told, decided
-    /// before the round began; `ScenePosition.live` is what their statement
-    /// says NOW, which is the only one that can know about a ruling filed since
-    /// (Denver's ruling on Task 9's concern 4). Without the live half, a
-    /// reopened pane over the same run offers again and a second click files a
-    /// duplicate saying what the statement already says. The fifth refusal — a
-    /// table where every scene turns — is `LetterSection`'s own half of the
-    /// condition.
-    ///
-    /// `turnClauseFiledForRun` is kept for immediate feedback within one mount
-    /// and is no longer load-bearing: the live read answers the same question
-    /// durably, and `test_aFreshPaneDoesNotOfferAClauseTheIntentAlreadyCarries`
-    /// mounts a fresh pane precisely so the state cannot be what passes it.
+    /// **The offer, decided and written by `TurnClauseOffer`** — the one
+    /// builder both hosts call (fix round 1, Minor 4). The predicate, the two
+    /// tenses it reads and the ruling's provenance all live there; what this
+    /// pane supplies is its own values and its own refusal channel.
     private func turnClauseOffer(
         for letter: Letter, run: CompilerRun
     ) -> (() -> Void)? {
-        guard letter.scenePosition == ScenePosition.strongDefault.rawValue,
-              turnClauseFiledForRun != run.id,
-              let store,
-              ScenePosition.live(store: store, docId: docId) != .strongDeclared
-        else { return nil }
-        return { addTurnClause(store: store, runId: run.id) }
-    }
-
-    /// **The offer's click, through `RulingPerformer.rule`** — the one door
-    /// into the writer-owned layer (spec §3.4). The sentence is the writer's
-    /// from then on, and the round after this one strains against a clause
-    /// they can find in their own statement.
-    ///
-    /// The failure travels in `answerFailures`, under a key no diagnostic and
-    /// no annotation can mint, so a refused ruling says so beside the button
-    /// rather than leaving a control that looks pressed and an intent that
-    /// never moved.
-    private func addTurnClause(store: ProjectStore, runId: String) {
-        answerFailures[Self.turnClauseFailureKey] = nil
-        Task {
-            do {
-                try await RulingPerformer.rule(
-                    LetterSection.turnClauseRuling,
-                    provenance: "from \(reader.editorName)'s letter",
-                    kind: .intent, forScope: .document(docId),
-                    store: store, world: world)
-                turnClauseFiledForRun = runId
-            } catch {
-                documentLog.error("\u{201C}Add to intent\u{201D} refused for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                answerFailures[Self.turnClauseFailureKey] = error.localizedDescription
-            }
-        }
+        TurnClauseOffer.handler(
+            letter: letter, run: run, docId: docId, store: store, world: world,
+            voice: reader.editorName, filedRunId: turnClauseFiledForRun,
+            onFiled: { turnClauseFiledForRun = $0 },
+            onFailure: { answerFailures[Self.turnClauseFailureKey] = $0 })
     }
 
     /// The offer's slot in `answerFailures`. A ULID id space cannot produce

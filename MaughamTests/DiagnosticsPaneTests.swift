@@ -3809,31 +3809,62 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// one of them at a time. The `!hasReport` arm matters as much as the
     /// other: a round over a piece with no declared intent raises no clause
     /// and no strain, and since P1 its whole output can be one letter.
+    ///
+    /// **The arms are found by their own `if`/`else` anchors, never by a
+    /// character budget** (fix round 1, Important). This test took
+    /// `prefix(1600)` of the body and the body is ~1900 characters: the slice
+    /// stopped inside the report arm before its `roundLine`, the
+    /// `where arm.contains("roundLine")` filter then skipped that arm
+    /// silently, and the test asserted ONE arm while its name promised two. A
+    /// census whose subject can quietly become empty is a census that passes
+    /// over the defect it exists for — so both arms are named, and each is
+    /// required to be non-empty before anything is asserted about it.
     func test_theLetterDrawsAfterTheRoundLineAndBeforeThisCheckInBothArms() throws {
         let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
-        let body = try XCTUnwrap(
-            source.range(of: "private var content: some View {").map {
-                String(source[$0.upperBound...].prefix(1600))
-            },
+        let declaration = "private var content: some View {"
+        let bodyStart = try XCTUnwrap(
+            source.range(of: declaration),
             "`content` is where the placement lives; find it by name if it moved")
-        let arms = body.components(separatedBy: "} else {")
-        XCTAssertGreaterThanOrEqual(
-            arms.count, 2, "content must still have a no-report arm and a report arm")
-        for (index, arm) in arms.enumerated() where arm.contains("roundLine") {
+        let body = String(source[bodyStart.upperBound...])
+        let bodyEnd = try XCTUnwrap(
+            body.range(of: "\n    // MARK:"),
+            "`content` is expected to be followed by a MARK; anchor on whatever "
+            + "follows it if that changes")
+        let content = String(body[..<bodyEnd.lowerBound])
+
+        let noReportAnchor = try XCTUnwrap(
+            content.range(of: "} else if !hasReport {"),
+            "the no-report arm's own anchor. Body:\n\(content)")
+        let reportAnchor = try XCTUnwrap(
+            content.range(of: "\n        } else {"),
+            "the report arm's own anchor. Body:\n\(content)")
+        XCTAssertTrue(
+            noReportAnchor.upperBound <= reportAnchor.lowerBound,
+            "the no-report arm precedes the report arm")
+
+        let arms = [
+            ("no-report", String(content[noReportAnchor.upperBound..<reportAnchor.lowerBound])),
+            ("report", String(content[reportAnchor.upperBound...])),
+        ]
+        for (name, arm) in arms {
+            XCTAssertFalse(
+                arm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                "the \(name) arm sliced to nothing \u{2014} the anchors are wrong, and "
+                + "an empty arm asserts nothing")
             guard let round = arm.range(of: "roundLine"),
                   let letter = arm.range(of: "letterSection"),
                   let check = arm.range(of: "thisCheckSection") else {
                 return XCTFail(
-                    "arm \(index) draws roundLine but not both letterSection and "
+                    "the \(name) arm is missing one of roundLine / letterSection / "
                     + "thisCheckSection:\n\(arm)")
             }
             XCTAssertTrue(
                 round.lowerBound < letter.lowerBound,
-                "the letter follows the round line in arm \(index)")
+                "the letter follows the round line in the \(name) arm:\n\(arm)")
             XCTAssertTrue(
                 letter.lowerBound < check.lowerBound,
-                "and precedes This check in arm \(index) \u{2014} the letter is what "
-                + "the writer reads first; the notes are the margin")
+                "and precedes This check in the \(name) arm \u{2014} the letter is what "
+                + "the writer reads first; the notes are the margin:\n\(arm)")
         }
     }
 
@@ -4187,19 +4218,100 @@ final class DiagnosticsPaneTests: XCTestCase {
             + "offering here would ask for a clause the run is already briefed on")
     }
 
-    /// **The census the behavioural test cannot make**: BOTH hosts ask the
-    /// live statement, through the one spelling. A host that kept only its own
-    /// per-mount state would pass every test above that mounts it once.
-    func test_bothHostsAskTheLiveStatementBeforeOfferingTheClause() throws {
+    /// **An opt-out withdraws the offer.** The writer said in their own words
+    /// that this piece does not move by scenes; the run's stamp predates that
+    /// sentence and cannot know. Control in the same test: the identical mount
+    /// over a statement that says nothing still offers.
+    func test_anOptOutWithdrawsTheOffer() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferOptOut")
+        XCTAssertNotNil(
+            findButton(
+                labelled: LetterSection.addToIntentTitle,
+                in: mountLetterPane(
+                    store: store, docId: chapter.id, letter: makeLetter())),
+            "the control: nothing declared, so the offer stands")
+
+        let statement = try await store.createStatement(
+            kind: .intent, scope: .document(chapter.id))
+        try await store.appendToStatement(
+            "This one is not scene-driven; it meanders on purpose.",
+            to: statement, session: "seed")
+
+        XCTAssertEqual(
+            ScenePosition.live(store: store, docId: chapter.id), ScenePosition.none,
+            "the premise: the opt-out beats everything")
+        XCTAssertNil(
+            findButton(
+                labelled: LetterSection.addToIntentTitle,
+                in: mountLetterPane(
+                    store: store, docId: chapter.id, letter: makeLetter())),
+            "asking a writer who just said the piece has no scenes to hold every "
+            + "scene to a turn is the app not having listened")
+    }
+
+    /// **A prose piece opted in by its PASS BRIEF still gets the offer**, and
+    /// this is the case that decides how the live read is spelled.
+    ///
+    /// `ScenePosition.live` derives with `passBrief: nil` — it must, since a
+    /// brief is not a sentence the writer wrote about this book — so such a
+    /// piece stamps `strong_default` on the run and derives `.weak` live.
+    /// Drawing the offer only for a live `.strongDefault` would withhold it
+    /// from exactly the writer spec §3.4 wrote it for. So the live read
+    /// withdraws the offer for a declared clause and for an opt-out, and for
+    /// nothing else.
+    func test_aProsePieceOptedInByItsPassBriefStillGetsTheOffer() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferBriefOptIn")
+        XCTAssertEqual(
+            ScenePosition.live(store: store, docId: chapter.id), .weak,
+            "the premise: a novel with no declared intent derives weak live, while "
+            + "the RUN was told strong_default by its pass brief")
+        XCTAssertNotNil(
+            findButton(
+                labelled: LetterSection.addToIntentTitle,
+                in: mountLetterPane(
+                    store: store, docId: chapter.id, letter: makeLetter())),
+            "a live reading of `.weak` must NOT withdraw the offer \u{2014} only a "
+            + "declared clause or an opt-out does")
+    }
+
+    /// **The census the behavioural tests cannot make**: both hosts decide and
+    /// write the offer through the ONE builder, and neither re-spells the
+    /// predicate. A host keeping its own copy would pass every behavioural
+    /// test above that mounts it once, and drift silently afterwards.
+    func test_bothHostsDecideTheOfferThroughTheOneBuilder() throws {
         for path in ["Maugham/Views/DiagnosticsPane.swift",
                      "Maugham/Views/AnnotationsPane.swift"] {
             let source = try readSource(path)
             XCTAssertTrue(
+                source.contains("TurnClauseOffer.handler("),
+                "\(path) must reach the one builder")
+            XCTAssertFalse(
                 source.contains("ScenePosition.live("),
-                "\(path) must decide the offer against the intent as it stands now, "
-                + "never against per-mount state alone \u{2014} reopening the pane "
-                + "would otherwise ask for a clause the writer has already given")
+                "\(path) must not re-derive the live position \u{2014} the two tenses "
+                + "are `TurnClauseOffer`'s question, and a second copy is two answers "
+                + "waiting to disagree")
+            XCTAssertFalse(
+                source.contains("RulingPerformer.rule(\n                    LetterSection.turnClauseRuling"),
+                "\(path) must not spell the ruling call again either")
         }
+    }
+
+    /// **Accept as task files onto the pane's OWN document.** `paneDocument`
+    /// refuses a window whose active document is not this pane's subject;
+    /// `activeDocument()` does not, and a habit's exercise anchored onto
+    /// another chapter is a task the writer cannot account for.
+    func test_acceptAsTaskGoesThroughThePanesOwnDocumentGuard() throws {
+        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        let section = try XCTUnwrap(
+            source.range(of: "private var letterSection: some View {").map {
+                String(source[$0.upperBound...].prefix(1400))
+            })
+        XCTAssertTrue(
+            section.contains("paneDocument?.createPaneTask("),
+            "the letter's task must go through the guarded document: \(section)")
+        XCTAssertFalse(
+            section.contains("activeDocument()?.createPaneTask("),
+            "and not through the unguarded one: \(section)")
     }
 
     // MARK: - Letter hosting
