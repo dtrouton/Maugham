@@ -209,7 +209,9 @@ caret — into this piece's craft intent by default, or into one language's
 edition brief if you choose "This edition only". Every translator, reader and
 collator is briefed with it. On disk it is one plain line under `## Rulings`,
 `- ¶k7mq: keep the three "and"s — ruled 28 Aug 2026, translator's note`, and
-you can edit it there.
+you can edit it there. It's the same sheet a translation round's report opens
+when you press **Keep mine** on a paragraph the collator says has moved — see
+[The Publish Department → The round report](publish-department.md#the-round-report).
 
 **Keep it.** **Promote to Task** turns the note into a real task on the
 document, carrying its own words plus one line recording who raised it, when,

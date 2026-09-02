@@ -192,6 +192,17 @@ struct ProjectWindow: View {
     /// (`PublishPreviewModifier`) — a gate is a place in a decision, and leaving
     /// Publish is leaving it.
     @State private var publishSelectedProposal: DesignProposalStore.Proposal?
+    /// **The translation round the desk sent to the centre** (translation
+    /// pipeline P4), beside the design proposal above. The whole value for
+    /// `publishSelectedProposal`'s reason: the desk derived it to draw the
+    /// row's own line, so nothing here reads `TranslationRoundStore` a second
+    /// time.
+    ///
+    /// Written by the desk's two Shows, which clear each other; drawn by
+    /// `PublishCentre.translationRound`, which outranks the gate above; and
+    /// cleared on a persona change by `PublishPreviewModifier`, exactly as the
+    /// proposal above is (Task 3).
+    @State private var publishSelectedRound: TranslationRound?
     @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
@@ -622,6 +633,8 @@ struct ProjectWindow: View {
             window: window,
             projectURL: url,
             activeDocId: activeDocId,
+            selectedSubject: $selectedSubject,
+            documentStore: documentStore,
             editorControl: $editorControl))
         .modifier(PaletteWallModifier(
             showsPaletteWall: $showsPaletteWall,
@@ -652,7 +665,8 @@ struct ProjectWindow: View {
             projectURL: url, window: window, persona: persona,
             publishPreview: $publishPreview,
             selectedPublicationID: $publishSelectedPublicationID,
-            selectedProposal: $publishSelectedProposal))
+            selectedProposal: $publishSelectedProposal,
+            selectedRound: $publishSelectedRound))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, persona: persona))
         // The writer's notice that Claude added cards to their canvas, and the way
@@ -1590,15 +1604,26 @@ struct ProjectWindow: View {
     /// writer pressed Show on. Both guards above it still apply unchanged — the
     /// gate is Publish's, and it is PROJECT-level, so a chapter subject opens the
     /// editor with a proposal selected exactly as it does with one compiled.
+    ///
+    /// **And a translation round joins as a FOURTH answer, above the gate**
+    /// (translation pipeline P4 Task 3), composed into the same function for the
+    /// same reason. The desk now has two Shows, each clearing the other as it
+    /// writes, so what the writer pressed last is the only selection standing —
+    /// but the *order* is still needed here, because two `@State` writes landing
+    /// in one body pass would otherwise make which surface draws a question
+    /// about their sequence. Both guards above still apply unchanged: the report
+    /// is Publish's, and it is PROJECT-level.
     static func publishCentre(persona: Persona,
                               subject: BinderSubject?,
                               structure: [StructureItem],
                               preview: PublishPreviewResolution,
-                              proposal: DesignProposalStore.Proposal? = nil)
+                              proposal: DesignProposalStore.Proposal? = nil,
+                              round: TranslationRound? = nil)
     -> PublishCentre? {
         guard persona.previewsThePublishedBook else { return nil }
         guard subjectShowsAltitude(persona: persona, subject: subject,
                                    structure: structure) else { return nil }
+        if let round { return .translationRound(round) }
         if let proposal { return .designProposal(proposal) }
         switch preview {
         case .ready(let publications):
@@ -1635,6 +1660,26 @@ struct ProjectWindow: View {
                                  showing current: DesignProposalStore.Proposal?)
     -> DesignProposalStore.Proposal? {
         current?.id == updated.id ? updated : current
+    }
+
+    /// **The same rule for a round's verb** (translation pipeline P4 Task 3),
+    /// and the same argument: "Fine" and "Adopt" answer from a `Task` that
+    /// outlives the press, and the writer is free to press Back — or Show a
+    /// different round, or the design gate — while it runs.
+    ///
+    /// A round has no `id`; it is identified by `(language, number)`, which is
+    /// what `TranslationRoundStore` keys its ring on. Written out here rather
+    /// than as an `Equatable` conformance on the record, because two rounds with
+    /// the same number in the same language ARE the same round at two moments —
+    /// which is exactly the case this write-back exists for — while
+    /// `TranslationRound: Equatable` is a value comparison the store and the
+    /// tests depend on.
+    static func publishSelection(after updated: TranslationRound,
+                                 showing current: TranslationRound?)
+    -> TranslationRound? {
+        current.map { $0.language == updated.language && $0.number == updated.number } == true
+            ? updated
+            : current
     }
 
     /// **Does Review's centre column show the passes board?** (M3 P1 Task 6,
@@ -2096,7 +2141,38 @@ struct ProjectWindow: View {
                                       subject: selectedSubject,
                                       structure: store.manifest.structure,
                                       preview: publishPreview,
-                                      proposal: publishSelectedProposal) {
+                                      proposal: publishSelectedProposal,
+                                      round: publishSelectedRound) {
+            // **The round report, a fifth layer of this same stack**
+            // (translation pipeline P4 Task 3) — a fourth arm of the ONE switch
+            // for the gate's reason: two ViewBuilder arms are two view
+            // identities, and a report on its own branch would tear
+            // `EditorHost` down on every Show and every Back.
+            case .translationRound(let round):
+                TranslationRoundReportHost(
+                    round: round, store: store, documentStore: documentStore,
+                    projectURL: store.url, window: window,
+                    // The nine verbs, wired to this window (P4 Task 4).
+                    actions: TranslationRoundActions.production(
+                        store: store, documentStore: documentStore,
+                        projectURL: store.url, world: declaredWorld),
+                    onClose: { publishSelectedRound = nil },
+                    // Through `publishSelection`, never straight in: a verb
+                    // answers from a `Task` that outlives the press.
+                    onRoundChanged: { updated in
+                        publishSelectedRound = Self.publishSelection(
+                            after: updated, showing: publishSelectedRound)
+                    },
+                    // **A row as a way back into the manuscript** (P4 Task 5).
+                    // The row knows its own paragraph; the round knows the
+                    // chapter and the edition it belongs to; which chapter is
+                    // OPEN is the window's answer, so the post carries all three
+                    // and `TranslationReviewModifier` plans what to do with them.
+                    onReveal: { paragraphId in
+                        TranslationReveal.post(.init(
+                            docId: round.docId, language: round.language,
+                            paragraphId: paragraphId))
+                    })
             case .designProposal(let proposal):
                 DesignGateView(proposal: proposal, projectURL: store.url,
                                // The verdict's four verbs (P4 Task 6), wired to
@@ -2957,10 +3033,28 @@ struct ProjectWindow: View {
             // round's cold legs hold no translator session, so without it the
             // rows offer Run while a reader is out (translation pipeline P3).
             pipeline: pipeline,
-            // …and the desk's Show (P4 Task 5), which is the only thing on that
-            // pane that reaches the CENTRE column. One write, of the one piece
-            // of window state the gate arm is a function of.
-            onShowDesignProposal: { publishSelectedProposal = $0 },
+            // …and the cold-call runner, for the Translation pane's two
+            // spot-checks (translation pipeline P4 Task 6). The same runner the
+            // pipeline's cold legs use, which is what makes "a cold session is
+            // already out" a true refusal rather than a guess.
+            coldCall: coldCall,
+            // …and the desk's two Shows — the design gate's (P4 Task 5) and,
+            // as of translation pipeline P4, a round's. They are the only
+            // things on that pane that reach the CENTRE column, and each is
+            // one write of the window state its own arm is a function of.
+            //
+            // **One centre, one selection.** The gate arm and the round arm are
+            // two readings of the same column, so each Show clears the other:
+            // leaving both set would make which one the centre draws a question
+            // about the order of two `@State` writes.
+            onShowDesignProposal: {
+                publishSelectedProposal = $0
+                publishSelectedRound = nil
+            },
+            onShowTranslationRound: {
+                publishSelectedRound = $0
+                publishSelectedProposal = nil
+            },
             compilerModel: compilerModel,
             onCompilerModelChange: { newValue in
                 compilerModel = newValue
@@ -3870,6 +3964,14 @@ struct ProjectWindow: View {
                 onRoundEnded: { round in
                     _projectWindowLog.info(
                         "translation round \(round.number, privacy: .public) for \(round.docId, privacy: .public)/\(round.language, privacy: .public) ended at leg \(round.legs.last?.leg.name ?? "-", privacy: .public)")
+                    // **How a finished round reaches the desk** (P4). The round
+                    // is filed to `TranslationRoundStore`, which touches
+                    // neither the manifest nor the annotations, and the desk's
+                    // `ReloadKey` carries the pipeline's LANGUAGE and not its
+                    // leg — so nothing else here would tell the row it has a
+                    // newer round to draw. `.project`-scoped, because another
+                    // window on another book has no stake in it.
+                    MaughamEvent.postTranslationRoundEnded(projectURL: url, round: round)
                 }))
             mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
@@ -4575,11 +4677,32 @@ private struct TranslationReviewModifier: ViewModifier {
     /// name — the one consumer of `activeDocId` with no sentinel substitution at
     /// all, and a third spelling of the rule.
     let activeDocId: String
+    /// The window's one subject-picker, written when a reveal names a chapter
+    /// that is not the open one (P4 Task 5). Selecting the document is also what
+    /// dismisses the round report the row was clicked in: `publishCentre` draws
+    /// a report only while `subjectShowsAltitude`, and a document subject ends
+    /// that — so the report gives way to the editor without a second decision.
+    @Binding var selectedSubject: BinderSubject?
+    /// For the pending reveal's one question: has that chapter's `Document`
+    /// registered yet? The enter-review post reaches an `EditorCoordinator` that
+    /// does not exist until it has.
+    let documentStore: DocumentStore?
     @Binding var editorControl: EditorControl
 
     @State private var translationLanguage: String?
     @State private var pickerLanguages: [String] = []
     @State private var showingPicker = false
+    /// A reveal whose chapter had to be selected first, held until `activeDocId`
+    /// catches up. Nil at every other moment.
+    @State private var pendingReveal: TranslationReveal?
+    /// The two waits a reveal performs — for the chapter's document, then for
+    /// its translated surface. Held so a second reveal cancels the first rather
+    /// than racing it, and so closing the window ends it.
+    @State private var revealTask: Task<Void, Never>?
+
+    /// 50 ms × 60 = three seconds. Shared by both of the reveal's waits.
+    private static let revealPollInterval = 50
+    private static let revealPollAttempts = 60
 
     func body(content: Content) -> some View {
         content
@@ -4602,13 +4725,49 @@ private struct TranslationReviewModifier: ViewModifier {
                 translationLanguage = nil
                 editorControl.translationLanguage = nil
             }
+            // **A report row as a way back into the manuscript** (P4 Task 5).
+            //
+            // The reveal names a chapter, an edition and a paragraph. Which
+            // chapter is OPEN is this window's own answer and nobody else's, so
+            // the poster posts and the plan is made here — `.now` when the
+            // chapter is already up, `.afterSelecting` when it is not.
+            .onKeyWindowCommand(.maughamRevealTranslation, window: window) { note in
+                guard let reveal = TranslationReveal.decode(note.userInfo) else { return }
+                switch TranslationReveal.plan(reveal, activeDocId: activeDocId) {
+                case .now:
+                    startReveal(reveal, waitingForDocument: false)
+                case .afterSelecting(let subject):
+                    pendingReveal = reveal
+                    selectedSubject = subject
+                }
+            }
             // The chosen language belongs to the doc that was active when it was
             // picked; a doc switch must drop the posture back to the source.
-            .onChange(of: activeDocId) { _, _ in
-                guard translationLanguage != nil else { return }
-                translationLanguage = nil
-                editorControl.translationLanguage = nil
+            //
+            // **And this is where a pending reveal lands.** The selection above
+            // moves `activeDocId` on the same body pass, so this is the first
+            // moment the window is looking at the chapter the reveal named. The
+            // clear still runs first, on purpose: the reveal's own enter-review
+            // post sets the language a moment later, and until it does the
+            // writer is looking at the new chapter's SOURCE rather than at the
+            // previous chapter's edition.
+            .onChange(of: activeDocId) { _, newValue in
+                if translationLanguage != nil {
+                    translationLanguage = nil
+                    editorControl.translationLanguage = nil
+                }
+                // Taken unconditionally: a pending reveal that did not get the
+                // chapter it asked for is stale, and one left standing would
+                // fire on some later, unrelated arrival at that document.
+                let pending = pendingReveal
+                pendingReveal = nil
+                guard let reveal = pending, reveal.docId == newValue else { return }
+                startReveal(reveal, waitingForDocument: true)
             }
+            // A reveal's waits outlive the press by up to six seconds. A window
+            // closing mid-wait must end them rather than let them poll a store
+            // nobody is looking at any more.
+            .onDisappear { revealTask?.cancel() }
             .confirmationDialog(
                 "Translation Review",
                 isPresented: $showingPicker,
@@ -4649,6 +4808,108 @@ private struct TranslationReviewModifier: ViewModifier {
                         })
                 }
             }
+    }
+
+    /// **Perform a reveal, waiting for each thing it needs to exist** (P4 Task 5).
+    ///
+    /// Two waits, and neither is optional:
+    ///
+    /// - **The document**, when the chapter had to be selected first.
+    ///   `EditorHost` registers the `Document` as it loads, and the enter-review
+    ///   post is received by an `EditorCoordinator` that does not exist until it
+    ///   has.
+    /// - **The translated surface**, always. The enter-review post only writes
+    ///   `translationLanguage`; the buffer is swapped in on the next body pass
+    ///   (`EditorHost`'s `.onChange` → `recomputeTranslatedSurface` →
+    ///   `applyExternalText`). Navigate without waiting and the coordinator
+    ///   scrolls the source text, which the swap then discards — the reveal
+    ///   lands at the top of the edition every time (fix round 1).
+    ///
+    /// The two facts the surface wait is judged against — which edition was on
+    /// screen, and what its badge model held — are captured HERE, before the
+    /// enter-review post, because that post is delivered synchronously and has
+    /// already moved both of them by the time `ready` runs.
+    ///
+    /// Cancels whatever a previous reveal left running: the writer clicking a
+    /// second row means the first is no longer what they asked for.
+    private func startReveal(_ reveal: TranslationReveal, waitingForDocument: Bool) {
+        revealTask?.cancel()
+        let store = documentStore
+        let control = editorControl
+        revealTask = Task { @MainActor in
+            if waitingForDocument {
+                guard await Self.waitForDocument(reveal, in: store) else { return }
+            }
+            // Already showing this edition — the enter-review post changes
+            // nothing, nothing recomputes, and there is no new surface to wait
+            // for. Without this the common case (a reveal from the Translation
+            // pane, review already up) would stall for the full three seconds.
+            let alreadyShowing = control.translationLanguage == reveal.language
+            let surfaceBefore = control.translationBadges
+            await TranslationReveal.perform(
+                reveal,
+                ready: {
+                    guard !alreadyShowing else { return }
+                    await Self.waitForTranslatedSurface(
+                        reveal, in: control, replacing: surfaceBefore)
+                },
+                post: { MaughamEvent.post($0, to: .keyWindow, payload: $1) })
+        }
+    }
+
+    /// Poll until the chapter's document is registered. `true` if it arrived.
+    ///
+    /// A bare next-tick deferral loses this race — tripwire 16's lesson, one
+    /// column over — so this polls on the coordinator's own idiom: 50 ms, up to
+    /// three seconds, then gives up in silence. Giving up still leaves the
+    /// writer with the right chapter open, which is honestly most of what the
+    /// row was asked for; a notice for a load that is merely slow would be worse
+    /// than the quiet.
+    ///
+    /// Static, and handed the store rather than reading `self`, so the `Task`
+    /// captures sendable values instead of a whole `ViewModifier` whose `@State`
+    /// it must not outlive.
+    @MainActor
+    private static func waitForDocument(
+        _ reveal: TranslationReveal, in store: DocumentStore?
+    ) async -> Bool {
+        for _ in 0..<revealPollAttempts {
+            // Checked before the read, not after: a cancelled reveal must not
+            // go on to enter review for a chapter nobody is waiting on.
+            if Task.isCancelled { return false }
+            if store?.document(forDocId: reveal.docId) != nil { return true }
+            // A cancelled sleep must END the poll — swallowing it with `try?`
+            // would spin the loop sixty times with no wait at all.
+            do { try await Task.sleep(for: .milliseconds(revealPollInterval)) }
+            catch { return false }
+        }
+        return false
+    }
+
+    /// Poll until the translated surface the enter-review post asked for has
+    /// reached `EditorControl`.
+    ///
+    /// **Both halves of the predicate are load-bearing.** `replacing` is the
+    /// badge model as it stood before the post: without it, a reveal into a
+    /// DIFFERENT edition than the one on screen would be satisfied instantly by
+    /// the outgoing edition's entries, which is the bug this wait exists to
+    /// prevent wearing a different hat. The `contains` is what says the surface
+    /// that arrived actually holds the paragraph being revealed.
+    @MainActor
+    private static func waitForTranslatedSurface(
+        _ reveal: TranslationReveal, in control: EditorControl,
+        replacing previous: EditorControl.TranslationBadgeModel
+    ) async {
+        for _ in 0..<revealPollAttempts {
+            if Task.isCancelled { return }
+            let badges = control.translationBadges
+            if badges != previous,
+               badges.entries.contains(where: { $0.paragraphId == reveal.paragraphId }) {
+                return
+            }
+            do { try await Task.sleep(for: .milliseconds(revealPollInterval)) }
+            catch { return }
+        }
     }
 }
 

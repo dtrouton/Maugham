@@ -1049,6 +1049,74 @@ final class TripwireGrepTests: XCTestCase {
             + "caught. Got:\n" + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - The spot-checks mint nothing (translation pipeline P4 Task 6)
+
+    /// **Spec §12's line, as a census.** Gloss and Ask the collator are two
+    /// questions the writer asks about one paragraph, and the answer is drawn
+    /// and nothing else: what the author does with it — Keep mine, Make it a
+    /// rule — is a separate verb they press.
+    ///
+    /// The distance between "the verbs write, the check does not" and "the
+    /// check writes what it found" is one plausible convenience, and nothing in
+    /// a type signature refuses it: `SpotCheck` is handed the `ProjectStore` and
+    /// the `DocumentStore` it needs to BRIEF a call, which are the same two
+    /// objects a mint would be written through. So the file is scanned for the
+    /// four doors instead. `coldCall.call(` proves the scan reads a file that
+    /// still asks a question at all.
+    /// The four write doors, plus the bridge spelling `ColdCall` is already
+    /// forbidden. One list, read by the census and by its planted-offender
+    /// companion, so adding a door here arms both.
+    static let spotCheckWriteDoors = [
+        "RulingPerformer", "addAnnotation", "TranslationRoundStore",
+        "writeMCPConfig", ".bridged(",
+    ]
+
+    /// The census itself, over whatever directory it is handed — which is what
+    /// lets the companion below plant an offender and run the REAL scan on it
+    /// rather than a copy of it.
+    private func spotCheckMintOffenders(in dir: URL) throws -> [String] {
+        try grepSwift(in: dir, files: ["SpotCheck.swift"],
+                      patterns: Self.spotCheckWriteDoors)
+    }
+
+    func test_aSpotCheckMintsNothing() throws {
+        let offenders = try spotCheckMintOffenders(in: sourceDir)
+        XCTAssertTrue(offenders.isEmpty,
+                      "a spot-check answers a question; the author's own verb is what "
+                      + "writes. Offenders:\n" + offenders.joined(separator: "\n"))
+
+        let file = sourceDir.appendingPathComponent("Compiler/SpotCheck.swift")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(text.contains("coldCall.call("),
+                      "the scan reads the file rather than always answering true")
+    }
+
+    /// Self-check: prove the mint census FIRES on a planted door — through the
+    /// same function, so a door added to `spotCheckWriteDoors` cannot leave this
+    /// companion green over a list it no longer shares.
+    func test_theSpotCheckCensusWouldFireOnAPlantedMint() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-spot-check-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        @MainActor
+        enum SpotCheck {
+            static func gloss() async {
+                try? await RulingPerformer.rule("it drifted", provenance: "spot-check")
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SpotCheck.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try spotCheckMintOffenders(in: tmp)
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check: a planted mint should be caught. Got:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - EditorSurface mount census (M1A: two editors in one window)
 
     /// Every production site that mounts an `EditorSurface`. Adding one is the
@@ -5223,5 +5291,137 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(offenders.count, 1,
             "Self-check expected the planted construction, missing imprint:, "
             + "to fire. Got:\n" + offenders.joined(separator: "\n"))
+    }
+
+    // MARK: - The reveal's two window-side facts (translation pipeline P4 Task 5)
+
+    /// **A departure or disagreement row is a way back into the manuscript, and
+    /// both ends of that live where no headless test can reach.**
+    ///
+    /// `TranslationReveal` itself is pure and pinned by `TranslationRevealTests`
+    /// — the plan, the payload, the two posts. The wiring is not: the poster is
+    /// a closure inside a ViewBuilder arm of `ProjectWindow.body`, and the
+    /// receiver is an `.onKeyWindowCommand` inside a `ViewModifier` that needs a
+    /// key window to deliver anything at all. Delete either and every
+    /// `TranslationReveal` test stays green while the row does nothing when
+    /// clicked — which is exactly the state Task 3 shipped on purpose
+    /// (`onReveal: { _ in }`) and this task ends.
+    ///
+    /// Two checks, each scoped to the region that must carry it, so the token
+    /// appearing anywhere else in a 5,000-line file cannot satisfy either.
+    /// Comments are stripped first (`SourceScan.codeLines`), so a doc comment
+    /// naming the call is not the call.
+    func test_theTranslationRevealIsPostedByTheReportArmAndHandledByTheWindow() throws {
+        let source = try String(
+            contentsOf: sourceDir.appendingPathComponent("Views/ProjectWindow.swift"),
+            encoding: .utf8)
+
+        XCTAssertTrue(Self.reportArmPostsTheReveal(in: source),
+            "the round report's `onReveal` must call TranslationReveal.post — "
+            + "without it the report's reveal rows are the Task 3 stub "
+            + "(`onReveal: { _ in }`) and a click does nothing at all. It "
+            + "belongs in the `case .translationRound(let round):` arm of "
+            + "publishCentre's switch in ProjectWindow.body.")
+
+        XCTAssertTrue(Self.translationReviewModifierHandlesTheReveal(in: source),
+            "TranslationReviewModifier must handle .maughamRevealTranslation — "
+            + "it is the only thing in the window that knows which chapter is "
+            + "open, so it is where the reveal's plan (.now vs .afterSelecting) "
+            + "is made. Without the receiver the post reaches nobody and the "
+            + "row is silently inert.")
+    }
+
+    /// Self-check: prove both halves fire on the pre-task shape — the Task 3
+    /// stub closure, and a `TranslationReviewModifier` with no reveal receiver —
+    /// and that a comment naming either call suppresses neither. A grep pin that
+    /// cannot fail is a comment.
+    func test_theTranslationRevealPinsFireOnThePlantedStub() throws {
+        let planted = """
+        struct ProjectWindow: View {
+            var body: some View {
+                switch Self.publishCentre(persona: persona, subject: selectedSubject) {
+                case .translationRound(let round):
+                    // A comment naming TranslationReveal.post( is not the call.
+                    TranslationRoundReportHost(
+                        round: round, store: store,
+                        onClose: { publishSelectedRound = nil },
+                        onReveal: { _ in })
+                case .designProposal(let proposal):
+                    DesignGateView(proposal: proposal, onReveal: {
+                        TranslationReveal.post(somethingElse)
+                    })
+                }
+            }
+        }
+
+        private struct TranslationReviewModifier: ViewModifier {
+            // A comment naming .onKeyWindowCommand(.maughamRevealTranslation is
+            // not a receiver.
+            func body(content: Content) -> some View {
+                content
+                    .onKeyWindowCommand(.maughamEnterTranslationReview, window: window) { _ in }
+            }
+        }
+
+        struct SomeOtherModifier: ViewModifier {
+            func body(content: Content) -> some View {
+                content
+                    .onKeyWindowCommand(.maughamRevealTranslation, window: window) { _ in }
+            }
+        }
+        """
+
+        XCTAssertFalse(Self.reportArmPostsTheReveal(in: planted),
+            "self-check: the Task 3 stub `onReveal: { _ in }` must fire the "
+            + "poster pin — neither a comment naming the call nor the same call "
+            + "in the NEXT switch arm may satisfy it")
+        XCTAssertFalse(Self.translationReviewModifierHandlesTheReveal(in: planted),
+            "self-check: a TranslationReviewModifier with no reveal receiver "
+            + "must fire the handler pin — neither a comment naming the "
+            + "receiver nor the receiver in ANOTHER modifier, which would have "
+            + "no activeDocId to plan against, may satisfy it")
+    }
+
+    /// The round report's arm of `publishCentre`'s switch posts the reveal.
+    /// Scoped from that arm's `case` to the next one, because `onReveal:` is a
+    /// parameter name the file carries in more than one place.
+    private static func reportArmPostsTheReveal(in source: String) -> Bool {
+        let lines = SourceScan.codeLines(of: source)
+        guard let start = lines.firstIndex(where: {
+            $0.contains("case .translationRound(let round):")
+        }) else { return false }
+        let after = lines[(start + 1)...]
+        let end = after.firstIndex(where: { $0.contains("case .designProposal(") })
+            ?? lines.endIndex
+        return lines[start..<end].contains { $0.contains("TranslationReveal.post(") }
+    }
+
+    /// `TranslationReviewModifier` receives `.maughamRevealTranslation`. Scoped
+    /// to that one declaration, so the receiver landing in some other modifier —
+    /// which would not have `activeDocId` to plan against — does not pass.
+    private static func translationReviewModifierHandlesTheReveal(in source: String) -> Bool {
+        guard let body = topLevelDeclaration(
+            named: "struct TranslationReviewModifier", in: source) else { return false }
+        return body.contains {
+            $0.contains(".onKeyWindowCommand(.maughamRevealTranslation")
+        }
+    }
+
+    /// The code lines of the top-level declaration whose line contains
+    /// `declaration`, ending at the next line that starts in column 0 with
+    /// something other than a closing brace — i.e. at the next top-level
+    /// declaration, whatever keyword or attribute introduces it.
+    private static func topLevelDeclaration(
+        named declaration: String, in source: String
+    ) -> [String]? {
+        let lines = SourceScan.codeLines(of: source)
+        guard let start = lines.firstIndex(where: { $0.contains(declaration) })
+        else { return nil }
+        let after = lines[(start + 1)...]
+        let end = after.firstIndex(where: { line in
+            guard let first = line.first else { return false }
+            return !first.isWhitespace && first != "}"
+        }) ?? lines.endIndex
+        return Array(lines[start..<end])
     }
 }

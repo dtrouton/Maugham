@@ -18,8 +18,8 @@ import Foundation
 ///   `maughamSessionLogChanged`, `maughamNavigateToDocument`,
 ///   `maughamTranslationDidUpdate`, `maughamCanvasNodesAdded`,
 ///   `maughamDocumentNotice`, `maughamAnnotationsChanged`,
-///   `maughamDesignProposalsChanged`): delivered to live windows on the matching
-///   project only.
+///   `maughamDesignProposalsChanged`, `maughamTranslationRoundEnded`): delivered
+///   to live windows on the matching project only.
 /// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
 ///   per-name zombie-harm audit note where present): `maughamNewProject`,
 ///   `maughamOpenProject`, `maughamAppWillTerminate`, `maughamShowHelp`.
@@ -86,6 +86,14 @@ extension Notification.Name {
     /// rather than staying frozen until the writer exits and re-enters. Scope:
     /// .project(id:).
     public static let maughamTranslationDidUpdate = Notification.Name("maugham.translation.did.update")
+    /// Posted by the window's pipeline wiring when a round ends — data event,
+    /// scope `.project(for: projectURL)`, like `maughamTranslationDidUpdate`.
+    /// `userInfo["language"]`, `["document_id"]`, `["round"]` (Int).
+    public static let maughamTranslationRoundEnded = Notification.Name("maugham.translation.round.ended")
+    /// Posted by the round report and the Translation pane to take the writer
+    /// to one paragraph of one edition in translation review. Scope: .keyWindow.
+    /// `userInfo["document_id"]`, `["language"]`, `["paragraph_id"]`.
+    public static let maughamRevealTranslation = Notification.Name("maugham.revealTranslation")
     public static let maughamToggleFullScreen = Notification.Name("maugham.toggleFullScreen")
     public static let maughamDummySave = Notification.Name("maugham.dummySave")
     public static let maughamShowProjectSettings = Notification.Name("maugham.showProjectSettings")

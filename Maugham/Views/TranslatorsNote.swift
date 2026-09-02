@@ -93,16 +93,24 @@ enum TranslatorsNote {
     }
 
     /// Write the directive. Returns the refusal's own sentence, or nil.
+    ///
+    /// **`provenance` is defaulted, so ⌘⌥C's call site is unchanged.** The
+    /// Translation pane's Keep mine (translation pipeline P4 Task 6) is this
+    /// same act reached from a spot-check, and what differs is only which
+    /// surface the author was standing on when they pressed it — which is
+    /// exactly what a provenance is for. A second door would be two spellings
+    /// of one write.
     @MainActor
     static func commit(_ instruction: String, target: Target, home: Home,
-                       store: ProjectStore, world: DeclaredWorldStore?) async -> String? {
+                       store: ProjectStore, world: DeclaredWorldStore?,
+                       provenance: String = Ruling.Provenance.translatorsNote) async -> String? {
         let words = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { return TranslatorsNoteCopy.emptyRefusal }
         let (kind, scope) = destination(home: home, docId: target.docId)
         do {
             try await RulingPerformer.rule(
                 Ruling.directiveText(paragraphId: target.paragraphId, words),
-                provenance: Ruling.Provenance.translatorsNote,
+                provenance: provenance,
                 kind: kind, forScope: scope,
                 store: store,
                 world: home == .everyEdition ? world : nil)
@@ -120,9 +128,28 @@ struct TranslatorsNoteSheet: View {
     let target: TranslatorsNote.Target
     let onCommit: (String, TranslatorsNote.Home) -> Void
     let onCancel: () -> Void
-    @State private var instruction = ""
-    @State private var home: TranslatorsNote.Home = .everyEdition
+    @State private var instruction: String
+    @State private var home: TranslatorsNote.Home
     @FocusState private var instructionFocused: Bool
+
+    /// **Both seeds are defaulted, so ⌘⌥C's call site is unchanged.**
+    ///
+    /// The round report opens this sheet too (translation pipeline P4 Task 3),
+    /// and there the writer is not composing from nothing: they are agreeing
+    /// with a note in front of them about a paragraph in ONE edition. So it
+    /// arrives with that note in the field and that edition selected, and an
+    /// explicit `init` is what lets a `@State` start from a parameter at all.
+    init(target: TranslatorsNote.Target,
+         onCommit: @escaping (String, TranslatorsNote.Home) -> Void,
+         onCancel: @escaping () -> Void,
+         seed: String = "",
+         defaultHome: TranslatorsNote.Home = .everyEdition) {
+        self.target = target
+        self.onCommit = onCommit
+        self.onCancel = onCancel
+        _instruction = State(initialValue: seed)
+        _home = State(initialValue: defaultHome)
+    }
 
     private var trimmed: String {
         instruction.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -68,6 +68,27 @@ struct TranslationRoundStore {
         try write(ledger, language: round.language)
     }
 
+    enum UpdateError: LocalizedError {
+        case roundGone(number: Int)
+        var errorDescription: String? {
+            switch self {
+            case .roundGone(let number):
+                return "Round \(number) is no longer in the ledger \u{2014} it has aged out of the last \(TranslationRoundStore.ringSize)."
+            }
+        }
+    }
+
+    /// Rewrite one round the report's verbs changed (a departure dismissed, a
+    /// proposal adopted or skipped). Never mints a number and never moves one.
+    func update(_ round: TranslationRound) throws {
+        var ledger = load(language: round.language)
+        guard let index = ledger.rounds.firstIndex(where: { $0.number == round.number }) else {
+            throw UpdateError.roundGone(number: round.number)
+        }
+        ledger.rounds[index] = round
+        try write(ledger, language: round.language)
+    }
+
     /// A missing or undecodable file is an empty ledger, logged — the ring is
     /// derived, and a round that cannot be written because last month's could
     /// not be read is the wrong trade.

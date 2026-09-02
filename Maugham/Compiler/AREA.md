@@ -804,10 +804,11 @@ the translator's rows are. See `Maugham/Stores/AREA.md`'s own
 `ColdCall.swift` is the one runner every **cold** session shares: a reader, a
 collator, a gloss and an Ask-the-collator (spec §5, §9 — the reader and the
 collator arrived in P3, as `TranslationPipeline`'s two cold legs below; gloss
-and Ask the collator are P4's; P2 built the runner and wired its teardown).
-One call = one fresh process, one briefing sent, one report returned, the
-process ended. There is no `ReaderOrchestrator`: warmth would buy nothing (the
-whole briefing is re-sent every leg) and would cost blindness.
+and Ask the collator in P4 Task 6, as `SpotCheck`; P2 built the runner and
+wired its teardown). One call = one fresh process, one briefing sent, one
+report returned, the process ended. There is no `ReaderOrchestrator`: warmth
+would buy nothing (the whole briefing is re-sent every leg) and would cost
+blindness.
 
 - **Confinement is an enum on the session, not a setting** —
   `ClaudeCLISession.Confinement.bridged(mcpConfigPath:)` for the compiler,
@@ -825,11 +826,52 @@ whole briefing is re-sent every leg) and would cost blindness.
   `.onDisappear` carry `coldCall.shutdown()`/`coldCall.detach()`;
   `TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`
   counts it.
+- **The two spot-checks are `SpotCheck.swift`** (P4 Task 6), the other tempo
+  beside a round: the caret is in a paragraph and the author asks *what does
+  this now say?* (**Gloss**) or *does it still say what I wrote?* (**Ask the
+  Collator**, `SpotCheck.askTitle`'s own capital), each a `Button` in the
+  Translation pane — ⌘⌥L opens the pane,
+  and **no shortcut is bound to either verb**. Spec §9 calls them
+  "keystroke-triggered", which is ADR 0028's tempo contrast read correctly: the
+  trigger must be a writer's own act rather than a timer or an event, and a
+  button press is that act (P4 Task 6's ruling; a menu item for each is a later
+  decision, not an omission). Gloss is briefed by `GlossBriefing`, whose
+  `Inputs` **have no source field** — a model shown the original renders the
+  original it can read rather than the translation it was asked about, so the
+  property is the type's, not a caller's — and reads its paragraph off the
+  **badge entries the pane already holds**, never the disk. Ask the collator
+  is the collator's own briefing narrowed to
+  one pair ± a neighbour (`SpotCheck.narrow`), with the writer's craft intent,
+  edition brief, glossary and directives kept **whole**: a doctrine narrowed
+  with the text would judge the paragraph against rules the author never
+  relaxed. **Neither mints anything** (spec §12) — the answer is drawn, and
+  *Keep mine* / *Make it a rule* are separate verbs the author presses,
+  provenance `spot-check, keep mine` / `spot-check, make it a rule`.
+  `TripwireGrepTests.test_aSpotCheckMintsNothing` scans `SpotCheck.swift` for
+  the four write doors by name, which is why the file's own prose never names
+  one.
 - **The briefings it will be handed are pure**: `ReaderBriefing` and
   `CollatorBriefing` (this directory) follow `TranslatorBriefing`'s discipline
   — no I/O, no clock. `BriefingDoctrine.swift` is where directives and the
   glossary are read off statement markdown (`Ruling.directive`/`.glossary`,
   MaughamCore) into the plain values all three briefings take.
+
+## The translation files — the wire, the briefings, the desk's own figure
+
+Everything the pipeline and the two spot-checks are built out of lives in this
+directory, on `TranslatorBriefing`'s discipline: pure, no I/O, no clock, testable
+without a subprocess. The pipeline (below) is what strings them together.
+
+| File | What it is |
+|---|---|
+| `ReportJSON.swift` | **The helpers every report parser shares** (P1): `lastObject(in:shapedBy:)` (the answer object in a turn's text, found by shape rather than position), `parseList` (all-or-nothing — one malformed item fails the whole list), `nonEmptyString` (trimmed, because whitespace around a model's answer is an artifact of how it wrote its JSON) and `enumValue`. `TranslatorReport` and `DesignerReport` were migrated onto it, and `ReaderReport`/`CollatorReport`/`GlossReport` were written on it. **`DiagnosticIngest` keeps its own copy on purpose** — the compiler's contract is sectioned and line-delimited rather than one JSON object, so folding it in would mean widening these helpers into a shape only one caller has |
+| `ReaderReport.swift` / `CollatorReport.swift` | The two cold reports (spec §4). One JSON object, **all-or-nothing**, closed enums (`kind`/`severity`/`verdict`), empty `text` refused, zero notes valid, and a `paragraph_id` outside the briefed set failing the whole report rather than being dropped. `CollatorReport.Departure.gloss` is **required on every departure**: the gloss is the only part of a departure an author who cannot read the language can rule on, so a departure without one is not one this app can show. Only `drifted` departures are briefed to leg 7; both verdicts reach the round report |
+| `ReaderBriefing.swift` | **`Inputs` has no source field**, which is the whole point of a blind reader — the property is the type's rather than a caller's discipline. A paragraph with no current translation reaches the reader as `gapMarker(_:)` (`[<id> — not yet translated]`) and never as source text; `briefedParagraphIds` is the translated ids alone, which is what the parser validates against |
+| `CollatorBriefing.swift` | The pairs in `sequence` order, source then translation, each paragraph's directives beneath it, the glossary as a table, craft intent and the edition brief verbatim. Not briefed: reader notes, translator queries, the bible |
+| `BriefingDoctrine.swift` | Where directives and the glossary are read off statement markdown into the plain values all three briefings take — `Directives.gather`/`.byParagraph`/`.isDirected` (UTC calendar days; a same-day directive counts, an undated one never directs) and `GlossaryTable.gather`/`.render` |
+| `GlossBriefing.swift` / `GlossReport.swift` | The gloss's briefing and its one-field parser (`{"gloss": …}`, over `ReportJSON`). `Inputs` carries the paragraph, its two neighbours marked as context, the edition brief's texture line (`textureLine(in:)`), and — again — **no source**; a model shown the original renders the original it can read instead of the translation it was asked about |
+| `SpotCheck.swift` | The two verbs the author presses (see "Cold calls" above): `gloss`, `askTheCollator`, `neighbours(of:in:)`, `narrow(_:to:)`, and one private `read(_:parse:)` that words a dead turn in `TranslationPipeline.coldLeg`'s own vocabulary, so the pane and the desk cannot describe the same death differently |
+| `TranslationPreflight.swift` | **The desk's "7 legs · ~N words briefed" figure** (P4). `budgets(documentIds:languages:…)` opens each document ONCE and folds every language off that one `currentParagraphState`, because the desk was otherwise walking the whole book per language on every `maughamTranslationDidUpdate`; `budget(documentIds:language:…)` is a one-line wrapper over it, so there is one implementation. An empty answer means nothing in the set could be READ — distinct from a language whose figure is genuinely `0`, which is present and zero. `wordCount` splits on the same predicate `Bootstrap` does, so the figure agrees with the checkpoint's own count |
 
 ## The pipeline — seven legs (translation pipeline P3)
 
@@ -974,13 +1016,21 @@ awaiting a translator summary that a shut-down orchestrator will never send:
 `shutdown()` resumes `pending` as `.abandoned` so the round is at least
 recorded rather than left `.running` forever on a desk nobody can close.
 
-**What Plan 4 draws, already built and waiting for a caller**:
+**What Plan 4 drew, and where the pipeline is now read from**:
 `TranslationRound.Leg.verb` (the present participle — "translating", "fixing",
-"collating" — for the desk's status slot) off `Status.leg`, and
-`TranslationRoundStore.trend(language:)` (notes-per-round over the last five,
-oldest first) for whatever chart the round-report arm ends up drawing.
-Neither has a production reader yet; `TranslationRoundStoreTests
-.test_theTrendReadsNotesPerRoundForTheLastFive` is `trend`'s own pin.
+"collating") is read off `Status.leg` by `DepartmentRunState.legLine`, and
+`TranslationRoundStore.trend(language:)` (notes-per-round over the last five
+rounds, oldest first) by `DepartmentRunState.trendLine`; both draw on the desk
+row, and `TranslationRoundStoreTests.test_theTrendReadsNotesPerRoundForTheLastFive`
+is still `trend`'s own pin. **The pipeline's status is read on the body path,
+never through `ReloadKey`** — `ReloadKey` carries `pipeline?.status.language`
+alone (P3's ruling 7), because a leg-keyed re-derive re-walked the whole book
+once per leg. The round's own product is drawn by the round report
+(`Maugham/Views/Publish/TranslationRoundReport.swift` and its peers — see
+`Maugham/Views/AREA.md`), which is also where the verbs that write BACK into a
+round live: `TranslationRoundStore.update(_:)` rewrites one round in place and
+refuses in words when the ring has aged it out, and this area's own writes
+(`append`) never touch it.
 
 ## Tripwires this area sits on
 

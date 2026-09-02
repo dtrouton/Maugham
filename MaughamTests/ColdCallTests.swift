@@ -10,65 +10,17 @@ import XCTest
 @MainActor
 final class ColdCallTests: XCTestCase {
 
-    /// `TranslatorOrchestratorTests.SpyRunner`'s shape, kept local for that
-    /// suite's reason (each loop's spy diverges as the loop grows).
-    @MainActor
-    private final class SpyRunner: CompilerRunner {
-        private(set) var sends: [(message: String, preamble: String?)] = []
-        private(set) var shutdowns = 0
-        private(set) var cancels = 0
-        var isRunning = false
-        var sessionEpoch = 1
-        var nextEvent: CompilerRunEvent? = .resultText("{\"gloss\":\"the fog came\"}")
-        private var held: CheckedContinuation<CompilerRunEvent, Never>?
-
-        func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
-            sends.append((message, systemPreamble))
-            if let nextEvent { return nextEvent }
-            isRunning = true
-            return await withCheckedContinuation { held = $0 }
-        }
-
-        func release(_ event: CompilerRunEvent) {
-            isRunning = false
-            let continuation = held
-            held = nil
-            continuation?.resume(returning: event)
-        }
-
-        func cancelCurrentRun() {
-            cancels += 1
-            release(.failed(.sessionDied(detail: CompilerRunFailure.Detail.cancelled)))
-        }
-
-        func shutdown() {
-            shutdowns += 1
-            release(.failed(.sessionDied(detail: CompilerRunFailure.Detail.sessionShutDown)))
-        }
-    }
-
-    /// A factory that remembers every runner it made and the model it was
-    /// asked for.
-    @MainActor
-    private final class Factory {
-        private(set) var made: [SpyRunner] = []
-        private(set) var models: [String] = []
-        var configure: (SpyRunner) -> Void = { _ in }
-
-        func make(model: String) -> CompilerRunner {
-            let runner = SpyRunner()
-            configure(runner)
-            made.append(runner)
-            models.append(model)
-            return runner
-        }
-    }
+    /// **The spy moved out of this file in P4 Task 6** — `SpotCheckTests` drives
+    /// the same runner through the same seam, and the loop-spy convention (each
+    /// loop keeps its own, because each diverges as its loop grows) does not
+    /// hold for the one runner four callers share. `TestSupport/ColdCallSpy
+    /// .swift` is where it lives; these aliases keep this suite's own prose
+    /// reading as it did.
+    private typealias SpyRunner = ColdCallSpyRunner
+    private typealias Factory = ColdCallSpyFactory
 
     private func makeColdCall() -> (ColdCall, Factory) {
-        let factory = Factory()
-        let coldCall = ColdCall()
-        coldCall.configure(makeRunner: { factory.make(model: $0) })
-        return (coldCall, factory)
+        ColdCallSpyFactory.makeColdCall()
     }
 
     // MARK: - One call, one process

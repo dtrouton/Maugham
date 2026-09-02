@@ -154,6 +154,13 @@ struct StatementPane: View {
             structure: store.manifest.structure)
     }
 
+    /// Which paragraph ids are currently live in this statement's scope — fed
+    /// to `RulingsStratumView` so it can tell an orphaned directive from a
+    /// live one. `nil` until the first resolve; see
+    /// `RulingsStratum.partition`'s doc comment for why that must never read
+    /// as "orphaned".
+    @State private var liveParagraphIds: Set<String>?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -173,6 +180,101 @@ struct StatementPane: View {
             strata
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .task(id: liveParagraphTaskKey) {
+            await resolveLiveParagraphIds()
+        }
+    }
+
+    /// Everything that can move an orphan verdict, so the `.task` below
+    /// re-fires whenever any of it changes — not only when the (kind, scope)
+    /// pair itself changes.
+    ///
+    /// **`kind|scope` alone missed the commonest Author-persona shape**: the
+    /// writer deletes a paragraph in the open manuscript editor while the
+    /// Intent pane sits beside it, and a directive anchored there must stop
+    /// reading as an ordinary ruling without the pane remounting. Fixed by
+    /// widening the key to the two things that can change under a mounted
+    /// pane with the scope held fixed: the statement's own set of directive
+    /// paragraph ids (`directiveIds` — a newly-typed directive must get
+    /// checked too, not only a stale one), and every OPEN manuscript
+    /// document's paragraph SEQUENCE (`openDocuments`) — a closed document
+    /// cannot change under the pane, and opening or closing one changes the
+    /// key on its own.
+    ///
+    /// No new notification is invented for this (tripwire 21's shape: nothing
+    /// fires on an ordinary edit, and a broadcast for one would be a second
+    /// unscoped-post defect waiting to happen). Instead this reads live
+    /// `@Observable` state that is already in memory: `documentStore
+    /// .document(forDocId:)` answers nil for a closed document with no I/O,
+    /// and `Document.sequence` is a plain observed property, so reading it
+    /// here — on a `body` path — REGISTERS an observation and touches no
+    /// disk. `rulings` is the same fringe-reader `strata` already calls
+    /// synchronously in `body`. What still runs only inside the `.task` is
+    /// the actual walk that resolves a CLOSED document's derived state
+    /// (`resolveLiveParagraphIds`, tripwire 4 unchanged).
+    private struct LiveParagraphTaskKey: Equatable {
+        let scopeKey: String
+        let directiveIds: Set<String>
+        let openDocuments: [String: [String]]
+    }
+
+    private var liveParagraphTaskKey: LiveParagraphTaskKey {
+        var openDocuments: [String: [String]] = [:]
+        switch scope {
+        case .document(let id):
+            if let document = documentStore.document(forDocId: id) {
+                openDocuments[id] = document.sequence
+            }
+        case .project, .unknown(_):
+            for docId in EditionStatus.manuscriptDocumentIds(in: store.manifest) {
+                if let document = documentStore.document(forDocId: docId) {
+                    openDocuments[docId] = document.sequence
+                }
+            }
+        }
+        return LiveParagraphTaskKey(
+            scopeKey: "\(kind.rawValue)|\(scope.rawValue)",
+            directiveIds: Set(rulings.compactMap(\.paragraphId)),
+            openDocuments: openDocuments)
+    }
+
+    /// Resolves which paragraph ids currently exist for this statement's
+    /// scope, so `RulingsStratumView` can tell an orphaned directive from a
+    /// live one. **Runs in a `.task`, never on a body path** (tripwire 4) —
+    /// the read walks a manuscript document's derived state, which is I/O.
+    ///
+    /// `.document(id)` reads that one document's ids. `.project` (and
+    /// `.unknown`, a newer build's scope) reads the UNION of every manuscript
+    /// document's ids — an edition brief's directives can anchor into any
+    /// chapter, not just one. A document that fails to resolve is skipped
+    /// rather than failing the whole read, the shape
+    /// `EditionStatus.documentRows` already uses for the same reason.
+    private func resolveLiveParagraphIds() async {
+        guard StatementEssay.carriesRulings(kind) else {
+            liveParagraphIds = nil
+            return
+        }
+        switch scope {
+        case .document(let id):
+            guard let state = try? currentParagraphState(
+                documentId: id, store: store, documentStore: documentStore,
+                projectURL: store.url)
+            else {
+                liveParagraphIds = nil
+                return
+            }
+            liveParagraphIds = Set(state.sequence)
+        case .project, .unknown(_):
+            var ids = Set<String>()
+            for docId in EditionStatus.manuscriptDocumentIds(in: store.manifest) {
+                if let state = try? currentParagraphState(
+                    documentId: docId, store: store, documentStore: documentStore,
+                    projectURL: store.url) {
+                    ids.formUnion(state.sequence)
+                }
+            }
+            liveParagraphIds = ids
+        }
     }
 
     // MARK: - The two strata under the essay (declared-world Task 6)
@@ -198,7 +300,7 @@ struct StatementPane: View {
                     if !rulings.isEmpty {
                         RulingsStratumView(
                             rulings: rulings, kind: kind, scope: scope, store: store,
-                            world: world)
+                            world: world, liveParagraphIds: liveParagraphIds)
                     }
                     if let bible, !bibleFacts.isEmpty {
                         BibleStratumView(

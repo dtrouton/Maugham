@@ -15,6 +15,11 @@ translate a chapter or the whole book into a language (a lowercase tag like
 tools, checking in with you (via a query, the same as any other annotation)
 on voice, register, or ambiguous terms rather than guessing.
 
+You can also run the whole thing from inside Maugham, without asking anyone:
+**Run** on a language row of the Publish desk (⌘⌥K) puts a translator, a
+blind reader and a collator through seven legs on the open chapter and hands
+you a report. See [The Publish Department](publish-department.md).
+
 ### Reviewing a translation
 
 Open the picker from **View → Translation Review…** and choose a language
@@ -49,6 +54,35 @@ selected paragraph's original source text with a freshness chip (fresh /
 stale / missing), and any open translator queries for that language. Reply
 to a query right there — your answer folds back into the annotation the same
 way replying to any other Claude query does.
+
+A query signed by the edition's **reader** or **collator** turns up here and
+in your queue like any other, with the translator's reason for declining the
+note written into the body under their name. Both bylines are there because
+there were two people in the disagreement.
+
+**Two buttons ask about the paragraph under your cursor.** They're how you
+audit a translation anywhere, not only where a round happened to look:
+
+- **Gloss** — what does this paragraph now say? The answer comes back as a
+  plain, literal rendering into your own language, drawn beneath the source
+  text under a *gloss* label. It reads the translation and never your English,
+  so it can't quietly flatter what you wrote.
+- **Ask the Collator** — does this paragraph still say what I wrote? The
+  collator judges this one paragraph against your source, with its neighbours
+  for context, and answers with departures if there are any — each with its
+  own gloss, and the same three verbs a round's report offers: **Fine**,
+  **Keep mine**, **Make it a rule**.
+
+Both are ordinary buttons, with no shortcut of their own. Each is a single
+question and a single answer, and **neither writes anything** — the answer is
+drawn and that's all it does. Only the verbs write, and you press those.
+
+**An answer belongs to the paragraph it was asked about.** Move the cursor to
+another paragraph and the gloss, the collation and anything you marked Fine
+go with it — a spot-check isn't a round and there's no record for it to
+settle into. Ask again where you want another answer. Both buttons go
+unavailable, with the reason on hover, while a round's own leg or another
+spot-check is still out: there's one session, and it's busy.
 
 It sits in **Publish**'s pane picker (⌘4): a translation never changes your
 source text — it's a parallel layer that an edition is compiled from — so it
