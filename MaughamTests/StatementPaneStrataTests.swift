@@ -1407,6 +1407,66 @@ final class StatementPaneStrataTests: XCTestCase {
                      "the adopted slot is still pending")
     }
 
+    /// **The common case: Adopt over a statement the writer already has**, and
+    /// it costs no reload at all.
+    ///
+    /// The two cases above both mint — the scope was empty, so the pane's
+    /// `adopt` bumps `hostGeneration` and the host remounts. That arm is the
+    /// exception. Ordinarily a writer revising a visual language they already
+    /// have has a live `Document` bound, `mutateStatementText` finds it through
+    /// `openStatementDocument(id:)` and writes into it, and the editor's own
+    /// binding shows the new essay on the next frame — the path a ruling
+    /// landing from a run takes (`test_aRulingReachesTheMountedPane`).
+    ///
+    /// **"No remount" is asserted as the thing it means on screen**: the same
+    /// `NSTextView` instance is still mounted afterwards. A remount would
+    /// build a new one — which is exactly how the `.id(hostGeneration)` was
+    /// falsified — and would take the caret, the first responder and the
+    /// pane's own undo stack with it.
+    func test_adoptOverABoundDocumentWritesThroughItWithNoRemount() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "mounted-bound-adopt")
+        defer { fixture.tearDown() }
+        let statement = try await fixture.store.createStatement(
+            kind: .visualLanguage, scope: .project)
+        try await fixture.store.mutateStatementText(
+            of: statement, session: "test") { _ in "Old look." }
+
+        let window = await fixture.host(kind: .visualLanguage, subject: .project)
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.firstTextView(in: window)?.string.contains("Old look.") == true
+        }
+        XCTAssertEqual(fixture.firstTextView(in: window)?.string.contains("Old look."), true,
+                       "the host never bound the existing statement, so this case is vacuous")
+        let mountedBefore = ObjectIdentifier(try fixture.textView(in: window))
+
+        let title = StatementProposalCopy.bannerTitle(.init(
+            kind: .visualLanguage, markdown: "x", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        _ = try StatementProposalStore(projectURL: fixture.projectURL).stage(.init(
+            kind: .visualLanguage, markdown: "Serif, generous leading.", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        MaughamEvent.postStatementProposalsChanged(projectURL: fixture.projectURL)
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(title, in: window) }
+        XCTAssertFalse(try fixture.staticTexts(in: window, containing: title).isEmpty)
+
+        XCTAssertTrue(try fixture.pressButton(
+            labelled: StatementProposalCopy.adoptAccessibilityLabel(.visualLanguage), in: window))
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.firstTextView(in: window)?.string.contains("Serif, generous leading.") == true
+        }
+        XCTAssertEqual(
+            fixture.firstTextView(in: window)?.string.contains("Serif, generous leading."), true,
+            "the adopted words did not reach the bound editor")
+        XCTAssertEqual(fixture.firstTextView(in: window)?.string.contains("Old look."), false,
+                       "the replaced text is still on screen")
+        await fixture.pumpUntil(deadline: 5) { !fixture.shows(title, in: window) }
+        XCTAssertTrue(try fixture.staticTexts(in: window, containing: title).isEmpty,
+                      "Adopt clears the gate")
+        XCTAssertEqual(ObjectIdentifier(try fixture.textView(in: window)), mountedBefore,
+                       "the host remounted over a bound Document — `hostGeneration` moved on an "
+                       + "adoption that created nothing")
+    }
+
     /// **Discard clears the gate and touches nothing the writer wrote** — the
     /// other verb, through the same mounted button.
     func test_discardClearsTheGateAndLeavesTheStatementAlone() async throws {
