@@ -3252,9 +3252,10 @@ struct ProjectWindow: View {
         case .visualLanguage: return .visualLanguage
         // Neither has a pane here — same as `.unknown` below.
         case .editionBrief: return nil
-        // Task 5 wires .lessons to its DetailSegment; the case does not exist
-        // yet, so this arm answers nil rather than guessing at a route.
-        case .lessons: return nil
+        // Editorial letter P2 Task 5: the ledger has a pane of its own, so a
+        // mark on a promoted lesson opens it rather than falling through to a
+        // Research pane that would show the writer nothing.
+        case .lessons: return .lessons
         // A kind a newer build wrote, retained and ignored everywhere else
         // (`Statement.Kind`). There is no pane for it here either.
         case .unknown: return nil

@@ -172,6 +172,33 @@ final class PersonaMemoryTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(PersonaMemory.self, from: json), .empty)
     }
 
+    // MARK: - The ledger needs no migration (editorial letter P2 Task 5)
+
+    /// **A stored `"lessons"` needs no schema work, and this is the assertion
+    /// that says so rather than a comment claiming it.** `DetailSegment` is
+    /// `String`-raw `Codable`, so the new case decodes by name like every other;
+    /// `restoredDetailSegment` then filters it through the persona's own
+    /// registry. Author offers the ledger, so it comes back; Plan does not, so
+    /// it falls back exactly as an unknown name would — the same mechanism the
+    /// three retired segments below ride, reached from the other direction.
+    ///
+    /// Written as JSON text rather than through `record`, because what is being
+    /// pinned is the DECODE of a value a newer build wrote — a memory recorded
+    /// in Author and then read by a build whose registry has moved on.
+    func test_decode_aStoredLedgerRestoresInAuthorAndFallsBackInPlan() throws {
+        for (persona, expected) in [(Persona.author, DetailSegment.lessons),
+                                    (Persona.plan, Persona.plan.defaultPane)] {
+            let json = Data("{\"detail\":{\"\(persona.rawValue)\":\"lessons\"}}".utf8)
+            let memory = try JSONDecoder().decode(PersonaMemory.self, from: json)
+            XCTAssertEqual(memory.restoredDetailSegment(for: persona), expected,
+                           "\(persona) restored a stored \"lessons\" as something other "
+                           + "than \(expected)")
+        }
+        XCTAssertNotEqual(Persona.plan.defaultPane, DetailSegment.lessons,
+                          "premise: Plan's default must differ from the ledger, or the "
+                          + "fallback half of this test cannot see the difference")
+    }
+
     // MARK: - The three retired segments (stage 3a Task 6, tripwire 11)
 
     /// **No migration — a stored `.outline`/`.research`/`.palette` entry is

@@ -72,6 +72,7 @@ public enum KeyboardShortcuts {
             Entry(label: "Palette pane", shortcut: "⌘⌥P"),
             Entry(label: "Translation pane", shortcut: "⌘⌥L"),
             Entry(label: "Intent pane", shortcut: "⌘⌥N"),
+            Entry(label: "What I've Learned pane", shortcut: "⌘⌥G"),
             Entry(label: "Visual Language pane", shortcut: "⌘⌥V"),
             Entry(label: "Diagnostics pane", shortcut: "⌘⌥D"),
             Entry(label: "References pane", shortcut: "⌘⌥E"),

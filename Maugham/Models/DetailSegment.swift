@@ -14,6 +14,11 @@ public enum DetailSegment: String, Codable, Equatable, Sendable, CaseIterable {
     // `Statement.Kind`.
     case intent          // m1a-spine: what you're going for (⌘⌥N)
     case visualLanguage  // m1a-spine: how the book looks (⌘⌥V)
+    // editorial-letter P2: the lessons ledger (⌘⌥G). A third `Statement.Kind`
+    // beside intent and visual language, and a third case for the same reason
+    // they are two — the ledger is about the WRITER rather than about the book,
+    // so it is a different object that happens to render through the same pane.
+    case lessons
     case diagnostics     // m2-compiler-loop: the compiler's notes (⌘⌥D)
     case references      // m2-author-surfaces: what this piece is pinned to (⌘⌥E)
     // publish-department: the desk (⌘⌥K) — Publish's own working pane, where
@@ -41,6 +46,10 @@ public extension DetailSegment {
         case .translation: return "character.book.closed"
         case .intent: return "target"
         case .visualLanguage: return "photo.on.rectangle.angled"
+        // A closed book, because that is what the ledger is a record of: the
+        // pieces already finished and what they taught, rather than the one
+        // open on the desk.
+        case .lessons: return "book.closed"
         case .diagnostics: return "checkmark.seal"
         // A pin, because that is the word the design uses for what this pane
         // holds — the piece's *pinned* set — and the shelf is a row of things
@@ -62,6 +71,7 @@ public extension DetailSegment {
         case .translation: return "Translation — source text and translator queries (⌘⌥L)"
         case .intent: return "Intent — what you're going for, here or across the project (⌘⌥N)"
         case .visualLanguage: return "Visual Language — how the book looks (⌘⌥V)"
+        case .lessons: return "What I've learned — lessons and choices, across the project (⌘⌥G)"
         case .diagnostics: return "Diagnostics — the compiler's notes on what you've written (⌘⌥D)"
         case .references: return "References — what this piece is pinned to (⌘⌥E)"
         case .department: return "Department — the book's design and its language editions (⌘⌥K)"

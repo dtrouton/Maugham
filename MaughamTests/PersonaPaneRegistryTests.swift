@@ -126,8 +126,14 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// position inside that leading group is invisible to a writer; placing it
     /// after them leaves the three undisturbed and still puts it at the front
     /// of Publish's own row, which is what makes it that persona's default.
+    /// **`.lessons` takes the seat immediately after `.intent`** (editorial
+    /// letter P2 Task 5). The two personas that hold it hold Intent as well, so
+    /// the only thing this position decides is which of the pair comes first —
+    /// and the piece in front of the writer comes before the standing ledger.
+    /// Everything downstream of Intent shifts one place right and nothing
+    /// changes its neighbours.
     static let canonicalPaneOrder: [DetailSegment] = [
-        .diagnostics, .annotations, .inbox, .department, .intent,
+        .diagnostics, .annotations, .inbox, .department, .intent, .lessons,
         .references, .visualLanguage, .tasks, .translation, .history, .inspector
     ]
 
@@ -188,7 +194,7 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// every derived array-equality in `DetailPaneTogglePersonaTests` pass).
     /// Only the guard above sees it. A plant that does not fire is the finding.
     func test_theOrderGuardCatchesAReorderThatKeepsEveryFirstElement() {
-        let offender: [DetailSegment] = [.diagnostics, .intent, .references,
+        let offender: [DetailSegment] = [.diagnostics, .intent, .lessons, .references,
                                          .history, .tasks, .inspector]
 
         // The plant is honest: a permutation of Author's own panes, not a
@@ -231,6 +237,40 @@ final class PersonaPaneRegistryTests: XCTestCase {
                        + "and linked in the tree — which is the left column's, not a "
                        + "pane's (§5.0's make-left/consult-right rule)")
         XCTAssertFalse(Persona.publish.panes.contains(.references))
+    }
+
+    /// **The ledger serves the two personas that read a piece against a
+    /// standard, and neither of the other two** (editorial letter P2 Task 5).
+    /// Author consults it while drafting and Review while adjudicating; it is
+    /// also what every check is briefed on, so it sits beside the panes that
+    /// show what a check said. Plan and Publish are out for different reasons —
+    /// Plan is arranging the book rather than writing sentences, and Publish is
+    /// making a finished one look right.
+    func test_theLedgerServesBothWritingPersonasAndNeitherOfTheOthers() {
+        XCTAssertTrue(Persona.author.panes.contains(.lessons))
+        XCTAssertTrue(Persona.review.panes.contains(.lessons))
+        XCTAssertFalse(Persona.plan.panes.contains(.lessons))
+        XCTAssertFalse(Persona.publish.panes.contains(.lessons))
+    }
+
+    /// **⌘⌥G in Plan and Publish is a no-op, and that falls out of `coerce`
+    /// rather than needing a rule of its own.** The shortcut posts the segment
+    /// from any persona; a persona that does not register it lands on its own
+    /// default instead of showing a pane its picker cannot get back to. Asserted
+    /// against each persona's `defaultPane` rather than a literal, so a later
+    /// re-cut of the order cannot leave this test asserting a stale landing.
+    func test_theLedgerCoercesToTheDefaultInThePersonasThatDoNotOfferIt() {
+        for persona in [Persona.plan, .publish] {
+            XCTAssertEqual(persona.coerce(.lessons), persona.defaultPane,
+                           "\(persona) does not offer the ledger, so ⌘⌥G there must "
+                           + "land on its own default")
+        }
+        for persona in [Persona.author, .review] {
+            XCTAssertEqual(persona.coerce(.lessons), .lessons,
+                           "\(persona) offers the ledger, so coerce must keep it — "
+                           + "without this control the assertion above would pass "
+                           + "over a coerce that answered the default for everything")
+        }
     }
 
     /// The suite's oldest order constraint, and until 2026-08-03 its only one.
@@ -729,7 +769,16 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// so `.author`'s row below is what stage 3a's own docs (not §5.0) now
     /// authorize.
     ///
-    /// **A FOURTH document, later again: §5 of
+    /// **A FIFTH document, later again: §6 of
+    /// `docs/superpowers/specs/2026-08-29-the-editorial-letter-design.md`
+    /// gives Author and Review `.lessons`** — the lessons ledger, the
+    /// project-wide record of what the writer has learned. Both are membership
+    /// additions and neither touches Plan or Publish: the ledger is consulted
+    /// while drafting and while adjudicating, and it is what every check is
+    /// briefed on, so it belongs beside the two panes that read a piece against
+    /// a standard.
+    ///
+    /// **A FOURTH document: §5 of
     /// `docs/superpowers/specs/2026-08-19-publish-department-design.md` gives
     /// Publish `.department`** — *"a new right-pane surface in Publish: one new
     /// `DetailSegment` case, one registry entry, one seat in
@@ -742,9 +791,9 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// matrix no document contains.
     private static let designMatrix: [Persona: Set<DetailSegment>] = [
         .plan: [.inbox, .tasks, .history],
-        .author: [.diagnostics, .intent, .references,
+        .author: [.diagnostics, .intent, .lessons, .references,
                   .tasks, .history],
-        .review: [.annotations, .intent, .references, .tasks, .history],
+        .review: [.annotations, .intent, .lessons, .references, .tasks, .history],
         .publish: [.department, .visualLanguage, .tasks, .translation, .history]
     ]
 

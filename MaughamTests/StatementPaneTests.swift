@@ -491,6 +491,55 @@ final class StatementPaneTests: XCTestCase {
         XCTAssertTrue(StatementEditorHost.takesPictures(.visualLanguage))
     }
 
+    // MARK: - The pane on screen (editorial letter P2, Task 5)
+
+    /// **The mounted pane, because everything above this is a pure function and
+    /// a pane can be wired to none of them.** `DetailSegment.lessons` reaches
+    /// `StatementPane` through `DetailPaneToggle.statementPane(kind:)`, and what
+    /// this asserts is that the two sentences the ledger owns — the header
+    /// caption and the strata's own heading — are drawn by the view the writer
+    /// meets rather than only answered by the statics that compose them.
+    ///
+    /// Read off production's own accessibility tree (`staticTexts`), which is
+    /// the only reading of a rendered `Text` available from outside.
+    ///
+    /// The seeded row is what makes the second half assertable at all: the
+    /// strata render only when there is something in them
+    /// (`StatementPane.strata`), so a ledger with no entries draws no heading
+    /// and a test over an empty one would pass on the wrong reason.
+    func test_theMountedLedgerDrawsItsCaptionAndItsLedgerHeading() async throws {
+        let made = try await fixture(named: "lessons-pane")
+        let statement = try await made.store.createStatement(kind: .lessons, scope: .project)
+        try await made.store.mutateStatementText(of: statement, session: "test") { _ in
+            """
+            What I keep learning.
+
+            ## Rulings
+
+            - Cut the throat-clearing paragraph — ruled 2 Sep 2026, Le Guin
+            """
+        }
+
+        // The subject is a CHAPTER, not the project: the ledger is project-wide
+        // whatever the tree names, so mounting it on the project row would let a
+        // pane that silently follows the selection pass this test.
+        let window = await made.host(kind: .lessons, subject: .item(made.documentItemId))
+        _ = await made.pumpUntil(deadline: 5) { made.shows("Ledger", in: window) }
+
+        let everything = try made.staticTexts(in: window, containing: "")
+        XCTAssertFalse(
+            try made.staticTexts(in: window, containing: "What I've learned").isEmpty,
+            "the mounted ledger does not draw its own caption. Every text the "
+            + "window drew: \(everything)")
+        XCTAssertFalse(
+            try made.staticTexts(in: window, containing: "Ledger").isEmpty,
+            "the strata over the ledger are still headed Rulings, or drew nothing")
+        XCTAssertTrue(
+            try made.staticTexts(in: window, containing: "going for").isEmpty,
+            "the ledger wore the craft intent's sentence — the chapter subject "
+            + "reached the header instead of coercing to the project")
+    }
+
     /// The stratum's own heading is the writer's word for what these rows are.
     /// In the ledger they are the artifact, not decisions itemized under an
     /// essay, so the heading says **Ledger**.

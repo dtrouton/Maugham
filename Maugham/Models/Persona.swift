@@ -98,8 +98,8 @@ public extension Persona {
     /// **The rule §5.0 sorts by is *what a persona authors*: the left column is
     /// where a thing is made, the right is what you glance at while making
     /// something else. Do NOT generalise that into a law about this registry.**
-    /// The audit behind §5.0 falsified the general form outright — eight of the
-    /// eleven right-hand panes write, and `LinkedResearchPane` creates notes,
+    /// The audit behind §5.0 falsified the general form outright — most of the
+    /// right-hand panes write, and `LinkedResearchPane` creates notes,
     /// files and links. What holds across the column is subject-taking panes
     /// versus self-selecting browsers; make-left/consult-right is exactly right
     /// for Palette and is argued pane by pane at the cases below.
@@ -207,7 +207,8 @@ public extension Persona {
             // structure surfaces are still the tree and the canvas.
             return [.inbox, .tasks, .history, .inspector]
         case .author:
-            // Diagnostics · Intent · References · Tasks · History · Inspector.
+            // Diagnostics · Intent · What I've Learned · References · Tasks ·
+            // History · Inspector.
             //
             // **Research and Palette left this list whole in stage 3a Task
             // 6.** Every tree grew its own section for both (stage 2a), and
@@ -262,10 +263,20 @@ public extension Persona {
             // briefed on. Beside Intent it puts what the piece is *going for*
             // next to what it is *made of*, which is the pair a writer consults
             // together, and keeps both on the working-with side of Tasks.
-            return [.diagnostics, .intent, .references,
+            //
+            // **`.lessons` joined in the editorial letter's P2, between Intent
+            // and References, and the position is the same argument Intent's
+            // neighbour made.** The ledger is what the writer has learned
+            // across the whole project; Intent is what this piece is going for.
+            // Read together they are the pair a writer consults before a
+            // sentence — the standing lesson and the local aim — and the ledger
+            // sits after Intent because the piece in front of you comes first.
+            // It stays on the working-with side of Tasks with them.
+            return [.diagnostics, .intent, .lessons, .references,
                     .tasks, .history, .inspector]
         case .review:
-            // Annotations · Intent · References · Tasks · History · Inspector.
+            // Annotations · Intent · What I've Learned · References · Tasks ·
+            // History · Inspector.
             //
             // **`.references` is ○ rather than ● here (§6.3), and it is in for
             // Intent's reason applied one step further.** Review compares a
@@ -351,7 +362,16 @@ public extension Persona {
             // whose census goes red if a FOURTH pass-state writer appears — at
             // which point this argument needs re-making again, not patching,
             // exactly as Task 8 re-made it when the third arrived.
-            return [.annotations, .intent, .references, .tasks, .history, .inspector]
+            //
+            // **`.lessons` is in for Intent's reason applied to the writer
+            // rather than to the piece** (editorial letter P2). A reviewer
+            // asking whether a draft repeats a habit the writer already named
+            // has the ledger without leaving the persona — the ledger is also
+            // what every check is briefed on, so it is the standard the notes
+            // in the queue beside it were raised against. It does not lead;
+            // adjudicating does.
+            return [.annotations, .intent, .lessons, .references,
+                    .tasks, .history, .inspector]
         case .publish:
             // Department · Visual Language · Tasks · Translation · History ·
             // Inspector.

@@ -1,6 +1,6 @@
 # The Right Column
 
-The right column's modes are Inspector (covered on this page), plus Tasks, Annotations, History, Inbox, Translation, Intent, Visual Language, Diagnostics, References, and Department (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
+The right column's modes are Inspector (covered on this page), plus Tasks, Annotations, History, Inbox, Translation, Intent, What I've Learned, Visual Language, Diagnostics, References, and Department (each covered elsewhere, or at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
 
 **Outline, Research, and Palette are not right-column modes.** ⌘⌥O selects the project row, which shows a corkboard or table full-width in the CENTRE column instead of opening anything here — the review board, in Review; a compiled book instead, in Publish, once you have one — see [Structure & the Binder → The project row](structure-and-binder.md#the-project-row). ⌘⌥R and ⌘⌥P open the tree's own Research and Palette sections and scroll to them — see [Research](research.md) — rather than a pane in this column.
 
@@ -9,15 +9,15 @@ The right column's modes are Inspector (covered on this page), plus Tasks, Annot
 Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish — see [Getting Started → Personas](getting-started.md#personas)) offers its own subset of these modes in the picker. A shortcut still opens its pane from any persona — it reveals the right column if it's hidden and switches to it — even one the current persona doesn't lead with:
 
 - **Plan** — Inbox, Tasks, History, Inspector.
-- **Author** — Diagnostics, Intent, References, Tasks, History, Inspector.
-- **Review** — Annotations, Intent, References, Tasks, History, Inspector.
+- **Author** — Diagnostics, Intent, What I've Learned, References, Tasks, History, Inspector.
+- **Review** — Annotations, Intent, What I've Learned, References, Tasks, History, Inspector.
 - **Publish** — Department, Visual Language, Tasks, Translation, History, Inspector.
 
-**There is one order, and modes appear and disappear within it.** Reading down the whole set: Diagnostics, Annotations, Inbox, Department, Intent, References, Visual Language, Tasks, Translation, History, Inspector. Every persona above is that same sequence with the modes it doesn't offer taken out — so a mode never moves left or right of a mode it sits beside somewhere else, and you aren't hunting for it in a new place each time you change persona. Tasks marks the break between what you're working *with* and what's flowing *through*; History and Inspector always close the row, with Inspector on the far end.
+**There is one order, and modes appear and disappear within it.** Reading down the whole set: Diagnostics, Annotations, Inbox, Department, Intent, What I've Learned, References, Visual Language, Tasks, Translation, History, Inspector. Every persona above is that same sequence with the modes it doesn't offer taken out — so a mode never moves left or right of a mode it sits beside somewhere else, and you aren't hunting for it in a new place each time you change persona. Tasks marks the break between what you're working *with* and what's flowing *through*; History and Inspector always close the row, with Inspector on the far end.
 
 Each persona's default — the mode it opens on — is just the first one it offers: Inbox in Plan, Diagnostics in Author, Annotations in Review, Department in Publish.
 
-**What a persona leads you to is not what it can reach.** The right column shows what you *consult* while making something else, so a persona doesn't lead you to a mode for the thing it's there to make: you write research notes and palette cards in the binder tree — the same tree in every persona — and reach for **References** (⌘⌥E, Author and Review) to see what a chapter or a card is pinned to, or open the tree's own Research/Palette sections (⌘⌥R / ⌘⌥P) to browse them directly. Intent and Visual Language have no tree home at all — **they're right-hand panes everywhere, reached with ⌘⌥N and ⌘⌥V** rather than from any picker. They open, they work, and they stay selected while you use them; switch persona and come back and Plan is on its own modes again.
+**What a persona leads you to is not what it can reach.** The right column shows what you *consult* while making something else, so a persona doesn't lead you to a mode for the thing it's there to make: you write research notes and palette cards in the binder tree — the same tree in every persona — and reach for **References** (⌘⌥E, Author and Review) to see what a chapter or a card is pinned to, or open the tree's own Research/Palette sections (⌘⌥R / ⌘⌥P) to browse them directly. Intent, What I've Learned and Visual Language have no tree home at all — **they're right-hand panes only, reached with ⌘⌥N, ⌘⌥G and ⌘⌥V** rather than from any picker. They open, they work, and they stay selected while you use them; switch persona and come back and Plan is on its own modes again.
 
 Switching persona while sitting on a pane the destination doesn't offer falls back to that persona's default rather than blanking the pane. A pane no persona offers is the one thing that isn't remembered across a persona switch: summon References with ⌘⌥E in Plan (which doesn't offer it), switch persona and come back, and you're on that persona's own mode again.
 
@@ -74,6 +74,39 @@ not an invitation to edit the file in Finder: like every document in Maugham,
 an intent is kept in its own operation log and the `.md` is written out from
 it, so an outside edit made while Maugham has the project open is discarded on
 the next save.
+
+### What I've Learned mode (⌘⌥G)
+
+Your lessons ledger — what you've learned about your own writing, kept in one
+place for the whole project rather than per chapter. Select anything you like in
+the tree; this pane always shows the same document, because a lesson is about
+you rather than about the piece you happen to have open. The header says so:
+*What I've learned*.
+
+**It is rows, not an essay.** Each entry is a line of its own under a heading
+the pane calls **Ledger**, dated, with **Edit** and **Revoke** on it exactly as
+a ruling has in [Intent](#intent-mode-n) — because that is what these are, and
+the ledger is the one statement whose rulings are the whole content rather than
+decisions itemized under prose above them.
+
+**There are two doors in.** **Keep as lesson**, on a habit in a check's
+editorial letter, files that habit here in one press — see
+[Checking Your Writing](compiler.md). Or type. The editor above the strip is
+yours, an ordinary Maugham document with the same undo and the same cross-Mac
+merge as any other, and it is empty until you write in it. Nothing is created
+behind your back.
+
+**Every check reads it.** Whatever stands in the ledger goes into the briefing
+for ⌘R and ⌘⇧R, in every piece in the project — so a lesson you file once is a
+standard the next check is measured against rather than something you have to
+remember to mention. A lesson you've stopped working on is **retired** in place,
+dated, rather than deleted: the record of what you used to get wrong is part of
+what it says.
+
+The pane's own short name is `lessons`, and that is what you'll find in the
+project folder: `lessons.md` at the root, beside `intent.md`. Like every other
+document in Maugham it is written out from its own operation log, so edit it
+here rather than in Finder.
 
 ### Visual Language mode (⌘⌥V)
 

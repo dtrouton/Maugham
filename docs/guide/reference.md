@@ -40,6 +40,7 @@ The ones you'll use most:
 | `⌘⌥P` | Open the tree's Palette section, scrolled into view (no-op while Find in Project covers the tree) |
 | `⌘⌥L` | Translation pane |
 | `⌘⌥N` | Intent pane |
+| `⌘⌥G` | What I've Learned pane — the lessons ledger, across the whole project |
 | `⌘⌥V` | Visual Language pane |
 | `⌘⌥D` | Diagnostics pane — the compiler's notes on what you've written |
 | `⌘⌥E` | References pane — what this piece is pinned to |

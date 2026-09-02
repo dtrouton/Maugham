@@ -278,6 +278,17 @@ struct MaughamApp: App {
                 // (transLation) already make.
                 Button("Intent") { postSegment(.intent) }
                     .keyboardShortcut("n", modifiers: [.command, .option])
+                // **⌘⌥G, and no letter of "What I've Learned" was available**:
+                // L is Translation, E References, A Annotations, N Intent, D
+                // Diagnostics, R Research, T Tasks, H History, W and (with ⌥)
+                // M are macOS's own Close All and Minimize All. So the letter
+                // comes from the writer's word for what the pane HOLDS, the
+                // way ⌘⌥K's came from the department *desk*: the rows are a
+                // led**g**er, which is also the heading the pane draws over
+                // them (`RulingsStratumView.title(for:)`). ⌘G and ⌘⇧G are Find
+                // Next/Previous and neither takes ⌥.
+                Button("What I've Learned") { postSegment(.lessons) }
+                    .keyboardShortcut("g", modifiers: [.command, .option])
                 Button("Visual Language") { postSegment(.visualLanguage) }
                     .keyboardShortcut("v", modifiers: [.command, .option])
                 Button("Diagnostics") { postSegment(.diagnostics) }
