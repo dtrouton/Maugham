@@ -109,7 +109,6 @@ public final class DocumentStore {
     /// session's net delta is computed against the live total even when
     /// the caller can't pass one in.
     private var lastKnownProjectWordCount: Int = 0
-    private static let sessionIdleThreshold: TimeInterval = 30 * 60
 
     /// Debounced save scheduler used by callers that aren't Documents —
     /// today that's `ResearchNoteEditor` and `PartialRestorePicker`. Documents
@@ -461,7 +460,7 @@ public final class DocumentStore {
         }
         idleTimerToken = token
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.sessionIdleThreshold,
+            deadline: .now() + SessionTracker.idleThreshold,
             execute: token)
     }
 

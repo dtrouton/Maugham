@@ -14,6 +14,13 @@ public final class SessionTracker {
         public let deviceId: String?
     }
 
+    /// How long a document must go untouched before the sitting is over.
+    /// The one constant: `DocumentStore` schedules its idle timer on it and
+    /// `ProcessSignals` cuts its op-derived sessions on it, so the Statistics
+    /// window and the compiler's briefing cannot disagree about how many
+    /// sessions a writer has had.
+    public static let idleThreshold: TimeInterval = 30 * 60
+
     public private(set) var activeSession: ActiveSession?
 
     public init() {}
