@@ -308,4 +308,19 @@ extension Notification.Name {
     /// guard, ADR 0021).
     public static let maughamDesignProposalsChanged = Notification.Name(
         "maugham.design.proposals.changed")
+
+    /// **A statement proposal was staged or cleared** (translation pipeline
+    /// P5) — `propose_edition_brief`/`propose_visual_language` wrote a slot
+    /// under `.maugham/statements/proposals/`, or the writer's Adopt/Discard
+    /// emptied one. `StatementPane` draws its gate from that slot, the desk
+    /// marks its language row and `DetailPaneToggle` badges the Visual
+    /// Language segment; none of them can otherwise see a file an MCP tool
+    /// wrote behind them.
+    ///
+    /// No payload: which slots a surface cares about is its own answer (it
+    /// re-reads them). Post via `MaughamEvent.postStatementProposalsChanged`,
+    /// never by hand. Scope: .project(id:) — a data event, like
+    /// `maughamDesignProposalsChanged`; a closed window reads nothing.
+    public static let maughamStatementProposalsChanged = Notification.Name(
+        "maugham.statement.proposals.changed")
 }
