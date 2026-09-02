@@ -292,7 +292,20 @@ public enum RulingsSection {
         return formatter
     }()
 
-    private static func formatted(_ date: Date) -> String {
+    /// A date in a ruling's own format.
+    ///
+    /// **Public because a grammar layered over a ruling's TEXT writes dates in
+    /// it too** — `LessonsLedger`'s `(retired <d MMM yyyy>)` suffix sits inside
+    /// the very text this file's `— ruled <d MMM yyyy>` suffix hangs off. A
+    /// second formatter over there would be a second answer to what a date in a
+    /// ruling looks like, and the two would drift the first time this one moved.
+    public static func formatted(_ date: Date) -> String {
         dateFormatter.string(from: date)
+    }
+
+    /// The inverse of `formatted`, and nil for anything that is not a date in
+    /// that format. Same reasoning as `formatted`: one parser, not two.
+    public static func date(from text: String) -> Date? {
+        dateFormatter.date(from: text)
     }
 }

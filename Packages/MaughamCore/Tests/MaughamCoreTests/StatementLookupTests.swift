@@ -108,4 +108,28 @@ final class StatementLookupTests: XCTestCase {
             "s-b",
             "different language tags must discriminate — kind equality already does this")
     }
+
+    // MARK: - The lessons row (editorial letter P2, Task 1)
+
+    /// The ledger is one per project: what the writer has learned about their
+    /// own writing is not a per-chapter fact.
+    func test_lessonsMintsTheRowForProjectScope() {
+        XCTAssertEqual(
+            StatementConvention.newPath(kind: .lessons, scope: .project, documentSlug: nil),
+            "lessons.md")
+    }
+
+    /// CONTROL for the row above: document scope has no row, with or without a
+    /// slug, so the store throws `.statementHasNoStorage` rather than minting a
+    /// second ledger under `lessons/`.
+    func test_lessonsHasNoPathForDocumentScope() {
+        XCTAssertNil(
+            StatementConvention.newPath(
+                kind: .lessons, scope: .document("doc-9"), documentSlug: "chapter-nine"),
+            "the lessons ledger is project-scope only — there is no per-document row")
+        XCTAssertNil(
+            StatementConvention.newPath(
+                kind: .lessons, scope: .document("doc-9"), documentSlug: nil),
+            "and a missing slug does not make one appear either")
+    }
 }

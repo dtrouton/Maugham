@@ -418,6 +418,7 @@ struct ArtifactIndex: Equatable {
         case .intent: return intentTitle
         case .visualLanguage: return visualLanguageTitle
         case .editionBrief(let lang): return "Edition Brief · \(lang)"
+        case .lessons: return lessonsTitle
         case .unknown(let raw): return raw
         }
     }
@@ -427,6 +428,14 @@ struct ArtifactIndex: Equatable {
     /// artifact by that name, so an edge that named it anything else would be
     /// describing a surface they cannot find.
     static let visualLanguageTitle = "Visual Language"
+
+    /// The writer's word for the lessons ledger, as a mark on a card names it.
+    ///
+    /// Deliberately the artifact's NAME rather than either sentence the pane
+    /// shows — its header says what the ledger is for ("What I've learned") and
+    /// its stratum names the rows ("Ledger"). A mark says which artifact a card
+    /// became, and that is this.
+    static let lessonsTitle = "Lessons"
 
     /// The bare name, and the project's scope answers with it alone.
     ///

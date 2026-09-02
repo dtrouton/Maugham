@@ -1,11 +1,13 @@
 import Foundation
 
-/// The writer's stated intent, or the book's visual language: one artifact,
-/// two kinds, scoped to the project or to a single manuscript document.
+/// The writer's stated intent, the book's visual language, an edition's brief,
+/// the lessons ledger: one artifact, several kinds, scoped to the project or to
+/// a single manuscript document. Count `Kind`'s cases, never a number here.
 ///
 /// A statement's content lives in the open at the project root — `intent.md`,
-/// `intent/<slug>.md`, `visual-language.md` — carried as an ordinary `Document`
-/// so history, undo and cross-device merge arrive built rather than invented.
+/// `intent/<slug>.md`, `visual-language.md`, `lessons.md` — carried as an
+/// ordinary `Document` so history, undo and cross-device merge arrive built
+/// rather than invented.
 /// This type is only the manifest's registry entry: identity, what it is, what
 /// it is about, and where it currently sits.
 ///
@@ -34,6 +36,10 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
         case intent
         case visualLanguage
         case editionBrief(String)   // language tag, e.g. "es"
+        /// What the writer has learned about their own writing: a project-scope
+        /// ledger whose entries are ordinary rulings under `## Rulings`, read
+        /// through `LessonsLedger`'s grammar.
+        case lessons
         /// A kind written by a newer build. Carries the original raw string so
         /// re-encode is lossless (see type doc).
         case unknown(String)
@@ -41,6 +47,7 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
         private static let intentRaw = "intent"
         private static let visualLanguageRaw = "visual_language"
         private static let editionBriefPrefix = "edition_brief:"
+        private static let lessonsRaw = "lessons"
 
         /// The stable on-disk string. Known cases emit their canonical value;
         /// an `.unknown` emits the preserved original raw.
@@ -49,6 +56,7 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
             case .intent: return Self.intentRaw
             case .visualLanguage: return Self.visualLanguageRaw
             case .editionBrief(let lang): return Self.editionBriefPrefix + lang
+            case .lessons: return Self.lessonsRaw
             case .unknown(let raw): return raw
             }
         }
@@ -58,6 +66,7 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
             switch raw {
             case Self.intentRaw: self = .intent
             case Self.visualLanguageRaw: self = .visualLanguage
+            case Self.lessonsRaw: self = .lessons
             default:
                 if raw.hasPrefix(Self.editionBriefPrefix) {
                     let lang = String(raw.dropFirst(Self.editionBriefPrefix.count))

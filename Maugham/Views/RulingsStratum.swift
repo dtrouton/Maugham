@@ -219,9 +219,22 @@ struct RulingsStratumView: View {
     /// would leave the field pointing at nothing the moment it commits.
     @State private var editingIndex: Int?
 
+    /// The writer's word for these rows.
+    ///
+    /// **"Ledger" for the lessons statement, "Rulings" everywhere else.** Under
+    /// an intent or a brief a ruling is a decision itemized beneath the essay it
+    /// was made against; in the lessons statement the rows ARE the artifact —
+    /// the essay above them is a preamble — so calling them rulings there names
+    /// the mechanism instead of the thing. Static and pure so the whole product
+    /// of kinds can be asked of it.
+    static func title(for kind: Statement.Kind) -> String {
+        if case .lessons = kind { return "Ledger" }
+        return "Rulings"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Rulings")
+            Text(Self.title(for: kind))
                 .font(.caption).bold()
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)

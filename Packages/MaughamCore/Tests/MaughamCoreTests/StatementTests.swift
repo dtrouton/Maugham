@@ -205,4 +205,32 @@ final class StatementTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Statement.Kind.self, from: Data(#""manifesto""#.utf8))
         XCTAssertEqual(decoded, .unknown("manifesto"))
     }
+
+    // MARK: - The lessons kind (editorial letter P2, Task 1)
+
+    /// The lessons ledger is a FOURTH kind, and its wire string is `"lessons"`.
+    /// Pinned here for the same reason the other three are: this string lands in
+    /// every writer's `project.maugham.json`, so changing it is a data
+    /// migration rather than a rename.
+    func test_lessonsEncodesAndRoundTrips() throws {
+        let kind = Statement.Kind.lessons
+        let encoded = String(decoding: try JSONEncoder().encode(kind), as: UTF8.self)
+        XCTAssertEqual(encoded, #""lessons""#)
+        XCTAssertEqual(try JSONDecoder().decode(Statement.Kind.self, from: Data(encoded.utf8)), kind)
+    }
+
+    /// CONTROL for the assertion above: the decoder matches the raw EXACTLY, so
+    /// a near-miss a writer or a newer build could produce is `.unknown` and is
+    /// preserved verbatim — it is not fuzzily folded into `.lessons`.
+    func test_aNearMissOfTheLessonsRawIsPreservedAsUnknown() throws {
+        for raw in ["lesson", "Lessons", "lessons:"] {
+            let decoded = try JSONDecoder().decode(
+                Statement.Kind.self, from: Data(#""\#(raw)""#.utf8))
+            XCTAssertEqual(decoded, .unknown(raw), "\(raw) must not decode as .lessons")
+            XCTAssertEqual(
+                String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self),
+                #""\#(raw)""#,
+                "\(raw) must re-encode byte-identically")
+        }
+    }
 }

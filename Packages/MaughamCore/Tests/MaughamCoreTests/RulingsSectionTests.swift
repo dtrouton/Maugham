@@ -359,4 +359,36 @@ final class RulingsSectionTests: XCTestCase {
         calendar.timeZone = TimeZone(identifier: "UTC")!
         return try XCTUnwrap(calendar.date(from: comps))
     }
+
+    // MARK: - The one date format (editorial letter P2, Task 1)
+
+    /// `formatted` and `date(from:)` are public so a grammar layered over a
+    /// ruling's TEXT (`LessonsLedger`'s `(retired <date>)` suffix) writes dates
+    /// in the same format the `— ruled <date>` suffix carries. They are each
+    /// other's inverse, and they are fixed to `en_US_POSIX`/UTC so the file a
+    /// writer syncs from one machine reads the same on another.
+    func test_theRulingDateFormatIsPublicAndRoundTrips() throws {
+        let date = try XCTUnwrap(RulingsSection.date(from: "2 Sep 2026"))
+        XCTAssertEqual(RulingsSection.formatted(date), "2 Sep 2026")
+        XCTAssertEqual(RulingsSection.date(from: RulingsSection.formatted(date)), date)
+    }
+
+    /// CONTROL for the round trip above: a string that is not a date in that
+    /// format is nil rather than coerced, which is what lets a caller classify
+    /// a hand-typed suffix without also having to trust its date.
+    func test_aStringThatIsNotThatFormatHasNoDate() {
+        for text in ["last Tuesday", "2026-09-02", "Sep 2026", ""] {
+            XCTAssertNil(RulingsSection.date(from: text), "\(text) is not the format")
+        }
+    }
+
+    /// **A spelled-out month parses**, and this pins it rather than leaving it
+    /// as a surprise. `DateFormatter`'s `MMM` matches the full month name as
+    /// well as the abbreviation, so a writer who hand-types "2 September 2026"
+    /// into a ruling's suffix gets the date they meant. The tolerance is one
+    /// direction only: `formatted` still writes the abbreviation.
+    func test_aSpelledOutMonthParsesAndIsWrittenBackAbbreviated() throws {
+        let date = try XCTUnwrap(RulingsSection.date(from: "2 September 2026"))
+        XCTAssertEqual(RulingsSection.formatted(date), "2 Sep 2026")
+    }
 }

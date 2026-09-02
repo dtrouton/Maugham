@@ -57,7 +57,10 @@ enum BibleStratum {
     static func belongsTo(_ kind: Statement.Kind) -> Bool {
         switch kind {
         case .intent: return true
-        case .visualLanguage, .editionBrief, .unknown: return false
+        // The lessons ledger is about the WRITER, not about the book's world —
+        // the bible establishes what is true of Kelly, and nothing in a lesson
+        // about the writer's own habits belongs under it.
+        case .visualLanguage, .editionBrief, .lessons, .unknown: return false
         }
     }
 

@@ -267,7 +267,7 @@ final class StatementPaneTests: XCTestCase {
 
     func test_theHeaderSaysSomethingForEveryKindAndScope() {
         for kind in [Statement.Kind.intent, .visualLanguage,
-                     .editionBrief("es"), .unknown("future")] {
+                     .editionBrief("es"), .lessons, .unknown("future")] {
             for scope in [Statement.Scope.project, .document("doc-1"), .document("gone")] {
                 XCTAssertFalse(
                     StatementPane.headerCaption(
@@ -425,5 +425,81 @@ final class StatementPaneTests: XCTestCase {
                        + "That is a behaviour change, not a bug fix — spec §8 records "
                        + "the anchor as harmless and unshown. Delete this pin "
                        + "deliberately if the change is intended.")
+    }
+
+    // MARK: - The lessons ledger (editorial letter P2, Task 1)
+
+    /// The ledger's header names what it is, and — like visual language's and
+    /// the brief's — it says the same thing whatever the tree names, because
+    /// `effectiveScope` coerces every subject to `.project` for any kind but
+    /// `.intent`. Without an arm of its own the ledger wore the craft intent's
+    /// sentence over a different document entirely.
+    func test_theLessonsHeaderSaysWhatTheLedgerIs() {
+        XCTAssertEqual(
+            StatementPane.headerCaption(
+                kind: .lessons, scope: .project, structure: structure),
+            "What I've learned")
+        XCTAssertEqual(
+            StatementPane.headerCaption(
+                kind: .lessons, scope: .document("doc-1"), structure: structure),
+            "What I've learned",
+            "the ledger is project-scope, and its header says so whatever the "
+            + "tree names")
+    }
+
+    /// The ledger is one per project. Selecting a chapter and opening it must
+    /// resolve to the project rather than offering a keystroke that throws
+    /// `.statementHasNoStorage`.
+    func test_theLedgerResolvesToTheProjectFromEverySubject() {
+        for subject in [BinderSubject.project, .item("doc-1"), .item("grp-1"),
+                        .item("gone"), .research("res-1")] {
+            XCTAssertEqual(
+                StatementPane.effectiveScope(
+                    kind: .lessons, subject: subject, structure: structure),
+                .project,
+                "a lessons subject of \(subject) must coerce to the project")
+        }
+    }
+
+    /// CONTROL for the coercion above: the same sweep over `.intent` DOES
+    /// follow the selected document, so a green run cannot mean `effectiveScope`
+    /// answers `.project` for everything.
+    func test_control_theSameSubjectFollowsTheDocumentForIntent() {
+        XCTAssertEqual(
+            StatementPane.effectiveScope(
+                kind: .intent, subject: .item("doc-1"), structure: structure),
+            .document("doc-1"))
+    }
+
+    /// The three predicates a new kind has to answer, in one place: the ledger
+    /// carries rulings (they are its entire content), establishes nothing about
+    /// the book's world, and takes no pictures.
+    func test_theLedgerAnswersTheThreeKindPredicates() {
+        XCTAssertTrue(StatementEssay.carriesRulings(.lessons),
+                      "the ledger's entries ARE rulings")
+        XCTAssertFalse(BibleStratum.belongsTo(.lessons),
+                       "the ledger is about the writer, not about Kelly")
+        XCTAssertFalse(StatementEditorHost.takesPictures(.lessons),
+                       "only visual language takes pictures")
+    }
+
+    /// CONTROL for the three above: each predicate answers the other way for
+    /// some kind, so a green run cannot mean they are constants.
+    func test_control_theThreeKindPredicatesDiscriminate() {
+        XCTAssertFalse(StatementEssay.carriesRulings(.visualLanguage))
+        XCTAssertTrue(BibleStratum.belongsTo(.intent))
+        XCTAssertTrue(StatementEditorHost.takesPictures(.visualLanguage))
+    }
+
+    /// The stratum's own heading is the writer's word for what these rows are.
+    /// In the ledger they are the artifact, not decisions itemized under an
+    /// essay, so the heading says **Ledger**.
+    func test_theStratumTitlesTheLedgerAndKeepsRulingsForEverythingElse() {
+        XCTAssertEqual(RulingsStratumView.title(for: .lessons), "Ledger")
+        for kind in [Statement.Kind.intent, .visualLanguage,
+                     .editionBrief("es"), .unknown("future")] {
+            XCTAssertEqual(RulingsStratumView.title(for: kind), "Rulings",
+                           "\(kind) keeps the original heading")
+        }
     }
 }

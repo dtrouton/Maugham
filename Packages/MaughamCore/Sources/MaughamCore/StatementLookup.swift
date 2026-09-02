@@ -10,6 +10,7 @@ import Foundation
 /// | `intent/<slug>.md` | one per manuscript document |
 /// | `visual-language.md` | project visual language |
 /// | `editions/<lang>.md` | one per edition brief language |
+/// | `lessons.md` | the project's lessons ledger |
 ///
 /// Shared rather than Mac-local (tripwire 19): the Mac mints these paths and the
 /// phone reads statements, and a table with two spellings is a table that drifts.
@@ -23,14 +24,16 @@ public enum StatementConvention {
     public static let visualLanguagePath = "visual-language.md"
     /// The folder edition brief files live in.
     public static let editionsFolder = "editions"
+    /// The project's lessons ledger.
+    public static let lessonsPath = "lessons.md"
 
     /// The project-relative path a NEW statement of this `kind` and `scope`
     /// takes, or **nil when the pair has no row in the table**.
     ///
     /// Nil is not a failure to compute — it is the table saying the pair has no
-    /// storage: visual language is project-scope only (§2.1), and a `kind` or
-    /// `scope` written by a newer build (ADR 0015's `.unknown`) is something
-    /// this build retains and ignores, never mints a file for.
+    /// storage: every kind but intent is project-scope only (§2.1), and a
+    /// `kind` or `scope` written by a newer build (ADR 0015's `.unknown`) is
+    /// something this build retains and ignores, never mints a file for.
     ///
     /// `documentSlug` is derived from the document's title **at creation and
     /// never re-derived** — identity is the manifest `id`, so the path is free
@@ -52,6 +55,11 @@ public enum StatementConvention {
         case (.editionBrief(let lang), .project):
             guard !lang.isEmpty else { return nil }
             return "\(editionsFolder)/\(lang).md"
+        // Project scope only, and deliberately: what the writer has learned
+        // about their own writing is one ledger for the book, not a fact a
+        // chapter can hold a private copy of.
+        case (.lessons, .project):
+            return lessonsPath
         default:
             return nil
         }

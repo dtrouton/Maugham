@@ -139,6 +139,12 @@ struct StatementPane: View {
             return "How this book reads in "
                 + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
         }
+        // **The ledger is about the writer, not about the book** (editorial
+        // letter P2). Scope-blind for the same reason the two above are:
+        // `effectiveScope` coerces every subject to `.project` for any kind but
+        // `.intent`, so without an arm here the ledger wore the craft intent's
+        // sentence over a different document entirely.
+        if case .lessons = kind { return "What I've learned" }
         guard case .document(let id) = scope else {
             return "What this project is going for"
         }

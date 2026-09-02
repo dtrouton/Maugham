@@ -93,9 +93,15 @@ enum StatementEssay {
     /// nothing else, and the two questions part company on exactly one kind —
     /// which is why the proxy survived a whole milestone before the brief
     /// arrived to falsify it.
+    ///
+    /// **The lessons ledger is rulings and nothing else** (editorial letter
+    /// P2). Its entries ARE its content — a `## Rulings` section is the whole
+    /// file, and `LessonsLedger` is a grammar layered over exactly the rows this
+    /// predicate makes possible. Its essay half is a preamble the writer may
+    /// leave empty.
     static func carriesRulings(_ kind: Statement.Kind) -> Bool {
         switch kind {
-        case .intent, .editionBrief: return true
+        case .intent, .editionBrief, .lessons: return true
         case .visualLanguage, .unknown: return false
         }
     }

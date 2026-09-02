@@ -3252,6 +3252,9 @@ struct ProjectWindow: View {
         case .visualLanguage: return .visualLanguage
         // Neither has a pane here — same as `.unknown` below.
         case .editionBrief: return nil
+        // Task 5 wires .lessons to its DetailSegment; the case does not exist
+        // yet, so this arm answers nil rather than guessing at a route.
+        case .lessons: return nil
         // A kind a newer build wrote, retained and ignored everywhere else
         // (`Statement.Kind`). There is no pane for it here either.
         case .unknown: return nil
