@@ -84,12 +84,40 @@ enum LessonLedgerVerbs {
     /// File a habit as a live lesson. The heading IS the entry text — a lesson
     /// is a sentence the writer commits to, not a record with a title.
     ///
-    /// `RulingPerformer.rule` is find-or-create, so the first Keep in a project
-    /// mints the ledger statement; nothing has to check whether it is there.
+    /// `RulingPerformer.rule` is find-or-create for the STATEMENT, so the
+    /// first Keep in a project mints the ledger file; nothing has to check
+    /// whether it is there. What it is not is find-or-create for the ROW: it
+    /// appends whatever it is handed.
+    ///
+    /// **Find-or-create BY HEADING, over ANY entry kind** (P2 fix wave,
+    /// finding 2) — `makeChoice`'s idempotence one door over, and wider,
+    /// because the two doors are asked in different states. The letter's own
+    /// Keep is withdrawn by `LessonOffer.keepIsOffered` once the heading
+    /// stands anywhere; the queue's *Keep as lesson…* is a pure annotation
+    /// predicate (`QueueLedgerVerbs.offersAKeep` turns on kind, status and
+    /// authorship alone), so it stays on the row after a press and a second
+    /// press would file the same sentence twice under two dates. A duplicate
+    /// then briefs every later round twice about one thing.
+    ///
+    /// Open, a choice, or retired — all three are the writer having already
+    /// decided about exactly this sentence, which is `keepIsOffered`'s own
+    /// rule. Where `makeChoice` deliberately narrows to standing CHOICES so a
+    /// writer can move a habit from a lesson to a choice, nothing moves a
+    /// habit *into* a lesson it is already in.
+    ///
+    /// Matched against the ledger as it stands at the moment of the write
+    /// (`LessonsLedger`'s addressing note), never a remembered read. A heading
+    /// already standing returns having written nothing — a success, because
+    /// the writer's sentence IS in the ledger and reporting an error over the
+    /// state they asked for would be the app arguing with them.
     static func keepAsLesson(
         _ heading: String, provenance: String,
         store: ProjectStore, world: DeclaredWorldStore?
     ) async throws {
+        let standing = LessonsLedger.parse(ledgerText(store: store) ?? "").entries
+        guard !standing.contains(where: {
+            LessonsLedger.matches(heading, heading: $0.heading)
+        }) else { return }
         try await RulingPerformer.rule(
             heading, provenance: provenance,
             kind: .lessons, forScope: .project, store: store, world: world)
@@ -238,26 +266,39 @@ enum LessonOffer {
     /// The strings returned are the LETTER's, not the file's, because
     /// `LessonsLedger.matches` forgives only whitespace and the two are
     /// otherwise the same words.
+    ///
+    /// **Deduped, first occurrence winning** (P2 fix wave, finding 4). The
+    /// list is the model's, so it can name one lesson twice; `LetterSection`
+    /// draws it through a `ForEach(id: \.self)`, where a repeat is a duplicate
+    /// SwiftUI identity — two rows offering to retire one row of the writer's
+    /// file, the second of which would refuse (`LessonLedgerVerbs.retire`
+    /// only ever finds an OPEN lesson) after the first has already retired it.
     static func retirable(_ letter: Letter, ledgerText: String?) -> [String] {
         guard let ledgerText else { return [] }
         let open = LessonsLedger.open(in: ledgerText)
+        var seen: [String] = []
         return letter.retiredHeadings.filter { candidate in
-            open.contains { LessonsLedger.matches(candidate, heading: $0) }
+            guard open.contains(where: { LessonsLedger.matches(candidate, heading: $0) }),
+                  !seen.contains(where: { LessonsLedger.matches(candidate, heading: $0) })
+            else { return false }
+            seen.append(candidate)
+            return true
         }
     }
 
-    /// **The entry text a habit would be kept as.** The lesson the round drew
-    /// out of the habit when it offered one, else the habit's own name.
+    /// **The entry text a habit would be kept as** — `Letter.Habit`'s own
+    /// `ledgerHeading`, delegated and never respelled (P2 fix wave, finding
+    /// 1).
     ///
-    /// A ledger entry has no title and no body: the sentence IS the entry, so
-    /// what goes in has to be the most useful sentence available. An empty
-    /// `lesson` is read as absent rather than kept as the writer's commitment
-    /// to nothing — `RulingPerformer.rule` would refuse it anyway, and
-    /// refusing at the press with no explanation is worse than not offering.
+    /// The rule lives on the habit because `DiagnosticIngest.parseLetter`
+    /// needs it too, and it holds no view types. Spelled a second time here,
+    /// the queue's *This is a choice* (which files the stamp the parse made)
+    /// and the letter's *Keep as lesson* (which files this) could put one
+    /// habit in the ledger under two identities.
+    ///
+    /// Kept as a function so the callers and the tests that name it compile.
     static func lessonHeading(for habit: Letter.Habit) -> String {
-        let lesson = (habit.lesson ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return lesson.isEmpty ? habit.name : lesson
+        habit.ledgerHeading
     }
 
     /// Whether *Keep as lesson* stands for this habit.

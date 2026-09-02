@@ -632,7 +632,14 @@ extension DiagnosticIngest {
         // address the writer's file, so a question is stamped only where its
         // `habit` names a habit THIS letter raised — a near-miss stamps
         // nothing rather than the wrong ledger row.
-        let habitNames = habits.map(\.name)
+        //
+        // **Matched on the NAME, stamped with the `ledgerHeading`.** The name
+        // is what the schema asks the model to cite, so it is what a citation
+        // is checked against; the heading is what the ledger knows the habit
+        // by, and it is the one thing a surface may file (`Letter.Habit`'s
+        // own doc). Stamping the name instead put one habit in the writer's
+        // ledger under two identities — the queue's choice under the name,
+        // the letter's Keep under the lesson sentence.
 
         var questions: [Letter.Question] = []
         var notes: [Diagnostic] = []
@@ -648,12 +655,13 @@ extension DiagnosticIngest {
                   !isFixShaped(question)
             else { continue }
             let resolved = letterRefs(item[SectionField.refs], live)
-            // No id-leak scrub of its own: what survives is one of `habitNames`
-            // verbatim, and every one of those was scrubbed as the habit was
+            // No id-leak scrub of its own: what survives is one habit's own
+            // `name` or `lesson`, and both were scrubbed as the habit was
             // parsed. Anything else — including a heading with an id in it —
             // matches nothing and resolves to nil.
             let raisedUnder = nonEmptyString(item[SectionField.habit]).flatMap { cited in
-                habitNames.first { LessonsLedger.matches(cited, heading: $0) }
+                habits.first { LessonsLedger.matches(cited, heading: $0.name) }?
+                    .ledgerHeading
             }
             questions.append(
                 Letter.Question(

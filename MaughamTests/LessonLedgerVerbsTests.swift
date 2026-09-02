@@ -122,6 +122,60 @@ final class LessonLedgerVerbsTests: XCTestCase {
             "the line must say which letter raised it")
     }
 
+    /// **Keep is find-or-create by heading, over every entry kind** (fix wave,
+    /// finding 2). The queue's *Keep as lesson…* turns on the note's kind,
+    /// status and authorship alone, so it stays on an accepted craft note
+    /// after a press — and a second press would file the same sentence twice
+    /// under two dates, which then briefs every later round twice about one
+    /// thing.
+    ///
+    /// The control is the second heading: two different sentences file two
+    /// rows, so what the guard suppresses is the repeat and not the write.
+    func test_keepingOneHeadingTwiceFilesOneRow() async throws {
+        let store = try await loadedNovel()
+        try await LessonLedgerVerbs.keepAsLesson(
+            "Vary the opening.", provenance: provenance, store: store, world: nil)
+        try await LessonLedgerVerbs.keepAsLesson(
+            "  Vary the opening.  ", provenance: provenance, store: store, world: nil)
+
+        XCTAssertEqual(
+            open(store), ["Vary the opening."],
+            "the same sentence was filed twice. Ledger:\n" + (ledger(store) ?? "<none>"))
+
+        try await LessonLedgerVerbs.keepAsLesson(
+            "Fragments", provenance: provenance, store: store, world: nil)
+        XCTAssertEqual(
+            open(store), ["Vary the opening.", "Fragments"],
+            "the control: a heading the ledger does not carry still files")
+    }
+
+    /// **A heading standing as a CHOICE, or retired, stops a Keep too.** Each
+    /// is the writer having already decided about exactly this sentence, and
+    /// `LessonOffer.keepIsOffered` withdraws the letter's own button on all
+    /// three states; the verb has to agree, because the queue's door does not
+    /// ask the offer at all.
+    func test_keepIsRefusedOverAChoiceAndOverARetiredEntry() async throws {
+        let store = try await loadedNovel()
+        try await LessonLedgerVerbs.makeChoice(
+            "Fragments", provenance: provenance, store: store, world: nil)
+        try await LessonLedgerVerbs.keepAsLesson(
+            "Cut the filter words.", provenance: provenance, store: store, world: nil)
+        try await LessonLedgerVerbs.retire(
+            "Cut the filter words.", on: Date(), store: store, world: nil)
+
+        try await LessonLedgerVerbs.keepAsLesson(
+            "Fragments", provenance: provenance, store: store, world: nil)
+        try await LessonLedgerVerbs.keepAsLesson(
+            "Cut the filter words.", provenance: provenance, store: store, world: nil)
+
+        XCTAssertEqual(
+            open(store), [],
+            "a choice and a retired entry were each raised back to a live "
+            + "lesson. Ledger:\n" + (ledger(store) ?? "<none>"))
+        XCTAssertEqual(entries(store).count, 2,
+                       "and neither of them gained a second row")
+    }
+
     /// A choice is the same act under `LessonsLedger`'s own marker — never a
     /// second spelling, because the grammar that reads a row is what has to
     /// recognise it.
@@ -372,6 +426,30 @@ final class LessonLedgerVerbsTests: XCTestCase {
         XCTAssertEqual(
             LessonOffer.retirable(letter(retired: nil), ledgerText: text), [],
             "and a letter that named nothing offers nothing")
+    }
+
+    /// **A heading the model named twice is offered once** (fix wave, finding
+    /// 4). `retiredHeadings` is the model's own list, so it can repeat; the
+    /// letter draws the offers through a `ForEach(id: \.self)`, where a repeat
+    /// is a duplicate SwiftUI identity — and the second press would refuse,
+    /// the first having already retired the row.
+    ///
+    /// The control is the second heading: two DIFFERENT sentences both stand.
+    func test_aRepeatedRetiredHeadingIsOfferedOnce() async throws {
+        let store = try await loadedNovel()
+        for heading in ["Vary the opening.", "Cut the filter words."] {
+            try await LessonLedgerVerbs.keepAsLesson(
+                heading, provenance: provenance, store: store, world: nil)
+        }
+        let text = ledger(store)
+
+        XCTAssertEqual(
+            LessonOffer.retirable(
+                letter(retired: ["Vary the opening.", "Cut the filter words.",
+                                 "  Vary the opening.  "]),
+                ledgerText: text),
+            ["Vary the opening.", "Cut the filter words."],
+            "the first occurrence wins and the repeat is dropped")
     }
 
     /// The entry text IS the sentence: the lesson the round drew out of the

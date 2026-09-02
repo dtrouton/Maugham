@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import MaughamCore
 
 /// **The round cockpit** — the strip between the annotations queue's toolbar

@@ -4816,10 +4816,18 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(
             commitBody.contains("clearNotice()"),
             "the early return must clear the notice: \(commitBody)")
-        let askChange = try XCTUnwrap(
-            source.range(of: ".onChange(of: ask) {").map {
-                String(source[$0.upperBound...].prefix(400))
-            })
+        // Bounded by the NEXT modifier rather than by a character budget: a
+        // count is a headroom that runs out silently as the comment above the
+        // line grows, and the test then goes red for a reason that has
+        // nothing to do with what it is about.
+        let askStart = try XCTUnwrap(
+            source.range(of: ".onChange(of: ask) {"),
+            "`.onChange(of: ask)` is where the stored-ask clear lives; "
+                + "find it by name if it moved")
+        let rest = source[askStart.upperBound...]
+        let askChange = String(
+            rest[..<(rest.range(of: ".onChange(of: focused)")?.lowerBound
+                     ?? rest.endIndex)])
         XCTAssertTrue(
             askChange.contains("clearNotice()"),
             "and so must a stored ask that moved: \(askChange)")

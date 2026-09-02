@@ -25,6 +25,35 @@ struct Letter: Codable, Equatable, Sendable {
         let cost: String
         let lesson: String?
         let exercise: String?
+
+        /// **The one heading this habit is known by in the lessons ledger**
+        /// (P2 fix wave, finding 1).
+        ///
+        /// A ledger entry has no title and no body: the entry text IS the
+        /// heading, so a habit's heading has to be the most useful sentence
+        /// it carries — the lesson the round drew out of it, else its own
+        /// name.
+        ///
+        /// **This rule lives here because two surfaces file the same habit.**
+        /// The letter's *Keep as lesson* files what the writer sees; the
+        /// queue's *This is a choice* files what `DiagnosticIngest.parseLetter`
+        /// stamped on the note. Spelled once in each place, one habit could
+        /// reach the ledger under two headings — a lesson under the sentence
+        /// and a choice under the name — and every later round would then be
+        /// briefed to work on it and to never raise it.
+        ///
+        /// For a habit the ledger already names, the model returns
+        /// `lesson: null` and the two coincide; the divergence is a habit's
+        /// first trip in, which is exactly when a duplicate row is minted.
+        ///
+        /// An empty `lesson` is read as absent rather than kept as the
+        /// writer's commitment to nothing — `RulingPerformer.rule` would
+        /// refuse it, and refusing at the press with no explanation is worse
+        /// than not offering (`LessonOffer.keepIsOffered`'s own rule).
+        var ledgerHeading: String {
+            let lesson = (lesson ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return lesson.isEmpty ? name : lesson
+        }
     }
 
     /// One open question the letter poses about the draft.

@@ -212,7 +212,6 @@ struct AnnotationsPane: View {
         var id: String { annotation.id }
     }
 
-
     enum KindOption: String, CaseIterable, Identifiable, FilterRowItem {
         case all, comments, suggestions, queries, craft
 

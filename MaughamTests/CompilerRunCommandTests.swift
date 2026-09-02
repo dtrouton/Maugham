@@ -5772,6 +5772,11 @@ final class CompilerRunCommandTests: XCTestCase {
     /// A turn whose letter raises one habit and asks two questions about the
     /// same live paragraph: one raised under that habit, one raised under a
     /// habit this letter never named.
+    ///
+    /// **The habit's `name` and its `lesson` differ on purpose** (fix wave,
+    /// finding 1): the citation is matched against the name, and what rides
+    /// the note is the ledger heading — the sentence the letter's own Keep
+    /// would file.
     private static func aLetterCitingHabits(
         about paragraphId: String, cited: String
     ) -> String {
@@ -5783,7 +5788,8 @@ final class CompilerRunCommandTests: XCTestCase {
         {"section":"intent_drift","verdict":"holds"}
         {"section":"letter","about":"A woman waits out a fog.",\
         "habits":[{"name":"Filter words","refs":["\(paragraphId)"],\
-        "cost":"The reader is held one step back."}],\
+        "cost":"The reader is held one step back.",\
+        "lesson":"Cut the filter words."}],\
         "questions":[{"refs":["\(paragraphId)"],"habit":"\(cited)",\
         "question":"Whose fear is this, hers or the narrator's?"}],\
         "scenes":null,"retired":["Throat-clearing"]}
@@ -5810,7 +5816,7 @@ final class CompilerRunCommandTests: XCTestCase {
             fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
                 .first { $0.body.hasPrefix("Whose fear is this") },
             "the letter's question never reached the queue at all")
-        XCTAssertEqual(note.lessonHeading, "Filter words",
+        XCTAssertEqual(note.lessonHeading, "Cut the filter words.",
                        "the habit the question was raised under was lost "
                        + "somewhere between the wire and the op")
         XCTAssertEqual(fx.diagnostics.lastRun(docId: "ch-1")?.letter?.retiredHeadings,
@@ -5839,6 +5845,72 @@ final class CompilerRunCommandTests: XCTestCase {
             "control: the question is minted whatever it cites")
         XCTAssertNil(note.lessonHeading,
                      "a heading naming no habit in this letter was stamped anyway")
+    }
+
+    /// **One habit reaches the ledger under ONE identity** (fix wave, finding
+    /// 1) — the seam this branch shipped broken, asserted end to end because
+    /// neither half can see it alone.
+    ///
+    /// A run stamps a question with the habit it was raised under; the queue's
+    /// *This is a choice* files that stamp; the letter's *Keep as lesson* asks
+    /// `keepIsOffered` about the same habit. With the parse stamping the
+    /// habit's `name` and the offer asking about its `lesson`, the two never
+    /// met: the choice went in as `Choice: Filter words`, the Keep still stood,
+    /// and pressing it filed `Cut the filter words.` as a live lesson beside
+    /// it — so every later round was briefed to work on the habit and to never
+    /// raise it.
+    ///
+    /// The control is a habit the ledger has never heard of: its Keep is still
+    /// offered, so what withdraws the first one is the choice and not the
+    /// predicate having stopped answering.
+    func test_aHabitFiledFromTheQueueWithdrawsTheLettersKeep() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        runner.nextEvent = .resultText(
+            Self.aLetterCitingHabits(about: pid, cited: "Filter words"))
+
+        fx.orchestrator.runRequested(docId: "ch-1")
+        await awaitSends(1, on: runner)
+        await settle()
+
+        let habit = try XCTUnwrap(
+            fx.diagnostics.lastRun(docId: "ch-1")?.letter?.habits.first,
+            "the run's letter never reached the record")
+        XCTAssertNotEqual(habit.name, habit.ledgerHeading,
+                          "precondition: this fixture's habit is only useful "
+                          + "while its name and its ledger heading differ")
+        let note = try XCTUnwrap(
+            fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+                .first { $0.body.hasPrefix("Whose fear is this") },
+            "the letter's question never reached the queue at all")
+
+        // The offer stands before the press — otherwise the assertion below
+        // would pass over a habit that was never keepable.
+        XCTAssertTrue(
+            LessonOffer.keepIsOffered(
+                habit, ledgerText: LessonLedgerVerbs.ledgerText(store: fx.store)),
+            "precondition: nothing is in the ledger yet")
+
+        let refusal = await QueueLedgerVerbs.makeChoice(
+            note, in: fx.document, store: fx.store,
+            world: fx.declaredWorld, undoManager: nil)
+        XCTAssertNil(refusal, "the queue could not file the choice")
+
+        XCTAssertFalse(
+            LessonOffer.keepIsOffered(
+                habit, ledgerText: LessonLedgerVerbs.ledgerText(store: fx.store)),
+            "the queue filed this habit and the letter still offers to file it "
+            + "again: one habit, two ledger identities")
+
+        // Control: a habit the ledger does not carry is still offered.
+        let other = Letter.Habit(
+            name: "Throat-clearing", refs: [], cost: "A cost.",
+            lesson: "Start on the second sentence.", exercise: nil)
+        XCTAssertTrue(
+            LessonOffer.keepIsOffered(
+                other, ledgerText: LessonLedgerVerbs.ledgerText(store: fx.store)),
+            "the withdrawal is the choice's doing, not the predicate's")
     }
 
     /// **The production closure reads the writer's real `lessons.md`** — the

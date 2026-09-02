@@ -1134,11 +1134,18 @@ final class DiagnosticIngestTests: XCTestCase {
     /// A letter whose habits and questions both name the ledger, so the
     /// stamping can be read off one line: `Filter words` is a habit this same
     /// letter raised, and the question says it was raised under it.
+    ///
+    /// **The habit carries a `lesson`, and it is not decoration.** The name is
+    /// what the model cites and the lesson is what the ledger knows the habit
+    /// by, so a letter where the two differ is the only one that can tell a
+    /// parse stamping the citation from one stamping the heading (fix wave,
+    /// finding 1).
     private var ledgerLetterLine: String {
         """
         {"section":"letter","about":"A woman waits out a fog.",\
         "habits":[{"name":"Filter words","refs":["c3d4"],\
-        "cost":"The reader is held one step back.","lesson":null,\
+        "cost":"The reader is held one step back.",\
+        "lesson":"Cut the filter words.",\
         "exercise":"Read it aloud with the names removed."}],\
         "questions":[{"refs":["c3d4"],"habit":"Filter words",\
         "question":"Whose fear is this, hers or the narrator's?"},\
@@ -1157,12 +1164,15 @@ final class DiagnosticIngestTests: XCTestCase {
         let letter = try XCTUnwrap(section.letter)
 
         let raised = try XCTUnwrap(letter.questions.first)
-        XCTAssertEqual(raised.lessonHeading, "Filter words",
+        // **The LEDGER heading, not the cited name.** The citation is checked
+        // against the habit's `name` and the stamp is its `ledgerHeading`, so
+        // the queue files the same sentence the letter's own Keep files.
+        XCTAssertEqual(raised.lessonHeading, "Cut the filter words.",
                        "the habit the question cites never reached the letter")
         let note = try XCTUnwrap(
             section.accepted.first { $0.body == raised.question },
             "expected the cited question to mint a diagnostic")
-        XCTAssertEqual(note.lessonHeading, "Filter words",
+        XCTAssertEqual(note.lessonHeading, "Cut the filter words.",
                        "the heading never reached the note the queue will carry")
 
         // Control, in the same letter: a question raised under nothing carries
