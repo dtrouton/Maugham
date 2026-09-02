@@ -113,9 +113,17 @@ Verbatim from the ledger, in order.
 
 ## Gate record
 
-(filled in by the controller after the pre-merge full gate)
+- Gate 1 at `3e96ae14` (all nine tasks, before the whole-branch review): `maugham-full-20260902-010218.xcresult` — 7552 / **7537 passed / 0 failed** / 15 skipped, screen LOCKED (`CGSSessionScreenIsLocked=Yes`); the standard skip set (seven locked-screen click tests — `PaletteWallDoorTests` ×2, `TreeTravelRowMountingTests` ×5 — six perf probes/baselines, `EditorCoordinatorCycleTests`' scene-nav, `UpdateInstallerTests`' cross-volume) — none on this branch.
+- Gate 2 at `0cd398a1` (the whole-branch fix wave, the merge head): `maugham-full-20260902-014237.xcresult` — 7553 / **7540 passed / 0 failed** / 13 skipped, screen still locked; the same standard set, with two of the seven click tests landing this run (the standing confounder flipping between gates, as P2 and P3 recorded).
+- Release build at `0cd398a1`: `** BUILD SUCCEEDED **`, no type-check warning.
+- Whole-branch review (opus) over `d55fab03..848a91f6`: 0 Critical, 0 Important, 5 Minor — four fixed in the one fix wave (`0cd398a1`: the mid-round chapter budget no longer keeps the previous chapter's figure; the report's busy count arms synchronously; a settled row offers its doctrine verbs once; `TranslationPreflight`'s unreachable loop deleted; `DepartmentPane`'s sheet comment narrowed to what was measured), one carried (the `StatementPane` orphan-check key copies every open document's sequence per body pass — bounded by `DerivedManuscriptCache`; a cheaper key if a large book ever shows a hitch). It also cleared the one named risk with evidence: three stacked `.sheet(item:)` on one view already ship in `AnnotationsPane` and `InboxPane`. Its triage of the deferred list: the Task 4 "guard-let census" idea would be WRONG (`dismiss`/`skip` legitimately capture no store) — do not file it.
 
 ## Process lessons from this run
+
+- **The controller resumed a paused ledger rather than writing a second plan.** The 2026-09-01 session was told "write Plan 4" with a memory that lagged the repo by two days; it drafted a duplicate plan before `git branch --list` and `ls ../Maugham-wt/` showed this branch at Task 4. Before any "Plan N" work on a milestone: check the branches, the worktrees and the SDD ledger first.
+- **Do not send a resumed implementer a follow-up until its report for the round is in.** A second message sent while `impl-t8` was mid-commit was answered against a stale tree and produced a whitespace-only commit (`c3cfbdfd`) after the next task's BASE.
+- **A sub-agent that parks on a background run needs a nudge** (`impl-t7` waited on "the monitor's completion notification" that nothing would send); the dispatch now says foreground only, and the nudge is one line.
+- Gate 1 ran concurrently with the whole-branch review (both read-only) as P3 did; the fix wave earned gate 2. One sleep hold (`teainate --session`) held for the whole run; the Mac did not sleep.
 
 - **The Mac slept three times mid-run** (Tasks 3 and 4, ~07:31, ~11:35, ~14:47), each costing about an hour. A `teainate` hold was taken after the first and did **not** prevent the second and third: a lid close is outside its reach. Take the hold at the start of a long run, and expect it to cover idle sleep only.
 - **Denver paused the run after Task 4** for usage reasons and resumed it in a new session at Task 5. The ledger carried the resume cleanly — the `BASE`/`FIX_BASE` commit on every line is what made a cold restart cheap. Keep writing them.
