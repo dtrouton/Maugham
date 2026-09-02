@@ -500,23 +500,120 @@ final class LetterSectionTests: XCTestCase {
         }
     }
 
+    /// **The offer's button says where the clause will land, and the host is
+    /// what knows.** A piece with no intent of its own is measured against the
+    /// book's, so the clause files there — and a button reading *Add to
+    /// intent* over that act would name a destination the write does not use.
+    /// The view draws the title it is handed and decides nothing.
+    func test_theOfferButtonSaysWhereTheClauseWillLand() throws {
+        let book = mount(
+            Self.fullLetter(), onAddTurnClause: {},
+            addToIntentTitle: LetterSection.addToBookIntentTitle)
+        let labels = try axButtonLabels(in: book)
+        XCTAssertNotNil(
+            findButton(labelled: LetterSection.addToBookIntentTitle, in: book),
+            "the host said the clause lands in the book's intent; the button must "
+            + "say so. Buttons: \(labels)")
+        XCTAssertNil(
+            findButton(labelled: LetterSection.addToIntentTitle, in: book),
+            "and it must not also read the piece-scoped tense")
+
+        let piece = mount(Self.fullLetter(), onAddTurnClause: {})
+        XCTAssertNotNil(
+            findButton(labelled: LetterSection.addToIntentTitle, in: piece),
+            "the control: the piece's own tense, drawn from the same input")
+    }
+
+    /// **An exercise's memory belongs to its run** (final review, Important).
+    ///
+    /// `acceptedExercises` is keyed by index, and an index is only meaningful
+    /// inside one letter. Held across runs, the next round's first habit is
+    /// born disabled — and the guide says a greyed Accept as task means the
+    /// task is already filed, so the writer reads a lie and cannot file it.
+    /// `LetterKeep.Kept` and `TurnClauseOffer.filedRunId` are both run-keyed;
+    /// this is the same shape.
+    func test_anAcceptedExercisesMemoryIsPerRun() throws {
+        let host = RunSwapHost(letter: Self.fullLetter())
+        let window = mount(AnyView(host))
+
+        let accept = try XCTUnwrap(
+            findButton(labelled: LetterSection.acceptTitle, in: window))
+        press(accept)
+        pump(0.15)
+        XCTAssertEqual(
+            axEnabled(try XCTUnwrap(
+                findButton(labelled: LetterSection.acceptTitle, in: window))),
+            false, "the premise: pressed once, refused for the rest of this run")
+
+        // The control first: the same run re-rendered still refuses.
+        press(try XCTUnwrap(findButton(labelled: RunSwapHost.redrawTitle, in: window)))
+        pump(0.15)
+        XCTAssertEqual(
+            axEnabled(try XCTUnwrap(
+                findButton(labelled: LetterSection.acceptTitle, in: window))),
+            false,
+            "a redraw inside one run must not forget the press \u{2014} the writer "
+            + "would file the same exercise twice")
+
+        press(try XCTUnwrap(findButton(labelled: RunSwapHost.nextRunTitle, in: window)))
+        pump(0.2)
+        XCTAssertEqual(
+            axEnabled(try XCTUnwrap(
+                findButton(labelled: LetterSection.acceptTitle, in: window))),
+            true,
+            "a new run is a new letter: its first habit has never been accepted, and "
+            + "a button born disabled tells the writer it fired when it did not")
+    }
+
+    /// A host that can change the run under one live `LetterSection`, which is
+    /// what a reopened pane does. A fresh mount would prove nothing: SwiftUI
+    /// state does not survive one, and the defect is precisely that it survives
+    /// where the view stays put.
+    private struct RunSwapHost: View {
+        static let nextRunTitle = "Next run"
+        static let redrawTitle = "Redraw"
+
+        let letter: Letter
+        @State private var runId = "run-A"
+        @State private var nudge = 0
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                Button(Self.nextRunTitle) { runId = "run-B" }
+                Button(Self.redrawTitle) { nudge += 1 }
+                Text("redraws: \(nudge)")
+                LetterSection(
+                    letter: letter, runId: runId,
+                    signature: "\u{2014} Le Guin", currentText: { _ in nil },
+                    onJump: { _ in }, onAcceptExercise: { _ in },
+                    onAddTurnClause: nil,
+                    addToIntentTitle: LetterSection.addToIntentTitle,
+                    onKeep: {})
+            }
+        }
+    }
+
     // MARK: - Mounting
 
     private func mount(
         _ letter: Letter,
+        runId: String? = "run-1",
         signature: String = "\u{2014} Le Guin \u{00b7} round 2",
         currentText: @escaping (String) -> String? = { _ in nil },
         onJump: @escaping (String) -> Void = { _ in },
         onAcceptExercise: @escaping (Letter.Habit) -> Void = { _ in },
         onAddTurnClause: (() -> Void)? = nil,
+        addToIntentTitle: String = LetterSection.addToIntentTitle,
         onKeep: @escaping () -> Void = {},
         offerFailure: String? = nil,
         keepConfirmation: String? = nil
     ) -> NSWindow {
         mount(AnyView(LetterSection(
-            letter: letter, signature: signature, currentText: currentText,
+            letter: letter, runId: runId, signature: signature,
+            currentText: currentText,
             onJump: onJump, onAcceptExercise: onAcceptExercise,
-            onAddTurnClause: onAddTurnClause, onKeep: onKeep,
+            onAddTurnClause: onAddTurnClause,
+            addToIntentTitle: addToIntentTitle, onKeep: onKeep,
             offerFailure: offerFailure, keepConfirmation: keepConfirmation)))
     }
 

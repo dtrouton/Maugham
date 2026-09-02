@@ -65,6 +65,41 @@ enum TurnClauseOffer {
         }
     }
 
+    /// **Where the clause is filed: the scope the piece's intent RESOLVED to**
+    /// (final review, Critical).
+    ///
+    /// A piece with no intent of its own is briefed, checked and drifted
+    /// against the book's — `ProjectStore.effectiveIntent(forDocId:)`, the one
+    /// resolution every reader of "which intent applies here" shares. Filing
+    /// at `.document(docId)` regardless would mint a document-scoped statement
+    /// whose essay is empty, and document scope wins from that moment on for
+    /// the briefing (`CompilerEnvironment+Project`), the intent strip,
+    /// `IntentDrift.mayTrailDraft` and `ScenePosition.live`. One click on a
+    /// button offering a clause would have detached the chapter from the
+    /// book's intent, and nothing on screen would have said so.
+    ///
+    /// `.document(docId)` remains the answer when nothing is declared
+    /// anywhere: there is no intent to detach the piece from, and the piece's
+    /// own is where a first sentence about it belongs.
+    static func scope(store: ProjectStore, docId: String) -> Statement.Scope {
+        store.effectiveIntent(forDocId: docId)?.scope ?? .document(docId)
+    }
+
+    /// **What the button says, in the same breath as where it writes.** The
+    /// destination is invisible otherwise — the two acts differ only in which
+    /// file gains a ruling — so the tense is the one thing that can tell a
+    /// writer their click is about the whole book. `LetterSection` draws this
+    /// string and decides nothing.
+    static func buttonTitle(store: ProjectStore?, docId: String) -> String {
+        guard let store else { return LetterSection.addToIntentTitle }
+        return buttonTitle(for: scope(store: store, docId: docId))
+    }
+
+    static func buttonTitle(for scope: Statement.Scope) -> String {
+        if case .project = scope { return LetterSection.addToBookIntentTitle }
+        return LetterSection.addToIntentTitle
+    }
+
     /// What the ruling's line says about where it came from. The voice is the
     /// piece's reader (`PieceReader.editorName`), so a writer reading their
     /// own intent months later can see which letter asked.
@@ -89,6 +124,11 @@ enum TurnClauseOffer {
         guard isOffered(letter: letter, run: run, docId: docId,
                         store: store, filedRunId: filedRunId),
               let run, let store else { return nil }
+        // Resolved once, before the press, so the button's tense and the
+        // ruling's destination are the same answer rather than two reads that
+        // could straddle a statement minted in between.
+        let destination = scope(store: store, docId: docId)
+        let title = buttonTitle(for: destination)
         return {
             onFailure(nil)
             Task {
@@ -96,11 +136,11 @@ enum TurnClauseOffer {
                     try await RulingPerformer.rule(
                         LetterSection.turnClauseRuling,
                         provenance: provenance(voice: voice),
-                        kind: .intent, forScope: .document(docId),
+                        kind: .intent, forScope: destination,
                         store: store, world: world)
                     onFiled(run.id)
                 } catch {
-                    documentLog.error("\u{201C}Add to intent\u{201D} refused for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    documentLog.error("\u{201C}\(title, privacy: .public)\u{201D} refused for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     onFailure(error.localizedDescription)
                 }
             }

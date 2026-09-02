@@ -46,6 +46,12 @@ struct LetterSection: View {
     static let scenesTitle = "Scenes"
     static let acceptTitle = "Accept as task"
     static let addToIntentTitle = "Add to intent"
+    /// **The same offer, when the piece is measured against the book's
+    /// intent** (final review, Critical). A piece with no intent of its own
+    /// reads the project's, and that is where the clause is filed \u{2014} so the
+    /// button says so before the press rather than after it, in the writer's
+    /// register and never the scope's word.
+    static let addToBookIntentTitle = "Add to the book's intent"
     static let keepTitle = "Keep this letter"
 
     /// **The standing offer at the scene table's foot** (spec §3.4). It is a
@@ -71,6 +77,10 @@ struct LetterSection: View {
     // MARK: - Inputs
 
     let letter: Letter
+    /// **The run this letter came out of** \u{2014} what the per-mount memory
+    /// below is keyed on. `nil` for a host with no run, which is a letter with
+    /// no memory rather than one that remembers the last run's presses.
+    let runId: String?
     /// The voice's name and the round it signed — built by the host through
     /// ``signature(voice:round:)`` so Author and Review sign the same letter
     /// the same way.
@@ -89,6 +99,14 @@ struct LetterSection: View {
     /// a ruling; this view adds the other half of the condition — a scene row
     /// that does not turn (``hasTurnlessScene(_:)``).
     let onAddTurnClause: (() -> Void)?
+    /// **What the offer's button says, decided by the host and never here.**
+    /// The tense follows the scope the ruling will actually be filed at
+    /// (`TurnClauseOffer.buttonTitle`), and only the host can know it: this
+    /// view holds no store and cannot resolve which intent the piece is
+    /// measured against. A default would be this view deciding in silence, and
+    /// the wrong half of the time it would name a destination the write does
+    /// not use.
+    let addToIntentTitle: String
     let onKeep: () -> Void
     /// **What a failed Add to intent said**, in the host's own refusal
     /// channel. Not in the plan's input list and added deliberately: without
@@ -108,14 +126,39 @@ struct LetterSection: View {
     /// not be mistaken for each other.
     var keepFailure: String? = nil
 
-    /// **Which exercises have been accepted, for this mount.** By INDEX
-    /// rather than by habit, because a `Letter.Habit` has no id and two
+    /// **Which exercises have been accepted, for this mount and this RUN.** By
+    /// INDEX rather than by habit, because a `Letter.Habit` has no id and two
     /// habits could legitimately share a name.
     ///
     /// Deliberately not persisted. The task the button files is durable and
     /// op-logged; this is only what stops a writer filing the same exercise
     /// twice while reading one letter, and a letter does not outlive its run.
     @State private var acceptedExercises: Set<Int> = []
+    /// **The run those indices belong to** (final review, Important). An index
+    /// means nothing outside one letter: held across runs, the next round's
+    /// first habit is born disabled, and a disabled Accept as task is the app
+    /// saying the task is already filed. Neither host applies `.id(runId)`, so
+    /// the memory carries its own run rather than trusting the view's identity
+    /// \u{2014} the shape `LetterKeep.Kept` and `TurnClauseOffer.filedRunId`
+    /// already take.
+    @State private var acceptedRunId: String?
+
+    /// Whether this run has already filed the habit at `index`. A memory from
+    /// another run answers no, and is dropped on the next press.
+    private func hasAccepted(_ index: Int) -> Bool {
+        acceptedRunId == runId && acceptedExercises.contains(index)
+    }
+
+    /// Remember the press, against the run that made it. Read at render time
+    /// rather than cleared by an `onChange`, so a run swap never draws one
+    /// frame with the previous run's answers in it.
+    private func remember(_ index: Int) {
+        if acceptedRunId != runId {
+            acceptedRunId = runId
+            acceptedExercises = []
+        }
+        acceptedExercises.insert(index)
+    }
 
     // MARK: - Decisions
 
@@ -257,7 +300,7 @@ struct LetterSection: View {
                             .font(.caption)
                             .fixedSize(horizontal: false, vertical: true)
                         Button(Self.acceptTitle) {
-                            acceptedExercises.insert(index)
+                            remember(index)
                             onAcceptExercise(habit)
                         }
                         .buttonStyle(.bordered)
@@ -266,7 +309,7 @@ struct LetterSection: View {
                         // vanished on its own press would leave the writer
                         // unsure whether it fired; disabled says it did, and
                         // says the task is already filed.
-                        .disabled(acceptedExercises.contains(index))
+                        .disabled(hasAccepted(index))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -336,7 +379,7 @@ struct LetterSection: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button(Self.addToIntentTitle) { onAddTurnClause() }
+                    Button(addToIntentTitle) { onAddTurnClause() }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                     Spacer(minLength: 0)

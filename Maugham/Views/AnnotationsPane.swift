@@ -742,6 +742,9 @@ struct AnnotationsPane: View {
         let run = diagnostics.lastRun(docId: document.docId)
         LetterSection(
             letter: letter,
+            // **The run, so an accepted exercise is forgotten with it** \u{2014}
+            // an index means nothing outside one letter (final review).
+            runId: run?.id,
             signature: LetterSection.signature(
                 voice: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
                 round: run?.round),
@@ -755,6 +758,10 @@ struct AnnotationsPane: View {
                     undoManager: undoManager)
             },
             onAddTurnClause: turnClauseOffer(letter, run: run, docId: document.docId),
+            // The tense follows the scope the ruling will be filed at, and
+            // both come from the same builder.
+            addToIntentTitle: TurnClauseOffer.buttonTitle(
+                store: store, docId: document.docId),
             // **The same verb Author's pane presses** (`LetterKeep`, spec
             // §3.6): one render, one scope, one router — so a letter kept from
             // the queue and a letter kept from the report are the same note.

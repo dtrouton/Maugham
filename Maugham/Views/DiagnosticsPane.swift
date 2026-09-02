@@ -868,6 +868,9 @@ struct DiagnosticsPane: View {
         if let run = lastRun, let letter = run.letter, !letter.isEmpty {
             LetterSection(
                 letter: letter,
+                // **The run, so an accepted exercise is forgotten with it.**
+                // An index means nothing outside one letter (final review).
+                runId: run.id,
                 signature: LetterSection.signature(
                     voice: reader.editorName, round: run.round),
                 currentText: currentText,
@@ -891,6 +894,10 @@ struct DiagnosticsPane: View {
                         undoManager: undoManager)
                 },
                 onAddTurnClause: turnClauseOffer(for: letter, run: run),
+                // The tense follows the scope the ruling will be filed at, and
+                // both come from the same builder.
+                addToIntentTitle: TurnClauseOffer.buttonTitle(
+                    store: store, docId: docId),
                 // **Keep files a research note, and the router decides where**
                 // (`LetterKeep`, spec §3.6). This pane supplies its own values
                 // and its own refusal channel; the verb, the render and the
@@ -1046,8 +1053,11 @@ struct DiagnosticsPane: View {
     /// It draws above the drift line and the conformance summary because those
     /// two are the standing account of the writer's declared world, and this is
     /// what the keystroke they just pressed came back with. Nothing here says
-    /// who wrote it: the byline in Author stays Claude's, and the named editors
-    /// belong to Review's pass lanes — wet-ink feedback is not a pass.
+    /// who wrote it, and no row needs to: these notes carry the byline of
+    /// whoever read the piece — its stage editor, the coach (Le Guin, on a
+    /// piece with no pass set, since Task 5), or Claude where nobody reads it
+    /// — and that reader is already named once, in the header's reader
+    /// line. A byline on every row would repeat it down the whole pane.
     ///
     /// No section at all when there is nothing to draw, rather than a heading
     /// over an empty list: this is a view of one run's output, and a run that

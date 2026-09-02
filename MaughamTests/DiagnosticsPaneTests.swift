@@ -4083,6 +4083,91 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(derived.contains(LetterSection.turnClauseRuling))
     }
 
+    /// **The clause lands in the intent the piece is MEASURED against**
+    /// (final review, Critical).
+    ///
+    /// A chapter with no intent of its own is briefed, checked and drifted
+    /// against the book's — `effectiveIntent`'s fallback, the one resolution
+    /// every reader shares. Filing at `.document(docId)` regardless mints a
+    /// document-scoped statement with an empty essay, and document scope wins
+    /// from that moment on for the briefing, the intent strip, the drift check
+    /// and the live scene position. One click labelled *Add to intent* would
+    /// detach the chapter from the book's intent, silently.
+    ///
+    /// So the offer files where the intent resolved, and says which one it
+    /// means before the press.
+    func test_theClauseLandsInTheIntentThePieceIsMeasuredAgainst() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferBookScope")
+        let book = try await store.createStatement(kind: .intent, scope: .project)
+        try await store.appendToStatement(
+            "A ghost story told through weather on the coast.",
+            to: book, session: "seed")
+        XCTAssertEqual(
+            store.effectiveIntent(forDocId: chapter.id)?.scope, .project,
+            "the premise: the chapter has no intent of its own, so it is measured "
+            + "against the book's")
+
+        let window = mountLetterPane(
+            store: store, docId: chapter.id, letter: makeLetter(),
+            reader: .coach(ReviewPass.coachPreset))
+        XCTAssertNil(
+            findButton(labelled: LetterSection.addToIntentTitle, in: window),
+            "the piece-scoped tense names a destination this press does not use")
+        let add = try button(labelled: LetterSection.addToBookIntentTitle, in: window)
+        _ = add.perform(NSSelectorFromString("accessibilityPerformPress"))
+        try await awaitStatement(kind: .intent, scope: .project, in: store)
+
+        let text = try store.statementText(of: try XCTUnwrap(
+            store.statement(kind: .intent, scope: .project)))
+        XCTAssertTrue(
+            text.contains("## Rulings") && text.contains(LetterSection.turnClauseRuling),
+            "the clause lands as a dated ruling under the BOOK's intent: \(text)")
+        XCTAssertTrue(
+            text.contains("A ghost story told through weather on the coast."),
+            "and the book's own essay is untouched: \(text)")
+        XCTAssertNil(
+            store.statement(kind: .intent, scope: .document(chapter.id)),
+            "no document-scoped statement may be minted \u{2014} an empty essay at "
+            + "document scope silently outranks the book's intent for every reader")
+        XCTAssertEqual(
+            store.effectiveIntent(forDocId: chapter.id)?.scope, .project,
+            "and the chapter still reads the book's intent after the press")
+    }
+
+    /// The control: a piece with an intent of its own is measured against
+    /// itself, so the clause files there and the button says the plain tense.
+    /// The book also has one here, so a resolution that ignored the piece's
+    /// own would have somewhere wrong to go.
+    func test_aPieceWithItsOwnIntentFilesTheClauseUnderItself() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferPieceScope")
+        let book = try await store.createStatement(kind: .intent, scope: .project)
+        try await store.appendToStatement(
+            "A ghost story told through weather on the coast.",
+            to: book, session: "seed")
+        let own = try await store.createStatement(
+            kind: .intent, scope: .document(chapter.id))
+        try await store.appendToStatement(
+            "This chapter belongs to the dock and the fog.", to: own, session: "seed")
+
+        let window = mountLetterPane(
+            store: store, docId: chapter.id, letter: makeLetter(),
+            reader: .coach(ReviewPass.coachPreset))
+        XCTAssertNil(
+            findButton(labelled: LetterSection.addToBookIntentTitle, in: window),
+            "the book's tense would name a destination this press does not use")
+        let add = try button(labelled: LetterSection.addToIntentTitle, in: window)
+        _ = add.perform(NSSelectorFromString("accessibilityPerformPress"))
+        try await awaitStatement(
+            kind: .intent, scope: .document(chapter.id), in: store)
+
+        let bookText = try store.statementText(of: try XCTUnwrap(
+            store.statement(kind: .intent, scope: .project)))
+        XCTAssertFalse(
+            bookText.contains(LetterSection.turnClauseRuling),
+            "a chapter's clause may not reach the book every other chapter reads: "
+            + "\(bookText)")
+    }
+
     /// The offer does not stand again over the run it was just answered for.
     /// A second press would file the identical ruling twice.
     func test_theOfferIsGoneOnceTheClauseHasBeenFiledForThisRun() async throws {
@@ -4360,6 +4445,15 @@ final class DiagnosticsPaneTests: XCTestCase {
             XCTAssertFalse(
                 source.contains("RulingPerformer.rule(\n                    LetterSection.turnClauseRuling"),
                 "\(path) must not spell the ruling call again either")
+            XCTAssertTrue(
+                source.contains("TurnClauseOffer.buttonTitle("),
+                "\(path) must take the button's tense from the same place the write "
+                + "takes its scope \u{2014} a host choosing its own words could label a "
+                + "book-scoped ruling as the piece's own")
+            XCTAssertFalse(
+                source.contains("effectiveIntent(forDocId:"),
+                "\(path) must not resolve the scope itself: one resolution, in the "
+                + "builder that files the ruling")
         }
     }
 

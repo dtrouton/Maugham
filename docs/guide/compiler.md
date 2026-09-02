@@ -123,10 +123,15 @@ Which table you get depends on what you've said about the piece:
 A screenplay is in the strong form by its own form. So is a prose piece whose
 pass brief asks for it. Neither is a sentence you wrote about this book, so
 neither earns a strain — instead the table ends with one standing line,
-**Hold every scene to a turn?**, and an **Add to intent** button. Clicking it
-files *"Every scene must turn."* as a dated ruling under your intent, in your
-own words, and from the next round on a turn-less scene strains against a
-clause you can find in your own statement. The offer appears on every
+**Hold every scene to a turn?**, and a button that files the clause. Clicking
+it writes *"Every scene must turn."* as a dated ruling **in the intent this
+piece is measured against** — its own if it has one, the book's if it
+doesn't — in your own words, and from the next round on a turn-less scene
+strains against a clause you can find in your own statement. The button says
+which one it means: **Add to intent** for the piece's own, **Add to the book's
+intent** when the piece is read against the book's. Nothing here mints a new
+intent for a piece that was reading the book's; taking the offer never
+quietly detaches a chapter from the book it belongs to. The offer appears on every
 strong-form round until a clause exists, then never again — and it goes away
 the moment you take it.
 
