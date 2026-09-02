@@ -82,9 +82,18 @@ you adopted on a round, and a table is what makes them scannable by someone
 who can't read the language they're in. See
 [The Publish Department](publish-department.md).
 
-Letting Claude Desktop draft an edition brief or a visual language statement
-for you to adopt is designed but not yet shipped — today a statement is
-written here, by you.
+**Claude can propose a brief or a visual language, and you adopt it — or
+don't.** From Claude Desktop or Claude Code, the `edition-brief` and
+`visual-language` skills interview you and end by staging a draft (nothing is
+written). When one is waiting, the statement's pane shows a banner — *Claude
+proposed a Spanish edition brief · 12 minutes ago* — with its reasons, a
+line-by-line diff against your current text, and **Adopt** / **Discard**.
+Adopt replaces the prose through the same path as your own typing (one ⌘Z
+takes it back), leaves your Rulings exactly as they were, and appends any
+glossary entries the proposal carried as rulings; a first Adopt on a language
+with no brief creates it. Discard clears it. A newer proposal replaces a
+pending one. Craft intent can't be proposed at all — there is no tool for it,
+on purpose.
 
 The editor above the strip is for your prose, and typing a `## Rulings`
 heading into it doesn't make the section — a heading with nothing under it is
@@ -107,6 +116,8 @@ How the book looks — typography, cover direction, the references you're steeri
 **It takes pictures as well as words.** Drop image files onto the strip at the bottom of the pane, or paste one straight into the editor with ⌘V. Either way the picture is copied into a `visual-language_assets/` folder beside the document — your original stays where it is — and a Markdown image reference is added to the text, which you can move, caption or delete like any other line. Anything that isn't a picture is turned away and says so. Intent doesn't take pictures; it's prose about the writing.
 
 **Claude reads this pane when it writes your book's design.** Ask it to author or revise a PDF/EPUB template and it reads what you've written here first, including a list of the images you've referenced — so the typography comes from your description rather than its own taste, and the sixth piece still matches the first five. Write it in your own words; there's no format to hit.
+
+A dot on the ⌘⌥V segment means a proposal is waiting here.
 
 ### Diagnostics mode (⌘⌥D)
 

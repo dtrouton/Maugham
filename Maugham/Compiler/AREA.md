@@ -229,6 +229,10 @@ on ⌘⇧R the dedupe is the whole of it.
   as revoke's inverse — it stamps today's date and appends at the end, so
   undoing the revocation of a March decision would hand it back re-dated. An
   undo that rewrites the record is worse than no undo.
+  `StatementProposalGate` (P5) is the second and last writer-facing door into
+  a statement's ESSAY: Adopt, a click on a staged proposal, through
+  `mutateStatementText`; its glossary lines still go through
+  `RulingPerformer.rule`.
 - **The declared world** (spec §3.1/§3.4): Claude's disposable reading of a
   statement into checkable `DerivedClause`/`DerivedRule` values
   (`DeclaredWorld.swift`), the one-shot `claude -p` that produces one

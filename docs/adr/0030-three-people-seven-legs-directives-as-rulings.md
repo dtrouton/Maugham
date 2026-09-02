@@ -155,19 +155,27 @@ an answer and **mint nothing** (`TripwireGrepTests.test_aSpotCheckMintsNothing`)
 Without them the author is taking the collator's word for everything, which is not a
 trust mechanism.
 
-### 7. Proposals into statements stop at the door — recorded here, NOT built.
+### 7. Proposals into statements stop at the door — built in Plan 5 (2026-09-02).
 
 Spec §10 decides that a brief drafted from Claude Desktop arrives as a **proposal**
 the writer adopts at a gate with a diff, never as a write: `propose_edition_brief` /
 `propose_visual_language`, neither in `CompilerAllowlist`, staged in a store, with
 craft intent unrepresentable in the proposal type rather than refused at runtime.
 
-**None of that exists on any branch as of this ADR.** Plan 5 is unwritten and
-unbuilt: there is no `StatementProposalStore`, neither tool is in the catalogue, the
-Adopt/Discard gate is not in `StatementPane`, and the two skills (`edition-brief`,
-`visual-language`) are not in `docs/skills/`. The decision is recorded now because it
-is the one shape a later plan must not quietly widen into `write_edition_brief` —
-grep the catalogue, never this section, for what ships.
+**Built in Plan 5.** `StatementProposalStore` (`.maugham/statements/proposals/<key>.json`,
+derived, one pending slot per key, kind `ProposableStatement.editionBrief(String) |
+.visualLanguage`), the two tools in the catalogue (56 → 58; neither in
+`CompilerAllowlist`; `CompilerAllowlistTests.statementWriters` widened to
+`edition_brief`/`visual_language` and a `propose_` predicate that catches
+`propose_craft_intent` and passes exactly the two), the gate in `StatementPane`
+(`StatementProposalBanner` over `StatementProposalDiff`; Adopt =
+`StatementProposalGate.adopt`, the one write — a writer's click — through
+`mutateStatementText` + `StatementEssay.recomposed` so the `## Rulings` tail is
+byte-identical, then one `RulingPerformer.rule` per glossary line; Discard clears the
+slot), the "proposed" marks, and the `edition-brief`/`visual-language` skills. The
+decision stands as written: a proposal that arrived as anything but a staged draft
+the writer adopts would be `write_edition_brief` wearing a new name — grep the
+catalogue for what ships.
 
 ### 8. The falsifiable clauses.
 
