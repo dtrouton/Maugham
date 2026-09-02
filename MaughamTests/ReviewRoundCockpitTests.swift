@@ -633,7 +633,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
                     $0.activePassMemory.record(piece: "ch-1", passId: passId)
                 }
             },
-            onCancel: {})
+            onCancel: {},
+            compilerModel: .standard,
+            onCompilerModelChange: { _ in })
 
         cockpit.setPass("copyedit")
 
@@ -642,6 +644,64 @@ final class ReviewRoundCockpitTests: XCTestCase {
             "copyedit",
             "choosing a pass in the cockpit must record it as the piece's "
             + "active pass \u{2014} the value the RUN reads to mint its lane")
+    }
+
+    /// **The cockpit's own gear menu calls through the SAME
+    /// `onCompilerModelChange` the pane threads it — never a second
+    /// spelling.** `changeModel(_:)` is `setPass`'s own substitution
+    /// (`test_thePickersChoiceRecordsThroughTheWindowsOneWriter`'s reason):
+    /// `CompilerModelMenu`'s `onChange` closure IS `onCompilerModelChange`,
+    /// so this is the identical call a mounted menu item would make, minus
+    /// AppKit's menu ever opening.
+    ///
+    /// Editorial letter P1, Task 8: `ProjectWindow`'s one handler
+    /// (`compilerModel`'s own `@State`, `documentStore.updateUIState`) is
+    /// already pinned end-to-end by `DiagnosticsPaneTests.
+    /// test_modelChoicePersistsPerProject` and `test_theGearMenusChoiceReaches
+    /// TheCLI_bySpawningAFreshSession` — what THIS test proves is that the
+    /// cockpit reaches that exact closure rather than one of its own.
+    func test_theCockpitsGearMenuCallsThroughTheOneHandler() {
+        var received: [CompilerModelChoice] = []
+        let cockpit = ReviewRoundCockpit(
+            passes: [Self.line, Self.copyedit],
+            activePassId: nil,
+            round: nil,
+            coach: nil,
+            phase: .idle,
+            reportLine: nil,
+            onRun: { _ in },
+            onSetActivePass: { _ in },
+            onCancel: {},
+            compilerModel: .standard,
+            onCompilerModelChange: { received.append($0) })
+
+        cockpit.changeModel(.exhaustive)
+
+        XCTAssertEqual(received, [.exhaustive],
+                       "the cockpit's gear menu must reach the same handler "
+                       + "the pane's own gear menu reaches")
+    }
+
+    /// **CONTROL for the census below**, and the same substitution risk
+    /// `test_thePickersItemCallsTheVerbTheTestsDriveItThrough` guards against:
+    /// nothing a mounted test can reach proves `lanePicker` actually wires
+    /// `CompilerModelMenu` to `changeModel`'s own closure, so a rewire to a
+    /// second spelling would leave `test_theCockpitsGearMenuCallsThroughThe
+    /// OneHandler` green over a control that no longer does what it claims.
+    func test_theModelMenuIsWiredToOnCompilerModelChangeInTheLanePicker() throws {
+        let source = try Self.source(of: "Views/Review/ReviewRoundCockpit.swift")
+        let picker = try XCTUnwrap(
+            Self.declaration(named: "private var lanePicker:", in: source),
+            "the picker must still be a readable declaration for this census "
+            + "to have a subject")
+
+        XCTAssertTrue(
+            picker.contains(
+                "CompilerModelMenu(choice: compilerModel, onChange: onCompilerModelChange)"),
+            "the lane row's gear menu must be the shared `CompilerModelMenu`, "
+            + "constructed with the cockpit's own stored properties \u{2014} "
+            + "not a second `Menu` reimplementing the same choices. Got:\n"
+            + picker)
     }
 
     /// While this document is being checked the strip says what is being read
@@ -1087,6 +1147,44 @@ final class ReviewRoundCockpitTests: XCTestCase {
                        + "\u{2014} the write belongs to the window")
     }
 
+    /// **The pane threads its OWN `compilerModel`/`onCompilerModelChange`
+    /// through to the cockpit, rather than a fresh literal** (editorial
+    /// letter P1, Task 8). A hardcoded `.standard` or a `{ _ in }` here would
+    /// compile, mount, and quietly show the wrong choice or drop every change
+    /// on the floor — nothing a mounted test can see, since the cockpit's own
+    /// gear menu draws whatever it was constructed with either way.
+    func test_theAnnotationsPaneThreadsItsOwnCompilerModelToTheCockpit() throws {
+        let pane = try Self.source(of: "Views/AnnotationsPane.swift")
+        let call = try XCTUnwrap(
+            pane.range(of: "ReviewRoundCockpit("),
+            "the pane must still construct the cockpit for this census to "
+            + "have a subject")
+        let after = String(pane[call.upperBound...].prefix(1600))
+        XCTAssertTrue(after.contains("compilerModel: compilerModel"),
+                      "the pane's own stored `compilerModel` must reach the "
+                      + "cockpit \u{2014} got:\n\(after)")
+        XCTAssertTrue(after.contains("onCompilerModelChange: onCompilerModelChange"),
+                      "\u{2026}and its own closure, not a no-op \u{2014} got:\n\(after)")
+    }
+
+    /// **One hop up: `DetailPaneToggle` already held `compilerModel`/
+    /// `onCompilerModelChange` for the Diagnostics segment (M2 Task 8) — this
+    /// pins that it hands the SAME pair to the Annotations segment too**,
+    /// rather than defaulting it to `.standard`/no-op for the segment that
+    /// gained the control second.
+    func test_theDetailPaneToggleThreadsCompilerModelToTheAnnotationsSegment() throws {
+        let toggle = try Self.source(of: "Views/DetailPaneToggle.swift")
+        let call = try XCTUnwrap(
+            toggle.range(of: "AnnotationsPane("),
+            "the toggle must still construct the annotations segment for this "
+            + "census to have a subject")
+        let after = String(toggle[call.upperBound...].prefix(1600))
+        XCTAssertTrue(after.contains("compilerModel: compilerModel"),
+                      "got:\n\(after)")
+        XCTAssertTrue(after.contains("onCompilerModelChange: onCompilerModelChange"),
+                      "got:\n\(after)")
+    }
+
     /// **The link the mounted tests borrow, pinned.**
     ///
     /// `test_thePickersChoiceRecordsThroughTheWindowsOneWriter` drives
@@ -1323,7 +1421,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
         phase: ReviewRoundCockpit.RunPhase = .idle,
         reportLine: String? = nil,
         coach: ReviewPass? = nil,
-        onCancel: @escaping () -> Void = {}
+        onCancel: @escaping () -> Void = {},
+        compilerModel: CompilerModelChoice = .standard,
+        onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in }
     ) -> NSWindow {
         mount(AnyView(ReviewRoundCockpit(
             passes: [Self.line, Self.copyedit],
@@ -1334,7 +1434,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
             reportLine: reportLine,
             onRun: { _ in },
             onSetActivePass: { _ in },
-            onCancel: onCancel)))
+            onCancel: onCancel,
+            compilerModel: compilerModel,
+            onCompilerModelChange: onCompilerModelChange)))
     }
 
     /// `orchestrator` is explicit and **undefaulted** so the no-compiler host

@@ -202,6 +202,7 @@ final class ClaudeCLISessionTests: XCTestCase {
 
     private func makeSession(
         cli: URL?,
+        model: String = "haiku",
         isEnabled: @escaping () -> Bool = { true },
         idleTimeout: TimeInterval = 600,
         runTimeout: TimeInterval = 20,
@@ -209,7 +210,7 @@ final class ClaudeCLISessionTests: XCTestCase {
         locator: (@Sendable () -> URL?)? = nil
     ) -> ClaudeCLISession {
         ClaudeCLISession(
-            model: "haiku",
+            model: model,
             mcpConfigPath: tempDir.appendingPathComponent("mcp.json"),
             cliOverride: cli,
             isEnabled: isEnabled,
@@ -827,6 +828,29 @@ final class ClaudeCLISessionTests: XCTestCase {
             tempDir.appendingPathComponent("mcp.json")
                 .deletingLastPathComponent().resolvingSymlinksInPath().path,
             "the session runs in its own config directory, never an inherited cwd")
+
+        session.shutdown()
+    }
+
+    /// Additive to `test_spawnArgumentsMatchTheSpike` on that test's own rule
+    /// (`:840` below, "additive rather than folded in"): Exhaustive's own
+    /// model name (`CompilerModelChoice.exhaustive.claudeModel == "fable"`,
+    /// editorial letter P1, Task 8) reaches the spawned argv exactly as any
+    /// other model literal does — proving the confinement membrane makes no
+    /// exception for the fourth depth.
+    func test_exhaustiveModelSpawnsWithFable() async throws {
+        let cli = try makeFakeCLI(mode: .normal)
+        let session = makeSession(cli: cli, model: "fable")
+
+        _ = await session.send(message: "hello", systemPreamble: nil)
+
+        let argv = try String(contentsOf: argsURL, encoding: .utf8)
+            .components(separatedBy: "\n")
+        func value(after flag: String) -> String? {
+            guard let i = argv.firstIndex(of: flag), i + 1 < argv.count else { return nil }
+            return argv[i + 1]
+        }
+        XCTAssertEqual(value(after: "--model"), "fable")
 
         session.shutdown()
     }

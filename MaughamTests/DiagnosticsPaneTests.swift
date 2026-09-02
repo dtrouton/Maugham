@@ -521,6 +521,42 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(CompilerModelChoice.fast.claudeModel, "haiku")
         XCTAssertEqual(CompilerModelChoice.standard.claudeModel, "sonnet")
         XCTAssertEqual(CompilerModelChoice.deep.claudeModel, "opus")
+        XCTAssertEqual(CompilerModelChoice.exhaustive.claudeModel, "fable")
+    }
+
+    /// **The fourth depth** (editorial letter P1, Task 8) — last in the enum
+    /// and last in the menu, with its own name and its own literal.
+    func test_compilerModelChoiceHasFourCasesWithExhaustiveLast() {
+        XCTAssertEqual(CompilerModelChoice.allCases.count, 4)
+        XCTAssertEqual(CompilerModelChoice.allCases.last, .exhaustive,
+                       "Exhaustive is the further step past Deep, drawn last")
+        XCTAssertEqual(CompilerModelChoice.exhaustive.displayName, "Exhaustive")
+    }
+
+    /// **Pins existing behaviour** — `UIState.swift`'s
+    /// `(try? c.decode(CompilerModelChoice.self, forKey: .compilerModel)) ?? .standard`
+    /// was already this permissive before Exhaustive existed. This does not
+    /// ADD tolerance; it proves the tolerance already there reads the new
+    /// case correctly, and still falls back to Standard on a string neither
+    /// case recognizes — the same shape `test_olderUIState_decodesCompilerModelAsStandard`
+    /// pins for a MISSING key, one case over for a WRONG one.
+    func test_uiStateDecodesExhaustiveAndFallsBackToStandardOnAnUnknownString() throws {
+        func decode(_ modelValue: String) throws -> UIState {
+            let raw = """
+            {
+              "schemaVersion": 8,
+              "isNoChromeOn": false,
+              "binderSegment": "manuscript",
+              "researchPreviewVisible": false,
+              "compilerModel": "\(modelValue)"
+            }
+            """
+            return try JSONDecoder().decode(UIState.self, from: raw.data(using: .utf8)!)
+        }
+
+        XCTAssertEqual(try decode("exhaustive").compilerModel, .exhaustive)
+        XCTAssertEqual(try decode("quantum").compilerModel, .standard,
+                       "an unrecognized model string must not fail the whole decode")
     }
 
     /// **The setting has to reach the subprocess, and setting it does not.**
@@ -565,6 +601,15 @@ final class DiagnosticsPaneTests: XCTestCase {
         await awaitSends(3, on: runner)
         XCTAssertEqual(runner.spawnedModels, ["sonnet", "opus"],
                        "the gear menu moved and the CLI never heard about it")
+
+        // Exhaustive (editorial letter P1, Task 8) reaches the CLI the exact
+        // same way the three original choices do — no special-cased fourth
+        // literal anywhere between the menu and the spawn.
+        orchestrator.updateModel(CompilerModelChoice.exhaustive.claudeModel)
+        orchestrator.runRequested(docId: docId)
+        await awaitSends(4, on: runner)
+        XCTAssertEqual(runner.spawnedModels, ["sonnet", "opus", "fable"],
+                       "Exhaustive must reach the CLI as \"fable\" too")
     }
 
     // MARK: - Unread badge

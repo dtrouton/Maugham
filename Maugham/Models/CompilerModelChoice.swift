@@ -12,6 +12,12 @@ public enum CompilerModelChoice: String, Codable, Equatable, Sendable, CaseItera
     case fast
     case standard
     case deep
+    /// **The fourth depth** (editorial letter P1, Task 8) — the one that earns
+    /// its cost on a Fresh Eyes over a long piece, where a cold reread has the
+    /// most ground to cover. Last in the enum and last in the menu: the three
+    /// above it are an ascending ladder the writer already knows, and this is
+    /// the one further step past Deep.
+    case exhaustive
 
     /// The literal the CLI's `--model` flag expects.
     public var claudeModel: String {
@@ -19,6 +25,7 @@ public enum CompilerModelChoice: String, Codable, Equatable, Sendable, CaseItera
         case .fast: return "haiku"
         case .standard: return "sonnet"
         case .deep: return "opus"
+        case .exhaustive: return "fable"
         }
     }
 
@@ -27,6 +34,7 @@ public enum CompilerModelChoice: String, Codable, Equatable, Sendable, CaseItera
         case .fast: return "Fast"
         case .standard: return "Standard"
         case .deep: return "Deep"
+        case .exhaustive: return "Exhaustive"
         }
     }
 }

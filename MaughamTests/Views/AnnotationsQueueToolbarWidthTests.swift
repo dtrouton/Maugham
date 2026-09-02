@@ -427,7 +427,9 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
                 + "\u{00b7} 21 new",
             onRun: { _ in },
             onSetActivePass: { _ in },
-            onCancel: {})
+            onCancel: {},
+            compilerModel: .standard,
+            onCompilerModelChange: { _ in })
     }
 
     /// **The picker + running arms — unmeasured until this fixture** (M4 P2
@@ -456,7 +458,9 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             reportLine: nil,
             onRun: { _ in },
             onSetActivePass: { _ in },
-            onCancel: {})
+            onCancel: {},
+            compilerModel: .standard,
+            onCompilerModelChange: { _ in })
     }
 
     func test_theRoundCockpitFitsTheColumnWithNoPassAndARunInFlight() {
@@ -500,7 +504,9 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
                 + "\u{00b7} 21 new",
             onRun: { _ in },
             onSetActivePass: { _ in },
-            onCancel: {})
+            onCancel: {},
+            compilerModel: .standard,
+            onCompilerModelChange: { _ in })
     }
 
     func test_theRoundCockpitFitsTheColumnWithAFailedRound() {

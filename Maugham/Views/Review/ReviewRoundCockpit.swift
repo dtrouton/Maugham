@@ -101,6 +101,16 @@ struct ReviewRoundCockpit: View {
     /// cancel from.
     let onCancel: () -> Void
 
+    /// **The gear menu's persisted choice** — `DiagnosticsPane`'s own
+    /// `compilerModel`, threaded here so Review carries the same control
+    /// (editorial letter P1, Task 8). Depth is a per-PROJECT setting, not a
+    /// per-persona one: a writer who set Deep in Author must find Deep here
+    /// too, and a change made from either home is the one write.
+    let compilerModel: CompilerModelChoice
+    /// Reaches `ProjectWindow`'s ONE handler — the same closure
+    /// `DiagnosticsPane` calls, never a second spelling of the persistence.
+    let onCompilerModelChange: (CompilerModelChoice) -> Void
+
     /// **What the last thing the run key did means for THIS document.**
     ///
     /// A separate type from `CompilerOrchestrator.RunState` because that state
@@ -367,6 +377,13 @@ struct ReviewRoundCockpit: View {
 
     func run(freshEyes: Bool) { onRun(freshEyes) }
 
+    /// **`setPass`'s own substitution, for the gear menu embedded in
+    /// `lanePicker`.** `CompilerModelMenu`'s `onChange` closure IS
+    /// `onCompilerModelChange` (`lanePicker`'s own declaration, guarded by
+    /// `test_theModelMenusItemCallsTheVerbTheTestsDriveItThrough`), so this is
+    /// the identical call a test can drive without AppKit's menu ever opening.
+    func changeModel(_ choice: CompilerModelChoice) { onCompilerModelChange(choice) }
+
     // MARK: - Body
 
     private var activePass: ReviewPass? {
@@ -483,6 +500,12 @@ struct ReviewRoundCockpit: View {
             .menuStyle(.borderlessButton)
             .help(Self.setAPassHelp(pass: activePass, coach: coach))
             Spacer(minLength: 0)
+            // **The same depth control Author's Diagnostics pane carries**
+            // (editorial letter P1, Task 8) — trailing, after the Spacer, so
+            // it sits at the row's far edge the way the pane's own gear menu
+            // sits at its header's far edge, rather than crowding the lane
+            // label it shares a row with.
+            CompilerModelMenu(choice: compilerModel, onChange: onCompilerModelChange)
         }
     }
 

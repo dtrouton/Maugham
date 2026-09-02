@@ -236,12 +236,19 @@ actually settled on.
 
 ## Choosing how hard it looks
 
-The gear menu in the pane's header picks the model: **Fast**, **Standard** (the
-default), or **Deep**. The choice is per project and is remembered. Changing it
-never interrupts a check already running — the one you are waiting for finishes
-in the model it started in, and the next one is the one that changes. That
-next check starts a fresh session behind the scenes, so it's a few seconds
-slower than the warm session you're used to — a one-time cost of the switch.
+The gear menu picks the model: **Fast**, **Standard** (the default), **Deep**,
+or **Exhaustive**. The choice is per project and is remembered, and Review's
+round cockpit carries the same menu as Author's Diagnostics pane header — set
+it in either one and the other shows the change. Changing it never interrupts
+a check already running — the one you are waiting for finishes in the model it
+started in, and the next one is the one that changes. That next check starts a
+fresh session behind the scenes, so it's a few seconds slower than the warm
+session you're used to — a one-time cost of the switch.
+
+Exhaustive earns its cost on a Fresh Eyes over a long piece: a cold reread with
+no prior findings to lean on has the most ground to cover, and that is where
+the extra depth pays for itself. Reach for it there rather than as your
+everyday setting.
 
 **Cancel** appears in the header while a check is running. Anything the check
 had already put on the pane goes with it — a report from a check that stopped

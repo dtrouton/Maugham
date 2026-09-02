@@ -723,27 +723,11 @@ struct DiagnosticsPane: View {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
-    @ViewBuilder
+    /// **Moved to `CompilerModelMenu`** (editorial letter P1, Task 8) so
+    /// Review's round cockpit can mount the identical control — one view
+    /// type, one `ForEach(CompilerModelChoice.allCases` site.
     private var gearMenu: some View {
-        Menu {
-            ForEach(CompilerModelChoice.allCases, id: \.self) { choice in
-                Button {
-                    onCompilerModelChange(choice)
-                } label: {
-                    if choice == compilerModel {
-                        Label(choice.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(choice.displayName)
-                    }
-                }
-            }
-        } label: {
-            Image(systemName: "gearshape")
-                .font(.caption)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Model: \(compilerModel.displayName)")
+        CompilerModelMenu(choice: compilerModel, onChange: onCompilerModelChange)
     }
 
     // MARK: - Content

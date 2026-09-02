@@ -707,6 +707,8 @@ struct DetailPaneToggle<Inspector: View>: View {
                 orchestrator: compilerOrchestrator,
                 diagnostics: diagnosticsStore,
                 onSetActivePass: onSetActivePass,
+                compilerModel: compilerModel,
+                onCompilerModelChange: onCompilerModelChange,
                 onSetPassState: onSetPassState)
         } else {
             ContentUnavailableView(

@@ -5237,4 +5237,62 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check expected the planted construction, missing imprint:, "
             + "to fire. Got:\n" + offenders.joined(separator: "\n"))
     }
+
+    // MARK: - The compiler's depth choices have one drawn menu (editorial letter P1)
+
+    /// **Tripwire: `CompilerModelChoice.allCases` is iterated in exactly ONE
+    /// production view — the shared `CompilerModelMenu`.**
+    ///
+    /// The gear menu now mounts in two homes, Author's Diagnostics pane and
+    /// Review's round cockpit (Task 8), and the whole point of factoring it
+    /// out was that neither one draws its own list of choices. A second
+    /// `ForEach(CompilerModelChoice.allCases` is a second menu that can offer
+    /// a different set, or tick the wrong one, while this one keeps compiling
+    /// and passing.
+    func test_compilerModelChoiceAllCasesIsIteratedInExactlyOneProductionView() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            patterns: ["ForEach(CompilerModelChoice.allCases"],
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") })
+        XCTAssertEqual(
+            offenders.compactMap { $0.split(separator: ":").first.map(String.init) },
+            ["CompilerModelMenu.swift"],
+            "the depth picker's choices are drawn in exactly one place \u{2014} "
+            + "the shared `CompilerModelMenu` \u{2014} and both of its mount "
+            + "sites (`DiagnosticsPane`, `ReviewRoundCockpit`) construct that "
+            + "view rather than building their own list. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: a planted second `ForEach` over the same
+    /// `allCases` is caught.
+    func test_compilerModelChoiceCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-compiler-model-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct RogueModelPicker: View {
+            let choice: CompilerModelChoice
+            var body: some View {
+                Menu {
+                    ForEach(CompilerModelChoice.allCases, id: \\.self) { candidate in
+                        Text(candidate.displayName)
+                    }
+                }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("RogueModelPicker.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: ["ForEach(CompilerModelChoice.allCases"])
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check: the planted second menu should be the one caught. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders[0].hasPrefix("RogueModelPicker.swift:"), offenders[0])
+    }
 }

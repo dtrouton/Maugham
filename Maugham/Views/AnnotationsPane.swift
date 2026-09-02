@@ -38,6 +38,13 @@ struct AnnotationsPane: View {
     /// `UIState.activePassMemory`; this pane only ever asks for it. Defaulted
     /// to a no-op so a host with no window behind it still compiles.
     var onSetActivePass: (String, String) -> Void = { _, _ in }
+    /// **The gear menu's persisted choice, threaded to the round cockpit**
+    /// (editorial letter P1, Task 8) — the same value + closure pair
+    /// `DetailPaneToggle` already holds for the Diagnostics segment. Defaulted
+    /// so a caller that surfaces no cockpit (the probe mounts) keeps
+    /// compiling with Standard and a no-op write.
+    var compilerModel: CompilerModelChoice = .standard
+    var onCompilerModelChange: (CompilerModelChoice) -> Void = { _ in }
     /// **The nudge's own verbs** (pass-order nudge gains its verbs) —
     /// `(docId, passId, state)`. The store's per-piece pass write is a closed
     /// three-file census (`PersonaPaneRegistryTests.passStateWritingFiles`:
@@ -618,7 +625,9 @@ struct AnnotationsPane: View {
                 onSetActivePass: { passId in
                     onSetActivePass(document.docId, passId)
                 },
-                onCancel: { orchestrator.cancel() })
+                onCancel: { orchestrator.cancel() },
+                compilerModel: compilerModel,
+                onCompilerModelChange: onCompilerModelChange)
             Divider()
         }
     }
