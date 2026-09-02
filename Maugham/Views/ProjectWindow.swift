@@ -1611,8 +1611,17 @@ struct ProjectWindow: View {
     /// writes, so what the writer pressed last is the only selection standing —
     /// but the *order* is still needed here, because two `@State` writes landing
     /// in one body pass would otherwise make which surface draws a question
-    /// about their sequence. Both guards above still apply unchanged: the report
-    /// is Publish's, and it is PROJECT-level.
+    /// about their sequence.
+    ///
+    /// **The round arm is NOT project-level, as of 2026-09-02 (Denver's
+    /// ruling).** A round is about one chapter, and Show pressed with that
+    /// chapter selected drew nothing — the report only appeared once the writer
+    /// moved to the project row, which read as a dead button. So the round is
+    /// answered BEFORE the altitude guard: it draws over whatever the centre
+    /// holds, the editor included (the `ZStack` keeps `EditorHost` mounted
+    /// beneath it), and Back or a click-through clears it. The persona guard
+    /// still applies — the report is Publish's — and the book and the design
+    /// gate stay project-level exactly as before.
     static func publishCentre(persona: Persona,
                               subject: BinderSubject?,
                               structure: [StructureItem],
@@ -1621,9 +1630,9 @@ struct ProjectWindow: View {
                               round: TranslationRound? = nil)
     -> PublishCentre? {
         guard persona.previewsThePublishedBook else { return nil }
+        if let round { return .translationRound(round) }
         guard subjectShowsAltitude(persona: persona, subject: subject,
                                    structure: structure) else { return nil }
-        if let round { return .translationRound(round) }
         if let proposal { return .designProposal(proposal) }
         switch preview {
         case .ready(let publications):
@@ -2169,6 +2178,12 @@ struct ProjectWindow: View {
                     // OPEN is the window's answer, so the post carries all three
                     // and `TranslationReviewModifier` plans what to do with them.
                     onReveal: { paragraphId in
+                        // The report gives way to the manuscript it points
+                        // into. It used to be dismissed by the subject change a
+                        // cross-chapter reveal makes; now that the arm draws
+                        // over a chapter too, the dismissal is explicit and
+                        // covers the same-chapter reveal as well.
+                        publishSelectedRound = nil
                         TranslationReveal.post(.init(
                             docId: round.docId, language: round.language,
                             paragraphId: paragraphId))
@@ -4678,10 +4693,11 @@ private struct TranslationReviewModifier: ViewModifier {
     /// all, and a third spelling of the rule.
     let activeDocId: String
     /// The window's one subject-picker, written when a reveal names a chapter
-    /// that is not the open one (P4 Task 5). Selecting the document is also what
-    /// dismisses the round report the row was clicked in: `publishCentre` draws
-    /// a report only while `subjectShowsAltitude`, and a document subject ends
-    /// that — so the report gives way to the editor without a second decision.
+    /// that is not the open one (P4 Task 5). The round report the row was
+    /// clicked in is dismissed by the report's own `onReveal` (it clears
+    /// `publishSelectedRound` before posting) — it used to fall out of the
+    /// subject change, but since 2026-09-02 the report draws over a chapter
+    /// subject too, so the dismissal is explicit.
     @Binding var selectedSubject: BinderSubject?
     /// For the pending reveal's one question: has that chapter's `Document`
     /// registered yet? The enter-review post reaches an `EditorCoordinator` that

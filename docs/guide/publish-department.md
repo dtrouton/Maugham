@@ -260,7 +260,7 @@ verse passage, a block quote, a footnote, whatever's really there.
 
 Nothing from a round reaches your live templates on its own. When it's
 ready, the row shows which round it is, where it stands, and how long ago —
-press **Show** to open it.
+press **Show** to open it. The report draws in the centre column over whatever is there — with the chapter selected, over its editor — and **Back** or clicking through to a paragraph returns you to the manuscript.
 
 ## Compiling from the desk
 

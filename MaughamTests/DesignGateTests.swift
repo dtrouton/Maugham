@@ -107,10 +107,19 @@ final class DesignGateTests: XCTestCase {
                 preview: .ready(newestFirst: [PublishPreviewCentreTests.aBook]),
                 proposal: Self.proposal(), round: round),
             .translationRound(round))
-        XCTAssertNil(ProjectWindow.publishCentre(
+        // **A round draws over a chapter too** (2026-09-02, Denver's ruling): a
+        // round is about one chapter, and Show pressed with that chapter
+        // selected used to draw nothing until the writer moved to the project
+        // row. The book and the design gate stay project-level.
+        XCTAssertEqual(ProjectWindow.publishCentre(
             persona: .publish, subject: .item("chapter-1"), structure: ProjectAltitudeCentreTests.structure,
             preview: .nothingCompiled, proposal: nil, round: round),
-            "a chapter in Publish is the editor, round or no round")
+            .translationRound(round),
+            "Show on a round must draw with the round's own chapter selected")
+        XCTAssertNil(ProjectWindow.publishCentre(
+            persona: .publish, subject: .item("chapter-1"), structure: ProjectAltitudeCentreTests.structure,
+            preview: .nothingCompiled, proposal: Self.proposal(), round: nil),
+            "the design gate is still project-level: a chapter in Publish is the editor")
         XCTAssertNil(ProjectWindow.publishCentre(
             persona: .author, subject: nil, structure: ProjectAltitudeCentreTests.structure,
             preview: .nothingCompiled, proposal: nil, round: round),

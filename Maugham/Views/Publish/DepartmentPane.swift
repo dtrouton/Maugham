@@ -671,12 +671,6 @@ struct DepartmentPane: View {
                 renameButton(DepartmentDesk.renameTitle(translator: row.translator)) {
                     renameTranslator(row.language)
                 }
-                Button(DepartmentDesk.editionBriefTitle) {
-                    openEditionBrief(row.language)
-                }
-                .controlSize(.small)
-                .help(DepartmentDesk.editionBriefHelp(language: row.language))
-                runControls(row, run: run)
             }
             Text(DepartmentDesk.translatorLine(row.translator))
                 .font(.caption)
@@ -693,6 +687,25 @@ struct DepartmentPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            // **The verbs on a line of their own, wrapping rather than
+            // truncating** (2026-09-02). They used to share the name line with
+            // the language and the rename glyph, and at the desk's real width
+            // that read "Fren… / Edit… / Run / Run… / Can…" — every title cut
+            // to a stub, worse still with a Proposed badge on the line. A
+            // `FlowLayout` (the tags field's) lays the buttons out at their
+            // natural size and folds to a second line when the column is
+            // narrow, so no title is ever truncated and the name line keeps
+            // its width for the name.
+            FlowLayout(spacing: 6) {
+                Button(DepartmentDesk.editionBriefTitle) {
+                    openEditionBrief(row.language)
+                }
+                .controlSize(.small)
+                .fixedSize()
+                .help(DepartmentDesk.editionBriefHelp(language: row.language))
+                runControls(row, run: run)
+            }
+            .padding(.top, 2)
             // What the round is doing, or what the last one did. One slot, and
             // `statusLine` decides which — see `DepartmentRunState`. Show sits
             // beside it because it is about that same round: a door drawn up
@@ -764,9 +777,10 @@ struct DepartmentPane: View {
     /// button is the real door and the menu is the gesture a Mac writer will
     /// reach for first; they post the same call.
     ///
-    /// A glyph rather than a word because the row already carries two or three
-    /// controls in a column 340pt wide, and a third title is what starts
-    /// truncating the language's own name. Its accessibility label is the full
+    /// A glyph rather than a word: it shares the name line with the language
+    /// and its Proposed badge, and a word there is what starts truncating the
+    /// language's own name (the verbs moved to a wrapping line of their own on
+    /// 2026-09-02 for the same reason). Its accessibility label is the full
     /// sentence, so the tree says what the picture means.
     private func renameButton(_ title: String,
                               action: @escaping () -> Void) -> some View {
@@ -795,6 +809,7 @@ struct DepartmentPane: View {
                              run: DepartmentRunState) -> some View {
         Button(DepartmentRunState.runTitle) { runTranslation(row.language) }
             .controlSize(.small)
+            .fixedSize()
             .disabled(!run.canRun)
             .help(run.refusal
                   ?? DepartmentRunState.runHelp(language: row.language,
@@ -806,6 +821,7 @@ struct DepartmentPane: View {
         // a writer opens the department on.
         Button(DepartmentRunState.runBookTitle) { runBook(row.language) }
             .controlSize(.small)
+            .fixedSize()
             .disabled(!run.canRunBook)
             .accessibilityLabel(
                 DepartmentRunState.runBookAccessibilityLabel(language: row.language))
@@ -816,6 +832,7 @@ struct DepartmentPane: View {
         if run.isRunning {
             Button(DepartmentRunState.cancelTitle) { cancelRun() }
                 .controlSize(.small)
+                .fixedSize()
                 .help(DepartmentRunState.cancelHelp)
         }
     }
