@@ -464,7 +464,7 @@ struct StatementPane: View {
             try StatementProposalGate.discard(proposal.kind, store: store)
             proposalNotice = StatementProposalCopy.discardedLine
         } catch {
-            proposalNotice = "\(error)"
+            proposalNotice = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
         }
         reloadProposal()
     }
