@@ -83,7 +83,10 @@ is briefed on when you press ⌘R — nothing more, nothing hidden. Full mechani
 in the Diagnostics header, in Review between the letter and the Run buttons.
 Type what you want this check to look at — *I'm worried the middle sags*, *is
 her voice distinct from his?*, *just tell me whether the ending lands* — and
-press Return. Clicking away commits it too; the ✕ withdraws it.
+press Return. Clicking away saves it too, and so does simply pressing ⌘R:
+whatever is in the field when you ask for a round is what that round is
+briefed with, so a worry you typed and didn't get around to submitting is
+never quietly dropped. The ✕ withdraws it.
 
 It's per document and it's kept until you clear it, because a worry usually
 outlasts one round. Your ask goes into the briefing as its own section and the

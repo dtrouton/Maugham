@@ -1526,7 +1526,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_theAskFieldDrawsAndHoldsTheStoredAsk() throws {
         let window = mountCockpit(
             activePassId: "copyedit", round: 2,
-            ask: "I'm worried the middle sags.", onAskChange: { _ in nil })
+            ask: Self.askInput("I'm worried the middle sags."))
         pump(0.3)
 
         let values = textFields(in: window).map {
@@ -1544,7 +1544,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
         let window = mountCockpit(
             activePassId: "copyedit", round: 2,
             letterLine: "Give the reader the dock before the fire.",
-            ask: "Does the middle sag?", onAskChange: { _ in nil })
+            ask: Self.askInput("Does the middle sag?"))
         pump(0.3)
 
         let texts = allLabels(in: window)
@@ -1578,8 +1578,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
             onCancel: {},
             compilerModel: .standard,
             onCompilerModelChange: { _ in },
-            ask: "Does the middle sag?",
-            onAskChange: { box.commits.append($0); return nil })))
+            ask: Self.askInput(
+                "Does the middle sag?",
+                commit: { box.commits.append($0); return nil }))))
         pump(0.3)
 
         press(try button(labelled: AskField.clearLabel, in: window))
@@ -1592,6 +1593,44 @@ final class ReviewRoundCockpitTests: XCTestCase {
             box.runs, 0,
             "the keystroke is the only trigger \u{2014} a field that started a check "
             + "would spend the writer's money every time they finished a sentence")
+    }
+
+    /// **A worry typed in the cockpit and not submitted still reaches the
+    /// round** (fix round 1, Important 1).
+    ///
+    /// One view draws the field in both homes, so this and Author's mounted pin
+    /// are the same mechanism — but they are not the same wiring, and this is
+    /// what says the cockpit's own `AskField.Input` carries a `note` verb
+    /// pointing at the store the pane holds. Without it Review's field would be
+    /// the one that silently dropped a pending ask.
+    func test_theCockpitsPendingAskIsPromotedByARound() throws {
+        let diagnostics = DiagnosticsStore(
+            projectRoot: FileManager.default.temporaryDirectory
+                .appendingPathComponent("CockpitAsk-\(UUID())"),
+            device: DeviceSlug.make(from: "test-mac"))
+        let window = mountCockpit(
+            activePassId: "copyedit", round: 2,
+            ask: Self.askInput(
+                nil,
+                commit: { AskField.commit($0, docId: "ch-1", diagnostics: diagnostics) },
+                note: { text, doc in
+                    AskField.note(text, docId: doc, diagnostics: diagnostics)
+                }))
+        pump(0.3)
+
+        let field = try XCTUnwrap(
+            askTextField(in: window), "no ask field reached the strip")
+        type("I'm worried the middle sags.", into: field)
+        pump(0.2)
+        XCTAssertNil(diagnostics.ask(docId: "ch-1"),
+                     "premise: typing alone commits nothing")
+
+        // What every run trigger does, before it reads the ask.
+        diagnostics.commitPendingAsk(docId: "ch-1")
+
+        XCTAssertEqual(
+            diagnostics.ask(docId: "ch-1"), "I'm worried the middle sags.",
+            "a round asked for with words still in the field must carry them")
     }
 
     /// **The queue's field writes through the shared commit and starts no
@@ -1855,8 +1894,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         letterLine: String? = nil,
         letterDisclosure: (() -> AnyView)? = nil,
-        ask: String? = nil,
-        onAskChange: ((String?) -> String?)? = nil
+        ask: AskField.Input? = nil
     ) -> NSWindow {
         mount(AnyView(ReviewRoundCockpit(
             passes: [Self.line, Self.copyedit],
@@ -1872,8 +1910,17 @@ final class ReviewRoundCockpitTests: XCTestCase {
             onCompilerModelChange: onCompilerModelChange,
             letterLine: letterLine,
             letterDisclosure: letterDisclosure,
-            ask: ask,
-            onAskChange: onAskChange)))
+            ask: ask)))
+    }
+
+    /// An `AskField.Input` over a fixed document, for a mount that only needs
+    /// the field to be there.
+    private static func askInput(
+        _ text: String?, docId: String = "ch-1",
+        commit: @escaping (String?) -> String? = { _ in nil },
+        note: @escaping (String?, String) -> Void = { _, _ in }
+    ) -> AskField.Input {
+        AskField.Input(docId: docId, text: text, commit: commit, note: note)
     }
 
     /// `orchestrator` is explicit and **undefaulted** so the no-compiler host
@@ -2052,6 +2099,30 @@ final class ReviewRoundCockpitTests: XCTestCase {
         return tree.filter { (axAttribute($0, "accessibilityRole") as? String) == "AXTextField" }
     }
 
+    /// The ask field's own `NSTextField`, found by the placeholder it draws —
+    /// the real control, which is what a keystroke reaches.
+    private func askTextField(in window: NSWindow) -> NSTextField? {
+        guard let root = window.contentView else { return nil }
+        var found: [NSTextField] = []
+        collectFields(in: root, into: &found)
+        return found.first { $0.placeholderString == AskField.placeholder }
+    }
+
+    private func collectFields(in view: NSView, into out: inout [NSTextField]) {
+        if let field = view as? NSTextField { out.append(field) }
+        for sub in view.subviews { collectFields(in: sub, into: &out) }
+    }
+
+    /// **Drive a SwiftUI `TextField`'s binding from outside the responder
+    /// chain** — `DepartmentRunTests`' idiom: setting `stringValue` and posting
+    /// the notification its delegate listens for is what a real keystroke does
+    /// once it reaches the field, without this host having to be the active app.
+    private func type(_ text: String, into field: NSTextField) {
+        field.stringValue = text
+        NotificationCenter.default.post( // adr-0021-ok: Apple's own textDidChange, not a maugham.* event
+            name: NSControl.textDidChangeNotification, object: field)
+    }
+
     // MARK: - Fixtures
 
     /// A minimal, otherwise-irrelevant annotation — the pure predicate test
@@ -2206,8 +2277,13 @@ final class ReviewRoundCockpitTests: XCTestCase {
             partialHandler = handler
         }
 
+        /// Every prompt the orchestrator sent, in order — the seam a test
+        /// reads to see what a round was actually briefed with.
+        private(set) var sentMessages: [String] = []
+
         func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
             sendCount += 1
+            sentMessages.append(message)
             if let nextEvent { return nextEvent }
             isRunning = true
             return await withCheckedContinuation { held = $0 }

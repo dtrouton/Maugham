@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MaughamCore
 
 /// **The round cockpit** — the strip between the annotations queue's toolbar
@@ -128,17 +129,22 @@ struct ReviewRoundCockpit: View {
     /// Author draws rather than a second one that could disagree with it.
     var letterDisclosure: (() -> AnyView)? = nil
 
-    /// **What the writer has asked of the next round on this piece** (P2 Task
-    /// 7, spec §3.7) — `DiagnosticsStore.ask(docId:)`, read by the pane and
-    /// handed down like every other resolved value here.
-    var ask: String? = nil
-    /// Take the writer's ask; answer the refusal to draw, or `nil`. **`nil`
-    /// for the input itself hides the field outright**, `letterDisclosure`'s
-    /// rule: a host with no diagnostics store behind it has nowhere to put a
-    /// sentence, and a box that swallows what is typed into it is worse than
-    /// no box. Every P1 probe mount passes nothing and draws the strip it
-    /// always drew.
-    var onAskChange: ((String?) -> String?)? = nil
+    /// **What the writer has asked of the next round on this piece, and where
+    /// to file a change to it** (P2 Task 7, spec §3.7) — one value, because the
+    /// stored ask, the commit and the document they belong to are one subject
+    /// (`AskField.Input`'s own note).
+    ///
+    /// **`nil` hides the field outright**, `letterDisclosure`'s rule: a host
+    /// with no diagnostics store behind it has nowhere to put a sentence, and a
+    /// box that swallows what is typed into it is worse than no box. Every P1
+    /// probe mount passes nothing and draws the strip it always drew.
+    ///
+    /// It carries a `docId` and the type doc above says this view holds none.
+    /// That still stands: this is not the strip's subject, it is one already-
+    /// resolved value the pane built for the field it is handing down, exactly
+    /// as `letterDisclosure` hands down a closure over the pane's own document.
+    /// Nothing here reads it.
+    var ask: AskField.Input? = nil
 
     /// **What the last thing the run key did means for THIS document.**
     ///
@@ -538,8 +544,8 @@ struct ReviewRoundCockpit: View {
     /// the keystroke is the only trigger, and this row has no Run verb in it.
     @ViewBuilder
     private var askRow: some View {
-        if let onAskChange {
-            AskField(ask: ask, commit: onAskChange)
+        if let ask {
+            AskField(input: ask)
         }
     }
 

@@ -680,11 +680,16 @@ struct AnnotationsPane: View {
                 // so the commit arrives as a closure — `AskField.commit` is
                 // the one spelling of it, so neither home can refuse a long
                 // ask in different words.
-                ask: cockpitAsk(diagnostics, docId: document.docId),
-                onAskChange: { text in
-                    AskField.commit(text, docId: document.docId,
-                                    diagnostics: diagnostics)
-                })
+                ask: AskField.Input(
+                    docId: document.docId,
+                    text: cockpitAsk(diagnostics, docId: document.docId),
+                    commit: { text in
+                        AskField.commit(text, docId: document.docId,
+                                        diagnostics: diagnostics)
+                    },
+                    note: { text, doc in
+                        AskField.note(text, docId: doc, diagnostics: diagnostics)
+                    }))
             Divider()
         }
     }

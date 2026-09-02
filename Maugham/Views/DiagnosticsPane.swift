@@ -631,9 +631,13 @@ struct DiagnosticsPane: View {
     /// the store, so the commit is direct; the cockpit's arrives as a closure.
     @ViewBuilder
     private var askField: some View {
-        AskField(
-            ask: storedAsk,
-            commit: { AskField.commit($0, docId: docId, diagnostics: diagnostics) })
+        AskField(input: AskField.Input(
+            docId: docId,
+            text: storedAsk,
+            commit: { AskField.commit($0, docId: docId, diagnostics: diagnostics) },
+            note: { text, doc in
+                AskField.note(text, docId: doc, diagnostics: diagnostics)
+            }))
     }
 
     /// Version-gated like every other read of the sidecar here, so a commit

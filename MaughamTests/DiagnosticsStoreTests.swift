@@ -867,6 +867,100 @@ final class DiagnosticsStoreTests: XCTestCase {
             String(repeating: "c", count: DiagnosticsStore.askLimit))
     }
 
+    /// **A pending draft is promoted by the run, and only what changed is
+    /// written** (P2 Task 7, fix round 1). The gap it closes: ⌘R is a menu
+    /// command that never touches the first responder, so a worry typed and not
+    /// submitted would otherwise be dropped by the round it was typed for.
+    func test_commitPendingAsk_promotesWhatWasTypedButNotSubmitted() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-pending"
+
+        store.notePendingAsk("I'm worried the middle sags.", docId: docId)
+        XCTAssertNil(store.ask(docId: docId), "noting is not asking")
+
+        XCTAssertTrue(store.commitPendingAsk(docId: docId))
+        XCTAssertEqual(store.ask(docId: docId), "I'm worried the middle sags.")
+
+        XCTAssertFalse(
+            store.commitPendingAsk(docId: docId),
+            "the pending draft is spent \u{2014} a second round must not rewrite the "
+            + "asks file for a sentence that already stands")
+    }
+
+    /// A pending draft equal to what already stands writes nothing, so an
+    /// ordinary round costs no file write and no re-render.
+    func test_commitPendingAsk_writesNothingWhenNothingChanged() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-pending-same"
+        store.setAsk("Does the middle sag?", docId: docId)
+        let versionBefore = store.version
+
+        store.notePendingAsk("  Does the middle sag?  ", docId: docId)
+        XCTAssertFalse(store.commitPendingAsk(docId: docId))
+        XCTAssertEqual(store.version, versionBefore)
+        XCTAssertEqual(store.ask(docId: docId), "Does the middle sag?")
+    }
+
+    /// **An emptied field is a withdrawal, not an absence.** A writer who
+    /// selects their ask and deletes it without submitting must not have the
+    /// round they then ask for briefed with the sentence they just removed.
+    func test_commitPendingAsk_anEmptiedFieldWithdrawsTheAsk() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-pending-empty"
+        store.setAsk("Does the middle sag?", docId: docId)
+
+        store.notePendingAsk("", docId: docId)
+        XCTAssertTrue(store.commitPendingAsk(docId: docId))
+        XCTAssertNil(store.ask(docId: docId))
+    }
+
+    /// The pending buffer is per document, like the ask itself: a draft typed
+    /// about one chapter may never be promoted onto another.
+    func test_commitPendingAsk_isPerDocument() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+
+        store.notePendingAsk("Does chapter one sag?", docId: "doc-a")
+
+        XCTAssertFalse(store.commitPendingAsk(docId: "doc-b"))
+        XCTAssertNil(store.ask(docId: "doc-b"))
+        XCTAssertTrue(store.commitPendingAsk(docId: "doc-a"), "control")
+        XCTAssertEqual(store.ask(docId: "doc-a"), "Does chapter one sag?")
+    }
+
+    /// A submitted ask spends the pending buffer, so a later round cannot
+    /// re-promote a draft the writer has already had committed for them.
+    func test_setAsk_spendsThePendingDraft() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-pending-spent"
+
+        store.notePendingAsk("Half a thou", docId: docId)
+        store.setAsk("Does the ending land?", docId: docId)
+
+        XCTAssertFalse(store.commitPendingAsk(docId: docId))
+        XCTAssertEqual(store.ask(docId: docId), "Does the ending land?")
+    }
+
+    /// **A pending draft over the limit is refused exactly as a submitted one
+    /// is**, and the round goes out briefed with the ask that stands rather
+    /// than with nothing.
+    func test_commitPendingAsk_refusesOverTheLimitAndLeavesTheAskStanding() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-pending-long"
+        store.setAsk("Does the middle sag?", docId: docId)
+
+        store.notePendingAsk(
+            String(repeating: "a", count: DiagnosticsStore.askLimit + 1), docId: docId)
+
+        XCTAssertFalse(store.commitPendingAsk(docId: docId))
+        XCTAssertEqual(store.ask(docId: docId), "Does the middle sag?")
+    }
+
     /// Persisted immediately and survives a relaunch — a fresh store over the
     /// same root reads it back without `load(docId:)` ever being called,
     /// since `asks` is read once at `init`.

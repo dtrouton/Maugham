@@ -3709,8 +3709,13 @@ final class DiagnosticsPaneTests: XCTestCase {
 
         func stream(_ chunk: String) { partialHandler?(chunk) }
 
+        /// Every prompt the orchestrator sent, in order — the seam a test
+        /// reads to see what a round was actually briefed with.
+        private(set) var sentMessages: [String] = []
+
         func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
             sendCount += 1
+            sentMessages.append(message)
             onSend?()
             if let nextEvent { return nextEvent }
             isRunning = true
@@ -4620,8 +4625,204 @@ final class DiagnosticsPaneTests: XCTestCase {
             "the field binds to its own draft; a binding straight to the store would "
             + "write the asks file once per keystroke")
         XCTAssertFalse(
-            source.contains(".onChange(of: draft)"),
-            "nothing may commit on every keystroke")
+            source.contains(".onChange(of: draft) { _, now in commitDraft"),
+            "the keystroke handler NOTES, it does not commit")
+    }
+
+    /// **Typing costs nothing** (fix round 1, Important 1). Every keystroke is
+    /// noted so a round can pick it up, and noting must stay a dictionary
+    /// write: a version bump would re-render both panes on every letter, and a
+    /// file write would put the asks sidecar on the writer's typing path.
+    ///
+    /// Measured on the store rather than asserted at the source, because what
+    /// matters is the cost and not the spelling.
+    func test_notingAKeystrokeWritesNothingAndRendersNothing() throws {
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let file = DiagnosticsStore.asksURL(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let versionBefore = diagnostics.version
+
+        for prefix in ["I", "I'm", "I'm w", "I'm worried"] {
+            diagnostics.notePendingAsk(prefix, docId: "doc-1")
+        }
+
+        XCTAssertEqual(diagnostics.version, versionBefore,
+                       "noting must not re-render the panes reading this store")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path),
+                       "nor touch the asks file")
+        XCTAssertNil(diagnostics.ask(docId: "doc-1"),
+                     "and nothing is asked until something commits it")
+
+        // Control: the commit a round makes does all three.
+        XCTAssertTrue(diagnostics.commitPendingAsk(docId: "doc-1"))
+        XCTAssertEqual(diagnostics.ask(docId: "doc-1"), "I'm worried")
+        XCTAssertGreaterThan(diagnostics.version, versionBefore)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    /// **⌘R commits what is still in the field, and the round carries it**
+    /// (fix round 1, Important 1).
+    ///
+    /// The run keys are menu commands posted to the key window and they never
+    /// touch the first responder, so a writer who types a worry and presses ⌘R
+    /// without pressing Return would otherwise watch the round go out briefed
+    /// on the ask they had *before*, with the new sentence still on screen.
+    ///
+    /// Delivered the whole way: a real keystroke into the hosted field, the
+    /// real `maugham.*` event, a real orchestrator, and the prompt the runner
+    /// was actually sent.
+    func test_theRunKeyCommitsWhatIsStillInTheAskField() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "AskRunKey")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        let runner = SpyRunner()
+        let orchestrator = CompilerOrchestrator()
+        orchestrator.configure(
+            environment: makeEnvironment(docId: chapter.id, runner: runner),
+            diagnostics: diagnostics)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: orchestrator, diagnostics: diagnostics, docId: chapter.id,
+            currentText: { _ in nil }, compilerModel: .standard, store: store)))
+        // The `WindowAccessor` resolves on the next main-queue turn, and the
+        // run subscription's scope filter is what it feeds.
+        pump(0.4)
+
+        let worry = "I'm worried the middle sags."
+        let field = try XCTUnwrap(askTextField(in: window), "no ask field on the pane")
+        type(worry, into: field)
+        pump(0.2)
+        XCTAssertNil(diagnostics.ask(docId: chapter.id),
+                     "premise: typing alone commits nothing")
+
+        // The event, then the round — the exact order and the exact
+        // synchrony `CompilerRunModifier` produces, which is the one thing
+        // this mount does not carry (it hosts the pane, not the window).
+        // Exactly what ⌘R does: `CompilerRunModifier` calls this and nothing
+        // else. Nothing in between touches the first responder, which is why
+        // the pending draft has to be promoted by the run itself.
+        orchestrator.runRequested(docId: chapter.id)
+        try await waitUntilAsync(timeout: 5) { !runner.sentMessages.isEmpty }
+
+        XCTAssertEqual(
+            diagnostics.ask(docId: chapter.id), worry,
+            "the round must promote the pending draft into the ask")
+        XCTAssertTrue(
+            runner.sentMessages.first?.contains(worry) == true,
+            "and must actually be briefed with it. Sent: "
+            + "\(runner.sentMessages.first ?? "nothing")")
+    }
+
+
+
+
+    /// CONTROL for the test above: with nothing typed, the same round is
+    /// briefed with no ask at all — so the assertion above is about the
+    /// writer's sentence and not about a string every prompt carries.
+    func test_aRoundWithNothingTypedIsBriefedWithNoAsk() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "AskRunKeyControl")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        let runner = SpyRunner()
+        let orchestrator = CompilerOrchestrator()
+        orchestrator.configure(
+            environment: makeEnvironment(docId: chapter.id, runner: runner),
+            diagnostics: diagnostics)
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: orchestrator, diagnostics: diagnostics, docId: chapter.id,
+            currentText: { _ in nil }, compilerModel: .standard, store: store)))
+        pump(0.4)
+        XCTAssertNotNil(askTextField(in: window), "premise: the field was there to type into")
+
+        orchestrator.runRequested(docId: chapter.id)
+        try await waitUntilAsync(timeout: 5) { !runner.sentMessages.isEmpty }
+
+        XCTAssertNil(diagnostics.ask(docId: chapter.id))
+        XCTAssertFalse(
+            runner.sentMessages.first?.contains("I'm worried the middle sags.") == true,
+            "nothing was asked, so nothing about a middle may reach the briefing")
+    }
+
+    /// **A draft belongs to the document it was typed about** (fix round 1,
+    /// Minor 2).
+    ///
+    /// Neither host keys the field on the subject and neither pane is rebuilt
+    /// when the window's subject changes, so a half-typed sentence about one
+    /// chapter used to survive a click onto another and file itself there at
+    /// the next commit. Driven through the run event, which is a commit
+    /// trigger a mounted test can actually deliver.
+    func test_aPendingAskDoesNotFollowTheWriterToAnotherChapter() throws {
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let subject = AskSubject(docId: "doc-a")
+        let window = mount(AnyView(
+            AskFieldProbe(subject: subject, diagnostics: diagnostics)))
+        pump(0.4)
+
+        let field = try XCTUnwrap(askTextField(in: window))
+        type("Does the middle of chapter one sag?", into: field)
+        pump(0.2)
+
+        subject.docId = "doc-b"
+        pump(0.3)
+
+        XCTAssertEqual(
+            askTextField(in: window)?.stringValue, "",
+            "the draft must go with the chapter it was about")
+
+        // What a round on either chapter would do.
+        diagnostics.commitPendingAsk(docId: "doc-b")
+        diagnostics.commitPendingAsk(docId: "doc-a")
+        XCTAssertNil(diagnostics.ask(docId: "doc-b"),
+                     "and must never be filed against the chapter the writer moved to")
+        XCTAssertNil(diagnostics.ask(docId: "doc-a"),
+                     "nor against the one they left \u{2014} it was never committed")
+    }
+
+    /// CONTROL for the test above: without the subject change the very same
+    /// sequence DOES commit, so the assertion is about the switch and not
+    /// about the run event failing to arrive.
+    func test_withoutASubjectChangeThePendingAskIsCommitted() throws {
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let subject = AskSubject(docId: "doc-a")
+        let window = mount(AnyView(
+            AskFieldProbe(subject: subject, diagnostics: diagnostics)))
+        pump(0.4)
+
+        type("Does the middle of chapter one sag?",
+             into: try XCTUnwrap(askTextField(in: window)))
+        pump(0.2)
+        diagnostics.commitPendingAsk(docId: "doc-a")
+
+        XCTAssertEqual(diagnostics.ask(docId: "doc-a"),
+                       "Does the middle of chapter one sag?")
+    }
+
+    /// **The refusal notice does not outlive its cause** (fix round 1, Minor
+    /// 3). A writer who shortens a refused ask back to what already stands has
+    /// fixed it, and `commitDraft`'s unchanged-guard returns before writing —
+    /// so the clear has to happen on that path too, or a red line stays on
+    /// screen with nothing left that can dismiss it.
+    func test_theRefusalNoticeIsClearedOnEveryPathThatMakesItUntrue() throws {
+        let source = try readSource("Maugham/Views/AskField.swift")
+        let commitBody = try XCTUnwrap(
+            source.range(of: "private func commitDraft() {").map {
+                String(source[$0.upperBound...].prefix(300))
+            },
+            "`commitDraft` is where the unchanged-guard lives; find it by name if it moved")
+        XCTAssertTrue(
+            commitBody.contains("clearNotice()"),
+            "the early return must clear the notice: \(commitBody)")
+        let askChange = try XCTUnwrap(
+            source.range(of: ".onChange(of: ask) {").map {
+                String(source[$0.upperBound...].prefix(400))
+            })
+        XCTAssertTrue(
+            askChange.contains("clearNotice()"),
+            "and so must a stored ask that moved: \(askChange)")
     }
 
     /// **A commit that changes nothing writes nothing.** Focus loss fires
@@ -4633,7 +4834,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_theAskFieldDoesNotRewriteAnUnchangedAsk() throws {
         let source = try readSource("Maugham/Views/AskField.swift")
         XCTAssertTrue(
-            source.contains("guard trimmed != (ask ?? \"\") else { return }"),
+            source.contains("guard trimmed != (ask ?? \"\") else {"),
             "the commit must compare against the stored ask before writing")
     }
 
@@ -4923,6 +5124,25 @@ final class DiagnosticsPaneTests: XCTestCase {
         return window
     }
 
+    /// The ask field's own `NSTextField`, found by the placeholder it draws —
+    /// the real control, which is what a keystroke reaches.
+    private func askTextField(in window: NSWindow) -> NSTextField? {
+        guard let root = window.contentView else { return nil }
+        var found: [NSTextField] = []
+        collect(NSTextField.self, in: root, into: &found)
+        return found.first { $0.placeholderString == AskField.placeholder }
+    }
+
+    /// **Drive a SwiftUI `TextField`'s binding from outside the responder
+    /// chain** — `DepartmentRunTests`' idiom: setting `stringValue` and posting
+    /// the notification its delegate listens for is what a real keystroke does
+    /// once it reaches the field, without this host having to be the active app.
+    private func type(_ text: String, into field: NSTextField) {
+        field.stringValue = text
+        NotificationCenter.default.post( // adr-0021-ok: Apple's own textDidChange, not a maugham.* event
+            name: NSControl.textDidChangeNotification, object: field)
+    }
+
     private func pump(_ seconds: TimeInterval = 0.2) {
         RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
@@ -5094,5 +5314,39 @@ final class DiagnosticsPaneTests: XCTestCase {
             .deletingLastPathComponent()
         return try String(
             contentsOf: repoRoot.appendingPathComponent(relativePath), encoding: .utf8)
+    }
+}
+
+/// **A subject a test can move under a mounted field**, so the docId change
+/// `AskField` guards against can be delivered rather than described. The
+/// window's real subject switch is a `BinderSubject` write several views up;
+/// what reaches the field is exactly this — a new `docId` on the same view.
+@MainActor
+@Observable
+final class AskSubject {
+    var docId: String
+    init(docId: String) { self.docId = docId }
+}
+
+/// The field alone, over a subject a test can move. Mirrors what both hosts
+/// build: the commit closure resolves the docId at press time, which is the
+/// realistic hazard — the host rebuilds it for the NEW chapter while the old
+/// chapter's draft is still in the box.
+@MainActor
+struct AskFieldProbe: View {
+    let subject: AskSubject
+    let diagnostics: DiagnosticsStore
+
+    var body: some View {
+        _ = diagnostics.version
+        return AskField(
+            input: AskField.Input(
+                docId: subject.docId,
+                text: diagnostics.ask(docId: subject.docId),
+                commit: { AskField.commit($0, docId: subject.docId,
+                                          diagnostics: diagnostics) },
+            note: { text, doc in
+                AskField.note(text, docId: doc, diagnostics: diagnostics)
+            }))
     }
 }

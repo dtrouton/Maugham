@@ -753,6 +753,15 @@ final class CompilerOrchestrator {
         // writer's own question about the prose, and refusing to hear it on
         // ⌘⇧R would answer a question nobody asked while ignoring the one
         // they did.
+        // **Whatever is still in the ask field counts as asked** (P2 Task 7,
+        // fix round 1). ⌘R is a menu command and never touches the first
+        // responder, so without this a worry typed and not submitted would
+        // watch its own round go out briefed on the previous ask. Here rather
+        // than in the key handler because every trigger passes through this
+        // one line — the two keystrokes, the cockpit's buttons and the
+        // cold-start offer — and because a pending draft equal to the stored
+        // ask writes nothing.
+        diagnostics.commitPendingAsk(docId: docId)
         let ask = diagnostics.ask(docId: docId)
 
         // **The ledger, read beside the intent** and hashed with it (Task 4):

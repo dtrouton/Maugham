@@ -511,6 +511,21 @@ final class DiagnosticsStore {
         asks[docId]
     }
 
+    /// **What the writer has typed into the ask field but not yet committed**,
+    /// per document, in memory only (editorial letter P2 Task 7, fix round 1).
+    ///
+    /// **This is not a second source of truth for the ask.** `ask(docId:)` is
+    /// the ask; this is a keystroke buffer that exists so a round asked for
+    /// while the field still holds uncommitted words is briefed with them —
+    /// `commitPendingAsk(docId:)` promotes it through `setAsk` at the top of
+    /// every run and it is gone.
+    ///
+    /// Deliberately not persisted and deliberately not `version`-bumping: it is
+    /// written on every keystroke, and the whole reason the field commits on
+    /// submit rather than on typing is that a real commit rewrites this
+    /// project's asks file and re-renders both panes.
+    private var pendingAsks: [String: String] = [:]
+
     /// **How long an ask may be** (editorial letter P2 Task 7). A worry is a
     /// sentence, not a page: the ask rides every run's briefing as its own
     /// section, and an essay pasted in here would out-argue the writer's own
@@ -553,6 +568,8 @@ final class DiagnosticsStore {
     func setAsk(_ text: String?, docId: String) -> Bool {
         let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard trimmed.count <= Self.askLimit else { return false }
+        // Whatever was pending has now been decided, one way or the other.
+        pendingAsks[docId] = nil
         if trimmed.isEmpty {
             asks[docId] = nil
         } else {
@@ -561,6 +578,55 @@ final class DiagnosticsStore {
         persistAsks()
         version += 1
         return true
+    }
+
+    /// **Note what the writer is typing, without writing anything.** Called on
+    /// every keystroke; see ``pendingAsks`` for why that is cheap and why it is
+    /// not a commit.
+    ///
+    /// `nil`/blank is meaningful and is kept as `""` rather than dropped: a
+    /// writer who selects their ask and deletes it has withdrawn it, and the
+    /// round they then ask for must not be briefed with the sentence they just
+    /// removed.
+    func notePendingAsk(_ text: String, docId: String) {
+        pendingAsks[docId] = text
+    }
+
+    /// **Forget an uncommitted draft entirely** — not the same as noting an
+    /// empty one.
+    ///
+    /// Noting `""` says the writer emptied the field, which a later round
+    /// promotes into a withdrawal of the stored ask. This says the draft is
+    /// no longer the writer's business at all: the field discards what was
+    /// typed about a piece when the writer moves to another one, and the ask
+    /// that piece already had must survive that untouched.
+    func discardPendingAsk(docId: String) {
+        pendingAsks[docId] = nil
+    }
+
+    /// **Promote whatever is in the field into the ask, at the top of a run.**
+    ///
+    /// The gap this closes: ⌘R is a menu command that never touches the first
+    /// responder, so a writer who types a worry and asks for a round without
+    /// pressing Return would otherwise have the round briefed on the ask they
+    /// had *before*, with the new sentence still on screen in front of them.
+    /// Every run trigger goes through `CompilerOrchestrator.beginRun`, which is
+    /// the one place that calls this — so the cockpit's buttons and the
+    /// cold-start offer are covered by the same line as the two keystrokes.
+    ///
+    /// **A pending draft that matches the stored ask writes nothing**, so an
+    /// ordinary round costs no file write; and one over `askLimit` is refused
+    /// by `setAsk` exactly as a submitted one is, leaving the round briefed
+    /// with the ask that stands. Answers whether anything changed.
+    @discardableResult
+    func commitPendingAsk(docId: String) -> Bool {
+        guard let pending = pendingAsks[docId] else { return false }
+        let trimmed = pending.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != (asks[docId] ?? "") else {
+            pendingAsks[docId] = nil
+            return false
+        }
+        return setAsk(pending, docId: docId)
     }
 
     /// `.maugham/diagnostics/<docId>.<slug>.json` — per-device so two
