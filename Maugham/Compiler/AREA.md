@@ -118,12 +118,14 @@ settings sheet, `get_outline`) resolve for themselves at the point of display.
 A custom pass with no brief of its own and no matching preset gets the honest
 fallback: attend at the altitude the pass's name suggests.
 
-The resolved name goes three places: the **annotation author** on every note
-that pass mints (`CompilerMintContext.editorName`, so the queue's author
-filter becomes "everything Gould flagged"), the round briefing's **role
-frame** (`CompilerPrompt.passSection`, "You are Gould, this manuscript's
-Copyedit editor"), and the pass's own brief, embedded
-in the same briefing so attention follows the register the writer chose.
+The resolved name is read by the **annotation author** on every note that pass
+mints (`CompilerMintContext.editorName`, so the queue's author filter becomes
+"everything Gould flagged") and by the round briefing's **role frame**
+(`CompilerPrompt.passSection`, "You are Gould, this manuscript's Copyedit
+editor"); the pass's own brief rides the same briefing, so attention follows
+the register the writer chose. Grep `effectiveEditorName` for the readers
+rather than trusting a number here — the display surfaces resolve for
+themselves and nothing censuses them.
 
 **Who reads a piece has ONE resolution** (editorial letter P1 Task 5, spec
 §4.1): `ProjectManifest.reader(forPiece:memory:)` answers a `PieceReader` —

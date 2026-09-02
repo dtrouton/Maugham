@@ -11,9 +11,13 @@ import MaughamCore
 /// where the prose lands.
 ///
 /// **The register is the screen's, not the schema's** (global constraint 12).
-/// Every heading here is a `LetterSection` copy constant rather than a literal,
-/// so a kept letter and the letter it was kept from cannot call the same part
-/// two different things. Nothing in the output says `one_thing` or `working`.
+/// Every part title and column header here is a `LetterSection` copy constant
+/// rather than a literal, so a kept letter and the letter it was kept from
+/// cannot call the same part two different things. Nothing in the output says
+/// `one_thing` or `working`. The one exception is ``exerciseLabel``, which is
+/// declared here because the word exists only in this rendering: on screen an
+/// exercise is unlabelled prose with a button beside it, so `LetterSection`
+/// has no constant to borrow.
 ///
 /// **No paragraph ids, ever.** A ref reaches the note as the paragraph's own
 /// words in italics, exactly as the jump chip draws it on screen — a kept
@@ -176,7 +180,9 @@ enum LetterMarkdown {
             out = pattern.stringByReplacingMatches(
                 in: out, range: range, withTemplate: "")
         }
-        out = MarkdownDisplayFilter.stripTaskAnchorsInline(out)
+        let taskStripped = MarkdownDisplayFilter.stripTaskAnchorsInline(out)
+        if taskStripped != out { removedSomething = true }
+        out = taskStripped
         // **Collapse only where something was taken out.** Removing an inline
         // anchor leaves the two spaces that bracketed it against each other,
         // and a doubled space mid-sentence reads as a typo the writer did not

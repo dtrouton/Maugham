@@ -74,10 +74,17 @@ enum LetterKeep {
     /// the caller can name it in its confirmation — the store resolves the
     /// title against its siblings, and a caller echoing back the title it
     /// ASKED for would name a note that is not there.
+    /// **`write` is a seam, and it exists because the ordering could not
+    /// otherwise be tested** (fix round 1, Important 1). Both writes land in
+    /// the same folder, so an unwritable destination refuses at the STORE's
+    /// empty-file write and this function's own `try` is never reached — which
+    /// is exactly how a `try` quietly turning into a `try?` passed a full gate.
+    /// Production passes nothing; the test injects a thrower.
     @discardableResult
     static func keep(
         _ letter: Letter, run: CompilerRun, docId: String,
-        editorName: String, store: ProjectStore
+        editorName: String, store: ProjectStore,
+        write: (String, URL) throws -> Void = LetterKeep.atomicWrite
     ) async throws -> ResearchItem {
         let rendered = LetterMarkdown.render(
             letter, editorName: editorName,
@@ -90,11 +97,19 @@ enum LetterKeep {
         }
         // `try`, not `try?`: a failed body write used to leave an EMPTY note
         // reported as a successful promotion on this store's other callers
-        // (`InboxStore.promote`, M8-IN-001/002).
-        try rendered.body.write(
-            to: store.url.appendingPathComponent(path),
-            atomically: true, encoding: .utf8)
+        // (`InboxStore.promote`, M8-IN-001/002). Falsified by
+        // `LetterKeepTests.test_aRefusedBodyWriteRefusesTheWholeKeep`.
+        try write(rendered.body, store.url.appendingPathComponent(path))
         return created
+    }
+
+    /// The real write. Atomic, so a crash mid-write cannot leave a half-letter
+    /// where a whole one is claimed.
+    /// `nonisolated` because it touches nothing actor-bound and because the
+    /// isolation would otherwise ride into the parameter's function type,
+    /// which Swift 6 rejects at every call site that passes it as a value.
+    nonisolated static func atomicWrite(_ text: String, _ url: URL) throws {
+        try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// The whole verb, as the closure `LetterSection.onKeep` takes —
@@ -110,6 +125,7 @@ enum LetterKeep {
     static func handler(
         letter: Letter, run: CompilerRun?, docId: String,
         store: ProjectStore?, editorName: String,
+        write: @escaping (String, URL) throws -> Void = LetterKeep.atomicWrite,
         onKept: @escaping (Kept) -> Void,
         onFailure: @escaping (String?) -> Void
     ) -> () -> Void {
@@ -123,7 +139,7 @@ enum LetterKeep {
                 do {
                     let item = try await keep(
                         letter, run: run, docId: docId,
-                        editorName: editorName, store: store)
+                        editorName: editorName, store: store, write: write)
                     onKept(Kept(runId: run.id, title: item.title))
                 } catch {
                     documentLog.error("\u{201C}Keep this letter\u{201D} refused for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")

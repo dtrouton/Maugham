@@ -364,12 +364,13 @@ final class ReviewPassEditorTests: XCTestCase {
 
     /// The text from `name` to the end of its brace-balanced body.
     ///
-    /// **A per-suite copy, not a shared helper.** Nine test files carry the
-    /// same reader, because `MaughamTests` has no census-support module and a
-    /// private static in the suite that uses it is what every one of them
-    /// settled on. Sharing it would be a real improvement and is deliberately
-    /// out of this task's scope; what is fixed here is the comment, which
-    /// claimed the copy was the shared one.
+    /// **A per-suite copy, not a shared helper.** Every census suite that needs
+    /// this reader declares its own, because `MaughamTests` has no
+    /// census-support module and a private static in the suite that uses it is
+    /// what they all settled on — grep `private static func declaration(named`
+    /// for the current set. Sharing it would be a real improvement and is
+    /// deliberately out of this task's scope; what is fixed here is the
+    /// comment, which claimed the copy was the shared one.
     private static func declaration(named name: String, in source: String) -> String? {
         guard let start = source.range(of: name) else { return nil }
         var depth = 0

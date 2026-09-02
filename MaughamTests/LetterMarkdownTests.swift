@@ -266,6 +266,22 @@ final class LetterMarkdownTests: XCTestCase {
             "She left. He stayed.")
     }
 
+    /// **A task anchor's removal earns the same collapse an id's does** (fix
+    /// round 1, Minor 4). `MarkdownDisplayFilter.stripTaskAnchorsInline` eats
+    /// one leading whitespace character, so the common ` <!--t-…-->` shape
+    /// closes cleanly on its own — but an anchor written tight against the
+    /// word before it and spaced after leaves the gap behind, and the collapse
+    /// has to know a removal happened to close it.
+    func test_aTaskAnchorsRemovalCollapsesItsGapToo() {
+        XCTAssertEqual(
+            LetterMarkdown.scrubbed("She left<!--t-ab3dfg-->  alone."),
+            "She left alone.")
+        XCTAssertEqual(
+            LetterMarkdown.scrubbed("She left <!--t-ab3dfg--> alone."),
+            "She left alone.",
+            "and the common shape is unchanged")
+    }
+
     /// Self-check: the matcher this file's negative assertions stand on does
     /// fire on a planted id. Without this, a broken regex would make every
     /// assertion above pass over any output at all.
@@ -275,10 +291,13 @@ final class LetterMarkdownTests: XCTestCase {
         XCTAssertEqual(Self.paragraphIdTokens(in: "no ids here"), [])
     }
 
-    /// `TripwireGrepTests.paragraphIdAnchorTokenPattern`, applied to rendered
-    /// text rather than to source.
+    /// The tripwire's OWN pattern (`TripwireGrepTests.paragraphIdAnchorTokenPattern`,
+    /// same test target), applied to rendered text rather than to source. Read
+    /// rather than re-spelled: a second copy of the regex is a second answer to
+    /// "what does a leaked id look like", and this file's every negative
+    /// assertion stands on it.
     private static func paragraphIdTokens(in text: String) -> [String] {
-        let pattern = "\u{00b6}([0-9A-Za-z]{4})(?![0-9A-Za-z])"
+        let pattern = TripwireGrepTests.paragraphIdAnchorTokenPattern
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let ns = text as NSString
         return regex.matches(in: text, range: NSRange(location: 0, length: ns.length))

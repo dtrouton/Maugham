@@ -159,16 +159,13 @@ final class LetterKeepTests: XCTestCase {
     /// reports success). Measured by taking write permission off the folder
     /// the note has to land in.
     ///
-    /// **Which of the two writes refuses is the store's business, and this
-    /// test pins the outer contract rather than the inner one.** With the
-    /// folder read-only the refusal arrives from `addResearchTextNote`'s own
-    /// empty-file write, before `LetterKeep` ever reaches the body — there is
-    /// no way through the public verb to make the note's creation succeed and
-    /// its body write fail, because both land in the same folder. The body
-    /// write's `try` (never `try?`) is the discipline `InboxStore.promote`
-    /// carries for the same reason, and what pins it here is the positive
-    /// case: `test_theNoteCarriesTheRenderedLetterAndItsTitle` reads the file
-    /// back off disk, so a keep that returned before writing is red.
+    /// **This test measures the STORE's refusal, not `LetterKeep`'s own.**
+    /// Both writes land in the same folder, so with it read-only the throw
+    /// arrives from `addResearchTextNote`'s empty-file write and `keep` never
+    /// reaches its body write at all. What pins `keep`'s own `try` is
+    /// `test_aRefusedBodyWriteRefusesTheWholeKeep` below, through the injected
+    /// `write` seam — the positive case cannot do it, because a `try?` there
+    /// still writes the body successfully and stays green.
     func test_anUnwritableResearchFolderRefusesTheKeep() async throws {
         let (url, store) = try await makeNovel()
         let research = url.appendingPathComponent("research")
@@ -191,6 +188,65 @@ final class LetterKeepTests: XCTestCase {
         }
         XCTAssertEqual(store.manifest.research.count, before,
                        "a refused keep leaves the research list where it was")
+    }
+
+    /// **A refused BODY WRITE refuses the whole keep** — `keep`'s own `try`,
+    /// pinned (fix round 1, Important 1).
+    ///
+    /// The note's file exists by then: `createResearchNote` made it, empty,
+    /// and this verb cannot un-make it. What must never happen is that an
+    /// empty note is REPORTED as a kept letter — so the throw propagates, no
+    /// `ResearchItem` comes back, and the file on disk still has none of the
+    /// letter's words in it. Falsified by softening the `try` to `try?`: the
+    /// keep then returns the empty note as a success.
+    func test_aRefusedBodyWriteRefusesTheWholeKeep() async throws {
+        struct WriteRefused: Error {}
+        let (_, store) = try await makeNovel()
+
+        var returned: ResearchItem?
+        do {
+            returned = try await LetterKeep.keep(
+                letter, run: makeRun(), docId: "ch-1", editorName: "Le Guin",
+                store: store, write: { _, _ in throw WriteRefused() })
+            XCTFail("a refused body write reported a kept letter")
+        } catch is WriteRefused {
+            // The refusal the seam injected, arriving unswallowed.
+        }
+        XCTAssertNil(returned, "nothing may be reported kept")
+
+        let note = try XCTUnwrap(store.manifest.research.first,
+                                 "premise: the store did make the note before the write")
+        XCTAssertEqual(try body(of: note, in: store), "",
+                       "the letter's words never reached the file, which is exactly "
+                       + "what a reported success would have hidden")
+    }
+
+    /// **And no confirmation is shown**, which is the writer-visible half of
+    /// the same contract: the shared handler both hosts press must send the
+    /// refusal to its failure channel and leave `onKept` untouched.
+    func test_aRefusedKeepConfirmsNothingAndSaysWhyInstead() async throws {
+        struct WriteRefused: LocalizedError {
+            var errorDescription: String? { "The disk said no." }
+        }
+        let (_, store) = try await makeNovel()
+        var kept: [LetterKeep.Kept] = []
+        var failures: [String?] = []
+
+        let press = LetterKeep.handler(
+            letter: letter, run: makeRun(), docId: "ch-1", store: store,
+            editorName: "Le Guin", write: { _, _ in throw WriteRefused() },
+            onKept: { kept.append($0) }, onFailure: { failures.append($0) })
+        press()
+        let deadline = Date().addingTimeInterval(4)
+        while Date() < deadline, failures.count < 2 {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertTrue(kept.isEmpty, "a refused keep must confirm nothing: \(kept)")
+        XCTAssertEqual(failures.first ?? "unset", String?.none,
+                       "the press clears the previous refusal first")
+        XCTAssertEqual(failures.last, "The disk said no.",
+                       "and says what happened: \(failures)")
     }
 
     // MARK: - The lane line

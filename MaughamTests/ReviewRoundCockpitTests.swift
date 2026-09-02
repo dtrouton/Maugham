@@ -1605,6 +1605,64 @@ final class ReviewRoundCockpitTests: XCTestCase {
                       "Read: \(allLabels(in: window))")
     }
 
+    /// **A refused keep says so in Review's own channel** (fix round 1, Minor
+    /// 7). `AnnotationsPane` always holds a project, so the no-project arm
+    /// Author's twin test presses is unreachable here — the refusal that IS
+    /// reachable is the file system's, and it must reach the writer rather
+    /// than the log alone. Without `letterKeepFailure` wired into the section
+    /// the button looks pressed and the letter goes nowhere.
+    func test_aRefusedKeepSaysSoInTheQueue() async throws {
+        let fx = try await makeHarness()
+        fx.diagnostics.replace(
+            run: CompilerRun(
+                id: "r-1", at: Date(), model: "test-model", lastOpId: "op-1",
+                deltaSummary: "1 new", intentSnapshot: nil, passId: nil, round: 1,
+                freshEyes: nil,
+                letter: Self.letter(oneThing: "Give the reader the dock before the fire.")),
+            diagnostics: [], docId: fx.document.docId)
+
+        // Take write permission off the folder the note has to land in. The
+        // store refuses, and this test is about what the writer is told.
+        let research = fx.store.url.appendingPathComponent("research")
+        try FileManager.default.createDirectory(at: research, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o500], ofItemAtPath: research.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o700], ofItemAtPath: research.path)
+        }
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        pump(0.3)
+        let disclosure = try XCTUnwrap(
+            pressableLanePicker(
+                labelled: "Give the reader the dock before the fire.", in: window)
+                ?? disclosureElement(
+                    labelled: "Give the reader the dock before the fire.", in: window),
+            "the letter line must open. Pressables: \(pressableLabels(in: window))")
+        press(disclosure)
+        pump(0.3)
+
+        let before = allLabels(in: window)
+        press(try button(labelled: LetterSection.keepTitle, in: window))
+        let deadline = Date().addingTimeInterval(4)
+        var after = before
+        while Date() < deadline {
+            pump(0.1)
+            after = allLabels(in: window)
+            if after.count != before.count { break }
+            try? await Task.sleep(for: .milliseconds(40))
+        }
+        XCTAssertTrue(fx.store.manifest.research.isEmpty,
+                      "premise: nothing was filed")
+        XCTAssertFalse(
+            after.contains(where: { $0.hasPrefix("Kept as") }),
+            "a refused keep must confirm nothing. Read: \(after)")
+        XCTAssertNotEqual(
+            after, before,
+            "the refusal must reach the writer, not the log alone. Read: \(after)")
+    }
+
     /// **The census the mount cannot make**: both hosts reach the SAME verb.
     /// A Keep spelled out here would be a second render, a second scope and a
     /// second answer to where a letter goes — the defect `TurnClauseOffer`
