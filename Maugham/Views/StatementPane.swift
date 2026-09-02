@@ -451,7 +451,7 @@ struct StatementPane: View {
                     hostGeneration += 1
                 }
             } catch {
-                proposalNotice = "\(error)"
+                proposalNotice = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
             }
             reloadProposal()
         }

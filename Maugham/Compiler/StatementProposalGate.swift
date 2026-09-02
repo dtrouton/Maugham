@@ -1,5 +1,12 @@
 import Foundation
 import MaughamCore
+import os
+
+// Subsystem from the running bundle id so dev/stable logs separate without
+// hardcoding "com.maugham" (tripwire 13 spirit); mirrors `compilerLog`.
+private let proposalGateLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "StatementProposalGate")
 
 /// **The one place a proposal's words reach a statement** (translation
 /// pipeline spec §10; ADR 0030 §7). A proposal is staged by an MCP tool and
@@ -24,8 +31,9 @@ import MaughamCore
 /// The essay write is ONE op, and the undo registered here is one step over
 /// the whole adoption (essay + glossary): ⌘Z puts `before` back whole. A
 /// first Adopt that created the statement undoes to an EMPTY statement, not
-/// to no statement — `rollbackUnusedStatement`'s job, and a statement with a
-/// manifest row and no words is the same state a pane visit leaves.
+/// to no statement — nothing here rolls the manifest row back, and a
+/// statement with a manifest row and no words is the same state a pane
+/// visit leaves.
 ///
 /// **`after` is read with the same care as `before`, never `??  ""`.** A
 /// failed read there would otherwise be captured by the redo closure as an
@@ -38,6 +46,14 @@ import MaughamCore
 /// BEFORE `createStatement`, because the slot is a plain JSON file anyone can
 /// hand-edit, and the P1 carry (an empty glossary term must never be written)
 /// is enforced here as well as at the tool.
+///
+/// **Adopt is all-or-nothing.** Everything after the essay write — each
+/// glossary `RulingPerformer.rule` call, the `after` read, and
+/// `proposals.discard` — can throw. A failure there restores `before` whole
+/// (`store.mutateStatementText(of:session:) { _ in before }`) and rethrows
+/// the original error: the slot stays pending honestly, no undo step is
+/// registered, and a retry starts clean from `before` rather than
+/// re-appending glossary entries that already landed.
 @MainActor
 enum StatementProposalGate {
 
@@ -97,30 +113,42 @@ enum StatementProposalGate {
         catch { throw Failure.unreadable(error.localizedDescription) }
 
         try await writeEssay(of: proposal, to: statement, store: store)
-        for entry in glossary {
-            try await RulingPerformer.rule(
-                Ruling.glossaryText(term: entry.term, rendering: entry.rendering, note: entry.note),
-                provenance: Ruling.Provenance.glossary,
-                kind: kind, forScope: .project, store: store, world: world)
-        }
-        // Symmetric with `before`: a failed read must not silently become
-        // an empty string, because that empty string is exactly what the
-        // redo closure below would capture — a read that stumbles here
-        // would make ⇧⌘Z blank the statement it just adopted. Thrown before
-        // `discard`, so on this (near-impossible) path the words are
-        // already in the file, the slot stays pending for the writer to
-        // retry or discard, and no undo step is registered over text
-        // nobody actually read.
-        let after: String
-        do { after = try store.statementText(of: statement) }
-        catch { throw Failure.unreadable(error.localizedDescription) }
-        try proposals.discard(proposal.kind)
-        MaughamEvent.postStatementProposalsChanged(projectURL: store.url)
 
-        registerUndo(undoManager, statement: statement, before: before, after: after,
-                    store: store, workTaskSink: workTaskSink)
-        return Adoption(statement: statement, created: created, glossaryAppended: glossary.count,
-                        before: before, after: after)
+        // Everything from here to `discard` is one all-or-nothing tail: a
+        // throw anywhere in it restores `before` whole and rethrows the
+        // ORIGINAL error, so a mid-tail failure leaves the statement exactly
+        // as it was before Adopt ran (not half-appended) and the slot still
+        // pending for a clean retry.
+        do {
+            for entry in glossary {
+                try await RulingPerformer.rule(
+                    Ruling.glossaryText(term: entry.term, rendering: entry.rendering, note: entry.note),
+                    provenance: Ruling.Provenance.glossary,
+                    kind: kind, forScope: .project, store: store, world: world)
+            }
+            // Symmetric with `before`: a failed read must not silently become
+            // an empty string, because that empty string is exactly what the
+            // redo closure below would capture — a read that stumbles here
+            // would make ⇧⌘Z blank the statement it just adopted.
+            let after: String
+            do { after = try store.statementText(of: statement) }
+            catch { throw Failure.unreadable(error.localizedDescription) }
+            try proposals.discard(proposal.kind)
+            MaughamEvent.postStatementProposalsChanged(projectURL: store.url)
+
+            registerUndo(undoManager, statement: statement, before: before, after: after,
+                        store: store, workTaskSink: workTaskSink)
+            return Adoption(statement: statement, created: created, glossaryAppended: glossary.count,
+                            before: before, after: after)
+        } catch {
+            do {
+                try await store.mutateStatementText(of: statement, session: session) { _ in before }
+            } catch let rollbackError {
+                proposalGateLog.error(
+                    "Adopt's rollback to `before` failed after a mid-tail failure: \(rollbackError, privacy: .public)")
+            }
+            throw error
+        }
     }
 
     static func discard(_ kind: ProposableStatement, store: ProjectStore) throws {

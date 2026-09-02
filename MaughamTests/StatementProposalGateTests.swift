@@ -188,6 +188,45 @@ final class StatementProposalGateTests: XCTestCase {
         XCTAssertEqual(try store.statementText(of: look), "New look.")
     }
 
+    // MARK: - All-or-nothing tail
+
+    /// `discard` throws when the proposals directory is read-only (EACCES on
+    /// `removeItem`) — `Data(contentsOf:)` still succeeds reading inside a
+    /// read-only directory, so `pending(for:)`'s guard still matches and the
+    /// essay write still lands; only the removal fails, exercising the tail
+    /// exactly the way a truly rare disk failure would. Adopt must then
+    /// restore `before` whole rather than leave the essay half-adopted with
+    /// the slot silently gone.
+    func test_aFailureInTheTailRestoresBeforeWholeAndLeavesTheSlotPending() async throws {
+        let (url, store) = try await loadedNovel()
+        let look = try await store.createStatement(kind: .visualLanguage, scope: .project)
+        try await write("Old look.", into: look, at: url)
+        let p = try stage(proposal(.visualLanguage, "New look."), at: url)
+
+        let dir = StatementProposalStore.directoryURL(in: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path) }
+
+        let um = UndoManager()
+        var threw = false
+        do {
+            _ = try await StatementProposalGate.adopt(
+                p, store: store, world: nil, undoManager: um, workTaskSink: { _ in })
+            XCTFail("removeItem on a read-only directory must throw")
+        } catch {
+            threw = true
+        }
+        XCTAssertTrue(threw)
+        XCTAssertEqual(try store.statementText(of: look), "Old look.",
+                       "a mid-tail failure restores `before` whole rather than leaving the essay adopted")
+        // Read-only (0o555) still permits reading the directory's contents —
+        // only the removal that `discard` needed was blocked — so the slot
+        // is readable here without restoring permissions first.
+        XCTAssertNotNil(StatementProposalStore(projectURL: url).pending(for: .visualLanguage),
+                        "a failed Adopt leaves the slot pending for a clean retry")
+        XCTAssertFalse(um.canUndo, "no undo step is registered over a failed Adopt")
+    }
+
     // MARK: - Copy
 
     func test_theCopyNamesTheAuthorAndTheStatement() {

@@ -117,7 +117,7 @@ How the book looks — typography, cover direction, the references you're steeri
 
 **Claude reads this pane when it writes your book's design.** Ask it to author or revise a PDF/EPUB template and it reads what you've written here first, including a list of the images you've referenced — so the typography comes from your description rather than its own taste, and the sixth piece still matches the first five. Write it in your own words; there's no format to hit.
 
-A dot on the ⌘⌥V segment means a proposal is waiting here.
+A mark on the ⌘⌥V segment means a proposal is waiting here.
 
 ### Diagnostics mode (⌘⌥D)
 
