@@ -4,6 +4,8 @@ Written for a fresh session picking up Plan 5. Plan 4 is built on branch `transl
 
 ## Where things stand
 
+- **Merged to `main` 2026-09-02 at `bb74cef7`** (`--no-ff` of `translation-pipeline-p4`, 22 commits over base `d55fab03`; NOT pushed; worktree `../Maugham-wt/translation-p4` kept).
+
 - **Spec (binding):** `docs/superpowers/specs/2026-08-28-translation-pipeline-design.md` — unchanged, with one amendment recorded below (spec §7's single `outcome` slot; see ruling 4). §13 lists the five plans; Plans 1–4 are built.
 - **Plan 1 — built** (handoff `2026-08-29-translation-pipeline-p1-handoff.md`, on main at `ef538475`). **Plan 2 — built** (handoff `…-p2-handoff.md`, merge `2498d90b`). **Plan 3 — built** (handoff `…-p3-handoff.md`, merge `2c2d28ec`).
 - **Plan 4 — built** (`docs/superpowers/plans/2026-08-29-translation-pipeline-p4-surfaces.md`). It surfaces P3's pipeline: before this branch nothing in the UI started it.
