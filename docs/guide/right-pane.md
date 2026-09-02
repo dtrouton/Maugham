@@ -61,6 +61,29 @@ day, same note about where it came from); Edit changes the words in place and
 leaves the day and provenance untouched, because a correction isn't a new
 decision.
 
+**Two kinds of ruling draw differently, because they're read differently.** A
+**directive** is a ruling about one paragraph — the note you leave a
+translator with **Translator's note…** (⌘⌥C), or one the round report writes
+when you keep your own wording. It sits in the strip like any other line. If
+the paragraph it's anchored to is gone, it draws as an **orphan**: dimmed,
+its text intact, *This paragraph no longer exists* beneath it, and **Remove**
+instead of Edit and Revoke — there's no paragraph left for an edited
+instruction to be about. Nothing is ever silently dropped or silently
+re-anchored, and the check follows your editing: delete the paragraph in the
+open document and the directive becomes an orphan while you watch.
+
+**Glossary** entries — a term and how it's rendered, decided for the whole
+book — are pulled out into a **table** above the other rulings, one row each:
+term, rendering, and a note where there is one, with **Revoke** beside it.
+They live in an edition brief, they come from you or from a glossary proposal
+you adopted on a round, and a table is what makes them scannable by someone
+who can't read the language they're in. See
+[The Publish Department](publish-department.md).
+
+Letting Claude Desktop draft an edition brief or a visual language statement
+for you to adopt is designed but not yet shipped — today a statement is
+written here, by you.
+
 The editor above the strip is for your prose, and typing a `## Rulings`
 heading into it doesn't make the section — a heading with nothing under it is
 just a heading, and it stays in your text like any other line. Let the buttons
