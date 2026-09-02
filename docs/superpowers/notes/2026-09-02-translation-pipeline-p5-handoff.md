@@ -4,7 +4,7 @@ Written for whoever next touches the translation pipeline or the statement panes
 
 ## Where things stand
 
-- **Merge commit: pending** (filled in by the controller after the whole-branch review and the merge, alongside the gate record below).
+- **Merged to `main` 2026-09-02 at `b676701c`** (`--no-ff` of `translation-pipeline-p5`, 16 commits over base `aa028ca6`; NOT pushed; worktree `../Maugham-wt/translation-p5` kept).
 
 - **Spec (binding):** `docs/superpowers/specs/2026-08-28-translation-pipeline-design.md` — §10 is Plan 5's whole scope. §13 lists the five plans; all five are now built.
 - **Plan 1 — built** (handoff `2026-08-29-translation-pipeline-p1-handoff.md`, on main at `ef538475`). **Plan 2 — built** (handoff `…-p2-handoff.md`, merge `2498d90b`). **Plan 3 — built** (handoff `…-p3-handoff.md`, merge `2c2d28ec`). **Plan 4 — built** (handoff `2026-08-29-translation-pipeline-p4-handoff.md`, merge `bb74cef7`).
