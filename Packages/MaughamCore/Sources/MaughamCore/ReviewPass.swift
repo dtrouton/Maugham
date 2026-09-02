@@ -99,10 +99,13 @@ public struct ReviewPass: Codable, Equatable, Identifiable, Sendable {
     /// only the ladder renders her notes under the raw id `workshop` — a
     /// schema key on screen where an editor's name belongs.
     ///
-    /// Two spellings reach this one search: `ProjectManifest.pass(id:)` for a
-    /// caller holding a manifest, and this static for a store-free view that
-    /// was handed `passes` as a value (tripwire 4 — the Review board reads no
-    /// store). They must not be two searches.
+    /// **One spelling, everywhere.** A caller holding a manifest passes
+    /// `manifest.effectiveReviewPasses`; a store-free view passes the `passes`
+    /// it was handed as a value (tripwire 4 — the Review board reads no
+    /// store). A convenience wrapper on `ProjectManifest` existed for the
+    /// first shape and never acquired a production caller, so it went in the
+    /// editorial letter's P1 sweep: a second door on a search this small is a
+    /// second place for the ladder-then-seat order to be got wrong.
     ///
     /// **A NAMING question, never a ladder one.** A caller asking which passes
     /// a piece can be ruled on, which chip menu to draw, or which lane the

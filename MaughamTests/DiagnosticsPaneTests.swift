@@ -4099,12 +4099,66 @@ final class DiagnosticsPaneTests: XCTestCase {
             "the writer answered it; asking again is a nag")
     }
 
-    /// **Keep this letter is drawn and pressable now**; what it writes is
-    /// Task 10's research note. The closure the pane hands over is a marked
-    /// no-op until then, which is why this asserts the control's presence
-    /// rather than an effect.
-    func test_keepThisLetterIsOnThePaneAndIsWiredToTheHostsClosure() throws {
-        let docId = "doc-keep"
+    /// **Keep this letter files a research note, through the real button**
+    /// (Task 10, spec §3.6). The whole verb end to end: the press, the
+    /// router's decision about where a novel chapter's note goes, the rendered
+    /// body on disk, and the confirmation naming what the store called it.
+    func test_keepThisLetterFilesAResearchNoteAndSaysWhatItCalledIt() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "LetterKeepPane")
+        let letter = makeLetter()
+        let window = mountLetterPane(
+            store: store, docId: chapter.id, letter: letter,
+            reader: .coach(ReviewPass.coachPreset))
+
+        let keep = try button(labelled: LetterSection.keepTitle, in: window)
+        _ = keep.perform(NSSelectorFromString("accessibilityPerformPress"))
+        let kept = try await awaitResearchNote(in: store)
+
+        XCTAssertTrue(kept.path?.hasPrefix("research/") == true, kept.path ?? "nil")
+        XCTAssertTrue(store.linkedResearchIds(forDocumentId: chapter.id).contains(kept.id),
+                      "a novel chapter's letter is shared research plus a link")
+        let body = try String(
+            contentsOf: store.url.appendingPathComponent(try XCTUnwrap(kept.path)),
+            encoding: .utf8)
+        XCTAssertTrue(body.contains(letter.about), body)
+        XCTAssertTrue(
+            body.contains(ReviewPass.coachPreset.effectiveEditorName),
+            "the note is signed by the piece's reader: \(body)")
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains(LetterKeep.confirmation(kept.title)),
+                      "the confirmation must name the note the store made. Read: \(texts)")
+    }
+
+    /// **A second press makes a second note** — §3.6 says a copy, and a writer
+    /// who kept a letter, edited the note into something else and wants the
+    /// original back is entitled to it. The confirmation follows the newest
+    /// one, so it never names a note the writer cannot find.
+    func test_asecondKeepMakesASecondNoteAndTheConfirmationFollowsIt() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "LetterKeepTwice")
+        let window = mountLetterPane(
+            store: store, docId: chapter.id, letter: makeLetter())
+
+        let keep = try button(labelled: LetterSection.keepTitle, in: window)
+        _ = keep.perform(NSSelectorFromString("accessibilityPerformPress"))
+        let first = try await awaitResearchNote(in: store)
+        _ = keep.perform(NSSelectorFromString("accessibilityPerformPress"))
+        let second = try await awaitResearchNote(in: store, count: 2)
+
+        XCTAssertNotEqual(first.id, second.id)
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains(LetterKeep.confirmation(second.title)),
+                      "Read: \(texts)")
+        XCTAssertFalse(texts.contains(LetterKeep.confirmation(first.title)),
+                       "the line names the note just made, not the one before it")
+    }
+
+    /// **A keep with nowhere to file says so.** `LetterSection` draws the
+    /// button unconditionally, so a pane with no project would otherwise have
+    /// a control that looks pressed and a letter that went nowhere — the
+    /// silent-refusal defect `offerFailure` exists one line up to prevent.
+    func test_aKeepWithNoProjectRefusesOutLoud() throws {
+        let docId = "doc-keep-storeless"
         let diagnostics = DiagnosticsStore(
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
         diagnostics.replace(
@@ -4112,13 +4166,31 @@ final class DiagnosticsPaneTests: XCTestCase {
         let window = mount(AnyView(DiagnosticsPane(
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
             docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
-        XCTAssertNotNil(findButton(labelled: LetterSection.keepTitle, in: window))
 
-        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
-        XCTAssertTrue(
-            source.contains("// Task 10"),
-            "the no-op must say what fills it, or a later reader reads a keep that "
-            + "silently does nothing as finished work")
+        let keep = try button(labelled: LetterSection.keepTitle, in: window)
+        XCTAssertFalse(try axTexts(in: window).contains(LetterKeep.noProjectRefusal),
+                       "control: nothing has been refused yet")
+        _ = keep.perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.3)
+        let after = try axTexts(in: window)
+        XCTAssertTrue(after.contains(LetterKeep.noProjectRefusal), "Read: \(after)")
+    }
+
+    /// Poll until the store's research list reaches `count` items —
+    /// `LetterKeep.keep` is async and the press only starts it.
+    private func awaitResearchNote(
+        in store: ProjectStore, count: Int = 1, timeout: TimeInterval = 4
+    ) async throws -> ResearchItem {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if store.manifest.research.count >= count {
+                return store.manifest.research[count - 1]
+            }
+            pump(0.05)
+            try? await Task.sleep(for: .milliseconds(40))
+        }
+        XCTFail("no kept letter reached research within \(timeout)s")
+        throw XCTSkip("no kept letter")
     }
 
     /// **The signature names the piece's reader**, which is the one resolution
@@ -4148,12 +4220,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// pane hands over. `jump(toParagraph:)` is the one spelling of
     /// `.maughamNavigateToParagraph` here (tripwire 21).
     func test_theLettersJumpsGoThroughThePanesOwnNavigation() throws {
-        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
-        let section = try XCTUnwrap(
-            source.range(of: "private var letterSection: some View {").map {
-                String(source[$0.upperBound...].prefix(1400))
-            },
-            "`letterSection` is where the wiring lives; find it by name if it moved")
+        let section = try letterSectionSource()
         XCTAssertTrue(
             section.contains("onJump: { jump(toParagraph: $0) }"),
             "the letter must travel through the pane's own navigation, never a "
@@ -4301,11 +4368,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// `activeDocument()` does not, and a habit's exercise anchored onto
     /// another chapter is a task the writer cannot account for.
     func test_acceptAsTaskGoesThroughThePanesOwnDocumentGuard() throws {
-        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
-        let section = try XCTUnwrap(
-            source.range(of: "private var letterSection: some View {").map {
-                String(source[$0.upperBound...].prefix(1400))
-            })
+        let section = try letterSectionSource()
         XCTAssertTrue(
             section.contains("paneDocument?.createPaneTask("),
             "the letter's task must go through the guarded document: \(section)")
@@ -4315,6 +4378,27 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     // MARK: - Letter hosting
+
+    /// `letterSection`'s body, bounded at BOTH ends by a named declaration.
+    ///
+    /// It used to be `prefix(1400)` off the opening line, which is a slice
+    /// whose meaning changes every time a comment above or below it grows: too
+    /// short and a real wiring line falls outside the window the assertion
+    /// reads, too long and it starts asserting over the next function's body.
+    /// Anchoring on the declaration that follows means a moved boundary fails
+    /// loudly here instead of quietly narrowing what these censuses cover.
+    private func letterSectionSource() throws -> String {
+        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        let start = try XCTUnwrap(
+            source.range(of: "private var letterSection: some View {"),
+            "`letterSection` is where the wiring lives; find it by name if it moved")
+        let end = try XCTUnwrap(
+            source.range(of: "private func turnClauseOffer(",
+                         range: start.upperBound..<source.endIndex),
+            "`turnClauseOffer` is the declaration that bounds it; find it by name "
+            + "if it moved")
+        return String(source[start.upperBound..<end.lowerBound])
+    }
 
     private func mountLetterPane(
         store: ProjectStore?, docId: String, letter: Letter,

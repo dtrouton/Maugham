@@ -80,6 +80,14 @@ struct AnnotationsPane: View {
     /// What a refused Add to intent said. A press that reached the op log and
     /// was turned away must say so where it happened.
     @State private var letterOfferFailure: String?
+    /// **What the last Keep filed, and which run it came from** (Task 10) —
+    /// `DiagnosticsPane.keptLetter`'s twin. Not a `Bool`: a second Keep of the
+    /// same run makes a second note (spec §3.6 — a copy, not a move), so what
+    /// this holds is the note's own title for the confirmation line.
+    @State private var keptLetter: LetterKeep.Kept?
+    /// What a refused Keep said, in this pane's own channel — the shape
+    /// `letterOfferFailure` already takes, for the same reason.
+    @State private var letterKeepFailure: String?
 
     @State private var kindFilter: KindOption = .all
     /// Which review pass the queue is looking through (M3 P2 Task 8).
@@ -747,8 +755,17 @@ struct AnnotationsPane: View {
                     undoManager: undoManager)
             },
             onAddTurnClause: turnClauseOffer(letter, run: run, docId: document.docId),
-            onKeep: {},   // Task 10
-            offerFailure: letterOfferFailure)
+            // **The same verb Author's pane presses** (`LetterKeep`, spec
+            // §3.6): one render, one scope, one router — so a letter kept from
+            // the queue and a letter kept from the report are the same note.
+            onKeep: LetterKeep.handler(
+                letter: letter, run: run, docId: document.docId, store: store,
+                editorName: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
+                onKept: { keptLetter = $0 },
+                onFailure: { letterKeepFailure = $0 }),
+            offerFailure: letterOfferFailure,
+            keepConfirmation: LetterKeep.confirmation(for: keptLetter, run: run),
+            keepFailure: letterKeepFailure)
     }
 
     /// **The offer, decided and written by `TurnClauseOffer`** — the one

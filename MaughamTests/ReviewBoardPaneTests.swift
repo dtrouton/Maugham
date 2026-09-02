@@ -1024,7 +1024,13 @@ final class ReviewBoardPaneTests: XCTestCase {
                        passes: [ReviewPass] = ReviewBoardPaneTests.passes,
                        openNotes: [String: OpenNotesSummary] = [:],
                        unreadable: Set<String> = [],
-                       coach: ReviewPass? = nil,
+                       // **The production default is the HELD seat**
+                       // (`ProjectManifest.effectiveCoach`), so the harness's
+                       // is too: a default of `nil` had every test in this
+                       // suite but the two seat tests exercising a layout only
+                       // a writer who vacated the seat ever sees. The vacant
+                       // case is asked for by name where it is the subject.
+                       coach: ReviewPass? = ReviewPass.coachPreset,
                        width: CGFloat = 700) -> NSWindow {
         let calls = self.calls
         let window = TestWindow.mount(AnyView(

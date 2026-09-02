@@ -352,16 +352,17 @@ final class ReviewPassTests: XCTestCase {
     // MARK: - Naming a stamp (editorial letter P1, Task 6)
 
     /// **A stamp resolves against the ladder first and the seat second.** A
-    /// note carries a `reviewPassId` and three surfaces turn one into a name;
-    /// once the coach files rounds under her own lane, a resolver that knows
-    /// only `effectiveReviewPasses` renders her notes under the raw id
-    /// `workshop` — a schema key on screen where an editor's name belongs.
+    /// note carries a `reviewPassId`, and every surface that turns one into a
+    /// name comes through this search; once the coach files rounds under her
+    /// own lane, a resolver that knows only `effectiveReviewPasses` renders
+    /// her notes under the raw id `workshop` — a schema key on screen where an
+    /// editor's name belongs.
     func test_aStampResolvesAgainstTheLadderThenTheSeat() throws {
         let manifest = try ProjectManifest.decodeGuardingSchema(
             manifestJSON(schemaVersion: ProjectManifest.currentSchemaVersion))
-        XCTAssertEqual(manifest.pass(id: "line")?.name, "Line",
+        XCTAssertEqual(ReviewPass.pass(id: "line", in: manifest.effectiveReviewPasses)?.name, "Line",
                        "a stage still resolves to its own pass")
-        XCTAssertEqual(manifest.pass(id: ReviewPass.coachPreset.id),
+        XCTAssertEqual(ReviewPass.pass(id: ReviewPass.coachPreset.id, in: manifest.effectiveReviewPasses),
                        ReviewPass.coachPreset,
                        "the coach's lane id resolves to the coach")
     }
@@ -377,7 +378,7 @@ final class ReviewPassTests: XCTestCase {
             modified: Date(timeIntervalSince1970: 0),
             structure: [], research: [],
             reviewPasses: [ReviewPass(id: "workshop", name: "My Workshop")])
-        XCTAssertEqual(manifest.pass(id: "workshop")?.name, "My Workshop")
+        XCTAssertEqual(ReviewPass.pass(id: "workshop", in: manifest.effectiveReviewPasses)?.name, "My Workshop")
     }
 
     /// **A vacated seat still names the notes she already wrote** (Denver's
@@ -392,7 +393,7 @@ final class ReviewPassTests: XCTestCase {
             manifestJSON(schemaVersion: ProjectManifest.currentSchemaVersion,
                          coachVacatedJSON: "true"))
         XCTAssertNil(manifest.effectiveCoach, "premise: the seat is vacant")
-        XCTAssertEqual(manifest.pass(id: ReviewPass.coachPreset.id),
+        XCTAssertEqual(ReviewPass.pass(id: ReviewPass.coachPreset.id, in: manifest.effectiveReviewPasses),
                        ReviewPass.coachPreset,
                        "a name a note already carries outlives the seat")
     }
@@ -418,6 +419,6 @@ final class ReviewPassTests: XCTestCase {
     func test_anUnknownStampResolvesToNothing() throws {
         let manifest = try ProjectManifest.decodeGuardingSchema(
             manifestJSON(schemaVersion: ProjectManifest.currentSchemaVersion))
-        XCTAssertNil(manifest.pass(id: "retired-pass"))
+        XCTAssertNil(ReviewPass.pass(id: "retired-pass", in: manifest.effectiveReviewPasses))
     }
 }

@@ -130,10 +130,15 @@ clause you can find in your own statement. The offer appears on every
 strong-form round until a clause exists, then never again — and it goes away
 the moment you take it.
 
-**Keep this letter** writes the whole letter, with its date and signature, as
-a research note. The run's own letter ages out with the run; a kept one is a
-copy that doesn't. A letter you didn't keep was a letter you read and let go,
-which is what happens to letters.
+**Keep this letter** writes the whole letter, with its date and its lane, as
+a research note — titled *Letter from <editor> — <date>*, and filed where that
+piece's research already goes: a novel chapter's lands in the project's shared
+research with a link back to the chapter, a collection piece's in its own
+folder. The run's own letter ages out with the run; a kept one is a copy that
+doesn't, and it's yours to edit like any other note. Keeping twice makes two
+notes, deliberately: nothing here overwrites a note you've since made your own.
+A letter you didn't keep was a letter you read and let go, which is what
+happens to letters.
 
 **This check** follows the letter, and only when the run just raised
 something — the notes it minted, in the order they fall down your manuscript

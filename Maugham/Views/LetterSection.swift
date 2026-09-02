@@ -96,10 +96,17 @@ struct LetterSection: View {
     /// and an intent that never moved — the silent-refusal defect
     /// `AnnotationsPane.performAccept`'s named catch exists to prevent.
     var offerFailure: String? = nil
-    /// What Keep this letter said once it had kept one. `nil` in P1 Task 9 —
-    /// the note itself is Task 10 — and drawn under the button when a host
-    /// supplies one.
+    /// What Keep this letter said once it had kept one — *Kept as "…"*,
+    /// naming the note the store actually made (`LetterKeep.confirmation`).
+    /// Drawn under the button when a host supplies one.
     var keepConfirmation: String? = nil
+    /// **What a failed Keep said**, in the same shape `offerFailure` takes one
+    /// line up and for the same reason (Task 9's own note): a note the file
+    /// system refused would otherwise leave a button that looks pressed and a
+    /// letter that went nowhere. Red rather than secondary, because the
+    /// confirmation slot beside it is where success speaks and the two must
+    /// not be mistaken for each other.
+    var keepFailure: String? = nil
 
     /// **Which exercises have been accepted, for this mount.** By INDEX
     /// rather than by habit, because a `Letter.Habit` has no id and two
@@ -355,6 +362,12 @@ struct LetterSection: View {
                 Text(keepConfirmation)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let keepFailure {
+                Text(keepFailure)
+                    .font(.caption)
+                    .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

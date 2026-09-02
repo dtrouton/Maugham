@@ -203,7 +203,7 @@ scenes, and in which form:
 | Project type | Intent says | Rows | `charge` |
 |---|---|---|---|
 | prose | nothing about form | yes — weak form: wants / changes / turn as observation | `null` |
-| prose | moves by dramatic turns / conflict / "every scene must turn" (or the pass brief says so) | yes — strong form | `+`/`-`; a turn-less scene is also raised as a **conformance strain** when the writer's own intent carries the clause |
+| prose | moves by dramatic turns / "every scene must turn" (or the pass brief says so) | yes — strong form | `+`/`-`; a turn-less scene is also raised as a **conformance strain** when the writer's own intent carries the clause |
 | prose | lyric / essayistic / meander / "not scene-driven" | none (`null`) | — |
 | screenplay | nothing | yes — strong form | `+`/`-`; a turn-less scene is an **observation with an offer** (below) |
 | screenplay | opts out explicitly | none | — |

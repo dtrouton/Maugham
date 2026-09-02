@@ -177,12 +177,13 @@ final class CompilerOrchestrator {
         let brief: String?
         /// Whether this pass is the **coach's seat** rather than a rung of the
         /// ladder (editorial letter P1, spec §4.1). Resolved once, in
-        /// `PieceReader`, and read in exactly one place:
-        /// `CompilerPrompt.passSection`, which frames a coach as a teacher and
-        /// a stage as an editor. Nothing else branches on it — she is a pass
+        /// `PieceReader`, and read by `CompilerPrompt.passSection`, which
+        /// frames a coach as a teacher and a stage as an editor. She is a pass
         /// in every other respect the run cares about, which is what gives her
         /// a lane, numbered rounds and pass-stamped notes with no orchestrator
-        /// change.
+        /// change — so a second branch on this flag would be a second place
+        /// the seat stops behaving like a pass. No census guards that; the
+        /// claim here is about what SHOULD branch, not a counted fact.
         ///
         /// Defaulted in the initializer so every construction site that
         /// predates the seat still compiles and still means "a stage".

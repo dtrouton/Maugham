@@ -81,16 +81,19 @@ enum ScenePosition: String, Codable, Equatable, Sendable {
     ///     an unresolved type into the strong form would put an essay
     ///     collection under a doctrine its writer never chose.
     ///   - statement: the intent statement **WHOLE — essay and rulings**, not
-    ///     `StatementEssay.half(of:)`. Task 9's Add-to-intent offer files
-    ///     "Every scene turns." as a dated ruling under `## Rulings`, and that
-    ///     is the entire point of the offer: the round after it strains
-    ///     against a clause the writer can find in their own statement. Read
-    ///     over the essay half alone, the clause would land where this
-    ///     function never looks, the offer would return on every round
-    ///     forever, and no strain would ever be raised. (The prompt's own
-    ///     essay section is unaffected and still embeds the essay half alone —
-    ///     the strata below it reach the run as derived clauses, and briefing
-    ///     them as prose as well would declare the same thing twice.)
+    ///     `StatementEssay.half(of:)`. The Add-to-intent offer files
+    ///     `LetterSection.turnClauseRuling` as a dated ruling under
+    ///     `## Rulings` — its words carry `turnClausePhrases`' own
+    ///     "every scene must turn" verbatim, which is what makes it readable
+    ///     back out here — and that is the entire point of the offer: the
+    ///     round after it strains against a clause the writer can find in
+    ///     their own statement. Read over the essay half alone, the clause
+    ///     would land where this function never looks, the offer would return
+    ///     on every round forever, and no strain would ever be raised. (The
+    ///     prompt's own essay section is unaffected and still embeds the essay
+    ///     half alone — the strata below it reach the run as derived clauses,
+    ///     and briefing them as prose as well would declare the same thing
+    ///     twice.)
     ///   - passBrief: the active pass's `effectiveBrief`, as the run resolved
     ///     it. `nil` is the passless lane.
     static func derive(

@@ -145,6 +145,13 @@ struct DiagnosticsPane: View {
     /// before the ruling existed. `nil` is "nothing filed here yet".
     @State private var turnClauseFiledForRun: String?
 
+    /// **What the last Keep filed, and which run it came from** (Task 10).
+    /// Not a `Bool`: a second Keep of the same run is allowed and makes a
+    /// second note (spec §3.6 — a copy, not a move), so what this remembers is
+    /// the note's own title for the confirmation line, discarded the moment a
+    /// new run replaces the letter it belongs to.
+    @State private var keptLetter: LetterKeep.Kept?
+
     // MARK: - Reads
 
     /// Observing `diagnostics.version` forces re-render on every store
@@ -884,11 +891,19 @@ struct DiagnosticsPane: View {
                         undoManager: undoManager)
                 },
                 onAddTurnClause: turnClauseOffer(for: letter, run: run),
-                // Task 10 writes the letter into research through the existing
-                // promote-to-research path. Until then the control is real and
-                // the write is not.
-                onKeep: {},   // Task 10
-                offerFailure: answerFailures[Self.turnClauseFailureKey])
+                // **Keep files a research note, and the router decides where**
+                // (`LetterKeep`, spec §3.6). This pane supplies its own values
+                // and its own refusal channel; the verb, the render and the
+                // scope are shared with Review's cockpit so the two homes
+                // cannot file two different letters.
+                onKeep: LetterKeep.handler(
+                    letter: letter, run: run, docId: docId, store: store,
+                    editorName: reader.editorName,
+                    onKept: { keptLetter = $0 },
+                    onFailure: { answerFailures[Self.keepFailureKey] = $0 }),
+                offerFailure: answerFailures[Self.turnClauseFailureKey],
+                keepConfirmation: LetterKeep.confirmation(for: keptLetter, run: run),
+                keepFailure: answerFailures[Self.keepFailureKey])
             Divider()
         }
     }
@@ -910,6 +925,12 @@ struct DiagnosticsPane: View {
     /// The offer's slot in `answerFailures`. A ULID id space cannot produce
     /// it, so it can never collide with a diagnostic's or an annotation's.
     static let turnClauseFailureKey = "letter.turn-clause"
+
+    /// Keep's own slot in `answerFailures`, on the same reasoning: a ULID id
+    /// space cannot produce it, so it collides with no diagnostic and no
+    /// annotation, and neither of the letter's two verbs can overwrite the
+    /// other's refusal.
+    static let keepFailureKey = "letter.keep"
 
     /// **The cold-start offer** (spec §4). Understated, on `content`'s
     /// register: no sheet, no alert — the same two-button margin-note shape

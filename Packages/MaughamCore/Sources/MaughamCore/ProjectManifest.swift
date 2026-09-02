@@ -201,40 +201,6 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         coachVacated ? nil : ReviewPass.coachPreset
     }
 
-    /// **The one place a `reviewPassId` becomes a pass** (editorial letter
-    /// P1, spec §4.1) — the ladder first, then the seat.
-    ///
-    /// A note carries an id and several surfaces turn one into a NAME: the
-    /// board's open-notes tooltip, and anything after it that wants to say
-    /// who wrote a stamped note. Before the coach existed, `effectiveReviewPasses`
-    /// was the whole universe of ids and each of those surfaces searched it
-    /// inline. The coach files rounds under her own lane and is deliberately
-    /// absent from that array (`ReviewPass.coachPreset`), so an inline search
-    /// renders her notes under the raw id `workshop` — a schema key on screen
-    /// where an editor's name belongs.
-    ///
-    /// **This is a NAMING question, never a ladder one.** A caller asking
-    /// which passes a piece can be ruled on, which chip menu to draw, or
-    /// which lane the picker offers reads `effectiveReviewPasses` directly
-    /// and must not come here: the coach is not a stage and offering her as
-    /// one is the single thing spec §4.1 forbids.
-    ///
-    /// The ladder wins on a colliding id. That project cannot be built
-    /// (`ReviewPassEditorLogic` refuses to save a stage carrying the coach's
-    /// id) but the order is fixed here rather than left to chance.
-    ///
-    /// **A vacated seat still names the notes she already wrote.** Vacating
-    /// says who reads a piece next; it cannot unsay who wrote a note sitting
-    /// in the queue. So this asks `ReviewPass.pass(id:in:)`, which resolves
-    /// her id against `ReviewPass.coachPreset` unconditionally, and the seat
-    /// is not part of the question (Denver's ruling, Task 6 fix round).
-    /// The search itself is `ReviewPass.pass(id:in:coach:)`, shared with the
-    /// store-free surfaces that were handed the two lists as values — one
-    /// search, two spellings, never two answers.
-    public func pass(id: String) -> ReviewPass? {
-        ReviewPass.pass(id: id, in: effectiveReviewPasses)
-    }
-
     /// The project's publish department (schema 8) — its named translators and
     /// its designer. Non-optional, defaulting to `[]` in both the memberwise
     /// init and `init(from:)`, so a schema-7 manifest (which has no such key)

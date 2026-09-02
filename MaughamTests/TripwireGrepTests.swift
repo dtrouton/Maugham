@@ -519,6 +519,85 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders[0].hasPrefix("SecondReader.swift:"), offenders[0])
     }
 
+    // MARK: - Filing a research note has a known set of callers (editorial letter P1)
+
+    /// Lines that mention the verb but are not a CALL of it: its own
+    /// declaration, and any comment naming it.
+    private func createResearchNoteNonCall(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//")
+            || trimmed.hasPrefix("public func createResearchNote(")
+    }
+
+    /// **Tripwire: `ProjectStore.createResearchNote` has a KNOWN set of
+    /// production callers, and Keep this letter is the newest of them.**
+    ///
+    /// A census rather than a ban: the verb is meant to be called, and the
+    /// point of counting is that every caller is a place where a
+    /// `ResearchScope` is chosen and a body is written afterwards. Both halves
+    /// are easy to get wrong in a way nothing else catches — a
+    /// `switch manifest.type` at the call site is a second copy of
+    /// `ResearchScope.route`'s table (`PromotionPerformer`'s own rule, spec
+    /// §6.2), and a body written with `try?` reports a successful file over an
+    /// empty note (RULING-7, M8-IN-001/002, `InboxStore.promote`).
+    ///
+    /// **`BinderTreeSections.swift` is deliberately NOT here**, though it names
+    /// the verb: its Research-section header calls
+    /// `addResearchTextNote(parentId: nil)` directly, and its own comment says
+    /// why — that section is the project's shared research in every project
+    /// type, so it wants the destination the router would have picked rather
+    /// than the routing. The comment exclusion is what keeps it out, and the
+    /// control below proves the exclusion is real.
+    func test_filingAResearchNoteHasAKnownSetOfCallers() throws {
+        let callers = try grepSwift(
+            in: sourceDir,
+            patterns: ["createResearchNote("],
+            excludeLine: { self.createResearchNoteNonCall($0) })
+        XCTAssertEqual(
+            Set(callers.compactMap { $0.split(separator: ":").first.map(String.init) }),
+            ["BinderPieceFold.swift", "InboxStore.swift", "LetterKeep.swift",
+             "PromotionPerformer.swift"],
+            "a new caller of createResearchNote chooses a scope and owes a body "
+            + "write \u{2014} add it here deliberately. Callers:\n"
+            + callers.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: it is not passing because the pattern
+    /// matches nothing. A planted fifth caller is caught, and the two shapes
+    /// that are NOT calls — the declaration and a comment naming it — are not.
+    func test_theResearchNoteCallerCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-research-note-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        extension ProjectStore {
+            // A comment naming createResearchNote( is not a call.
+            public func createResearchNote(
+                scope: ResearchScope, title: String
+            ) async throws -> ResearchItem { fatalError() }
+        }
+        enum FifthCaller {
+            static func file(_ store: ProjectStore) async throws {
+                _ = try await store.createResearchNote(scope: .shared, title: "T")
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("FifthCaller.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: ["createResearchNote("],
+            excludeLine: { self.createResearchNoteNonCall($0) })
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check: the planted call should be the one caught, and neither "
+            + "the declaration nor the comment. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders[0].hasPrefix("FifthCaller.swift:"), offenders[0])
+    }
+
     // MARK: - Meta-tests: tripwires fire on planted offenders (task 4.8 / test gap #14)
 
     /// Self-check: prove the op-log filename tripwire FIRES on a planted

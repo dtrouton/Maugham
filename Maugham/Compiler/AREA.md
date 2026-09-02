@@ -109,14 +109,20 @@ seeded `brief` — what its rounds attend to, and as sharply what they leave
 alone — and an `editorName`. A pass's own `brief`/`editorName` field wins when
 set; a customized manifest can store a preset-id pass that predates both
 fields, so every reader resolves through `ReviewPass.effectiveBrief`/
-`.effectiveEditorName` rather than the raw fields — `PieceReader`
-(`Maugham/Models/PieceReader.swift`) is the one production call site, and its
-own comment names why reading `pass.editorName` directly would sign a Copyedit
-round's notes with nothing at all. The resolved name goes three places: the
-**annotation author** on every note that pass mints (`CompilerMintContext.
-editorName`, so the queue's author filter becomes "everything Gould flagged"),
-the round briefing's **role frame** (`CompilerPrompt.passSection`, "You are
-Gould, this manuscript's Copyedit editor"), and the pass's own brief, embedded
+`.effectiveEditorName` rather than the raw fields. `PieceReader`
+(`Maugham/Models/PieceReader.swift`) is the COMPILER's one call site — every
+run's voice and brief resolve there, and its own comment names why reading
+`pass.editorName` directly would sign a Copyedit round's notes with nothing at
+all — while the surfaces that merely NAME a lane (the cockpit, the board, the
+settings sheet, `get_outline`) resolve for themselves at the point of display.
+A custom pass with no brief of its own and no matching preset gets the honest
+fallback: attend at the altitude the pass's name suggests.
+
+The resolved name goes three places: the **annotation author** on every note
+that pass mints (`CompilerMintContext.editorName`, so the queue's author
+filter becomes "everything Gould flagged"), the round briefing's **role
+frame** (`CompilerPrompt.passSection`, "You are Gould, this manuscript's
+Copyedit editor"), and the pass's own brief, embedded
 in the same briefing so attention follows the register the writer chose.
 
 **Who reads a piece has ONE resolution** (editorial letter P1 Task 5, spec
@@ -129,17 +135,17 @@ her `workshop` lane and mints notes signed "Le Guin" — with no orchestrator
 change, because she is an `ActivePass` like any pass. A **retired** pass id
 reads as unassigned (`validatedActivePass`) and therefore falls to the coach:
 deleting a pass gives its pieces back to her. `ActivePass.isCoach` is the one
-thing that differs downstream, and `CompilerPrompt.passSection` is the only
-reader of it — a coach is framed as a teacher ("You are Le Guin, this writer's
-workshop teacher.") where a stage is framed as an editor. `nil` — no
+thing that differs downstream, and it is read by `CompilerPrompt.passSection` —
+a coach is framed as a teacher ("You are Le Guin, this writer's workshop
+teacher.") where a stage is framed as an editor. Nothing counts the readers of
+that flag, so treat it as the rule it is rather than a fact: a second branch on
+it is a second place the seat stops behaving like a pass. `nil` — no
 `ActivePass` at all — is now reached ONLY by a vacated seat: that is the
 passless lane, which mints no round, stamps nothing and signs "Claude", M2's
 identity, unchanged. `CompilerOrchestrator.passlessEditorName` has exactly one
 production use, in `PieceReader`'s *nobody* arm, and
 `TripwireGrepTests.test_thePasslessEditorNameHasExactlyOneProductionUse` keeps
-it that way. A custom pass with no brief
-of its own and no matching preset gets the honest fallback: attend at the
-altitude the pass's name suggests.
+it that way.
 
 **The dispositions section is the warm path's duplicate guard, and its two
 halves are asymmetric on purpose** (`CompilerPrompt.dispositionsSection`,
@@ -269,6 +275,9 @@ on ⌘⇧R the dedupe is the whole of it.
   (`Diagnostic`, `DiagnosticsStore`, `DiagnosticIngest`).
 - Where a note goes when the writer keeps it (`DiagnosticPromotion`) or answers
   it (`RulingPerformer.rule`, called by `DiagnosticsPane.commitAnswer`).
+- What a LETTER says once the writer keeps it (`LetterMarkdown`, spec §3.6).
+  Where it lands is not this area's — `LetterKeep` (`Maugham/Views/`) names the
+  scope and `ResearchScope.route` decides the destination.
 - **The one door into the writer-owned layer** (`RulingPerformer`) — count the
   verbs in the census rather than reading a number here; today they are rule,
   revoke, edit and `restore`, each taking the writer's words as a `String` or a
@@ -323,6 +332,8 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `CompilerOrchestrator.swift` | **The run.** Owned by `ProjectWindow`; one orchestrator per window, one session per orchestrator |
 | `CompilerEnvironment+Project.swift` | The production wiring — the window's stores, as the closures the orchestrator runs on. Every capture is weak. `pinnedListing` carries the resolved `PinnedShelf`'s own grouping into the briefing through `pinnedListingLines`: one `pinnedListingLine` per pin, with a `## <title>` line ahead of each TITLED section and no header over an untitled one, so a run reads the same arrangement the References pane draws |
 | `DeltaBuilder.swift` | What changed since the last run's marker, in the writer's order (`sequence`, never raw `paragraphs`) |
+| `Letter.swift` | The sixth section's own shape: `Working`/`Habit`/`Question`/`Scene` and the two things a part can be missing (`scenes == nil` is a piece that does not move by scenes; `[]` is a table with no rows). Codable is synthesized — every part but `about` is optional, so a P2/P3 addition falls out through `decodeIfPresent` — and `isEmpty` is what every surface asks rather than `letter != nil`, because `about` is always present |
+| `LetterMarkdown.swift` | **The letter as prose the writer keeps** (spec §3.6). One render, two hosts, one note: the heading carries the voice, the day and the lane line; the parts are `##` sections in the schema's reading order under `LetterSection`'s own copy constants; a ref is the paragraph's words in italics and never a join key. `scrubbed` is the one gate every emitted string passes, so a model's leaked anchor cannot ride into a research note |
 | `ScenePosition.swift` | What form the letter's scene table takes, derived app-side from the project type, the writer's whole intent statement and the pass brief (spec §3.4). Two closed phrase lists — the opt-out and the turn clause — and one rule about which wins. Its raw values reach disk through `Letter.scenePosition` |
 | `CompilerPrompt.swift` | The message. Asks different questions of new and revised prose; v2 carries the essay + derived clauses + the bible slice + the delta, diffed in as ONE unit (`briefingHash`). M4 P1 and the editorial letter add per-run sections between the listings and the delta, and **none of them is folded into `briefingHash`** (each changes with the writer, not with what they declared) — count the appends in `runMessageV2`, not a number here: the active pass's **role frame + brief** (`passSection`, "You are Gould, this manuscript's copyeditor"), the **scene position** (`scenePositionSection`, the letter's own; see the scene-position paragraph above) and the **dispositions** section (`dispositionsSection`/`CompilerAnnotationDisposition.gather` — standing notes uncapped, settled notes capped at 12 and sorted by `resolvedAt` descending; see the dispositions paragraph above) |
 | `CompilerAllowlist.swift` | The enumerated read-only MCP tool list, as `--allowedTools` |
@@ -1225,6 +1236,12 @@ ready for it: `parseAll` is `parseSection` folded over the turn and nothing
 else, so sections could always be read one at a time. Four things carry it, and
 three of them are about what a half-arrived report may NOT do.
 
+**Six sections arrive, and the letter is the last of them** (editorial letter
+P1). It is asked last on purpose, so the writer reads line-level results while
+it is still being written — which is exactly the shape streaming was built for,
+and the reason the letter needed no streaming work of its own: a section is a
+section.
+
 - **The stream is asked for, and only one delta kind is the answer.**
   `ClaudeCLISession.arguments` adds `--include-partial-messages`; `classify`
   gained `.partialText`, keyed on `stream_event → event.content_block_delta →
@@ -1418,6 +1435,18 @@ drifted from them is a defect in this file.
   the cold-start offer's pure decision (`showsColdStartOffer`) plus its
   refusal — the offer for a never-run, non-stub document, gone once refused,
   gone for good once any run happens.
+- `LetterMarkdownTests` — the kept letter's prose: the heading's three facts,
+  the parts in reading order with an empty part drawing no heading, the scene
+  table (blank cells blank, the charge column only when the form has one, a
+  pipe or newline that cannot break a row), and the negative that matters —
+  no paragraph id in the output, asserted with the tripwire's own regex and
+  controlled by a planted anchor.
+- `LetterKeepTests` — where a kept letter lands, over a REAL `ProjectStore`:
+  the router's two arms (a novel chapter's shared note plus a link, a loose
+  collection piece's own folder), the body on disk equalling the render, the
+  run's own letter untouched (Keep is a copy), a second Keep making a second
+  note, the lane line's stage/coach/passless split, and an unwritable folder
+  refusing the keep with nothing filed.
 - `CompilerRunCommandTests` — ⌘R's real delivery path.
 - `PinnedReferencesTests` — the projection, its sections and its resolution,
   including the dedup/dangling/order rules; its census keeps `linkedResearchIds` (not

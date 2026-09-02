@@ -1564,6 +1564,64 @@ final class ReviewRoundCockpitTests: XCTestCase {
             + "would be two letters that could disagree about one run")
     }
 
+    /// **Keep this letter works from the queue too** (Task 10, spec §3.6).
+    ///
+    /// Mounted through `AnnotationsPane` and pressed through the real
+    /// disclosure, because the claim is that Review's own host wires the verb
+    /// — the census below can see that `LetterKeep.handler` is spelled there,
+    /// and only a press can see that the note actually lands.
+    func test_theQueuesLetterCanBeKept() async throws {
+        let fx = try await makeHarness()
+        fx.diagnostics.replace(
+            run: CompilerRun(
+                id: "r-1", at: Date(), model: "test-model", lastOpId: "op-1",
+                deltaSummary: "1 new", intentSnapshot: nil, passId: nil, round: 1,
+                freshEyes: nil,
+                letter: Self.letter(oneThing: "Give the reader the dock before the fire.")),
+            diagnostics: [], docId: fx.document.docId)
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        pump(0.3)
+        let disclosure = try XCTUnwrap(
+            pressableLanePicker(
+                labelled: "Give the reader the dock before the fire.", in: window)
+                ?? disclosureElement(
+                    labelled: "Give the reader the dock before the fire.", in: window),
+            "the letter line must open. Pressables: \(pressableLabels(in: window))")
+        press(disclosure)
+        pump(0.3)
+
+        let keep = try button(labelled: LetterSection.keepTitle, in: window)
+        press(keep)
+        let deadline = Date().addingTimeInterval(4)
+        while Date() < deadline, fx.store.manifest.research.isEmpty {
+            pump(0.05)
+            try? await Task.sleep(for: .milliseconds(40))
+        }
+        let kept = try XCTUnwrap(fx.store.manifest.research.first,
+                                 "no kept letter reached research from the queue")
+        XCTAssertTrue(kept.path?.hasPrefix("research/") == true, kept.path ?? "nil")
+        XCTAssertTrue(allLabels(in: window).contains(LetterKeep.confirmation(kept.title)),
+                      "Read: \(allLabels(in: window))")
+    }
+
+    /// **The census the mount cannot make**: both hosts reach the SAME verb.
+    /// A Keep spelled out here would be a second render, a second scope and a
+    /// second answer to where a letter goes — the defect `TurnClauseOffer`
+    /// already exists to prevent for the offer beside it.
+    func test_bothHostsKeepThroughTheOneVerb() throws {
+        for file in ["Maugham/Views/AnnotationsPane.swift",
+                     "Maugham/Views/DiagnosticsPane.swift"] {
+            let source = try readSource(file)
+            XCTAssertTrue(source.contains("onKeep: LetterKeep.handler("),
+                          "\(file) must press the shared verb")
+            XCTAssertTrue(source.contains("LetterKeep.confirmation(for:"),
+                          "\(file) must read the shared confirmation")
+            XCTAssertFalse(source.contains("createResearchNote("),
+                           "\(file) must not file a note of its own")
+        }
+    }
+
     // MARK: - Mounting
 
     private func mountCockpit(
