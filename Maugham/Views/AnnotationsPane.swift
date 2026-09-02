@@ -66,6 +66,14 @@ struct AnnotationsPane: View {
     /// to that store verb anywhere in this file.
     /// Defaulted to a no-op so a host with no window behind it still compiles.
     var onSetPassState: (String, String, PassState?) -> Void = { _, _, _ in }
+    /// **The second stet's offer, published as it comes and goes** (editorial
+    /// letter P2 Task 8) — `DesignGateView.onConfirmationChanged`'s twin, and
+    /// for its reason: the alert below is drawn from the same state and
+    /// production passes nothing, but an alert belongs to the window server and
+    /// a headless mount can neither read its words nor press its buttons. With
+    /// nothing here, the one place the app ASKS about the ledger would be the
+    /// one place no test could get past.
+    var onChoiceOfferChanged: (ChoiceOffer?) -> Void = { _ in }
     @Environment(UserPreferences.self) private var userPreferences
     /// The window's undo manager — passed into every accept so the Document
     /// registers its undo action against the manager ⌘Z reaches (and clears
@@ -117,6 +125,23 @@ struct AnnotationsPane: View {
     /// arrive with half the act done (the ruling landed, the reply did not), so
     /// it is never swallowed — the sentence says what is where.
     @State private var rulingNotice: String?
+    /// **What a ledger verb refused, in its own words** (editorial letter P2
+    /// Task 8) — the queue's **This is a choice** and **Keep as lesson…**.
+    ///
+    /// Deliberately not `rulingNotice`. That channel's alert is titled *"That
+    /// answer could not be filed"*, and a choice's worst refusal says the
+    /// opposite — the ledger row landed and only the stet did not. A title
+    /// contradicting its own message is a refusal the writer cannot act on.
+    @State private var ledgerNotice: String?
+    /// The second stet standing at its offer, or nil the rest of the time —
+    /// which is most of the time. Both answers ride on the value
+    /// (`ChoiceOffer`), so the button labelled **Make it a choice** is the one
+    /// that files, and a test can drive the offer the window server will not
+    /// let it press.
+    @State private var choiceOffer: ChoiceOffer?
+    /// The accepted craft note being shortened into a ledger entry (spec §6's
+    /// second door).
+    @State private var keepLessonSheet: AnnotationTarget?
     @State private var staleConfirm: AnnotationTarget?
     /// A suggestion whose accept was REFUSED because its quoted phrase is no
     /// longer in the paragraph (RULING-5). Drives the told-why alert; the
@@ -186,6 +211,7 @@ struct AnnotationsPane: View {
         let annotation: Annotation
         var id: String { annotation.id }
     }
+
 
     enum KindOption: String, CaseIterable, Identifiable, FilterRowItem {
         case all, comments, suggestions, queries, craft
@@ -506,6 +532,46 @@ struct AnnotationsPane: View {
             Button("OK") { rulingNotice = nil }
         } message: {
             Text(rulingNotice ?? "")
+        }
+        // **The second stet's offer** (editorial letter P2 Task 8, spec §6).
+        // An alert rather than an `NSAlert`: the answer has to be observable
+        // from a test, and a panel the headless worker has to dismiss is a
+        // gate that hangs.
+        //
+        // **Just stet carries `.cancel`** so Escape performs it. It is what the
+        // writer already pressed — the offer interrupted a stet, and the least
+        // committal way out of it is the stet itself, never nothing at all.
+        .alert(
+            QueueLedgerVerbs.secondStetTitle(choiceOffer?.heading ?? ""),
+            isPresented: Binding(
+                get: { choiceOffer != nil },
+                // A dismissal that is neither answer — Escape without the
+                // cancel button, a click away — drops the offer and leaves the
+                // note exactly as the writer found it.
+                set: { if !$0 { setChoiceOffer(nil) } }),
+            presenting: choiceOffer
+        ) { offer in
+            Button(QueueLedgerVerbs.makeItAChoiceTitle, action: offer.makeItAChoice)
+            Button(QueueLedgerVerbs.justStetTitle, role: .cancel,
+                   action: offer.justStet)
+        } message: { _ in
+            Text(QueueLedgerVerbs.secondStetHelp)
+        }
+        .alert(
+            "That could not be filed in your ledger",
+            isPresented: Binding(
+                get: { ledgerNotice != nil },
+                set: { if !$0 { ledgerNotice = nil } })
+        ) {
+            Button("OK") { ledgerNotice = nil }
+        } message: {
+            Text(ledgerNotice ?? "")
+        }
+        .sheet(item: $keepLessonSheet) { target in
+            LessonHeadingSheet(annotation: target.annotation) { heading in
+                keepAsLesson(target.annotation, heading: heading)
+                keepLessonSheet = nil
+            } onCancel: { keepLessonSheet = nil }
         }
         .alert(
             "Paragraph has changed since this suggestion",
@@ -1203,6 +1269,9 @@ struct AnnotationsPane: View {
                 querySheet = AnnotationTarget(document: $0, annotation: ann) } },
             onAnswerAsRuling: { withDocument(rowDocument) {
                 rulingSheet = AnnotationTarget(document: $0, annotation: ann) } },
+            onMakeChoice: { withDocument(rowDocument) { performChoice($0, ann) } },
+            onKeepAsLesson: { withDocument(rowDocument) {
+                keepLessonSheet = AnnotationTarget(document: $0, annotation: ann) } },
             onEdit: { withDocument(rowDocument) {
                 editSheet = AnnotationTarget(document: $0, annotation: ann) } },
             onWithdraw: { withDocument(rowDocument) {
@@ -1512,17 +1581,86 @@ struct AnnotationsPane: View {
         }
     }
 
+    /// **Stet, or the offer that a second one raises** (editorial letter P2
+    /// Task 8, spec §6).
+    ///
+    /// Once is a note let stand. Twice on the same habit is a pattern, and the
+    /// app *asks* at that point — it never files on its own, because the ledger
+    /// moves only by the writer's hand. Everything else, including a first stet
+    /// and any stet of a note carrying no heading, is the plain stet below,
+    /// unchanged.
+    private func stet(_ document: Document, _ ann: Annotation) {
+        if let heading = QueueLedgerVerbs.secondStetOffer(
+            for: ann, in: document,
+            ledgerText: LessonLedgerVerbs.ledgerText(store: store)) {
+            setChoiceOffer(ChoiceOffer(
+                annotationId: ann.id, heading: heading,
+                makeItAChoice: {
+                    setChoiceOffer(nil)
+                    performChoice(document, ann)
+                },
+                justStet: {
+                    setChoiceOffer(nil)
+                    performStet(document, ann)
+                }))
+            return
+        }
+        performStet(document, ann)
+    }
+
+    /// The one place the offer is raised and dropped, so the alert's state and
+    /// the witness cannot come apart.
+    private func setChoiceOffer(_ offer: ChoiceOffer?) {
+        choiceOffer = offer
+        onChoiceOfferChanged(offer)
+    }
+
     /// Stet — the proofreader's own gesture, and now the only one that wears the
     /// proofreader's mark. The op is recorded immediately (never blocked); the
     /// flag holds the row on-screen ~2.5s so the STET badge and the reinstated
     /// text read clearly before the row resolves out of the open list.
-    private func stet(_ document: Document, _ ann: Annotation) {
+    private func performStet(_ document: Document, _ ann: Annotation) {
         stetFlourishIds.insert(ann.id)
         Task {
             try? await document.stetAnnotation(id: ann.id, undoManager: undoManager)
             noteChanged()
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             stetFlourishIds.remove(ann.id)
+        }
+    }
+
+    /// **This is a choice** — the ledger row and the stet, in that order
+    /// (`QueueLedgerVerbs.makeChoice`, which owns both the ordering and the two
+    /// refusal sentences).
+    ///
+    /// The flourish plays exactly as it does for a plain stet: what the writer
+    /// did to the note is the same thing, and a choice that resolved a row with
+    /// no STET mark would read as a different verb.
+    ///
+    /// `letterLedgerRevision` moves because the ledger did — the letter's own
+    /// Keep and Retire offers are computed against `ledgerText`, and without
+    /// this a habit just filed as a choice still draws a Keep button.
+    private func performChoice(_ document: Document, _ ann: Annotation) {
+        stetFlourishIds.insert(ann.id)
+        Task {
+            ledgerNotice = await QueueLedgerVerbs.makeChoice(
+                ann, in: document, store: store, world: world,
+                undoManager: undoManager)
+            letterLedgerRevision += 1
+            noteChanged()
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            stetFlourishIds.remove(ann.id)
+        }
+    }
+
+    /// **Keep as lesson…** — the writer's shortened sentence, filed. No
+    /// annotation op: the note is already accepted, and this is a second,
+    /// independent act (`QueueLedgerVerbs.keepAsLesson`).
+    private func keepAsLesson(_ ann: Annotation, heading: String) {
+        Task {
+            ledgerNotice = await QueueLedgerVerbs.keepAsLesson(
+                heading, from: ann, store: store, world: world)
+            letterLedgerRevision += 1
         }
     }
 
@@ -1755,6 +1893,15 @@ struct AnnotationRow: View {
     /// and never drawn where it would do nothing, since the affordance is
     /// gated on `QueryRuling.offersARuling` rather than on the closure.
     var onAnswerAsRuling: () -> Void = {}
+    /// **This is a choice** — a stet that also files the habit heading this
+    /// note was raised under (editorial letter P2 Task 8). Defaulted to a no-op
+    /// on `onAnswerAsRuling`'s reasoning, and gated on the same shape of
+    /// predicate rather than on the closure: nothing draws it where it would do
+    /// nothing (`QueueLedgerVerbs.offersAChoice`).
+    var onMakeChoice: () -> Void = {}
+    /// **Keep as lesson…** on an accepted craft note — spec §6's second door,
+    /// gated by `QueueLedgerVerbs.offersAKeep`.
+    var onKeepAsLesson: () -> Void = {}
     var onEdit: () -> Void = {}
     var onWithdraw: () -> Void = {}
     var onRevert: () -> Void = {}
@@ -2027,14 +2174,51 @@ struct AnnotationRow: View {
         case .query:
             Button("Reply\u{2026}", action: onReply).buttonStyle(.borderedProminent)
             answerAsRulingButton(useIcons: useIcons)
+            choiceButton(useIcons: useIcons)
             stetButton(useIcons: useIcons)
             secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
         case .craftNote:
             Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
             answerAsRulingButton(useIcons: useIcons)
+            keepAsLessonButton(useIcons: useIcons)
             secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
             stetButton(useIcons: useIcons)
             secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+        }
+    }
+
+    /// **A habit the writer makes on purpose can be settled from the queue**
+    /// (editorial letter P2 Task 8, spec §6) — the ledger row and the stet in
+    /// one press.
+    ///
+    /// Beside Stet rather than in place of it, because it is a stet *and* a
+    /// declaration: a writer who only means "let it stand this once" still has
+    /// the plain verb, and the second time they press it the app asks whether
+    /// they meant this one.
+    ///
+    /// Secondary, and it degrades to its icon under column pressure with the
+    /// rest — a question raised under a habit carries one more control than one
+    /// that was not, and the narrow column is where that costs a word.
+    @ViewBuilder
+    private func choiceButton(useIcons: Bool) -> some View {
+        if QueueLedgerVerbs.offersAChoice(annotation) {
+            secondary(QueueLedgerVerbs.choiceTitle, symbol: "checkmark.seal",
+                      useIcons: useIcons,
+                      help: QueueLedgerVerbs.choiceHelp,
+                      action: onMakeChoice)
+        }
+    }
+
+    /// **Spec §6's second door** — an accepted craft note's point, kept.
+    /// `QueueLedgerVerbs.offersAKeep` says why it is accepted notes and no
+    /// others.
+    @ViewBuilder
+    private func keepAsLessonButton(useIcons: Bool) -> some View {
+        if QueueLedgerVerbs.offersAKeep(annotation) {
+            secondary(QueueLedgerVerbs.keepTitle, symbol: "graduationcap",
+                      useIcons: useIcons,
+                      help: QueueLedgerVerbs.keepHelp,
+                      action: onKeepAsLesson)
         }
     }
 

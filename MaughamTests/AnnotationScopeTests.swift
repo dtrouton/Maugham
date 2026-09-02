@@ -377,7 +377,11 @@ final class AnnotationScopeTests: XCTestCase {
             "private func performAccept(",
             "private func replyToQuery(",
             "private func reject(",
-            "private func stet(",
+            // (editorial letter P2 Task 8) `stet(` itself no longer mutates —
+            // it either raises the second stet's offer or delegates here, and
+            // both of the offer's answers land on one of these two.
+            "private func performStet(",
+            "private func performChoice(",
             "private func triage(",
             "private func archive(",
             "private func reopen(",
@@ -405,7 +409,13 @@ final class AnnotationScopeTests: XCTestCase {
         let mutationLines = source.split(separator: "\n")
             .map(String.init)
             .filter { $0.contains("await document.")
-                   || $0.contains("await AnnotationBulkActions.perform") }
+                   || $0.contains("await AnnotationBulkActions.perform")
+                   // (P2 Task 8) The choice's stet is inside
+                   // `QueueLedgerVerbs.makeChoice`, so `await document.` does
+                   // not see it. Its sibling `keepAsLesson` is deliberately
+                   // NOT here: it files a ledger row and changes no note, so
+                   // there is no stale row for a token to refresh.
+                   || $0.contains("await QueueLedgerVerbs.makeChoice(") }
         XCTAssertFalse(mutationLines.isEmpty,
                        "the scan found no mutation sites at all — it has "
                        + "stopped reading the file it is about")

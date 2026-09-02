@@ -724,6 +724,11 @@ final class AnnotationStetTests: XCTestCase {
             "AnnotationsPane.swift",        // the queue's Stet button
             "EditorHost.swift",             // the margin card's Stet handler
             "AnnotationBulkActions.swift",  // (Task 5) the bulk bar's executor
+            // (editorial letter P2 Task 8) **This is a choice** — a stet that
+            // also files a ledger row. It is a caller and not a fifth verb:
+            // spec §6 says a choice IS a stet plus a ruling, so no new
+            // `Document` verb was minted for it.
+            "QueueLedgerVerbs.swift",
         ], "the stet caller census — update deliberately, never accidentally")
 
         XCTAssertEqual(callers(of: "triageAnnotation("), [

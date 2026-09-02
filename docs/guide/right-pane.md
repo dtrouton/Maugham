@@ -89,9 +89,12 @@ a ruling has in [Intent](#intent-mode-n) — because that is what these are, and
 the ledger is the one statement whose rulings are the whole content rather than
 decisions itemized under prose above them.
 
-**There are two doors in.** **Keep as lesson**, on a habit in a check's
-editorial letter, files that habit here in one press — see
-[Checking Your Writing](compiler.md). Or type. The editor above the strip is
+**There are two doors in.** **Keep as lesson** files an entry here in one
+press — on a habit in a check's editorial letter, and on a craft note you've
+accepted in your queue. Your queue's **This is a choice** comes in the same
+way, filing the habit as a decision you've made rather than something you're
+working on; see [Checking Your Writing](compiler.md) for both. Or type. The
+editor above the strip is
 yours, an ordinary Maugham document with the same undo and the same cross-Mac
 merge as any other, and it is empty until you write in it. Nothing is created
 behind your back.

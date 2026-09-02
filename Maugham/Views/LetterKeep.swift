@@ -61,13 +61,27 @@ enum LetterKeep {
     /// A passless run has no lane at all, and the empty string is what stops
     /// the rendered heading inventing one.
     static func laneLine(for run: CompilerRun, store: ProjectStore) -> String {
-        guard let passId = run.passId,
+        laneLine(passId: run.passId, round: run.round, store: store)
+    }
+
+    /// The same lane, for a caller holding a NOTE rather than a run — the
+    /// queue's ledger verbs, which file from an annotation's own pass stamp and
+    /// round (`QueueLedgerVerbs.provenance`).
+    ///
+    /// One spelling deliberately: a lesson filed from the queue and a lesson
+    /// filed from the letter name the same round in the same words, and a
+    /// second copy of this three-line resolution is where that would quietly
+    /// stop being true.
+    static func laneLine(
+        passId: String?, round: Int?, store: ProjectStore
+    ) -> String {
+        guard let passId,
               let pass = ReviewPass.pass(
                 id: passId, in: store.manifest.effectiveReviewPasses)
         else { return "" }
         return pass.id == ReviewPass.coachPreset.id
-            ? ReviewRoundCockpit.coachLine(coach: pass, round: run.round)
-            : ReviewRoundCockpit.laneLine(pass: pass, round: run.round)
+            ? ReviewRoundCockpit.coachLine(coach: pass, round: round)
+            : ReviewRoundCockpit.laneLine(pass: pass, round: round)
     }
 
     /// File the letter as a research note. Returns the item the store made, so

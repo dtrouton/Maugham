@@ -318,6 +318,26 @@ note was raised — if you rewrite your intent later, older tasks keep naming
 what they were checked against then, not what you have now. Tasks sync and
 survive; the notes do not. ⌘Z takes the task back.
 
+**Call it a choice.** A question raised under a habit your ledger already
+names carries **This is a choice** in your queue. Press it and two things
+happen: the habit is filed in your ledger (⌘⌥G) as a decision you've made, so
+later checks stop raising it, and the note is stetted — read, considered, and
+the words stand. ⌘Z reopens the note; the ledger entry stays, because that was
+a separate decision written into a separate file.
+
+You don't have to know in advance that you want this. **Stet** a question under
+a habit a second time and Maugham asks — *Make "filter words" a choice?* —
+with **Make it a choice** and **Just stet**. A first stet, or a stet of a note
+raised under nothing, is a plain stet and says nothing. Nothing is ever filed
+without you pressing it: the ledger is your prose and it moves only by your
+hand.
+
+**Keep it as a lesson.** A craft note you've **accepted** carries **Keep as
+lesson…**, which opens a field prefilled with the note so you can shorten it to
+one sentence. That sentence becomes a live entry in your ledger, dated and
+attributed to the editor who raised it. The note stays accepted — keeping a
+lesson out of it is a second, separate act.
+
 **Leave it.** A note you neither answer nor keep disappears at the next check.
 If it still stands, the next check raises it again. That's the conformance
 strain's own fate — a **This check** row works differently, because it's an
