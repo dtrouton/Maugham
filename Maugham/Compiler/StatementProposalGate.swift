@@ -27,6 +27,13 @@ import MaughamCore
 /// to no statement — `rollbackUnusedStatement`'s job, and a statement with a
 /// manifest row and no words is the same state a pane visit leaves.
 ///
+/// **`after` is read with the same care as `before`, never `??  ""`.** A
+/// failed read there would otherwise be captured by the redo closure as an
+/// empty string, so a stumble on that one read would make ⇧⌘Z blank the
+/// statement it just adopted — the read failure is `Failure.unreadable`
+/// instead, thrown before the slot is discarded and before any undo step is
+/// registered.
+///
 /// **A refusal writes nothing and mints nothing**: the proposal is re-validated
 /// BEFORE `createStatement`, because the slot is a plain JSON file anyone can
 /// hand-edit, and the P1 carry (an empty glossary term must never be written)
@@ -96,7 +103,17 @@ enum StatementProposalGate {
                 provenance: Ruling.Provenance.glossary,
                 kind: kind, forScope: .project, store: store, world: world)
         }
-        let after = (try? store.statementText(of: statement)) ?? ""
+        // Symmetric with `before`: a failed read must not silently become
+        // an empty string, because that empty string is exactly what the
+        // redo closure below would capture — a read that stumbles here
+        // would make ⇧⌘Z blank the statement it just adopted. Thrown before
+        // `discard`, so on this (near-impossible) path the words are
+        // already in the file, the slot stays pending for the writer to
+        // retry or discard, and no undo step is registered over text
+        // nobody actually read.
+        let after: String
+        do { after = try store.statementText(of: statement) }
+        catch { throw Failure.unreadable(error.localizedDescription) }
         try proposals.discard(proposal.kind)
         MaughamEvent.postStatementProposalsChanged(projectURL: store.url)
 
