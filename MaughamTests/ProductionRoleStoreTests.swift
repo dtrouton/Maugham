@@ -483,7 +483,7 @@ final class ProductionRoleStoreTests: XCTestCase {
         let before = try manifestState(of: url)
         XCTAssertEqual(EditionStatus.readerName(for: "es", in: store.manifest), "Ocampo")
         XCTAssertEqual(EditionStatus.collatorName(for: "ja", in: store.manifest), "Futabatei")
-        XCTAssertNil(EditionStatus.readerName(for: "sr", in: store.manifest))
+        XCTAssertNil(EditionStatus.readerName(for: "is", in: store.manifest))
         XCTAssertEqual(try manifestState(of: url), before)
     }
 }

@@ -45,6 +45,7 @@ Presets, borrowed from literary history like the rest of the cast:
 | fr | Baudelaire | Colette | Yourcenar |
 | de | Tieck | Bachmann | Schlegel |
 | ja | Motoyuki | Enchi | Futabatei |
+| sr | Kiš | Sekulić | Vinaver *(added 2026-09-02)* |
 
 **Preset briefs** (`effectiveBrief` fallbacks; writer-editable):
 

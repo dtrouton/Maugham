@@ -183,12 +183,15 @@ public struct ProductionRole: Codable, Equatable, Identifiable, Sendable {
         presetTranslatorNames[language.lowercased()]
     }
 
-    /// Real translators *into* each language — the spec fixes this table.
+    /// Real translators *into* each language — the spec fixes this table
+    /// (§1; Serbian added 2026-09-02: Danilo Kiš, who translated Queneau,
+    /// Tsvetaeva and Ady into Serbian).
     private static let presetTranslatorNames: [String: String] = [
         "es": "Cortázar",
         "fr": "Baudelaire",
         "de": "Tieck",
         "ja": "Motoyuki",
+        "sr": "Kiš",
     ]
 
     private static let designerName = "Tschichold"
@@ -233,10 +236,12 @@ public struct ProductionRole: Codable, Equatable, Identifiable, Sendable {
 
     private static let presetReaderNames: [String: String] = [
         "es": "Ocampo", "fr": "Colette", "de": "Bachmann", "ja": "Enchi",
+        "sr": "Sekulić",
     ]
 
     private static let presetCollatorNames: [String: String] = [
         "es": "Borges", "fr": "Yourcenar", "de": "Schlegel", "ja": "Futabatei",
+        "sr": "Vinaver",
     ]
 
     /// The blind reader's doctrine (spec §1). It never names the language: the

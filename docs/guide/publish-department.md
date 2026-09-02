@@ -48,7 +48,7 @@ this desk.
 gets an edition it doesn't have yet. Type the language's tag — `es`,
 `fr`, `pt-br`; capitals are fine, Maugham lowers them for you — and the
 name of the person who translates it. Two more fields, both optional, name
-the edition's reader and its collator (below). For the four languages that
+the edition's reader and its collator (below). For the five languages that
 come with a cast already picked, all three names fill themselves in as you
 type the tag; keep them or type somebody else's. A tag that isn't a
 language tag says so in the sheet rather than failing later, and Cancel
@@ -73,7 +73,7 @@ raise carries a **gloss** — a plain, literal rendering back into your own
 language of what the translation now says. The gloss is what lets you rule
 on a paragraph in a language you don't read.
 
-Four languages come with all three already picked, borrowed from real
+Five languages come with all three already picked, borrowed from real
 literary history:
 
 | Language | Translator | Reader | Collator |
@@ -82,6 +82,7 @@ literary history:
 | French | Baudelaire | Colette | Yourcenar |
 | German | Tieck | Bachmann | Schlegel |
 | Japanese | Motoyuki | Enchi | Futabatei |
+| Serbian | Kiš | Sekulić | Vinaver |
 
 Every project's designer is **Tschichold**. Their names sign every paragraph,
 every note and every query the work they do produces, the same way a review

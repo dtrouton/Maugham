@@ -97,11 +97,12 @@ final class ProductionRoleTests: XCTestCase {
 
     // MARK: - The preset table
 
-    func test_thePresetTranslatorNamesAreTheFourTheSpecFixes() {
+    func test_thePresetTranslatorNamesAreTheOnesTheSpecFixes() {
         XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "es"), "Cortázar")
         XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "fr"), "Baudelaire")
         XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "de"), "Tieck")
         XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "ja"), "Motoyuki")
+        XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "sr"), "Kiš")
     }
 
     /// nil, not a manufactured name: an unlisted language is the case where the
@@ -173,8 +174,8 @@ final class ProductionRoleTests: XCTestCase {
             ProductionRole(id: "g", role: .designer, name: ""),
             ProductionRole(id: "h", role: .reader(language: "")),
             ProductionRole(id: "i", role: .collator(language: "")),
-            ProductionRole(id: "j", role: .reader(language: "sr")),
-            ProductionRole(id: "k", role: .collator(language: "sr")),
+            ProductionRole(id: "j", role: .reader(language: "is")),
+            ProductionRole(id: "k", role: .collator(language: "is")),
         ]
         for role in roles {
             XCTAssertFalse(role.effectiveName.isEmpty, "empty effectiveName for \(role.role)")
@@ -355,8 +356,10 @@ final class ProductionRoleTests: XCTestCase {
         XCTAssertEqual(ProductionRole.defaultCollatorName(language: "fr"), "Yourcenar")
         XCTAssertEqual(ProductionRole.defaultCollatorName(language: "de"), "Schlegel")
         XCTAssertEqual(ProductionRole.defaultCollatorName(language: "ja"), "Futabatei")
-        XCTAssertNil(ProductionRole.defaultReaderName(language: "sr"))
-        XCTAssertNil(ProductionRole.defaultCollatorName(language: "sr"))
+        XCTAssertEqual(ProductionRole.defaultReaderName(language: "sr"), "Sekulić")
+        XCTAssertEqual(ProductionRole.defaultCollatorName(language: "sr"), "Vinaver")
+        XCTAssertNil(ProductionRole.defaultReaderName(language: "is"))
+        XCTAssertNil(ProductionRole.defaultCollatorName(language: "is"))
         XCTAssertEqual(ProductionRole.defaultReaderName(language: "ES"), "Ocampo", "case-insensitive on the tag")
     }
 
@@ -366,8 +369,8 @@ final class ProductionRoleTests: XCTestCase {
     }
 
     func test_anUnlistedUnnamedReaderFallsBackToTheUppercasedTag() {
-        XCTAssertEqual(ProductionRole(id: "r", role: .reader(language: "sr")).effectiveName, "SR")
-        XCTAssertEqual(ProductionRole(id: "c", role: .collator(language: "sr")).effectiveName, "SR")
+        XCTAssertEqual(ProductionRole(id: "r", role: .reader(language: "is")).effectiveName, "IS")
+        XCTAssertEqual(ProductionRole(id: "c", role: .collator(language: "is")).effectiveName, "IS")
     }
 
     func test_anOwnNameWinsForAReaderAndACollator() {
