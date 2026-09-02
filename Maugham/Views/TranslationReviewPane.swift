@@ -185,6 +185,11 @@ struct TranslationReviewPane: View {
     /// spot-check is not a round, there is no record to write the disposition
     /// into, and the answer itself is gone the moment the caret moves.
     @State private var dismissedDepartures: Set<String> = []
+    /// Departures whose Keep mine or Make it a rule has already run. Both
+    /// file a dated note or ruling that never dedupes, so a row that has run
+    /// one of them draws its outcome rather than offering either verb again —
+    /// the round report's own `settled` set, same reasoning, same reset.
+    @State private var settledSpotCheckDepartures: Set<String> = []
     /// Which spot-check sheet is up, and the refusal a verb came back with.
     @State private var spotCheckSheet: SpotCheckSheet?
     @State private var notice: String?
@@ -410,10 +415,11 @@ struct TranslationReviewPane: View {
                     DepartureRowView(
                         row: row,
                         isExpanded: false,
+                        isSettled: settledSpotCheckDepartures.contains(row.id),
                         onFine: { dismissedDepartures.insert(row.id) },
                         onKeepMine: {
                             spotCheckSheet = .keepMine(
-                                paragraphId: row.paragraphId,
+                                rowId: row.id, paragraphId: row.paragraphId,
                                 excerpt: excerpt(for: row),
                                 seed: row.note)
                         },
@@ -473,6 +479,7 @@ struct TranslationReviewPane: View {
         collation = nil
         notice = nil
         dismissedDepartures = []
+        settledSpotCheckDepartures = []
     }
 
     private func runGloss(_ paragraphId: String) {
@@ -495,6 +502,7 @@ struct TranslationReviewPane: View {
         } assign: { outcome in
             collation = outcome
             dismissedDepartures = []
+            settledSpotCheckDepartures = []
         }
     }
 
@@ -540,12 +548,15 @@ struct TranslationReviewPane: View {
     /// Which spot-check sheet is up. An enum rather than two booleans, the
     /// round report's own reasoning: one thing is on screen at a time.
     private enum SpotCheckSheet: Identifiable {
-        case keepMine(paragraphId: String, excerpt: String, seed: String)
+        // `rowId` carries the departure row's own id for `settledSpotCheckDepartures`
+        // — distinct from `paragraphId`, which two rows can share (see
+        // `departureRows`'s index-suffixed id).
+        case keepMine(rowId: String, paragraphId: String, excerpt: String, seed: String)
         case makeRule(id: String, seed: String)
 
         var id: String {
             switch self {
-            case .keepMine(let paragraphId, _, _): return "keep-mine:\(paragraphId)"
+            case .keepMine(_, let paragraphId, _, _): return "keep-mine:\(paragraphId)"
             case .makeRule(let id, _): return "make-rule:\(id)"
             }
         }
@@ -555,7 +566,7 @@ struct TranslationReviewPane: View {
     private func spotCheckSheetBody(_ sheet: SpotCheckSheet) -> some View {
         let language = control.translationLanguage ?? ""
         switch sheet {
-        case .keepMine(let paragraphId, let excerpt, let seed):
+        case .keepMine(let rowId, let paragraphId, let excerpt, let seed):
             // The app's ONE translator's-note sheet, seeded with the note the
             // author is disagreeing with and defaulted to THIS edition: they
             // are answering a departure in one language, not legislating for
@@ -567,17 +578,17 @@ struct TranslationReviewPane: View {
                 target: target,
                 onCommit: { instruction, home in
                     spotCheckSheet = nil
-                    keepMine(target: target, instruction: instruction, home: home)
+                    keepMine(rowId: rowId, target: target, instruction: instruction, home: home)
                 },
                 onCancel: { spotCheckSheet = nil },
                 seed: seed,
                 defaultHome: .edition(language))
-        case .makeRule(_, let seed):
+        case .makeRule(let id, let seed):
             RoundRuleSheet(
                 seed: seed, language: language,
                 onCommit: { text in
                     spotCheckSheet = nil
-                    makeRule(text, language: language)
+                    makeRule(text, rowId: id, language: language)
                 },
                 onCancel: { spotCheckSheet = nil })
         }
@@ -592,20 +603,23 @@ struct TranslationReviewPane: View {
     /// rule, in the round report's own words, because a writer who files the
     /// same note from two surfaces must not be told two different things about
     /// where it went.
-    private func keepMine(target: TranslatorsNote.Target,
+    private func keepMine(rowId: String, target: TranslatorsNote.Target,
                           instruction: String, home: TranslatorsNote.Home) {
         Task {
             let refusal = await TranslatorsNote.commit(
                 instruction, target: target, home: home, store: store, world: world,
                 provenance: Self.keepMineProvenance)
             notice = refusal ?? TranslationRoundReport.keptLine(home: home)
+            // Only on success — a refused note left nothing behind to guard
+            // against refiling.
+            if refusal == nil { settledSpotCheckDepartures.insert(rowId) }
         }
     }
 
     /// **Make it a rule** — doctrine for the edition rather than a directive
     /// about one paragraph, which is why it is unanchored and project-scope.
     /// `RulingPerformer` is the one door, here as everywhere.
-    private func makeRule(_ text: String, language: String) {
+    private func makeRule(_ text: String, rowId: String, language: String) {
         Task {
             do {
                 try await RulingPerformer.rule(
@@ -613,6 +627,7 @@ struct TranslationReviewPane: View {
                     kind: .editionBrief(language), forScope: .project,
                     store: store, world: nil)
                 notice = TranslationRoundReport.ruledLine(language: language)
+                settledSpotCheckDepartures.insert(rowId)
             } catch {
                 notice = error.localizedDescription
             }

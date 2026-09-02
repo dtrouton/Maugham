@@ -21,6 +21,13 @@ import SwiftUI
 struct DepartureRowView: View {
     let row: TranslationRoundReport.DepartureRow
     let isExpanded: Bool
+    /// **Keep mine or Make it a rule has already answered `.done` for this
+    /// row, this view session.** Both file a dated ruling or note that
+    /// `RulingPerformer.rule` never dedupes, so once one has run the row
+    /// draws its outcome rather than offering either verb again — Fine stays,
+    /// because it writes straight to `row.isDismissed` rather than filing a
+    /// second ruling on a second press.
+    var isSettled: Bool = false
     var onFine: () -> Void = { }
     var onKeepMine: () -> Void = { }
     var onMakeRule: () -> Void = { }
@@ -127,18 +134,25 @@ struct DepartureRowView: View {
     private var verbs: some View {
         HStack(spacing: 8) {
             Spacer(minLength: 0)
+            if isSettled {
+                Text(TranslationRoundReport.ruledOutcomeLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Button(TranslationRoundReport.fineTitle, action: onFine)
                 .controlSize(.small)
                 .accessibilityLabel(TranslationRoundReport.fineLabel(id: row.id))
                 .help(DepartureRowCopy.fineHelp)
-            Button(TranslationRoundReport.keepMineTitle, action: onKeepMine)
-                .controlSize(.small)
-                .accessibilityLabel(TranslationRoundReport.keepMineLabel(id: row.id))
-                .help(DepartureRowCopy.keepMineHelp)
-            Button(TranslationRoundReport.makeRuleTitle, action: onMakeRule)
-                .controlSize(.small)
-                .accessibilityLabel(TranslationRoundReport.makeRuleLabel(id: row.id))
-                .help(DepartureRowCopy.makeRuleHelp)
+            if !isSettled {
+                Button(TranslationRoundReport.keepMineTitle, action: onKeepMine)
+                    .controlSize(.small)
+                    .accessibilityLabel(TranslationRoundReport.keepMineLabel(id: row.id))
+                    .help(DepartureRowCopy.keepMineHelp)
+                Button(TranslationRoundReport.makeRuleTitle, action: onMakeRule)
+                    .controlSize(.small)
+                    .accessibilityLabel(TranslationRoundReport.makeRuleLabel(id: row.id))
+                    .help(DepartureRowCopy.makeRuleHelp)
+            }
         }
     }
 }

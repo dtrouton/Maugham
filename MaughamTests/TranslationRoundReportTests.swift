@@ -172,6 +172,13 @@ final class TranslationRoundReportTests: XCTestCase {
     }
 
     /// Every verb reaches the action it names with the row's own ids.
+    ///
+    /// **Pressed one at a time, each awaited before the next** (the fix
+    /// round's own correction): `outstanding` is now armed synchronously on
+    /// the press, before the `Task` exists, so the container disables itself
+    /// on the very first press rather than a turn later — three presses
+    /// fired back to back with no wait between them would have the second and
+    /// third land on a disabled container and never reach their actions.
     func test_theVerbsReachTheActionsWithTheirRowsIds() async throws {
         let box = VerbBox()
         var actions = TranslationRoundActions()
@@ -180,14 +187,42 @@ final class TranslationRoundReportTests: XCTestCase {
         actions.adopt = { _, i in box.adopted.append(i); return .done(nil, "ok") }
         let window = mount(round: Self.round(), actions: actions)
         press(try axButtons(labelled: TranslationRoundReport.fineLabel(id: "d2"), in: window)[0])
+        _ = await pumpUntil(deadline: 3) { box.dismissed.count == 1 }
         press(try axButtons(labelled: TranslationRoundReport.translatorsRightLabel(id: "n2"), in: window)[0])
+        _ = await pumpUntil(deadline: 3) { box.rights.count == 1 }
         press(try axButtons(labelled: TranslationRoundReport.adoptLabel(index: 0), in: window)[0])
-        _ = await pumpUntil(deadline: 3) {
-            box.dismissed.count == 1 && box.rights.count == 1 && box.adopted.count == 1
-        }
+        _ = await pumpUntil(deadline: 3) { box.adopted.count == 1 }
         XCTAssertEqual(box.dismissed, ["d2"])
         XCTAssertEqual(box.rights, ["ann-2"])
         XCTAssertEqual(box.adopted, [0])
+    }
+
+    /// **A settled row stops offering the verb that settled it.**
+    /// `RulingPerformer.rule` does not dedupe, so a second press of Reader's
+    /// right (or Keep mine, or Make it a rule) after the first has answered
+    /// `.done` would file a second, identical dated ruling — this is the fix
+    /// round's guard against that, read off the accessibility tree: the
+    /// button is gone and the row's outcome sentence stands in its place.
+    func test_aSettledDisagreementOffersItsRightVerbOnlyOnce() async throws {
+        let box = VerbBox()
+        var actions = TranslationRoundActions()
+        actions.readersRight = { _, annotationId, _, _, _ in
+            box.rights.append(annotationId)
+            return .done(nil, "ok")
+        }
+        let window = mount(round: Self.round(), actions: actions)
+        let label = TranslationRoundReport.rightLabel(
+            id: "n2", verb: TranslationRoundReport.readersRightTitle)
+        press(try axButtons(labelled: label, in: window)[0])
+        let ran = await pumpUntil(deadline: 3) { box.rights.count == 1 }
+        XCTAssertTrue(ran)
+        XCTAssertEqual(try axButtons(labelled: label, in: window).count, 0,
+                      "the right verb must not still be offered once it has run")
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0.contains(TranslationRoundReport.ruledOutcomeLine) },
+                      "\(texts)")
+        // Nothing left to press a second time — the count stays at one.
+        XCTAssertEqual(box.rights, ["ann-2"])
     }
 
     /// A disagreement whose query was never minted offers no Translator's right

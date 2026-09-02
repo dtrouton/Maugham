@@ -314,6 +314,15 @@ enum TranslationRoundReport {
 
     static let dismissedLine = "You said this was fine."
 
+    /// **What a row draws in place of Keep mine / right / Make it a rule once
+    /// one of them has answered `.done` this view session.** All three file a
+    /// dated ruling or note and `RulingPerformer.rule` does not dedupe, so
+    /// re-offering the verb over a row that already ran it would let a second
+    /// press mint a second, identical ruling. Deliberately generic rather than
+    /// naming which of the three ran — the row's own verbs already said that
+    /// in `notice` the moment it happened.
+    static let ruledOutcomeLine = "Ruled."
+
     // MARK: - What a verb answers with (Task 4)
 
     // Every verb answers in a sentence whichever way it goes (Global

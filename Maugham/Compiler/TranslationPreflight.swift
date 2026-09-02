@@ -56,8 +56,11 @@ enum TranslationPreflight {
         }
         guard counted else { return [:] }
         // A language that summed to nothing still has an answer — the set was
-        // readable, so "0 words" is a fact rather than an absence.
-        for language in languages where totals[language] == nil { totals[language] = 0 }
+        // readable, so "0 words" is a fact rather than an absence. This is
+        // already true of every language by construction: the inner loop
+        // above runs `totals[language, default: 0] +=` for every language on
+        // every successfully-read docId, so once `counted` is true every
+        // language already has an entry.
         return totals
     }
 

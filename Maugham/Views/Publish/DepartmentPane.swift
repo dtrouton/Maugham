@@ -247,12 +247,16 @@ struct DepartmentPane: View {
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // **The compile sheet hangs on the desk, not on the pane.** Two
-            // `.sheet` modifiers on ONE view do not coexist in SwiftUI — the
-            // later declaration wins and the earlier one silently stops
-            // presenting, which took the cast sheet's every button with it
-            // (measured: `DepartmentRunTests`' rename and mint cases crashed
-            // on an empty button array). Each sheet gets a view of its own.
+            // **The compile sheet hangs on the desk, not on the pane.**
+            // `.sheet(isPresented:)` beside `.sheet(item:)` on ONE view do not
+            // coexist in SwiftUI — the later declaration wins and the earlier
+            // one silently stops presenting, which took the cast sheet's
+            // every button with it (measured: `DepartmentRunTests`' rename
+            // and mint cases crashed on an empty button array). This is
+            // narrower than "two `.sheet` modifiers on one view" — three
+            // stacked `.sheet(item:)` modifiers already coexist on one view
+            // in `AnnotationsPane.swift` and `InboxPane.swift`. Each sheet
+            // here still gets a view of its own.
             desk
                 .sheet(isPresented: $showingCompileSheet) {
                     DepartmentCompileSheet(

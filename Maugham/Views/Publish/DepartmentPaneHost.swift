@@ -981,7 +981,16 @@ struct DepartmentPaneHost: View {
     /// is not on a chapter, which is what makes `detailLine` fall back to the
     /// book's own figure rather than draw a chapter's over a project subject.
     private func deriveChapterBudgets(docId: String?) async {
-        guard Self.refillsBudgets(pipeline: pipeline?.status ?? .idle) else { return }
+        guard Self.refillsBudgets(pipeline: pipeline?.status ?? .idle) else {
+            // **Mid-round, a chapter change must not keep the PREVIOUS
+            // chapter's figure.** The key still carries the new docId (it is
+            // not gated on `refills`), so this runs on every chapter move
+            // even while a round is up — and without clearing here,
+            // `detailLine`'s `chapterWords ?? bookWords` would draw chapter
+            // A's number under chapter B for the rest of the round.
+            chapterBudgets = [:]
+            return
+        }
         guard let docId else {
             chapterBudgets = [:]
             return

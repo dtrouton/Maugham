@@ -73,10 +73,12 @@ struct TranslationRoundReportView: View {
     /// is a second write, and a disabled control is a cheaper answer than a
     /// refusal.
     ///
-    /// A count rather than a flag, and armed inside the `Task` rather than on
-    /// the press. Both are the same correction: what the surface must reflect is
-    /// **an action that is out**, and a flag cleared by whichever call returns
-    /// first would re-enable every verb with another still running.
+    /// A count rather than a flag, and armed on the press itself, before the
+    /// `Task` that runs the verb exists — arming it from inside that `Task`
+    /// left the container enabled for a turn, wide enough for two fast clicks
+    /// to enqueue two Tasks. What the surface must reflect is **an action that
+    /// is out**, and a flag cleared by whichever call returns first would
+    /// re-enable every verb with another still running.
     @State private var outstanding = 0
 
     private var working: Bool { outstanding > 0 }
@@ -85,6 +87,15 @@ struct TranslationRoundReportView: View {
     /// keyed by row id rather than index, because the round is re-handed to this
     /// view on every write-back and an index would move under an opened row.
     @State private var expanded: Set<String> = []
+
+    /// **Rows whose Keep mine / right / rule verb has already run, this view
+    /// session.** None of the three changes the ROUND record — they write a
+    /// ruling or a note beside it — so nothing about the row itself would ever
+    /// hide the button again, and `RulingPerformer.rule` does not dedupe: a
+    /// second press files a second, identical dated ruling. Local view state,
+    /// not a record change, on the same reasoning as `expanded` — a fresh round
+    /// draws every row fresh, verbs included.
+    @State private var settled: Set<String> = []
 
     @State private var sheet: ReportSheet?
 
@@ -129,6 +140,7 @@ struct TranslationRoundReportView: View {
         .onChange(of: roundIdentity) { _, _ in
             notice = nil
             expanded = []
+            settled = []
         }
         .sheet(item: $sheet) { sheet in
             sheetBody(sheet)
@@ -218,9 +230,10 @@ struct TranslationRoundReportView: View {
                     DepartureRowView(
                         row: row,
                         isExpanded: expanded.contains(row.id),
+                        isSettled: settled.contains(row.id),
                         onFine: { run { await actions.dismiss(round, row.id) } },
                         onKeepMine: {
-                            sheet = .keepMine(paragraphId: row.paragraphId,
+                            sheet = .keepMine(rowId: row.id, paragraphId: row.paragraphId,
                                               excerpt: row.source ?? row.gloss,
                                               seed: row.note)
                         },
@@ -296,29 +309,40 @@ struct TranslationRoundReportView: View {
                     .help("Side with the translator. The question they raised is "
                           + "settled and your prose stands as translated.")
                 }
-                Button(row.rightVerbTitle) {
-                    run {
-                        // The row's own verb travels with the act: "Reader's
-                        // right" over a note, "Collator's right" over a
-                        // departure. It is what the settled thread records and
-                        // what the ruling's provenance names.
-                        await actions.readersRight(round, row.annotationId ?? "",
-                                                   row.paragraphId, row.text,
-                                                   row.rightVerbTitle)
+                // **Reader's-or-Collator's right and Make it a rule both file a
+                // dated ruling** (`RulingPerformer.rule`, which does not
+                // dedupe), so once one of them has answered `.done` this round
+                // the row draws that outcome instead of offering either verb
+                // again — a second press would refile the same doctrine.
+                if settled.contains(row.id) {
+                    Text(TranslationRoundReport.ruledOutcomeLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Button(row.rightVerbTitle) {
+                        run(settling: row.id) {
+                            // The row's own verb travels with the act: "Reader's
+                            // right" over a note, "Collator's right" over a
+                            // departure. It is what the settled thread records and
+                            // what the ruling's provenance names.
+                            await actions.readersRight(round, row.annotationId ?? "",
+                                                       row.paragraphId, row.text,
+                                                       row.rightVerbTitle)
+                        }
                     }
+                    .controlSize(.small)
+                    .accessibilityLabel(
+                        TranslationRoundReport.rightLabel(id: row.id, verb: row.rightVerbTitle))
+                    .help("Side with the note. It becomes a directive on this "
+                          + "paragraph for every later round.")
+                    Button(TranslationRoundReport.makeRuleTitle) {
+                        sheet = .makeRule(id: row.id, seed: row.text)
+                    }
+                    .controlSize(.small)
+                    .accessibilityLabel(
+                        TranslationRoundReport.makeRuleLabel(disagreement: row.id))
+                    .help(DepartureRowCopy.makeRuleHelp)
                 }
-                .controlSize(.small)
-                .accessibilityLabel(
-                    TranslationRoundReport.rightLabel(id: row.id, verb: row.rightVerbTitle))
-                .help("Side with the note. It becomes a directive on this "
-                      + "paragraph for every later round.")
-                Button(TranslationRoundReport.makeRuleTitle) {
-                    sheet = .makeRule(id: row.id, seed: row.text)
-                }
-                .controlSize(.small)
-                .accessibilityLabel(
-                    TranslationRoundReport.makeRuleLabel(disagreement: row.id))
-                .help(DepartureRowCopy.makeRuleHelp)
             }
         }
         .padding(10)
@@ -475,14 +499,17 @@ struct TranslationRoundReportView: View {
     /// `DesignGate.Verb`'s reason: one thing is on screen at a time, and four
     /// flags is a state where two of them are true.
     private enum ReportSheet: Identifiable {
-        case keepMine(paragraphId: String, excerpt: String, seed: String)
+        // `rowId` is the departure row's id, carried through for `settled` —
+        // distinct from `paragraphId`, which is what the note itself is
+        // anchored to and is not always unique per row.
+        case keepMine(rowId: String, paragraphId: String, excerpt: String, seed: String)
         case makeRule(id: String, seed: String)
         case answer(Annotation)
         case ruling(Annotation, language: String)
 
         var id: String {
             switch self {
-            case .keepMine(let paragraphId, _, _): return "keep-mine:\(paragraphId)"
+            case .keepMine(_, let paragraphId, _, _): return "keep-mine:\(paragraphId)"
             case .makeRule(let id, _): return "make-rule:\(id)"
             case .answer(let annotation): return "answer:\(annotation.id)"
             case .ruling(let annotation, _): return "ruling:\(annotation.id)"
@@ -493,7 +520,7 @@ struct TranslationRoundReportView: View {
     @ViewBuilder
     private func sheetBody(_ sheet: ReportSheet) -> some View {
         switch sheet {
-        case .keepMine(let paragraphId, let excerpt, let seed):
+        case .keepMine(let rowId, let paragraphId, let excerpt, let seed):
             // The app's ONE translator's-note sheet, seeded with the note the
             // author is agreeing with — and defaulted to THIS edition, because
             // the writer is answering a departure in one language rather than
@@ -504,17 +531,19 @@ struct TranslationRoundReportView: View {
                     excerpt: excerpt, editions: [round.language]),
                 onCommit: { instruction, home in
                     self.sheet = nil
-                    run { await actions.keepMine(round, paragraphId, instruction, home) }
+                    run(settling: rowId) {
+                        await actions.keepMine(round, paragraphId, instruction, home)
+                    }
                 },
                 onCancel: { self.sheet = nil },
                 seed: seed,
                 defaultHome: .edition(round.language))
-        case .makeRule(_, let seed):
+        case .makeRule(let id, let seed):
             RoundRuleSheet(
                 seed: seed, language: round.language,
                 onCommit: { text in
                     self.sheet = nil
-                    run { await actions.makeRule(round, text) }
+                    run(settling: id) { await actions.makeRule(round, text) }
                 },
                 onCancel: { self.sheet = nil })
         case .answer(let annotation):
@@ -540,10 +569,22 @@ struct TranslationRoundReportView: View {
 
     /// **One press, one sentence** — whichever way it goes (Global Constraint
     /// 2/4) — and the changed record back to the window when there is one.
-    private func run(_ action: @escaping () async -> TranslationRoundActions.Outcome) {
+    ///
+    /// `settling` names the row whose Keep mine / right / rule verb this is —
+    /// nil for a verb that changes the round record itself (Fine,
+    /// Translator's right) and so needs no `settled` guard. On `.done` that
+    /// row joins `settled`, which is what stops a second press from filing the
+    /// same ruling twice.
+    private func run(settling rowId: String? = nil,
+                     _ action: @escaping () async -> TranslationRoundActions.Outcome) {
         notice = nil
+        // **Counted before the `Task` exists, not inside it.** The container
+        // that disables every verb reads `outstanding` on this same turn — a
+        // bump made inside `Task { @MainActor in … }` lands one turn late, so
+        // a second fast click sees zero outstanding and enqueues a second
+        // Task before the first has had a chance to disable anything.
+        outstanding += 1
         Task { @MainActor in
-            outstanding += 1
             let outcome = await action()
             outstanding -= 1
             switch outcome {
@@ -553,6 +594,7 @@ struct TranslationRoundReportView: View {
                 // window's own value is what this surface reads.
                 if let updated { onRoundChanged(updated) }
                 notice = sentence
+                if let rowId { settled.insert(rowId) }
             case .refused(let sentence):
                 notice = sentence
             }
