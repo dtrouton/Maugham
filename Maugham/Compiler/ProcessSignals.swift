@@ -18,6 +18,17 @@ import MaughamCore
 /// `DocumentReading` and the Statistics window can compute it per closed
 /// document off `OpLogStore.loadSyncMerged`, and the two cannot disagree.
 ///
+/// **The frontier moves only on the writer's own hand.** `Deriver.appliesToManuscript`
+/// decides what forms a SESSION — every op that reaches the manuscript text is
+/// evidence the writer was at the desk. It cannot decide what counts as
+/// WRITING, and a `.checkpointRestore` proves it: `Restore.makeRestoreOp`
+/// writes `prior: curr`, which is `nil` for a paragraph the restore reinstates,
+/// so a rewind would read as a mint and reset the frontier to the moment of the
+/// rewind. So two narrower questions are asked here, of two allowlists: a MINT
+/// counts only on a `.typingBurst`, and a REWRITE only on a `.typingBurst` or a
+/// `.claudeAccept`. Restores, reverts, rejects, bootstraps and external edits
+/// move manuscript text without the writer composing a line of it.
+///
 /// **A session here is derived, not `Op.session`.** `Op.session` is
 /// process-lifetime on the Mac (`EditorHost.sessionId` is minted once per
 /// launch), so a week left open would count as one sitting. A session is a run
@@ -77,18 +88,11 @@ struct ProcessSignals: Equatable, Sendable {
     static let coldReadDays = 14
 
     init(ops: [Op], sequence: [String], now: Date) {
-        // Sorted the way `DeltaBuilder.delta` sorts before reading anything:
-        // by `opId` (ULID string order is op order), enumeration offset as the
-        // tiebreak so the answer is a function of the input alone. Only ops
-        // that reach the manuscript form a sitting, and the question is asked
-        // of `Deriver.appliesToManuscript` rather than a local re-switch.
-        let ordered = ops.enumerated()
-            .sorted { a, b in
-                a.element.opId == b.element.opId
-                    ? a.offset < b.offset
-                    : a.element.opId < b.element.opId
-            }
-            .map(\.element)
+        // Op order is `DeltaBuilder.ordered`'s, the one spelling, because the
+        // compiler reads the same op stream through both. Only ops that reach
+        // the manuscript form a sitting, and that question is asked of
+        // `Deriver.appliesToManuscript` rather than a local re-switch.
+        let ordered = DeltaBuilder.ordered(ops)
             .filter { Deriver.appliesToManuscript($0.kind) }
 
         let sessions = Self.sessions(in: ordered)
@@ -159,18 +163,41 @@ struct ProcessSignals: Equatable, Sendable {
         return map
     }
 
+    // MARK: - The writer's own hand
+
+    /// An op on which a change with no prior is the writer opening a new
+    /// paragraph. Only typing is: a bootstrap mints ids for text that already
+    /// existed, and a `.checkpointRestore` reinstating a paragraph carries a
+    /// nil prior too (`Restore.makeRestoreOp`), so importing a finished chapter
+    /// and rewinding to Tuesday would both read as drafting.
+    private static func mintsTheFrontier(_ kind: OpKind) -> Bool {
+        switch kind {
+        case .typingBurst: return true
+        default: return false
+        }
+    }
+
+    /// An op on which a change over existing text is the writer revising.
+    /// Typing is, and taking Claude's suggested change is — the writer chose
+    /// it. A restore, a revert and a reject each move text back to something it
+    /// already said, which is not the same act.
+    private static func countsAsARewrite(_ kind: OpKind) -> Bool {
+        switch kind {
+        case .typingBurst, .claudeAccept: return true
+        default: return false
+        }
+    }
+
     // MARK: - The frontier
 
-    /// A mint is a change with no prior on a non-`.bootstrap` op: a bootstrap
-    /// mints ids for text that already existed, so importing a finished chapter
-    /// is not drafting it. The frontier is the LATEST mint in op order whose
-    /// paragraph is still in `sequence`; `nil` is a legitimate answer.
+    /// The frontier is the LATEST mint in op order whose paragraph is still in
+    /// `sequence`; `nil` is a legitimate answer.
     private static func frontier(
         in ordered: [Op],
         position: [String: Int],
         sessionIndexByOpId: [String: Int]
     ) -> Frontier? {
-        for op in ordered.reversed() where op.kind != .bootstrap {
+        for op in ordered.reversed() where mintsTheFrontier(op.kind) {
             for change in op.changes.reversed() where change.prior == nil {
                 // No position is no longer in `sequence` — a paragraph typed
                 // and then cut is not where the writing stands.
@@ -188,8 +215,9 @@ struct ProcessSignals: Equatable, Sendable {
 
     // MARK: - Churn
 
-    /// A rewrite is a change carrying a prior and a non-empty next — a mint has
-    /// no prior and a cut has an empty next (`Document.deleteParagraph`). The
+    /// A rewrite is a change carrying a prior and a non-empty next, on an op
+    /// `countsAsARewrite` admits — a mint has no prior and a cut has an empty
+    /// next (`Document.deleteParagraph`), and a restore is not revision. The
     /// op is the unit, so two changes to one paragraph inside one op is one
     /// rewrite; only paragraphs still in `sequence` are counted, and only ops
     /// inside the last `churnWindowSessions` sessions.
@@ -202,7 +230,7 @@ struct ProcessSignals: Equatable, Sendable {
         let firstCountedSession = max(0, sessions.count - churnWindowSessions)
 
         var rewrites: [String: Int] = [:]
-        for op in ordered {
+        for op in ordered where countsAsARewrite(op.kind) {
             guard let sessionIndex = sessionIndexByOpId[op.opId],
                   sessionIndex >= firstCountedSession else { continue }
             var countedInThisOp: Set<String> = []

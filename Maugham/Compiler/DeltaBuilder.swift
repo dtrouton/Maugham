@@ -40,10 +40,27 @@ struct CompilerDelta: Equatable, Sendable {
 /// (a paragraph absent from it appears nowhere, however many ops touched it).
 enum DeltaBuilder {
 
+    /// The document's ops in op order: by `opId` (ULID string order is op
+    /// order — `Deriver.opOrder`), so a caller that forgets to pre-sort still
+    /// gets the documented result. A tie on `opId` keeps input order, so the
+    /// result is a function of the input alone (Swift's sort is not stable).
+    ///
+    /// One spelling because there are two readers: `ProcessSignals` walks the
+    /// same op stream for the same document and has to walk it in the same
+    /// order, and a comparator copied into both is free to drift.
+    static func ordered(_ ops: [Op]) -> [Op] {
+        ops.enumerated()
+            .sorted { a, b in
+                a.element.opId == b.element.opId
+                    ? a.offset < b.offset
+                    : a.element.opId < b.element.opId
+            }
+            .map(\.element)
+    }
+
     /// - Parameters:
-    ///   - ops: the document's ops, in any order. Sorted here by `opId`
-    ///     (ULID string order is op order — `Deriver.opOrder`), so a caller
-    ///     that forgets to pre-sort still gets the documented result.
+    ///   - ops: the document's ops, in any order — put in op order by
+    ///     `ordered(_:)` here.
     ///   - markerOpId: the previous run's `lastOpId`. `nil` means no run has
     ///     happened yet, and the whole standing manuscript is new.
     ///   - currentParagraphs: paragraph id → live text.
@@ -54,15 +71,7 @@ enum DeltaBuilder {
         currentParagraphs: [String: String],
         sequence: [String]
     ) -> CompilerDelta {
-        // Tie on opId keeps input order, so the result is a function of the
-        // input alone (Swift's sort is not stable).
-        let ordered = ops.enumerated()
-            .sorted { a, b in
-                a.element.opId == b.element.opId
-                    ? a.offset < b.offset
-                    : a.element.opId < b.element.opId
-            }
-            .map(\.element)
+        let ordered = Self.ordered(ops)
         let afterMarker = markerOpId.map { marker in
             ordered.filter { $0.opId > marker }
         } ?? ordered

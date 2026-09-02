@@ -192,11 +192,11 @@ final class ProcessSignalsTests: XCTestCase {
     /// nothing but a bootstrap has a session and no frontier — and `nil` there
     /// is a legitimate answer, not a missing one.
     ///
-    /// **Disable experiment.** With the `where op.kind != .bootstrap` clause
-    /// dropped from the frontier search, this test failed at the first
-    /// assertion: `XCTAssertNil failed: "Frontier(paragraphId: "c3d4",
-    /// position: 1, sessionIndex: 0, at: 2023-11-14 22:13:20 +0000)" - a
-    /// bootstrap mints ids for text that already existed`.
+    /// **Disable experiment.** With `.bootstrap` added to `mintsTheFrontier`'s
+    /// allowlist, this test failed at the first assertion: `XCTAssertNil failed:
+    /// "Frontier(paragraphId: "c3d4", position: 1, sessionIndex: 0, at:
+    /// 2023-11-14 22:13:20 +0000)" - a bootstrap mints ids for text that
+    /// already existed`..
     func test_aBootstrapOnlyLogHasNoFrontier() {
         let ops = [
             makeOp(opId: "op01", kind: .bootstrap, at: minutes(0),
@@ -233,6 +233,66 @@ final class ProcessSignalsTests: XCTestCase {
                        "a paragraph minted and then cut is not the frontier")
         XCTAssertEqual(signals.frontier?.position, 0)
         XCTAssertEqual(signals.frontier?.sessionIndex, 0)
+    }
+
+    /// **A rewind is not writing.** `Restore.makeRestoreOp` writes
+    /// `prior: curr`, and `curr` is nil for a paragraph the restore reinstates,
+    /// so a `.checkpointRestore` carries a change that looks exactly like a
+    /// mint. Left at that, going back to Tuesday's checkpoint would move the
+    /// frontier to the moment of the rewind and report the writer as having
+    /// just added prose they wrote days ago.
+    ///
+    /// **Disable experiment.** With `.checkpointRestore` added to
+    /// `mintsTheFrontier`'s allowlist, this test failed at the first assertion:
+    /// `XCTAssertEqual failed:
+    /// ("Optional("c3d4")") is not equal to ("Optional("a1b2")") - a rewind is
+    /// not the writer adding a paragraph`, and at the third:
+    /// `("Optional(0)") is not equal to ("Optional(1)") - and it must not reset
+    /// the count of stalled sessions`..
+    func test_aRestoreDoesNotMoveTheFrontier() {
+        let ops = [
+            makeOp(opId: "op01", at: days(0), changes: [mint("a1b2")]),
+            makeOp(opId: "op02", kind: .checkpointRestore, at: days(1),
+                   changes: [mint("c3d4", "Reinstated.")]),
+        ]
+
+        let signals = ProcessSignals(ops: ops, sequence: ["a1b2", "c3d4"], now: days(1))
+
+        XCTAssertEqual(signals.frontier?.paragraphId, "a1b2",
+                       "a rewind is not the writer adding a paragraph")
+        XCTAssertEqual(signals.frontier?.sessionIndex, 0)
+        XCTAssertEqual(signals.sessionsSinceFrontierMoved, 1,
+                       "and it must not reset the count of stalled sessions")
+    }
+
+    /// The same ruling on the churn side: a restore moves text back to what it
+    /// already said, which is not the writer revising it. Claude's accepted
+    /// suggestion IS, because the writer chose it.
+    ///
+    /// **Disable experiment.** With `.checkpointRestore` added to
+    /// `countsAsARewrite`'s allowlist, this test failed at its assertion:
+    /// `XCTAssertEqual failed:
+    /// ("["a1b2@0×2", "c3d4@1×1"]") is not equal to ("["c3d4@1×1"]") - three
+    /// restored changes are not three rewrites, and an accepted suggestion is
+    /// one` — two restore ops counted once each..
+    func test_aRestoreIsNotARewriteButAnAcceptedSuggestionIs() {
+        let ops = [
+            makeOp(opId: "op01", at: minutes(0),
+                   changes: [mint("a1b2"), mint("c3d4")]),
+            makeOp(opId: "op02", kind: .checkpointRestore, at: minutes(1),
+                   changes: [edit("a1b2"), edit("a1b2", "Again.")]),
+            makeOp(opId: "op03", kind: .checkpointRestore, at: minutes(2),
+                   changes: [edit("a1b2")]),
+            makeOp(opId: "op04", kind: .claudeAccept, at: minutes(3),
+                   changes: [edit("c3d4")]),
+        ]
+
+        let signals = ProcessSignals(ops: ops, sequence: ["a1b2", "c3d4"],
+                                     now: minutes(4))
+
+        XCTAssertEqual(Self.describe(signals.hotspots), ["c3d4@1×1"],
+                       "three restored changes are not three rewrites, and an "
+                       + "accepted suggestion is one")
     }
 
     // MARK: - Forward motion
@@ -406,16 +466,30 @@ final class ProcessSignalsTests: XCTestCase {
         XCTAssertEqual(signals.daysAway, 3)
     }
 
-    /// A first sitting has no gap before it, so there is no time away to report.
+    /// A first sitting has no gap before it, so there is no time away to
+    /// report. The sibling assertion is what makes the `nil` mean something:
+    /// the SAME fixture with one earlier session answers a number, so the `nil`
+    /// is the missing gap and not a mid-session path that answers nothing.
+    ///
+    /// **Disable experiment.** With `midSession` forced to `false` in
+    /// `daysAway(sessions:now:)`, this test failed at the first assertion:
+    /// `XCTAssertNil failed: "0"`, and at the
+    /// sibling: `XCTAssertEqual failed: ("Optional(0)") is not equal to
+    /// ("Optional(4)") - the same mid-session reading, with a gap to report`..
     func test_daysAwayIsNilMidSessionWithNoEarlierSession() {
-        let ops = [
-            makeOp(opId: "op01", at: days(0), changes: [mint("a1b2")]),
-        ]
+        let lone = [makeOp(opId: "op02", at: days(4), changes: [mint("a1b2")])]
+        let now = days(4).addingTimeInterval(600)
 
-        let signals = ProcessSignals(ops: ops, sequence: ["a1b2"],
-                                     now: days(0).addingTimeInterval(600))
+        XCTAssertNil(ProcessSignals(ops: lone, sequence: ["a1b2"], now: now).daysAway)
 
-        XCTAssertNil(signals.daysAway)
+        let withAnEarlierSession =
+            [makeOp(opId: "op01", at: days(0), changes: [mint("c3d4")])] + lone
+        let anchored = ProcessSignals(
+            ops: withAnEarlierSession, sequence: ["a1b2", "c3d4"], now: now)
+
+        XCTAssertEqual(anchored.sessions.count, 2)
+        XCTAssertEqual(anchored.daysAway, 4,
+                       "the same mid-session reading, with a gap to report")
     }
 
     // MARK: - The threshold rule
