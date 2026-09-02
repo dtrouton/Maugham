@@ -152,6 +152,36 @@ struct DiagnosticsPane: View {
     /// new run replaces the letter it belongs to.
     @State private var keptLetter: LetterKeep.Kept?
 
+    /// **What a refused ledger verb said** — one channel for Keep as lesson,
+    /// These are all choices and Retire, because the writer can only be
+    /// mid-one-press (`LetterSection.ledgerFailurePart`'s own reasoning).
+    @State private var ledgerFailure: String?
+
+    /// **Bumped after every ledger write, and read by `ledgerHandlers`** (P2
+    /// Task 7).
+    ///
+    /// The lessons ledger is a statement DOCUMENT, and
+    /// `ProjectStore.statementText(of:)` reads it through the open document or
+    /// the derived cache — neither of which is an observable this pane touches.
+    /// So the offers would go on being drawn against the ledger as it stood
+    /// when the pane last happened to render: a habit just kept still shows
+    /// **Keep as lesson**, and the press memory that hides it for the moment
+    /// is wiped by the next refusal (`LetterSection`'s
+    /// `onChange(of: ledgerFailure)`), handing the writer a live button over a
+    /// lesson already in their file and a duplicate row that then briefs every
+    /// later round twice.
+    ///
+    /// **The FIRST keep in a project hides the defect, which is why the test
+    /// that pins this presses twice** (measured 2026-09-02). That press MINTS
+    /// the ledger statement, so `manifest.statements` moves and observation
+    /// re-renders this pane whether or not the counter exists; the second
+    /// appends a ruling to a statement that already exists, and nothing
+    /// observable moves at all. With this bump removed,
+    /// `test_aKeptLessonStopsBeingOfferedOnceItStandsInTheLedger` fails with
+    /// one Keep button still on screen — and a single-press version of that
+    /// test passed either way.
+    @State private var ledgerRevision = 0
+
     // MARK: - Reads
 
     /// Observing `diagnostics.version` forces re-render on every store
@@ -587,8 +617,30 @@ struct DiagnosticsPane: View {
             }
             .buttonStyle(.plain)
             .help("Change who reads in Review")
+            // **Under the reader line, because it is addressed TO them**
+            // (spec §3.7). The header already says who reads this piece; the
+            // ask is what the writer wants them to look at, and it belongs in
+            // the same breath rather than buried in the report below.
+            askField
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
+    }
+
+    /// **Ask about…, in Author's header** — the same field Review's cockpit
+    /// draws, over the same per-document value (`AskField`). This pane holds
+    /// the store, so the commit is direct; the cockpit's arrives as a closure.
+    @ViewBuilder
+    private var askField: some View {
+        AskField(
+            ask: storedAsk,
+            commit: { AskField.commit($0, docId: docId, diagnostics: diagnostics) })
+    }
+
+    /// Version-gated like every other read of the sidecar here, so a commit
+    /// made in Review's cockpit is what this field shows.
+    private var storedAsk: String? {
+        _ = diagnostics.version
+        return diagnostics.ask(docId: docId)
     }
 
     private var isFailureState: Bool {
@@ -866,6 +918,7 @@ struct DiagnosticsPane: View {
     @ViewBuilder
     private var letterSection: some View {
         if let run = lastRun, let letter = run.letter, !letter.isEmpty {
+            let ledger = ledgerHandlers(for: letter, run: run)
             LetterSection(
                 letter: letter,
                 // **The run, so an accepted exercise is forgotten with it.**
@@ -910,9 +963,41 @@ struct DiagnosticsPane: View {
                     onFailure: { answerFailures[Self.keepFailureKey] = $0 }),
                 offerFailure: answerFailures[Self.turnClauseFailureKey],
                 keepConfirmation: LetterKeep.confirmation(for: keptLetter, run: run),
-                keepFailure: answerFailures[Self.keepFailureKey])
+                keepFailure: answerFailures[Self.keepFailureKey],
+                // **The ledger, from one builder** (P2 Task 7): the text the
+                // offers are judged against and the three presses that write
+                // into it, so this pane cannot draw offers about one file and
+                // write into another — and cannot spell the write differently
+                // from Review's cockpit.
+                ledgerText: ledger.ledgerText,
+                // **A stated fact, not one inferred from the wiring.** The
+                // cold claim and the Retire button both turn on it, and a warm
+                // round read a three-paragraph delta, which proves nothing
+                // about a habit.
+                freshEyes: run.freshEyes == true,
+                onKeepAsLesson: ledger.onKeepAsLesson,
+                onAllChoices: ledger.onAllChoices,
+                onRetire: ledger.onRetire,
+                ledgerFailure: ledgerFailure)
             Divider()
         }
+    }
+
+    /// **The ledger's four inputs, built by the one builder both hosts call**
+    /// (`LessonOffer.handlers`). The provenance, the date and the refusal
+    /// channel live there; what this pane supplies is its own voice, its own
+    /// store and its own re-read.
+    private func ledgerHandlers(
+        for letter: Letter, run: CompilerRun
+    ) -> LessonLedgerHandlers {
+        // Read so the text below is re-derived after a write lands — see
+        // `ledgerRevision`, which nothing else observes.
+        _ = ledgerRevision
+        return LessonOffer.handlers(
+            letter: letter, run: run, store: store, world: world,
+            voice: reader.editorName,
+            onFiled: { ledgerRevision += 1 },
+            onFailure: { ledgerFailure = $0 })
     }
 
     /// **The offer, decided and written by `TurnClauseOffer`** — the one

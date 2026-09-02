@@ -128,6 +128,18 @@ struct ReviewRoundCockpit: View {
     /// Author draws rather than a second one that could disagree with it.
     var letterDisclosure: (() -> AnyView)? = nil
 
+    /// **What the writer has asked of the next round on this piece** (P2 Task
+    /// 7, spec §3.7) — `DiagnosticsStore.ask(docId:)`, read by the pane and
+    /// handed down like every other resolved value here.
+    var ask: String? = nil
+    /// Take the writer's ask; answer the refusal to draw, or `nil`. **`nil`
+    /// for the input itself hides the field outright**, `letterDisclosure`'s
+    /// rule: a host with no diagnostics store behind it has nowhere to put a
+    /// sentence, and a box that swallows what is typed into it is worse than
+    /// no box. Every P1 probe mount passes nothing and draws the strip it
+    /// always drew.
+    var onAskChange: ((String?) -> String?)? = nil
+
     /// **What the last thing the run key did means for THIS document.**
     ///
     /// A separate type from `CompilerOrchestrator.RunState` because that state
@@ -477,6 +489,7 @@ struct ReviewRoundCockpit: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             letterRow
+            askRow
             runRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -512,6 +525,21 @@ struct ReviewRoundCockpit: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    /// **Ask about…, between the letter and the buttons** (spec §3.7): the
+    /// last thing the reviewer reads before pressing Run, which is where a
+    /// sentence about what this round is for belongs.
+    ///
+    /// The same `AskField` Author's header draws — one field over one
+    /// per-document value, so a worry typed in either home is the worry the
+    /// next ⌘R is briefed with, whichever home ran it. **It starts nothing**:
+    /// the keystroke is the only trigger, and this row has no Run verb in it.
+    @ViewBuilder
+    private var askRow: some View {
+        if let onAskChange {
+            AskField(ask: ask, commit: onAskChange)
         }
     }
 

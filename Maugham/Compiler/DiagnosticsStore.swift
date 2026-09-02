@@ -511,7 +511,21 @@ final class DiagnosticsStore {
         asks[docId]
     }
 
-    /// Set — or, with `nil` or blank, clear — the ask for `docId`.
+    /// **How long an ask may be** (editorial letter P2 Task 7). A worry is a
+    /// sentence, not a page: the ask rides every run's briefing as its own
+    /// section, and an essay pasted in here would out-argue the writer's own
+    /// intent statement about what this round is for. 400 characters is about
+    /// three sentences — long enough for "I'm worried the middle sags and I
+    /// can't tell whether her voice is distinct from his", short enough that
+    /// nothing arriving here can be a second intent.
+    ///
+    /// Measured on the TRIMMED text, because that is the string that is stored
+    /// and briefed; trailing whitespace the writer cannot see must not be what
+    /// refuses their sentence.
+    static let askLimit = 400
+
+    /// Set — or, with `nil` or blank, clear — the ask for `docId`. Answers
+    /// whether it was taken.
     ///
     /// **Trimmed, and an empty ask is a removal rather than an empty string.**
     /// A writer who selects the field's text and deletes it has cleared their
@@ -520,13 +534,25 @@ final class DiagnosticsStore {
     /// spelling of "nothing was asked", so there is no second empty state for
     /// the prompt to guard against.
     ///
+    /// **Over `askLimit` it REFUSES and writes nothing — `false`, not a throw.**
+    /// Nothing here failed: the file system is fine and the store is fine, and
+    /// a writer who typed four sentences has done nothing wrong. What they get
+    /// is a notice and their own words still in the field to shorten
+    /// (`AskField`), which is why the refusal is a value the caller reads
+    /// rather than an error it has to catch — and why the stored ask is left
+    /// exactly as it was, so a too-long edit never silently clears the ask a
+    /// previous round was briefed on.
+    ///
     /// Persisted immediately, on `refuseColdStart`'s discipline: a decision
     /// the writer made must survive a relaunch. `version` moves so an
     /// observing field or pane re-reads it — a SwiftUI reader that only
     /// touched `ask(docId:)` would observe nothing, because a plain
-    /// Dictionary read through a method is not a tracked access.
-    func setAsk(_ text: String?, docId: String) {
+    /// Dictionary read through a method is not a tracked access. Neither
+    /// happens on a refusal: nothing changed, so nothing needs re-reading.
+    @discardableResult
+    func setAsk(_ text: String?, docId: String) -> Bool {
         let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard trimmed.count <= Self.askLimit else { return false }
         if trimmed.isEmpty {
             asks[docId] = nil
         } else {
@@ -534,6 +560,7 @@ final class DiagnosticsStore {
         }
         persistAsks()
         version += 1
+        return true
     }
 
     /// `.maugham/diagnostics/<docId>.<slug>.json` — per-device so two

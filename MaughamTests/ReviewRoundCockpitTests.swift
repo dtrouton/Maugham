@@ -1416,12 +1416,13 @@ final class ReviewRoundCockpitTests: XCTestCase {
     // MARK: - The letter (editorial letter P1 Task 9)
 
     nonisolated private static func letter(
-        oneThing: String?, about: String = "A ghost story told through weather."
+        oneThing: String?, about: String = "A ghost story told through weather.",
+        lesson: String? = nil
     ) -> Letter {
         Letter(about: about, oneThing: oneThing, working: [],
                habits: [Letter.Habit(
                     name: "Every speech sounds like the same person", refs: [],
-                    cost: "The cast blurs.", lesson: nil, exercise: nil)],
+                    cost: "The cast blurs.", lesson: lesson, exercise: nil)],
                questions: [], scenes: nil, scenePosition: nil)
     }
 
@@ -1503,6 +1504,117 @@ final class ReviewRoundCockpitTests: XCTestCase {
             allLabels(in: window).contains("THE-LETTER-BODY"),
             "opening the disclosure must reveal the host's own section. "
             + "Read: \(allLabels(in: window))")
+    }
+
+    // MARK: - Ask about… (P2 Task 7, spec §3.7)
+
+    /// **No host closure, no field.** Every P1 probe mount passes nothing, and
+    /// a box that swallows what is typed into it is worse than no box —
+    /// `letterDisclosure`'s own rule, in the row below it.
+    func test_theAskFieldIsAbsentWithoutAWayToFileIt() throws {
+        let window = mountCockpit(activePassId: "copyedit", round: 2)
+        pump(0.3)
+        XCTAssertTrue(
+            textFields(in: window).isEmpty,
+            "a strip with nowhere to put an ask must draw no field. Read: "
+            + "\(allLabels(in: window))")
+    }
+
+    /// CONTROL for the absence, and the claim itself: given somewhere to file
+    /// one, the strip draws the field holding whatever the writer already
+    /// asked.
+    func test_theAskFieldDrawsAndHoldsTheStoredAsk() throws {
+        let window = mountCockpit(
+            activePassId: "copyedit", round: 2,
+            ask: "I'm worried the middle sags.", onAskChange: { _ in nil })
+        pump(0.3)
+
+        let values = textFields(in: window).map {
+            axAttribute($0, "accessibilityValue") as? String ?? "nil"
+        }
+        XCTAssertTrue(
+            values.contains("I'm worried the middle sags."),
+            "the field must open holding the stored ask. Read: \(values)")
+    }
+
+    /// **The field sits between the letter and the buttons** (spec §3.7) — the
+    /// last thing the reviewer reads before pressing Run, which is where a
+    /// sentence about what this round is for belongs.
+    func test_theAskFieldSitsBetweenTheLetterAndTheRunButtons() throws {
+        let window = mountCockpit(
+            activePassId: "copyedit", round: 2,
+            letterLine: "Give the reader the dock before the fire.",
+            ask: "Does the middle sag?", onAskChange: { _ in nil })
+        pump(0.3)
+
+        let texts = allLabels(in: window)
+        let letter = try XCTUnwrap(
+            texts.firstIndex(of: "Give the reader the dock before the fire."),
+            "Read: \(texts)")
+        let ask = try XCTUnwrap(
+            texts.firstIndex(of: "Does the middle sag?"), "Read: \(texts)")
+        let run = try XCTUnwrap(
+            texts.firstIndex(of: ReviewRoundCockpit.runTitle), "Read: \(texts)")
+        XCTAssertLessThan(letter, ask, "the ask is under the letter. Read: \(texts)")
+        XCTAssertLessThan(ask, run, "and over the buttons. Read: \(texts)")
+    }
+
+    /// **✕ hands nothing back to the host, and starts no run.** Clearing is
+    /// the one commit a mounted test can deliver — SwiftUI exposes no way to
+    /// send a Return into a hosted `TextField` — and it is the whole contract
+    /// in miniature: the closure is called, and the run key is not.
+    func test_clearingTheAskReachesTheHostAndStartsNoRun() throws {
+        final class Box: @unchecked Sendable {
+            var commits: [String?] = []
+            var runs = 0
+        }
+        let box = Box()
+        let window = mount(AnyView(ReviewRoundCockpit(
+            passes: [Self.line, Self.copyedit],
+            activePassId: "copyedit", round: 2, coach: nil, phase: .idle,
+            reportLine: nil,
+            onRun: { _ in box.runs += 1 },
+            onSetActivePass: { _ in },
+            onCancel: {},
+            compilerModel: .standard,
+            onCompilerModelChange: { _ in },
+            ask: "Does the middle sag?",
+            onAskChange: { box.commits.append($0); return nil })))
+        pump(0.3)
+
+        press(try button(labelled: AskField.clearLabel, in: window))
+        pump(0.3)
+
+        XCTAssertEqual(box.commits.count, 1, "the host heard exactly one commit")
+        XCTAssertNil(box.commits.first ?? "not-nil",
+                     "clearing withdraws the ask rather than storing an empty string")
+        XCTAssertEqual(
+            box.runs, 0,
+            "the keystroke is the only trigger \u{2014} a field that started a check "
+            + "would spend the writer's money every time they finished a sentence")
+    }
+
+    /// **The queue's field writes through the shared commit and starts no
+    /// run**, mounted over the real pane — the census below can see that
+    /// `AskField.commit` is spelled there, and only a press can see that the
+    /// ask reaches the store this pane actually holds.
+    func test_theQueuesAskFieldWritesToTheStoreAndSpawnsNothing() async throws {
+        let fx = try await makeHarness()
+        fx.diagnostics.setAsk("Does the middle sag?", docId: fx.document.docId)
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        pump(0.3)
+
+        press(try button(labelled: AskField.clearLabel, in: window))
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline, fx.diagnostics.ask(docId: fx.document.docId) != nil {
+            pump(0.1)
+            try? await Task.sleep(for: .milliseconds(40))
+        }
+        XCTAssertNil(
+            fx.diagnostics.ask(docId: fx.document.docId),
+            "✕ in the cockpit must withdraw the ask from the store the pane holds")
+        XCTAssertEqual(fx.runner.sendCount, 0, "and it must start no round")
     }
 
     /// No letter, no line and nothing to open — never an empty disclosure
@@ -1605,6 +1717,56 @@ final class ReviewRoundCockpitTests: XCTestCase {
                       "Read: \(allLabels(in: window))")
     }
 
+    /// **Keep as lesson works from the queue too** (P2 Task 7, spec §6).
+    ///
+    /// Mounted through `AnnotationsPane` and pressed through the real
+    /// disclosure, for `test_theQueuesLetterCanBeKept`'s reason: the census
+    /// can see that `LessonOffer.handlers` is spelled here, and only a press
+    /// can see that the row actually reaches the writer's ledger — with the
+    /// provenance the shared builder makes, not one this host invented.
+    func test_theQueuesLetterCanKeepAHabitAsALesson() async throws {
+        let fx = try await makeHarness()
+        let lesson = "Give each voice one word the others never use."
+        fx.diagnostics.replace(
+            run: CompilerRun(
+                id: "r-1", at: Date(), model: "test-model", lastOpId: "op-1",
+                deltaSummary: "1 new", intentSnapshot: nil, passId: nil, round: 1,
+                freshEyes: nil,
+                letter: Self.letter(oneThing: "Give the reader the dock before the fire.",
+                                    lesson: lesson)),
+            diagnostics: [], docId: fx.document.docId)
+
+        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
+        pump(0.3)
+        let disclosure = try XCTUnwrap(
+            pressableLanePicker(
+                labelled: "Give the reader the dock before the fire.", in: window)
+                ?? disclosureElement(
+                    labelled: "Give the reader the dock before the fire.", in: window),
+            "the letter line must open. Pressables: \(pressableLabels(in: window))")
+        press(disclosure)
+        pump(0.3)
+
+        press(try button(labelled: LetterSection.keepAsLessonTitle, in: window))
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline,
+              !(LessonLedgerVerbs.ledgerText(store: fx.store) ?? "").contains(lesson) {
+            pump(0.05)
+            try? await Task.sleep(for: .milliseconds(40))
+        }
+        let text = LessonLedgerVerbs.ledgerText(store: fx.store) ?? ""
+        XCTAssertEqual(
+            LessonsLedger.open(in: text), [lesson],
+            "the queue's own press must file the habit's lesson. Ledger: \(text)")
+        XCTAssertEqual(
+            LessonsLedger.parse(text).entries.first?.ruling.provenance,
+            LessonLedgerVerbs.provenance(
+                voice: ReviewPass.coachPreset.effectiveEditorName, lane: ""),
+            "the voice is the piece's READER \u{2014} an unassigned piece is the "
+            + "coach's (`PieceReader`) \u{2014} and a run filed under no pass has no "
+            + "lane, which the provenance must not invent")
+    }
+
     /// **A refused keep says so in Review's own channel** (fix round 1, Minor
     /// 7). `AnnotationsPane` always holds a project, so the no-project arm
     /// Author's twin test presses is unreachable here — the refusal that IS
@@ -1692,7 +1854,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         letterLine: String? = nil,
-        letterDisclosure: (() -> AnyView)? = nil
+        letterDisclosure: (() -> AnyView)? = nil,
+        ask: String? = nil,
+        onAskChange: ((String?) -> String?)? = nil
     ) -> NSWindow {
         mount(AnyView(ReviewRoundCockpit(
             passes: [Self.line, Self.copyedit],
@@ -1707,7 +1871,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
             compilerModel: compilerModel,
             onCompilerModelChange: onCompilerModelChange,
             letterLine: letterLine,
-            letterDisclosure: letterDisclosure)))
+            letterDisclosure: letterDisclosure,
+            ask: ask,
+            onAskChange: onAskChange)))
     }
 
     /// `orchestrator` is explicit and **undefaulted** so the no-compiler host
@@ -1877,6 +2043,13 @@ final class ReviewRoundCockpitTests: XCTestCase {
             axAttribute($0, "accessibilityValue") as? String
                 ?? axAttribute($0, "accessibilityLabel") as? String
         }
+    }
+
+    /// Every editable field the strip publishes — `DiagnosticsPaneTests`' own
+    /// reader, for the ask field's presence and its value.
+    private func textFields(in window: NSWindow) -> [AnyObject] {
+        guard let tree = try? axTree(in: window) else { return [] }
+        return tree.filter { (axAttribute($0, "accessibilityRole") as? String) == "AXTextField" }
     }
 
     // MARK: - Fixtures

@@ -278,3 +278,110 @@ enum LessonOffer {
         allChoicesIsOffered(letter, freshEyes: run?.freshEyes == true)
     }
 }
+
+/// **Everything a host hands `LetterSection` about the ledger, built once**
+/// (editorial letter P2 Task 7).
+///
+/// The four travel together because they are one answer: the offers the view
+/// draws are computed against ``ledgerText``, and a host that read the ledger
+/// for the text and then built the closures from somewhere else would draw
+/// offers about one file and write into another. `LessonOffer.handlers` is the
+/// only thing that makes one.
+struct LessonLedgerHandlers {
+    /// `LetterSection.ledgerText` — the ledger as it stood when this was built.
+    let ledgerText: String?
+    /// `LetterSection.onKeepAsLesson`. `nil` when there is nowhere to file.
+    let onKeepAsLesson: ((Letter.Habit) -> Void)?
+    /// `LetterSection.onAllChoices`. `nil` on the same condition — whether the
+    /// READING earns the plural press is the view's question, asked of
+    /// `LessonOffer.allChoicesIsOffered` against `LetterSection.freshEyes`.
+    let onAllChoices: (() -> Void)?
+    /// `LetterSection.onRetire`. `nil` on the same condition.
+    let onRetire: ((String) -> Void)?
+}
+
+extension LessonOffer {
+
+    /// **The three presses and the text they are judged against, for whichever
+    /// host is drawing the letter** — `TurnClauseOffer.handler`'s shape, one
+    /// verb per offer instead of one.
+    ///
+    /// Author's Diagnostics pane and Review's round cockpit both draw
+    /// `LetterSection`, and each of them could spell three `Task { try await
+    /// … }` closures of its own. Three closures × two hosts is six places to
+    /// get the provenance, the date or the refusal channel subtly different,
+    /// and the difference would be invisible: a lesson filed from Review with
+    /// no lane in its provenance reads as a lesson filed from nowhere, months
+    /// later, with nothing red in between.
+    ///
+    /// **The provenance is built HERE, from the run and the voice**, so the
+    /// two hosts cannot disagree about what a ledger line says it came from.
+    /// The lane is `LetterKeep.laneLine` — the words the cockpit already uses
+    /// for the same run — and a passless run has none, which
+    /// `LessonLedgerVerbs.provenance` renders as no lane rather than an
+    /// invented one.
+    ///
+    /// **`nil` everywhere when there is no run or no project.** A button with
+    /// nowhere to file is worse than none (`onAddTurnClause`'s rule), and
+    /// `LetterSection` hides each of the three on exactly that.
+    ///
+    /// `onFiled` runs after a write lands, and it is what the host re-reads
+    /// the ledger on: `keepIsOffered` and `retirable` are asked of
+    /// ``ledgerText``, so without a fresh read a habit just kept still draws a
+    /// Keep button. `onFailure(nil)` is sent first, so a second attempt does
+    /// not read under the first one's refusal.
+    @MainActor
+    static func handlers(
+        letter: Letter, run: CompilerRun?,
+        store: ProjectStore?, world: DeclaredWorldStore?,
+        voice: String,
+        now: @escaping () -> Date = Date.init,
+        onFiled: @escaping () -> Void,
+        onFailure: @escaping (String?) -> Void
+    ) -> LessonLedgerHandlers {
+        let ledgerText = store.flatMap { LessonLedgerVerbs.ledgerText(store: $0) }
+        guard let run, let store else {
+            return LessonLedgerHandlers(
+                ledgerText: ledgerText, onKeepAsLesson: nil,
+                onAllChoices: nil, onRetire: nil)
+        }
+        let provenance = LessonLedgerVerbs.provenance(
+            voice: voice, lane: LetterKeep.laneLine(for: run, store: store))
+        // One wrapper for all three, so the refusal channel, the log line and
+        // the re-read cannot be wired differently for one verb than another.
+        func file(_ what: String, _ write: @escaping () async throws -> Void) -> () -> Void {
+            return {
+                onFailure(nil)
+                Task {
+                    do {
+                        try await write()
+                        onFiled()
+                    } catch {
+                        documentLog.error("\u{201C}\(what, privacy: .public)\u{201D} refused: \(error.localizedDescription, privacy: .public)")
+                        onFailure(error.localizedDescription)
+                    }
+                }
+            }
+        }
+        return LessonLedgerHandlers(
+            ledgerText: ledgerText,
+            onKeepAsLesson: { habit in
+                file(LetterSection.keepAsLessonTitle) {
+                    try await LessonLedgerVerbs.keepAsLesson(
+                        lessonHeading(for: habit), provenance: provenance,
+                        store: store, world: world)
+                }()
+            },
+            onAllChoices: file(LetterSection.allChoicesTitle) {
+                try await LessonLedgerVerbs.makeChoices(
+                    letter.habits.map { lessonHeading(for: $0) },
+                    provenance: provenance, store: store, world: world)
+            },
+            onRetire: { heading in
+                file(LetterSection.retireTitle) {
+                    try await LessonLedgerVerbs.retire(
+                        heading, on: now(), store: store, world: world)
+                }()
+            })
+    }
+}

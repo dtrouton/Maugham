@@ -77,6 +77,24 @@ is briefed on when you press ⌘R — nothing more, nothing hidden. Full mechani
 — how a pin gets there, resizing, what each kind renders as — are in
 [The Right Column → References mode](right-pane.md#references-mode-e).
 
+## Asking for something in particular
+
+**Ask about…** is a one-line field: in Author it sits under the reader's name
+in the Diagnostics header, in Review between the letter and the Run buttons.
+Type what you want this check to look at — *I'm worried the middle sags*, *is
+her voice distinct from his?*, *just tell me whether the ending lands* — and
+press Return. Clicking away commits it too; the ✕ withdraws it.
+
+It's per document and it's kept until you clear it, because a worry usually
+outlasts one round. Your ask goes into the briefing as its own section and the
+letter answers it **first**, before its own say-back, in the same voice and
+still never as a rewrite. A direct question gets a direct answer. Both homes
+show the same field over the same sentence, so it doesn't matter where you
+type it. **It never starts a check** — the keystroke is still the only trigger,
+and what your ask changes is what the next ⌘R is briefed with. Keep it to a
+sentence or two: anything over 400 characters is turned away with your words
+left in the field to shorten.
+
 ## What comes back
 
 The pane reads as a report, in this order:
@@ -144,6 +162,24 @@ doesn't, and it's yours to edit like any other note. Keeping twice makes two
 notes, deliberately: nothing here overwrites a note you've since made your own.
 A letter you didn't keep was a letter you read and let go, which is what
 happens to letters.
+
+**What I've learned.** A habit the letter raises can be kept as a standing
+lesson: **Keep as lesson** files it — the round's own one-sentence lesson if it
+drew one, otherwise the habit's name — into your ledger (⌘⌥G), dated and
+carrying the letter it came from. Every later check in the project is briefed
+with what stands there, so a lesson you file once is one you stop having to
+remember to mention. A lesson already in the ledger, in any state, stops being
+offered: nothing here files the same sentence twice.
+
+The other two verbs belong to a **Fresh Eyes** round, because they're claims
+about the whole piece rather than about what changed. **These are all choices**
+files every habit in the letter as a settled choice in one press — the seeding
+gesture, for a finished draft where the "problems" are how you write. And when
+a cold read looked for a lesson you're carrying and found no instance of it,
+the letter says so and offers **Retire**, which retires that lesson in place,
+dated, without deleting it. A warm round still tells you what it didn't find,
+in its own tense — *I didn't find "…" in what changed* — and offers no button,
+because three paragraphs prove nothing about a habit.
 
 **This check** follows the letter, and only when the run just raised
 something — the notes it minted, in the order they fall down your manuscript

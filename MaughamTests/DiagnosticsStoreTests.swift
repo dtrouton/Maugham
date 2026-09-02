@@ -818,6 +818,55 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertNil(store.ask(docId: docId), "…and so is nil")
     }
 
+    /// **An ask over `askLimit` is refused, and the one that stood stands.**
+    ///
+    /// A worry is a sentence, not a page: the ask rides every run's briefing
+    /// as its own section, and an essay pasted in here would out-argue the
+    /// writer's own intent about what this round is for. The refusal has to
+    /// leave the previous ask alone — a too-long edit that cleared it would
+    /// silently stop briefing the round with a question the writer believes
+    /// they are still asking.
+    func test_setAsk_refusesAnAskOverTheLimit_andLeavesTheStandingOneAlone() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-ask-cap"
+        XCTAssertTrue(store.setAsk("Does the middle sag?", docId: docId))
+        let versionBefore = store.version
+
+        let tooLong = String(repeating: "a", count: DiagnosticsStore.askLimit + 1)
+        XCTAssertFalse(store.setAsk(tooLong, docId: docId),
+                       "an ask over \(DiagnosticsStore.askLimit) characters is refused")
+        XCTAssertEqual(
+            store.ask(docId: docId), "Does the middle sag?",
+            "a refused edit must not clear the ask the writer believes they are asking")
+        XCTAssertEqual(
+            store.version, versionBefore,
+            "nothing changed, so nothing needs re-reading \u{2014} a version bump over a "
+            + "refused write is a re-render that says the field moved when it did not")
+    }
+
+    /// CONTROL for the refusal: exactly at the limit lands, so the guard is a
+    /// ceiling rather than an off-by-one that refuses the longest legal ask.
+    /// And the count is of the TRIMMED text, since that is what is stored and
+    /// briefed — whitespace the writer cannot see must not refuse their
+    /// sentence.
+    func test_setAsk_takesAnAskExactlyAtTheLimit_measuredAfterTrimming() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-ask-cap-control"
+
+        let atLimit = String(repeating: "b", count: DiagnosticsStore.askLimit)
+        XCTAssertTrue(store.setAsk(atLimit, docId: docId))
+        XCTAssertEqual(store.ask(docId: docId), atLimit)
+
+        let padded = "   " + String(repeating: "c", count: DiagnosticsStore.askLimit) + "  \n"
+        XCTAssertTrue(store.setAsk(padded, docId: docId),
+                      "trailing whitespace is not part of the ask and must not refuse it")
+        XCTAssertEqual(
+            store.ask(docId: docId),
+            String(repeating: "c", count: DiagnosticsStore.askLimit))
+    }
+
     /// Persisted immediately and survives a relaunch — a fresh store over the
     /// same root reads it back without `load(docId:)` ever being called,
     /// since `asks` is read once at `init`.

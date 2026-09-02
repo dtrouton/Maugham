@@ -88,6 +88,14 @@ struct AnnotationsPane: View {
     /// What a refused Keep said, in this pane's own channel — the shape
     /// `letterOfferFailure` already takes, for the same reason.
     @State private var letterKeepFailure: String?
+    /// One refusal channel for all three ledger verbs, on the same reasoning:
+    /// the writer can only be mid-one-press.
+    @State private var letterLedgerFailure: String?
+    /// `DiagnosticsPane.ledgerRevision`'s twin — the ledger is a statement
+    /// document nothing here observes, so a landed lesson re-renders this pane
+    /// only because this counter moved. Its own note says what goes wrong
+    /// without it.
+    @State private var letterLedgerRevision = 0
 
     @State private var kindFilter: KindOption = .all
     /// Which review pass the queue is looking through (M3 P2 Task 8).
@@ -666,7 +674,17 @@ struct AnnotationsPane: View {
                     .map { letter in
                         { AnyView(letterSection(letter, document: document,
                                                 diagnostics: diagnostics)) }
-                    })
+                    },
+                // **The same field Author's header carries, over the same
+                // per-document value** (spec §3.7). The strip holds no store,
+                // so the commit arrives as a closure — `AskField.commit` is
+                // the one spelling of it, so neither home can refuse a long
+                // ask in different words.
+                ask: cockpitAsk(diagnostics, docId: document.docId),
+                onAskChange: { text in
+                    AskField.commit(text, docId: document.docId,
+                                    diagnostics: diagnostics)
+                })
             Divider()
         }
     }
@@ -717,6 +735,16 @@ struct AnnotationsPane: View {
         return diagnostics.latestRound(forPass: passId, docId: docId)
     }
 
+    /// The writer's standing ask for this piece, version-gated exactly as
+    /// every other read of the sidecar here is — so a commit made in Author's
+    /// header is what this field shows.
+    private func cockpitAsk(
+        _ diagnostics: DiagnosticsStore, docId: String
+    ) -> String? {
+        _ = diagnostics.version
+        return diagnostics.ask(docId: docId)
+    }
+
     /// The standing run's letter for this piece, version-gated exactly as
     /// every other read of the sidecar here is. `nil` for no run, no letter,
     /// or a letter with nothing in it — `ReviewRoundCockpit.letterLine` makes
@@ -740,6 +768,7 @@ struct AnnotationsPane: View {
         _ letter: Letter, document: Document, diagnostics: DiagnosticsStore
     ) -> some View {
         let run = diagnostics.lastRun(docId: document.docId)
+        let ledger = ledgerHandlers(letter, run: run)
         LetterSection(
             letter: letter,
             // **The run, so an accepted exercise is forgotten with it** \u{2014}
@@ -772,7 +801,33 @@ struct AnnotationsPane: View {
                 onFailure: { letterKeepFailure = $0 }),
             offerFailure: letterOfferFailure,
             keepConfirmation: LetterKeep.confirmation(for: keptLetter, run: run),
-            keepFailure: letterKeepFailure)
+            keepFailure: letterKeepFailure,
+            // **The same builder Author's pane calls** (`LessonOffer.handlers`,
+            // P2 Task 7): one provenance, one date, one refusal channel — so a
+            // lesson kept from the queue and a lesson kept from the report are
+            // the same row, filed the same way.
+            ledgerText: ledger.ledgerText,
+            freshEyes: run?.freshEyes == true,
+            onKeepAsLesson: ledger.onKeepAsLesson,
+            onAllChoices: ledger.onAllChoices,
+            onRetire: ledger.onRetire,
+            ledgerFailure: letterLedgerFailure)
+    }
+
+    /// **The ledger's four inputs, from the one builder both hosts call.** The
+    /// provenance and the date live there; this supplies the queue's own
+    /// voice, its own store and its own re-read.
+    private func ledgerHandlers(
+        _ letter: Letter, run: CompilerRun?
+    ) -> LessonLedgerHandlers {
+        // Read so the ledger text below is re-derived once a write lands —
+        // see `letterLedgerRevision`, which nothing else observes.
+        _ = letterLedgerRevision
+        return LessonOffer.handlers(
+            letter: letter, run: run, store: store, world: world,
+            voice: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
+            onFiled: { letterLedgerRevision += 1 },
+            onFailure: { letterLedgerFailure = $0 })
     }
 
     /// **The offer, decided and written by `TurnClauseOffer`** — the one

@@ -1351,7 +1351,7 @@ final class DiagnosticsPaneTests: XCTestCase {
 
         let expectedLine = try XCTUnwrap(DiagnosticsPane.driftNote(
             DriftDetector.drift(history: store.clauseStatusHistory(docId: docId))))
-        XCTAssertTrue(textFields(in: window).isEmpty,
+        XCTAssertTrue(revealedFields(in: window).isEmpty,
                      "the drift line must not offer a reply field the way a question's row does")
 
         _ = try button(labelled: expectedLine, in: window)
@@ -1360,7 +1360,7 @@ final class DiagnosticsPaneTests: XCTestCase {
 
         XCTAssertFalse(staticTextLabels(in: window, containing: expectedLine).isEmpty,
                        "pressing the line must not dismiss it \u{2014} it has nothing to dismiss")
-        XCTAssertTrue(textFields(in: window).isEmpty,
+        XCTAssertTrue(revealedFields(in: window).isEmpty,
                      "and it must not have opened a reply field either")
     }
 
@@ -2457,14 +2457,14 @@ final class DiagnosticsPaneTests: XCTestCase {
         let window = mount(pane(store: store, diagnostics: diagnostics, docId: chapter.id,
                                 currentText: { _ in "The fog came in." }))
         pump(0.2)
-        XCTAssertTrue(textFields(in: window).isEmpty, "the field is revealed, not standing")
+        XCTAssertTrue(revealedFields(in: window).isEmpty, "the field is revealed, not standing")
 
         let answer = try button(labelled: "Answer", in: window)
         _ = answer.perform(NSSelectorFromString("accessibilityPerformPress"))
         pump(0.3)
 
         XCTAssertFalse(
-            textFields(in: window).isEmpty,
+            revealedFields(in: window).isEmpty,
             "pressing Answer must put a field on the row \u{2014} otherwise the action "
             + "names something the writer cannot type into")
     }
@@ -3203,7 +3203,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         }
 
         XCTAssertEqual(try status(of: noteId, in: document), .rejected)
-        XCTAssertTrue(textFields(in: window).isEmpty,
+        XCTAssertTrue(revealedFields(in: window).isEmpty,
                       "Not this opened a field \u{2014} the reasons are Review's")
         XCTAssertFalse(allLabels(in: window).contains("Has anyone said how long yet?"),
                        "got \(allLabels(in: window))")
@@ -4471,6 +4471,188 @@ final class DiagnosticsPaneTests: XCTestCase {
             "and not through the unguarded one: \(section)")
     }
 
+    // MARK: - Ask about… (P2 Task 7, spec §3.7)
+
+    /// **The field shows what the writer already asked.** An ask outlives the
+    /// round it was typed for — a worry usually outlasts one reading — so a
+    /// field that opened empty over a stored ask would say the writer had
+    /// withdrawn a question the next run is still briefed with.
+    func test_theAskFieldShowsTheStoredAskOnMount() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "AskFieldSeeded")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.setAsk("I'm worried the middle sags.", docId: chapter.id)
+
+        let window = mount(pane(store: store, diagnostics: diagnostics, docId: chapter.id))
+        pump(0.3)
+
+        let fields = textFields(in: window)
+        XCTAssertTrue(
+            fields.contains { axAttribute($0, "accessibilityValue") as? String
+                == "I'm worried the middle sags." },
+            "the header's field must open holding the stored ask. Read: "
+            + "\(fields.map { axAttribute($0, "accessibilityValue") as? String ?? "nil" })")
+    }
+
+    /// CONTROL for the test above, and the claim in its own right: nothing
+    /// asked draws an empty field rather than no field, because the invitation
+    /// is the point — a writer who has never asked anything is exactly who the
+    /// placeholder is for.
+    func test_theAskFieldStandsEmptyWhenNothingWasAsked() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "AskFieldEmpty")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+
+        let window = mount(pane(store: store, diagnostics: diagnostics, docId: chapter.id))
+        pump(0.3)
+
+        XCTAssertFalse(
+            textFields(in: window).isEmpty,
+            "the field is standing, not revealed \u{2014} an ask with no box to type it "
+            + "into is a feature the writer cannot reach")
+        XCTAssertNil(diagnostics.ask(docId: chapter.id), "and nothing was written")
+    }
+
+    /// **The commit lands, and it starts no run.** The keystroke is the only
+    /// trigger (spec §2): typing a worry and pressing Return records the worry
+    /// and nothing else — what it changes is what the NEXT ⌘R is briefed with.
+    ///
+    /// Driven through `AskField.commit`, the named function the field's
+    /// `.onSubmit` calls, for the reason
+    /// `test_theReplyFieldCommitsOnReturnAndCancelsOnEscape` gives: SwiftUI
+    /// exposes no way to deliver a Return keystroke into a hosted `TextField`'s
+    /// editor. The wiring itself is asserted at the source, below.
+    func test_committingAnAskRecordsItAndStartsNoRun() async throws {
+        let (url, _, chapter) = try await loadedNovel(named: "AskCommitNoRun")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        let runner = SpyRunner()
+        let orchestrator = CompilerOrchestrator()
+        orchestrator.configure(
+            environment: makeEnvironment(docId: chapter.id, runner: runner),
+            diagnostics: diagnostics)
+
+        let versionBefore = diagnostics.version
+        let refusal = AskField.commit(
+            "  Does the middle sag?  ", docId: chapter.id, diagnostics: diagnostics)
+
+        XCTAssertNil(refusal, "the commit reported: \(refusal ?? "")")
+        XCTAssertEqual(diagnostics.ask(docId: chapter.id), "Does the middle sag?",
+                       "committed trimmed, which is what the briefing carries")
+        XCTAssertGreaterThan(diagnostics.version, versionBefore,
+                             "control: the store really moved")
+        XCTAssertEqual(
+            runner.spawnedModels, [],
+            "asking is not running \u{2014} a field that started a check would spend the "
+            + "writer's money every time they finished a sentence")
+        XCTAssertNil(diagnostics.lastRun(docId: chapter.id),
+                     "and no run was recorded either")
+    }
+
+    /// **Clearing withdraws the ask rather than emptying a box.** ✕ commits
+    /// nothing, so the next round is briefed with nothing — a field that
+    /// cleared itself locally while the store still held the old sentence
+    /// would be the app lying about what it is about to ask.
+    func test_clearingTheAskWithdrawsIt() async throws {
+        let (url, _, chapter) = try await loadedNovel(named: "AskClear")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.setAsk("Does the ending land?", docId: chapter.id)
+
+        XCTAssertNil(AskField.commit(nil, docId: chapter.id, diagnostics: diagnostics))
+        XCTAssertNil(diagnostics.ask(docId: chapter.id))
+    }
+
+    /// **A too-long ask is refused in one line, and the words stay put.** The
+    /// notice names the limit, because a writer told only that it is too long
+    /// has no way to know how much to cut.
+    func test_anAskOverTheLimitIsRefusedWithANoticeThatNamesTheLimit() async throws {
+        let (url, _, chapter) = try await loadedNovel(named: "AskTooLong")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.setAsk("Does the middle sag?", docId: chapter.id)
+
+        let tooLong = String(repeating: "a", count: DiagnosticsStore.askLimit + 1)
+        let refusal = AskField.commit(tooLong, docId: chapter.id, diagnostics: diagnostics)
+
+        XCTAssertEqual(refusal, AskField.tooLongNotice)
+        XCTAssertTrue(
+            AskField.tooLongNotice.contains("\(DiagnosticsStore.askLimit)"),
+            "the refusal must say how long is too long: \(AskField.tooLongNotice)")
+        XCTAssertEqual(
+            diagnostics.ask(docId: chapter.id), "Does the middle sag?",
+            "and the ask that stood still stands")
+    }
+
+    /// CONTROL for the refusal: an ask exactly at the limit lands with no
+    /// notice, so the cap is a ceiling and not an off-by-one that turns the
+    /// longest legal worry away.
+    func test_anAskExactlyAtTheLimitIsTaken() async throws {
+        let (url, _, chapter) = try await loadedNovel(named: "AskAtLimit")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+
+        let atLimit = String(repeating: "a", count: DiagnosticsStore.askLimit)
+        XCTAssertNil(AskField.commit(atLimit, docId: chapter.id, diagnostics: diagnostics))
+        XCTAssertEqual(diagnostics.ask(docId: chapter.id), atLimit)
+    }
+
+    /// **The field commits on submit and on focus loss, and never per
+    /// keystroke.** `setAsk` rewrites the asks file and bumps the store's
+    /// version on every call, so a binding wired straight to it would be one
+    /// file write and one full pane re-render per letter typed.
+    ///
+    /// Asserted at the source for `test_theReplyFieldCommitsOnReturnAndCancelsOnEscape`'s
+    /// reason — a hosted `TextField` cannot be sent a Return — and by named
+    /// verbs, so a rename fails this rather than a reformat.
+    func test_theAskFieldCommitsOnSubmitAndFocusLossOnly() throws {
+        let source = try readSource("Maugham/Views/AskField.swift")
+        XCTAssertTrue(
+            source.contains(".onSubmit { commitDraft() }"),
+            "return must commit \u{2014} a field with no submit verb is a box the writer "
+            + "types into and cannot send")
+        XCTAssertTrue(
+            source.contains(".onChange(of: focused) { was, now in"),
+            "and clicking away must commit too, or a typed worry is lost to the next "
+            + "thing the writer touches")
+        XCTAssertTrue(
+            source.contains("TextField(Self.placeholder, text: $draft)"),
+            "the field binds to its own draft; a binding straight to the store would "
+            + "write the asks file once per keystroke")
+        XCTAssertFalse(
+            source.contains(".onChange(of: draft)"),
+            "nothing may commit on every keystroke")
+    }
+
+    /// **A commit that changes nothing writes nothing.** Focus loss fires
+    /// every time the writer clicks away, including right after a Return that
+    /// already committed the same sentence — and `setAsk` rewrites the asks
+    /// file and bumps the store's version on every call, so a field that
+    /// committed unconditionally would keep the never-per-keystroke rule and
+    /// then undo it one click at a time.
+    func test_theAskFieldDoesNotRewriteAnUnchangedAsk() throws {
+        let source = try readSource("Maugham/Views/AskField.swift")
+        XCTAssertTrue(
+            source.contains("guard trimmed != (ask ?? \"\") else { return }"),
+            "the commit must compare against the stored ask before writing")
+    }
+
+    /// **Both homes commit through the one function**, so neither can refuse a
+    /// long ask in different words or trim it differently.
+    func test_bothHostsCommitTheAskThroughTheOneFunction() throws {
+        for path in ["Maugham/Views/DiagnosticsPane.swift",
+                     "Maugham/Views/AnnotationsPane.swift"] {
+            let source = try readSource(path)
+            XCTAssertTrue(
+                source.contains("AskField.commit("),
+                "\(path) must go through the shared commit")
+            XCTAssertFalse(
+                source.contains("diagnostics.setAsk("),
+                "\(path) must not spell the store write itself \u{2014} a host with its "
+                + "own commit is a second answer about what a refused ask says")
+        }
+    }
+
     // MARK: - Letter hosting
 
     /// `letterSection`'s body, bounded at BOTH ends by a named declaration.
@@ -4496,15 +4678,223 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     private func mountLetterPane(
         store: ProjectStore?, docId: String, letter: Letter,
-        reader: PieceReader = .nobody
+        reader: PieceReader = .nobody,
+        freshEyes: Bool? = nil,
+        passId: String? = nil, round: Int? = nil
     ) -> NSWindow {
         let diagnostics = DiagnosticsStore(
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-        diagnostics.replace(run: makeRun(letter: letter), diagnostics: [], docId: docId)
+        diagnostics.replace(
+            run: makeRun(passId: passId, round: round, freshEyes: freshEyes,
+                         letter: letter),
+            diagnostics: [], docId: docId)
         return mount(AnyView(DiagnosticsPane(
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
             docId: docId, currentText: { _ in nil }, compilerModel: .standard,
             store: store, reader: reader)))
+    }
+
+    // MARK: - The lessons ledger, from the letter (P2 Task 7)
+
+    /// A letter with one habit worth keeping, and nothing else in it.
+    private func habitLetter(
+        name: String = "Every speech sounds like the same person",
+        lesson: String? = "Give each voice one word the others never use.",
+        retired: [String]? = nil
+    ) -> Letter {
+        Letter(
+            about: "A ghost story told through weather.",
+            oneThing: nil, working: [],
+            habits: [Letter.Habit(
+                name: name, refs: [], cost: "The cast blurs.",
+                lesson: lesson, exercise: nil)],
+            questions: [], scenes: nil, scenePosition: nil, retired: retired)
+    }
+
+    /// Two habits, so a test can press Keep TWICE — the second press appending
+    /// to a ledger statement that already exists, which is the case the pane's
+    /// own re-read is for.
+    private func twoHabitLetter(_ first: String, _ second: String) -> Letter {
+        Letter(
+            about: "A ghost story told through weather.",
+            oneThing: nil, working: [],
+            habits: [
+                Letter.Habit(name: "Voices blur", refs: [], cost: "The cast blurs.",
+                             lesson: first, exercise: nil),
+                Letter.Habit(name: "Openings repeat", refs: [], cost: "It flattens.",
+                             lesson: second, exercise: nil),
+            ],
+            questions: [], scenes: nil, scenePosition: nil)
+    }
+
+    /// **A kept lesson stops being offered.** `LessonOffer.keepIsOffered` is
+    /// asked of the ledger's TEXT, and the ledger is a statement document this
+    /// pane observes nothing about — so without the pane's own re-read after a
+    /// write, the button goes on being drawn over a lesson already in the
+    /// writer's file, and pressing it again files a duplicate that then briefs
+    /// every later round twice.
+    ///
+    /// Disable experiment: deleting `ledgerRevision`'s bump in
+    /// `DiagnosticsPane.ledgerHandlers` turns this red at the final assertion.
+    func test_aKeptLessonStopsBeingOfferedOnceItStandsInTheLedger() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "KeepAsLessonPane")
+        let first = "Give each voice one word the others never use."
+        let second = "Open a scene on movement, not weather."
+        let window = mountLetterPane(
+            store: store, docId: chapter.id,
+            letter: twoHabitLetter(first, second),
+            reader: .stage(ReviewPass.coachPreset))
+
+        // Control: two habits, two offers, before anything is pressed.
+        XCTAssertEqual(
+            try axButtons(labelled: LetterSection.keepAsLessonTitle, in: window).count, 2,
+            "premise: both habits offer Keep. Buttons: \(allLabels(in: window))")
+
+        // **The first press MINTS the ledger statement**, which moves the
+        // manifest and would re-render this pane on its own.
+        try await pressKeepAsLesson(in: window, until: { self.openLessons(store).count == 1 })
+        // **The second appends to a statement that already exists** — nothing
+        // observable moves, so only the pane's own re-read can take the offer
+        // away. Disable experiment: with `ledgerRevision`'s bump removed from
+        // `DiagnosticsPane.ledgerHandlers`, the poll below times out and the
+        // final assertion fails with two buttons still on screen.
+        try await pressKeepAsLesson(in: window, until: { self.openLessons(store).count == 2 })
+
+        XCTAssertEqual(
+            Set(openLessons(store)), [first, second],
+            "both lessons must reach the writer's ledger")
+
+        var remaining = (try? axButtons(
+            labelled: LetterSection.keepAsLessonTitle, in: window).count) ?? 0
+        let goneBy = Date().addingTimeInterval(3)
+        while Date() < goneBy, remaining > 0 {
+            pump(0.1)
+            remaining = (try? axButtons(
+                labelled: LetterSection.keepAsLessonTitle, in: window).count) ?? 0
+        }
+        XCTAssertEqual(
+            remaining, 0,
+            "a lesson that stands in the ledger must not still offer Keep as lesson \u{2014} "
+            + "a second press files a duplicate row that then briefs every later round "
+            + "twice. Read: \(allLabels(in: window))")
+    }
+
+    /// The ledger's open lessons, as the app reads them.
+    private func openLessons(_ store: ProjectStore) -> [String] {
+        LessonsLedger.open(in: LessonLedgerVerbs.ledgerText(store: store) ?? "")
+    }
+
+    /// Press the first Keep as lesson on screen and wait for the write.
+    private func pressKeepAsLesson(
+        in window: NSWindow, until settled: @escaping () -> Bool
+    ) async throws {
+        let button = try XCTUnwrap(
+            try axButtons(labelled: LetterSection.keepAsLessonTitle, in: window)
+                .first as? NSObject,
+            "no Keep as lesson left to press. Read: \(allLabels(in: window))")
+        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, !settled() {
+            pump(0.05)
+            try? await Task.sleep(for: .milliseconds(40))
+        }
+        XCTAssertTrue(settled(), "the ledger write never landed")
+    }
+
+    /// **The lesson's provenance names the voice AND the lane**, built by the
+    /// shared handler rather than by either host. A lesson outlives the letter
+    /// that raised it, so which round noticed it is the one fact a writer
+    /// reading their ledger months later cannot recover any other way.
+    func test_aKeptLessonCarriesTheVoiceAndTheLaneItWasNoticedIn() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "KeepAsLessonProvenance")
+        let pass = ReviewPass(id: "structural", name: "Structural",
+                              brief: "b", editorName: "Perkins")
+        store.manifest.reviewPasses = [pass]
+        let window = mountLetterPane(
+            store: store, docId: chapter.id, letter: habitLetter(),
+            reader: .stage(pass), passId: pass.id, round: 2)
+
+        _ = try button(labelled: LetterSection.keepAsLessonTitle, in: window)
+            .perform(NSSelectorFromString("accessibilityPerformPress"))
+
+        var entries: [LessonsLedger.Entry] = []
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, entries.isEmpty {
+            pump(0.05)
+            try? await Task.sleep(for: .milliseconds(40))
+            entries = LessonsLedger.parse(
+                LessonLedgerVerbs.ledgerText(store: store) ?? "").entries
+        }
+        XCTAssertEqual(
+            entries.first?.ruling.provenance,
+            LessonLedgerVerbs.provenance(
+                voice: "Perkins",
+                lane: ReviewRoundCockpit.laneLine(pass: pass, round: 2)),
+            "the provenance is the shared builder's, from the run and the reader")
+    }
+
+    /// **Retire is a COLD round's offer, and a warm one still says what it
+    /// saw.** A warm round read a three-paragraph delta, which proves nothing
+    /// about a habit; only Fresh Eyes read the whole piece, which is the
+    /// evidence a retirement stands on.
+    ///
+    /// Disable experiment: wiring `freshEyes: true` unconditionally in
+    /// `DiagnosticsPane.letterSection` turns the warm half of this red.
+    func test_onlyAColdRoundOffersToRetireALesson() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "RetireOfferTense")
+        let lesson = "Vary the opening."
+        try await LessonLedgerVerbs.keepAsLesson(
+            lesson, provenance: "from Le Guin's letter", store: store, world: nil)
+
+        let warm = mountLetterPane(
+            store: store, docId: chapter.id,
+            letter: habitLetter(retired: [lesson]), freshEyes: nil)
+        pump(0.3)
+        XCTAssertNil(
+            findButton(labelled: LetterSection.retireTitle, in: warm),
+            "a warm round read a delta and must not offer a retirement over it. "
+            + "Read: \(allLabels(in: warm))")
+        XCTAssertTrue(
+            allLabels(in: warm).contains(LetterSection.warmRetiredLine(lesson)),
+            "…but it still owes the writer the observation. Read: \(allLabels(in: warm))")
+
+        // Control: the same letter, read cold, offers the button.
+        let cold = mountLetterPane(
+            store: store, docId: chapter.id,
+            letter: habitLetter(retired: [lesson]), freshEyes: true)
+        pump(0.3)
+        XCTAssertNotNil(
+            findButton(labelled: LetterSection.retireTitle, in: cold),
+            "a cold round read the whole piece, which is what a retirement stands on. "
+            + "Read: \(allLabels(in: cold))")
+    }
+
+    /// **Neither host spells a ledger write.** All three presses are built by
+    /// `LessonOffer.handlers`, so the provenance, the date and the refusal
+    /// channel cannot come out different in Author than in Review — a
+    /// difference that would be invisible until a writer read their ledger
+    /// months later.
+    func test_bothHostsTakeTheLedgerVerbsFromTheOneBuilder() throws {
+        for path in ["Maugham/Views/DiagnosticsPane.swift",
+                     "Maugham/Views/AnnotationsPane.swift"] {
+            let source = try readSource(path)
+            XCTAssertTrue(
+                source.contains("LessonOffer.handlers("),
+                "\(path) must build its ledger closures with the shared builder")
+            for verb in ["LessonLedgerVerbs.keepAsLesson(",
+                         "LessonLedgerVerbs.makeChoice",
+                         "LessonLedgerVerbs.retire("] {
+                XCTAssertFalse(
+                    source.contains(verb),
+                    "\(path) must not call \(verb) itself \u{2014} a host with its own "
+                    + "write is a second answer about what a ledger line says")
+            }
+            XCTAssertTrue(
+                source.contains("freshEyes: run.freshEyes == true")
+                    || source.contains("freshEyes: run?.freshEyes == true"),
+                "\(path) must state the round's tense rather than leave the view to "
+                + "infer it from which closures arrived")
+        }
     }
 
     /// Poll until the ruling's statement exists and carries the clause —
@@ -4656,6 +5046,20 @@ final class DiagnosticsPaneTests: XCTestCase {
     private func textFields(in window: NSWindow) -> [AnyObject] {
         guard let tree = try? axTree(in: window) else { return [] }
         return tree.filter { (axAttribute($0, "accessibilityRole") as? String) == "AXTextField" }
+    }
+
+    /// **Every field the pane REVEALS, which is every field but the header's
+    /// standing ask** (P2 Task 7).
+    ///
+    /// The reply field, the drift line's absent one and Not this's absent one
+    /// are all claims about what a press opened. Ask about… stands in the
+    /// header from the moment the pane mounts, so a bare count of text fields
+    /// stopped being able to say anything about them the day it shipped.
+    private func revealedFields(in window: NSWindow) -> [AnyObject] {
+        textFields(in: window).filter {
+            (axAttribute($0, "accessibilityIdentifier") as? String)
+                != AskField.fieldIdentifier
+        }
     }
 
     /// What one button press posted, on `name`. A reference box rather than a
