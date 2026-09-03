@@ -261,6 +261,8 @@ enum CompilerPrompt {
         dispositions: [CompilerAnnotationDisposition] = [],
         ask: String? = nil,
         lessons: String? = nil,
+        stage: DraftStage? = nil,
+        signals: ProcessSignals? = nil,
         previousBriefingHash: String?
     ) -> (message: String, briefingHash: String?) {
         var sections: [String] = []
@@ -318,6 +320,24 @@ enum CompilerPrompt {
         // it moves when the writer changes their intent or switches lanes.
         if let scenes = scenePositionSection(scenePosition) {
             sections.append(scenes)
+        }
+        // The stage, then the numbers behind it, in that order: what this run
+        // is being asked to write, and then the observation the letter's own
+        // process line may be built from. Per-run frame like the three above
+        // them, and out of the hash for the same reason (constraint 25) with
+        // one sharper of its own — the stage flips the first round the
+        // writer stops adding and starts rewriting, and the numbers move with
+        // their week, so a hash covering either would never match its
+        // predecessor.
+        //
+        // The stage is written on every production run; the numbers only when
+        // a plain threshold was crossed. A quiet session says nothing at all
+        // rather than saying there is nothing to say.
+        if let stageSection = stageSection(stage) {
+            sections.append(stageSection)
+        }
+        if let processSection = processSection(signals) {
+            sections.append(processSection)
         }
         if let previousRound,
            let round = roundSection(
@@ -579,6 +599,146 @@ enum CompilerPrompt {
                 """
         }
         return "Scenes in this piece: \(sentence)"
+    }
+
+    // MARK: - The draft stage and its dosage (P3 Task 4, spec §3.8)
+
+    /// **How much letter this run's delta has earned** — the second half of
+    /// global constraint 24, whose first half is `DiagnosticIngest.parseLetter`
+    /// capping the answer at ingest. Both, never one: the briefing is how the
+    /// model is asked for a short letter, and the cap is what makes it short
+    /// whatever the model did.
+    ///
+    /// **The stage is the RUN's, not the model's.** It is derived at the
+    /// keystroke from this run's own delta and the document's own signals
+    /// (`DraftStage.derive`), so the section states a fact rather than asking a
+    /// question, and nothing the answer says about it is read back.
+    ///
+    /// **Deliberately outside
+    /// `CompilerPromptTests.test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget`**
+    /// (global constraint 26). That budget measures the text that rides EVERY
+    /// run; this is per-run frame, on `scenePositionSection`'s footing —
+    /// written only when there is a stage to name, and different words on a
+    /// drafting round from a revising one. Folding it into a standing-overhead
+    /// total would charge every run for words half of them never carry. It has
+    /// a ceiling of its own instead:
+    /// `CompilerPromptTests.test_theDraftingDosageStaysUnderItsOwnWordCeiling`.
+    ///
+    /// **`String?` on `passSection`/`roundSection`/`scenePositionSection`'s
+    /// rule**: the call site composes optional sections in one spelling. Every
+    /// production run carries a stage — `beginRun` derives one before it sends
+    /// — so the `nil` arm is for this function's other callers and for a test
+    /// that is not about the stage.
+    ///
+    /// **Never folded into `briefingHashInput`** (global constraint 25), and
+    /// its reason is sharper than its neighbours': the stage is derived from
+    /// the delta, so it flips the first round the writer stops adding and
+    /// starts rewriting — a hash covering it would re-embed the essay, the
+    /// declared world and the bible slice on exactly that round.
+    static func stageSection(_ stage: DraftStage?) -> String? {
+        guard let stage else { return nil }
+        switch stage {
+        case .drafting:
+            return """
+                Draft stage: drafting. The frontier moved this session and most \
+                of what changed is new prose, so this is a first draft in \
+                motion and must not be line-edited. Write the SHORT letter: \
+                about, working, at most one question, and a habit only where \
+                it runs through the whole delta. No exercise, and answer \
+                scenes with null. Whatever the stage, a question the writer \
+                asked is answered in full — the ask overrides the dose. The \
+                full letter waits for Fresh Eyes, which always reads the piece \
+                cold and always writes all of it.
+                """
+        case .revising:
+            return """
+                Draft stage: revising. What changed is mostly rework of prose \
+                that already stood, so write the full letter — every part your \
+                pass brief allows.
+                """
+        }
+    }
+
+    // MARK: - The process numbers (P3 Task 4, spec §5)
+
+    /// What the section is called, so `letterInstruction` can point at it
+    /// ("the numbers under Process") and the coach's brief can name it.
+    static let processHeading = "Process"
+
+    /// The section's own first line — the heading, plus what these numbers are
+    /// and are not.
+    ///
+    /// A constant rather than an inline string because the heading ALONE is
+    /// not a witness that the section was written: `letterInstruction` names
+    /// `Process` in its own prose, so a test asking whether a quiet session
+    /// wrote a section has to look for this line rather than for the word.
+    static let processSectionOpening =
+        "\(processHeading) — counted off this document's own op log, not read "
+        + "out of the prose:"
+
+    /// **The numbers behind the letter's one process sentence** — and only when
+    /// a plain threshold says they are worth a line (spec §5).
+    ///
+    /// `nil` for a quiet session, which is most sessions, and that silence is
+    /// the feature: a heading over "the frontier moved this session" would be
+    /// the app narrating an ordinary working day back at the writer.
+    /// `ProcessSignals.noteworthy` owns the whole of the judgement; this
+    /// function only says what it found.
+    ///
+    /// **Never folded into `briefingHashInput`** (global constraint 25): the
+    /// numbers move with the writer's own week, so a hash covering them would
+    /// never match its predecessor.
+    static func processSection(_ signals: ProcessSignals?) -> String? {
+        guard let signals else { return nil }
+        let noteworthy = signals.noteworthy
+        guard !noteworthy.isEmpty else { return nil }
+        return ([processSectionOpening] + noteworthy.map { "- " + processSentence($0) })
+            .joined(separator: "\n")
+    }
+
+    /// One signal, as one sentence with its number in it.
+    ///
+    /// **Every sentence carries a count**, because a sentence without one is an
+    /// opinion, and the refusal to have one is the whole of `ProcessSignals`.
+    ///
+    /// **A hotspot is named by its POSITION, not by its text.** The excerpt
+    /// lives on the live paragraph and this function is pure — it is handed a
+    /// value computed off the op log and nothing else — so "the 4th paragraph"
+    /// is the honest address here. The Statistics window, which has the prose
+    /// in hand, shows the excerpt instead (global constraint 31).
+    static func processSentence(_ signal: ProcessSignals.Signal) -> String {
+        switch signal {
+        case .frontierUnmoved(let sessions):
+            return """
+                The frontier has not moved in \(sessions) sessions: nothing \
+                new has been added past the end of this document in that time.
+                """
+        case .hotspot(let hotspot):
+            return """
+                The \(ordinal(hotspot.position + 1)) paragraph has been \
+                rewritten \(hotspot.rewrites) times in the last \
+                \(ProcessSignals.churnWindowSessions) sessions.
+                """
+        case .coldRead(let days):
+            return """
+                The writer had been away from this document for \(days) days \
+                before this session.
+                """
+        }
+    }
+
+    /// "4th" for 4 — a paragraph's address reads as an ordinal, and this is the
+    /// one place the prompt counts that way.
+    private static func ordinal(_ value: Int) -> String {
+        let suffix: String
+        switch (value % 100, value % 10) {
+        case (11, _), (12, _), (13, _): suffix = "th"
+        case (_, 1): suffix = "st"
+        case (_, 2): suffix = "nd"
+        case (_, 3): suffix = "rd"
+        default: suffix = "th"
+        }
+        return "\(value)\(suffix)"
     }
 
     // MARK: - The writer's dispositions (M4 P1 §5.5)

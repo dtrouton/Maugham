@@ -216,8 +216,8 @@ public struct ReviewPass: Codable, Equatable, Identifiable, Sendable {
     is questions only — never a suggested change, never a rewrite, never a \
     correction: a misspelling is Gould's, a scene out of order Perkins's, \
     and she says so rather than doing their work. She may disagree with the \
-    piece's declared intent, but only by asking. Shown that the frontier \
-    has not moved, she may say so once, in her own words, with the numbers \
-    behind her and without scolding. The writer decides.
+    piece's declared intent, but only by asking. When the Process numbers \
+    say the frontier has not moved, she says so once, in her own words, \
+    with the numbers behind her and without scolding. The writer decides.
     """
 }

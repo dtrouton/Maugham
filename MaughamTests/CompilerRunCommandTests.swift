@@ -5682,6 +5682,227 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertNil(run.letter)
     }
 
+    // MARK: - The draft stage, derived and stamped (P3 Task 4)
+
+    /// A reading whose latest sitting laid down new prose by the writer's own
+    /// hand — a `.typingBurst` mint, which is what `ProcessSignals` counts as
+    /// a frontier move. `standingReading()` cannot serve: its one op is a
+    /// `.bootstrap`, which mints ids for text that already existed, so it has
+    /// no frontier at all and derives as revising.
+    private func draftingReading() -> CompilerOrchestrator.DocumentReading {
+        CompilerOrchestrator.DocumentReading(
+            ops: [makeOp(opId: "op1",
+                         changes: [.init(paragraphId: "a1b2", prior: nil, next: "The fog came.")])],
+            paragraphs: ["a1b2": "The fog came."],
+            sequence: ["a1b2"])
+    }
+
+    /// A letter carrying three questions — the full dosage's cap
+    /// (`DiagnosticIngest.letterQuestionsCap`) — so a short letter's cap of one
+    /// is visible as a difference rather than as an absence.
+    private static let aLetterWithThreeQuestions = """
+        {"section":"conformance","checks":[]}
+        {"section":"continuity","questions":[]}
+        {"section":"reader","reports":[]}
+        {"section":"facts","candidates":[]}
+        {"section":"intent_drift","verdict":"holds"}
+        {"section":"letter","about":"A woman waits out a fog.","one_thing":null,\
+        "working":[],"habits":[],"questions":[\
+        {"refs":[],"habit":null,"question":"Whose fog is it?"},\
+        {"refs":[],"habit":null,"question":"Where is she standing?"},\
+        {"refs":[],"habit":null,"question":"What does she want from the weather?"}],\
+        "scenes":null}
+        """
+
+    /// **The stage is stamped by the RUN, not answered by the model** (spec
+    /// §3.8, and `test_aRunStampsTheDerivedScenePositionOntoItsLetter`'s own
+    /// shape). It is derived app-side at the keystroke from this run's delta
+    /// and the document's own signals; the model is told about it and its
+    /// answer is never consulted for it.
+    ///
+    /// The raw value is asserted rather than the case, because
+    /// `Letter.stage` carries `rawValue` into the sidecar and a rename would
+    /// read back as `nil` on every letter already written.
+    func test_aRunStampsTheDerivedDraftStageOntoItsLetter() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: draftingReading())
+        runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.letter?.about, "A woman waits out a fog.",
+                       "control: the letter itself really did land")
+        XCTAssertEqual(run.letter?.stage, "drafting")
+    }
+
+    /// The other arm, and the control for the one above: a document whose only
+    /// op is a bootstrap has no frontier to have just moved, so a delta of
+    /// nothing but new paragraphs still reads as revising. Importing a
+    /// finished chapter is not drafting it.
+    func test_aDocumentWithNoFrontierStampsRevising() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.letter?.stage, "revising")
+    }
+
+    /// **The preview stamps the same stage the finish does.** `record` is one
+    /// spelling and takes the stage undefaulted, so the compiler forces both
+    /// call sites to pass something — it cannot force them to pass the SAME
+    /// thing, which is what this pins.
+    func test_thePreviewAndTheFinishAgreeAboutTheDraftStage() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // the turn stays open
+        let harness = try makeHarness(runner: runner, reading: draftingReading())
+        streamingRun(runner: runner, harness: harness)
+
+        runner.stream("""
+            {"section":"letter","about":"A woman waits out a fog.","working":[],\
+            "habits":[],"questions":[],"scenes":null}
+            """ + "\n")
+
+        let previewed = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(previewed.letter?.stage, "drafting",
+                       "the preview's letter carries the run's own stage")
+
+        runner.release(.resultText(Self.aLetterAndNothingElse))
+        settle()
+
+        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(finished.letter?.stage, previewed.letter?.stage,
+                       "\u{2026}and the answer that supersedes it says the same thing")
+    }
+
+    /// **The one-spelling guard, read off the source.** `record` stamps the
+    /// scene position, the ask and now the stage, and the three are stamped
+    /// together because they are the same kind of fact: the run's own, decided
+    /// at the keystroke, never echoed back by the model. A second stamp site
+    /// added anywhere else would let a preview and its answer describe two
+    /// different checks — which is precisely the defect the carried-on-
+    /// `StreamingRun` shape exists to prevent, and no assertion about a
+    /// finished run can see it.
+    ///
+    /// Adjacency rather than mere presence: the census is that the stage is
+    /// stamped in the SAME place as its two siblings.
+    ///
+    /// Planted offender: put a comment line between `letter?.asked = ask` and
+    /// `letter?.stage = stage.rawValue` — the smallest way to move the stamp
+    /// off its sibling's line without changing a single thing the app does.
+    /// This test failed at its `XCTAssertEqual(stageLines.first, askLines
+    /// .first.map { $0 + 1 })` line, and every other test in this file stayed
+    /// green.
+    func test_theStageIsStampedBesideTheAskInTheOneRecordSpelling() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Maugham/Compiler/CompilerOrchestrator.swift"),
+            encoding: .utf8)
+        let lines = source.components(separatedBy: "\n")
+        let askLines = lines.indices.filter { lines[$0].contains("letter?.asked = ask") }
+        XCTAssertEqual(askLines.count, 1,
+                       "the ask is stamped in one place; if that changed, this "
+                       + "census is reading the wrong file")
+        let stageLines = lines.indices.filter { lines[$0].contains("letter?.stage =") }
+        XCTAssertEqual(stageLines.count, 1,
+                       "one stamp site, or a preview and its answer can disagree")
+        XCTAssertEqual(stageLines.first, askLines.first.map { $0 + 1 },
+                       "the stage is stamped on the line after the ask, in the "
+                       + "one `record` spelling")
+    }
+
+    // MARK: - The dosage, enforced at ingest (P3 Task 4, constraint 24)
+
+    /// **A warm drafting run ingests ONE question.** The dosage is enforced at
+    /// ingest as well as stated in the briefing (global constraint 24), so the
+    /// short letter is short whatever the model did — a model that wrote three
+    /// questions anyway has two of them dropped before the writer sees them
+    /// and before any of them can reach the queue as a `.query`.
+    func test_aWarmDraftingRunIngestsOneQuestion() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: draftingReading())
+        runner.nextEvent = .resultText(Self.aLetterWithThreeQuestions)
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.letter?.stage, "drafting", "control: it really is a short letter")
+        XCTAssertEqual(run.letter?.questions.count, 1,
+                       "the short letter's cap is one question")
+    }
+
+    /// **Fresh Eyes is always the full letter, whatever the stage** (spec
+    /// §3.8). The stage is still derived and still stamped — the delta is
+    /// mostly new and the frontier moved this session, so it reads as drafting
+    /// — but a cold read is the classic whole-piece letter and its dosage is
+    /// `.full`, so all three questions survive.
+    func test_aFreshEyesDraftingRunStampsDraftingAndStillIngestsTheFullLetter() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: draftingReading())
+        runner.nextEvent = .resultText(Self.aLetterWithThreeQuestions)
+
+        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(run.letter?.stage, "drafting",
+                       "the stage is a fact about the delta, and a cold read "
+                       + "does not change what the writer has been doing")
+        XCTAssertEqual(run.letter?.questions.count, 3,
+                       "…but Fresh Eyes is always the full letter")
+    }
+
+    /// **The model is TOLD its stage** — the run message carries the section,
+    /// so the dosage is stated as well as enforced.
+    func test_theRunMessageTellsTheModelItsDraftStage() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: draftingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = try XCTUnwrap(runner.sends.first?.message)
+        XCTAssertTrue(
+            message.contains(try XCTUnwrap(CompilerPrompt.stageSection(.drafting))),
+            "got \(message)")
+    }
+
+    /// **The signals reach the briefing from the run's own reading**, with no
+    /// new `Environment` closure: `DocumentReading` already carries the ops and
+    /// the sequence `ProcessSignals` needs. A quiet document says nothing, which
+    /// is the ordinary case and the one this fixture is.
+    ///
+    /// Disable experiment: removed `processSection`'s `guard !noteworthy
+    /// .isEmpty` so a quiet reading wrote a bare heading. This test failed at
+    /// its `XCTAssertFalse(message.contains(CompilerPrompt
+    /// .processSectionOpening))` line, and so did
+    /// `CompilerPromptTests.test_aQuietSessionWritesNoProcessSectionAnywhere`.
+    func test_aQuietDocumentBriefsNoProcessNumbers() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: draftingReading())
+
+        harness.orchestrator.runRequested(docId: docId)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = try XCTUnwrap(runner.sends.first?.message)
+        XCTAssertFalse(message.contains(CompilerPrompt.processSectionOpening),
+                       "one sitting, nothing rewritten, nobody away; got \(message)")
+    }
+
     // MARK: - The ledger in the briefing (editorial letter P2 Task 4)
 
     /// A ledger of the shape `LessonsLedger` reads, with one entry of each

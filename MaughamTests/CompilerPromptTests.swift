@@ -682,6 +682,271 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertLessThan(scenes.lowerBound, delta.lowerBound)
     }
 
+    // MARK: - The draft stage and the process numbers (P3 Task 4)
+
+    /// The fixture for a run whose signals are worth a section: four sittings,
+    /// the frontier laid down in the first and nothing new past it since, so
+    /// `sessionsSinceFrontierMoved` is 3 — `ProcessSignals.frontierStallSessions`
+    /// exactly.
+    private func stalledSignals() -> ProcessSignals {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        func op(_ id: String, session: String, minutes: Double,
+                _ changes: [Op.ParagraphChange]) -> Op {
+            Op(opId: id, docId: "doc-1", at: base.addingTimeInterval(minutes * 60),
+               device: "macA", session: session, kind: .typingBurst,
+               changes: changes, sequence: nil)
+        }
+        let ops = [
+            op("op01", session: "s1", minutes: 0,
+               [.init(paragraphId: "a1b2", prior: nil, next: "The fog came.")]),
+            op("op02", session: "s2", minutes: 1,
+               [.init(paragraphId: "a1b2", prior: "The fog came.", next: "Fog.")]),
+            op("op03", session: "s3", minutes: 2,
+               [.init(paragraphId: "a1b2", prior: "Fog.", next: "The fog.")]),
+            op("op04", session: "s4", minutes: 3,
+               [.init(paragraphId: "a1b2", prior: "The fog.", next: "Fog again.")]),
+        ]
+        return ProcessSignals(
+            ops: ops, sequence: ["a1b2"],
+            now: base.addingTimeInterval(4 * 60))
+    }
+
+    /// A reading with nothing worth saying: one sitting, the frontier moved in
+    /// it, nothing rewritten five times, nobody away.
+    private func quietSignals() -> ProcessSignals {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let op = Op(opId: "op01", docId: "doc-1", at: base, device: "macA",
+                    session: "s1", kind: .typingBurst,
+                    changes: [.init(paragraphId: "a1b2", prior: nil, next: "The fog came.")],
+                    sequence: nil)
+        return ProcessSignals(ops: [op], sequence: ["a1b2"], now: base)
+    }
+
+    /// **The drafting arm names the stage, says WHY, and doses the letter**
+    /// (spec §3.8). A first draft in motion should not be line-edited, and the
+    /// model is told that in the same breath as what it is allowed to write.
+    func test_theDraftingStageNamesItselfAndDosesTheLetter() {
+        guard let section = CompilerPrompt.stageSection(.drafting)
+        else { return XCTFail("a stage the run derived must reach the model") }
+
+        XCTAssertTrue(section.lowercased().contains("drafting"),
+                      "the stage names itself; got \(section)")
+        XCTAssertTrue(section.lowercased().contains("frontier"),
+                      "…and says why it read as drafting; got \(section)")
+        XCTAssertTrue(section.lowercased().contains("one question"),
+                      "…at most one question; got \(section)")
+        XCTAssertTrue(section.lowercased().contains("no exercise"),
+                      "…no exercise; got \(section)")
+        XCTAssertTrue(section.lowercased().contains("null"),
+                      "…and scenes answered null; got \(section)")
+        XCTAssertTrue(section.lowercased().contains("fresh eyes"),
+                      "…and the full letter waits for a cold read; got \(section)")
+    }
+
+    /// **The ask overrides the dosage, and the drafting arm is where that is
+    /// said** (global constraint 24). `parseLetter` never touches `answer`, so
+    /// the only thing that can shorten an answer is the model deciding to —
+    /// which is exactly what this sentence forbids.
+    func test_theDraftingStageStillAnswersTheWritersAskInFull() {
+        guard let section = CompilerPrompt.stageSection(.drafting)
+        else { return XCTFail("a stage the run derived must reach the model") }
+        XCTAssertTrue(section.lowercased().contains("in full"),
+                      "an ask is answered in full whatever the stage; got \(section)")
+        XCTAssertTrue(section.lowercased().contains("ask"),
+                      "…and it names what it is about; got \(section)")
+    }
+
+    /// The other arm: revising is the letter as it has always been, and the
+    /// section says so rather than staying silent — a run that named no stage
+    /// and a run that named revising would otherwise read identically to the
+    /// model, and the stage is a fact it is entitled to.
+    func test_theRevisingStageAsksForTheWholeLetter() {
+        guard let section = CompilerPrompt.stageSection(.revising)
+        else { return XCTFail("a stage the run derived must reach the model") }
+        XCTAssertTrue(section.lowercased().contains("revising"))
+        XCTAssertTrue(section.lowercased().contains("full letter"),
+                      "got \(section)")
+    }
+
+    /// No stage is no section at all, on `passSection`/`roundSection`/
+    /// `scenePositionSection`'s rule: the call site composes optional sections
+    /// in one spelling, and every production run has a stage — the parameter is
+    /// optional for the tests and the other callers of this public function.
+    ///
+    /// Disable experiment: replaced the `guard let stage else { return nil }`
+    /// with `switch stage ?? .revising`, so an absent stage wrote the revising
+    /// arm. This test failed at its one `XCTAssertNil` line.
+    func test_noStageIsNoSectionAtAll() {
+        XCTAssertNil(CompilerPrompt.stageSection(nil))
+    }
+
+    /// **The dosage doctrine is measured, and deliberately NOT inside
+    /// `test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget`**
+    /// (global constraint 26). That test measures what rides EVERY run; this
+    /// is per-run frame, written only when there is a stage to name — folding
+    /// it in would charge every run for words half of them never carry. So it
+    /// gets a ceiling of its own, and 120 words is room for the stage, the
+    /// reason, the five-part dose and the two overrides.
+    ///
+    /// **Measured at 94 words** when it landed (the revising arm, which no
+    /// ceiling needs, is 25). The 26 words of headroom are for a clause, not
+    /// for a paragraph: this text rides every drafting round, which on a
+    /// writer mid-draft is most of them.
+    func test_theDraftingDosageStaysUnderItsOwnWordCeiling() {
+        guard let section = CompilerPrompt.stageSection(.drafting)
+        else { return XCTFail("a stage the run derived must reach the model") }
+        let words = section.split(whereSeparator: { $0.isWhitespace }).count
+        XCTAssertLessThan(words, 120,
+            "the drafting arm measures \(words) words; it rides every drafting "
+            + "run, so growth here is a conscious cost")
+    }
+
+    /// **A quiet session produces no line at all** (spec §5). The whole point
+    /// of the threshold is that Maugham says nothing about the writer's
+    /// process most of the time — a `Process` heading over "the frontier moved
+    /// this session" would be the app narrating an ordinary day back at them.
+    ///
+    /// Disable experiment: moved `processSection`'s `return` above the
+    /// `noteworthy.isEmpty` guard, so a quiet reading wrote a bare heading.
+    /// This test failed at the `XCTAssertNil(CompilerPrompt.processSection(
+    /// quietSignals()))` line and again at the `XCTAssertFalse(message
+    /// .contains(CompilerPrompt.processSectionOpening))` line.
+    ///
+    /// The assertions look for `processSectionOpening` rather than for
+    /// `processHeading`: `letterInstruction` names `Process` in its own prose
+    /// ("the numbers under Process"), so the word alone is in every message
+    /// ever sent and an assertion on it would pass vacuously — measured, on
+    /// the first red run of this test.
+    func test_aQuietSessionWritesNoProcessSectionAnywhere() {
+        XCTAssertNil(CompilerPrompt.processSection(quietSignals()),
+                     "nothing crossed a threshold, so there is nothing to say")
+        XCTAssertNil(CompilerPrompt.processSection(nil),
+                     "…and no reading at all is the same silence")
+
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(new: [.init(paragraphId: "p1", text: "The fog came.")]),
+            world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            stage: .drafting, signals: quietSignals(),
+            previousBriefingHash: nil)
+        XCTAssertFalse(message.contains(CompilerPrompt.processSectionOpening),
+                       "no section, not an empty one; got \(message)")
+    }
+
+    /// Each of the three signals says its own number, because a sentence
+    /// without one is an opinion and the whole of `ProcessSignals` is the
+    /// refusal to have one.
+    func test_eachNoteworthySignalGetsASentenceCarryingItsNumber() {
+        guard let stalled = CompilerPrompt.processSection(stalledSignals())
+        else { return XCTFail("three stalled sessions is over the threshold") }
+        XCTAssertTrue(stalled.hasPrefix(CompilerPrompt.processHeading),
+                      "the section opens with its heading; got \(stalled)")
+        XCTAssertTrue(stalled.contains("3"),
+                      "sessions since the frontier moved; got \(stalled)")
+        XCTAssertTrue(stalled.lowercased().contains("frontier"), "got \(stalled)")
+
+        let hotspot = ProcessSignals.Hotspot(paragraphId: "a1b2", position: 3, rewrites: 7)
+        let sentence = CompilerPrompt.processSentence(.hotspot(hotspot))
+        XCTAssertTrue(sentence.contains("4th"),
+                      "the paragraph is named by its position — no excerpt is "
+                      + "available here; got \(sentence)")
+        XCTAssertTrue(sentence.contains("7"), "…and its rewrite count; got \(sentence)")
+        XCTAssertTrue(sentence.contains("\(ProcessSignals.churnWindowSessions)"),
+                      "…over the window it was counted in; got \(sentence)")
+
+        let cold = CompilerPrompt.processSentence(.coldRead(days: 21))
+        XCTAssertTrue(cold.contains("21"), "days away; got \(cold)")
+    }
+
+    /// Their place in the message: after the scene position, before the round
+    /// section — the stage first, then the numbers behind it. Both are frame
+    /// for the delta rather than part of it, exactly as their neighbours are.
+    func test_theStageAndTheProcessSitBetweenTheScenePositionAndTheDelta() {
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(new: [.init(paragraphId: "p1", text: "The fog came.")]),
+            world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            pass: lane("copyedit"), scenePosition: .weak,
+            stage: .drafting, signals: stalledSignals(),
+            previousBriefingHash: nil)
+        guard let scenes = message.range(
+                of: CompilerPrompt.scenePositionSection(.weak) ?? "!"),
+              let stage = message.range(of: CompilerPrompt.stageSection(.drafting) ?? "!"),
+              let process = message.range(of: CompilerPrompt.processSectionOpening),
+              let delta = message.range(of: "This run's delta:")
+        else { return XCTFail("expected all four; got \(message)") }
+        XCTAssertLessThan(scenes.lowerBound, stage.lowerBound)
+        XCTAssertLessThan(stage.lowerBound, process.lowerBound)
+        XCTAssertLessThan(process.lowerBound, delta.lowerBound)
+    }
+
+    /// **The stage never folds into the briefing hash** (global constraint 25,
+    /// and `test_theAskNeverFoldsIntoTheBriefingHash`'s shape). It is derived
+    /// from this run's own delta, so it can differ between two consecutive ⌘Rs
+    /// over an unchanged intent — and a hash covering it would re-embed the
+    /// essay, the declared world and the bible slice the round the writer
+    /// stopped adding and started rewriting.
+    ///
+    /// Disable experiment: folded both new sections into the hash input
+    /// (`sha256Hex($0 + "stage:…" + "process:…")`). This test failed at its
+    /// `XCTAssertEqual(secondHash, firstHash)` line, and so did
+    /// `test_theProcessNumbersNeverFoldIntoTheBriefingHash`.
+    func test_theDraftStageNeverFoldsIntoTheBriefingHash() {
+        let world = makeWorld(clauses: [.init(quote: "Keep it wry.", check: "tone check")])
+        let facts = [makeFact(subject: "Kelly", fact: "Kelly grew up on the coast.")]
+
+        let (_, firstHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [],
+            stage: .drafting, previousBriefingHash: nil)
+        XCTAssertNotNil(firstHash)
+
+        let (secondMessage, secondHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [],
+            stage: .revising, previousBriefingHash: firstHash)
+
+        XCTAssertEqual(secondHash, firstHash,
+                       "the intent did not move; a stage that folded into the hash "
+                       + "would re-embed the whole briefing the round the writer "
+                       + "started rewriting")
+        XCTAssertTrue(secondMessage.lowercased().contains("unchanged"))
+        XCTAssertFalse(secondMessage.contains("Essay text."))
+        XCTAssertTrue(
+            secondMessage.contains(CompilerPrompt.stageSection(.revising) ?? "!"),
+            "…and the stage still travels")
+    }
+
+    /// Its neighbour, for the numbers: a round with process signals and a round
+    /// without hash identically. The signals move with the writer's own
+    /// working day, so a hash covering them would never match its predecessor.
+    ///
+    /// Disable experiment: the same fold as its neighbour above. This test
+    /// failed at its `XCTAssertEqual(secondHash, firstHash)` line.
+    func test_theProcessNumbersNeverFoldIntoTheBriefingHash() {
+        let world = makeWorld(clauses: [.init(quote: "Keep it wry.", check: "tone check")])
+
+        let (_, firstHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            signals: quietSignals(), previousBriefingHash: nil)
+        XCTAssertNotNil(firstHash)
+
+        let (secondMessage, secondHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            signals: stalledSignals(), previousBriefingHash: firstHash)
+
+        XCTAssertEqual(secondHash, firstHash,
+                       "the intent did not move; process numbers that folded into "
+                       + "the hash would re-embed the whole briefing every time the "
+                       + "writer's own week changed shape")
+        XCTAssertTrue(secondMessage.lowercased().contains("unchanged"))
+        XCTAssertFalse(secondMessage.contains("Essay text."))
+        XCTAssertTrue(secondMessage.contains(CompilerPrompt.processSectionOpening),
+                      "…and the numbers still travel")
+    }
+
     // MARK: - The writer's ask (editorial letter P2 Task 3)
 
     /// The writer's own words, quoted, plus the instruction to answer them
@@ -1719,6 +1984,40 @@ final class CompilerPromptTests: XCTestCase {
             + "structural brief's \(words(structural)) — over the "
             + "half-again ceiling of \(ceiling). One of the two moved; look "
             + "at which before raising the multiplier.")
+    }
+
+    /// **The coach's process clause is declarative, not conditional** (spec
+    /// §4.4, P3 Task 4). The old spelling — "Shown that the frontier has not
+    /// moved, she may say so once" — was written before the numbers existed
+    /// and reads as a permission granted for a hypothetical. Now the section
+    /// is real, has a name (`CompilerPrompt.processHeading`) and arrives only
+    /// when a threshold was crossed, so the brief names it and says what she
+    /// does with it.
+    ///
+    /// The three constraints on the saying survive the rewrite verbatim: once,
+    /// in her own words, with the numbers behind her, and without scolding.
+    ///
+    /// Disable experiment: put the old conditional sentence back AHEAD of the
+    /// new one, so the brief carried both. This test failed at its
+    /// `XCTAssertFalse(workshop.contains("Shown that the frontier"))` line —
+    /// the negative is what makes the rewrite a replacement rather than an
+    /// addition, and the positive assertion alone would have passed.
+    func test_theCoachsBriefNamesTheProcessNumbersDeclaratively() {
+        guard let workshop = ReviewPass.coachPreset.brief
+        else { return XCTFail("the coach lost her brief") }
+
+        XCTAssertTrue(
+            workshop.contains(
+                "When the Process numbers say the frontier has not moved, she "
+                + "says so once, in her own words, with the numbers behind her "
+                + "and without scolding."),
+            "got \(workshop)")
+        XCTAssertFalse(workshop.contains("Shown that the frontier"),
+                       "the conditional spelling is gone, not shadowed by a "
+                       + "second sentence; got \(workshop)")
+        XCTAssertTrue(workshop.contains(CompilerPrompt.processHeading),
+                      "she is told what the section is called, because that is "
+                      + "how she finds the numbers; got \(workshop)")
     }
 
     // MARK: - The briefing carries the shelf's grouping (references-shelf, Task 3)

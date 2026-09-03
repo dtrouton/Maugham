@@ -502,6 +502,20 @@ final class CompilerOrchestrator {
         /// and the answer that supersedes it can never disagree about what
         /// form the model was told this piece takes.
         let scenePosition: ScenePosition
+        /// **The draft stage this run's delta reads as, derived at the
+        /// keystroke and carried** (spec §3.8). Carried on the scene
+        /// position's own terms — the writer keeps typing while the check
+        /// runs, and the stage is a fact about the delta the run was READ on,
+        /// not about the document by the time the answer lands. The preview
+        /// stamps it and so does `finish`, so the two cannot disagree about
+        /// what the model was asked for.
+        let stage: DraftStage
+        /// **How much letter that stage earned** (global constraint 24), the
+        /// same value the briefing stated, carried so ingest can enforce it.
+        /// Derived rather than re-asked at `finish`: `dosage(freshEyes:)`
+        /// takes the run's own fresh-eyes flag, and a second derivation is a
+        /// second place the ask and the enforcement could drift apart.
+        let dosage: LetterDosage
         /// **What the writer asked of this run, read at the keystroke and
         /// carried** (P2 Task 3). Carried for the lane's and the position's
         /// reason, plus one of its own: the field is expected to be cleared
@@ -662,6 +676,31 @@ final class CompilerOrchestrator {
             runState = .nothingNew(docId: docId, at: Date())
             return
         }
+
+        // **Maugham's own observation of the writer's process, at the
+        // keystroke** (spec §5). Computed off `reading` and nothing else —
+        // `ProcessSignals` takes the ops, the sequence and a `now`, which is
+        // exactly what `DeltaBuilder` was already given a line above, so this
+        // needs no `Environment` closure of its own and cannot disagree with
+        // the delta about which instant of the document it describes.
+        //
+        // Below the empty-delta guard with the lane and the round, and for the
+        // same reason: a ⌘R with nothing new is not a round, and observing the
+        // writer's practice for a check that never happened would put numbers
+        // behind a letter nobody is going to read.
+        let signals = ProcessSignals(
+            ops: reading.ops, sequence: reading.sequence, now: Date())
+        // **The stage is derived, never set** (global constraint 23, spec
+        // §3.8). Two inputs, both already in hand: what this delta is made of,
+        // and whether the frontier moved in the latest sitting. The writer is
+        // never asked, no manifest field records it, and the only persisted
+        // trace is the stamp `record` puts on the letter.
+        let stage = DraftStage.derive(counts: DeltaCounts(of: delta), signals: signals)
+        // **Stated in the briefing AND enforced at ingest** (global constraint
+        // 24) — derived once, here, so the two ends cannot ask for different
+        // amounts of letter. Fresh Eyes is always the full letter, which is why
+        // the flag is an argument rather than something `parseLetter` re-reads.
+        let dosage = stage.dosage(freshEyes: freshEyes)
 
         // **The lane and the round, minted HERE — at the keystroke, before a
         // single byte of the answer can arrive** (M3-P3 §6).
@@ -871,6 +910,8 @@ final class CompilerOrchestrator {
                 dispositions: dispositions,
                 ask: ask,
                 lessons: lessons,
+                stage: stage,
+                signals: signals,
                 previousBriefingHash: previousHash)
 
             // **Armed immediately before the send, and never earlier.** A run
@@ -881,7 +922,8 @@ final class CompilerOrchestrator {
                 generation: generation, docId: docId, runId: runId, model: model,
                 lastOpId: lastOpId, deltaSummary: deltaSummary,
                 intentSnapshot: briefing?.statementText, activePass: activePass, round: round,
-                scenePosition: scenePosition, ask: ask, freshEyes: freshEyes)
+                scenePosition: scenePosition, stage: stage, dosage: dosage,
+                ask: ask, freshEyes: freshEyes)
             runner.setPartialHandler { [weak self] chunk in
                 self?.receivePartial(chunk, generation: generation)
             }
@@ -891,7 +933,8 @@ final class CompilerOrchestrator {
                               deltaSummary: deltaSummary,
                               intentSnapshot: briefing?.statementText,
                               activePass: activePass, round: round,
-                              scenePosition: scenePosition, ask: ask,
+                              scenePosition: scenePosition, stage: stage,
+                              dosage: dosage, ask: ask,
                               freshEyes: freshEyes,
                               briefingHash: briefingHash, model: model,
                               generation: generation)
@@ -934,7 +977,13 @@ final class CompilerOrchestrator {
                 line: line, runId: runId, docId: docId,
                 liveParagraphText: { [weak self] paragraphId in
                     self?.environment?.liveParagraphText(docId, paragraphId)
-                })
+                },
+                // **The dose the run was READ on, not one asked for again
+                // here** (global constraint 24). The preview shows what the
+                // report will show, so a question the short letter drops must
+                // never appear on the pane mid-check and vanish when the
+                // answer lands.
+                dosage: run.dosage)
             else { continue }
             run.outcome = DiagnosticIngest.combining(run.outcome, section)
             closedASection = true
@@ -960,6 +1009,11 @@ final class CompilerOrchestrator {
                              // letter's scene section under the writer as the
                              // check ended.
                              scenePosition: run.scenePosition,
+                             // The stage the run was read on, stamped on the
+                             // preview exactly as `finish` stamps it on the
+                             // answer — the preview and the answer describe one
+                             // check or they describe two.
+                             stage: run.stage,
                              // The ask the run was briefed on, stamped on the
                              // preview exactly as `finish` stamps it on the
                              // answer — a preview that disagreed would change
@@ -1003,7 +1057,9 @@ final class CompilerOrchestrator {
     /// are minted at the keystroke and carried, and a third call site that
     /// could quietly omit them would file an unnumbered round nothing
     /// downstream could notice — the preview and the answer would simply
-    /// disagree.
+    /// disagree. `stage` is undefaulted on that rule (P3 Task 4): a default
+    /// would let a call site stamp `revising` over a drafting run's letter,
+    /// and nothing about the record would look wrong.
     /// `mintedNotes` and `openInOtherLanes` are `nil` for a preview — nothing
     /// is minted until the turn ends — and the finished run's real counts
     /// otherwise. Undefaulted for `passId`/`round`/`freshEyes`'s reason: a
@@ -1013,7 +1069,7 @@ final class CompilerOrchestrator {
         id: String, model: String, lastOpId: String?, deltaSummary: String,
         intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
         outcome: DiagnosticIngest.SectionedOutcome, scenePosition: ScenePosition,
-        ask: String?, mintedNotes: Int?, openInOtherLanes: Int?
+        stage: DraftStage, ask: String?, mintedNotes: Int?, openInOtherLanes: Int?
     ) -> CompilerRun {
         // **The letter's one mutable field, stamped here** (spec §3.4). The
         // position is the run's, not the model's: it is derived app-side at
@@ -1034,6 +1090,20 @@ final class CompilerOrchestrator {
         // say what was asked after the writer has cleared the field — which
         // they do the moment they have read the answer.
         letter?.asked = ask
+        letter?.stage = stage.rawValue
+        // **The letter's third stamp, and it is deliberately on the line
+        // touching the second** (spec §3.8, global constraint 23). The stage is
+        // the same kind of fact as the position and the ask — the run's own,
+        // derived at the keystroke, never echoed back by the model — so it is
+        // stamped in the same place, and `CompilerRunCommandTests`'
+        // `test_theStageIsStampedBesideTheAskInTheOneRecordSpelling` reads the
+        // adjacency off this file. `rawValue` rather than the case, because
+        // `Letter.stage` is a disk format: a rename reads back as `nil` on
+        // every letter already written, which `Letter.draftStage` tolerates.
+        //
+        // A turn that answered no letter has nothing to stamp, exactly as with
+        // its two siblings: the stage is a fact about a letter, not a claim
+        // every run makes.
         return CompilerRun(
             id: id, at: Date(), model: model, lastOpId: lastOpId,
             deltaSummary: deltaSummary, intentSnapshot: intentSnapshot,
@@ -1259,7 +1329,8 @@ final class CompilerOrchestrator {
     private func finish(
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
         deltaSummary: String, intentSnapshot: String?, activePass: ActivePass?, round: Int?,
-        scenePosition: ScenePosition, ask: String?, freshEyes: Bool, briefingHash: String?,
+        scenePosition: ScenePosition, stage: DraftStage, dosage: LetterDosage,
+        ask: String?, freshEyes: Bool, briefingHash: String?,
         model: String, generation: Int
     ) async {
         let passId = activePass?.id
@@ -1296,7 +1367,13 @@ final class CompilerOrchestrator {
                 resultText: text, runId: runId, docId: docId,
                 liveParagraphText: { [weak self] paragraphId in
                     self?.environment?.liveParagraphText(docId, paragraphId)
-                })
+                },
+                // **Where the short letter is MADE short** (global constraint
+                // 24). The briefing asked for it; this is what makes it true
+                // whatever the model wrote — and it runs above the mint, so a
+                // question the dose drops cannot reach the queue as a `.query`
+                // either.
+                dosage: dosage)
             else {
                 discardStreamPreview()
                 runState = .failed(docId: docId, failure: .unusableOutput, at: Date())
@@ -1354,7 +1431,7 @@ final class CompilerOrchestrator {
                 // and the writer may have moved the piece to another pass
                 // while it ran.
                 passId: passId, round: round, freshEyes: freshEyes,
-                outcome: outcome, scenePosition: scenePosition, ask: ask,
+                outcome: outcome, scenePosition: scenePosition, stage: stage, ask: ask,
                 mintedNotes: mint.minted,
                 openInOtherLanes: mint.openInOtherLanes)
             // Dropped rather than discarded: `replace` below supersedes the
