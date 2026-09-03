@@ -51,6 +51,7 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0027](0027-the-compiler-and-the-editor-boundary.md) | The compiler and the editor boundary: output location is identity, invocation locality is a position | Accepted | 2026-08-05 |
 | [0028](0028-maugham-goes-outbound.md) | Maugham goes outbound: spawning `claude -p`, and what still holds when it does | Accepted | 2026-08-05 |
 | [0029](0029-the-compilers-report-is-materialized.md) | The compiler's report is materialized: findings routed by nature, written by Maugham after the parse | Accepted | 2026-08-17 |
+| [0030](0030-three-people-seven-legs-directives-as-rulings.md) | Three people, seven legs, directives as rulings, and proposals into statements (amends [0024](0024-translation-layer.md)'s single-translator picture) | Accepted | 2026-08-29 |
 
 ## How to write a new ADR
 

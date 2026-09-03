@@ -74,18 +74,28 @@ final class TranslatorOrchestratorTests: XCTestCase {
     /// (`TranslationHash.hash` over the same prose the work item carries), so
     /// an assertion about what reaches ingest is an assertion about a value
     /// production could have produced.
-    private func makeRound(work: Int = 1) -> TranslatorOrchestrator.BriefedRound {
+    private func makeRound(
+        work: Int = 1, mode: TranslatorBriefing.Mode = .translate
+    ) -> TranslatorOrchestrator.BriefedRound {
         let ids = ["a1b2", "c3d4", "e5f6"]
-        let items = (0..<work).map { index in
-            TranslatorBriefing.Inputs.WorkItem(
-                paragraphId: ids[index % ids.count],
-                sourceText: "The fog came.", status: .missing)
+        let items = (0..<work).map { index -> TranslatorBriefing.Inputs.WorkItem in
+            let paragraphId = ids[index % ids.count]
+            switch mode {
+            case .translate:
+                return TranslatorBriefing.Inputs.WorkItem(
+                    paragraphId: paragraphId, sourceText: "The fog came.", status: .missing)
+            case .fix:
+                return TranslatorBriefing.Inputs.WorkItem(
+                    paragraphId: paragraphId, sourceText: "The fog came.", status: .fresh,
+                    priorTranslation: "Y.")
+            }
         }
         return TranslatorOrchestrator.BriefedRound(
             inputs: TranslatorBriefing.Inputs(
                 translatorName: "Elena Ruiz",
                 language: language,
-                workList: items),
+                workList: items,
+                mode: mode),
             sourceHashes: Dictionary(
                 items.map { ($0.paragraphId, TranslationHash.hash($0.sourceText)) },
                 uniquingKeysWith: { first, _ in first }))
@@ -120,6 +130,12 @@ final class TranslatorOrchestratorTests: XCTestCase {
         var spawns: Int { runnerSpawns() }
         let runnerSpawns: () -> Int
         let setRound: (TranslatorOrchestrator.BriefedRound?) -> Void
+        /// The run ids of clicks that turned out not to be runs. Recorded
+        /// separately from `summaries` because an abandon is deliberately not
+        /// one — the pipeline hears about it through its own hook or waits
+        /// forever.
+        var abandoned: [String] { wasAbandoned() }
+        let wasAbandoned: () -> [String]
     }
 
     /// A closure the test can hold open, so the window between the click and
@@ -147,6 +163,10 @@ final class TranslatorOrchestratorTests: XCTestCase {
     private func makeHarness(
         runner: SpyRunner,
         round: TranslatorOrchestrator.BriefedRound?,
+        /// What `briefFix` answers — the fix leg's own briefing, kept apart
+        /// from `round` so a test can prove which of the two gathers a verb
+        /// asked for.
+        fixRound: TranslatorOrchestrator.BriefedRound? = nil,
         identity: (name: String, roleId: String)? = ("Elena Ruiz", "role-es"),
         ingestOutcome: TranslatorOrchestrator.IngestOutcome = .init(entriesWritten: 1,
                                                                     queriesMinted: 1),
@@ -167,6 +187,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
         let summaries = Box<[TranslatorOrchestrator.RunSummary]>([])
         let order = Box<[String]>([])
         let spawns = Box(0)
+        let abandoned = Box<[String]>([])
 
         let orchestrator = TranslatorOrchestrator()
         orchestrator.configure(environment: TranslatorOrchestrator.Environment(
@@ -176,6 +197,11 @@ final class TranslatorOrchestratorTests: XCTestCase {
                 order.value.append("briefRound")
                 if let holdBriefing { await holdBriefing.hold() }
                 return live.value
+            },
+            briefFix: { _, _, notes, isFinalLeg in
+                order.value.append("briefFix(\(notes.count),\(isFinalLeg))")
+                if let holdBriefing { await holdBriefing.hold() }
+                return fixRound
             },
             translatorIdentity: { _ in
                 order.value.append("translatorIdentity")
@@ -195,14 +221,16 @@ final class TranslatorOrchestratorTests: XCTestCase {
                 if let holdIngest { await holdIngest.hold() }
                 return ingestOutcome
             },
-            onRunEnded: { summaries.value.append($0) }))
+            onRunEnded: { summaries.value.append($0) },
+            onRunAbandoned: { abandoned.value.append($0) }))
 
         return Harness(orchestrator: orchestrator, configURL: configURL,
                        ingested: { ingests.value },
                        ended: { summaries.value },
                        asked: { order.value },
                        runnerSpawns: { spawns.value },
-                       setRound: { live.value = $0 })
+                       setRound: { live.value = $0 },
+                       wasAbandoned: { abandoned.value })
     }
 
     /// Wait until the spy has been sent `count` messages, so an assertion
@@ -428,6 +456,35 @@ final class TranslatorOrchestratorTests: XCTestCase {
         }
     }
 
+    /// The parser's mode is the briefing's: a fix-mode round whose report
+    /// leaves a briefed note unaccounted for is unusable output, not a
+    /// translate-mode success.
+    func test_aFixModeRoundIsParsedWithTheFixContract() throws {
+        let runner = SpyRunner()
+        // A translate-shaped report — entries only, no `addressed`/`declined`
+        // — which a fix-mode parse must refuse: the briefed note is unaccounted for.
+        runner.nextEvent = .resultText(Self.oneEntry)
+        let note = TranslatorBriefing.FixNote(
+            id: "n-1", paragraphId: "a1b2", author: "Ocampo", kind: "rhythm",
+            severity: "major", text: "The sentence limps.")
+        let harness = try makeHarness(
+            runner: runner,
+            round: makeRound(mode: .fix(notes: [note], isFinalLeg: false)))
+
+        harness.orchestrator.runTranslation(docId: docId, language: language)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertTrue(harness.ingests.isEmpty,
+                      "a fix leg's report that ignores its note must not be ingested")
+        guard case .failed(_, _, let reported, _) = harness.orchestrator.runState else {
+            return XCTFail("expected unusableOutput, got \(harness.orchestrator.runState)")
+        }
+        XCTAssertEqual(reported, .run(.unusableOutput))
+        XCTAssertTrue(runner.sends[0].message.contains(TranslatorBriefing.repairSentence),
+                      "…and the briefing that went out was the fix leg's")
+    }
+
     /// Output that cannot be read at all is a failure in the same
     /// vocabulary, and writes nothing either. All-or-nothing starts at parse
     /// (`TranslatorReport.parse`): a turn that got one entry wrong is a model
@@ -560,6 +617,98 @@ final class TranslatorOrchestratorTests: XCTestCase {
         guard case .ingested(let outcome) = try XCTUnwrap(harness.summaries.first).outcome
         else { return XCTFail("expected an ingested outcome") }
         XCTAssertEqual(outcome.warnings, ["a1b2: the translation drops a heading"])
+    }
+
+    // MARK: - The fix leg, and what a run verb answers with
+
+    /// A fix leg's report: one rewritten paragraph, one note answered and one
+    /// declined — the smallest turn the fix contract accepts over two notes.
+    private static let oneFixReport = """
+        {"entries":[{"paragraph_id":"a1b2","text":"Vino la niebla."}],"queries":[],\
+        "addressed":["n1"],"declined":[{"note_id":"n2","reason":"Deliberate."}]}
+        """
+
+    private func fixNotes() -> [TranslatorBriefing.FixNote] {
+        [.init(id: "n1", paragraphId: "a1b2", author: "Ocampo", kind: "rhythm",
+               severity: "minor", text: "Limps."),
+         .init(id: "n2", paragraphId: "c3d4", author: "Ocampo", kind: "register",
+               severity: "major", text: "Wobbles.")]
+    }
+
+    /// The fix leg asks `briefFix`, never `briefRound`, AFTER the identity;
+    /// its report is parsed with the fix contract the briefing derives.
+    func test_aFixLegBriefsThroughBriefFixAndParsesWithTheFixContract() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.oneFixReport)
+        let fix = makeRound(work: 2, mode: .fix(notes: fixNotes(), isFinalLeg: false))
+        let harness = try makeHarness(runner: runner, round: nil, fixRound: fix)
+
+        let runId = harness.orchestrator.runFix(
+            docId: docId, language: language, notes: fixNotes(), isFinalLeg: false)
+        XCTAssertNotNil(runId)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.summaries.count, 1)
+        XCTAssertEqual(harness.order, ["translatorIdentity", "briefFix(2,false)"])
+        XCTAssertEqual(harness.ingests.count, 1)
+        XCTAssertEqual(harness.ingests.first?.report.addressed, ["n1"])
+        XCTAssertEqual(harness.ingests.first?.report.declined.map(\.noteId), ["n2"])
+        XCTAssertEqual(harness.summaries.first?.runId, runId)
+        XCTAssertEqual(harness.ingests.first?.context.briefedSourceHashes.count,
+                       fix.sourceHashes.count)
+    }
+
+    /// A report that stays silent on a briefed note is unusable — the parser
+    /// holds the fix leg to its notes (spec §4), through this entry too.
+    func test_aFixReportSilentOnANoteIsUnusableOutput() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(
+            #"{"entries":[],"queries":[],"addressed":["n1"],"declined":[]}"#)
+        let harness = try makeHarness(
+            runner: runner, round: nil,
+            fixRound: makeRound(work: 2, mode: .fix(notes: fixNotes(), isFinalLeg: true)))
+        harness.orchestrator.runFix(docId: docId, language: language,
+                                    notes: fixNotes(), isFinalLeg: true)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.summaries.map(\.outcome), [.failed(.run(.unusableOutput))])
+        XCTAssertTrue(harness.ingests.isEmpty)
+    }
+
+    /// The run verbs answer with the id the summary will carry, and nil when
+    /// they refuse — what the pipeline sequences on.
+    func test_theRunVerbsReturnTheRunIdTheSummaryCarriesAndNilWhenRefused() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil
+        let harness = try makeHarness(runner: runner, round: makeRound())
+        let first = harness.orchestrator.runTranslation(docId: docId, language: language)
+        XCTAssertNotNil(first)
+        awaitSends(1, on: runner)
+        XCTAssertNil(harness.orchestrator.runTranslation(docId: docId, language: language),
+                     "a second run while one is in flight is refused with nil")
+        XCTAssertNil(harness.orchestrator.runFix(docId: docId, language: language,
+                                                 notes: fixNotes(), isFinalLeg: false))
+        runner.release(.resultText(Self.oneEntry))
+        settle()
+
+        XCTAssertEqual(harness.summaries.count, 1)
+        XCTAssertEqual(harness.summaries.first?.runId, first)
+    }
+
+    /// A click that turned out not to be a run (the briefing answered nil)
+    /// still tells whoever is waiting on it — by run id, through
+    /// `onRunAbandoned`, never through a summary.
+    func test_anAbandonedRunIsReportedByIdThroughOnRunAbandoned() throws {
+        let harness = try makeHarness(runner: SpyRunner(), round: nil)
+        let runId = try XCTUnwrap(
+            harness.orchestrator.runTranslation(docId: docId, language: language))
+        settle()
+
+        XCTAssertEqual(harness.abandoned, [runId])
+        XCTAssertTrue(harness.summaries.isEmpty, "an abandon is not a summary")
+        XCTAssertFalse(harness.orchestrator.isRunning)
     }
 
     // MARK: - The warm session

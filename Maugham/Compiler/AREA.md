@@ -415,6 +415,10 @@ on ⌘⇧R the dedupe is the whole of it.
   as revoke's inverse — it stamps today's date and appends at the end, so
   undoing the revocation of a March decision would hand it back re-dated. An
   undo that rewrites the record is worse than no undo.
+  `StatementProposalGate` (P5) is the second and last writer-facing door into
+  a statement's ESSAY: Adopt, a click on a staged proposal, through
+  `mutateStatementText`; its glossary lines still go through
+  `RulingPerformer.rule`.
 - **The declared world** (spec §3.1/§3.4): Claude's disposable reading of a
   statement into checkable `DerivedClause`/`DerivedRule` values
   (`DeclaredWorld.swift`), the one-shot `claude -p` that produces one
@@ -506,7 +510,7 @@ Spec §3.4, verbatim, with the enforcing site beside it:
 | It dies on the AI toggle going off | `CompilerRunModifier`'s `.onChange(of: mcpEnabled)` — **and** `ClaudeCLISession` re-reads the toggle before every spawn, so a session already warm cannot answer one more run |
 | It dies on app quit | `CompilerRunModifier`'s `.maughamAppWillTerminate` |
 | It dies on window/project close | `ProjectWindow`'s own `.onDisappear` → `detach()`, because that path must also drop the orchestrator's hold on the window's stores |
-| It dies quietly after ~10 min idle | `ClaudeCLISession.idleTimeout` (600 s; the per-turn budget is `ClaudeCLISession.defaultRunTimeout` — **300 s since 2026-08-18**, raised from 120 by Denver's ruling after two whole-piece first rounds died at the old one, read the number off the constant) |
+| It dies quietly after ~10 min idle | `ClaudeCLISession.idleTimeout` (600 s; the per-turn budget is `ClaudeCLISession.defaultRunTimeout` — **300 s since 2026-08-18**, raised from 120 by Denver's ruling after two whole-piece first rounds died at the old one, read the number off the constant). **The translation cast runs on `ClaudeCLISession.translationRunTimeout` — 900 s (2026-09-02)**, passed by `TranslatorEnvironment+Project`'s runner and `ColdCall.productionRunnerFactory`, because a translate or fix leg sends a chapter's whole work-list in one turn and a long chapter ran past 300 s on its own; the compiler and the designer keep the default. Safe above the idle budget because `idleDidExpire` refuses while a turn is in flight |
 | Death mid-run fails that run once; the next keystroke starts fresh | `CompilerOrchestrator.finish`'s `.failed` arm — the marker and the intent hash are both left where they were |
 | **It dies on ⌘⇧R, and is replaced in the same act** | `CompilerOrchestrator.beginRun`'s `if freshEyes { retireSession() }` — the one teardown that is a *run* rather than an ending, so it is the orchestrator's rather than a fourth arm of `CompilerRunModifier`. Placed below the in-flight refusal, the generation check and the empty-delta guard: a fresh-eyes press that is refused or abandoned must not cost the writer their warm session |
 
@@ -990,6 +994,239 @@ language or by document, because the spec gives Design exactly one desk row
 and one pending-proposal badge per project, never one per language the way
 the translator's rows are. See `Maugham/Stores/AREA.md`'s own
 `DesignProposalStore` entry for the store's shape.
+
+## Cold calls — the sealed sessions (translation pipeline P2)
+
+`ColdCall.swift` is the one runner every **cold** session shares: a reader, a
+collator, a gloss and an Ask-the-collator (spec §5, §9 — the reader and the
+collator arrived in P3, as `TranslationPipeline`'s two cold legs below; gloss
+and Ask the collator in P4 Task 6, as `SpotCheck`; P2 built the runner and
+wired its teardown). One call = one fresh process, one briefing sent, one
+report returned, the process ended. There is no `ReaderOrchestrator`: warmth
+would buy nothing (the whole briefing is re-sent every leg) and would cost
+blindness.
+
+- **Confinement is an enum on the session, not a setting** —
+  `ClaudeCLISession.Confinement.bridged(mcpConfigPath:)` for the compiler,
+  translator and designer (the two-flag membrane above, unchanged), `.sealed`
+  for a cold call: **no `--mcp-config`, no `--allowedTools`**, `--tools ""` and
+  `--strict-mcp-config` as before. Pinned by `ClaudeCLISessionTests
+  .test_aSealedSessionSpawnsWithNoBridgeAndNoAllowlist` beside the bridged
+  spike pin, and by two `TripwireGrepTests` censuses: `ColdCall.swift` never
+  contains `writeMCPConfig`/`.bridged(`/`CompilerAllowlist`, and `.sealed` is
+  spelled in production nowhere but `ColdCall.swift` and the session type.
+- **One call at a time** (`runInFlight` refusal); no queue — leg order is the
+  pipeline's (Plan 3).
+- **Teardown: the census's fourth sibling.** `ProjectWindow` owns a `ColdCall`
+  beside the three orchestrators; `CompilerRunModifier`'s two arms and
+  `.onDisappear` carry `coldCall.shutdown()`/`coldCall.detach()`;
+  `TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`
+  counts it.
+- **The two spot-checks are `SpotCheck.swift`** (P4 Task 6), the other tempo
+  beside a round: the caret is in a paragraph and the author asks *what does
+  this now say?* (**Gloss**) or *does it still say what I wrote?* (**Ask the
+  Collator**, `SpotCheck.askTitle`'s own capital), each a `Button` in the
+  Translation pane — ⌘⌥L opens the pane,
+  and **no shortcut is bound to either verb**. Spec §9 calls them
+  "keystroke-triggered", which is ADR 0028's tempo contrast read correctly: the
+  trigger must be a writer's own act rather than a timer or an event, and a
+  button press is that act (P4 Task 6's ruling; a menu item for each is a later
+  decision, not an omission). Gloss is briefed by `GlossBriefing`, whose
+  `Inputs` **have no source field** — a model shown the original renders the
+  original it can read rather than the translation it was asked about, so the
+  property is the type's, not a caller's — and reads its paragraph off the
+  **badge entries the pane already holds**, never the disk. Ask the collator
+  is the collator's own briefing narrowed to
+  one pair ± a neighbour (`SpotCheck.narrow`), with the writer's craft intent,
+  edition brief, glossary and directives kept **whole**: a doctrine narrowed
+  with the text would judge the paragraph against rules the author never
+  relaxed. **Neither mints anything** (spec §12) — the answer is drawn, and
+  *Keep mine* / *Make it a rule* are separate verbs the author presses,
+  provenance `spot-check, keep mine` / `spot-check, make it a rule`.
+  `TripwireGrepTests.test_aSpotCheckMintsNothing` scans `SpotCheck.swift` for
+  the four write doors by name, which is why the file's own prose never names
+  one.
+- **The briefings it will be handed are pure**: `ReaderBriefing` and
+  `CollatorBriefing` (this directory) follow `TranslatorBriefing`'s discipline
+  — no I/O, no clock. `BriefingDoctrine.swift` is where directives and the
+  glossary are read off statement markdown (`Ruling.directive`/`.glossary`,
+  MaughamCore) into the plain values all three briefings take.
+
+## The translation files — the wire, the briefings, the desk's own figure
+
+Everything the pipeline and the two spot-checks are built out of lives in this
+directory, on `TranslatorBriefing`'s discipline: pure, no I/O, no clock, testable
+without a subprocess. The pipeline (below) is what strings them together.
+
+| File | What it is |
+|---|---|
+| `ReportJSON.swift` | **The helpers every report parser shares** (P1): `lastObject(in:shapedBy:)` (the answer object in a turn's text, found by shape rather than position), `parseList` (all-or-nothing — one malformed item fails the whole list), `nonEmptyString` (trimmed, because whitespace around a model's answer is an artifact of how it wrote its JSON) and `enumValue`. `TranslatorReport` and `DesignerReport` were migrated onto it, and `ReaderReport`/`CollatorReport`/`GlossReport` were written on it. **`DiagnosticIngest` keeps its own copy on purpose** — the compiler's contract is sectioned and line-delimited rather than one JSON object, so folding it in would mean widening these helpers into a shape only one caller has |
+| `ReaderReport.swift` / `CollatorReport.swift` | The two cold reports (spec §4). One JSON object, **all-or-nothing**, closed enums (`kind`/`severity`/`verdict`), empty `text` refused, zero notes valid, and a `paragraph_id` outside the briefed set failing the whole report rather than being dropped. `CollatorReport.Departure.gloss` is **required on every departure**: the gloss is the only part of a departure an author who cannot read the language can rule on, so a departure without one is not one this app can show. Only `drifted` departures are briefed to leg 7; both verdicts reach the round report |
+| `ReaderBriefing.swift` | **`Inputs` has no source field**, which is the whole point of a blind reader — the property is the type's rather than a caller's discipline. A paragraph with no current translation reaches the reader as `gapMarker(_:)` (`[<id> — not yet translated]`) and never as source text; `briefedParagraphIds` is the translated ids alone, which is what the parser validates against |
+| `CollatorBriefing.swift` | The pairs in `sequence` order, source then translation, each paragraph's directives beneath it, the glossary as a table, craft intent and the edition brief verbatim. Not briefed: reader notes, translator queries, the bible |
+| `BriefingDoctrine.swift` | Where directives and the glossary are read off statement markdown into the plain values all three briefings take — `Directives.gather`/`.byParagraph`/`.isDirected` (UTC calendar days; a same-day directive counts, an undated one never directs) and `GlossaryTable.gather`/`.render` |
+| `GlossBriefing.swift` / `GlossReport.swift` | The gloss's briefing and its one-field parser (`{"gloss": …}`, over `ReportJSON`). `Inputs` carries the paragraph, its two neighbours marked as context, the edition brief's texture line (`textureLine(in:)`), and — again — **no source**; a model shown the original renders the original it can read instead of the translation it was asked about |
+| `SpotCheck.swift` | The two verbs the author presses (see "Cold calls" above): `gloss`, `askTheCollator`, `neighbours(of:in:)`, `narrow(_:to:)`, and one private `read(_:parse:)` that words a dead turn in `TranslationPipeline.coldLeg`'s own vocabulary, so the pane and the desk cannot describe the same death differently |
+| `TranslationPreflight.swift` | **The desk's "7 legs · ~N words briefed" figure** (P4). `budgets(documentIds:languages:…)` opens each document ONCE and folds every language off that one `currentParagraphState`, because the desk was otherwise walking the whole book per language on every `maughamTranslationDidUpdate`; `budget(documentIds:language:…)` is a one-line wrapper over it, so there is one implementation. An empty answer means nothing in the set could be READ — distinct from a language whose figure is genuinely `0`, which is present and zero. `wordCount` splits on the same predicate `Bootstrap` does, so the figure agrees with the checkpoint's own count |
+
+## The pipeline — seven legs (translation pipeline P3)
+
+`TranslationPipeline.swift` is what spec §5 calls a Run: **a state machine
+over closures, and nothing else** — it owns no session, gathers no briefing,
+parses no translator report. It sequences the translator's two verbs
+(`runTranslation`, `runFix`) and `ColdCall`'s one by awaiting the summary the
+window feeds back (`onRunEnded`/`onRunAbandoned`) or the text `ColdCall`
+returns, and it is the pipeline — not `ColdCall` — that turns a cold leg's raw
+text into a `ReaderReport`/`CollatorReport`, because `ColdCall` returns text
+and the report contract is the caller's (`TranslationPipelineTests`).
+
+| Leg | Who | Input | Output |
+|---|---|---|---|
+| 1 translate | translator | stale ∪ missing ∪ directed | entries, queries |
+| 2 read | reader | translated text, blind | notes + overall |
+| 3 fix | translator | leg 2's notes | addressed/declined |
+| 4 re-read | reader | the text again | notes + overall |
+| 5 fix | translator | leg 4's notes | addressed/declined |
+| 6 collate | collator | source + translation | departures + overall |
+| 7 fix | translator | leg 6's `drifted` | addressed/declined, summary, proposals |
+
+**Skips are recorded, never silent**, one static reason string per cause
+(`TranslationPipeline`'s own constants): `nothingToTranslateReason` /
+`nothingToReadReason` / `nothingToCollateReason` for a leg whose gather
+answers an empty work-list, `noCurrentTranslationReason` for a fix leg whose
+noted paragraphs lost their translation between the note and the fix,
+`readerFoundNothingReason` / `collatorFoundNoDriftReason` for a fix leg with
+no notes to act on, and `nothingWrittenReason` for a collate leg reached over
+a round that wrote nothing at all. **Leg 4 has its own rule, and it is not
+"nothing to read"**: it skips on `nothingChangedReason` whenever leg 3 wrote
+nothing (`leg3Wrote`, set from leg 3's own `entriesWritten > 0`) — the text a
+re-read would see is exactly the text leg 2 already read, so a second cold
+call over it would ask the reader to re-judge its own unchanged verdict
+(`TranslationPipelineTests.test_aFixWithNoNotesIsASkipAndTheRereadSkipsBecauseNothingChanged`).
+
+**A failing, rejected or cancelled leg ends the round there; earlier legs'
+writes stand.** `runRound`'s local `record(_:_:)` returns `false` for
+`.failed`/`.cancelled` and the `legs:` loop breaks on it — `round.stoppedAt`
+names the leg it broke on — while any entry a translator leg already wrote or
+query it already minted is left exactly as it landed
+(`TranslationPipelineTests.test_aFailedLegEndsThePipelineThereAndKeepsEarlierLegs`).
+**Cancel reaches whichever leg is live** through one of two calls
+(`environment.cancelTranslator()` / `cancelColdCall()`, chosen by the private
+`live: LiveKind`), and **a cancel landing in the gap between two legs** — after
+one leg's `setLive(.gap, …)` and before the next leg's own `setLive` — is
+caught by the loop's own `guard generation == gen`, which records `.cancelled`
+for the leg that never got to start rather than doing nothing
+(`TranslationPipelineCancelTests.test_cancelInTheGapStopsThePipelineWithoutStartingTheNextLeg`).
+`generation` is bumped by `start`, `cancel()` and `shutdown()` alike; `runToken`
+is bumped only by `start` — which is what lets a cancelled run still put
+`status` back to `.idle` in `execute`'s tail while a run that was shut down and
+then replaced does not stomp the replacement's own `.running`
+(`TranslationPipelineCancelTests.test_aBookStartedTheInstantAfterShutdownIsNotEmptiedByTheOldRun`).
+A cold call that outlives its own run would otherwise resolve under the WRONG
+run's `live` slot; `setLive` takes the caller's `token:` and no-ops once
+`runToken` has moved past it
+(`test_aStaleColdLegDoesNotBlindCancelForTheRunThatReplacedIt`).
+
+**Note ids are minted before the fix leg is briefed, and the `.fix` work-list
+is built FROM the notes, not the other way round.** A reader's note or a
+collator's `drifted` departure becomes a `TranslatorBriefing.FixNote` carrying
+the pipeline's own id (`ULID.generate()`, at `runRound`'s note-mapping sites)
+before `TranslatorEnvironment+Project.fixBriefing` ever sees it, so
+`addressed`/`declined` on the translator's report name a row of the record
+directly rather than something matched by text afterwards. `fixBriefing` then
+walks the notes and keeps only the ones whose paragraph is still `.fresh` with
+a current translation, dropping the rest rather than briefing them blind
+(`TranslatorEnvironmentTests.test_theFixGatherBuildsTheWorkListFromTheNotesItBriefs`,
+`test_aFixGatherWithNoBriefableNoteAnswersAnEmptyWorkList`).
+
+**`runFix`/`briefFix` are the orchestrator's second verb, `runTranslation`'s
+peer over a `.fix` briefing built from the pipeline's notes** — the same
+`start`/`begin` machinery, the same identity-then-briefing order, the same
+warm session; what differs is only which gather closure `Environment` is
+asked for. **`onRunAbandoned` is not a summary and must not be read as one**:
+it fires when the briefing itself answers `nil` — a click on a pair with
+nothing to act on, never sent to a session — and the pipeline's
+`translatorRunAbandoned` resumes the waiting leg as `.abandoned`, which
+`translatorLeg`'s own switch turns into `.failed(unbriefableSentence(role:))`
+rather than into `nothingToTranslate`. Abandoned means "this pair could not
+even be briefed" (`roundContext` found no readable current paragraphs, or the
+language tag itself is malformed) — the same gate for `runTranslation` and
+`runFix` alike — a different fact from "there was a work-list and it came back
+empty", and the pipeline's `pending` continuation is what lets the two be told
+apart:
+`translatorRunEnded` resumes it `.ended`, `translatorRunAbandoned` resumes it
+`.abandoned`, both landing on the same `CheckedContinuation`.
+
+**Minting a declined note follows spec §6, and the translator's "reply" lives
+in the query BODY because the annotation layer has no reply primitive.**
+`TranslationPipelineEnvironment+Project.declinedBody` composes one string —
+the note's kind and severity, its text, then "\<translator name\> declined:
+\<reason\>" — and `mintDeclined` writes it as a `.query` (or a doc-scoped
+`.craftNote` when the note's paragraph is gone, `Document.addAnnotation`'s own
+anchorless rule) authored by the READER or COLLATOR who raised the note, never
+the translator: the translator did not ask the question, it answered one, and
+the answer is prose under its own name inside a note somebody else owns. No
+new `OpKind` or `AnnotationKind` was added for a reply — that would have been
+a bigger membrane change than a milestone about legs and rounds should make,
+and the prose does the job
+(`TranslationPipelineEnvironmentTests.test_aDeclinedNoteMintsAQueryCarryingTheTranslatorsReason`).
+
+**`TranslationRound` is the pipeline's whole product — a plain `Codable`
+value with no store behind it** — and `TranslationRoundStore` is its ring:
+`.maugham/translations/rounds/<lang>.json`, the newest 10 rounds per language
+(`TranslationRoundStore.ringSize`) plus a `nextNumber` that outlives the ring
+so a trimmed-out round's number is never re-minted
+(`TranslationRoundStoreTests.test_theRingKeepsTheNewestTenAndNumberingRunsPastIt`).
+Numbering is **per language, across every document that language has ever run
+a round on** — a book queue's several chapters share one counter, not one
+each (`test_numberingIsPerLanguageAcrossDocuments`). See `Maugham/Stores
+/AREA.md`'s own entry for the file's derived-state contract.
+
+**The book queue stops on a failed round; it does not skip the chapter and
+move on.** `execute`'s `while` loop breaks the instant `runRound` answers a
+round with `stoppedAt != nil` — the next chapter would meet the same broken
+session or the same rejected batch, and the author needs to see THIS one
+before another is attempted blind
+(`TranslationPipelineCancelTests.test_aFailedRoundStopsTheBookQueue`;
+`test_theBookQueueRunsEveryChapterInOrderWithConsecutiveNumbers` for the
+un-failed case; `test_cancelStopsTheBookQueueAfterTheLiveLeg` for the writer's
+own Cancel).
+
+**The desk's busy gate now reads `TranslationPipeline.Status`, and it
+outranks the orchestrator's own `RunState`.** A round's cold legs — the
+reader's, the collator's — hold no warm translator session at all, so
+`TranslatorOrchestrator.isRunning` answers `false` while a reader is out, and
+every row on the desk would offer Run mid-round with nothing stopping the
+click. `DepartmentRunSession.read(runState:isRunning:pipeline:)` checks the
+pipeline first and falls back to the orchestrator's own state only when no
+pipeline round is up — a bare `runTranslation` reached some other way, or a
+probe that mounts with no pipeline at all.
+
+**The teardown census's fifth sibling.** `ProjectWindow` owns the pipeline
+beside the compiler, the translator, the designer and `ColdCall`;
+`CompilerRunModifier`'s two arms and `.onDisappear` all carry
+`pipeline.shutdown()`/`pipeline.detach()` paired with the other four, and
+`TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`
+counts it — not for a process, the pipeline holds none, but for a leg
+awaiting a translator summary that a shut-down orchestrator will never send:
+`shutdown()` resumes `pending` as `.abandoned` so the round is at least
+recorded rather than left `.running` forever on a desk nobody can close.
+
+**What Plan 4 drew, and where the pipeline is now read from**:
+`TranslationRound.Leg.verb` (the present participle — "translating", "fixing",
+"collating") is read off `Status.leg` by `DepartmentRunState.legLine`, and
+`TranslationRoundStore.trend(language:)` (notes-per-round over the last five
+rounds, oldest first) by `DepartmentRunState.trendLine`; both draw on the desk
+row, and `TranslationRoundStoreTests.test_theTrendReadsNotesPerRoundForTheLastFive`
+is still `trend`'s own pin. **The pipeline's status is read on the body path,
+never through `ReloadKey`** — `ReloadKey` carries `pipeline?.status.language`
+alone (P3's ruling 7), because a leg-keyed re-derive re-walked the whole book
+once per leg. The round's own product is drawn by the round report
+(`Maugham/Views/Publish/TranslationRoundReport.swift` and its peers — see
+`Maugham/Views/AREA.md`), which is also where the verbs that write BACK into a
+round live: `TranslationRoundStore.update(_:)` rewrites one round in place and
+refuses in words when the ring has aged it out, and this area's own writes
+(`append`) never touch it.
 
 ## Tripwires this area sits on
 

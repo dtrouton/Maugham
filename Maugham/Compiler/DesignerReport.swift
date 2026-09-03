@@ -87,8 +87,8 @@ struct DesignerReport: Equatable {
     /// like this contract, `spec` is missing or empty, or any file breaks
     /// a path rule, is missing `content`, or repeats an earlier path.
     static func parse(_ raw: String) -> DesignerReport? {
-        guard let object = reportObject(in: raw),
-              let spec = nonEmptyString(object[WireField.spec]),
+        guard let object = ReportJSON.lastObject(in: raw, shapedBy: [WireField.spec, WireField.files]),
+              let spec = ReportJSON.nonEmptyString(object[WireField.spec]),
               let files = parseFiles(object)
         else { return nil }
         return DesignerReport(specMarkdown: spec, files: files)
@@ -122,7 +122,7 @@ struct DesignerReport: Equatable {
     }
 
     private static func parseFile(_ item: [String: Any]) -> ProposedFile? {
-        guard let path = nonEmptyString(item[WireField.path]),
+        guard let path = ReportJSON.nonEmptyString(item[WireField.path]),
               isSafePath(path),
               // `content` must be present as a string, even `""` — its
               // absence is a form the model has lost, the same discipline
@@ -154,82 +154,4 @@ struct DesignerReport: Equatable {
         return true
     }
 
-    /// A `String` value with something in it. Mirrors
-    /// `TranslatorReport.nonEmptyString` — same discipline, kept local for
-    /// the same reason: this type owes the translator's contract no
-    /// dependency.
-    ///
-    /// It TRIMS, and every field routed through it is kept trimmed: the
-    /// spec, the path. `content` is deliberately NOT routed through this —
-    /// file content is not prose the model composed around JSON
-    /// formatting, it is the file, and trimming it would corrupt
-    /// meaningful leading/trailing whitespace.
-    private static func nonEmptyString(_ value: Any?) -> String? {
-        guard let string = value as? String else { return nil }
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    // MARK: - JSON extraction
-
-    /// The LAST complete top-level JSON object in `raw` that looks like a
-    /// designer report — i.e. carries a `spec` or `files` key.
-    ///
-    /// Identical discipline to `TranslatorReport.reportObject`: reads
-    /// spans in reverse and returns the first match found that way,
-    /// because a model that reasons in prose before committing to its
-    /// answer tends to put worked examples earlier and the real answer
-    /// last.
-    private static func reportObject(in raw: String) -> [String: Any]? {
-        for span in objectSpans(in: raw).reversed() {
-            guard let data = span.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data),
-                  let dictionary = object as? [String: Any],
-                  dictionary[WireField.spec] != nil || dictionary[WireField.files] != nil
-            else { continue }
-            return dictionary
-        }
-        return nil
-    }
-
-    /// Every top-level `{...}` span in `text`, brace-balanced and
-    /// string-aware. Identical discipline to `TranslatorReport.objectSpans`
-    /// — duplicated here rather than shared for the same reason that copy
-    /// gives for its own duplication from `DiagnosticIngest`: it is
-    /// `private` there, and this type owes the translator's contract no
-    /// dependency either.
-    private static func objectSpans(in text: String) -> [String] {
-        var spans: [String] = []
-        var depth = 0
-        var start: String.Index?
-        var inString = false
-        var escaped = false
-
-        for index in text.indices {
-            let character = text[index]
-            if inString {
-                if escaped { escaped = false }
-                else if character == "\\" { escaped = true }
-                else if character == "\"" { inString = false }
-                continue
-            }
-            switch character {
-            case "\"":
-                inString = true
-            case "{":
-                if depth == 0 { start = index }
-                depth += 1
-            case "}":
-                guard depth > 0 else { break }
-                depth -= 1
-                if depth == 0, let opening = start {
-                    spans.append(String(text[opening...index]))
-                    start = nil
-                }
-            default:
-                break
-            }
-        }
-        return spans
-    }
 }

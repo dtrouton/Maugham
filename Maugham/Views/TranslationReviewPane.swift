@@ -55,6 +55,27 @@ enum TranslationReviewPaneLogic {
         }
     }
 
+    // MARK: - Spot-checks (P4 Task 6)
+
+    /// **Does this answer still belong on screen?** A gloss or a collation is
+    /// asked about ONE paragraph and takes seconds to come back; the buttons are
+    /// disabled while it is out but the caret is not, so the writer can move
+    /// while a call is in flight. Clearing on the move is not enough — the
+    /// in-flight call resolves AFTERWARDS and writes its answer into the state
+    /// the move just cleared, putting the wrong prose under the right heading.
+    ///
+    /// This is the sharpest version of that bug in the app: a gloss is the
+    /// author's only reading of a language they cannot read, so they have
+    /// nothing to check it against and no way to notice it is about the
+    /// paragraph above.
+    ///
+    /// A pure predicate rather than an inline comparison, so the rule is
+    /// assertable without mounting the pane.
+    static func answerStillBelongs(askedAbout paragraphId: String,
+                                   selected: String?) -> Bool {
+        paragraphId == selected
+    }
+
     // MARK: - Orphans (Task 5)
 
     /// One orphaned translation row for display: the paragraph id its stale
@@ -120,6 +141,27 @@ struct TranslationReviewPane: View {
     /// document's: an edition brief is project-scope by construction, and this
     /// pane's `document` could not address one.
     let store: ProjectStore
+    /// **The window's one cold-call runner** (translation pipeline P4 Task 6) —
+    /// what Gloss and Ask the collator ask through. Optional and defaulted so
+    /// the probe callers that mount this pane without a window behind it keep
+    /// compiling; pressing either verb without one says so in
+    /// `SpotCheck.notWiredRefusal` rather than doing nothing.
+    var coldCall: ColdCall? = nil
+    /// The window's documents — the author's language is resolved through the
+    /// imprint the desk is standing on, which lives in its UI state.
+    var documentStore: DocumentStore? = nil
+    /// The project root a spot-check reads its briefing from.
+    var projectURL: URL? = nil
+    /// The compiler's model setting, read at the press: one setting, every
+    /// spawner.
+    var model: String = CompilerOrchestrator.defaultModel
+    /// The craft-intent cache, invalidated when a Keep mine goes to **every**
+    /// edition — `TranslatorsNote`'s own rule (nothing derives a world from an
+    /// edition brief, so the other home passes nil). Threaded rather than
+    /// omitted because a directive filed here and one filed by ⌘⌥C are the same
+    /// act, and a cache left stale by one of them is a difference the writer
+    /// would find later and not be able to explain.
+    var world: DeclaredWorldStore? = nil
     @Environment(\.undoManager) private var undoManager
 
     @State private var querySheet: Annotation?
@@ -130,6 +172,27 @@ struct TranslationReviewPane: View {
     /// than logged: this act can land half-done, and a writer who is not told
     /// would answer again and mint a second ruling for one decision.
     @State private var rulingNotice: String?
+
+    // MARK: - Spot-checks (P4 Task 6)
+
+    /// The last gloss and the last collation, for the paragraph under the
+    /// caret. Held as `Outcome`s rather than values, so a refusal is a state
+    /// this surface can draw rather than something that vanished.
+    @State private var gloss: SpotCheck.Outcome<String>?
+    @State private var collation: SpotCheck.Outcome<CollatorReport>?
+    @State private var spotChecking = false
+    /// Departures the author has said are fine. **Transient on purpose**: a
+    /// spot-check is not a round, there is no record to write the disposition
+    /// into, and the answer itself is gone the moment the caret moves.
+    @State private var dismissedDepartures: Set<String> = []
+    /// Departures whose Keep mine or Make it a rule has already run. Both
+    /// file a dated note or ruling that never dedupes, so a row that has run
+    /// one of them draws its outcome rather than offering either verb again —
+    /// the round report's own `settled` set, same reasoning, same reset.
+    @State private var settledSpotCheckDepartures: Set<String> = []
+    /// Which spot-check sheet is up, and the refusal a verb came back with.
+    @State private var spotCheckSheet: SpotCheckSheet?
+    @State private var notice: String?
 
     private var entries: [TranslationBadgeLayout.Entry] {
         control.translationBadges.entries
@@ -172,6 +235,7 @@ struct TranslationReviewPane: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         sourceSection
+                        spotCheckSection
                         Divider()
                         queriesSection
                         if !orphanRows.isEmpty {
@@ -185,6 +249,12 @@ struct TranslationReviewPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // **An answer belongs to the paragraph it was asked about.** A gloss
+        // left standing while the caret moves is the wrong prose under the
+        // right heading, and it is the author's only reading of a language they
+        // do not read — so both results, the refusal and the dismissals go.
+        .onChange(of: selected?.paragraphId) { _, _ in clearSpotChecks() }
+        .sheet(item: $spotCheckSheet) { sheet in spotCheckSheetBody(sheet) }
         .sheet(item: $querySheet) { ann in
             TranslationQueryReplySheet(annotation: ann) { reply in
                 Task { try? await document.acceptAnnotation(
@@ -254,6 +324,321 @@ struct TranslationReviewPane: View {
             }
         }
     }
+
+    // MARK: - Spot-checks (P4 Task 6)
+
+    /// **Two questions about the paragraph under the caret** (spec §9): what
+    /// does it now say, and does it still say what I wrote? Each is one cold
+    /// call, one answer drawn here, and nothing written — the verbs on a
+    /// departure are what write, and the author presses those.
+    @ViewBuilder
+    private var spotCheckSection: some View {
+        if let paragraphId = selected?.paragraphId {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Button(SpotCheck.glossTitle) { runGloss(paragraphId) }
+                        .controlSize(.small)
+                        .disabled(spotChecksBusy)
+                        .help(spotChecksBusy ? SpotCheck.busyRefusal : Self.glossHelp)
+                        .accessibilityLabel(
+                            SpotCheck.glossButtonLabel(paragraphId: paragraphId))
+                    Button(SpotCheck.askTitle) { runAskTheCollator(paragraphId) }
+                        .controlSize(.small)
+                        .disabled(spotChecksBusy)
+                        .help(spotChecksBusy ? SpotCheck.busyRefusal : Self.askHelp)
+                        .accessibilityLabel(
+                            SpotCheck.askButtonLabel(paragraphId: paragraphId))
+                    Spacer(minLength: 0)
+                    if spotChecking { ProgressView().controlSize(.small) }
+                }
+                if let line = noticeLine {
+                    Text(line)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                glossResult
+                collationResult
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private static let glossHelp =
+        "Ask what this paragraph now says, rendered back into your own language."
+    private static let askHelp =
+        "Ask the collator whether this paragraph still says what you wrote."
+
+    /// Busy is EITHER check of this pane's own, or the round's leg one column
+    /// over: they share the window's single cold-call runner, and a button that
+    /// looks pressable while a leg is out teaches the writer that the app
+    /// ignores them.
+    private var spotChecksBusy: Bool {
+        spotChecking || coldCall?.isRunning == true
+    }
+
+    /// One caption, one channel — whether the refusal came from the call or
+    /// from never making one.
+    private var noticeLine: String? {
+        if let notice { return notice }
+        if case .refused(let sentence) = gloss { return sentence }
+        if case .refused(let sentence) = collation { return sentence }
+        return nil
+    }
+
+    @ViewBuilder
+    private var glossResult: some View {
+        if case .answered(let text) = gloss {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(SpotCheck.glossLabel)
+                    .font(.caption.smallCaps())
+                    .foregroundStyle(.secondary)
+                Text(text)
+                    .font(.callout)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var collationResult: some View {
+        if case .answered(let report) = collation {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(report.overall)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(departureRows(report)) { row in
+                    DepartureRowView(
+                        row: row,
+                        isExpanded: false,
+                        isSettled: settledSpotCheckDepartures.contains(row.id),
+                        onFine: { dismissedDepartures.insert(row.id) },
+                        onKeepMine: {
+                            spotCheckSheet = .keepMine(
+                                rowId: row.id, paragraphId: row.paragraphId,
+                                excerpt: excerpt(for: row),
+                                seed: row.note)
+                        },
+                        onMakeRule: { spotCheckSheet = .makeRule(id: row.id, seed: row.note) },
+                        onReveal: { reveal(row.paragraphId) })
+                }
+            }
+        }
+    }
+
+    /// The collator's departures as rows the shared view can draw.
+    ///
+    /// **The id is index-suffixed, never the bare paragraph id.** One report can
+    /// raise two departures about one paragraph — a mistranslation and an
+    /// inconsistency, say — and a `ForEach` over colliding ids draws one row and
+    /// loses the other, while a "Fine" on either would dismiss both.
+    ///
+    /// `before`/`after` are nil: a spot-check judges what is on screen and has
+    /// no rewrite to disclose, so the row draws no translated text at all —
+    /// spec §12's rule holding by construction.
+    private func departureRows(_ report: CollatorReport) -> [TranslationRoundReport.DepartureRow] {
+        report.departures.enumerated().map { index, departure in
+            let id = "\(departure.paragraphId)-\(index)"
+            return TranslationRoundReport.DepartureRow(
+                id: id,
+                paragraphId: departure.paragraphId,
+                source: sourceText(of: departure.paragraphId),
+                gloss: departure.gloss,
+                note: departure.note,
+                verdict: departure.verdict.rawValue,
+                kind: departure.kind.rawValue,
+                outcomeLine: nil,
+                before: nil,
+                after: nil,
+                isDismissed: dismissedDepartures.contains(id))
+        }
+    }
+
+    private func sourceText(of paragraphId: String) -> String? {
+        guard let text = document.paragraph(id: paragraphId), !text.isEmpty else { return nil }
+        return RenderFilter.stripTaskAnchorsInline(text)
+    }
+
+    private func excerpt(for row: TranslationRoundReport.DepartureRow) -> String {
+        DiagnosticsPane.truncatedDriftQuote(row.source ?? row.gloss)
+    }
+
+    /// The project a spot-check reads from. One spelling: the window's own when
+    /// it threaded one, else the document's own store — never both consulted at
+    /// a call site.
+    private var projectRoot: URL {
+        projectURL ?? document.opStore.projectURL
+    }
+
+    private func clearSpotChecks() {
+        gloss = nil
+        collation = nil
+        notice = nil
+        dismissedDepartures = []
+        settledSpotCheckDepartures = []
+    }
+
+    private func runGloss(_ paragraphId: String) {
+        runSpotCheck(about: paragraphId) { language, coldCall in
+            await SpotCheck.gloss(
+                paragraphId: paragraphId, language: language, entries: entries,
+                store: store, documentStore: documentStore, projectURL: projectRoot,
+                coldCall: coldCall, model: model)
+        } assign: { outcome in
+            gloss = outcome
+        }
+    }
+
+    private func runAskTheCollator(_ paragraphId: String) {
+        runSpotCheck(about: paragraphId) { language, coldCall in
+            await SpotCheck.askTheCollator(
+                paragraphId: paragraphId, docId: document.docId, language: language,
+                store: store, documentStore: documentStore, projectURL: projectRoot,
+                coldCall: coldCall, model: model)
+        } assign: { outcome in
+            collation = outcome
+            dismissedDepartures = []
+            settledSpotCheckDepartures = []
+        }
+    }
+
+    /// **One press, one answer, about the paragraph it was asked about** — and
+    /// the wiring refusal said out loud. Both verbs share this so neither can
+    /// grow its own idea of what "no runner" looks like, and neither can grow
+    /// its own idea of what to do with an answer that outlived the caret: the
+    /// id asked about is captured at the press and checked against the live
+    /// selection before anything is drawn (`answerStillBelongs`). `spotChecking`
+    /// is cleared either way — the call really did finish.
+    private func runSpotCheck<T: Equatable>(
+        about paragraphId: String,
+        call: @escaping (String, ColdCall) async -> SpotCheck.Outcome<T>,
+        assign: @escaping (SpotCheck.Outcome<T>) -> Void
+    ) {
+        notice = nil
+        guard let language = control.translationLanguage else { return }
+        guard let coldCall else {
+            notice = SpotCheck.notWiredRefusal
+            return
+        }
+        spotChecking = true
+        Task {
+            let outcome = await call(language, coldCall)
+            spotChecking = false
+            guard TranslationReviewPaneLogic.answerStillBelongs(
+                askedAbout: paragraphId, selected: selected?.paragraphId)
+            else { return }
+            assign(outcome)
+        }
+    }
+
+    /// The way back into the manuscript — the same post the round report's rows
+    /// make, so one row and the other move the window identically.
+    private func reveal(_ paragraphId: String) {
+        guard let language = control.translationLanguage else { return }
+        TranslationReveal.post(.init(
+            docId: document.docId, language: language, paragraphId: paragraphId))
+    }
+
+    // MARK: - The author's two verbs on a departure
+
+    /// Which spot-check sheet is up. An enum rather than two booleans, the
+    /// round report's own reasoning: one thing is on screen at a time.
+    private enum SpotCheckSheet: Identifiable {
+        // `rowId` carries the departure row's own id for `settledSpotCheckDepartures`
+        // — distinct from `paragraphId`, which two rows can share (see
+        // `departureRows`'s index-suffixed id).
+        case keepMine(rowId: String, paragraphId: String, excerpt: String, seed: String)
+        case makeRule(id: String, seed: String)
+
+        var id: String {
+            switch self {
+            case .keepMine(_, let paragraphId, _, _): return "keep-mine:\(paragraphId)"
+            case .makeRule(let id, _): return "make-rule:\(id)"
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func spotCheckSheetBody(_ sheet: SpotCheckSheet) -> some View {
+        let language = control.translationLanguage ?? ""
+        switch sheet {
+        case .keepMine(let rowId, let paragraphId, let excerpt, let seed):
+            // The app's ONE translator's-note sheet, seeded with the note the
+            // author is disagreeing with and defaulted to THIS edition: they
+            // are answering a departure in one language, not legislating for
+            // every translator at once.
+            let target = TranslatorsNote.Target(
+                docId: document.docId, paragraphId: paragraphId,
+                excerpt: excerpt, editions: [language])
+            TranslatorsNoteSheet(
+                target: target,
+                onCommit: { instruction, home in
+                    spotCheckSheet = nil
+                    keepMine(rowId: rowId, target: target, instruction: instruction, home: home)
+                },
+                onCancel: { spotCheckSheet = nil },
+                seed: seed,
+                defaultHome: .edition(language))
+        case .makeRule(let id, let seed):
+            RoundRuleSheet(
+                seed: seed, language: language,
+                onCommit: { text in
+                    spotCheckSheet = nil
+                    makeRule(text, rowId: id, language: language)
+                },
+                onCancel: { spotCheckSheet = nil })
+        }
+    }
+
+    /// **Keep mine** — a translator's note on this paragraph, so every later
+    /// round is briefed to keep what the author wrote. The app's one
+    /// translator's-note verb, reached from a third surface; only the
+    /// provenance says where it was pressed.
+    ///
+    /// **One press, one sentence, whichever way it goes** — the round report's
+    /// rule, in the round report's own words, because a writer who files the
+    /// same note from two surfaces must not be told two different things about
+    /// where it went.
+    private func keepMine(rowId: String, target: TranslatorsNote.Target,
+                          instruction: String, home: TranslatorsNote.Home) {
+        Task {
+            let refusal = await TranslatorsNote.commit(
+                instruction, target: target, home: home, store: store, world: world,
+                provenance: Self.keepMineProvenance)
+            notice = refusal ?? TranslationRoundReport.keptLine(home: home)
+            // Only on success — a refused note left nothing behind to guard
+            // against refiling.
+            if refusal == nil { settledSpotCheckDepartures.insert(rowId) }
+        }
+    }
+
+    /// **Make it a rule** — doctrine for the edition rather than a directive
+    /// about one paragraph, which is why it is unanchored and project-scope.
+    /// `RulingPerformer` is the one door, here as everywhere.
+    private func makeRule(_ text: String, rowId: String, language: String) {
+        Task {
+            do {
+                try await RulingPerformer.rule(
+                    text, provenance: Self.makeRuleProvenance,
+                    kind: .editionBrief(language), forScope: .project,
+                    store: store, world: nil)
+                notice = TranslationRoundReport.ruledLine(language: language)
+                settledSpotCheckDepartures.insert(rowId)
+            } catch {
+                notice = error.localizedDescription
+            }
+        }
+    }
+
+    /// `TranslationRoundReport.provenance`'s shape with no round to name: a
+    /// spot-check is the other tempo, and a later reader of the brief should be
+    /// able to tell which one filed a line.
+    private static let keepMineProvenance = "spot-check, keep mine"
+    private static let makeRuleProvenance = "spot-check, make it a rule"
 
     // MARK: - Queries
 
@@ -420,10 +805,15 @@ private struct TranslationStatusChip: View {
 
 /// Reply sheet for a translator query — mirrors `AnnotationsPane`'s
 /// `QueryReplySheet` (the writer's answer flows into `acceptAnnotation` as the
-/// `userResponse`). Kept file-private here rather than shared because the two
-/// surfaces present the same op through independent panes.
+/// `userResponse`).
+///
+/// **No longer file-private, as of translation pipeline P4 Task 3.** The round
+/// report's Questions section asks the writer for exactly this — a reply to a
+/// translator's open query — and a second sheet saying the same thing is how the
+/// two would eventually come to word it differently. `QueryRulingSheet` is
+/// already shared between three surfaces for the same reason.
 @MainActor
-private struct TranslationQueryReplySheet: View {
+struct TranslationQueryReplySheet: View {
     let annotation: Annotation
     let onReply: (String) -> Void
     let onCancel: () -> Void

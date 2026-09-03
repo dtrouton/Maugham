@@ -479,6 +479,93 @@ final class TranslatorEnvironmentTests: XCTestCase {
         await harness.documentStore.close()
     }
 
+    /// **Spec §2's `directed`**: a fresh paragraph carrying a directive ruled
+    /// after its record is this round's work; one whose directive is older
+    /// than its record is not.
+    func test_aDirectiveNewerThanTheRecordMakesAFreshParagraphWork() async throws {
+        let harness = try await makeHarness()
+        let ids = harness.doc.sequence
+        // Every paragraph fresh, translated "two days ago" so the ruling days
+        // below fall clearly on either side.
+        let twoDaysAgo = Date().addingTimeInterval(-2 * 86_400)
+        for id in ids {
+            try await TranslationStore.append(
+                TranslationRecord(
+                    paragraphId: id, language: "es", text: "…",
+                    sourceHash: TranslationHash.hash(harness.doc.paragraphs[id] ?? ""),
+                    at: twoDaysAgo),
+                forDocId: harness.doc.docId,
+                deviceSlug: DeviceSlug.make(from: MacDeviceID.current),
+                in: harness.projectURL)
+        }
+        _ = try await harness.environment.translatorIdentity("es")
+
+        // ids[0]: directive ruled TODAY (after the record) → directed.
+        try await RulingPerformer.rule(
+            Ruling.directiveText(paragraphId: ids[0], "keep it plain"),
+            provenance: Ruling.Provenance.translatorsNote,
+            kind: .intent, forScope: .document(harness.doc.docId),
+            store: harness.projectStore, world: nil)
+        // ids[1]: a directive dated a week BEFORE the record → not directed.
+        let brief = try await harness.projectStore.createStatement(
+            kind: .editionBrief("es"), scope: .project)
+        try await harness.projectStore.mutateStatementText(
+            of: brief, session: "test-\(UUID().uuidString)") { markdown in
+            RulingsSection.appending(
+                Ruling.directiveText(paragraphId: ids[1], "one sentence"),
+                provenance: Ruling.Provenance.translatorsNote,
+                on: twoDaysAgo.addingTimeInterval(-7 * 86_400), to: markdown)
+        }
+
+        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let inputs = try XCTUnwrap(gathered).inputs
+
+        XCTAssertEqual(inputs.workList.map(\.paragraphId), [ids[0]])
+        XCTAssertEqual(inputs.workList.first?.status, .fresh)
+        XCTAssertEqual(inputs.workList.first?.priorTranslation, "…",
+                       "a directed item hands over what it currently says")
+        XCTAssertEqual(inputs.workList.first?.directives, ["keep it plain"])
+        XCTAssertEqual(gathered?.sourceHashes.keys.sorted(), [ids[0]],
+                       "the mid-run-edit guard covers the directed item too")
+
+        await harness.documentStore.close()
+    }
+
+    /// Directives and the glossary reach the briefing off the writer's own
+    /// statements — craft intent's for every edition, the brief's for this one.
+    func test_theBriefingCarriesDirectivesFromBothStatementsAndTheGlossary() async throws {
+        let harness = try await makeHarness()
+        let ids = harness.doc.sequence
+        _ = try await harness.environment.translatorIdentity("es")
+        try await RulingPerformer.rule(
+            Ruling.directiveText(paragraphId: ids[2], "this fragment is deliberate"),
+            provenance: Ruling.Provenance.translatorsNote,
+            kind: .intent, forScope: .document(harness.doc.docId),
+            store: harness.projectStore, world: nil)
+        try await RulingPerformer.rule(
+            Ruling.directiveText(paragraphId: ids[2], "do not elevate this"),
+            provenance: Ruling.Provenance.translatorsNote,
+            kind: .editionBrief("es"), forScope: .project,
+            store: harness.projectStore, world: nil)
+        try await RulingPerformer.rule(
+            Ruling.glossaryText(term: "October", rendering: "Octubre", note: "the month"),
+            provenance: Ruling.Provenance.glossary,
+            kind: .editionBrief("es"), forScope: .project,
+            store: harness.projectStore, world: nil)
+
+        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let inputs = try XCTUnwrap(gathered).inputs
+
+        let last = try XCTUnwrap(inputs.workList.first { $0.paragraphId == ids[2] })
+        XCTAssertEqual(last.directives, ["this fragment is deliberate", "do not elevate this"],
+                       "craft intent's first, then the brief's")
+        XCTAssertEqual(inputs.glossary,
+                       [GlossaryEntry(term: "October", rendering: "Octubre", note: "the month")])
+        XCTAssertEqual(inputs.mode, .translate)
+
+        await harness.documentStore.close()
+    }
+
     /// The name in the briefing is the one the identity minted — Task 4's
     /// order made load-bearing here: production reads both off the same stored
     /// translator row.
@@ -703,6 +790,18 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(
             compilerShutdowns, 2,
             "app-quit and the AI toggle are both window-ending paths")
+        XCTAssertEqual(
+            compilerShutdowns,
+            modifier.components(separatedBy: "coldCall.shutdown()").count - 1,
+            "every compiler shutdown in the modifier needs its cold-call sibling — "
+            + "a cold read in flight when the window closes is a billing process "
+            + "otherwise (translation pipeline spec §5)")
+        XCTAssertEqual(
+            compilerShutdowns,
+            modifier.components(separatedBy: "pipeline.shutdown()").count - 1,
+            "every compiler shutdown in the modifier needs its pipeline sibling — "
+            + "a leg awaiting a translator summary is otherwise never resumed once "
+            + "the orchestrator is shut down (translation pipeline spec §5)")
 
         // The designer's own five tokens are `DesignerEnvironmentTests`' —
         // each file owns the wiring of the loop it is about; the paired counts
@@ -718,5 +817,169 @@ final class TranslatorEnvironmentTests: XCTestCase {
         }
         XCTAssertFalse(window.contains("translator.notARealVerb("),
                        "the scan reads the file rather than always answering true")
+
+        for token in ["ColdCall()", "coldCall.detach()", "coldCall.configure(",
+                      "coldCall: coldCall"] {
+            XCTAssertTrue(window.contains(token),
+                          "ProjectWindow is missing \(token) — without it the cold-call "
+                          + "runner is unwired, unmounted, or outlives the window")
+        }
+
+        // The last two are spelled `pipeline?.` rather than `pipeline.`: they
+        // live inside the translator environment's `onRunEnded`/`onRunAbandoned`
+        // closures, which capture the pipeline weakly — a strong capture there
+        // is a window's whole project graph held alive by an orchestrator
+        // closure, which is the thing `.onDisappear`'s scorch exists to prevent.
+        for token in ["TranslationPipeline()", "pipeline.detach()", "pipeline.configure(",
+                      "pipeline: pipeline", "pipeline.updateModel(",
+                      "pipeline?.translatorRunEnded(", "pipeline?.translatorRunAbandoned("] {
+            XCTAssertTrue(window.contains(token),
+                          "ProjectWindow is missing \(token) — without it the pipeline is "
+                          + "unwired, unmounted, deaf to the translator, or outlives the window")
+        }
+    }
+
+    // MARK: - The fix gather (Plan 3)
+
+    private func seedTranslation(_ harness: Harness, paragraph index: Int,
+                                 text: String, language: String = "es") throws {
+        let id = harness.doc.sequence[index]
+        _ = try TranslationWritePipeline.perform(
+            entries: [.init(paragraphId: id, text: text, verbatim: nil, delete: nil)],
+            language: language, documentId: harness.doc.docId,
+            state: (harness.doc.sequence, harness.doc.paragraphs, harness.projectURL),
+            deviceSlug: DeviceSlug.make(from: MacDeviceID.current))
+    }
+
+    /// The `.fix` work-list is built FROM the notes: one `.fresh` item per
+    /// noted paragraph carrying its current translation, in sequence order,
+    /// and the mode's notes are exactly the ones whose paragraph made an item
+    /// — a note whose paragraph has no current translation is dropped rather
+    /// than briefed blind (a `FixNote` with no work item would make the
+    /// report fail whole with no clue why).
+    func test_theFixGatherBuildsTheWorkListFromTheNotesItBriefs() async throws {
+        let harness = try await makeHarness()
+        try seedTranslation(harness, paragraph: 0, text: "Llegó la niebla.")
+        try seedTranslation(harness, paragraph: 2, text: "Nadie habló.")
+        let ids = harness.doc.sequence
+        let notes: [TranslatorBriefing.FixNote] = [
+            .init(id: "n-last", paragraphId: ids[2], author: "Ocampo", kind: "rhythm",
+                  severity: "minor", text: "Limps."),
+            .init(id: "n-first", paragraphId: ids[0], author: "Ocampo", kind: "register",
+                  severity: "major", text: "Wobbles."),
+            .init(id: "n-untranslated", paragraphId: ids[1], author: "Ocampo",
+                  kind: "grammar", severity: "minor", text: "No text here."),
+        ]
+
+        // Hoisted out of `XCTUnwrap`: an `await` cannot live inside an
+        // autoclosure, so the gather runs first and the unwrap reads a value.
+        let gathered = await harness.environment.briefFix(
+            harness.doc.docId, "es", notes, true)
+        let round = try XCTUnwrap(gathered)
+        let inputs = round.inputs
+        XCTAssertEqual(inputs.workList.map(\.paragraphId), [ids[0], ids[2]], "sequence order")
+        XCTAssertEqual(inputs.workList.map(\.status), [.fresh, .fresh])
+        XCTAssertEqual(inputs.workList.map(\.priorTranslation),
+                       ["Llegó la niebla.", "Nadie habló."])
+        guard case .fix(let briefed, let isFinal) = inputs.mode else {
+            return XCTFail("a fix gather briefs in fix mode")
+        }
+        XCTAssertTrue(isFinal)
+        XCTAssertEqual(briefed.map(\.id), ["n-last", "n-first"],
+                       "the untranslated paragraph's note is not briefed")
+        XCTAssertEqual(inputs.reportMode, .fix(briefedNoteIds: ["n-last", "n-first"]))
+        XCTAssertEqual(Set(round.sourceHashes.keys), Set([ids[0], ids[2]]))
+        XCTAssertTrue(TranslatorBriefing.compose(inputs: inputs)
+                          .contains(TranslatorBriefing.repairSentence))
+        await harness.documentStore.close()
+    }
+
+    /// No noted paragraph has a translation → an EMPTY work-list, not nil:
+    /// the orchestrator reports `nothingToTranslate` and the pipeline records
+    /// a skip, where nil would be an abandon with no leg to show for it.
+    func test_aFixGatherWithNoBriefableNoteAnswersAnEmptyWorkList() async throws {
+        let harness = try await makeHarness()
+        let notes = [TranslatorBriefing.FixNote(
+            id: "n1", paragraphId: harness.doc.sequence[0], author: "Ocampo",
+            kind: "rhythm", severity: nil, text: "Limps.")]
+        let gathered = await harness.environment.briefFix(
+            harness.doc.docId, "es", notes, false)
+        let round = try XCTUnwrap(gathered)
+        XCTAssertTrue(round.inputs.workList.isEmpty)
+        await harness.documentStore.close()
+    }
+
+    /// Ingest reports what a fix leg rewrote — the record that stood before
+    /// and the one it appended — and carries the report's own answers whole.
+    func test_ingestReportsRewritesAndTheFixReportsAnswers() async throws {
+        let harness = try await makeHarness()
+        try seedTranslation(harness, paragraph: 0, text: "Llegó la niebla.")
+        let id = harness.doc.sequence[0]
+        let before = try XCTUnwrap(
+            TranslationStore.latestByParagraph(records(harness))[id])
+        let report = TranslatorReport(
+            entries: [.init(paragraphId: id, text: "Vino la niebla.", verbatim: nil)],
+            queries: [], addressed: ["n1"],
+            declined: [.init(noteId: "n2", reason: "Deliberate.")],
+            summary: "Two fixes.",
+            glossaryProposals: [.init(term: "fog", rendering: "niebla", reason: "fixed")])
+
+        let outcome = await harness.environment.ingest(report, context(harness))
+
+        XCTAssertNil(outcome.rejection)
+        XCTAssertEqual(outcome.addressed, ["n1"])
+        XCTAssertEqual(outcome.declined.map(\.reason), ["Deliberate."])
+        XCTAssertEqual(outcome.summary, "Two fixes.")
+        XCTAssertEqual(outcome.glossaryProposals.map(\.rendering), ["niebla"])
+        let rewrite = try XCTUnwrap(outcome.rewrites.first { $0.paragraphId == id })
+        XCTAssertEqual(rewrite.beforeRecordId, before.opId)
+        XCTAssertEqual(rewrite.before, "Llegó la niebla.")
+        XCTAssertEqual(rewrite.after, "Vino la niebla.")
+        XCTAssertNotEqual(rewrite.afterRecordId, before.opId)
+        XCTAssertEqual(rewrite.afterRecordId,
+                       TranslationStore.latestByParagraph(records(harness))[id]?.opId)
+        await harness.documentStore.close()
+    }
+
+    /// A query on a document the window does not have open still lands — the
+    /// book queue runs over closed chapters, and a question with nowhere to go
+    /// was the one gap the single-chapter Run could afford.
+    func test_aQueryOnAClosedDocumentStillLands() async throws {
+        let harness = try await makeHarness()
+        let docId = harness.doc.docId
+        let paragraphId = harness.doc.sequence[1]
+        await harness.documentStore.close()   // the window no longer holds it
+
+        let report = TranslatorReport(
+            entries: [], queries: [.init(paragraphId: paragraphId, text: "¿Usted o tú?")])
+        let outcome = await harness.environment.ingest(report, context(harness))
+        XCTAssertEqual(outcome.queriesMinted, 1)
+
+        let reopened = try await Document.load(
+            url: harness.projectURL.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s2", presenter: nil)
+        let landed = reopened.annotations(filter: AnnotationFilter(statuses: nil))
+        XCTAssertEqual(landed.map(\.body), ["¿Usted o tú?"])
+        XCTAssertEqual(landed.first?.language, "es")
+        _ = docId
+    }
+
+    // MARK: - The translation cast's per-turn budget (2026-09-02)
+
+    /// **The production runner is a bridged session on the translation
+    /// budget, not the compiler's.** A translate leg sends a chapter's whole
+    /// work-list in one turn; `ClaudeCLISession.defaultRunTimeout` was measured
+    /// on a compiler delta and killed long chapters with nothing written.
+    /// `runTimeout` is readable for exactly this assertion.
+    func test_theProductionRunnerCarriesTheTranslationBudget() async throws {
+        let harness = try await makeHarness()
+        let configURL = harness.projectURL.appendingPathComponent("mcp-config.json")
+        let made = harness.environment.makeRunner(configURL, "haiku")
+        let session = try XCTUnwrap(made as? ClaudeCLISession,
+                                    "production spawns the real CLI session")
+        XCTAssertEqual(session.runTimeout, ClaudeCLISession.translationRunTimeout)
+        XCTAssertEqual(session.confinement, .bridged(mcpConfigPath: configURL),
+                       "the budget changed; the confinement did not")
+        session.shutdown()
     }
 }

@@ -19,6 +19,11 @@ directly" (CLAUDE.md hard invariant; `docs/constitution.md`'s *identity* princip
 neither the manuscript nor an edit to it — it needed a plane where that distinction is
 structural, not a convention Claude is trusted to honor.
 
+*[Amended 2026-08-29: the plane is unchanged, but the single translator working in it
+is not — a blind reader and a collator now work beside them per language, sequenced by
+a seven-leg Run, and the writer's directives to all three are rulings. See
+[ADR 0030](0030-three-people-seven-legs-directives-as-rulings.md).]*
+
 ## Decision
 
 ### 1. A second parallel data plane, structurally identical to the annotation layer's

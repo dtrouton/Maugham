@@ -17,6 +17,38 @@ it borrows the source version's number as its identity. If the source isn't yet 
 the edition compile will refuse loudly. Use `dry_run: true` to check whether the edition
 would pass the translation-coverage gate before committing to a full compile.
 
+## The in-app pipeline
+
+**You are not the only translator on this book.** Maugham's Publish desk has a
+Run of its own, and one press of it is seven legs: the edition's translator
+writes, a **blind reader** (target text only, so it can say the prose does not
+read like this language and can never say it is wrong) reads and notes, the
+translator fixes, the reader reads again, the translator fixes again, a
+**collator** compares both texts and raises departures with a gloss back into
+the author's language, and the translator answers those. Each language has its
+own named translator, reader and collator. Assume the writer has run it, or
+will.
+
+Two consequences for a session working from outside:
+
+- **Read `read_edition_brief` for the language before you translate a word.**
+  The writer's directives and the book's glossary live there (and in the
+  piece's craft intent, via `read_craft_intent`) as `## Rulings` lines — a
+  directive is anchored to a paragraph, `- ¶k7mq: keep the three "and"s`, and a
+  glossary entry has the shape `- «October» → «Octubre» (the month, never a
+  name)`. The in-app translator is briefed with all of it, and a pass that
+  ignores it will be undone by the next round. Honor them exactly; they are
+  decisions, not suggestions. No brief for the language yet? Run the
+  `edition-brief` skill first — it interviews the writer and proposes one
+  they adopt in Maugham — rather than deciding register on your own.
+- **`translation_status`'s `last_round` is where you see what the pipeline
+  already did** for a `(document, language)` pair: the round `number`, the two
+  readers' verdicts (`leg2_verdict`, `leg4_verdict`), the note, departure and
+  declined counts, the round's `summary`, and `stopped_at` for a round that
+  ended early. The same rows name the `reader` and the `collator`. Read it
+  before deciding a document needs work — a round three minutes old has
+  already reworked what you were about to rewrite.
+
 ## What matters, in order
 
 1. **Coverage is derived, never assumed.** `translation_status` tells you how

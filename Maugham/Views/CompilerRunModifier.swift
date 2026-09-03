@@ -19,12 +19,23 @@ import AppKit
 /// `.onDisappear`, because it also has to drop the orchestrator's hold on the
 /// project's stores (`detach()`), and that scorch already lives there.
 ///
-/// **There are THREE session owners now** (publish department P2 and P3): the
-/// translator's loop and the designer's each spawn their own long-lived
-/// `claude` and inherit the same contract whole, so every teardown arm below
-/// carries two sibling calls. `TranslatorEnvironmentTests`' census is what keeps
+/// **There are FOUR session owners now** (publish department P2 and P3;
+/// translation pipeline P2): the translator's loop and the designer's each
+/// spawn their own long-lived `claude` and inherit the same contract whole,
+/// and `ColdCall` owns no warm session but can have a spawned reader or
+/// collator process in flight — so every teardown arm below carries three
+/// sibling calls. `TranslatorEnvironmentTests`' census is what keeps
 /// them paired — a run verb for either is P4's, so nothing else here would
 /// notice one's absence.
+///
+/// **And a fifth sibling that owns no session at all** (translation pipeline
+/// P3): `TranslationPipeline` owns the WAITING LEG. A round suspends between
+/// legs on a continuation resumed by the translator's own summary, and the two
+/// arms below shut that translator down — so a pipeline left alone here has a
+/// round parked forever on a summary that will never come, its progress never
+/// recorded. Its `shutdown()` is therefore the FIRST line of each arm, before
+/// the orchestrators resolve their legs: the generation it bumps is what makes
+/// the parked leg answer cancelled rather than believe a late summary.
 struct CompilerRunModifier: ViewModifier {
     let orchestrator: CompilerOrchestrator
     /// The translator's session, torn down beside the compiler's. No run keys
@@ -34,6 +45,13 @@ struct CompilerRunModifier: ViewModifier {
     /// The designer's session, torn down beside the other two. Headless for the
     /// same reason: a design round is started from the desk (P4).
     let designer: DesignerOrchestrator
+    /// The cold-call runner, torn down beside the three warm sessions. A reader
+    /// or collator mid-read when the window ends is a live, billing process
+    /// otherwise (translation pipeline spec §5, "session owners").
+    let coldCall: ColdCall
+    /// The pipeline sequencing the two above. Owns no session; owns the leg
+    /// that waits — see this type's doc comment for why it goes down first.
+    let pipeline: TranslationPipeline
     let window: NSWindow?
     /// The window's subject as a document id, or the no-document sentinel.
     /// Resolved by the window, not here: this modifier has no opinion about
@@ -58,15 +76,19 @@ struct CompilerRunModifier: ViewModifier {
                 orchestrator.runRequested(docId: activeDocId, freshEyes: true)
             }
             .onGlobalEvent(.maughamAppWillTerminate) { _ in
+                pipeline.shutdown()
                 orchestrator.shutdown()
                 translator.shutdown()
                 designer.shutdown()
+                coldCall.shutdown()
             }
             .onChange(of: mcpEnabled) { _, enabled in
                 guard !enabled else { return }
+                pipeline.shutdown()
                 orchestrator.shutdown()
                 translator.shutdown()
                 designer.shutdown()
+                coldCall.shutdown()
             }
     }
 }

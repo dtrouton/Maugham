@@ -91,6 +91,41 @@ final class DesignGateTests: XCTestCase {
         }
     }
 
+    /// **…and a translation round outranks the gate itself** (translation
+    /// pipeline P4 Task 3). Two surfaces now reach this column from the same
+    /// desk, and the window holds one selection for each — so the rule needs an
+    /// order rather than two independent gates, and the round wins for the
+    /// reason the proposal beats the book: it is the thing the writer pressed
+    /// Show on last (each Show clears the other, `ProjectWindow`'s desk
+    /// wiring), and a proposal drawn over it would be the truth table upside
+    /// down. Both guards above still apply unchanged.
+    func test_aSelectedRoundTakesTheCentreAheadOfTheProposalAndTheBook() {
+        let round = TranslationRound(number: 1, language: "es", docId: "doc-1", startedAt: Date())
+        XCTAssertEqual(
+            ProjectWindow.publishCentre(
+                persona: .publish, subject: nil, structure: ProjectAltitudeCentreTests.structure,
+                preview: .ready(newestFirst: [PublishPreviewCentreTests.aBook]),
+                proposal: Self.proposal(), round: round),
+            .translationRound(round))
+        // **A round draws over a chapter too** (2026-09-02, Denver's ruling): a
+        // round is about one chapter, and Show pressed with that chapter
+        // selected used to draw nothing until the writer moved to the project
+        // row. The book and the design gate stay project-level.
+        XCTAssertEqual(ProjectWindow.publishCentre(
+            persona: .publish, subject: .item("chapter-1"), structure: ProjectAltitudeCentreTests.structure,
+            preview: .nothingCompiled, proposal: nil, round: round),
+            .translationRound(round),
+            "Show on a round must draw with the round's own chapter selected")
+        XCTAssertNil(ProjectWindow.publishCentre(
+            persona: .publish, subject: .item("chapter-1"), structure: ProjectAltitudeCentreTests.structure,
+            preview: .nothingCompiled, proposal: Self.proposal(), round: nil),
+            "the design gate is still project-level: a chapter in Publish is the editor")
+        XCTAssertNil(ProjectWindow.publishCentre(
+            persona: .author, subject: nil, structure: ProjectAltitudeCentreTests.structure,
+            preview: .nothingCompiled, proposal: nil, round: round),
+            "the report is Publish's")
+    }
+
     /// …and **deselecting gives the book back**, untouched. The gate is a
     /// surface the writer enters and leaves; leaving it must not cost them the
     /// arm they were on, and must not invent a fourth answer.

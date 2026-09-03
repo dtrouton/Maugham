@@ -97,11 +97,12 @@ final class ProductionRoleTests: XCTestCase {
 
     // MARK: - The preset table
 
-    func test_thePresetTranslatorNamesAreTheFourTheSpecFixes() {
+    func test_thePresetTranslatorNamesAreTheOnesTheSpecFixes() {
         XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "es"), "Cortázar")
         XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "fr"), "Baudelaire")
         XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "de"), "Tieck")
         XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "ja"), "Motoyuki")
+        XCTAssertEqual(ProductionRole.defaultTranslatorName(language: "sr"), "Kiš")
     }
 
     /// nil, not a manufactured name: an unlisted language is the case where the
@@ -171,6 +172,10 @@ final class ProductionRoleTests: XCTestCase {
             ProductionRole(id: "e", role: .unknown("compositor")),
             ProductionRole(id: "f", role: .unknown("")),
             ProductionRole(id: "g", role: .designer, name: ""),
+            ProductionRole(id: "h", role: .reader(language: "")),
+            ProductionRole(id: "i", role: .collator(language: "")),
+            ProductionRole(id: "j", role: .reader(language: "is")),
+            ProductionRole(id: "k", role: .collator(language: "is")),
         ]
         for role in roles {
             XCTAssertFalse(role.effectiveName.isEmpty, "empty effectiveName for \(role.role)")
@@ -317,5 +322,89 @@ final class ProductionRoleTests: XCTestCase {
     /// build would open a manifest carrying roles and re-save it without them.
     func test_theSchemaIsAtLeastEightForTheProductionRolesSection() {
         XCTAssertGreaterThanOrEqual(ProjectManifest.currentSchemaVersion, 8)
+    }
+
+    // MARK: - Reader and collator (translation pipeline P1)
+
+    func test_aReaderRoleCarriesItsLanguageAfterTheColon() throws {
+        let role = try JSONDecoder().decode(ProductionRole.Role.self, from: Data("\"reader:es\"".utf8))
+        XCTAssertEqual(role, .reader(language: "es"))
+        XCTAssertEqual(role.rawValue, "reader:es")
+    }
+
+    func test_aCollatorRoleCarriesItsLanguageAfterTheColon() throws {
+        let role = try JSONDecoder().decode(ProductionRole.Role.self, from: Data("\"collator:pt-br\"".utf8))
+        XCTAssertEqual(role, .collator(language: "pt-br"))
+        XCTAssertEqual(role.rawValue, "collator:pt-br")
+    }
+
+    func test_aReaderOrCollatorWithAnEmptyLanguageDecodesAsUnknownAndStaysLossless() throws {
+        for raw in ["reader:", "collator:"] {
+            let role = try JSONDecoder().decode(ProductionRole.Role.self, from: Data("\"\(raw)\"".utf8))
+            XCTAssertEqual(role, .unknown(raw), raw)
+            let re = try JSONEncoder().encode(role)
+            XCTAssertEqual(String(decoding: re, as: UTF8.self), "\"\(raw)\"")
+        }
+    }
+
+    func test_thePresetReadersAndCollatorsAreTheEightTheSpecFixes() {
+        XCTAssertEqual(ProductionRole.defaultReaderName(language: "es"), "Ocampo")
+        XCTAssertEqual(ProductionRole.defaultReaderName(language: "fr"), "Colette")
+        XCTAssertEqual(ProductionRole.defaultReaderName(language: "de"), "Bachmann")
+        XCTAssertEqual(ProductionRole.defaultReaderName(language: "ja"), "Enchi")
+        XCTAssertEqual(ProductionRole.defaultCollatorName(language: "es"), "Borges")
+        XCTAssertEqual(ProductionRole.defaultCollatorName(language: "fr"), "Yourcenar")
+        XCTAssertEqual(ProductionRole.defaultCollatorName(language: "de"), "Schlegel")
+        XCTAssertEqual(ProductionRole.defaultCollatorName(language: "ja"), "Futabatei")
+        XCTAssertEqual(ProductionRole.defaultReaderName(language: "sr"), "Sekulić")
+        XCTAssertEqual(ProductionRole.defaultCollatorName(language: "sr"), "Vinaver")
+        XCTAssertNil(ProductionRole.defaultReaderName(language: "is"))
+        XCTAssertNil(ProductionRole.defaultCollatorName(language: "is"))
+        XCTAssertEqual(ProductionRole.defaultReaderName(language: "ES"), "Ocampo", "case-insensitive on the tag")
+    }
+
+    func test_aReaderWithNoNameOfItsOwnTakesThePresetForItsLanguage() {
+        XCTAssertEqual(ProductionRole(id: "r", role: .reader(language: "fr")).effectiveName, "Colette")
+        XCTAssertEqual(ProductionRole(id: "c", role: .collator(language: "de")).effectiveName, "Schlegel")
+    }
+
+    func test_anUnlistedUnnamedReaderFallsBackToTheUppercasedTag() {
+        XCTAssertEqual(ProductionRole(id: "r", role: .reader(language: "is")).effectiveName, "IS")
+        XCTAssertEqual(ProductionRole(id: "c", role: .collator(language: "is")).effectiveName, "IS")
+    }
+
+    func test_anOwnNameWinsForAReaderAndACollator() {
+        XCTAssertEqual(ProductionRole(id: "r", role: .reader(language: "es"), name: "Pizarnik").effectiveName, "Pizarnik")
+        XCTAssertEqual(ProductionRole(id: "c", role: .collator(language: "es"), name: "Bioy").effectiveName, "Bioy")
+    }
+
+    func test_aReaderAndACollatorAlwaysHaveADoctrine() throws {
+        let reader = try XCTUnwrap(ProductionRole(id: "r", role: .reader(language: "es")).effectiveBrief)
+        XCTAssertTrue(reader.contains("will not see"), "the reader's brief states its blindness")
+        XCTAssertTrue(reader.contains("Do not rewrite"))
+        XCTAssertTrue(reader.contains("author's language"), "notes are written to the author")
+        let collator = try XCTUnwrap(ProductionRole(id: "c", role: .collator(language: "es")).effectiveBrief)
+        XCTAssertTrue(collator.contains("side by side"))
+        XCTAssertTrue(collator.contains("drifted"))
+        XCTAssertTrue(collator.contains("glossary"))
+        XCTAssertNotEqual(reader, collator)
+    }
+
+    func test_anOwnBriefWinsForAReader() {
+        let role = ProductionRole(id: "r", role: .reader(language: "es"), brief: "Only flag register.")
+        XCTAssertEqual(role.effectiveBrief, "Only flag register.")
+    }
+
+    func test_theManifestFindsAStoredReaderAndCollatorCaseInsensitively() throws {
+        let json = manifestJSON(schemaVersion: 8, productionRolesJSON: """
+            [{"id":"r1","role":"reader:es","name":"Pizarnik"},
+             {"id":"c1","role":"collator:es"},
+             {"id":"t1","role":"translator:es"}]
+            """)
+        let manifest = try ProjectManifest.decodeGuardingSchema(json)
+        XCTAssertEqual(manifest.storedReader(for: "ES")?.id, "r1")
+        XCTAssertEqual(manifest.storedCollator(for: "es")?.id, "c1")
+        XCTAssertEqual(manifest.storedTranslator(for: "es")?.id, "t1", "unchanged")
+        XCTAssertNil(manifest.storedReader(for: "fr"))
     }
 }

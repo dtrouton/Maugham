@@ -197,6 +197,50 @@ private extension Array {
     }
 }
 
+/// The three-way split a statement's rulings resolve into once directives and
+/// glossary entries are recognised (translation pipeline spec §3.1, publish
+/// department Task 7): a glossary entry draws as a table row, an orphaned
+/// directive — its anchored paragraph no longer exists — draws with a warning
+/// and a Remove affordance, and everything else draws exactly as it always
+/// has.
+///
+/// **A directive is only ever an orphan against a KNOWN set of live ids.**
+/// `liveParagraphIds == nil` means the pane has not finished resolving them
+/// yet (its `.task` hasn't landed, or the read failed) — and "unknown" must
+/// never read as "orphaned": a directive flashing an orphan warning for one
+/// frame while a document loads would be a false alarm about a paragraph that
+/// is right there.
+extension RulingsStratum {
+    struct Partition: Equatable {
+        let glossary: [Ruling]
+        let orphans: [Ruling]
+        let others: [Ruling]
+    }
+
+    static let glossaryHeading = "Glossary"
+    static let orphanCaption = "This paragraph no longer exists"
+    static let removeTitle = "Remove"
+
+    /// `liveParagraphIds == nil` = unknown: nothing is an orphan (never a
+    /// false orphan over a doc that has not loaded).
+    static func partition(_ rulings: [Ruling], liveParagraphIds: Set<String>?) -> Partition {
+        var glossary: [Ruling] = []
+        var orphans: [Ruling] = []
+        var others: [Ruling] = []
+        for ruling in rulings {
+            if ruling.glossary != nil {
+                glossary.append(ruling)
+            } else if let paragraphId = ruling.paragraphId,
+                      let live = liveParagraphIds, !live.contains(paragraphId) {
+                orphans.append(ruling)
+            } else {
+                others.append(ruling)
+            }
+        }
+        return Partition(glossary: glossary, orphans: orphans, others: others)
+    }
+}
+
 /// The rulings stratum as the writer meets it: their own words, in their own
 /// ink, itemized under the essay they were made against.
 ///
@@ -212,6 +256,12 @@ struct RulingsStratumView: View {
     let scope: Statement.Scope
     @Bindable var store: ProjectStore
     let world: DeclaredWorldStore?
+    /// Which paragraph ids are currently live in this statement's scope, so a
+    /// directive whose anchor no longer exists draws as an orphan rather than
+    /// an ordinary row. `nil` (the default) is "not yet known" — see
+    /// `RulingsStratum.partition`'s doc comment for why that must never read
+    /// as "orphaned". `StatementPane` resolves this in a `.task`.
+    var liveParagraphIds: Set<String>? = nil
 
     @Environment(\.undoManager) private var undoManager
 
@@ -233,17 +283,93 @@ struct RulingsStratumView: View {
     }
 
     var body: some View {
+        let partition = RulingsStratum.partition(rulings, liveParagraphIds: liveParagraphIds)
         VStack(alignment: .leading, spacing: 0) {
             Text(Self.title(for: kind))
                 .font(.caption).bold()
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-            ForEach(Array(rulings.enumerated()), id: \.element.id) { index, ruling in
-                row(ruling, at: index)
+            if !partition.glossary.isEmpty {
+                glossarySection(partition.glossary)
+                Divider()
+            }
+            ForEach(partition.orphans) { ruling in
+                orphanRow(ruling, at: index(of: ruling))
+                Divider()
+            }
+            ForEach(partition.others) { ruling in
+                row(ruling, at: index(of: ruling))
                 Divider()
             }
         }
+    }
+
+    /// `partition` hands back plain `[Ruling]` buckets, so a row drawn from one
+    /// re-derives its ORIGINAL position in `rulings` for the verbs below — the
+    /// same index-not-id rule the type doc states, applied across the split.
+    /// Ids are unique within one parse (`RulingsSection`'s own dedup), so the
+    /// lookup is exact.
+    private func index(of ruling: Ruling) -> Int {
+        rulings.firstIndex(where: { $0.id == ruling.id }) ?? 0
+    }
+
+    /// Every recognised glossary entry, as one table — Term / Rendering / Note
+    /// — rather than itemized rows, because the whole point of pulling these
+    /// out of `others` is to let a translator scan the book's vocabulary at a
+    /// glance instead of hunting through plain-prose rulings for it.
+    @ViewBuilder
+    private func glossarySection(_ entries: [Ruling]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(RulingsStratum.glossaryHeading)
+                .font(.caption).bold()
+                .foregroundStyle(.secondary)
+            Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 4) {
+                ForEach(entries) { ruling in
+                    if let parsed = ruling.glossary {
+                        GridRow {
+                            Text(parsed.term).font(.callout)
+                            Text(parsed.rendering).font(.callout)
+                            Text(parsed.note ?? "")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button("Revoke") { revoke(ruling, at: index(of: ruling)) }
+                                .buttonStyle(.plain)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+
+    /// A directive whose anchor no longer resolves. Drawn distinctly from an
+    /// ordinary row — writer-ink dimmed to `.secondary`, the reason stated
+    /// plainly, and `Remove` rather than `Edit`/`Revoke`: there is no paragraph
+    /// left for an edited instruction to be about, so the only honest verb is
+    /// taking the line out. It is the same `revoke` the ordinary row uses —
+    /// "Remove" is this row's name for it, not a second verb.
+    @ViewBuilder
+    private func orphanRow(_ ruling: Ruling, at index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(ruling.text)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(RulingsStratum.orphanCaption)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Button(RulingsStratum.removeTitle) { revoke(ruling, at: index) }
+                .buttonStyle(.plain)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder

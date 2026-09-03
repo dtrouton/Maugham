@@ -61,6 +61,40 @@ day, same note about where it came from); Edit changes the words in place and
 leaves the day and provenance untouched, because a correction isn't a new
 decision.
 
+**Two kinds of ruling draw differently, because they're read differently.** A
+**directive** is a ruling about one paragraph — the note you leave a
+translator with **Translator's note…** (⌘⌥C), or one the round report writes
+when you keep your own wording. It sits in the strip like any other line. If
+the paragraph it's anchored to is gone, it draws as an **orphan**: dimmed,
+its text intact, *This paragraph no longer exists* beneath it, and **Remove**
+instead of Edit and Revoke — there's no paragraph left for an edited
+instruction to be about. Nothing is ever silently dropped or silently
+re-anchored, and the check follows your editing: delete the paragraph in the
+open document and the directive becomes an orphan while you watch.
+
+**Glossary** entries — a term and how it's rendered, decided for the whole
+book — are pulled out into a **table** above the other rulings, one row each:
+term, rendering, and a note where there is one, with **Revoke** beside it.
+They belong in an edition brief — that's where the buttons write them, and
+where a translator is briefed with them — though the table draws wherever a
+ruling of that shape turns up. They come from you or from a glossary proposal
+you adopted on a round, and a table is what makes them scannable by someone
+who can't read the language they're in. See
+[The Publish Department](publish-department.md).
+
+**Claude can propose a brief or a visual language, and you adopt it — or
+don't.** From Claude Desktop or Claude Code, the `edition-brief` and
+`visual-language` skills interview you and end by staging a draft (nothing is
+written). When one is waiting, the statement's pane shows a banner — *Claude
+proposed a Spanish edition brief · 12 minutes ago* — with its reasons, a
+line-by-line diff against your current text, and **Adopt** / **Discard**.
+Adopt replaces the prose through the same path as your own typing (one ⌘Z
+takes it back), leaves your Rulings exactly as they were, and appends any
+glossary entries the proposal carried as rulings; a first Adopt on a language
+with no brief creates it. Discard clears it. A newer proposal replaces a
+pending one. Craft intent can't be proposed at all — there is no tool for it,
+on purpose.
+
 The editor above the strip is for your prose, and typing a `## Rulings`
 heading into it doesn't make the section — a heading with nothing under it is
 just a heading, and it stays in your text like any other line. Let the buttons
@@ -118,6 +152,8 @@ How the book looks — typography, cover direction, the references you're steeri
 **It takes pictures as well as words.** Drop image files onto the strip at the bottom of the pane, or paste one straight into the editor with ⌘V. Either way the picture is copied into a `visual-language_assets/` folder beside the document — your original stays where it is — and a Markdown image reference is added to the text, which you can move, caption or delete like any other line. Anything that isn't a picture is turned away and says so. Intent doesn't take pictures; it's prose about the writing.
 
 **Claude reads this pane when it writes your book's design.** Ask it to author or revise a PDF/EPUB template and it reads what you've written here first, including a list of the images you've referenced — so the typography comes from your description rather than its own taste, and the sixth piece still matches the first five. Write it in your own words; there's no format to hit.
+
+A mark on the ⌘⌥V segment means a proposal is waiting here.
 
 ### Diagnostics mode (⌘⌥D)
 

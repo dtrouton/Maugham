@@ -1,7 +1,8 @@
 import Foundation
 
 /// A named person in the project's publish department — a translator into one
-/// language, or the book's designer (the publish-department milestone).
+/// language, that edition's blind reader and collator, or the book's designer
+/// (the publish-department milestone).
 ///
 /// Shaped like `ReviewPass` because it earns the same machinery: a preset
 /// identity and doctrine a project gets for free, a stored entry that lets the
@@ -33,6 +34,13 @@ public struct ProductionRole: Codable, Equatable, Identifiable, Sendable {
     /// `.unknown`, so such a role is retained and ignored.
     public enum Role: Codable, Equatable, Sendable {
         case translator(language: String)
+        /// A blind reader of the finished edition: sees only the translation,
+        /// never the original, and says where it does not sound like a book
+        /// written in that language.
+        case reader(language: String)
+        /// Holds the original and the translation side by side and says where
+        /// the two have drifted apart.
+        case collator(language: String)
         case designer
         /// A role written by a newer build. Carries the original raw string so
         /// re-encode is lossless (see type doc).
@@ -40,12 +48,16 @@ public struct ProductionRole: Codable, Equatable, Identifiable, Sendable {
 
         private static let designerRaw = "designer"
         private static let translatorPrefix = "translator:"
+        private static let readerPrefix = "reader:"
+        private static let collatorPrefix = "collator:"
 
         /// The stable on-disk string (see type doc for the grammar).
         public var rawValue: String {
             switch self {
             case .designer: return Self.designerRaw
             case .translator(let language): return Self.translatorPrefix + language
+            case .reader(let language): return Self.readerPrefix + language
+            case .collator(let language): return Self.collatorPrefix + language
             case .unknown(let raw): return raw
             }
         }
@@ -54,9 +66,12 @@ public struct ProductionRole: Codable, Equatable, Identifiable, Sendable {
             let raw = try decoder.singleValueContainer().decode(String.self)
             if raw == Self.designerRaw {
                 self = .designer
-            } else if raw.hasPrefix(Self.translatorPrefix) {
-                let language = String(raw.dropFirst(Self.translatorPrefix.count))
-                self = language.isEmpty ? .unknown(raw) : .translator(language: language)
+            } else if let tag = Self.tag(of: raw, after: Self.translatorPrefix) {
+                self = .translator(language: tag)
+            } else if let tag = Self.tag(of: raw, after: Self.readerPrefix) {
+                self = .reader(language: tag)
+            } else if let tag = Self.tag(of: raw, after: Self.collatorPrefix) {
+                self = .collator(language: tag)
             } else {
                 self = .unknown(raw)
             }
@@ -65,6 +80,15 @@ public struct ProductionRole: Codable, Equatable, Identifiable, Sendable {
         public func encode(to encoder: Encoder) throws {
             var container = encoder.singleValueContainer()
             try container.encode(rawValue)
+        }
+
+        /// The language tag after `prefix`, or nil when `raw` does not start
+        /// with it **or the tag is empty** — an empty tag is the `.unknown`
+        /// case, the type doc's rule, for all three language roles alike.
+        private static func tag(of raw: String, after prefix: String) -> String? {
+            guard raw.hasPrefix(prefix) else { return nil }
+            let tag = String(raw.dropFirst(prefix.count))
+            return tag.isEmpty ? nil : tag
         }
     }
 
@@ -102,9 +126,11 @@ public struct ProductionRole: Codable, Equatable, Identifiable, Sendable {
         case .designer:
             return Self.designerName
         case .translator(let language):
-            if let preset = Self.defaultTranslatorName(language: language) { return preset }
-            let tag = language.uppercased()
-            return tag.isEmpty ? Self.unnamedFallback : tag
+            return Self.presetOrTag(Self.defaultTranslatorName(language: language), language)
+        case .reader(let language):
+            return Self.presetOrTag(Self.defaultReaderName(language: language), language)
+        case .collator(let language):
+            return Self.presetOrTag(Self.defaultCollatorName(language: language), language)
         case .unknown(let raw):
             return raw.isEmpty ? Self.unnamedFallback : raw
         }
@@ -116,13 +142,16 @@ public struct ProductionRole: Codable, Equatable, Identifiable, Sendable {
     /// than inlining this chain. **The ONE spelling of resolution** — do not
     /// re-derive it at a call site.
     ///
-    /// Only the designer has a preset brief in this plan. Translator preset
-    /// briefs arrive with the briefing work; until then an un-briefed translator
-    /// genuinely has none, and must not be handed the designer's.
+    /// The designer, the reader and the collator each have a preset doctrine.
+    /// Translator preset briefs arrive with the briefing work; until then an
+    /// un-briefed translator genuinely has none, and must not be handed anyone
+    /// else's.
     public var effectiveBrief: String? {
         if let brief, !brief.isEmpty { return brief }
         switch role {
         case .designer: return Self.designerBrief
+        case .reader: return Self.readerBrief
+        case .collator: return Self.collatorBrief
         case .translator, .unknown: return nil
         }
     }
@@ -154,12 +183,15 @@ public struct ProductionRole: Codable, Equatable, Identifiable, Sendable {
         presetTranslatorNames[language.lowercased()]
     }
 
-    /// Real translators *into* each language — the spec fixes this table.
+    /// Real translators *into* each language — the spec fixes this table
+    /// (§1; Serbian added 2026-09-02: Danilo Kiš, who translated Queneau,
+    /// Tsvetaeva and Ady into Serbian).
     private static let presetTranslatorNames: [String: String] = [
         "es": "Cortázar",
         "fr": "Baudelaire",
         "de": "Tieck",
         "ja": "Motoyuki",
+        "sr": "Kiš",
     ]
 
     private static let designerName = "Tschichold"
@@ -168,6 +200,13 @@ public struct ProductionRole: Codable, Equatable, Identifiable, Sendable {
     /// or an empty unknown raw). `effectiveName` promises never-empty; this is
     /// what keeps that promise honest.
     private static let unnamedFallback = "Unnamed"
+
+    /// The preset name, else the uppercased tag, else the never-empty fallback.
+    private static func presetOrTag(_ preset: String?, _ language: String) -> String {
+        if let preset { return preset }
+        let tag = language.uppercased()
+        return tag.isEmpty ? unnamedFallback : tag
+    }
 
     /// Tschichold designs the page rather than decorating it, and proves the
     /// spec on sample pages before anything reaches the live templates.
@@ -183,5 +222,53 @@ public struct ProductionRole: Codable, Equatable, Identifiable, Sendable {
     without a rule of its own is a hole in the design, not a detail for whoever \
     sets the book. Nothing reaches the live templates until the writer has seen \
     those samples and approved them.
+    """
+
+    /// Real readers of each language — the spec fixes this table (§1).
+    public static func defaultReaderName(language: String) -> String? {
+        presetReaderNames[language.lowercased()]
+    }
+
+    /// Writers who translated — the spec fixes this table (§1).
+    public static func defaultCollatorName(language: String) -> String? {
+        presetCollatorNames[language.lowercased()]
+    }
+
+    private static let presetReaderNames: [String: String] = [
+        "es": "Ocampo", "fr": "Colette", "de": "Bachmann", "ja": "Enchi",
+        "sr": "Sekulić",
+    ]
+
+    private static let presetCollatorNames: [String: String] = [
+        "es": "Borges", "fr": "Yourcenar", "de": "Schlegel", "ja": "Futabatei",
+        "sr": "Vinaver",
+    ]
+
+    /// The blind reader's doctrine (spec §1). It never names the language: the
+    /// briefing's role frame does, so one doctrine serves every edition.
+    private static let readerBrief = """
+    You are reading a book written in the language of this edition. You have \
+    not seen, and will not see, any other version of it. Say where it does not \
+    sound like a book written in this language — a phrase no native writer \
+    would reach for, register that wobbles, rhythm that limps, a name or idiom \
+    transcribed rather than rendered. Judge against the edition brief's stated \
+    register and its rulings, not a universal norm; a feature the brief declares \
+    deliberate is not a fault. Write your notes and your report in the author's \
+    language, which the briefing names. Do not rewrite. Do not guess what an \
+    original might have said.
+    """
+
+    /// The collator's doctrine (spec §1).
+    private static let collatorBrief = """
+    You hold the original and the translation side by side. Say where the \
+    translation departs from what the original says, and for each departure \
+    whether it still says the same thing or has drifted — and render, \
+    literally, into the author's language, what the translation now says \
+    there, so the author can judge it. Deliberate repetition, sentence \
+    architecture and the author's plainness are meaning: a synonym for a \
+    repeated word is a departure. A directive on a paragraph is the standard \
+    for that paragraph. Read the whole document against the glossary: a name \
+    or term rendered two ways is a departure even when each paragraph is fine \
+    alone. The translator's idiom is not your concern unless meaning moved.
     """
 }

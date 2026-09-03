@@ -448,4 +448,42 @@ final class ProductionRoleStoreTests: XCTestCase {
         XCTAssertEqual(store.manifest.productionRoles.count, 1)
         XCTAssertEqual(store.designerRole().effectiveName, "Morison")
     }
+
+    // MARK: - Reader and collator (translation pipeline P1)
+
+    func test_mintingAReaderTwiceReturnsTheSameRole() async throws {
+        let (_, store) = try await loadedNovel(named: "Reader")
+        let first = try await store.readerRole(for: "es")
+        let second = try await store.readerRole(for: "ES")
+        XCTAssertEqual(first.id, second.id)
+        XCTAssertEqual(first.role, .reader(language: "es"))
+        XCTAssertEqual(first.effectiveName, "Ocampo")
+        XCTAssertEqual(store.manifest.productionRoles.filter { $0.role == .reader(language: "es") }.count, 1)
+    }
+
+    func test_aReaderAndACollatorAreDistinctPeopleForOneLanguage() async throws {
+        let (_, store) = try await loadedNovel(named: "Cast")
+        let translator = try await store.translatorRole(for: "fr")
+        let reader = try await store.readerRole(for: "fr")
+        let collator = try await store.collatorRole(for: "fr")
+        XCTAssertEqual(Set([translator.id, reader.id, collator.id]).count, 3)
+        XCTAssertEqual([translator, reader, collator].map(\.effectiveName), ["Baudelaire", "Colette", "Yourcenar"])
+    }
+
+    func test_anInvalidTagRefusesToMintAReaderOrACollator() async throws {
+        let (url, store) = try await loadedNovel(named: "BadTag")
+        let before = try manifestState(of: url)
+        await XCTAssertThrowsErrorAsync(try await store.readerRole(for: "not a tag"))
+        await XCTAssertThrowsErrorAsync(try await store.collatorRole(for: "not a tag"))
+        XCTAssertEqual(try manifestState(of: url), before, "a refused mint writes nothing")
+    }
+
+    func test_theReadOnlyNamesNeverMint() async throws {
+        let (url, store) = try await loadedNovel(named: "ReadOnly")
+        let before = try manifestState(of: url)
+        XCTAssertEqual(EditionStatus.readerName(for: "es", in: store.manifest), "Ocampo")
+        XCTAssertEqual(EditionStatus.collatorName(for: "ja", in: store.manifest), "Futabatei")
+        XCTAssertNil(EditionStatus.readerName(for: "is", in: store.manifest))
+        XCTAssertEqual(try manifestState(of: url), before)
+    }
 }

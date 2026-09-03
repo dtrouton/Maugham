@@ -339,6 +339,16 @@ Answers go into the *piece's* intent, never the project's. An explanation of
 what you were going for in this chapter belongs to this chapter; the project's
 statement stays something you write deliberately, in the Intent pane.
 
+**Translator's note…** (⌘⌥C, or the button on the selection toolbar in Review
+Mode) writes a *directive* — a ruling anchored to the paragraph under the
+caret — into this piece's craft intent by default, or into one language's
+edition brief if you choose "This edition only". Every translator, reader and
+collator is briefed with it. On disk it is one plain line under `## Rulings`,
+`- ¶k7mq: keep the three "and"s — ruled 28 Aug 2026, translator's note`, and
+you can edit it there. It's the same sheet a translation round's report opens
+when you press **Keep mine** on a paragraph the collator says has moved — see
+[The Publish Department → The round report](publish-department.md#the-round-report).
+
 **Keep it.** **Promote to Task** turns the note into a real task on the
 document, carrying its own words plus one line recording who raised it, when,
 in which model, which part of the report it came from, and what it was

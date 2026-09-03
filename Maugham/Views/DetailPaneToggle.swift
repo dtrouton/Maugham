@@ -56,12 +56,29 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// record of finished rounds is the proposal it stages, which the desk
     /// re-derives, so there is no log beside it.
     var designer: DesignerOrchestrator? = nil
+    /// The window's translation pipeline (translation pipeline P3), threaded and
+    /// defaulted exactly as `translator` is and travelling to the same desk. The
+    /// desk needs it for the one-round-at-a-time gate: a round's cold legs hold
+    /// no translator session, so without it every row offers Run while a reader
+    /// is out.
+    var pipeline: TranslationPipeline? = nil
+    /// The window's cold-call runner (translation pipeline P4 Task 6) — the
+    /// Translation pane's two spot-checks ask through it. Threaded and
+    /// defaulted exactly as `pipeline` is, and for the same reason: it is the
+    /// window's, and a pane that made one of its own would be a second session
+    /// nothing tears down.
+    var coldCall: ColdCall? = nil
     /// **Where the desk's Show sends a proposal** (publish-department P4 Task 5)
     /// — the window's centre column, which this view is not in. Threaded and
     /// defaulted exactly as `onSetActivePass`/`onSetPassState` are, and for the
     /// same reason: what the centre shows is `ProjectWindow`'s question, and a
     /// right-column pane writing it would be a second place it is decided.
     var onShowDesignProposal: (DesignProposalStore.Proposal) -> Void = { _ in }
+    /// **Where the desk's other Show sends a translation round** (translation
+    /// pipeline P4) — the same centre column, threaded and defaulted exactly as
+    /// `onShowDesignProposal` is, and for the same reason: what the centre
+    /// shows is `ProjectWindow`'s question.
+    var onShowTranslationRound: (TranslationRound) -> Void = { _ in }
     /// The gear menu's persisted choice, and the write-back when it changes —
     /// a value + closure rather than a `Binding` so every existing call site
     /// keeps compiling with the defaults below.
@@ -96,6 +113,15 @@ struct DetailPaneToggle<Inspector: View>: View {
     var onSetPassState: (String, String, PassState?) -> Void = { _, _, _ in }
     @ViewBuilder var inspectorContent: () -> Inspector
 
+    /// **Whether a visual-language proposal is standing** (translation
+    /// pipeline P5) — the Visual Language segment's own badge, read and kept
+    /// fresh by `VisualLanguageProposalModifier` below.
+    @State private var visualLanguageProposed = false
+    /// This picker's hosting window, for the ADR 0021 receive helper's
+    /// liveness guard — resolved through `WindowAccessor` because a cached
+    /// `nil` is not a close check (`MaughamEvent.isLive`).
+    @State private var window: NSWindow?
+
     /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
     private static var localTranscriptionAvailable: Bool {
         #if arch(arm64)
@@ -126,7 +152,10 @@ struct DetailPaneToggle<Inspector: View>: View {
         translator: TranslatorOrchestrator? = nil,
         translationRuns: TranslationRunLog? = nil,
         designer: DesignerOrchestrator? = nil,
+        pipeline: TranslationPipeline? = nil,
+        coldCall: ColdCall? = nil,
         onShowDesignProposal: @escaping (DesignProposalStore.Proposal) -> Void = { _ in },
+        onShowTranslationRound: @escaping (TranslationRound) -> Void = { _ in },
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
@@ -155,7 +184,10 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.translator = translator
         self.translationRuns = translationRuns
         self.designer = designer
+        self.pipeline = pipeline
+        self.coldCall = coldCall
         self.onShowDesignProposal = onShowDesignProposal
+        self.onShowTranslationRound = onShowTranslationRound
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
@@ -224,6 +256,10 @@ struct DetailPaneToggle<Inspector: View>: View {
         .onChange(of: persona) { _, newPersona in
             coerceSegmentIntoView(of: newPersona)
         }
+        .background(WindowAccessor(window: $window))
+        .modifier(VisualLanguageProposalModifier(
+            projectURL: projectURL, window: window,
+            proposed: $visualLanguageProposed))
     }
 
     // MARK: - Two snaps, two lists — do not conflate them
@@ -419,8 +455,25 @@ struct DetailPaneToggle<Inspector: View>: View {
                       + "note\(diagnosticsUnreadCount == 1 ? "" : "s") "
                       + "from the last check (\u{2318}\u{2325}D)")
         }
+        .overlay(alignment: .topTrailing) {
+            // Accent, on the diagnostics badge's own register — a proposal
+            // waiting on the writer is not something wrong (translation
+            // pipeline P5).
+            badge(over: .visualLanguage, count: visualLanguageProposed ? 1 : 0,
+                  tint: .accentColor, help: Self.visualLanguageBadgeHelp)
+        }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+    }
+
+    /// The Visual Language segment's badge tooltip (translation pipeline P5)
+    /// — carries the shortcut on the other two badges' own convention.
+    ///
+    /// **A computed `static var`, not a stored one** — `DetailPaneToggle` is
+    /// generic over `Inspector`, and Swift does not allow a static STORED
+    /// property on a generic type.
+    static var visualLanguageBadgeHelp: String {
+        "Claude proposed a visual language — open it to adopt or discard (\u{2318}\u{2325}V)"
     }
 
     /// One unread badge over `segment`, or nothing when the count is zero or
@@ -506,7 +559,9 @@ struct DetailPaneToggle<Inspector: View>: View {
                                translator: translator,
                                runLog: translationRuns,
                                designer: designer,
-                               onShowProposal: onShowDesignProposal)
+                               pipeline: pipeline,
+                               onShowProposal: onShowDesignProposal,
+                               onShowRound: onShowTranslationRound)
         } else {
             ContentUnavailableView(
                 "Open a project",
@@ -633,7 +688,15 @@ struct DetailPaneToggle<Inspector: View>: View {
            let control = editorControl,
            activeDocId != BinderSubject.noDocumentSubject,
            let doc = ds.document(forDocId: activeDocId) {
-            TranslationReviewPane(document: doc, control: control, store: store)
+            TranslationReviewPane(
+                document: doc, control: control, store: store,
+                // The two spot-checks (P4 Task 6): the window's runner, its
+                // documents (the author's language is resolved through the
+                // imprint the desk is standing on), the project, the compiler's
+                // model setting, and the craft-intent cache a Keep mine filed
+                // for every edition has to invalidate.
+                coldCall: coldCall, documentStore: ds, projectURL: projectURL,
+                model: compilerModel.claudeModel, world: declaredWorldStore)
         } else {
             ContentUnavailableView(
                 "Select a document",
@@ -739,5 +802,61 @@ struct DetailPaneToggle<Inspector: View>: View {
                 description: Text("Tasks track todos across a project."))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+}
+
+/// **The Visual Language segment's proposed-badge state** (translation
+/// pipeline P5), pulled out of `DetailPaneToggle.body` into a modifier of its
+/// own — this file already dodges the type-checker ceiling this way (every
+/// pane above is its own `@ViewBuilder` property), and a conditional
+/// subscription inlined into `body` is exactly the kind of branch that adds
+/// to the count.
+///
+/// **A no-op with no `projectURL`**, rather than a caller-side `if let` —
+/// the probe callers that mount `DetailPaneToggle` without a project on disk
+/// (`StatementMountFixture` among them) attach this modifier unconditionally
+/// and it does nothing: no task runs, no subscription is made, and
+/// `proposed` stays at whatever `DetailPaneToggle` seeded it with (`false`).
+private struct VisualLanguageProposalModifier: ViewModifier {
+    let projectURL: URL?
+    let window: NSWindow?
+    @Binding var proposed: Bool
+
+    /// Bumped by `.maughamStatementProposalsChanged` so the `.task` re-keys
+    /// and re-reads the slot — `DepartmentPaneHost`'s idiom: the `.task` owns
+    /// cancellation, not a direct `await` in the notification closure.
+    @State private var reloads = 0
+
+    private struct TaskKey: Equatable {
+        let projectPath: String
+        let reloads: Int
+        /// **The same measured defect `DepartmentPaneHost.ReloadKey` and
+        /// `StatementPane.ProposalTaskKey` both carry this field for.**
+        /// `WindowAccessor` resolves `window` on an async hop after mount,
+        /// and `MaughamEvent.shouldDeliver` drops a `.project` post while it
+        /// is still nil — so a proposal staged in this picker's first frames
+        /// is a post nothing catches, and nothing else re-keys this `.task`
+        /// to pick it up afterwards. Re-reading the slot the moment the
+        /// window arrives costs one JSON read, once, and closes the window.
+        let windowResolved: Bool
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .task(id: TaskKey(projectPath: projectURL?.path ?? "",
+                              reloads: reloads, windowResolved: window != nil)) {
+                guard let projectURL else {
+                    proposed = false
+                    return
+                }
+                proposed = StatementProposalStore(projectURL: projectURL)
+                    .pending(for: .visualLanguage) != nil
+            }
+            .onProjectEvent(.maughamStatementProposalsChanged,
+                            url: projectURL ?? URL(fileURLWithPath: "/"),
+                            window: window) { _ in
+                guard projectURL != nil else { return }
+                reloads += 1
+            }
     }
 }

@@ -171,6 +171,18 @@ final class TranslatorOrchestrator {
         }
     }
 
+    /// One paragraph a fix leg rewrote: the record that stood before the
+    /// write and the one the write appended (`TranslationRound.Rewrite`'s
+    /// source). Computed by ingest because ingest is the only thing that sees
+    /// both sides of the write.
+    struct ParagraphRewrite: Equatable, Sendable {
+        let paragraphId: String
+        let beforeRecordId: String?
+        let before: String?
+        let afterRecordId: String?
+        let after: String?
+    }
+
     /// What ingest did with a report.
     ///
     /// **`rejection` is not an error the run threw**: ingest cannot fail the
@@ -187,13 +199,29 @@ final class TranslatorOrchestrator {
         let queriesMinted: Int
         let warnings: [String]
         let rejection: String?
+        /// The fix report's own answers, carried whole so the pipeline can
+        /// route them without re-parsing (empty / nil on a translate leg).
+        let addressed: [String]
+        let declined: [TranslatorReport.Declined]
+        let summary: String?
+        let glossaryProposals: [TranslatorReport.GlossaryProposal]
+        let rewrites: [ParagraphRewrite]
 
         init(entriesWritten: Int = 0, queriesMinted: Int = 0,
-             warnings: [String] = [], rejection: String? = nil) {
+             warnings: [String] = [], rejection: String? = nil,
+             addressed: [String] = [], declined: [TranslatorReport.Declined] = [],
+             summary: String? = nil,
+             glossaryProposals: [TranslatorReport.GlossaryProposal] = [],
+             rewrites: [ParagraphRewrite] = []) {
             self.entriesWritten = entriesWritten
             self.queriesMinted = queriesMinted
             self.warnings = warnings
             self.rejection = rejection
+            self.addressed = addressed
+            self.declined = declined
+            self.summary = summary
+            self.glossaryProposals = glossaryProposals
+            self.rewrites = rewrites
         }
     }
 
@@ -259,6 +287,16 @@ final class TranslatorOrchestrator {
         /// `ProjectStore`'s translator row, which the mint has already put
         /// there by the time this is called.
         var briefRound: @MainActor (String, String) async -> BriefedRound?
+        /// A FIX leg's briefing (spec §2's `.fix` mode): the same shape as
+        /// `briefRound`, over the notes the pipeline hands it. Its work-list
+        /// is built FROM those notes — one item per noted paragraph that still
+        /// has a current translation — so a `FixNote` the report must answer
+        /// is always a paragraph the model was shown. `nil` is "not a run"
+        /// exactly as above; an empty work-list (no noted paragraph has a
+        /// translation any more) is `nothingToTranslate`, which the pipeline
+        /// records as a skip.
+        var briefFix: @MainActor (String, String, [TranslatorBriefing.FixNote], Bool) async
+            -> BriefedRound?
         /// The translator for a language, minting one the first time anybody
         /// asks (`ProjectStore.translatorRole(for:)`). **A run is a write
         /// act**, which is what makes the mint legitimate here and illegitimate
@@ -287,6 +325,12 @@ final class TranslatorOrchestrator {
         var ingest: @MainActor (TranslatorReport, IngestContext) async -> IngestOutcome
         /// One finished run, for the record. See `RunSummary`.
         var onRunEnded: @MainActor (RunSummary) -> Void
+        /// A click that turned out not to be a run — the briefing answered
+        /// nil — named by the run id the verb returned. `onRunEnded` is
+        /// deliberately NOT called for it (no state, no summary, no desk row);
+        /// a caller sequencing on the run (`TranslationPipeline`) needs to
+        /// hear it all the same, or it waits on a run that never started.
+        var onRunAbandoned: @MainActor (String) -> Void = { _ in }
     }
 
     // MARK: - The session preamble
@@ -374,20 +418,47 @@ final class TranslatorOrchestrator {
         environment?.model = model
     }
 
-    // MARK: - The one entry
+    // MARK: - The two entries
 
-    /// Run a translation for this document into this language.
+    /// Run a translation for this document into this language. Returns the
+    /// run id the summary will carry, or nil when refused — a run already in
+    /// flight, or no environment.
     ///
     /// Refuses quietly in the two cases where the honest thing to do is
     /// nothing: a run already in flight (one session per orchestrator; a
     /// second round is what the next click is for), and a pair the window
     /// cannot brief at all.
-    func runTranslation(docId: String, language: String) {
-        guard let environment, !isRunning else { return }
+    @discardableResult
+    func runTranslation(docId: String, language: String) -> String? {
+        start(pair: Pair(docId: docId, language: language)) { environment, pair in
+            await environment.briefRound(pair.docId, pair.language)
+        }
+    }
+
+    /// Run a FIX leg (spec §5, legs 3/5/7): the same run — identity first,
+    /// then the briefing, then the warm session, then ingest through the one
+    /// door — over a `.fix` briefing built from `notes`. Not `runTranslation`
+    /// with a flag, because the two gathers answer different questions and
+    /// the environment says which it is being asked.
+    @discardableResult
+    func runFix(docId: String, language: String,
+                notes: [TranslatorBriefing.FixNote], isFinalLeg: Bool) -> String? {
+        start(pair: Pair(docId: docId, language: language)) { environment, pair in
+            await environment.briefFix(pair.docId, pair.language, notes, isFinalLeg)
+        }
+    }
+
+    /// What both verbs are: the refusal, the generation, the run id, and the
+    /// asynchronous prefix — everything except WHICH briefing is gathered,
+    /// which is the one thing the two differ in.
+    private func start(
+        pair: Pair,
+        brief: @escaping @MainActor (Environment, Pair) async -> BriefedRound?
+    ) -> String? {
+        guard let environment, !isRunning else { return nil }
 
         runGeneration &+= 1
         let generation = runGeneration
-        let pair = Pair(docId: docId, language: language)
         // Minted at the click rather than when an answer lands: a cancel
         // before the send still has to name the run it ended, and the desk's
         // row and the ingest must agree about which check they describe.
@@ -397,8 +468,9 @@ final class TranslatorOrchestrator {
 
         Task { [weak self] in
             await self?.begin(pair: pair, runId: runId, generation: generation,
-                              environment: environment)
+                              environment: environment, brief: brief)
         }
+        return runId
     }
 
     /// The run's asynchronous prefix: who is translating, what needs
@@ -413,7 +485,8 @@ final class TranslatorOrchestrator {
     /// translator; that is the right way round, because pressing Run
     /// translation for a language IS the writer saying this edition has one.
     private func begin(
-        pair: Pair, runId: String, generation: Int, environment: Environment
+        pair: Pair, runId: String, generation: Int, environment: Environment,
+        brief: @MainActor (Environment, Pair) async -> BriefedRound?
     ) async {
         let identity: (name: String, roleId: String)
         do {
@@ -427,11 +500,11 @@ final class TranslatorOrchestrator {
         }
         guard runGeneration == generation else { return }
 
-        guard let round = await environment.briefRound(pair.docId, pair.language) else {
+        guard let round = await brief(environment, pair) else {
             // Not a run: the click had nothing to act on, so there is nothing
             // to report and nothing to end.
             guard runGeneration == generation else { return }
-            abandon()
+            abandon(runId: runId)
             return
         }
         guard runGeneration == generation else { return }
@@ -462,7 +535,8 @@ final class TranslatorOrchestrator {
             message: TranslatorBriefing.compose(inputs: inputs),
             systemPreamble: Self.sessionSystemPreamble(projectId: environment.projectId))
         await finish(event, pair: pair, runId: runId, identity: identity,
-                     briefedSourceHashes: round.sourceHashes, generation: generation)
+                     briefedSourceHashes: round.sourceHashes, reportMode: inputs.reportMode,
+                     generation: generation)
     }
 
     // MARK: - The turn coming back
@@ -477,10 +551,14 @@ final class TranslatorOrchestrator {
     /// `runState` that went `.idle` before the ingest landed would tell the
     /// writer the round was finished while its paragraphs were still
     /// arriving.
+    ///
+    /// The parser's mode is the briefing's (`Inputs.reportMode`) — a fix
+    /// leg's report is held to its briefed notes.
     private func finish(
         _ event: CompilerRunEvent, pair: Pair, runId: String,
         identity: (name: String, roleId: String),
-        briefedSourceHashes: [String: String], generation: Int
+        briefedSourceHashes: [String: String], reportMode: TranslatorReport.Mode,
+        generation: Int
     ) async {
         switch event {
         case .started:
@@ -498,7 +576,7 @@ final class TranslatorOrchestrator {
                 pair: pair, runId: runId)
 
         case .resultText(let text):
-            guard let report = TranslatorReport.parse(text) else {
+            guard let report = TranslatorReport.parse(text, mode: reportMode) else {
                 guard runGeneration == generation else { return }
                 // All-or-nothing starts at parse: a turn that got one entry
                 // wrong is a model that has lost the contract, and there is
@@ -552,11 +630,13 @@ final class TranslatorOrchestrator {
 
     /// A run that turned out not to be one. No state, no summary — the click
     /// had nothing to act on, which is not something a desk row should
-    /// report.
-    private func abandon() {
+    /// report. The run id still goes out through `onRunAbandoned`, because a
+    /// caller sequencing on the verb's answer is waiting on exactly that id.
+    private func abandon(runId: String) {
         isPreparingRun = false
         active = nil
         if case .running = runState { runState = .idle }
+        environment?.onRunAbandoned(runId)
     }
 
     // MARK: - Cancel and shutdown
@@ -625,8 +705,8 @@ final class TranslatorOrchestrator {
     private func ensureRunner(pair: Pair, model: String) -> CompilerRunner? {
         if let runner {
             if runnerPair == pair, runnerModel == model { return runner }
-            // Between turns by construction (`runTranslation` guards
-            // `!isRunning`), so retiring here costs nothing in flight.
+            // Between turns by construction (`start` guards `!isRunning` for
+            // both verbs), so retiring here costs nothing in flight.
             retireSession()
         }
         guard let environment, let url = try? environment.writeMCPConfig() else {

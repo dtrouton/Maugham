@@ -112,8 +112,19 @@ enum DepartmentRunSession: Equatable {
     /// pair yet. Short, and a writer double-clicking is exactly who lands in it.
     case busy(language: String?)
 
+    /// **The pipeline outranks the orchestrator's own state** (translation
+    /// pipeline spec §5). A round's cold legs — the reader's, the collator's —
+    /// hold no warm translator session at all, so `isRunning` reads false and
+    /// every row would offer Run while a reader is out. The gate is the
+    /// pipeline's now; the orchestrator's own state is what is left to read
+    /// when no pipeline round is up (a bare `runTranslation` from the desk's
+    /// P4 verb, and the probe mounts that pass no pipeline).
     static func read(runState: TranslatorOrchestrator.RunState,
-                     isRunning: Bool) -> DepartmentRunSession {
+                     isRunning: Bool,
+                     pipeline: TranslationPipeline.Status = .idle) -> DepartmentRunSession {
+        if case .running(_, let language, _, _) = pipeline {
+            return .busy(language: language)
+        }
         guard isRunning else { return .free }
         if case .running(_, let language, _) = runState {
             return .busy(language: language)
@@ -140,11 +151,19 @@ struct DepartmentRunState: Equatable {
     /// No `at:` on the arms. The cockpit carries one so a later surface could age
     /// its line; nothing here ages anything, and a date on an `Equatable` value
     /// nobody reads is a field a test has to construct to compare two states.
+    ///
+    /// **What the running row is doing** (spec §8). A bare translator round
+    /// (`TranslatorOrchestrator.runTranslation` with no pipeline around it —
+    /// the probe mounts) still says its work-list's count; a pipeline round
+    /// says its LEG, and for a book queue which chapter of how many.
+    enum RunningLeg: Equatable {
+        case translating(Int)
+        case leg(TranslationRound.Leg, book: TranslationPipeline.BookProgress?)
+    }
+
     enum Phase: Equatable {
         case idle
-        /// The work-list's own count, known before the send — so the row can say
-        /// what is being translated rather than spinning.
-        case running(translating: Int)
+        case running(RunningLeg)
         case nothingToTranslate
         case failed(TranslatorOrchestrator.Failure)
     }
@@ -159,6 +178,19 @@ struct DepartmentRunState: Equatable {
     /// string: a refusal with no words is the thing Constraint 2 exists against.
     var refusal: String? = nil
 
+    /// The newest round for this LANGUAGE (numbering is per language across
+    /// documents, spec §7; the Show header names the chapter).
+    var latestRound: TranslationRound? = nil
+    /// `TranslationRoundStore.trend` — notes per round, oldest first.
+    var trend: [Int] = []
+    /// `TranslationPreflight.budget` over the open chapter, and over the desk's
+    /// document set; nil when nothing could be counted.
+    var chapterWords: Int? = nil
+    var bookWords: Int? = nil
+    var bookDocumentCount: Int = 0
+    /// Injected so `roundLine`'s "2m ago" is assertable.
+    var now: Date = Date()
+
     var canRun: Bool { refusal == nil }
 
     var isRunning: Bool {
@@ -171,6 +203,17 @@ struct DepartmentRunState: Equatable {
         return false
     }
 
+    var offersShow: Bool { latestRound != nil }
+
+    /// Run Whole Book refuses for a busy session and for an empty set — never
+    /// for a missing open chapter, which the book does not need.
+    var bookRefusal: String? {
+        if let refusal, refusal != DepartmentRunTarget.openAChapter { return refusal }
+        if bookDocumentCount == 0 { return Self.nothingInTheBook }
+        return nil
+    }
+    var canRunBook: Bool { bookRefusal == nil }
+
     /// **The row's one line**, in the cockpit's own order: what is happening now
     /// outranks what happened last, and a finished round's report is what an idle
     /// row has to say.
@@ -179,13 +222,32 @@ struct DepartmentRunState: Equatable {
     /// would otherwise describe different runs at the same moment — a report about
     /// the round before, drawn under a round in flight, reads as that round's
     /// result.
+    ///
+    /// **An idle row with a round says the round**, not the translator's own
+    /// last summary: the log records every LEG's summary, and a seven-leg
+    /// round's newest entry is leg 7's own sentence about a repair, not the
+    /// round.
     var statusLine: String? {
         switch phase {
-        case .running(let translating): return Self.translating(translating)
+        case .running(.translating(let count)): return Self.translating(count)
+        case .running(.leg(let leg, let book)): return Self.legLine(leg, book: book)
         case .failed(let failure): return Self.failureCopy(failure)
         case .nothingToTranslate: return Self.nothingToTranslateLine
-        case .idle: return report
+        case .idle:
+            if let latestRound { return Self.roundLine(latestRound, now: now) }
+            return report
         }
+    }
+
+    /// Pre-flight and trend, sharing one slot (spec §8: they share the row's
+    /// slot rather than adding a line each) — and only while idle, since a
+    /// running row's detail is its leg and the pre-flight is for a click that
+    /// has not happened.
+    var detailLine: String? {
+        guard case .idle = phase else { return nil }
+        let parts = [Self.preflightLine(words: chapterWords ?? bookWords),
+                     Self.trendLine(trend)].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00b7} ")
     }
 
     /// **The whole row's run half, from the window's state.**
@@ -196,26 +258,43 @@ struct DepartmentRunState: Equatable {
     /// chapter that produced it. A lookup that quietly went wrong would otherwise
     /// show chapter 1's round on a desk about chapter 2, which is the shape of
     /// error nothing on screen could reveal.
+    ///
+    /// **The pipeline outranks the bare translator state**, and scoped by
+    /// LANGUAGE ALONE — never the open chapter's docId. A book queue walks
+    /// chapters the window is not on, and a row that went idle whenever the
+    /// queue left the open chapter would say nothing for eleven of twelve
+    /// rounds.
     static func resolve(language: String,
                         target: DepartmentRunTarget,
                         session: DepartmentRunSession,
                         runState: TranslatorOrchestrator.RunState,
-                        lastRun: TranslatorOrchestrator.RunSummary?)
+                        lastRun: TranslatorOrchestrator.RunSummary?,
+                        pipeline: TranslationPipeline.Status = .idle,
+                        latestRound: TranslationRound? = nil,
+                        trend: [Int] = [],
+                        chapterWords: Int? = nil,
+                        bookWords: Int? = nil,
+                        bookDocumentCount: Int = 0,
+                        now: Date = Date())
     -> DepartmentRunState {
         let docId = target.docId
         var phase = Phase.idle
-        switch runState {
-        case .running(let runDocId, let runLanguage, let translating)
-            where runDocId == docId && runLanguage == language:
-            phase = .running(translating: translating)
-        case .nothingToTranslate(let runDocId, let runLanguage, _)
-            where runDocId == docId && runLanguage == language:
-            phase = .nothingToTranslate
-        case .failed(let runDocId, let runLanguage, let failure, _)
-            where runDocId == docId && runLanguage == language:
-            phase = .failed(failure)
-        default:
-            break
+        if case .running(_, let runLanguage, let leg, let book) = pipeline, runLanguage == language {
+            phase = .running(.leg(leg, book: book))
+        } else {
+            switch runState {
+            case .running(let runDocId, let runLanguage, let translating)
+                where runDocId == docId && runLanguage == language:
+                phase = .running(.translating(translating))
+            case .nothingToTranslate(let runDocId, let runLanguage, _)
+                where runDocId == docId && runLanguage == language:
+                phase = .nothingToTranslate
+            case .failed(let runDocId, let runLanguage, let failure, _)
+                where runDocId == docId && runLanguage == language:
+                phase = .failed(failure)
+            default:
+                break
+            }
         }
 
         let report = lastRun.flatMap { summary -> String? in
@@ -226,7 +305,10 @@ struct DepartmentRunState: Equatable {
         }
 
         return DepartmentRunState(phase: phase, report: report,
-                                  refusal: refusal(target: target, session: session))
+                                  refusal: refusal(target: target, session: session),
+                                  latestRound: latestRound, trend: trend,
+                                  chapterWords: chapterWords, bookWords: bookWords,
+                                  bookDocumentCount: bookDocumentCount, now: now)
     }
 
     /// **Why Run refuses, in the order the writer needs to hear it.**
@@ -280,6 +362,21 @@ struct DepartmentRunState: Equatable {
     static let runTitle = "Run"
     static let cancelTitle = "Cancel"
 
+    /// **What Cancel can honestly promise a PIPELINE round** (spec §5).
+    ///
+    /// Before the pipeline a round was one translator call, so "nothing it has
+    /// translated is written" was true: the ingest was the last thing to
+    /// happen, and a cancel before it wrote nothing at all. A seven-leg round
+    /// has written by leg 1 and repaired by leg 3, and `TranslationPipeline
+    /// .cancel` stops after the leg that is running — earlier legs' writes
+    /// STAND. So the sentence says what actually survives, because a writer who
+    /// cancelled on the old promise and found paragraphs translated would have
+    /// been told the wrong thing by the surface at the moment they most needed
+    /// it to be right.
+    static let cancelHelp =
+        "Stop this round after the leg that is running. What earlier legs "
+        + "wrote stays; nothing later starts."
+
     /// What a round with nothing stale and nothing missing says. Its own sentence
     /// rather than silence, for the reason `TranslatorOrchestrator.RunState` keeps
     /// the case: a writer who presses Run and sees the row unchanged cannot tell
@@ -318,6 +415,65 @@ struct DepartmentRunState: Equatable {
         }
         return "Translate \u{201C}\(title)\u{201D} into \(edition) \u{2014} the "
             + "round covers what is stale or missing."
+    }
+
+    static let runBookTitle = "Run Whole Book"
+    static func runBookAccessibilityLabel(language: String) -> String {
+        "Run the whole book into " + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+    }
+    static func runBookHelp(language: String, count: Int, words: Int?) -> String {
+        let edition = TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+        let chapters = count == 1 ? "1 chapter" : "\(count) chapters"
+        let budget = preflightLine(words: words).map { " \u{2014} \($0)" } ?? ""
+        return "Run one round on every chapter of this book into \(edition), in order: \(chapters)\(budget)."
+    }
+    static let nothingInTheBook =
+        "There is nothing in this book to translate \u{2014} the imprint the desk is on names no chapters."
+    static let showRoundTitle = "Show"
+    static func showRoundAccessibilityLabel(language: String) -> String {
+        "Show the latest " + TranslationReviewIndicator.displayLabel(forLanguageTag: language) + " round"
+    }
+    static let showRoundHelp = "Read the round's report in the centre column"
+
+    /// The running leg's own line, and for a book queue, which chapter of how
+    /// many (spec §8).
+    static func legLine(_ leg: TranslationRound.Leg, book: TranslationPipeline.BookProgress?) -> String {
+        let verb = "\(leg.verb)\u{2026} (leg \(leg.rawValue) of \(TranslationRound.Leg.allCases.count))"
+        guard let book else { return verb.prefix(1).uppercased() + verb.dropFirst() }
+        return "Chapter \(book.position) of \(book.count) \u{00b7} \(verb)"
+    }
+
+    /// A finished round's line: where it ended, and how long ago.
+    static func roundLine(_ round: TranslationRound, now: Date) -> String {
+        let when = ago(from: round.endedAt ?? round.startedAt, to: now)
+        guard let stopped = round.legs.first(where: { $0.status == .failed || $0.status == .cancelled }) else {
+            return "Round \(round.number) \u{00b7} finished \(when)"
+        }
+        if stopped.status == .cancelled {
+            return "Round \(round.number) \u{00b7} cancelled while \(stopped.leg.verb) \u{00b7} \(when)"
+        }
+        let reason = stopped.reason.map { " \u{2014} \($0)" } ?? ""
+        return "Round \(round.number) \u{00b7} failed while \(stopped.leg.verb)\(reason) \u{00b7} \(when)"
+    }
+
+    /// Coarse and never negative — a clock skewed slightly into the future
+    /// still reads "just now" rather than a nonsensical "-1m ago".
+    static func ago(from: Date, to now: Date) -> String {
+        let seconds = max(0, now.timeIntervalSince(from))
+        if seconds < 60 { return "just now" }
+        if seconds < 3600 { return "\(Int(seconds / 60))m ago" }
+        if seconds < 86400 { return "\(Int(seconds / 3600))h ago" }
+        return "\(Int(seconds / 86400))d ago"
+    }
+
+    static func trendLine(_ counts: [Int]) -> String? {
+        guard !counts.isEmpty else { return nil }
+        return "notes per round " + counts.map(String.init).joined(separator: " \u{2192} ")
+    }
+
+    static func preflightLine(words: Int?) -> String? {
+        guard let words else { return nil }
+        return "\(TranslationRound.Leg.allCases.count) legs \u{00b7} ~\(words.formatted(.number)) words briefed"
     }
 
     /// A tag no edition can be written for. It names the tag, because the writer

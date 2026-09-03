@@ -26,6 +26,18 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         /// while the sheet is open still runs the chapter they actually clicked
         /// Run on.
         case nameForRun(language: String, docId: String)
+        /// **Name the translator a WHOLE-BOOK run is waiting on** (translation
+        /// pipeline P4) — `.nameForRun`'s sibling, carrying a queue where that
+        /// one carries a document.
+        ///
+        /// A case of its own rather than a `[String]` on `.nameForRun`, because
+        /// the ask is what Confirm RUNS: the two reach different verbs on the
+        /// pipeline (`run` and `runBook`), and an ask that could not tell them
+        /// apart would translate the open chapter for a writer who asked for
+        /// the book. Captured at the click for `.nameForRun`'s own reason — a
+        /// writer who changes the imprint while the sheet is open still runs
+        /// the set they pressed the button over.
+        case nameForBookRun(language: String, documentIds: [String])
         /// **Start an edition the book does not have yet** — the only ask that
         /// takes a language tag, because it is the only one where the language
         /// is not already known.
@@ -39,14 +51,28 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         /// to mint one first — a preset translator, or the preset designer, who
         /// reaches disk for the first time here.
         case rename(subject: RenameSubject, currentName: String)
+
+        /// The edition a RUN is waiting on, for either shape of run — the one
+        /// thing the sheet itself needs to tell the two naming asks from the
+        /// two renaming ones, so its preset-filling arm does not have to grow a
+        /// second copy per verb the desk gains.
+        var languageAwaitingARun: String? {
+            switch self {
+            case .nameForRun(let language, _), .nameForBookRun(let language, _):
+                return language
+            case .addLanguage, .rename:
+                return nil
+            }
+        }
     }
 
     /// Who a rename is about. The desk has two kinds of person on it and they
-    /// reach `renameProductionRole` by different routes — a translator through
-    /// its language, the designer through `ProjectStore.designerRole()` — so the
-    /// ask names the kind rather than an id the pane has no way to know.
+    /// reach `renameProductionRole` by different routes — a language's whole
+    /// cast (translator, reader, collator) through its language, the designer
+    /// through `ProjectStore.designerRole()` — so the ask names the kind rather
+    /// than an id the pane has no way to know.
     enum RenameSubject: Equatable {
-        case translator(language: String)
+        case edition(language: String)
         case designer
     }
 
@@ -57,8 +83,9 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
     var id: String {
         switch ask {
         case .nameForRun(let language, _): return "run:\(language)"
+        case .nameForBookRun(let language, _): return "book:\(language)"
         case .addLanguage: return "add"
-        case .rename(.translator(let language), _): return "rename:\(language)"
+        case .rename(.edition(let language), _): return "rename:\(language)"
         case .rename(.designer, _): return "rename:designer"
         }
     }
@@ -67,7 +94,7 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
     /// none would be a sheet a writer could answer about the wrong person.
     var title: String {
         switch ask {
-        case .nameForRun(let language, _):
+        case .nameForRun(let language, _), .nameForBookRun(let language, _):
             return DepartmentCastCopy.nameForRunTitle(language: language)
         case .addLanguage:
             return DepartmentCastCopy.addLanguageTitle
@@ -81,7 +108,7 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
 
     var confirmTitle: String {
         switch ask {
-        case .nameForRun: return DepartmentCastCopy.nameAndRunTitle
+        case .nameForRun, .nameForBookRun: return DepartmentCastCopy.nameAndRunTitle
         case .addLanguage: return DepartmentCastCopy.addConfirmTitle
         case .rename(_, let currentName):
             return currentName.isEmpty
@@ -103,6 +130,26 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         if case .addLanguage = ask { return true }
         return false
     }
+
+    /// What the reader and collator fields start with, for an edition ask —
+    /// `EditionStatus.readerName`/`collatorName`'s answer, resolved by the
+    /// host the way `currentName` is. nil = nobody yet (the field starts
+    /// empty, or with the preset the tag names for `.addLanguage`).
+    var currentReader: String? = nil
+    var currentCollator: String? = nil
+
+    /// Whether the sheet draws the reader and collator fields: every ask
+    /// about an edition. The designer has neither.
+    var takesCast: Bool {
+        if case .rename(.designer, _) = ask { return false }
+        return true
+    }
+
+    init(ask: Ask, currentReader: String? = nil, currentCollator: String? = nil) {
+        self.ask = ask
+        self.currentReader = currentReader
+        self.currentCollator = currentCollator
+    }
 }
 
 /// What the writer answered: the language they typed, where the ask took one,
@@ -112,6 +159,15 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
 struct DepartmentCastAnswer: Equatable {
     let language: String?
     let name: String
+    let reader: String?
+    let collator: String?
+
+    init(language: String?, name: String, reader: String? = nil, collator: String? = nil) {
+        self.language = language
+        self.name = name
+        self.reader = reader
+        self.collator = collator
+    }
 }
 
 /// The sheet itself — a headline, an explanation, one or two fields, Cancel and
@@ -128,6 +184,8 @@ struct DepartmentCastSheet: View {
 
     @State private var name = ""
     @State private var tag = ""
+    @State private var reader = ""
+    @State private var collator = ""
     /// **The name this sheet filled in for the writer, if any.** A preset
     /// language comes with a translator, so typing `es` should offer Cortázar —
     /// but only while the writer has not typed a name of their own. Comparing
@@ -135,6 +193,10 @@ struct DepartmentCastSheet: View {
     /// writer touched this?" flag, which would have to be suppressed every time
     /// the sheet writes the field itself.
     @State private var autofilled: String?
+    /// The same discipline for the reader and collator fields, kept separately
+    /// because each field's own typing outranks only its own preset.
+    @State private var autofilledReader: String?
+    @State private var autofilledCollator: String?
     /// Whether a field has been left in a state worth complaining about. A sheet
     /// that refuses the moment it opens is a sheet that scolds the writer for
     /// not having typed yet.
@@ -143,6 +205,14 @@ struct DepartmentCastSheet: View {
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A blank field travels as `nil` — "change nothing about them" — rather
+    /// than as an empty string that would refuse to mint a role at all: the
+    /// reader and collator are optional in a way the translator is not.
+    private func trimmedOrNil(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// The tag as every other reader of one spells it. Lowercased BEFORE
@@ -173,7 +243,7 @@ struct DepartmentCastSheet: View {
     /// so, and anything else gets the mint sheet's own who-is-this sentence.
     private var explanation: String {
         switch prompt.ask {
-        case .nameForRun:
+        case .nameForRun, .nameForBookRun:
             return DepartmentCastCopy.explanation
         case .addLanguage:
             return DepartmentCastCopy.addExplanation(
@@ -205,11 +275,33 @@ struct DepartmentCastSheet: View {
                             name = offered
                             autofilled = offered
                         }
+                        if reader.isEmpty || reader == autofilledReader {
+                            let offered = ProductionRole.defaultReaderName(
+                                language: trimmedTag) ?? ""
+                            reader = offered
+                            autofilledReader = offered
+                        }
+                        if collator.isEmpty || collator == autofilledCollator {
+                            let offered = ProductionRole.defaultCollatorName(
+                                language: trimmedTag) ?? ""
+                            collator = offered
+                            autofilledCollator = offered
+                        }
                     }
             }
             TextField(DepartmentCastCopy.placeholder, text: $name)
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: name) { _, _ in nameTouched = true }
+            if prompt.takesCast {
+                Text(DepartmentCastCopy.castExplanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                TextField(DepartmentCastCopy.readerPlaceholder, text: $reader)
+                    .textFieldStyle(.roundedBorder)
+                TextField(DepartmentCastCopy.collatorPlaceholder, text: $collator)
+                    .textFieldStyle(.roundedBorder)
+            }
             if let refusal {
                 Text(refusal)
                     .font(.caption)
@@ -223,7 +315,9 @@ struct DepartmentCastSheet: View {
                 Button(prompt.confirmTitle) {
                     onConfirm(DepartmentCastAnswer(
                         language: prompt.takesLanguageTag ? trimmedTag : nil,
-                        name: trimmedName))
+                        name: trimmedName,
+                        reader: trimmedOrNil(reader),
+                        collator: trimmedOrNil(collator)))
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
@@ -233,8 +327,22 @@ struct DepartmentCastSheet: View {
         .padding(20)
         .frame(width: 380)
         // A rename starts from the name it is about — the writer is usually
-        // correcting a spelling, not typing a stranger from scratch.
-        .onAppear { name = prompt.initialName }
+        // correcting a spelling, not typing a stranger from scratch. The
+        // reader and collator start the same way, falling back to the
+        // language's own preset when nobody has named them yet.
+        .onAppear {
+            name = prompt.initialName
+            reader = prompt.currentReader ?? ""
+            collator = prompt.currentCollator ?? ""
+            if let language = prompt.ask.languageAwaitingARun {
+                if prompt.currentReader == nil {
+                    reader = ProductionRole.defaultReaderName(language: language) ?? ""
+                }
+                if prompt.currentCollator == nil {
+                    collator = ProductionRole.defaultCollatorName(language: language) ?? ""
+                }
+            }
+        }
     }
 }
 
@@ -262,6 +370,16 @@ enum DepartmentCastCopy {
 
     static let nameAndRunTitle = "Name & Run"
     static let cancelTitle = "Cancel"
+
+    static let readerPlaceholder = "The edition\u{2019}s blind reader (optional)"
+    static let collatorPlaceholder = "The edition\u{2019}s collator (optional)"
+
+    /// Why there are two more fields. Short, because the sheet is already
+    /// explaining who the translator is.
+    static let castExplanation =
+        "Who reads the finished edition blind, and who collates it against the "
+        + "original. A preset language fills them in; leave one blank to change "
+        + "nothing about them."
 
     /// What the desk's one notice slot says when the writer backs out —
     /// `DepartmentRunState.cancelledLine`'s shape, but said before the run
@@ -345,7 +463,7 @@ enum DepartmentCastCopy {
     static func nameSubjectTitle(
         subject: DepartmentCastPrompt.RenameSubject) -> String {
         switch subject {
-        case .translator(let language): return nameForRunTitle(language: language)
+        case .edition(let language): return nameForRunTitle(language: language)
         case .designer: return "Who designs this book?"
         }
     }
@@ -360,12 +478,13 @@ enum DepartmentCastCopy {
     static func renameExplanation(
         subject: DepartmentCastPrompt.RenameSubject) -> String {
         switch subject {
-        case .translator(let language):
+        case .edition(let language):
             return "Whatever stands here signs the "
                 + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
-                + " edition\u{2019}s paragraphs and queries from now on. Work "
-                + "already signed stays theirs \u{2014} a new name renames the "
-                + "person, it doesn\u{2019}t hand their work to somebody else."
+                + " edition\u{2019}s paragraphs and queries from now on; its "
+                + "reader and collator sign the notes they write. Work already "
+                + "signed stays theirs \u{2014} a new name renames the person, "
+                + "it doesn\u{2019}t hand their work to somebody else."
         case .designer:
             return "Whatever stands here signs this book\u{2019}s design rounds "
                 + "from now on. Rounds already proposed stay theirs \u{2014} a "

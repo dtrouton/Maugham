@@ -18,8 +18,8 @@ import Foundation
 ///   `maughamSessionLogChanged`, `maughamNavigateToDocument`,
 ///   `maughamTranslationDidUpdate`, `maughamCanvasNodesAdded`,
 ///   `maughamDocumentNotice`, `maughamAnnotationsChanged`,
-///   `maughamDesignProposalsChanged`): delivered to live windows on the matching
-///   project only.
+///   `maughamDesignProposalsChanged`, `maughamTranslationRoundEnded`): delivered
+///   to live windows on the matching project only.
 /// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
 ///   per-name zombie-harm audit note where present): `maughamNewProject`,
 ///   `maughamOpenProject`, `maughamAppWillTerminate`, `maughamShowHelp`.
@@ -86,6 +86,14 @@ extension Notification.Name {
     /// rather than staying frozen until the writer exits and re-enters. Scope:
     /// .project(id:).
     public static let maughamTranslationDidUpdate = Notification.Name("maugham.translation.did.update")
+    /// Posted by the window's pipeline wiring when a round ends — data event,
+    /// scope `.project(for: projectURL)`, like `maughamTranslationDidUpdate`.
+    /// `userInfo["language"]`, `["document_id"]`, `["round"]` (Int).
+    public static let maughamTranslationRoundEnded = Notification.Name("maugham.translation.round.ended")
+    /// Posted by the round report and the Translation pane to take the writer
+    /// to one paragraph of one edition in translation review. Scope: .keyWindow.
+    /// `userInfo["document_id"]`, `["language"]`, `["paragraph_id"]`.
+    public static let maughamRevealTranslation = Notification.Name("maugham.revealTranslation")
     public static let maughamToggleFullScreen = Notification.Name("maugham.toggleFullScreen")
     public static let maughamDummySave = Notification.Name("maugham.dummySave")
     public static let maughamShowProjectSettings = Notification.Name("maugham.showProjectSettings")
@@ -131,6 +139,10 @@ extension Notification.Name {
     public static let maughamFindMatchSelected = Notification.Name("maugham.find.match.selected")
     public static let maughamFindInProject = Notification.Name("maugham.find.in.project")
     public static let maughamCloseFind = Notification.Name("maugham.close.find")
+    /// Posted by ⌘⌥C / Edit ▸ Translator's Note… (translation pipeline P2):
+    /// the window opens the note sheet on the paragraph under the caret.
+    /// Scope: .keyWindow — a command, not a data event.
+    public static let maughamTranslatorsNote = Notification.Name("maugham.translators.note")
     /// Posted by ⌘⌥O (shell-finish stage-3a Task 5). The outline is no longer
     /// a right-pane segment — it is the project row's altitude view (Tasks
     /// 1–3), so the shortcut's new job is to land the writer on that row: the
@@ -296,4 +308,19 @@ extension Notification.Name {
     /// guard, ADR 0021).
     public static let maughamDesignProposalsChanged = Notification.Name(
         "maugham.design.proposals.changed")
+
+    /// **A statement proposal was staged or cleared** (translation pipeline
+    /// P5) — `propose_edition_brief`/`propose_visual_language` wrote a slot
+    /// under `.maugham/statements/proposals/`, or the writer's Adopt/Discard
+    /// emptied one. `StatementPane` draws its gate from that slot, the desk
+    /// marks its language row and `DetailPaneToggle` badges the Visual
+    /// Language segment; none of them can otherwise see a file an MCP tool
+    /// wrote behind them.
+    ///
+    /// No payload: which slots a surface cares about is its own answer (it
+    /// re-reads them). Post via `MaughamEvent.postStatementProposalsChanged`,
+    /// never by hand. Scope: .project(id:) — a data event, like
+    /// `maughamDesignProposalsChanged`; a closed window reads nothing.
+    public static let maughamStatementProposalsChanged = Notification.Name(
+        "maugham.statement.proposals.changed")
 }

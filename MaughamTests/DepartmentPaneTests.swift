@@ -80,6 +80,24 @@ final class DepartmentPaneTests: XCTestCase {
         XCTAssertEqual(DepartmentDesk.queryLine(openQueries: 5), "5 open queries")
     }
 
+    // MARK: - The "proposed" mark (translation pipeline P5)
+
+    func test_aPendingBriefProposalMarksItsRowAndOnlyItsRow() throws {
+        let proposals: [StatementProposalStore.Proposal] = [
+            .init(kind: .editionBrief("es"), markdown: "x", rationale: nil, proposedAt: Date(), author: "Claude"),
+            .init(kind: .visualLanguage, markdown: "x", rationale: nil, proposedAt: Date(), author: "Claude"),
+        ]
+        XCTAssertEqual(DepartmentPaneHost.proposedLanguages(proposals), ["es"])
+        let rows = [EditionStatus.LanguageRow(language: "es", translator: nil, fresh: 0, stale: 0, missing: 0, openQueries: 0)]
+        XCTAssertEqual(DepartmentPaneHost.proposedWithoutRow(proposals, rows: rows), [])
+        XCTAssertEqual(DepartmentPaneHost.proposedWithoutRow(proposals, rows: []), ["es"],
+                       "a proposal for a language the desk has no row for still needs a door")
+        XCTAssertEqual(DepartmentDesk.proposedBadge, "Proposed")
+        XCTAssertEqual(DepartmentDesk.proposedWithoutRowLine(language: "it"),
+                       "Claude proposed a brief for Italian — open it to adopt or discard.")
+        XCTAssertTrue(DepartmentDesk.proposedHelp(language: "es").contains("Edition Brief"))
+    }
+
     // MARK: - The rows are translation_status's own numbers (Task 2)
 
     /// **The desk and the tool cannot disagree, because there is one
@@ -1156,6 +1174,7 @@ final class DepartmentPaneTests: XCTestCase {
 
         for forbidden in ["ProjectStore", "DocumentStore", "TranslationStore",
                           "DesignProposalStore", "PublishConfigStore",
+                          "StatementProposalStore",
                           "FileManager", "contentsOf"] {
             XCTAssertFalse(code.contains { $0.contains(forbidden) },
                            "`\(forbidden)` appears on the pane's path — the desk "
@@ -1373,5 +1392,70 @@ final class DepartmentPaneTests: XCTestCase {
     private static func codeLines(of relativePath: String) throws -> [String] {
         let url = appSourceDir.appendingPathComponent(relativePath)
         return SourceScan.codeLines(of: try String(contentsOf: url, encoding: .utf8))
+    }
+
+    // MARK: - The cast sheet's three fields (translation pipeline P2 Task 9)
+
+    func test_everyEditionAskTakesTheCastAndTheDesignersDoesNot() {
+        XCTAssertTrue(DepartmentCastPrompt(ask: .addLanguage).takesCast)
+        XCTAssertTrue(DepartmentCastPrompt(ask: .nameForRun(language: "es", docId: "d")).takesCast)
+        XCTAssertTrue(DepartmentCastPrompt(
+            ask: .rename(subject: .edition(language: "es"), currentName: "X")).takesCast)
+        XCTAssertFalse(DepartmentCastPrompt(
+            ask: .rename(subject: .designer, currentName: "X")).takesCast)
+    }
+
+    // MARK: - Naming a translator a BOOK run is waiting on (translation
+    // pipeline P4 Task 2)
+
+    /// **A whole-book run stands behind the same sheet a chapter run does**,
+    /// and it has to carry its own queue: the ask is what Confirm runs, and a
+    /// `.nameForRun` here would translate the open chapter alone — the writer
+    /// having asked for the book.
+    func test_theBookRunsAskCarriesItsQueueAndWearsTheRunSheetsWords() {
+        let ask = DepartmentPaneHost.bookAsk(language: "xx",
+                                             documentIds: ["doc-1", "doc-2"])
+        XCTAssertEqual(ask, .nameForBookRun(language: "xx",
+                                            documentIds: ["doc-1", "doc-2"]))
+
+        let prompt = DepartmentCastPrompt(ask: ask)
+        XCTAssertEqual(prompt.title, DepartmentCastCopy.nameForRunTitle(language: "xx"),
+                       "the sheet names the edition it is about, as the chapter "
+                       + "run's does")
+        XCTAssertEqual(prompt.confirmTitle, DepartmentCastCopy.nameAndRunTitle)
+        XCTAssertEqual(DepartmentCastCopy.nameAndRunTitle, "Name & Run")
+        XCTAssertTrue(prompt.takesCast, "an edition ask takes the whole cast")
+        XCTAssertFalse(prompt.takesLanguageTag,
+                       "the language is already known — only Add Language types one")
+    }
+
+    /// One prompt per subject, and the book's is not the chapter's: a writer
+    /// who presses Run and then Run Whole Book must not have the second ask
+    /// silently answered by the first sheet's identity.
+    func test_theBookRunsAskHasAnIdentityOfItsOwn() {
+        let book = DepartmentCastPrompt(ask: .nameForBookRun(language: "xx",
+                                                             documentIds: ["doc-1"]))
+        let chapter = DepartmentCastPrompt(ask: .nameForRun(language: "xx", docId: "doc-1"))
+        XCTAssertNotEqual(book.id, chapter.id)
+    }
+
+    // MARK: - When the pre-flight is worth taking (translation pipeline P4,
+    // review finding 1)
+
+    /// **A running round pays for no budgets.** `derive()` re-runs on every
+    /// `maughamTranslationDidUpdate`, which a live round fires per ingest, and
+    /// a budget opens every scoped document — so the one pass a round makes
+    /// most often is the one that must not do this work. The figures it would
+    /// have refreshed answer *what would this click cost*, and mid-round there
+    /// is no such click.
+    func test_thePreflightIsTakenOnlyWhileNoRoundIsRunning() {
+        XCTAssertTrue(DepartmentPaneHost.refillsBudgets(pipeline: .idle))
+        XCTAssertFalse(DepartmentPaneHost.refillsBudgets(
+            pipeline: .running(docId: "doc-1", language: "es", leg: .translate, book: nil)))
+        XCTAssertFalse(DepartmentPaneHost.refillsBudgets(
+            pipeline: .running(docId: "doc-9", language: "fr", leg: .collate,
+                               book: .init(position: 3, count: 9))),
+            "any leg of any pair — the desk is one session's, and there is "
+            + "nothing to weigh while any of it is under way")
     }
 }

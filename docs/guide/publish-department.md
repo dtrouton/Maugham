@@ -47,11 +47,12 @@ this desk.
 **Add Language…**, at the foot of the Languages section, is how a book
 gets an edition it doesn't have yet. Type the language's tag — `es`,
 `fr`, `pt-br`; capitals are fine, Maugham lowers them for you — and the
-name of the person who translates it. For the four languages that come
-with a translator already picked, that name fills itself in; keep it or
-type somebody else's. A tag that isn't a language tag says so in the
-sheet rather than failing later, and Cancel leaves the book's editions
-exactly as they were.
+name of the person who translates it. Two more fields, both optional, name
+the edition's reader and its collator (below). For the five languages that
+come with a cast already picked, all three names fill themselves in as you
+type the tag; keep them or type somebody else's. A tag that isn't a
+language tag says so in the sheet rather than failing later, and Cancel
+leaves the book's editions exactly as they were.
 
 The row appears as soon as you confirm, with nothing translated yet and
 the whole book ahead of it. Adding a language the book already has just
@@ -60,42 +61,192 @@ is that row's own verb.
 
 ## The people
 
-Four languages come with a translator already picked, borrowed from real
-literary history: **Cortázar** for Spanish, **Baudelaire** for French,
-**Tieck** for German, **Motoyuki** for Japanese. Every project's designer is
-**Tschichold**. Their names sign every paragraph and every query the work
-they do produces, the same way a review pass's editor — Perkins, Lish,
-Gould, Argus — signs its notes.
+**Every language edition has three people, not one.** The **translator**
+writes it. The **reader** then reads that translation and nothing else — not
+your English, not a phrase of it — and says where the prose doesn't sound
+like a book written in that language. Because they have never seen your
+source, they can never tell you a sentence is wrong; they can only tell you
+it reads badly, which is the one judgement a monolingual read is good for.
+The **collator** holds both texts side by side and says where the
+translation has moved away from what you wrote, and every departure they
+raise carries a **gloss** — a plain, literal rendering back into your own
+language of what the translation now says. The gloss is what lets you rule
+on a paragraph in a language you don't read.
+
+Five languages come with all three already picked, borrowed from real
+literary history:
+
+| Language | Translator | Reader | Collator |
+|---|---|---|---|
+| Spanish | Cortázar | Ocampo | Borges |
+| French | Baudelaire | Colette | Yourcenar |
+| German | Tieck | Bachmann | Schlegel |
+| Japanese | Motoyuki | Enchi | Futabatei |
+| Serbian | Kiš | Sekulić | Vinaver |
+
+Every project's designer is **Tschichold**. Their names sign every paragraph,
+every note and every query the work they do produces, the same way a review
+pass's editor — Perkins, Lish, Gould, Argus — signs its notes.
 
 Ask for a language Maugham has no preset for and the first Run asks you to
-name its translator first — a short sheet, one field, **Name & Run**. What
-you type there is the byline for everything that edition's translator writes
-from then on; there's no picker and no way to leave it blank.
+name its translator first — a short sheet, **Name & Run**, with the reader
+and collator fields beside it. Only the translator's name is required; leave
+the other two blank and Maugham names them for you when a round needs them.
+Nobody is named just because you looked at a row: the reader and collator
+are minted when a round actually puts them to work.
 
 Nobody's name is fixed. Every row on the desk carries a rename — the
 pencil beside it, or a right-click on the row: **Rename Cortázar…** on a
 language row, **Rename Tschichold…** on the Design row, and **Name This
-Translator…** where an edition has nobody yet. A new name signs
-everything from then on, and orphans nothing: the paragraphs, queries and
-design rounds already signed stay theirs, because a rename renames the
+Translator…** where an edition has nobody yet. The sheet renames the whole
+cast of that edition, all three fields at once. A new name signs
+everything from then on, and orphans nothing: the paragraphs, notes, queries
+and design rounds already signed stay theirs, because a rename renames the
 person rather than handing their work to somebody else.
 
 ## Running a translation
 
 Open the chapter you want translated, then press **Run** on that language's
-row. A round works through whatever in that document is stale or missing
-against that edition, asks a query when something needs your call (voice,
-register, an ambiguous term — it lands in your queue like any other note),
-and writes what it's sure of straight into the translation. Only one
-translation round runs at a time, across every language — Run is disabled
-with the reason whenever another edition is mid-round, and Cancel appears
-once a round is under way. Nothing writes until the round finishes cleanly —
-a cancelled or failed round leaves nothing behind.
+row. One press is **seven legs of work**, in this order:
 
-The row keeps track of how much of the book is fresh, stale, and missing in
-that language, and how many open queries you still owe an answer. See
+1. **Translate** — the translator works through whatever in that chapter is
+   stale, missing, or covered by a directive you've written, and asks a query
+   when something needs your call (voice, register, an ambiguous term — it
+   lands in your queue like any other note).
+2. **Read** — the reader reads the translation cold and writes notes.
+3. **Fix** — the translator answers those notes, addressing each or saying
+   why they won't.
+4. **Re-read** — the reader reads the repaired text, cold again.
+5. **Fix** — the translator answers the second read.
+6. **Collate** — the collator compares the translation against your English
+   and raises departures, each with its gloss.
+7. **Fix** — the translator answers the departures that drifted, writes the
+   round's summary, and proposes any glossary terms the book should fix.
+
+**A leg that has nothing to do is skipped, and the skip is recorded** rather
+than passed over in silence — the report tells you which leg didn't run and
+why. The second read is skipped when the first fix changed nothing, which is
+good news; the first read is skipped when there was nothing translated to
+read, which isn't.
+
+Before you press anything the row tells you what the click costs: **7 legs ·
+~4,300 words briefed**, counted over the chapter you have open — or over the
+whole book, when you have no chapter open and Run Whole Book is the verb the
+figure is for. Beside it, from the first round on, is the trend — **notes per
+round 9 → 5 → 3** — the last five rounds, oldest first, so you can see the
+edition settling rather than churning.
+
+While a round runs the row says which leg it's on: *Reading… (leg 2 of 7)*.
+Only one round runs at a time, across every language and both kinds of run —
+Run is disabled with the reason whenever another edition is mid-round, and
+**Cancel** appears once a round is under way.
+
+**Cancel stops the round after the leg that's running, and what earlier legs
+wrote stays.** This is not the promise a one-shot translation could make. By
+leg 3 the translation has already been written and repaired once, and undoing
+that would be throwing away work you can read in Translation Review. A failed
+leg ends the round the same way, in the same place: the report names where it
+stopped and why, and everything before it stands.
+
+When a round ends the row says so — *Round 3 · finished 2m ago* — with
+**Show** beside it. That's the report; see below.
+
+The row also keeps track of how much of the book is fresh, stale, and missing
+in that language, and how many open queries you still owe an answer. See
 [Translating Your Manuscript](translation-review.md) for reviewing what
 comes back, orphaned paragraphs, and publishing the edition itself.
+
+## Running the whole book
+
+**Run Whole Book**, beside Run on every language row (and in the row's
+right-click menu), runs one round on **every chapter of the book the desk is
+on**, in binder order. If you've picked an imprint, that's the imprint's own
+chapters and no others — the same set the row's coverage figures are summed
+over, so a book that's complete for the pamphlet cut isn't sent through the
+whole novel to find out.
+
+It needs no chapter open. Run is about the document this window is on;
+Run Whole Book is about the book, which is what the desk is about, so it
+works from the project row or anywhere else in the tree. Hovering it says how
+many chapters and roughly how many words that is. It refuses, in words, while
+another round is running, when the edition's language tag isn't one Maugham
+can write an edition for, and when the imprint you've picked names no
+chapters at all.
+
+While the queue runs, the row says which chapter as well as which leg:
+*Chapter 4 of 12 · reading… (leg 2 of 7)*. **Cancel** stops the queue after
+the leg that's running, exactly as it stops a single round — the chapters
+already done stay done. **A failed round stops the queue too**, rather than
+sending the next chapter into the same trouble: you should see what went
+wrong on this one first.
+
+## The round report
+
+**Show** on a language row opens the newest round for that edition in the
+centre column. It's written to you in your own language — every verb on it is
+one you can press without reading a word of the translation. Six sections,
+in this order:
+
+**The reader's report.** The first read beside the second, each with its
+verdict and the paragraph the reader wrote. Read them together and you can
+see whether the middle of the round earned its keep. Where a read didn't
+happen the column says which silence this is, in its own words. Beneath the
+two, under **The collator**, is the collator's own verdict on the chapter as
+a whole — the departures below are the particulars of it.
+
+**Where your prose was changed.** One row per departure: your own paragraph,
+the collator's gloss of what the translation now says, their reason, and what
+the translator did about it. Three verbs on each row.
+
+- **Fine** — you're happy with the change. It's recorded on the round beside
+  what the translator did, never over it, so the row still says whether they
+  rewrote the paragraph or declined to. The row's verbs come off once you've
+  said so — offering you Fine again over your own answer would be the app
+  forgetting it.
+- **Keep mine** — opens the Translator's Note sheet with the collator's note
+  already in the field, homed to **this edition only** by default, since the
+  decision came out of this language. What you write is a dated directive on
+  that paragraph, and the next Run treats the paragraph as work.
+- **Make it a rule** — a general ruling in this edition's brief, prefilled
+  from the note. Doctrine for the edition from the next round on.
+
+The translated text itself is behind **Show the translation** on rows the
+translator rewrote — before and after, and only when you ask for it.
+
+**Disagreements.** Only the notes the translator turned down, with both
+bylines: who raised it, and the translator's reason for declining. The verbs
+are **Translator's right** (you side with the translator; the question is
+settled and the translation stands), **Reader's right** or **Collator's
+right** depending on who raised it (you side with the note; it becomes a
+dated directive on that paragraph and the question is answered), and **Make
+it a rule**. Where a declined note never became a question there's nothing to
+reject: Translator's right comes off that row, and the row says so. The other
+two verbs still apply — your decision stands whether or not there's a thread
+to post it on.
+
+**Questions for you.** The round's own queries, with **Answer** and — where
+the question is about one edition — **Answer as ruling…**, the same pair
+you'd get in the queue. If the questions can't be read at all, the section
+says that instead of showing you an empty list.
+
+**Glossary proposals.** Terms the round thinks the book should fix, each with
+its rendering and the reason. **Adopt** writes it as a glossary line in the
+edition brief, where every later translator, reader and collator is briefed
+with it; **Skip** is remembered on the round so you aren't asked to decide
+twice.
+
+**Summary.** The round's own closing words, its counts, and **Open the queue** — the round's
+questions settle in the same notes queue everything else does, and that's the
+door to it.
+
+**Every source line on the report is a way back into the book.** Click the
+paragraph at the top of a departure or a disagreement and Maugham opens that
+chapter in Translation Review, in that language, at that paragraph — selecting
+the chapter first if it isn't the one you have open, and waiting for the
+translation to draw before it scrolls, so you land on the paragraph rather
+than at the top of the edition.
+
+**Back to the book** closes the report.
 
 ## Running a design round
 
@@ -109,7 +260,7 @@ verse passage, a block quote, a footnote, whatever's really there.
 
 Nothing from a round reaches your live templates on its own. When it's
 ready, the row shows which round it is, where it stands, and how long ago —
-press **Show** to open it.
+press **Show** to open it. The report draws in the centre column over whatever is there — with the chapter selected, over its editor — and **Back** or clicking through to a paragraph returns you to the manuscript.
 
 ## Compiling from the desk
 
@@ -181,13 +332,26 @@ click after opens the same one. Like the others, it carries its own
 **Rulings** section — dated, itemized decisions the translator is expected
 to honor exactly as written, not treat as a suggestion.
 
+A **Proposed** mark on a language row means Claude has drafted a brief for
+that edition (through the `edition-brief` skill); open Edition Brief to see
+the diff and Adopt or Discard it. A proposal for a language the desk has no
+row for yet is listed beneath the rows with its own Edition Brief door —
+adopting it is how that edition gets its first brief.
+
 ## Answering a translator
 
 A translator's query and a whole-document question (voice, an honorific,
 whether to translate a name) both show up in your queue like any other note
 from Claude, tagged with the language they're about. Answer one from the
-queue, or from the Translation pane (⌘⌥L) while reviewing that edition, and
-an open one carries an extra option beside the ordinary reply: **Answer as
-ruling…**. Taking it writes a dated entry into that edition's brief in the
-same act as your reply — so the next round doesn't have to ask again, and
-neither does a translator working a different chapter of the same book.
+queue, from the round report's **Questions for you**, or from the Translation
+pane (⌘⌥L) while reviewing that edition, and an open one carries an extra
+option beside the ordinary reply: **Answer as ruling…**. Taking it writes a
+dated entry into that edition's brief in the same act as your reply — so the
+next round doesn't have to ask again, and neither does a translator working a
+different chapter of the same book.
+
+A note the *reader* or the *collator* raised and the translator declined
+arrives in your queue the same way: a question signed by whoever raised it,
+with the translator's reason for turning it down written into the body under
+their own name. Settling it in the queue and settling it on the round
+report's **Disagreements** section are the same act.

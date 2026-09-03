@@ -209,6 +209,21 @@ final class StatementPaneTests: XCTestCase {
         }
     }
 
+    // MARK: - The proposal gate's slot (translation pipeline P5)
+
+    /// **Only a brief or the visual language can carry a proposal**, and only
+    /// at project scope — craft intent is unrepresentable (`ProposableStatement`
+    /// has no case for it), and a document-scoped statement is intent by
+    /// construction.
+    func test_theProposalSlotIsNilForIntentAndForAnyDocumentScope() {
+        XCTAssertNil(StatementPane.proposalSlot(kind: .intent, scope: .project))
+        XCTAssertNil(StatementPane.proposalSlot(kind: .intent, scope: .document("d1")))
+        XCTAssertNil(StatementPane.proposalSlot(kind: .editionBrief("es"), scope: .document("d1")))
+        XCTAssertEqual(StatementPane.proposalSlot(kind: .editionBrief("es"), scope: .project), .editionBrief("es"))
+        XCTAssertEqual(StatementPane.proposalSlot(kind: .visualLanguage, scope: .project), .visualLanguage)
+        XCTAssertNil(StatementPane.proposalSlot(kind: .unknown("later"), scope: .project))
+    }
+
     // MARK: - The header, now that it is the only thing naming the scope
 
     /// **The header names the scope that RESOLVED, not the subject the tree

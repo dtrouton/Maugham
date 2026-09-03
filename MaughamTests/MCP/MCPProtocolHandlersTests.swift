@@ -47,6 +47,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
             "add_craft_note", "list_annotations", "get_annotation",
             "list_tasks", "get_task",
             "read_craft_intent", "read_visual_language", "read_edition_brief", "read_lessons",
+            "propose_edition_brief", "propose_visual_language",
             "list_palette_cards", "read_palette_card",
             "initialize_publish_template",
             "get_publish_config", "set_publish_config",

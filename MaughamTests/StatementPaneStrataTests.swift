@@ -419,6 +419,242 @@ final class StatementPaneStrataTests: XCTestCase {
             for: Ruling(id: "r", text: "One", ruledOn: nil, provenance: nil)))
     }
 
+    // MARK: - Rulings stratum: partition (translation pipeline P4 Task 7)
+
+    /// The three buckets `RulingsStratumView` draws differently: a glossary
+    /// entry (recognised by its own shape, regardless of position), a
+    /// directive whose anchor is not in the live set (an orphan), and
+    /// everything else — a bare ruling, and a directive whose anchor IS live.
+    func test_partitionSeparatesGlossaryOrphanedDirectivesAndEverythingElse() {
+        let glossaryEntry = Ruling(
+            id: "g1", text: Ruling.glossaryText(term: "October", rendering: "Octubre", note: nil),
+            ruledOn: nil, provenance: nil)
+        let liveDirective = Ruling(
+            id: "d1", text: Ruling.directiveText(paragraphId: "k7mq", "keep the three \"and\"s"),
+            ruledOn: nil, provenance: nil)
+        let orphanDirective = Ruling(
+            id: "d2", text: Ruling.directiveText(paragraphId: "9zzz", "trim this line"),
+            ruledOn: nil, provenance: nil)
+        let plain = Ruling(id: "p1", text: "Kelly never lies", ruledOn: nil, provenance: nil)
+        let rulings = [glossaryEntry, liveDirective, orphanDirective, plain]
+
+        let known = RulingsStratum.partition(rulings, liveParagraphIds: ["k7mq"])
+        XCTAssertEqual(known.glossary, [glossaryEntry])
+        XCTAssertEqual(known.orphans, [orphanDirective])
+        XCTAssertEqual(known.others, [liveDirective, plain])
+    }
+
+    /// **`nil` is "unknown", never "everything is an orphan"** — the
+    /// distinction `RulingsStratum.partition`'s own doc comment states: a
+    /// directive must never flash as orphaned while the pane's `.task` has not
+    /// yet resolved the live set (or failed to).
+    func test_partitionWithNoLiveIdsManufacturesNoOrphan() {
+        let orphanDirective = Ruling(
+            id: "d2", text: Ruling.directiveText(paragraphId: "9zzz", "trim this line"),
+            ruledOn: nil, provenance: nil)
+        let plain = Ruling(id: "p1", text: "Kelly never lies", ruledOn: nil, provenance: nil)
+        let rulings = [orphanDirective, plain]
+
+        let unknown = RulingsStratum.partition(rulings, liveParagraphIds: nil)
+        XCTAssertTrue(unknown.orphans.isEmpty,
+                      "an unresolved live-paragraph read must never manufacture an orphan")
+        XCTAssertEqual(unknown.others, [orphanDirective, plain])
+    }
+
+    // MARK: - Rulings stratum: the glossary table and orphaned directives, mounted
+
+    /// **The glossary draws as a table, not itemized rows** — a mounted
+    /// `RulingsStratumView` with two glossary entries shows the heading and
+    /// both terms and renderings through production's own accessibility tree
+    /// (`DiagnosticsPaneTests`' shape, per `RulingsStratum`'s own type doc:
+    /// what a test wants to ask is asked of the static first, and this is the
+    /// one thing only a mount can answer — that the Grid actually renders
+    /// both rows).
+    func test_theGlossaryDrawsAsATableWithBothEntriesAndTheHeading() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "glossary-grid")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        let rulings = [
+            Ruling(id: "g1",
+                  text: Ruling.glossaryText(term: "October", rendering: "Octubre", note: nil),
+                  ruledOn: nil, provenance: nil),
+            Ruling(id: "g2",
+                  text: Ruling.glossaryText(term: "gray", rendering: "grey",
+                                            note: "British spelling"),
+                  ruledOn: nil, provenance: nil),
+        ]
+        let window = TestWindow.mount(
+            AnyView(RulingsStratumView(rulings: rulings, kind: .intent, scope: scope,
+                                       store: fixture.store, world: nil, liveParagraphIds: nil)),
+            size: CGSize(width: 420, height: 300))
+        bareWindows.append(window)
+        pump()
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains(where: { $0.contains(RulingsStratum.glossaryHeading) }),
+                      "the glossary heading never reached the mounted view: \(texts)")
+        XCTAssertTrue(texts.contains(where: { $0.contains("October") }), "\(texts)")
+        XCTAssertTrue(texts.contains(where: { $0.contains("Octubre") }), "\(texts)")
+        XCTAssertTrue(texts.contains(where: { $0.contains("gray") }), "\(texts)")
+        XCTAssertTrue(texts.contains(where: { $0.contains("grey") }), "\(texts)")
+    }
+
+    /// An orphaned directive draws its caption and a `Remove` control, and
+    /// pressing it revokes exactly that line — the same verb the ordinary
+    /// row's Revoke uses, wearing this row's name for it.
+    func test_pressingRemoveOnAnOrphanRevokesExactlyThatLineAndNothingElse() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "orphan-remove")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
+        let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
+        try await fixture.store.mutateStatementText(of: statement, session: "s") { _ in
+            RulingsSection.render(essay: "Essay.", rulings: [
+                Ruling(id: "", text: Ruling.directiveText(paragraphId: "9zzz", "trim this line"),
+                      ruledOn: nil, provenance: nil),
+                Ruling(id: "", text: "Kelly never lies", ruledOn: nil, provenance: nil),
+            ])
+        }
+        let rulings = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))
+
+        let window = TestWindow.mount(
+            AnyView(RulingsStratumView(rulings: rulings, kind: .intent, scope: scope,
+                                       store: fixture.store, world: nil, liveParagraphIds: [])),
+            size: CGSize(width: 420, height: 300))
+        bareWindows.append(window)
+        pump()
+
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains(where: { $0.contains(RulingsStratum.orphanCaption) }),
+                      "the orphan caption never reached the mounted view: \(texts)")
+
+        let removeButtons = try axButtons(labelled: RulingsStratum.removeTitle, in: window)
+        let allLabels = try axButtonLabels(in: window)
+        XCTAssertEqual(removeButtons.count, 1,
+                       "expected exactly one orphan; button labels: \(allLabels)")
+        press(removeButtons[0])
+
+        await pumpUntil(deadline: 5) {
+            RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store).count == 1
+        }
+        let remaining = RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store)
+        XCTAssertEqual(remaining.map(\.text), ["Kelly never lies"],
+                       "Remove did not take exactly the orphaned line")
+    }
+
+    // MARK: - Live paragraph ids reach the mounted pane through its own `.task`
+
+    /// `.intent` at `.document(docId)` resolves the ONE document's ids: a
+    /// directive anchored to a paragraph that never existed in this chapter
+    /// shows as an orphan once the pane's own `.task` lands.
+    func test_theStatementPaneShowsAnOrphanForADirectiveOnAParagraphThatNoLongerExists() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "orphan-intent")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+        _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
+        let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
+        try await fixture.store.mutateStatementText(of: statement, session: "s") { _ in
+            RulingsSection.render(essay: "Essay.", rulings: [
+                Ruling(id: "", text: Ruling.directiveText(paragraphId: "9zzz", "no such paragraph"),
+                      ruledOn: nil, provenance: nil),
+            ])
+        }
+
+        let window = await fixture.host(kind: .intent, subject: .item(fixture.documentItemId))
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(RulingsStratum.orphanCaption, in: window) }
+        XCTAssertTrue(fixture.shows(RulingsStratum.orphanCaption, in: window),
+                      "the mounted pane's own `.task` never resolved this document's live "
+                      + "paragraph ids")
+    }
+
+    /// An edition brief is `.project`-scoped: its `.task` reads the UNION of
+    /// every manuscript document's ids (`EditionStatus.manuscriptDocumentIds`
+    /// → `currentParagraphState` each), not one document's.
+    func test_anEditionBriefShowsAnOrphanForADirectiveOnAParagraphThatDoesNotExistInTheBook() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "orphan-brief")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.project
+        _ = try await fixture.store.createStatement(kind: .editionBrief("es"), scope: scope)
+        let statement = try XCTUnwrap(fixture.store.statement(kind: .editionBrief("es"), scope: scope))
+        try await fixture.store.mutateStatementText(of: statement, session: "s") { _ in
+            RulingsSection.render(essay: "Essay.", rulings: [
+                Ruling(id: "", text: Ruling.directiveText(paragraphId: "9zzz", "no such paragraph"),
+                      ruledOn: nil, provenance: nil),
+            ])
+        }
+
+        let window = await fixture.host(kind: .editionBrief("es"), subject: .project)
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(RulingsStratum.orphanCaption, in: window) }
+        XCTAssertTrue(fixture.shows(RulingsStratum.orphanCaption, in: window),
+                      "the pane's `.task` never resolved the union of manuscript document ids "
+                      + "for the project scope")
+    }
+
+    /// **Fix round 1**: the orphan check must not go stale while the pane sits
+    /// mounted. The commonest Author-persona shape is the manuscript editor and
+    /// the Intent pane open side by side — the writer deletes the directed
+    /// paragraph right there, with no pane switch, no scope change, and
+    /// therefore (before this fix) no re-resolve: `(kind, scope)` alone never
+    /// changes across a plain manuscript edit.
+    ///
+    /// Driven the real way rather than through the key alone: both editors
+    /// mounted in one window (`hostBesideAManuscriptEditor`, the same shape
+    /// `StatementEditorMountTests` uses — `views[0]` is the manuscript,
+    /// `views[1]` the statement), a directive anchored to a REAL id minted by
+    /// typing into the manuscript, then `Document.deleteParagraph(id:)` called
+    /// directly on the open manuscript `Document` — the same mutation path the
+    /// editor's own delete key drives, with no remount anywhere in between.
+    /// The converse restores the same id to both `paragraphs` and `sequence`
+    /// and checks the caption clears again, still with no remount.
+    func test_anOrphanAppearsWhenTheOpenManuscriptLosesTheDirectedParagraphAndClearsWhenRestored() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "live-orphan-open-doc")
+        defer { fixture.tearDown() }
+        let scope = Statement.Scope.document(fixture.documentItemId)
+
+        let window = await fixture.hostBesideAManuscriptEditor(kind: .intent)
+        let views = fixture.allTextViews(in: window)
+        XCTAssertEqual(views.count, 2,
+                       "expected a manuscript editor and a statement editor in one window")
+        let manuscript = views[0]
+
+        await fixture.type("A sentence that will be deleted.", into: manuscript)
+
+        let document = try XCTUnwrap(
+            fixture.documentStore.document(forDocId: fixture.documentItemId),
+            "the manuscript document never opened, so there is no live "
+            + "paragraph sequence for the pane's task key to observe")
+        let liveId = try XCTUnwrap(document.sequence.first)
+        let originalText = try XCTUnwrap(document.paragraphs[liveId])
+
+        try await RulingPerformer.rule(
+            Ruling.directiveText(paragraphId: liveId, "keep this line"),
+            provenance: "test", kind: .intent, forScope: scope, store: fixture.store, world: nil)
+
+        await fixture.pumpUntil(deadline: 5) { fixture.shows("keep this line", in: window) }
+        XCTAssertFalse(fixture.shows(RulingsStratum.orphanCaption, in: window),
+                      "a directive anchored to a live paragraph must not draw as an orphan")
+
+        // The mutation itself: the writer's own delete, on the open Document,
+        // with no pane switch and no scope change.
+        document.deleteParagraph(id: liveId)
+
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(RulingsStratum.orphanCaption, in: window) }
+        XCTAssertTrue(fixture.shows(RulingsStratum.orphanCaption, in: window),
+                      "deleting the directed paragraph in the OPEN manuscript editor did "
+                      + "not turn the directive into an orphan without a remount — the "
+                      + "pane's `.task` key must react to the open document's live "
+                      + "paragraph sequence, not only to (kind, scope)")
+
+        // Converse: restore the same id to both the text and the sequence.
+        document.setParagraph(id: liveId, text: originalText)
+        document.reorder(sequence: [liveId] + document.sequence)
+
+        await fixture.pumpUntil(deadline: 5) { !fixture.shows(RulingsStratum.orphanCaption, in: window) }
+        XCTAssertFalse(fixture.shows(RulingsStratum.orphanCaption, in: window),
+                      "restoring the paragraph to the open document did not clear the "
+                      + "orphan caption without a remount")
+    }
+
     // MARK: - Rulings stratum: the verbs, and one undo step each
 
     func test_revokingARowTakesExactlyThatLineAndOneUndoPutsItBack() async throws {
@@ -1124,6 +1360,144 @@ final class StatementPaneStrataTests: XCTestCase {
         XCTAssertFalse(textView.string.contains("Kelly never lies"),
                        "the ruling was written into the essay editor's buffer: "
                        + textView.string)
+    }
+
+    // MARK: - The proposal gate (translation pipeline P5)
+    /// **A proposal staged behind the pane draws the gate without a remount**,
+    /// and the writer's own Adopt puts the words in the editor and clears the
+    /// banner.
+    ///
+    /// The press is the point. The gate is reached from nowhere else — nothing
+    /// but this button calls `StatementProposalGate.adopt` — so a test that
+    /// called the gate itself would leave the whole delivery path untested and,
+    /// worse, could not reach the case this task exists for: on a scope with no
+    /// statement the host has already resolved the absence, and only the pane's
+    /// own `adopt` learns that the adoption CREATED one.
+    func test_aStagedProposalReachesTheMountedPaneAndAdoptWritesTheEssay() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "mounted-proposal")
+        defer { fixture.tearDown() }
+        let window = await fixture.host(kind: .visualLanguage, subject: .project)
+        let title = StatementProposalCopy.bannerTitle(.init(
+            kind: .visualLanguage, markdown: "x", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        XCTAssertTrue(try fixture.staticTexts(in: window, containing: title).isEmpty)
+        XCTAssertNil(fixture.store.statement(kind: .visualLanguage, scope: .project),
+                     "this case is about a scope the host resolved as EMPTY")
+
+        _ = try StatementProposalStore(projectURL: fixture.projectURL).stage(.init(
+            kind: .visualLanguage, markdown: "Serif, generous leading.",
+            rationale: "the sample pages are dense", proposedAt: Date(), author: "Claude"))
+        MaughamEvent.postStatementProposalsChanged(projectURL: fixture.projectURL)
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(title, in: window) }
+        XCTAssertFalse(try fixture.staticTexts(in: window, containing: title).isEmpty,
+                       "a proposal that landed while the pane was open never reached the gate")
+        XCTAssertFalse(try fixture.staticTexts(in: window, containing: "the sample pages are dense").isEmpty)
+
+        XCTAssertTrue(try fixture.pressButton(
+            labelled: StatementProposalCopy.adoptAccessibilityLabel(.visualLanguage), in: window))
+        await fixture.pumpUntil(deadline: 5) { !fixture.shows(title, in: window) }
+        XCTAssertTrue(try fixture.staticTexts(in: window, containing: title).isEmpty,
+                      "Adopt clears the gate")
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.firstTextView(in: window)?.string.contains("Serif, generous leading.") == true
+        }
+        XCTAssertEqual(fixture.firstTextView(in: window)?.string.contains("Serif, generous leading."),
+                       true, "the adopted words did not reach the mounted editor")
+        XCTAssertNil(StatementProposalStore(projectURL: fixture.projectURL).pending(for: .visualLanguage),
+                     "the adopted slot is still pending")
+    }
+
+    /// **The common case: Adopt over a statement the writer already has**, and
+    /// it costs no reload at all.
+    ///
+    /// The two cases above both mint — the scope was empty, so the pane's
+    /// `adopt` bumps `hostGeneration` and the host remounts. That arm is the
+    /// exception. Ordinarily a writer revising a visual language they already
+    /// have has a live `Document` bound, `mutateStatementText` finds it through
+    /// `openStatementDocument(id:)` and writes into it, and the editor's own
+    /// binding shows the new essay on the next frame — the path a ruling
+    /// landing from a run takes (`test_aRulingReachesTheMountedPane`).
+    ///
+    /// **"No remount" is asserted as the thing it means on screen**: the same
+    /// `NSTextView` instance is still mounted afterwards. A remount would
+    /// build a new one — which is exactly how the `.id(hostGeneration)` was
+    /// falsified — and would take the caret, the first responder and the
+    /// pane's own undo stack with it.
+    func test_adoptOverABoundDocumentWritesThroughItWithNoRemount() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "mounted-bound-adopt")
+        defer { fixture.tearDown() }
+        let statement = try await fixture.store.createStatement(
+            kind: .visualLanguage, scope: .project)
+        try await fixture.store.mutateStatementText(
+            of: statement, session: "test") { _ in "Old look." }
+
+        let window = await fixture.host(kind: .visualLanguage, subject: .project)
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.firstTextView(in: window)?.string.contains("Old look.") == true
+        }
+        XCTAssertEqual(fixture.firstTextView(in: window)?.string.contains("Old look."), true,
+                       "the host never bound the existing statement, so this case is vacuous")
+        let mountedBefore = ObjectIdentifier(try fixture.textView(in: window))
+
+        let title = StatementProposalCopy.bannerTitle(.init(
+            kind: .visualLanguage, markdown: "x", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        _ = try StatementProposalStore(projectURL: fixture.projectURL).stage(.init(
+            kind: .visualLanguage, markdown: "Serif, generous leading.", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        MaughamEvent.postStatementProposalsChanged(projectURL: fixture.projectURL)
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(title, in: window) }
+        XCTAssertFalse(try fixture.staticTexts(in: window, containing: title).isEmpty)
+
+        XCTAssertTrue(try fixture.pressButton(
+            labelled: StatementProposalCopy.adoptAccessibilityLabel(.visualLanguage), in: window))
+        await fixture.pumpUntil(deadline: 5) {
+            fixture.firstTextView(in: window)?.string.contains("Serif, generous leading.") == true
+        }
+        XCTAssertEqual(
+            fixture.firstTextView(in: window)?.string.contains("Serif, generous leading."), true,
+            "the adopted words did not reach the bound editor")
+        XCTAssertEqual(fixture.firstTextView(in: window)?.string.contains("Old look."), false,
+                       "the replaced text is still on screen")
+        await fixture.pumpUntil(deadline: 5) { !fixture.shows(title, in: window) }
+        XCTAssertTrue(try fixture.staticTexts(in: window, containing: title).isEmpty,
+                      "Adopt clears the gate")
+        XCTAssertEqual(ObjectIdentifier(try fixture.textView(in: window)), mountedBefore,
+                       "the host remounted over a bound Document — `hostGeneration` moved on an "
+                       + "adoption that created nothing")
+    }
+
+    /// **Discard clears the gate and touches nothing the writer wrote** — the
+    /// other verb, through the same mounted button.
+    func test_discardClearsTheGateAndLeavesTheStatementAlone() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "mounted-discard")
+        defer { fixture.tearDown() }
+        let statement = try await fixture.store.createStatement(kind: .visualLanguage, scope: .project)
+        try await fixture.store.mutateStatementText(
+            of: statement, session: "test") { _ in "The writer's own look." }
+
+        let window = await fixture.host(kind: .visualLanguage, subject: .project)
+        let title = StatementProposalCopy.bannerTitle(.init(
+            kind: .visualLanguage, markdown: "x", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        _ = try StatementProposalStore(projectURL: fixture.projectURL).stage(.init(
+            kind: .visualLanguage, markdown: "Grotesque, tight.", rationale: nil,
+            proposedAt: Date(), author: "Claude"))
+        MaughamEvent.postStatementProposalsChanged(projectURL: fixture.projectURL)
+        await fixture.pumpUntil(deadline: 5) { fixture.shows(title, in: window) }
+        XCTAssertFalse(try fixture.staticTexts(in: window, containing: title).isEmpty)
+
+        XCTAssertTrue(try fixture.pressButton(
+            labelled: StatementProposalCopy.discardAccessibilityLabel(.visualLanguage), in: window))
+        await fixture.pumpUntil(deadline: 5) { !fixture.shows(title, in: window) }
+        XCTAssertTrue(try fixture.staticTexts(in: window, containing: title).isEmpty,
+                      "Discard clears the gate")
+        XCTAssertNil(StatementProposalStore(projectURL: fixture.projectURL).pending(for: .visualLanguage))
+        XCTAssertEqual(try fixture.store.statementText(of: statement), "The writer's own look.",
+                       "Discard rewrote the writer's statement")
+        XCTAssertFalse(
+            try fixture.staticTexts(in: window, containing: StatementProposalCopy.discardedLine).isEmpty,
+            "the pane said nothing about what it just did")
     }
 
     // MARK: - The edition brief is a first-class statement surface (P4 Task 7)

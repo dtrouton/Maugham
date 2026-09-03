@@ -54,6 +54,19 @@ struct DepartmentPane: View {
     /// F-D fixes is a surface that omitted this fact and read as an honest
     /// answer; a defaulted `[]` is that omission spelled as a convenience.
     var unreadable: [EditionStatus.UnreadableDocument]
+    /// **Which languages have a proposed edition brief waiting** (translation
+    /// pipeline P5) — the badge a language row carries when Claude has staged
+    /// one, drawn beside the language's own name. Lowercased tags, matching
+    /// `ProposableStatement.key`'s own casing (`DepartmentPaneHost
+    /// .proposedLanguages`), so a row whose own `language` came back a
+    /// different case still finds its mark.
+    var proposedBriefs: Set<String> = []
+    /// **A proposed brief for a language the desk has no row for at all** —
+    /// Claude proposed an edition the book has never had a paragraph
+    /// translated into, so there is no row for the badge above to sit on. Its
+    /// own line at the foot of the section, sorted, with the same door a row
+    /// would have offered.
+    var proposedWithoutRow: [String] = []
     /// **The Design row, whole** (Task 4) — who designs this book, what the
     /// newest round produced, what a round in flight is doing, and whether
     /// either verb may be pressed.
@@ -109,6 +122,25 @@ struct DepartmentPane: View {
     /// End the round in flight — `TranslatorOrchestrator.cancel()`. Only reachable
     /// from the row that is running, which is the only row with anything to end.
     var cancelRun: () -> Void = { }
+    /// **Ask for a round on every chapter of this book** (translation pipeline
+    /// P4) — the desk's own scope, at last, as a verb.
+    ///
+    /// A second closure rather than an argument on `runTranslation`, because
+    /// the two refuse for different reasons: a chapter run needs the window to
+    /// have one open and a book run does not (`DepartmentRunState.bookRefusal`
+    /// against `refusal`). A single closure with a flag would have to be read
+    /// alongside a predicate to know which refusal applied to it.
+    var runBook: (String) -> Void = { _ in }
+    /// **Open this edition's newest round in the centre column** — the row's
+    /// door, and its only control that is navigation rather than a verb.
+    ///
+    /// It takes the LANGUAGE and not the round, for `showProposal`'s reason
+    /// inverted: which round this is was resolved by the host and is already on
+    /// the row's own `DepartmentRunState`, but the pane may not be the thing
+    /// that hands a model object back up — the host holds the round it derived
+    /// and sends that one, so the round the centre opens and the round
+    /// `statusLine` describes cannot be two different objects.
+    var showRound: (String) -> Void = { _ in }
     /// **Ask for a design round**, with the writer's words for it or `nil` for a
     /// bare one briefed on the visual language statement alone.
     ///
@@ -228,12 +260,16 @@ struct DepartmentPane: View {
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // **The compile sheet hangs on the desk, not on the pane.** Two
-            // `.sheet` modifiers on ONE view do not coexist in SwiftUI — the
-            // later declaration wins and the earlier one silently stops
-            // presenting, which took the cast sheet's every button with it
-            // (measured: `DepartmentRunTests`' rename and mint cases crashed
-            // on an empty button array). Each sheet gets a view of its own.
+            // **The compile sheet hangs on the desk, not on the pane.**
+            // `.sheet(isPresented:)` beside `.sheet(item:)` on ONE view do not
+            // coexist in SwiftUI — the later declaration wins and the earlier
+            // one silently stops presenting, which took the cast sheet's
+            // every button with it (measured: `DepartmentRunTests`' rename
+            // and mint cases crashed on an empty button array). This is
+            // narrower than "two `.sheet` modifiers on one view" — three
+            // stacked `.sheet(item:)` modifiers already coexist on one view
+            // in `AnnotationsPane.swift` and `InboxPane.swift`. Each sheet
+            // here still gets a view of its own.
             desk
                 .sheet(isPresented: $showingCompileSheet) {
                     DepartmentCompileSheet(
@@ -374,6 +410,21 @@ struct DepartmentPane: View {
                             languageRow(row)
                         }
                         addLanguageButton
+                    }
+                    // **A proposed brief for a language nothing else on the
+                    // desk names** — no row above carries its badge, so it
+                    // gets a line of its own rather than going unseen.
+                    ForEach(proposedWithoutRow, id: \.self) { language in
+                        HStack {
+                            Text(DepartmentDesk.proposedWithoutRowLine(language: language))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button(DepartmentDesk.editionBriefTitle) {
+                                openEditionBrief(language)
+                            }
+                            .controlSize(.small)
+                        }
                     }
                 }
             }
@@ -605,16 +656,21 @@ struct DepartmentPane: View {
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                // A proposed brief waiting on the writer, on the design row's
+                // own badge shape (`design.pendingBadge`) — the same visual
+                // vocabulary for the same kind of fact, one column apart.
+                if proposedBriefs.contains(row.language) {
+                    Text(DepartmentDesk.proposedBadge)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+                        .help(DepartmentDesk.proposedHelp(language: row.language))
+                }
                 Spacer(minLength: 6)
                 renameButton(DepartmentDesk.renameTitle(translator: row.translator)) {
                     renameTranslator(row.language)
                 }
-                Button(DepartmentDesk.editionBriefTitle) {
-                    openEditionBrief(row.language)
-                }
-                .controlSize(.small)
-                .help(DepartmentDesk.editionBriefHelp(language: row.language))
-                runControls(row, run: run)
             }
             Text(DepartmentDesk.translatorLine(row.translator))
                 .font(.caption)
@@ -631,14 +687,65 @@ struct DepartmentPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            // **The verbs on a line of their own, wrapping rather than
+            // truncating** (2026-09-02). They used to share the name line with
+            // the language and the rename glyph, and at the desk's real width
+            // that read "Fren… / Edit… / Run / Run… / Can…" — every title cut
+            // to a stub, worse still with a Proposed badge on the line. A
+            // `FlowLayout` (the tags field's) lays the buttons out at their
+            // natural size and folds to a second line when the column is
+            // narrow, so no title is ever truncated and the name line keeps
+            // its width for the name.
+            FlowLayout(spacing: 6) {
+                Button(DepartmentDesk.editionBriefTitle) {
+                    openEditionBrief(row.language)
+                }
+                .controlSize(.small)
+                .fixedSize()
+                .help(DepartmentDesk.editionBriefHelp(language: row.language))
+                runControls(row, run: run)
+            }
+            .padding(.top, 2)
             // What the round is doing, or what the last one did. One slot, and
-            // `statusLine` decides which — see `DepartmentRunState`.
-            if let status = run.statusLine {
-                Text(status)
+            // `statusLine` decides which — see `DepartmentRunState`. Show sits
+            // beside it because it is about that same round: a door drawn up
+            // with the verbs would read as a third thing to press before
+            // running, rather than as the way into what has already run.
+            if run.statusLine != nil || run.offersShow {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let status = run.statusLine {
+                        Text(status)
+                            .font(.caption)
+                            // Red only for a failure, on `ReviewRoundCockpit`'s
+                            // rule: a colour that never changes says nothing.
+                            .foregroundStyle(run.isFailure ? Color.red : Color.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 6)
+                    // Hidden rather than disabled, and the only control on this
+                    // desk that is: every other refusal has a sentence to give,
+                    // and a door to a round that does not exist has none — the
+                    // row's own status line has already said there is none.
+                    if run.offersShow {
+                        Button(DepartmentRunState.showRoundTitle) {
+                            showRound(row.language)
+                        }
+                        .controlSize(.small)
+                        .accessibilityLabel(
+                            DepartmentRunState.showRoundAccessibilityLabel(
+                                language: row.language))
+                        .help(DepartmentRunState.showRoundHelp)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // The pre-flight and the trend, sharing one line beneath the status
+            // rather than taking one each (spec §8) — and drawn only while the
+            // row is idle, which is `detailLine`'s own rule.
+            if let detail = run.detailLine {
+                Text(detail)
                     .font(.caption)
-                    // Red only for a failure, on `ReviewRoundCockpit`'s rule: a
-                    // colour that never changes is a colour that says nothing.
-                    .foregroundStyle(run.isFailure ? Color.red : Color.secondary)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -649,6 +756,13 @@ struct DepartmentPane: View {
             Button(DepartmentDesk.renameTitle(translator: row.translator)) {
                 renameTranslator(row.language)
             }
+            // In the Rename… menu's company (spec §5). The row's own button is
+            // the real door — SwiftUI builds a context menu's items only while
+            // the menu is up, so a keyboard, VoiceOver and every
+            // accessibility-tree test find nothing here — and this is the
+            // gesture a Mac writer reaches for first. Same call, same refusal.
+            Button(DepartmentRunState.runBookTitle) { runBook(row.language) }
+                .disabled(!run.canRunBook)
         }
     }
 
@@ -663,9 +777,10 @@ struct DepartmentPane: View {
     /// button is the real door and the menu is the gesture a Mac writer will
     /// reach for first; they post the same call.
     ///
-    /// A glyph rather than a word because the row already carries two or three
-    /// controls in a column 340pt wide, and a third title is what starts
-    /// truncating the language's own name. Its accessibility label is the full
+    /// A glyph rather than a word: it shares the name line with the language
+    /// and its Proposed badge, and a word there is what starts truncating the
+    /// language's own name (the verbs moved to a wrapping line of their own on
+    /// 2026-09-02 for the same reason). Its accessibility label is the full
     /// sentence, so the tree says what the picture means.
     private func renameButton(_ title: String,
                               action: @escaping () -> Void) -> some View {
@@ -694,15 +809,31 @@ struct DepartmentPane: View {
                              run: DepartmentRunState) -> some View {
         Button(DepartmentRunState.runTitle) { runTranslation(row.language) }
             .controlSize(.small)
+            .fixedSize()
             .disabled(!run.canRun)
             .help(run.refusal
                   ?? DepartmentRunState.runHelp(language: row.language,
                                                 target: runTarget))
+        // **The desk's own scope, and it reads a refusal of its own.** A book
+        // run needs no open chapter — the rows already sum every chapter — so
+        // it is `bookRefusal` here and never `refusal`, or the one verb that
+        // matches what this pane is about would be dead on exactly the subject
+        // a writer opens the department on.
+        Button(DepartmentRunState.runBookTitle) { runBook(row.language) }
+            .controlSize(.small)
+            .fixedSize()
+            .disabled(!run.canRunBook)
+            .accessibilityLabel(
+                DepartmentRunState.runBookAccessibilityLabel(language: row.language))
+            .help(run.bookRefusal
+                  ?? DepartmentRunState.runBookHelp(language: row.language,
+                                                    count: run.bookDocumentCount,
+                                                    words: run.bookWords))
         if run.isRunning {
             Button(DepartmentRunState.cancelTitle) { cancelRun() }
                 .controlSize(.small)
-                .help("Stop this round. Nothing it has translated is written "
-                      + "\u{2014} a run that does not finish writes nothing at all.")
+                .fixedSize()
+                .help(DepartmentRunState.cancelHelp)
         }
     }
 }
@@ -843,5 +974,31 @@ enum DepartmentDesk {
         "Register, idiom policy and what stays untranslated for the "
             + "\(TranslationReviewIndicator.displayLabel(forLanguageTag: language)) "
             + "edition"
+    }
+
+    // MARK: - The "proposed" mark (translation pipeline P5)
+
+    /// The badge itself, on a row that already has a proposed brief waiting.
+    static let proposedBadge = "Proposed"
+
+    static func proposedHelp(language: String) -> String {
+        "Claude proposed a brief for "
+            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + ". Open Edition Brief to adopt or discard it."
+    }
+
+    /// The foot-of-section line for a language with no row of its own yet.
+    ///
+    /// **`TranslationPipeline.Environment.languageName`, not
+    /// `TranslationReviewIndicator.displayLabel`** — the row's own badge
+    /// (`proposedHelp`) uses the row's vocabulary, tag and all, because it
+    /// sits beside a name the row already prints that way. This line has no
+    /// row to agree with: it is naming a language the desk has never shown
+    /// before, in a sentence with no tag anywhere else in it, and "Italian
+    /// (it)" reads as a fragment of some other UI pasted in.
+    static func proposedWithoutRowLine(language: String) -> String {
+        "Claude proposed a brief for "
+            + TranslationPipeline.Environment.languageName(tag: language)
+            + " — open it to adopt or discard."
     }
 }

@@ -46,6 +46,17 @@ struct DepartmentPaneHost: View {
     /// caller that surfaces no run — the probe mounts — offers a desk that reads
     /// and does not act.
     var designer: DesignerOrchestrator? = nil
+    /// **The window's translation pipeline** (translation pipeline P3), reached
+    /// exactly as `translator` is and owned beside it, because the leg it holds
+    /// open outlives no window either.
+    ///
+    /// Passed here for the GATE: a round's cold legs hold no translator session,
+    /// so `translator.isRunning` reads false while a reader is out and every row
+    /// would offer Run into a round already under way (`DepartmentRunSession
+    /// .read`). What its legs LOOK like on the rows is Plan 4's; this is only
+    /// the refusal. Optional for `translator`'s reason — a probe mount offers a
+    /// desk that reads and does not act.
+    var pipeline: TranslationPipeline? = nil
     /// **Where a Show goes** (Task 5) — the window's own centre column, which is
     /// the other side of this split view.
     ///
@@ -55,6 +66,13 @@ struct DepartmentPaneHost: View {
     /// centre is decided. The whole `Proposal` travels because this host has
     /// just read it — see `proposals` below.
     var onShowProposal: (DesignProposalStore.Proposal) -> Void = { _ in }
+    /// **Where a Show sends a translation round** (translation pipeline P4) —
+    /// the same centre column `onShowProposal` reaches, and threaded the same
+    /// way for the same reason. The whole `TranslationRound` travels because
+    /// this host derived it: the round the centre draws and the round the row's
+    /// line describes are then one object rather than two lookups that could
+    /// differ by a round.
+    var onShowRound: (TranslationRound) -> Void = { _ in }
 
     @State private var languages: [EditionStatus.LanguageRow] = []
     /// **Every chapter the language walk could not open** (issue #43, F-D) —
@@ -67,6 +85,16 @@ struct DepartmentPaneHost: View {
     /// row's second line and its badge (Task 4). Derived off the body path
     /// because it reads `.maugham/design/proposals/`.
     @State private var proposals: [DesignProposalStore.Proposal] = []
+    /// **Every pending statement proposal** (translation pipeline P5) — an
+    /// edition brief or the visual language, staged under
+    /// `.maugham/statements/proposals/` and waiting on a writer's Adopt or
+    /// Discard. Read in the same `.task` pass as `proposals` above, because
+    /// both are the same kind of fact (something Claude staged that the desk
+    /// must mark) even though they land in different places on the pane: the
+    /// design proposal on its own row, a statement proposal as a badge on the
+    /// language row it is about — or, for a language the desk has no row for
+    /// yet, a line of its own (`proposedWithoutRow`).
+    @State private var statementProposals: [StatementProposalStore.Proposal] = []
     /// The edition whose brief is on screen, or nil for the desk itself.
     @State private var openBrief: OpenedBrief?
     /// A door that would not open. Cleared on the next attempt.
@@ -107,6 +135,34 @@ struct DepartmentPaneHost: View {
     /// two cannot describe different files.
     @State private var bookLanguage = PublishConfig.Metadata().language
 
+    // MARK: - What a round left, and what one would cost (translation pipeline P4)
+
+    /// **The desk's own document set**, in the manifest's order and scoped to
+    /// the imprint the picker is standing on — what Run Whole Book queues and
+    /// what `bookBudgets` is summed over.
+    ///
+    /// Kept from the `derive()` pass that already computes it for the language
+    /// walk rather than recomputed at the click: the two must be the same set,
+    /// or the row's "12 chapters" and the round that runs are describing
+    /// different books.
+    @State private var bookDocumentIds: [String] = []
+    /// The newest round per language — the row's status line when idle, and
+    /// the round its Show opens. Keyed by language alone, because numbering is
+    /// per language across documents (spec §7).
+    @State private var latestRounds: [String: TranslationRound] = [:]
+    /// `TranslationRoundStore.trend` per language — notes per round, oldest
+    /// first, for the row's detail line.
+    @State private var trends: [String: [Int]] = [:]
+    /// `TranslationPreflight.budget` over the whole desk set, per language.
+    /// Derived here rather than on the body path because it opens every
+    /// document's derived state (tripwire 4).
+    @State private var bookBudgets: [String: Int] = [:]
+    /// The same figure for the OPEN chapter alone, and it is deliberately NOT
+    /// `derive()`'s: that pass's key must not carry the window's subject, or a
+    /// click in the tree would re-walk every chapter of the book. This is one
+    /// document's budget across every language row, on a key of its own.
+    @State private var chapterBudgets: [String: Int] = [:]
+
     /// What `openBrief(language:in:)` answered: the edition, and the statement
     /// the door found or made for it.
     struct OpenedBrief: Equatable, Identifiable {
@@ -141,6 +197,19 @@ struct DepartmentPaneHost: View {
         let refreshes: Int
         let designRunState: DesignerOrchestrator.RunState?
         let designerBusy: Bool
+        /// **Which language the pipeline is running, and nothing about which
+        /// leg.** The row needs running-vs-idle plus the language — which is
+        /// exactly `TranslationPipeline.Status.language` — never the leg
+        /// itself: a leg transition touches neither the manifest nor an
+        /// event, but the leg is NOT this key's job to carry, because what
+        /// redraws a row's leg in P4 is `pipeline.status` read directly by
+        /// that row, and an entry written by a fix leg already bumps
+        /// `refreshes` through `maughamTranslationDidUpdate`. Keying on the
+        /// whole `Status` re-derives this pane's language rows — a full
+        /// manifest walk apiece — on every leg transition in the round; for a
+        /// thirty-chapter book that is 210 whole-book walks a round for a
+        /// join this pane never reads past running-vs-idle-plus-language.
+        let pipelineLanguage: String?
         /// **Which imprint the desk is standing on.** A change re-sums every
         /// language row against that imprint's own documents, which is the
         /// whole of what picking one does to this pane.
@@ -160,14 +229,26 @@ struct DepartmentPaneHost: View {
         /// an imprint written while the desk sits perfectly idle arrives on the
         /// next pass rather than instantly.
         let configModified: Date?
+        /// **Whether this pane can hear a project-scoped event yet** (measured
+        /// defect, translation pipeline P5 Task 6). `WindowAccessor` resolves
+        /// `window` on an async hop after mount, and `MaughamEvent
+        /// .shouldDeliver` drops a `.project` post whose receiver has no live
+        /// window — so a proposal, or a round ending, in this pane's first
+        /// frames is a post nothing catches, and nothing re-keys this `.task`
+        /// afterwards to pick it up. `StatementPane.ProposalTaskKey` carries
+        /// the same field for the same reason. Re-deriving the moment the
+        /// window arrives costs one extra pass, once, and closes the window.
+        let windowResolved: Bool
     }
 
     var reloadKey: ReloadKey {
         ReloadKey(manifestModified: store.manifest.modified, refreshes: refreshes,
                   designRunState: designer?.runState,
                   designerBusy: designer?.isRunning ?? false,
+                  pipelineLanguage: pipeline?.status.language,
                   imprint: documentStore.uiState.publishImprint,
-                  configModified: Self.configModified(in: projectURL))
+                  configModified: Self.configModified(in: projectURL),
+                  windowResolved: window != nil)
     }
 
     /// The publish config's modification date, or nil when there is no config
@@ -206,6 +287,25 @@ struct DepartmentPaneHost: View {
                         url: projectURL, window: window) { _ in
             refreshes += 1
         }
+        // **A statement proposal staged, adopted or discarded** (translation
+        // pipeline P5) — an edition brief or the visual language. Same shape
+        // as the design event above and for the same reason: neither the
+        // manifest nor the annotations move when Claude stages one, or when
+        // the gate one column over answers it.
+        .onProjectEvent(.maughamStatementProposalsChanged,
+                        url: projectURL, window: window) { _ in
+            refreshes += 1
+        }
+        // **A round that has ended** (translation pipeline P4). It is filed to
+        // `TranslationRoundStore`, which touches neither the manifest nor the
+        // annotations — and the `ReloadKey`'s pipeline join carries the
+        // LANGUAGE only, deliberately, so a round ending is not by itself a key
+        // change this pane can see. Without this the row would go on drawing
+        // the round before last until something else happened to the book.
+        .onProjectEvent(.maughamTranslationRoundEnded,
+                        url: projectURL, window: window) { _ in
+            refreshes += 1
+        }
     }
 
     private var desk: some View {
@@ -218,6 +318,8 @@ struct DepartmentPaneHost: View {
             title: store.manifest.title,
             languages: languages,
             unreadable: unreadable,
+            proposedBriefs: Self.proposedLanguages(statementProposals),
+            proposedWithoutRow: Self.proposedWithoutRow(statementProposals, rows: languages),
             design: designRow,
             openEditionBrief: { language in
                 Task { await present(language: language) }
@@ -228,8 +330,22 @@ struct DepartmentPaneHost: View {
             runTranslation: { run(language: $0) },
             // One session per window, so the row that is running is the only row
             // that offers this and there is never a question of whose round it
-            // ends.
-            cancelRun: { translator?.cancel() },
+            // ends. Both cancels: `pipeline.cancel()` reaches the live LEG by
+            // kind (guarded on `isRunning`, a no-op when there is none), and
+            // `translator?.cancel()` covers a desk-started round outside the
+            // pipeline. `DepartmentRunSession.read` already refuses every Run
+            // on `pipeline.status` — leaving this cancel pipeline-blind would
+            // make a cold leg uncancellable while every row reads busy.
+            cancelRun: { pipeline?.cancel(); translator?.cancel() },
+            runBook: { runBook(language: $0) },
+            // **The round the host derived**, not a second lookup: the row's
+            // Show is about the line the row is drawing, and reading the store
+            // again here could open a round the writer has not been shown. The
+            // `nil` arm is unreachable from the pane (`offersShow` IS this
+            // emptiness) and doing nothing is right if it ever is.
+            showRound: { language in
+                if let round = latestRounds[language] { onShowRound(round) }
+            },
             runDesign: { runDesign(direction: $0) },
             requestDesignChanges: { requestDesignChanges($0) },
             cancelDesignRun: { designer?.cancel() },
@@ -264,6 +380,35 @@ struct DepartmentPaneHost: View {
             cancelCompile: { compileRunner.cancel() },
             bookLanguage: bookLanguage)
         .task(id: reloadKey) { await derive() }
+        // **The open chapter's own pre-flight, on a key of its own.**
+        //
+        // It cannot live in `derive()`: that pass's key must not carry the
+        // window's subject, or every click in the tree would re-walk the whole
+        // book's coverage. And it cannot live on the body path: `budget` opens
+        // each document's derived state (tripwire 4). So it is one document
+        // across every language row, re-read when — and only when — the
+        // chapter changes.
+        .task(id: DeriveChapterKey(
+            docId: target.docId, languages: languages.map(\.language),
+            refills: Self.refillsBudgets(pipeline: pipeline?.status ?? .idle))) {
+            await deriveChapterBudgets(docId: target.docId)
+        }
+    }
+
+    /// What the chapter pre-flight is a function of: which chapter, which
+    /// editions there are rows for, and whether a figure is worth taking at
+    /// all.
+    ///
+    /// The languages belong in the key because they arrive from `derive()` one
+    /// pass later than the subject does — keyed on the docId alone, a
+    /// freshly-derived row would have no figure until the writer clicked
+    /// somewhere else. `refills` belongs in it for the mirror of that reason:
+    /// it flips on both edges of a round, so the pass that skipped while a
+    /// round was up is followed by one that takes the figure when it ends.
+    private struct DeriveChapterKey: Equatable {
+        let docId: String?
+        let languages: [String]
+        let refills: Bool
     }
 
     // MARK: - The run (Task 3)
@@ -299,7 +444,8 @@ struct DepartmentPaneHost: View {
         for target: DepartmentRunTarget) -> [String: DepartmentRunState] {
         let runState = translator?.runState ?? .idle
         let session = DepartmentRunSession.read(
-            runState: runState, isRunning: translator?.isRunning ?? false)
+            runState: runState, isRunning: translator?.isRunning ?? false,
+            pipeline: pipeline?.status ?? .idle)
         var states: [String: DepartmentRunState] = [:]
         for row in languages {
             states[row.language] = DepartmentRunState.resolve(
@@ -307,7 +453,17 @@ struct DepartmentPaneHost: View {
                 runState: runState,
                 lastRun: target.docId.flatMap {
                     runLog?.run(docId: $0, language: row.language)
-                })
+                },
+                // The pipeline's status is read HERE rather than joined into
+                // the `ReloadKey`, which carries the language and not the leg
+                // (ruling 7): a leg transition must redraw a row, never
+                // re-walk the book.
+                pipeline: pipeline?.status ?? .idle,
+                latestRound: latestRounds[row.language],
+                trend: trends[row.language] ?? [],
+                chapterWords: chapterBudgets[row.language],
+                bookWords: bookBudgets[row.language],
+                bookDocumentCount: bookDocumentIds.count)
         }
         return states
     }
@@ -331,14 +487,24 @@ struct DepartmentPaneHost: View {
     /// `docId` is captured into the prompt rather than re-read at Confirm, so
     /// the run that eventually happens is the chapter this click named, not
     /// whatever the tree names by the time the writer finishes typing.
+    ///
+    /// **What Run means as of translation pipeline P4: the whole seven-leg
+    /// round, not one translator call.** `TranslationPipeline` sequences the
+    /// translator and the cold readers; the desk's job is still only to refuse
+    /// in words and then hand it a pair. The session is read from BOTH — the
+    /// pipeline for a round in flight, the orchestrator for a bare warm session
+    /// this desk did not start — because `DepartmentRunSession.read` is the one
+    /// place that precedence is spelled.
     private func run(language: String) {
         notice = nil
-        guard let translator else {
+        guard let pipeline else {
             notice = Self.noTranslatorWired
             return
         }
         let session = DepartmentRunSession.read(
-            runState: translator.runState, isRunning: translator.isRunning)
+            runState: translator?.runState ?? .idle,
+            isRunning: translator?.isRunning ?? false,
+            pipeline: pipeline.status)
         if let refusal = DepartmentRunState.preflight(
             language: language, target: runTarget, session: session) {
             notice = refusal
@@ -350,7 +516,52 @@ struct DepartmentPaneHost: View {
                 ask: .nameForRun(language: language, docId: docId))
             return
         }
-        translator.runTranslation(docId: docId, language: language)
+        pipeline.run(docId: docId, language: language)
+    }
+
+    /// **One round on every chapter of this book, in the manifest's order**
+    /// (spec §5) — the desk's own scope, which is the scope every row on it is
+    /// already summed over.
+    ///
+    /// Its refusals are `run`'s minus one: a book run does not need the window
+    /// to have a chapter open, so the target is not asked, and what takes its
+    /// place is the set's own emptiness. Re-asked here rather than trusted from
+    /// the disabled button for `preflight`'s own reason — a control's disabled
+    /// state lands on the next body pass and a fast second click can beat it.
+    private func runBook(language: String) {
+        notice = nil
+        guard let pipeline else { notice = Self.noTranslatorWired; return }
+        let session = DepartmentRunSession.read(
+            runState: translator?.runState ?? .idle,
+            isRunning: translator?.isRunning ?? false,
+            pipeline: pipeline.status)
+        if case .busy(let busyLanguage) = session {
+            notice = DepartmentRunState.busyReason(language: busyLanguage)
+            return
+        }
+        guard (try? TranslationWritePipeline.validate(language: language)) != nil else {
+            notice = DepartmentRunState.unusableTag(language: language)
+            return
+        }
+        let documents = bookDocumentIds
+        guard !documents.isEmpty else {
+            notice = DepartmentRunState.nothingInTheBook
+            return
+        }
+        if Self.needsTranslatorName(language: language, in: store.manifest) {
+            castPrompt = DepartmentCastPrompt(
+                ask: Self.bookAsk(language: language, documentIds: documents))
+            return
+        }
+        pipeline.runBook(documentIds: documents, language: language)
+    }
+
+    /// **The sheet a whole-book run stands behind**, with the queue it was
+    /// pressed over. A verb of its own so the ask is assertable without
+    /// mounting anything — `needsTranslatorName`'s shape.
+    static func bookAsk(language: String,
+                        documentIds: [String]) -> DepartmentCastPrompt.Ask {
+        .nameForBookRun(language: language, documentIds: documentIds)
     }
 
     /// A desk mounted with no orchestrator behind it — the probe mounts, and a
@@ -409,10 +620,13 @@ struct DepartmentPaneHost: View {
     /// rather than a renaming.
     private func askToRename(language: String) {
         notice = nil
-        castPrompt = DepartmentCastPrompt(ask: .rename(
-            subject: .translator(language: language),
-            currentName: EditionStatus.translatorName(
-                for: language, in: store.manifest) ?? ""))
+        castPrompt = DepartmentCastPrompt(
+            ask: .rename(
+                subject: .edition(language: language),
+                currentName: EditionStatus.translatorName(
+                    for: language, in: store.manifest) ?? ""),
+            currentReader: EditionStatus.readerName(for: language, in: store.manifest),
+            currentCollator: EditionStatus.collatorName(for: language, in: store.manifest))
     }
 
     /// **Open the sheet on the book's designer.** `designerRole()` is a read
@@ -433,17 +647,28 @@ struct DepartmentPaneHost: View {
         guard let prompt = castPrompt else { return }
         castPrompt = nil
         switch prompt.ask {
+        // Both run arms say so when there is nothing to run them on (Global
+        // Constraint 2). The writer has just typed a name and pressed Name &
+        // Run; a Confirm that closed the sheet and did nothing would be the
+        // swallowed click this desk exists not to have.
         case .nameForRun(let language, let docId):
-            guard let translator else { return }
+            guard let pipeline else { notice = Self.noTranslatorWired; return }
             Task {
-                guard await nameTranslator(language: language, name: answer.name)
+                guard await nameCast(language: language, answer: answer)
                 else { return }
-                translator.runTranslation(docId: docId, language: language)
+                pipeline.run(docId: docId, language: language)
+            }
+        case .nameForBookRun(let language, let documentIds):
+            guard let pipeline else { notice = Self.noTranslatorWired; return }
+            Task {
+                guard await nameCast(language: language, answer: answer)
+                else { return }
+                pipeline.runBook(documentIds: documentIds, language: language)
             }
         case .addLanguage:
-            addLanguage(tag: answer.language ?? "", name: answer.name)
-        case .rename(.translator(let language), _):
-            Task { await nameTranslator(language: language, name: answer.name) }
+            addLanguage(tag: answer.language ?? "", answer: answer)
+        case .rename(.edition(let language), _):
+            Task { await nameCast(language: language, answer: answer) }
         case .rename(.designer, _):
             renameTheDesigner(to: answer.name)
         }
@@ -456,7 +681,7 @@ struct DepartmentPaneHost: View {
         guard let prompt = castPrompt else { return }
         castPrompt = nil
         switch prompt.ask {
-        case .nameForRun(let language, _):
+        case .nameForRun(let language, _), .nameForBookRun(let language, _):
             notice = DepartmentCastCopy.cancelledLine(language: language)
         case .addLanguage:
             notice = DepartmentCastCopy.addCancelledLine
@@ -485,7 +710,7 @@ struct DepartmentPaneHost: View {
     /// Nothing is said on success: the row appearing in the section this button
     /// sits under IS the answer, and the notice slot is for what the writer
     /// cannot otherwise see.
-    private func addLanguage(tag: String, name: String) {
+    private func addLanguage(tag: String, answer: DepartmentCastAnswer) {
         notice = nil
         let language = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard TranslationRecord.isValidLanguageTag(language) else {
@@ -500,7 +725,7 @@ struct DepartmentPaneHost: View {
             notice = DepartmentCastCopy.alreadyOnTheDesk(language: spelling)
             return
         }
-        Task { _ = await nameTranslator(language: language, name: name) }
+        Task { _ = await nameCast(language: language, answer: answer) }
     }
 
     /// The manifest's own spelling of a stored translator's tag, for the
@@ -543,17 +768,50 @@ struct DepartmentPaneHost: View {
         }
     }
 
+    /// **Mint-then-rename, the one visible act — now for the whole cast.**
+    /// `translatorRole(for:)` finds or mints; the very next line names them.
+    /// The reader and the collator follow the same shape, gated on whether
+    /// the sheet sent a name: a blank field is "change nothing". In practice
+    /// that gate almost never closes for a preset language (es/fr/de/ja) —
+    /// `askToRename` prefills the reader/collator fields from
+    /// `EditionStatus.readerName`/`collatorName`, which fall back to the
+    /// preset name when nothing is stored yet, so the writer sees all three
+    /// names before confirming and Confirm mints all three together (spec
+    /// §1: "Rename … on a language row offers all three"). Only a bespoke
+    /// tag with nobody named leaves the two companion fields blank, which is
+    /// what actually leaves a rename touching the translator alone. Answers
+    /// whether the TRANSLATOR landed — the run the sheet may be standing in
+    /// front of needs them and nobody else.
     @discardableResult
-    private func nameTranslator(language: String, name: String) async -> Bool {
+    private func nameCast(language: String, answer: DepartmentCastAnswer) async -> Bool {
         do {
-            let role = try await store.translatorRole(for: language)
-            try await store.renameProductionRole(id: role.id, to: name)
-            return true
+            let translator = try await store.translatorRole(for: language)
+            try await store.renameProductionRole(id: translator.id, to: answer.name)
         } catch {
             _departmentLog.error(
                 "could not name the \(language, privacy: .public) translator: \(error, privacy: .public)")
             notice = DepartmentCastCopy.mintFailed(language: language)
             return false
+        }
+        await nameCompanion(language: language, name: answer.reader,
+                            mint: store.readerRole(for:), what: "reader")
+        await nameCompanion(language: language, name: answer.collator,
+                            mint: store.collatorRole(for:), what: "collator")
+        return true
+    }
+
+    private func nameCompanion(
+        language: String, name: String?,
+        mint: (String) async throws -> ProductionRole, what: String
+    ) async {
+        guard let name else { return }
+        do {
+            let role = try await mint(language)
+            try await store.renameProductionRole(id: role.id, to: name)
+        } catch {
+            _departmentLog.error(
+                "could not name the \(language, privacy: .public) \(what, privacy: .public): \(error, privacy: .public)")
+            notice = DepartmentCastCopy.mintFailed(language: language)
         }
     }
 
@@ -704,12 +962,41 @@ struct DepartmentPaneHost: View {
         bookLanguage = Self.sourceLanguage(imprint: picked, in: config,
                                            pieceIDs: manuscript)
 
+        // **Kept rather than recomputed** (translation pipeline P4): this is
+        // the set the rows are summed over AND the set Run Whole Book queues,
+        // and a second call at the click could answer a different one if the
+        // imprint changed under it.
+        let documentIds = Self.scopedDocumentIds(manuscript, imprint: picked,
+                                                 in: config)
+        bookDocumentIds = documentIds
+
         let report = await EditionStatus.languageRows(
-            in: store, projectURL: projectURL,
-            documentIds: Self.scopedDocumentIds(manuscript, imprint: picked,
-                                                in: config))
+            in: store, projectURL: projectURL, documentIds: documentIds)
         languages = report.rows
         unreadable = report.unreadable
+
+        // **What each edition's rounds have amounted to, and what the next one
+        // would cost** (spec §8). Per language rather than per pair: numbering
+        // is per language across documents (spec §7), and the budget here is
+        // the whole desk set's.
+        let roundStore = TranslationRoundStore(projectURL: projectURL)
+        var rounds: [String: TranslationRound] = [:]
+        var trendCounts: [String: [Int]] = [:]
+        for row in report.rows {
+            rounds[row.language] = roundStore.latest(language: row.language, docId: nil)
+            trendCounts[row.language] = roundStore.trend(language: row.language)
+        }
+        latestRounds = rounds
+        trends = trendCounts
+        // **The pre-flight is skipped while a round is up** — see
+        // `refillsBudgets`. The previous figures stand; the round-ended event
+        // brings this pass back when there is a new answer to give.
+        if Self.refillsBudgets(pipeline: pipeline?.status ?? .idle) {
+            bookBudgets = TranslationPreflight.budgets(
+                documentIds: documentIds, languages: report.rows.map(\.language),
+                store: store, documentStore: documentStore, projectURL: projectURL)
+        }
+
         do {
             // Newest first, and tolerant of a folder it cannot read — the
             // store's own posture. Same failure policy as the walk above: the
@@ -720,6 +1007,54 @@ struct DepartmentPaneHost: View {
             _departmentLog.error(
                 "could not list the project's design proposals: \(error, privacy: .public)")
         }
+
+        // **Every pending statement proposal** (translation pipeline P5) —
+        // `pendingAll()` is tolerant of an unreadable slot on its own
+        // (`StatementProposalStore`'s own posture), so there is no `catch`
+        // to keep the previous listing standing behind here.
+        statementProposals = StatementProposalStore(projectURL: projectURL).pendingAll()
+    }
+
+    /// The open chapter's word budget, per language row. Empty when the window
+    /// is not on a chapter, which is what makes `detailLine` fall back to the
+    /// book's own figure rather than draw a chapter's over a project subject.
+    private func deriveChapterBudgets(docId: String?) async {
+        guard Self.refillsBudgets(pipeline: pipeline?.status ?? .idle) else {
+            // **Mid-round, a chapter change must not keep the PREVIOUS
+            // chapter's figure.** The key still carries the new docId (it is
+            // not gated on `refills`), so this runs on every chapter move
+            // even while a round is up — and without clearing here,
+            // `detailLine`'s `chapterWords ?? bookWords` would draw chapter
+            // A's number under chapter B for the rest of the round.
+            chapterBudgets = [:]
+            return
+        }
+        guard let docId else {
+            chapterBudgets = [:]
+            return
+        }
+        chapterBudgets = TranslationPreflight.budgets(
+            documentIds: [docId], languages: languages.map(\.language),
+            store: store, documentStore: documentStore, projectURL: projectURL)
+    }
+
+    /// **Whether a pre-flight is worth taking now.**
+    ///
+    /// "7 legs · ~N words briefed" is an answer to *what would this click
+    /// cost*, and mid-round there is no such click to weigh: the round is
+    /// already running and its own leg line is what the row is saying. So a
+    /// running pipeline keeps whatever figures the last idle pass left rather
+    /// than paying for new ones.
+    ///
+    /// **What makes it safe to skip is that the round's end re-derives.** The
+    /// `ReloadKey`'s `pipelineLanguage` flips on both edges of a round and
+    /// `.maughamTranslationRoundEnded` bumps `refreshes`, so an idle pass
+    /// follows every round; the chapter pass carries this same answer in its
+    /// own key for the same reason. The cost this avoids is not theoretical —
+    /// `derive()` re-runs on every `maughamTranslationDidUpdate`, which a live
+    /// round fires per ingest, and a budget opens every scoped document.
+    static func refillsBudgets(pipeline: TranslationPipeline.Status) -> Bool {
+        pipeline == .idle
     }
 
     private func present(language: String) async {
@@ -867,5 +1202,34 @@ struct DepartmentPaneHost: View {
         "Couldn’t open the "
             + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
             + " edition brief. Check that the project folder is still where it was."
+    }
+
+    // MARK: - The "proposed" mark (translation pipeline P5)
+
+    /// **Which languages have a proposed edition brief pending**, from the
+    /// listing this host already read — never re-read here, so the badge and
+    /// the door it opens describe the same slot. Lowercased, matching
+    /// `ProposableStatement.key`'s own casing.
+    ///
+    /// A visual-language proposal contributes nothing: it has no language and
+    /// marks the Visual Language segment instead (`DetailPaneToggle`).
+    static func proposedLanguages(_ proposals: [StatementProposalStore.Proposal]) -> Set<String> {
+        Set(proposals.compactMap {
+            if case .editionBrief(let language) = $0.kind { return language.lowercased() }
+            return nil
+        })
+    }
+
+    /// **A proposed brief for a language the desk has no row for at all** —
+    /// sorted, for the foot-of-section line. Filtered against the desk's own
+    /// rows rather than the manifest's stored translators: a row is what the
+    /// badge above sits on, so what is missing a row is what is missing a
+    /// badge.
+    static func proposedWithoutRow(
+        _ proposals: [StatementProposalStore.Proposal],
+        rows: [EditionStatus.LanguageRow]
+    ) -> [String] {
+        let present = Set(rows.map { $0.language.lowercased() })
+        return proposedLanguages(proposals).filter { !present.contains($0) }.sorted()
     }
 }

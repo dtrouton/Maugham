@@ -1893,6 +1893,9 @@ final class PublishCentreProbeBox {
     /// window-transient like the pick above, but cleared by a persona change
     /// where the pick deliberately is not.
     var selectedProposal: DesignProposalStore.Proposal?
+    /// …and the translation round the desk's other Show put there (translation
+    /// pipeline P4 Task 3), cleared by a persona change for the same reason.
+    var selectedRound: TranslationRound?
     /// The window the REFRESH MODIFIER actually got, which is not the same fact
     /// as the window the test made: `WindowAccessor` resolves it a runloop turn
     /// later, and ADR 0021's project scope drops a post whose receiver has no
@@ -1989,6 +1992,12 @@ struct PublishCentreProbeView: View {
     @ViewBuilder
     private var publishLayer: some View {
         switch publishCentre {
+        // The round report (translation pipeline P4 Task 3) — production's
+        // fifth layer, above the gate.
+        case .translationRound(let round):
+            TranslationRoundReportHost(
+                round: round, store: store, documentStore: documentStore,
+                projectURL: store.url, window: nil)
         // The gate arm (publish-department P4 Task 5) — production's fourth
         // layer, so this probe stays what it claims to be: `manuscriptEditor`'s
         // own shape with the same decisions taken from the same statics.
@@ -2017,7 +2026,8 @@ struct PublishCentreProbeView: View {
         ProjectWindow.publishCentre(persona: box.persona, subject: box.subject,
                                     structure: store.manifest.structure,
                                     preview: box.preview,
-                                    proposal: box.selectedProposal)
+                                    proposal: box.selectedProposal,
+                                    round: box.selectedRound)
     }
 
     private var editor: some View {
@@ -2056,7 +2066,10 @@ private struct PublishRefreshProbeView: View {
                     set: { box.selectedPublicationID = $0 }),
                 selectedProposal: Binding(
                     get: { box.selectedProposal },
-                    set: { box.selectedProposal = $0 })))
+                    set: { box.selectedProposal = $0 }),
+                selectedRound: Binding(
+                    get: { box.selectedRound },
+                    set: { box.selectedRound = $0 })))
             .onChange(of: window) { _, next in box.modifierWindow = next }
     }
 }

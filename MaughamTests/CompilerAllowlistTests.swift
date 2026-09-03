@@ -46,7 +46,9 @@ final class CompilerAllowlistTests: XCTestCase {
             "republish",
             "preview_compile",
             "compile",
-            "compile_cancel"
+            "compile_cancel",
+            "propose_edition_brief",
+            "propose_visual_language"
         ])
 
         let prefix = "mcp__maugham__"
@@ -86,7 +88,9 @@ final class CompilerAllowlistTests: XCTestCase {
             "republish",
             "preview_compile",
             "compile",
-            "compile_cancel"
+            "compile_cancel",
+            "propose_edition_brief",
+            "propose_visual_language"
         ])
 
         let testList = ["mcp__maugham__add_note"]
@@ -176,29 +180,43 @@ final class CompilerAllowlistTests: XCTestCase {
 
     /// The control. Without it the census above passes for a predicate that
     /// matches nothing at all, and a real statement writer would ship green.
+    ///
+    /// **Widened in P5**: `edition_brief` and `visual_language` are subjects
+    /// too (a hypothetical `write_edition_brief` was NOT caught before), and a
+    /// `propose_` prefix on any statement subject other than the two
+    /// proposable ones is caught — `propose_craft_intent` is a write wearing
+    /// a proposal's name, while `propose_edition_brief` ships and stages only.
     func test_theStatementCensusWouldCatchAWriteToIntent() {
-        let planted = ["read_craft_intent", "write_craft_intent", "list_projects"]
+        let planted = ["read_craft_intent", "write_craft_intent", "list_projects",
+                       "write_edition_brief", "set_visual_language",
+                       "propose_craft_intent", "propose_edition_brief", "propose_visual_language",
+                       "propose_statement"]
         XCTAssertEqual(
-            Self.statementWriters(in: planted), ["write_craft_intent"],
+            Self.statementWriters(in: planted),
+            ["write_craft_intent", "write_edition_brief", "set_visual_language",
+             "propose_craft_intent", "propose_statement"],
             "the predicate must catch a hypothetical statement writer \u{2014} and must "
-            + "NOT catch the READER beside it, which ships and is allowlisted")
+            + "NOT catch the READERS beside it, nor the two proposal tools, which stage "
+            + "a draft the writer adopts")
     }
 
     /// A tool name that would put words into a statement.
     ///
     /// Names rather than a list of known-bad spellings: the risk is a tool that
-    /// does not exist yet, so an enumeration of today's catalog would be a
-    /// census that can never fire. `craft_intent` and `visual_language` are the
-    /// two statement kinds (`Statement.Kind`); `statement` catches a tool named
-    /// after the primitive itself.
-    private static func statementWriters(in names: [String]) -> Set<String> {
-        let subjects = ["craft_intent", "visual_language", "statement", "intent"]
+    /// does not exist yet. The subjects are the statement kinds
+    /// (`Statement.Kind`) plus `statement` itself; the verbs are the write
+    /// verbs. A `propose_` tool is a write unless its subject is one of the
+    /// two `ProposableStatement` cases — the proposal is staged, never written.
+    static func statementWriters(in names: [String]) -> Set<String> {
+        let subjects = ["craft_intent", "visual_language", "edition_brief", "statement", "intent"]
         let verbs = ["write_", "add_", "set_", "append_", "update_", "edit_", "delete_"]
+        let proposable = ["propose_edition_brief", "propose_visual_language"]
         var found: Set<String> = []
         for name in names {
             let namesAStatement = subjects.contains { name.contains($0) }
             let isAWrite = verbs.contains { name.hasPrefix($0) }
-            if namesAStatement && isAWrite { found.insert(name) }
+            let isAForeignProposal = name.hasPrefix("propose_") && !proposable.contains(name)
+            if namesAStatement && (isAWrite || isAForeignProposal) { found.insert(name) }
         }
         return found
     }

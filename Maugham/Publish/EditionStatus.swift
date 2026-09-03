@@ -433,4 +433,16 @@ enum EditionStatus {
         if let stored = manifest.storedTranslator(for: language) { return stored.effectiveName }
         return ProductionRole.defaultTranslatorName(language: language)
     }
+
+    /// The reader's name for a language — `translatorName`'s rule: the stored
+    /// role's `effectiveName`, else the preset, else nil (nobody yet). Read-only.
+    nonisolated static func readerName(for language: String, in manifest: ProjectManifest) -> String? {
+        if let stored = manifest.storedReader(for: language) { return stored.effectiveName }
+        return ProductionRole.defaultReaderName(language: language)
+    }
+
+    nonisolated static func collatorName(for language: String, in manifest: ProjectManifest) -> String? {
+        if let stored = manifest.storedCollator(for: language) { return stored.effectiveName }
+        return ProductionRole.defaultCollatorName(language: language)
+    }
 }

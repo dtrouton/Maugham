@@ -303,11 +303,12 @@ final class AnnotationChangeEventTests: XCTestCase {
 
     /// **The exemptions from the census above, named.** Both funnels announce
     /// by default; `announcing: false` exists for a caller that appends N ops
-    /// for ONE writer-visible event and takes the announce on itself. Today
-    /// there are two such callers and they are the same shape: the deletion
-    /// sweep (a burst of paragraph deletions orphaning a dozen notes) and the
-    /// compiler's mint (M4 P1 — one finished round writing a whole report's
-    /// worth of questions and reports at once).
+    /// for ONE writer-visible event and takes the announce on itself. Every
+    /// such caller is the same shape: the deletion sweep (a burst of paragraph
+    /// deletions orphaning a dozen notes), the compiler's mint (M4 P1 — one
+    /// finished round writing a whole report's worth of questions and reports
+    /// at once), the translator's query mint, and the pipeline's declined-note
+    /// mint. **Count the array at the foot of this test, not this sentence.**
     ///
     /// The census would otherwise be satisfied by a funnel that CAN be silenced
     /// from anywhere: `if announcing { announce… }` still contains the literal
@@ -364,6 +365,18 @@ final class AnnotationChangeEventTests: XCTestCase {
                       + "and never pays it back, so a round's questions land "
                       + "with no count outside this document hearing about it")
 
+        // The fourth, same two halves: a translation ROUND's declined notes are
+        // one act too — the pipeline mints a query per note the translator
+        // refused, in one leg, on the writer's one ⌘-press.
+        let declined = try Self.source(of: "Compiler/TranslationPipelineEnvironment+Project.swift")
+        XCTAssertTrue(declined.contains("announcing: false)"),
+                      "premise: the pipeline's declined-note mint is the fourth "
+                      + "batching caller — one leg is one event")
+        XCTAssertTrue(declined.contains("document.announceAnnotationsChanged()"),
+                      "the declined mint suppresses the per-note announce and "
+                      + "never pays it back, so a leg's refusals land with no "
+                      + "count outside this document hearing about it")
+
         // Whole-tree: nobody else silences the funnels. A new batching caller
         // is welcome — it just has to arrive here, next to the reason.
         let tree = try Self.swiftSources(under: "Maugham")
@@ -373,9 +386,10 @@ final class AnnotationChangeEventTests: XCTestCase {
         }
         XCTAssertEqual(suppressors,
                        ["Compiler/CompilerEnvironment+Project.swift",
+                        "Compiler/TranslationPipelineEnvironment+Project.swift",
                         "Compiler/TranslatorEnvironment+Project.swift",
                         "OpLog/Document+Annotations.swift"],
-                       "a production site outside the sweep and the two mints "
+                       "a production site outside the sweep and the three mints "
                        + "suppresses the annotation announce: \(suppressors)")
     }
 

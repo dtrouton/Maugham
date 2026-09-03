@@ -1,8 +1,9 @@
 import Foundation
 import MaughamCore
 
-/// The publish department's store seam: the project's named translators and its
-/// designer, found or minted against `ProjectManifest.productionRoles`.
+/// The publish department's store seam: the project's named translators,
+/// readers and collators, and its designer, found or minted against
+/// `ProjectManifest.productionRoles`.
 ///
 /// **The retroactive mint is LAZY, and that is the whole design.** A project
 /// that has been publishing a Spanish edition since long before this milestone
@@ -78,24 +79,61 @@ extension ProjectStore {
     /// which is the reason for putting it at the store: the next caller
     /// inherits it instead of having to remember it.
     func translatorRole(for language: String) async throws -> ProductionRole {
-        let tag = language.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !tag.isEmpty else { throw ProjectStoreError.productionRoleLanguageEmpty }
-        if let existing = manifest.storedTranslator(for: tag) { return existing }
-        guard TranslationRecord.isValidLanguageTag(tag.lowercased()) else {
-            throw ProjectStoreError.languageTagInvalid(language)
-        }
-
-        let minted = ProductionRole(
-            id: Self.newId(prefix: "role"),
-            role: .translator(language: tag),
-            name: ProductionRole.defaultTranslatorName(language: tag))
-        try await commitProductionRoles(manifest.productionRoles + [minted])
-        return minted
+        try await mintedLanguageRole(
+            for: language, stored: { $0.storedTranslator(for: $1) },
+            role: { .translator(language: $0) },
+            presetName: ProductionRole.defaultTranslatorName(language:))
     }
 
     // The find-half of the verb above is `ProjectManifest.storedTranslator(for:)`
     // — one spelling of the case-insensitive tag match, shared with the
     // read-only lookups that must never mint.
+
+    // MARK: - Readers and collators
+
+    /// The blind reader for a language, minted on first ask — `translatorRole`'s
+    /// contract exactly, including the rule that only a RUN may call it.
+    func readerRole(for language: String) async throws -> ProductionRole {
+        try await mintedLanguageRole(
+            for: language, stored: { $0.storedReader(for: $1) },
+            role: { .reader(language: $0) },
+            presetName: ProductionRole.defaultReaderName(language:))
+    }
+
+    /// The collator for a language, minted on first ask — same contract.
+    func collatorRole(for language: String) async throws -> ProductionRole {
+        try await mintedLanguageRole(
+            for: language, stored: { $0.storedCollator(for: $1) },
+            role: { .collator(language: $0) },
+            presetName: ProductionRole.defaultCollatorName(language:))
+    }
+
+    /// The find-or-mint every language role shares. Order is load-bearing and
+    /// unchanged from the translator's: empty-tag guard, then the stored lookup
+    /// (an already-stored invalid tag is still returned), then the validity
+    /// gate over what is about to be MINTED.
+    ///
+    /// `stored` takes the manifest at the moment of the lookup rather than
+    /// capturing a snapshot at the call site: a call site that grows an
+    /// `await` above this find would otherwise read a manifest copy made
+    /// before that suspension, and mint a second row for a language another
+    /// task already minted while this one was suspended.
+    private func mintedLanguageRole(
+        for language: String,
+        stored: (ProjectManifest, String) -> ProductionRole?,
+        role: (String) -> ProductionRole.Role,
+        presetName: (String) -> String?
+    ) async throws -> ProductionRole {
+        let tag = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !tag.isEmpty else { throw ProjectStoreError.productionRoleLanguageEmpty }
+        if let existing = stored(manifest, tag) { return existing }
+        guard TranslationRecord.isValidLanguageTag(tag.lowercased()) else {
+            throw ProjectStoreError.languageTagInvalid(language)
+        }
+        let minted = ProductionRole(id: Self.newId(prefix: "role"), role: role(tag), name: presetName(tag))
+        try await commitProductionRoles(manifest.productionRoles + [minted])
+        return minted
+    }
 
     // MARK: - The designer
 

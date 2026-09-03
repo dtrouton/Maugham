@@ -33,7 +33,8 @@ final class ClaudeCLISession: CompilerRunner {
     // MARK: - Injected
 
     private let model: String
-    private let mcpConfigPath: URL
+    /// What the spawned CLI can reach. See `Confinement`.
+    let confinement: Confinement
     private let cliOverride: URL?
     /// Finds `claude` when no override is given. Runs OFF the main actor
     /// (hence `@Sendable`) because the fallback shells out.
@@ -41,7 +42,9 @@ final class ClaudeCLISession: CompilerRunner {
     /// Reads `UserPreferences.mcpEnabled`. Consulted before *every* spawn.
     private let isEnabled: () -> Bool
     private let idleTimeout: TimeInterval
-    private let runTimeout: TimeInterval
+    /// Readable, like `confinement`, for exactly one assertion: the two
+    /// translation factories hand their sessions `translationRunTimeout`.
+    let runTimeout: TimeInterval
     /// How long the death join will wait for the child's exit once stdout has
     /// reached EOF, before falling back to the statusless sentence. See
     /// `tryCompleteDeath`.
@@ -75,6 +78,50 @@ final class ClaudeCLISession: CompilerRunner {
     /// now quote it in prose (`AREA.md`, `DeclaredWorldDeriver.defaultDeadline`'s
     /// comparison) and a number with no home is a number that goes stale.
     nonisolated static let defaultRunTimeout: TimeInterval = 300
+
+    /// **The per-turn budget for the translation cast — 900 s (2026-09-02,
+    /// Denver's ruling).** A compiler turn sends a delta and reads back a
+    /// short report; a translate leg sends a chapter's whole work-list and
+    /// waits for the whole chapter back in the target language, and the fix
+    /// legs resend the full noted set — output is the slow direction, and a
+    /// long chapter ran past `defaultRunTimeout` on its own, killing the leg
+    /// with nothing written. Applied by `TranslatorEnvironment+Project`'s
+    /// runner and `ColdCall.productionRunnerFactory` (a cold read of a whole
+    /// chapter has the same shape); the compiler and the designer keep the
+    /// default. Above `idleTimeout` on purpose and safely: the idle timer
+    /// checks `inFlight` before it fires, so it cannot end a turn in
+    /// progress. The structural fix — chunking the work-list so one leg is
+    /// several bounded turns — is a roadmap follow-on, not this constant.
+    nonisolated static let translationRunTimeout: TimeInterval = 900
+
+    /// **What the spawned CLI can reach — a spawn-argument fact, not a
+    /// setting** (translation pipeline spec §11).
+    ///
+    /// `.bridged` is the compiler's, the translator's and the designer's
+    /// membrane: Maugham's own MCP bridge through a per-session `--mcp-config`
+    /// file the owner wrote and deletes, built-ins emptied by `--tools ""`, the
+    /// bridge's read tools pre-approved by `CompilerAllowlist`. `.sealed` is
+    /// the reader's, the collator's and the glosser's: **no `--mcp-config` at
+    /// all**, no allowlist, built-ins emptied — blind by construction rather
+    /// than by an allowlist that happens to name nothing. A sealed session
+    /// cannot read the source it must not see even if a later allowlist edit
+    /// were to widen the bridge, because it was never handed the bridge.
+    @MainActor
+    enum Confinement: Equatable {
+        case bridged(mcpConfigPath: URL)
+        case sealed
+
+        /// The directory the process stands in — never the writer's project
+        /// (see `ensureProcess`). A bridged session stands beside its config
+        /// file; a sealed one, which has no file, stands in the same shared
+        /// session directory so an orphaned process is findable in one place.
+        var workingDirectory: URL {
+            switch self {
+            case .bridged(let path): return path.deletingLastPathComponent()
+            case .sealed: return ClaudeCLISession.sessionConfigDirectory
+            }
+        }
+    }
 
     // MARK: - Session state
 
@@ -150,7 +197,7 @@ final class ClaudeCLISession: CompilerRunner {
     }
 
     init(model: String,
-         mcpConfigPath: URL,
+         confinement: Confinement,
          cliOverride: URL?,
          isEnabled: @escaping () -> Bool,
          idleTimeout: TimeInterval = 600,
@@ -158,7 +205,7 @@ final class ClaudeCLISession: CompilerRunner {
          deathReapGrace: TimeInterval = ClaudeCLISession.defaultDeathReapGrace,
          locator: @escaping @Sendable () -> URL? = { ClaudeCLISession.locateCLI() }) {
         self.model = model
-        self.mcpConfigPath = mcpConfigPath
+        self.confinement = confinement
         self.cliOverride = cliOverride
         self.isEnabled = isEnabled
         self.idleTimeout = idleTimeout
@@ -313,16 +360,17 @@ final class ClaudeCLISession: CompilerRunner {
         let proc = Process()
         proc.executableURL = cli
         proc.arguments = Self.arguments(
-            model: model, mcpConfigPath: mcpConfigPath, preamble: lastPreamble)
+            model: model, confinement: confinement, preamble: lastPreamble)
         proc.environment = ProcessInfo.processInfo.environment
-        // Defence in depth behind `--tools ""`. An unset `currentDirectoryURL`
-        // inherits Maugham's own, which for a launched `.app` is `/` and for a
-        // debug run is the developer's checkout — either way a directory the
-        // writer's work can sit under. The session's own config directory holds
-        // nothing but the bridge config it was handed. Created rather than
-        // assumed: `Process.run` throws on a cwd that does not exist, and that
-        // would reach the writer as "Claude Code isn't installed".
-        let workingDirectory = mcpConfigPath.deletingLastPathComponent()
+        // Defence in depth behind `--tools ""`, for both confinements. An
+        // unset `currentDirectoryURL` inherits Maugham's own, which for a
+        // launched `.app` is `/` and for a debug run is the developer's
+        // checkout — either way a directory the writer's work can sit under.
+        // The session's own config directory holds nothing but the bridge
+        // config it was handed. Created rather than assumed: `Process.run`
+        // throws on a cwd that does not exist, and that would reach the writer
+        // as "Claude Code isn't installed".
+        let workingDirectory = confinement.workingDirectory
         try? FileManager.default.createDirectory(
             at: workingDirectory, withIntermediateDirectories: true)
         proc.currentDirectoryURL = workingDirectory
@@ -393,14 +441,26 @@ final class ClaudeCLISession: CompilerRunner {
     /// `claude` 2.1.222 on 2026-08-05 in both directions, and separately that
     /// `--tools ""` does not disturb the MCP tools, which arrive through
     /// `--mcp-config` rather than from the built-in set.
-    static func arguments(model: String, mcpConfigPath: URL, preamble: String?) -> [String] {
+    ///
+    /// **A sealed session emits neither `--mcp-config` nor `--allowedTools`.**
+    /// `--strict-mcp-config` is emitted in both cases — with no config beside
+    /// it, it is what keeps the writer's own user-level MCP servers out of a
+    /// process that is supposed to hold nothing. `--tools ""` is common to
+    /// both, for the reason above. Verified live 2026-08-29 against `claude`
+    /// 2.1.251: `--strict-mcp-config` with no `--mcp-config` beside it is
+    /// accepted, the turn runs, and a `result` event comes back.
+    static func arguments(model: String, confinement: Confinement, preamble: String?) -> [String] {
         var args = [
             "-p",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--verbose",
             "--model", model,
-            "--mcp-config", mcpConfigPath.path,
+        ]
+        if case .bridged(let path) = confinement {
+            args += ["--mcp-config", path.path]
+        }
+        args += [
             "--strict-mcp-config",
             // **The stream has to be asked for.** Without this the CLI batches
             // the whole turn into its `result` and the writer waits out a
@@ -414,7 +474,9 @@ final class ClaudeCLISession: CompilerRunner {
         if let preamble, !preamble.isEmpty {
             args += ["--append-system-prompt", preamble]
         }
-        args += CompilerAllowlist.cliArguments()
+        if case .bridged = confinement {
+            args += CompilerAllowlist.cliArguments()
+        }
         return args
     }
 

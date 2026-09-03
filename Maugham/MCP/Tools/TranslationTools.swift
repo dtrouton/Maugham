@@ -246,12 +246,35 @@ public enum TranslationStatusTool: MCPTool {
         /// honest name to report. Never mints (see
         /// `EditionStatus.translatorName(for:in:)`).
         public let translator: String?
+        /// The stored role's `effectiveName`, else the preset, else omitted —
+        /// `translator`'s rule, applied to the blind reader
+        /// (`EditionStatus.readerName(for:in:)`). Never mints.
+        public var reader: String? = nil
+        /// The stored role's `effectiveName`, else the preset, else omitted —
+        /// `translator`'s rule, applied to the collator
+        /// (`EditionStatus.collatorName(for:in:)`). Never mints.
+        public var collator: String? = nil
         public let fresh: Int
         public let stale: Int
         public let missing: Int
         public let verbatim: Int
         public let orphans: Int
         public let open_queries: Int
+        /// The newest pipeline round for this `(document, language)` pair
+        /// (`TranslationRoundStore.latest`), or omitted when none has run.
+        public var last_round: LastRound? = nil
+    }
+
+    public struct LastRound: Codable, Equatable {
+        public let number: Int
+        public let leg2_verdict: String?
+        public let leg4_verdict: String?
+        public let notes: Int
+        public let departures: Int
+        public let declined: Int
+        public let summary: String?
+        /// The leg a failed or cancelled round stopped at, else omitted.
+        public let stopped_at: String?
     }
     public struct Params: Codable {
         public let project_id: String
@@ -294,6 +317,11 @@ public enum TranslationStatusTool: MCPTool {
         "names every document this call could not open, with the reason — its rows are " +
         "missing from `rows` rather than zero, so read it before concluding a chapter is " +
         "untranslated. " +
+        "`reader` and `collator` name the edition's blind reader and collator the same way " +
+        "`translator` does. `last_round` (omitted until a pipeline round has run on that " +
+        "document) carries the newest round's number, the two readers' verdicts, its " +
+        "note/departure/declined counts, its summary, and `stopped_at` for a round that " +
+        "failed or was cancelled. " +
         "Use it to see how much of a book is translated and where retranslation is due. " +
         "See get_help topic 'translation-pass' for the translation workflow."
     public static let inputSchemaJSON =
@@ -347,17 +375,26 @@ public enum TranslationStatusTool: MCPTool {
         // draws — one derivation, one degrade.
         let report = await EditionStatus.documentRows(
             documentIds: docIds, store: entry.store, projectURL: entry.url)
+        let rounds = TranslationRoundStore(projectURL: entry.url)
 
         return try JSONEncoder().encode(Result(rows: report.rows.map {
             Row(document_id: $0.documentId,
                 language: $0.language,
                 translator: $0.translator,
+                reader: EditionStatus.readerName(for: $0.language, in: entry.store.manifest),
+                collator: EditionStatus.collatorName(for: $0.language, in: entry.store.manifest),
                 fresh: $0.fresh,
                 stale: $0.stale,
                 missing: $0.missing,
                 verbatim: $0.verbatim,
                 orphans: $0.orphans,
-                open_queries: $0.openQueries)
+                open_queries: $0.openQueries,
+                last_round: rounds.latest(language: $0.language, docId: $0.documentId).map {
+                    LastRound(number: $0.number, leg2_verdict: $0.leg2?.verdict,
+                              leg4_verdict: $0.leg4?.verdict, notes: $0.noteCount,
+                              departures: $0.departures.count, declined: $0.declinedCount,
+                              summary: $0.summary, stopped_at: $0.stoppedAt?.name)
+                })
         }, unreadable_documents: report.unreadable.map {
             UnreadableDocument(document_id: $0.documentId,
                                title: $0.title,
