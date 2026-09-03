@@ -88,6 +88,25 @@ struct LetterSection: View {
         "I didn't find \u{201C}\(heading)\u{201D} anywhere in this piece."
     }
 
+    /// **The caption over the process line** (P3 Task 5, spec §3.1/§5) — one
+    /// sentence about the writer's own working, in the reader's words, off
+    /// Maugham's own numbers.
+    ///
+    /// A caption rather than bare prose, because a sentence about how often
+    /// they come back to a chapter reads as a claim about the PROSE without
+    /// one. It names where the numbers came from and never what they are:
+    /// nothing on screen says `ProcessSignals`, "frontier" or "sessions"
+    /// (global constraint 12).
+    static let processCaption = "From Maugham's numbers"
+
+    /// **What a dosed letter says about being dosed** (spec §3.8). A first
+    /// draft in motion earns a short letter, and a writer who wants the full
+    /// one mid-draft has to be told the letter was shortened AND how to ask
+    /// for the whole thing — an unexplained short letter reads as a reader
+    /// with nothing to say.
+    static let shortLetterLine =
+        "A short letter while you draft \u{2014} Fresh Eyes reads the whole piece."
+
     /// **The standing offer at the scene table's foot** (spec §3.4). It is a
     /// question rather than a verdict for the reason the whole
     /// `.strongDefault` arm exists: nothing here may synthesize a clause on
@@ -302,9 +321,18 @@ struct LetterSection: View {
     /// the line directly above (`ReviewRoundCockpit.laneLine`), and in Author
     /// the pane holds no pass list to name one from — a signature that said
     /// the pass in one home and not the other would be two signatures.
-    static func signature(voice: String, round: Int?) -> String {
-        guard let round else { return "\u{2014} \(voice)" }
-        return "\u{2014} \(voice) \u{00b7} round \(round)"
+    ///
+    /// **The stage the run derived rides the end of it** (P3 Task 5, global
+    /// constraint 28) — Review's lane line carries the same word, and this is
+    /// the deliberate Author-side sibling of that line, so the two homes sign
+    /// one letter one way. A `DraftStage` rather than a string, so this file
+    /// and `ReviewRoundCockpit` are the only two that read `laneWord`.
+    static func signature(
+        voice: String, round: Int?, stage: DraftStage? = nil
+    ) -> String {
+        let word = stage.map { " \u{00b7} \($0.laneWord)" } ?? ""
+        guard let round else { return "\u{2014} \(voice)\(word)" }
+        return "\u{2014} \(voice) \u{00b7} round \(round)\(word)"
     }
 
     /// Whether any scene row does not turn — the half of the offer's
@@ -360,6 +388,7 @@ struct LetterSection: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(Self.title)
                 .font(.callout.weight(.semibold))
+            shortLetterPart
             answerPart
             Text(letter.about)
                 .font(.callout)
@@ -371,6 +400,7 @@ struct LetterSection: View {
             questionsPart
             scenesPart
             retiredPart
+            processPart
             ledgerFailurePart
             offerPart
             Text(signature)
@@ -601,6 +631,61 @@ struct LetterSection: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// **One sentence about the writer's own process, off Maugham's own
+    /// numbers** (P3 Task 5, spec §3.1/§5) — how long they have been coming
+    /// back to this, what they keep reworking, how long the frontier has stood
+    /// still.
+    ///
+    /// Drawn after what the round did not find, because it is the letter's one
+    /// observation about how the writing is going rather than about the prose.
+    ///
+    /// **An empty line draws nothing at all**, the section's own empty-part
+    /// rule: the briefing carries numbers only when a threshold says they are
+    /// worth a sentence, so most letters have no line, and a caption over
+    /// nothing would be the app promising an observation it did not make.
+    /// Whitespace is the same nothing — `hasTurnlessScene`'s rule, for its
+    /// reason.
+    @ViewBuilder
+    private var processPart: some View {
+        let process = (letter.process ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !process.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                sectionHeader(Self.processCaption)
+                Text(process)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// **What a dosed letter says about being dosed** (P3 Task 5, spec §3.8),
+    /// under the title and above everything the letter has to say — a writer
+    /// reading a short letter has to know it was shortened before they read it
+    /// as a reader with nothing to say.
+    ///
+    /// **`freshEyes` is half the condition, and it is the load-bearing half.**
+    /// A cold read is always the full letter whatever stage the run derived
+    /// (`DraftStage.dosage(freshEyes:)`), so a Fresh Eyes letter saying this
+    /// would be the app both claiming to be short and telling the writer to
+    /// press the key they just pressed.
+    ///
+    /// The stage comes through `Letter.draftStage` — the one conversion from
+    /// the stored raw — so a sidecar written by a later build with a third
+    /// stage in it draws no line rather than guessing.
+    @ViewBuilder
+    private var shortLetterPart: some View {
+        if letter.draftStage == .drafting, !freshEyes {
+            Text(Self.shortLetterLine)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

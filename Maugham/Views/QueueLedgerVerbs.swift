@@ -213,7 +213,13 @@ enum QueueLedgerVerbs {
             voice: AnnotationAuthorPresentation.label(for: annotation.author),
             lane: LetterKeep.laneLine(
                 passId: annotation.reviewPassId,
-                round: annotation.compilerRound, store: store))
+                round: annotation.compilerRound,
+                // **No stage.** A note carries a pass and a round; the draft
+                // stage is a stamp on a RUN's letter about that run's own
+                // delta, and putting it on a row filed from the queue would
+                // attribute one reading of the delta to whatever round
+                // happened to raise this note (global constraint 28).
+                stage: nil, store: store))
     }
 
     // MARK: - The acts

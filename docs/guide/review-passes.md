@@ -102,7 +102,9 @@ Kind, Author, Triage, or the pass.
 
 **The round cockpit** sits between the queue's toolbar and its notes, in
 document scope, and it's the second place you meet a round: the piece's lane
-— *Copyedit · Gould · round 2* — what changed since the last one once one
+— *Copyedit · Gould · round 2*, with the stage the last round read your delta
+at on the end of it once one has run (*· drafting*) — what changed since the
+last one once one
 exists, and two buttons doing exactly what ⌘R and ⌘⇧R do, **Run round** and
 **Fresh Eyes**, so asking for the next round never means leaving the queue to
 find ⌘R's other home. **The lane line is itself the pass picker** — click it

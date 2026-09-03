@@ -125,6 +125,18 @@ enum LetterMarkdown {
             out.append(notFound.map { "- \($0)" }.joined(separator: "\n"))
         }
 
+        // **The process line last** (P3 Task 5, spec §3.1/§5) — the letter's
+        // one observation about how the writing is going rather than about the
+        // prose, in the caption the screen gives it. `LetterSection`'s own
+        // constant rather than a literal, this file's register rule.
+        //
+        // An empty line draws no heading, the rule every other part keeps.
+        let process = scrubbed(letter.process ?? "")
+        if !process.isEmpty {
+            out.append("## \(LetterSection.processCaption)")
+            out.append(process)
+        }
+
         return (title: title, body: out.joined(separator: "\n\n") + "\n")
     }
 

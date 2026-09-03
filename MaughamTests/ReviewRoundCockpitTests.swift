@@ -98,6 +98,95 @@ final class ReviewRoundCockpitTests: XCTestCase {
             "`effectiveEditorName` is the ONE spelling of the resolution")
     }
 
+    // MARK: - The stage the run derived (P3 Task 5)
+
+    /// **"Copyedit · Gould · round 3 · drafting"** — the stage the run derived
+    /// off its own delta, appended to the line that already spells the round
+    /// (global constraint 28). The number and the word are the SAME run's: the
+    /// strip shows the last run's stage beside the last run's round.
+    func test_theLaneLineNamesTheStageTheRunDerived() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLine(
+                pass: Self.copyedit, round: 3, stage: .drafting),
+            "Copyedit \u{00b7} Gould \u{00b7} round 3 \u{00b7} drafting")
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLine(
+                pass: Self.copyedit, round: 3, stage: .revising),
+            "Copyedit \u{00b7} Gould \u{00b7} round 3 \u{00b7} revising",
+            "the word is `DraftStage.laneWord`, never a second spelling")
+    }
+
+    /// **The CONTROL for every stage pin here**: a run that wrote no letter
+    /// derived no stage, and the line is exactly the line it always was.
+    func test_aRunWithNoStageLeavesTheLaneLineExactlyAsItWas() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLine(pass: Self.copyedit, round: 3, stage: nil),
+            ReviewRoundCockpit.laneLine(pass: Self.copyedit, round: 3))
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLine(pass: Self.copyedit, round: 3, stage: nil),
+            "Copyedit \u{00b7} Gould \u{00b7} round 3")
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLine(pass: Self.betaRead, round: 1, stage: nil),
+            "Beta Read \u{00b7} round 1",
+            "the collapsed arm is unmoved too")
+    }
+
+    /// A pass whose editor IS its name still collapses, and the stage rides
+    /// the collapsed line rather than resurrecting the doubled one.
+    func test_theStageRidesTheCollapsedLineToo() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLine(
+                pass: Self.betaRead, round: 1, stage: .revising),
+            "Beta Read \u{00b7} round 1 \u{00b7} revising")
+    }
+
+    /// The coach's round carries it too, and still never her pass name.
+    func test_theCoachsLineNamesTheStageAndStillNeverHerPass() {
+        let line = ReviewRoundCockpit.coachLine(
+            coach: Self.coach, round: 2, stage: .revising)
+        XCTAssertEqual(line, "Le Guin \u{00b7} round 2 \u{00b7} revising")
+        XCTAssertFalse(
+            line.contains(ReviewPass.coachPreset.name), line)
+    }
+
+    /// **Her introduction carries it as well, and that case is reachable.**
+    /// The word is the LETTER's stamp rather than a claim about a round: a
+    /// piece whose pass was cleared after a run has a last run with a stage on
+    /// its letter and no round in HER lane, which is exactly this arm. Pinned
+    /// so the copy is a decision rather than an accident.
+    func test_theCoachsIntroductionCarriesTheStageWhenThereIsOne() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.coachLine(
+                coach: Self.coach, round: nil, stage: .drafting),
+            "Le Guin reads this piece \u{00b7} drafting")
+        XCTAssertEqual(
+            ReviewRoundCockpit.coachLine(coach: Self.coach, round: nil, stage: nil),
+            "Le Guin reads this piece",
+            "and with no stage it is the introduction it always was")
+    }
+
+    /// The label threads the stage to whichever arm draws, and the invitation
+    /// carries none — nobody is reading the piece, so no run derived anything
+    /// about it.
+    func test_theLaneLabelThreadsTheStageToWhicheverArmDraws() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLabel(
+                pass: Self.copyedit, round: 3, coach: Self.coach, stage: .drafting),
+            ReviewRoundCockpit.laneLine(
+                pass: Self.copyedit, round: 3, stage: .drafting),
+            "a stage always wins, and it wins carrying the word")
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLabel(
+                pass: nil, round: 2, coach: Self.coach, stage: .drafting),
+            ReviewRoundCockpit.coachLine(
+                coach: Self.coach, round: 2, stage: .drafting))
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLabel(
+                pass: nil, round: nil, coach: nil, stage: .drafting),
+            ReviewRoundCockpit.setAPassTitle,
+            "the invitation names no stage \u{2014} nobody has read this piece")
+    }
+
     // MARK: - The run phase is scoped to THIS document
 
     /// **The falsification this task's second reader exists for.** The run
@@ -1698,9 +1787,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_thePaneDerivesTheLineAndDisclosesTheSharedSection() throws {
         let source = try readSource("Maugham/Views/AnnotationsPane.swift")
         let cockpit = try XCTUnwrap(
-            source.range(of: "ReviewRoundCockpit(").map {
-                String(source[$0.upperBound...].prefix(1800))
-            },
+            Self.mountArguments(of: "ReviewRoundCockpit(", in: source),
             "the cockpit's mount is where the two inputs are fed")
         XCTAssertTrue(
             cockpit.contains("letterLine: ReviewRoundCockpit.letterLine("),
@@ -1713,6 +1800,35 @@ final class ReviewRoundCockpitTests: XCTestCase {
             source.contains("LetterSection("),
             "Review discloses the SAME view Author draws \u{2014} a second letter view "
             + "would be two letters that could disagree about one run")
+    }
+
+    /// The text between `anchor`'s open paren and the `)` that closes it —
+    /// the mount's whole argument list, however it is wrapped.
+    ///
+    /// **Found by balancing parens, never by a character budget** (P3 Task 5,
+    /// the discipline `TripwireGrepTests.lessonsRulingCallSites` already
+    /// keeps). This scan took a fixed 1800-character prefix until the stage
+    /// arrived on an argument of its own and pushed `letterDisclosure:` past
+    /// it — the census went red over a mount that fed everything it was
+    /// supposed to. A budget over a list that grows is a test that fails for
+    /// the wrong reason.
+    private static func mountArguments(
+        of anchor: String, in source: String
+    ) -> String? {
+        guard let found = source.range(of: anchor) else { return nil }
+        let scalars = Array(source)
+        let openAt = source.distance(from: source.startIndex, to: found.upperBound) - 1
+        var index = openAt
+        var depth = 0
+        while index < scalars.count {
+            if scalars[index] == "(" { depth += 1 }
+            if scalars[index] == ")" {
+                depth -= 1
+                if depth == 0 { return String(scalars[(openAt + 1)..<index]) }
+            }
+            index += 1
+        }
+        return nil
     }
 
     /// **Keep this letter works from the queue too** (Task 10, spec §3.6).

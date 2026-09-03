@@ -121,6 +121,20 @@ final class LetterSectionTests: XCTestCase {
         return letter
     }
 
+    /// The full letter with P3's two new stamps: a process line, and the stage
+    /// the run derived.
+    nonisolated private static func processedLetter(
+        process: String? = "You have come back to this chapter nine days running.",
+        stage: DraftStage? = .drafting,
+        retired: [String]? = ["Vary the opening."]
+    ) -> Letter {
+        var letter = fullLetter()
+        letter.process = process
+        letter.stage = stage?.rawValue
+        letter.retired = retired
+        return letter
+    }
+
     // MARK: - Pure: the decisions
 
     /// The signature is the voice's name and the round it signed — never the
@@ -217,6 +231,32 @@ final class LetterSectionTests: XCTestCase {
             "\u{201C}\(LetterSection.turnClauseRuling)\u{201D} must contain one of "
             + "\(ScenePosition.turnClausePhrases) \u{2014} otherwise filing it "
             + "changes nothing the next round can see")
+    }
+
+    // MARK: - Pure: the signature carries the stage (P3 Task 5)
+
+    /// The signature names the stage the run derived, after the round it
+    /// signed — the Author-side sibling of Review's lane line, in the same
+    /// word (`DraftStage.laneWord`, global constraint 28).
+    func test_theSignatureCarriesTheStageTheRunDerived() {
+        XCTAssertEqual(
+            LetterSection.signature(voice: "Le Guin", round: 3, stage: .drafting),
+            "\u{2014} Le Guin \u{00b7} round 3 \u{00b7} drafting")
+        XCTAssertEqual(
+            LetterSection.signature(voice: "Claude", round: nil, stage: .revising),
+            "\u{2014} Claude \u{00b7} revising",
+            "a passless run still derived a stage, and the letter is signed with it")
+    }
+
+    /// **The CONTROL**: a run that wrote no letter derived no stage, and the
+    /// signature is exactly the signature it always was.
+    func test_aSignatureWithNoStageIsUnmoved() {
+        XCTAssertEqual(
+            LetterSection.signature(voice: "Le Guin", round: 3, stage: nil),
+            LetterSection.signature(voice: "Le Guin", round: 3))
+        XCTAssertEqual(
+            LetterSection.signature(voice: "Le Guin", round: 3, stage: nil),
+            "\u{2014} Le Guin \u{00b7} round 3")
     }
 
     // MARK: - Mounted: the reading order
@@ -1072,6 +1112,111 @@ final class LetterSectionTests: XCTestCase {
             texts.contains(LetterSection.warmRetiredLine("Vary the opening.")),
             "Read: \(texts)")
         XCTAssertNil(findButton(labelled: LetterSection.retireTitle, in: window))
+    }
+
+    // MARK: - Mounted: the process line and the short-letter line (P3 Task 5)
+
+    /// **The process line draws under its own caption, between what the round
+    /// did not find and the signature** (spec §3.1/§5). A caption rather than
+    /// bare prose, because a sentence about how often the writer comes back to
+    /// a chapter reads as a claim about the PROSE without one.
+    func test_theProcessLineDrawsUnderItsCaptionAfterWhatWasNotFound() throws {
+        let window = mount(Self.processedLetter(), ledgerText: Self.ledger)
+        let texts = try axTexts(in: window)
+
+        let expected = [
+            LetterSection.scenesTitle,
+            LetterSection.warmRetiredLine("Vary the opening."),
+            LetterSection.processCaption,
+            "You have come back to this chapter nine days running.",
+            "\u{2014} Le Guin \u{00b7} round 2",
+        ]
+        let positions = expected.map { texts.firstIndex(of: $0) ?? -1 }
+        for (marker, position) in zip(expected, positions) {
+            XCTAssertGreaterThanOrEqual(
+                position, 0,
+                "\u{201C}\(marker)\u{201D} never reached the surface. Read: \(texts)")
+        }
+        XCTAssertEqual(
+            positions, positions.sorted(),
+            "the process line reads after the round's last observation and "
+            + "before the signature. Read: \(texts)")
+    }
+
+    /// **An empty process line draws nothing at all** — the section's own
+    /// empty-part rule. The briefing carries numbers only when a threshold
+    /// says they are worth a sentence, so most letters have no line, and a
+    /// caption over nothing would be the app promising an observation it did
+    /// not make.
+    ///
+    /// Control in the same test: the identical mount with a line in it says
+    /// the caption, or the absence above is evidence of nothing.
+    ///
+    /// **Disable experiment** (2026-09-03): drawing `processPart`
+    /// unconditionally reddens BOTH absences — the bare *XCTAssertFalse
+    /// failed* over the absent line and *XCTAssertFalse failed - whitespace is
+    /// the same nothing* over the blank one — while the control stays green.
+    func test_aLetterWithNoProcessLineDrawsNoCaption() throws {
+        let none = try axTexts(in: mount(Self.processedLetter(process: nil)))
+        XCTAssertFalse(none.contains(LetterSection.processCaption), "\(none)")
+
+        let blank = try axTexts(in: mount(Self.processedLetter(process: "   ")))
+        XCTAssertFalse(
+            blank.contains(LetterSection.processCaption),
+            "whitespace is the same nothing: \(blank)")
+
+        let filled = try axTexts(in: mount(Self.processedLetter()))
+        XCTAssertTrue(
+            filled.contains(LetterSection.processCaption),
+            "the control, or the two absences above say nothing: \(filled)")
+    }
+
+    /// **The short-letter line stands under the title over a warm drafting
+    /// letter** (spec §3.8) — a writer who wants the full letter mid-draft has
+    /// to be told the letter was dosed and how to ask for the whole thing.
+    func test_aWarmDraftingLetterSaysItIsShortAndHowToAskForMore() throws {
+        let texts = try axTexts(in: mount(Self.processedLetter(stage: .drafting)))
+        guard let title = texts.firstIndex(of: LetterSection.title),
+              let line = texts.firstIndex(of: LetterSection.shortLetterLine)
+        else { return XCTFail("the short-letter line never drew: \(texts)") }
+        XCTAssertLessThan(title, line, "it reads under the title: \(texts)")
+    }
+
+    /// **A Fresh Eyes letter never claims to be short, whatever stage the run
+    /// derived** — it read the whole piece cold, which is the full letter by
+    /// definition (spec §3.8), and the offer to ask for Fresh Eyes over a
+    /// Fresh Eyes letter is the app telling the writer to press what they just
+    /// pressed.
+    ///
+    /// **Disable experiment** (2026-09-03): dropping `!freshEyes` from
+    /// `shortLetterPart`'s condition reddens the first assertion below —
+    /// *XCTAssertFalse failed - a cold read is the full letter, and must not
+    /// say it was dosed* — with the short-letter line second in the read tree,
+    /// while the warm control stays green.
+    func test_aFreshEyesLetterNeverClaimsToBeShort() throws {
+        let cold = try axTexts(
+            in: mount(Self.processedLetter(stage: .drafting), freshEyes: true))
+        XCTAssertFalse(
+            cold.contains(LetterSection.shortLetterLine),
+            "a cold read is the full letter, and must not say it was dosed: \(cold)")
+
+        let warm = try axTexts(
+            in: mount(Self.processedLetter(stage: .drafting), freshEyes: false))
+        XCTAssertTrue(
+            warm.contains(LetterSection.shortLetterLine),
+            "the control, or the absence above says nothing: \(warm)")
+    }
+
+    /// A revising letter is the full letter, and a run that derived no stage
+    /// at all says nothing about dosage either.
+    func test_aRevisingOrStagelessLetterSaysNothingAboutDosage() throws {
+        let revising = try axTexts(in: mount(Self.processedLetter(stage: .revising)))
+        XCTAssertFalse(
+            revising.contains(LetterSection.shortLetterLine), "\(revising)")
+
+        let stageless = try axTexts(in: mount(Self.processedLetter(stage: nil)))
+        XCTAssertFalse(
+            stageless.contains(LetterSection.shortLetterLine), "\(stageless)")
     }
 
     // MARK: - Mounting

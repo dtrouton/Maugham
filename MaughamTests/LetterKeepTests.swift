@@ -58,12 +58,15 @@ final class LetterKeepTests: XCTestCase {
     }
 
     private func makeRun(
-        id: String = "run-1", passId: String? = nil, round: Int? = nil
+        id: String = "run-1", passId: String? = nil, round: Int? = nil,
+        stage: DraftStage? = nil
     ) -> CompilerRun {
-        CompilerRun(id: id, at: Date(timeIntervalSince1970: 1_788_000_000),
-                    model: "sonnet", lastOpId: nil, deltaSummary: "d",
-                    intentSnapshot: nil, passId: passId, round: round,
-                    letter: letter)
+        var letter = self.letter
+        letter.stage = stage?.rawValue
+        return CompilerRun(id: id, at: Date(timeIntervalSince1970: 1_788_000_000),
+                           model: "sonnet", lastOpId: nil, deltaSummary: "d",
+                           intentSnapshot: nil, passId: passId, round: round,
+                           letter: letter)
     }
 
     private func body(of item: ResearchItem, in store: ProjectStore) throws -> String {
@@ -272,6 +275,46 @@ final class LetterKeepTests: XCTestCase {
             for: makeRun(passId: ReviewPass.coachPreset.id, round: 2), store: store)
         XCTAssertEqual(line, "Le Guin \u{00b7} round 2")
         XCTAssertFalse(line.contains(ReviewPass.coachPreset.name), line)
+    }
+
+    /// **The stage rides the lane the kept letter is headed with** (P3 Task 5,
+    /// global constraint 28) — read off the letter's own stamp, so a note kept
+    /// six months later still names the stage the run derived rather than
+    /// whatever the document has become since.
+    func test_aKeptLettersLaneNamesTheStageItsRunDerived() async throws {
+        let (_, store) = try await makeNovel()
+        XCTAssertEqual(
+            LetterKeep.laneLine(
+                for: makeRun(passId: ReviewPass.coachPreset.id, round: 2,
+                             stage: .drafting),
+                store: store),
+            "Le Guin \u{00b7} round 2 \u{00b7} drafting")
+        XCTAssertEqual(
+            LetterKeep.laneLine(
+                for: makeRun(passId: "line", round: 3, stage: .revising),
+                store: store),
+            ReviewRoundCockpit.laneLine(
+                pass: try XCTUnwrap(ReviewPass.pass(
+                    id: "line", in: store.manifest.effectiveReviewPasses)),
+                round: 3, stage: .revising),
+            "a stage's lane says it the cockpit's way, with the word on the end")
+    }
+
+    /// **A caller holding a NOTE rather than a run passes no stage, and the
+    /// line is what it always was** — the queue's own door
+    /// (`QueueLedgerVerbs.provenance`). An annotation carries a pass and a
+    /// round; it carries nothing about the writer's delta.
+    func test_aLaneBuiltWithoutAStageIsUnmoved() async throws {
+        let (_, store) = try await makeNovel()
+        XCTAssertEqual(
+            LetterKeep.laneLine(
+                passId: "line", round: 3, stage: nil, store: store),
+            LetterKeep.laneLine(
+                for: makeRun(passId: "line", round: 3), store: store),
+            "no stage on either side, so the two lines agree exactly")
+        XCTAssertEqual(
+            LetterKeep.laneLine(passId: "line", round: 3, stage: nil, store: store),
+            "Line \u{00b7} Lish \u{00b7} round 3")
     }
 
     /// A passless run has no lane, so the letter's heading carries none —

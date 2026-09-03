@@ -766,6 +766,72 @@ final class TripwireGrepTests: XCTestCase {
             + "see it")
     }
 
+    // MARK: - The stage word has one source (editorial letter P3, constraint 28)
+
+    /// Every READ of `DraftStage.laneWord` under `dir`, as `file:line: text`.
+    /// A comment naming it is not a read of it, and the declaration itself
+    /// (`var laneWord`) carries no leading dot, so it is not one either.
+    private func laneWordReadSites(in dir: URL) throws -> [String] {
+        try grepSwift(
+            in: dir, patterns: [".laneWord"],
+            excludeLine: {
+                $0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+            })
+    }
+
+    /// **The stage word is read in two view files and nowhere else** (global
+    /// constraint 28). The word rides the ONE lane string every reader already
+    /// calls — Review's lane line and the letter's own signature — so a third
+    /// file spelling it is a third place the lane's wording could drift, and
+    /// the drift would be silent: two surfaces saying the same round two ways.
+    ///
+    /// A caller who needs the stage in a line takes it as a `DraftStage?` and
+    /// hands it to one of those two, exactly as `LetterKeep.laneLine` and
+    /// `QueueLedgerVerbs.provenance` do.
+    func test_theStageWordIsReadFromTwoViewFilesOnly() throws {
+        let sites = try laneWordReadSites(in: sourceDir)
+        XCTAssertEqual(
+            Set(sites.compactMap { $0.split(separator: ":").first.map(String.init) }),
+            ["ReviewRoundCockpit.swift", "LetterSection.swift"],
+            "the lane's spelling must not multiply \u{2014} pass a `DraftStage?` "
+            + "to `ReviewRoundCockpit.laneLine`/`coachLine` or "
+            + "`LetterSection.signature` instead. Sites:\n"
+            + sites.joined(separator: "\n"))
+        // **Non-vacuous by construction**, unlike the ledger census beside it:
+        // a scanner matching nothing answers the EMPTY set, which is not the
+        // two-element set above, so this cannot pass for the wrong reason and
+        // cannot go on passing after the word stops being drawn at all.
+    }
+
+    /// CONTROL for the census above: a planted third speller is caught, and a
+    /// comment naming the property is not.
+    func test_theStageWordCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-laneword-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        enum ThirdLaneSpeller {
+            // A comment naming stage.laneWord is not a read of it.
+            static func line(_ stage: DraftStage) -> String {
+                "round 3 \\u{00b7} \\(stage.laneWord)"
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("ThirdLaneSpeller.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let sites = try laneWordReadSites(in: tmp)
+        XCTAssertEqual(
+            sites.count, 1,
+            "Self-check: the planted read should be the one caught, and not the "
+            + "comment above it. Got:\n" + sites.joined(separator: "\n"))
+        XCTAssertTrue(
+            sites.first?.hasPrefix("ThirdLaneSpeller.swift:4") == true,
+            sites.first ?? "nothing caught")
+    }
+
     // MARK: - Meta-tests: tripwires fire on planted offenders (task 4.8 / test gap #14)
 
     /// Self-check: prove the op-log filename tripwire FIRES on a planted

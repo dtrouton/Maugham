@@ -462,6 +462,40 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         XCTAssertNil(ledger(fx), "premise: the ruling was refused")
     }
 
+    /// **A row filed from the QUEUE carries no stage, and a row filed from a
+    /// letter does** (P3 Task 5, global constraint 28). An annotation carries a
+    /// pass and a round; it carries nothing about the writer's own delta, and
+    /// a queue row naming a stage would be attributing one run's reading of
+    /// the delta to whatever round happened to raise this note.
+    ///
+    /// Asserted with the control beside it, or the absence is evidence of
+    /// nothing: the same lane, built for a letter whose run derived a stage,
+    /// says the word.
+    ///
+    /// **Disable experiment** (2026-09-03): passing `stage: .drafting` from
+    /// `QueueLedgerVerbs.provenance` reddens this \u{2014} *XCTAssertFalse
+    /// failed - the queue\u{2019}s door passes `stage: nil`: from Le Guin\u{2019}s
+    /// letter \u{00b7} Line \u{00b7} Lish \u{00b7} round 3 \u{00b7} drafting*.
+    func test_aRowFiledFromTheQueueNamesNoStageAndALetterFiledRowDoes() async throws {
+        let fx = try await makeHarness(named: "ChoiceNoStage")
+        let queue = QueueLedgerVerbs.provenance(for: note(), store: fx.store)
+        for word in [DraftStage.drafting.rawValue, DraftStage.revising.rawValue] {
+            XCTAssertFalse(
+                queue.contains(word),
+                "the queue's door passes `stage: nil`: \(queue)")
+        }
+
+        let fromLetter = LessonLedgerVerbs.provenance(
+            voice: "Le Guin",
+            lane: LetterKeep.laneLine(
+                passId: "line", round: 3, stage: .drafting, store: fx.store))
+        XCTAssertEqual(
+            fromLetter,
+            "from Le Guin's letter \u{00b7} Line \u{00b7} Lish \u{00b7} round 3 "
+            + "\u{00b7} drafting",
+            "the control \u{2014} the same lane, with a run's stage on it")
+    }
+
     /// The provenance is the note's own: the editor who wrote it, and the lane
     /// it was stamped with at the round it was raised in. A lesson outlives the
     /// note that raised it, so this is the only place that record is made.

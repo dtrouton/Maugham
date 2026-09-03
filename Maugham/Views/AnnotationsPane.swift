@@ -737,6 +737,12 @@ struct AnnotationsPane: View {
                 // Author draws, wired to this pane's document and project.
                 letterLine: ReviewRoundCockpit.letterLine(
                     cockpitLetter(diagnostics, docId: document.docId)),
+                // **The stage beside the round, both the last run's** (P3 Task
+                // 5, global constraint 28). Read off the run rather than
+                // `cockpitLetter`, which drops a letter with nothing in it: a
+                // run can derive a stage and still write a letter that says
+                // nothing, and the lane line is about the RUN.
+                stage: cockpitStage(diagnostics, docId: document.docId),
                 letterDisclosure: cockpitLetter(diagnostics, docId: document.docId)
                     .map { letter in
                         { AnyView(letterSection(letter, document: document,
@@ -807,6 +813,16 @@ struct AnnotationsPane: View {
         return diagnostics.latestRound(forPass: passId, docId: docId)
     }
 
+    /// The stage the last run on this piece derived, version-gated exactly as
+    /// every other read of the sidecar here is (P3 Task 5). `Letter.draftStage`
+    /// is the ONE conversion from the stored raw.
+    private func cockpitStage(
+        _ diagnostics: DiagnosticsStore, docId: String
+    ) -> DraftStage? {
+        _ = diagnostics.version
+        return diagnostics.lastRun(docId: docId)?.letter?.draftStage
+    }
+
     /// The writer's standing ask for this piece, version-gated exactly as
     /// every other read of the sidecar here is — so a commit made in Author's
     /// header is what this field shows.
@@ -848,7 +864,7 @@ struct AnnotationsPane: View {
             runId: run?.id,
             signature: LetterSection.signature(
                 voice: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
-                round: run?.round),
+                round: run?.round, stage: run?.letter?.draftStage),
             currentText: { document.paragraphs[$0] },
             onJump: { jump(toParagraph: $0) },
             onAcceptExercise: { habit in

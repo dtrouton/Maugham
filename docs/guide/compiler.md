@@ -107,15 +107,22 @@ The pane reads as a report, in this order:
 **The letter comes first**, above everything else, because it's what you read
 first — the notes are the margin. It's a letter about the draft rather than a
 list of findings, and it's signed: *— Le Guin · round 3*, or whoever reads
-this piece.
+this piece. The signature carries the **stage** the round read your delta at —
+*— Le Guin · round 3 · drafting* — and a letter written while you're drafting
+says so under its title, naming Fresh Eyes as the way to ask for the whole
+thing.
 
 It says, in this order: what the piece seems to be **about** as read — one
 sentence you can compare against your own intent; **the one thing** to fix if
 you fix only one; **What's working**, and why it works, so the strength is
 repeatable; **Habits**, a pattern across what was read rather than a single
 line, with what it costs the reader; **Questions** the draft raised; and a
-**Scenes** table. A part with nothing in it draws nothing at all — no heading
-over an empty list.
+**Scenes** table; and, under *From Maugham's numbers*, one sentence about
+**your own process** — how you've been coming back to this piece, what you keep
+reworking — in the reader's words, off numbers Maugham counted rather than
+anything the reader guessed. A part with nothing in it draws nothing at all —
+no heading over an empty list, and no process line unless there was something
+worth a sentence.
 
 Every reference is the words that paragraph says now, as a chip you click to
 jump there, with *and 2 more* when the note stands on several. You never see a

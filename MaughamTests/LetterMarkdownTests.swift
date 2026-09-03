@@ -195,6 +195,65 @@ final class LetterMarkdownTests: XCTestCase {
             "the control, or the absences above say nothing")
     }
 
+    // MARK: - The process line (P3 Task 5)
+
+    /// **The process line is kept too, under the caption the screen gives it**
+    /// (spec §3.1/§5). Last, after the not-found list: it is the letter's one
+    /// observation about how the writing is going rather than about the prose.
+    ///
+    /// The heading is `LetterSection.processCaption` rather than a literal —
+    /// the register rule this whole renderer keeps, so a kept letter and the
+    /// letter it was kept from cannot call the same part two things.
+    func test_theProcessLineRendersLastUnderTheScreensOwnCaption() {
+        var subject = letter(
+            scenes: [Letter.Scene(refs: [], wants: "In", changes: "Nothing",
+                                  turn: "None", charge: nil)])
+        subject.retired = ["Vary the opening."]
+        subject.process = "You have come back to this chapter nine days running."
+        let body = render(subject).body
+
+        guard let notFound = body.range(of: "## \(LetterMarkdown.notFoundTitle)"),
+              let heading = body.range(of: "## \(LetterSection.processCaption)")
+        else { return XCTFail("the process line never rendered:\n\(body)") }
+        XCTAssertTrue(notFound.lowerBound < heading.lowerBound, body)
+        XCTAssertTrue(
+            body.contains("You have come back to this chapter nine days running."),
+            body)
+    }
+
+    /// A letter with no process line draws no heading over nothing — the rule
+    /// every other part keeps. Control: the same render with a line in it.
+    func test_aLetterWithNoProcessLineDrawsNoProcessHeading() {
+        XCTAssertFalse(
+            render(letter()).body.contains("## \(LetterSection.processCaption)"),
+            "the briefing carries numbers only when a threshold says they are "
+            + "worth a sentence, so most letters have no line at all")
+
+        var empty = letter()
+        empty.process = "   "
+        XCTAssertFalse(
+            render(empty).body.contains("## \(LetterSection.processCaption)"),
+            "whitespace is the same nothing")
+
+        var one = letter()
+        one.process = "Nine days running."
+        XCTAssertTrue(
+            render(one).body.contains("## \(LetterSection.processCaption)"),
+            "the control, or the absences above say nothing")
+    }
+
+    /// The process line passes through the scrub like every other string this
+    /// renderer emits — a model that leaked an anchor into its own sentence
+    /// must not put a join key in the writer's note.
+    func test_theProcessLineIsScrubbedToo() {
+        var subject = letter(about: "A say-back.")
+        subject.process = "You reworked \u{00b6}ef5g nine times."
+        let out = render(subject)
+        XCTAssertEqual(Self.paragraphIdTokens(in: out.body), [], out.body)
+        XCTAssertFalse(out.body.contains("ef5g"), out.body)
+        XCTAssertTrue(out.body.contains("You reworked nine times."), out.body)
+    }
+
     /// **Both new parts pass through the scrub** — a model that leaked an
     /// anchor into its answer, or into a heading it echoed, must not put a join
     /// key in the writer's note. Control: the ids are really in the input.

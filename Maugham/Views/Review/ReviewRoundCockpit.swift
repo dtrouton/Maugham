@@ -121,6 +121,14 @@ struct ReviewRoundCockpit: View {
     /// that simply has no letter in it. `AnnotationsPane` is the one
     /// production caller and passes both (its own census).
     var letterLine: String? = nil
+    /// **The stage the last run derived, for the lane line's own word**
+    /// (editorial letter P3, spec §3.8). `Letter.draftStage` — the ONE
+    /// conversion from the stored raw — off the same run `letterLine` is built
+    /// from, so the number and the word on that line are one run's.
+    ///
+    /// Defaulted for `letterLine`'s reason: every probe mount predates it and
+    /// keeps compiling with a strip that simply names no stage.
+    var stage: DraftStage? = nil
     /// The section the disclosure opens: the host's own `LetterSection`,
     /// wired to the host's verbs. A closure rather than a `Letter`, because
     /// Accept as task, Add to intent and Keep all need the host's document,
@@ -217,11 +225,35 @@ struct ReviewRoundCockpit: View {
     /// An em dash rather than "round 0" or a silent omission: a piece with a
     /// pass set and no round yet is exactly the state the Run button is for,
     /// and the line should say where the writer is, not imply a round happened.
-    static func laneLine(pass: ReviewPass, round: Int?) -> String {
+    ///
+    /// **The stage the last run derived rides the end of it** (editorial letter
+    /// P3, global constraint 28) — "Copyedit · Gould · round 3 · drafting", so
+    /// a writer who wants the full letter mid-draft knows to ask for Fresh
+    /// Eyes (spec §3.8).
+    ///
+    /// A `DraftStage` rather than a string, so this file and
+    /// `LetterSection.signature` are the only two that read `laneWord` and the
+    /// lane's spelling cannot multiply. `nil` — a run that wrote no letter, or
+    /// a caller holding a note rather than a run — leaves the line exactly what
+    /// it was.
+    static func laneLine(
+        pass: ReviewPass, round: Int?, stage: DraftStage? = nil
+    ) -> String {
         let number = round.map(String.init) ?? "\u{2014}"
         let editor = pass.effectiveEditorName
-        guard editor != pass.name else { return "\(pass.name) \u{00b7} round \(number)" }
-        return "\(pass.name) \u{00b7} \(editor) \u{00b7} round \(number)"
+        let word = stageWord(stage)
+        guard editor != pass.name else {
+            return "\(pass.name) \u{00b7} round \(number)\(word)"
+        }
+        return "\(pass.name) \u{00b7} \(editor) \u{00b7} round \(number)\(word)"
+    }
+
+    /// The stage as it appends to a lane line, or nothing at all. The ONE
+    /// place this file reads `DraftStage.laneWord`, so `laneLine` and
+    /// `coachLine` cannot punctuate the same word two ways.
+    private static func stageWord(_ stage: DraftStage?) -> String {
+        guard let stage else { return "" }
+        return " \u{00b7} \(stage.laneWord)"
     }
 
     /// **What the lane picker's own label says** — the lane line once a pass is
@@ -241,9 +273,15 @@ struct ReviewRoundCockpit: View {
     /// A stage always wins. The coach reads what nobody was ASSIGNED, so a
     /// piece handed to Lish reads through Lish whatever the seat says — the
     /// label answers the piece's question, never the project's.
-    static func laneLabel(pass: ReviewPass?, round: Int?, coach: ReviewPass?) -> String {
-        if let pass { return laneLine(pass: pass, round: round) }
-        if let coach { return coachLine(coach: coach, round: round) }
+    ///
+    /// **The stage is threaded to whichever arm draws and the invitation
+    /// carries none** (P3): nobody is reading the piece, so no run derived
+    /// anything about its delta.
+    static func laneLabel(
+        pass: ReviewPass?, round: Int?, coach: ReviewPass?, stage: DraftStage? = nil
+    ) -> String {
+        if let pass { return laneLine(pass: pass, round: round, stage: stage) }
+        if let coach { return coachLine(coach: coach, round: round, stage: stage) }
         return setAPassTitle
     }
 
@@ -258,10 +296,18 @@ struct ReviewRoundCockpit: View {
     /// counted. And her PASS name is never drawn — "Workshop · Le Guin" would
     /// put a lane on screen that no control can select and the board never
     /// shows.
-    static func coachLine(coach: ReviewPass, round: Int?) -> String {
+    ///
+    /// **Her introduction carries the stage too, when there is one** (P3). The
+    /// word is the LETTER's stamp rather than a claim about a round, and the
+    /// case is reachable: a piece whose pass was cleared after a run has a last
+    /// run with a stage on its letter and no round in her lane.
+    static func coachLine(
+        coach: ReviewPass, round: Int?, stage: DraftStage? = nil
+    ) -> String {
         let name = coach.effectiveEditorName
-        guard let round else { return "\(name) reads this piece" }
-        return "\(name) \u{00b7} round \(round)"
+        let word = stageWord(stage)
+        guard let round else { return "\(name) reads this piece\(word)" }
+        return "\(name) \u{00b7} round \(round)\(word)"
     }
 
     /// One row of the lane picker: a pass the project names, and whether it is
@@ -594,7 +640,8 @@ struct ReviewRoundCockpit: View {
                     }
                 }
             } label: {
-                Text(Self.laneLabel(pass: activePass, round: round, coach: coach))
+                Text(Self.laneLabel(pass: activePass, round: round,
+                                    coach: coach, stage: stage))
                     // The coach's line is a lane the piece is really in, so it
                     // carries the lane line's own weight; only the invitation
                     // — nobody reading at all — stays light.

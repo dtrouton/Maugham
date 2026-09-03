@@ -60,8 +60,13 @@ enum LetterKeep {
     ///
     /// A passless run has no lane at all, and the empty string is what stops
     /// the rendered heading inventing one.
+    ///
+    /// **The stage comes off the letter's own stamp** (P3 Task 5), never
+    /// re-derived: a note kept six months later names the stage the run
+    /// derived, not whatever the document has become since.
     static func laneLine(for run: CompilerRun, store: ProjectStore) -> String {
-        laneLine(passId: run.passId, round: run.round, store: store)
+        laneLine(passId: run.passId, round: run.round,
+                 stage: run.letter?.draftStage, store: store)
     }
 
     /// The same lane, for a caller holding a NOTE rather than a run — the
@@ -72,16 +77,21 @@ enum LetterKeep {
     /// filed from the letter name the same round in the same words, and a
     /// second copy of this three-line resolution is where that would quietly
     /// stop being true.
+    ///
+    /// **`stage` carries no default, so every caller says what it means.** A
+    /// run has a letter and the letter has a stamp; an ANNOTATION has a pass
+    /// and a round and nothing about the writer's delta, so the queue's door
+    /// passes `nil` and the row it files names no stage (global constraint 28).
     static func laneLine(
-        passId: String?, round: Int?, store: ProjectStore
+        passId: String?, round: Int?, stage: DraftStage?, store: ProjectStore
     ) -> String {
         guard let passId,
               let pass = ReviewPass.pass(
                 id: passId, in: store.manifest.effectiveReviewPasses)
         else { return "" }
         return pass.id == ReviewPass.coachPreset.id
-            ? ReviewRoundCockpit.coachLine(coach: pass, round: round)
-            : ReviewRoundCockpit.laneLine(pass: pass, round: round)
+            ? ReviewRoundCockpit.coachLine(coach: pass, round: round, stage: stage)
+            : ReviewRoundCockpit.laneLine(pass: pass, round: round, stage: stage)
     }
 
     /// File the letter as a research note. Returns the item the store made, so

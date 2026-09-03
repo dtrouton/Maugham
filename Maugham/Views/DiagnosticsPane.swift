@@ -929,7 +929,11 @@ struct DiagnosticsPane: View {
                 // An index means nothing outside one letter (final review).
                 runId: run.id,
                 signature: LetterSection.signature(
-                    voice: reader.editorName, round: run.round),
+                    voice: reader.editorName, round: run.round,
+                    // The stage this run derived, off its own letter's stamp
+                    // (P3 Task 5) \u{2014} Review's lane line carries the same
+                    // word over the same run.
+                    stage: run.letter?.draftStage),
                 currentText: currentText,
                 onJump: { jump(toParagraph: $0) },
                 // `promote`'s own verb, one layer out: the exercise is the
