@@ -112,17 +112,21 @@ this piece. The signature carries the **stage** the round read your delta at —
 says so under its title, naming Fresh Eyes as the way to ask for the whole
 thing.
 
-It says, in this order: what the piece seems to be **about** as read — one
-sentence you can compare against your own intent; **the one thing** to fix if
-you fix only one; **What's working**, and why it works, so the strength is
-repeatable; **Habits**, a pattern across what was read rather than a single
-line, with what it costs the reader; **Questions** the draft raised; and a
-**Scenes** table; and, under *From Maugham's numbers*, one sentence about
-**your own process** — how you've been coming back to this piece, what you keep
-reworking — in the reader's words, off numbers Maugham counted rather than
-anything the reader guessed. A part with nothing in it draws nothing at all —
-no heading over an empty list, and no process line unless there was something
-worth a sentence.
+If you've asked something (see "Ask about…" above), the letter **answers it
+first**, ahead of everything else. Then it says, in this order: what the piece
+seems to be **about** as read — one sentence you can compare against your own
+intent; **the one thing** to fix if you fix only one; **What's working**, and
+why it works, so the strength is repeatable; **Habits**, a pattern across what
+was read rather than a single line, with what it costs the reader;
+**Questions** the draft raised; a **Scenes** table; a line for any lesson from
+your ledger this reading looked for and didn't find (kept letters title this
+part *Not found this time*); and, under *From Maugham's numbers*, one sentence
+about **your own process** — how
+you've been coming back to this piece, what you keep reworking — in the
+reader's words, off numbers Maugham counted rather than anything the reader
+guessed. A part with nothing in it draws nothing at all — no heading over an
+empty list, no answer unless you asked, and no process line unless there was
+something worth a sentence.
 
 Every reference is the words that paragraph says now, as a chip you click to
 jump there, with *and 2 more* when the note stands on several. You never see a
@@ -242,6 +246,23 @@ a small mark on the intent strip — *"intent may trail the draft"* — that
 stays until a later check comes back holding, or until you edit the
 statement. A check against no declared intent records no verdict; there's
 nothing for the draft to trail.
+
+## What Maugham counts
+
+Beside what you've declared, Maugham quietly counts how you actually work —
+off nothing but the op log, no model involved. Three numbers: how many
+sessions since your **frontier** (the newest page you've actually drafted
+forward, not just revised) last moved, how many times in its last five
+sessions a paragraph has been reworked, and how long you've been away. None
+of it reaches the footer, the tree or the editor — it shows up in exactly two
+places: the Statistics window's **Practice** section, where every row is a
+jump to the chapter it's about, and the letter's own quiet line, *From
+Maugham's numbers*.
+
+Most weeks are quiet, and a quiet session says nothing at all: the frontier
+has to sit still for **3 sessions running**, or one paragraph has to be
+reworked **5 times within its last 5 sessions**, before there's a sentence
+to write about it — coming back after two weeks away earns one too.
 
 ## Rounds
 

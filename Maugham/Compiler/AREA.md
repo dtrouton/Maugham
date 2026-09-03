@@ -106,6 +106,51 @@ that names `.lessons` to `RulingPerformer`, censused by
 `TripwireGrepTests.test_theLessonsLedgerIsWrittenFromOneFile` with a planted
 offender and a companion that catches a `revoke(` as well as a `rule(`.
 
+**`ProcessSignals` is a pure value over `(ops, sequence, now)`, and the
+draft stage it feeds is derived, never set** (spec §3.8/§5, P3 constraints
+20–24). It reads no store and no clock of its own — the same `DocumentReading`
+`DeltaBuilder` already takes — so `CompilerOrchestrator.beginRun` computes it
+at the keystroke and the Statistics window's `ProjectPractice` computes the
+identical thing per closed document off `OpLogStore.loadSyncMerged`, and the
+two cannot disagree. A session is a run of manuscript ops (filtered through
+`Deriver.appliesToManuscript`, never a local re-switch) split where `Op.session`
+changes or where consecutive ops are at least `SessionTracker.idleThreshold`
+apart — the one constant, hoisted out of `DocumentStore.sessionIdleThreshold`,
+that keeps the op-derived session and the Statistics window's own session
+agreeing on the number. `DraftStage.derive(counts:signals:)` reads the run's
+own `DeltaCounts` plus the signals: `counts.new <= counts.revised` is always
+`.revising`; past that, no signals taken (no reading, decided on counts alone)
+is `.drafting`, and a reading is `.drafting` only when the frontier moved in
+the latest session (`sessionsSinceFrontierMoved == 0`) — a document with no
+frontier at all (nothing was ever typed new in Maugham) reads as `.revising`
+whatever the counts say. Its only persisted trace is `Letter.stage` (a
+rawValue, `ScenePosition`'s disk format), stamped in the same `record(...)`
+spelling that stamps `scenePosition` and `asked`; nothing else remembers it.
+**Dosage is enforced at both ends**
+(constraint 24): `LetterDosage.short` caps `parseLetter`'s questions at 1,
+drops the exercise and reads `scenes` as `nil` **at ingest**, whatever the
+model wrote, and `CompilerPrompt.stageSection` states the identical doctrine
+in the briefing; Fresh Eyes is always `.full`, and the ask's answer is never
+dosed. `stageSection` and the noteworthy-only `processSection` are per-run
+frame, sitting between the scene position and the round section, and **neither
+folds into `briefingHashInput`** (constraint 25) — the stage flips the moment a
+writer stops adding and starts rewriting, and the process numbers move with
+the writer's own week, so hashing either would re-embed the essay, the
+declared world and the bible slice on an ordinary round. `letterInstruction`'s
+`process` sentence is the one exception, measured into the 715-word budget
+(651 → 635 once tightened → 654 with the sentence back). The lane word has one
+source, `DraftStage.laneWord`, read by exactly `ReviewRoundCockpit.swift` and
+`LetterSection.swift` (a `.laneWord` census with a planted offender) and
+appended only beside a NAMED round — never over the coach's un-rounded
+introduction. `LetterKeep.laneLine` reads the stage off the letter's own
+stamp rather than re-deriving it, so a kept letter names the stage the run
+that wrote it saw; `QueueLedgerVerbs.provenance` passes `stage: nil`, because
+an annotation filed from the queue carries no run of its own to have derived
+one. **Nothing about the signals reaches the footer, the tree or the editor**
+(constraint 29, constitution must #2) — the Statistics window's `Practice`
+section and the letter's `process` line are the only two surfaces, held by a
+negative census with its own planted offender.
+
 **A letter question can carry the habit it was raised under, and the stamp has
 a wire** (P2 Tasks 2/4). `parseLetter` caps the habits FIRST and takes the
 citable names off the capped list, so a habit the letter does not show cannot
@@ -396,6 +441,8 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `CompilerEnvironment+Project.swift` | The production wiring — the window's stores, as the closures the orchestrator runs on. Every capture is weak. `pinnedListing` carries the resolved `PinnedShelf`'s own grouping into the briefing through `pinnedListingLines`: one `pinnedListingLine` per pin, with a `## <title>` line ahead of each TITLED section and no header over an untitled one, so a run reads the same arrangement the References pane draws |
 | `DeltaBuilder.swift` | What changed since the last run's marker, in the writer's order (`sequence`, never raw `paragraphs`) |
 | `Letter.swift` | The sixth section's own shape: `Working`/`Habit`/`Question`/`Scene`, the ledger's own two fields (a `Question`'s `lessonHeading` — the habit it was raised under, matched app-side on the habit's `name`, stamped with its `ledgerHeading` and `nil` on a near-miss — and the letter-wide `retired`, read through `retiredHeadings`); `Habit.ledgerHeading` is the ONE rule for what a habit is called in the ledger, and both the parse and `LessonOffer.lessonHeading(for:)` read it rather than spelling it. Two things a part can be missing are distinct (`scenes == nil` is a piece that does not move by scenes; `[]` is a table with no rows). Codable is synthesized — every part but `about` is optional, so a P2/P3 addition falls out through `decodeIfPresent` — and `isEmpty` is what every surface asks rather than `letter != nil`, because `about` is always present |
+| `ProcessSignals.swift` | The writer's own process, pure over `(ops, sequence, now)` (spec §5, P3 constraint 20): sessions, the frontier (latest `.typingBurst` mint still in `sequence`, ties within one op by position rather than change order — R15), churn hotspots (rewrites over the last `churnWindowSessions` sessions), `sessionsSinceFrontierMoved`, `daysAway`, and `noteworthy` — a plain threshold over these, and the whole of the judgement |
+| `DraftStage.swift` | `.drafting`/`.revising`, derived from `DeltaCounts` and the signals, never set or stored anywhere but `Letter.stage`; `LetterDosage` (`.short` caps questions, drops the exercise, reads scenes as `nil`; Fresh Eyes is always `.full`) |
 | `LetterMarkdown.swift` | **The letter as prose the writer keeps** (spec §3.6). One render, two hosts, one note: the heading carries the voice, the day and the lane line; the parts are `##` sections in the schema's reading order under `LetterSection`'s own copy constants; a ref is the paragraph's words in italics and never a join key. `scrubbed` is the one gate every emitted string passes, so a model's leaked anchor cannot ride into a research note |
 | `ScenePosition.swift` | What form the letter's scene table takes, derived app-side from the project type, the writer's whole intent statement and the pass brief (spec §3.4). Two closed phrase lists — the opt-out and the turn clause — and one rule about which wins. Its raw values reach disk through `Letter.scenePosition` |
 | `CompilerPrompt.swift` | The message. Asks different questions of new and revised prose; v2 carries the essay + derived clauses + the bible slice + the lessons ledger + the delta, diffed in as ONE unit (`briefingHash`). **What the writer has DECLARED is inside that unit; what belongs to this one run is outside it.** The ledger (`lessonsSection`, P2 Task 4) is a declaration and folds in — as the SECTION rather than the ledger's markdown, so retiring an entry, which removes it from the briefing, does not re-embed everything else to say so. M4 P1 and the editorial letter add per-run sections between the listings and the delta, and **none of those is folded into `briefingHash`** (each changes with the writer, not with what they declared) — count the appends in `runMessageV2`, not a number here: the active pass's **role frame + brief** (`passSection`, "You are Gould, this manuscript's copyeditor"), the **scene position** (`scenePositionSection`, the letter's own; see the scene-position paragraph above) and the **dispositions** section (`dispositionsSection`/`CompilerAnnotationDisposition.gather` — standing notes uncapped, settled notes capped at 12 and sorted by `resolvedAt` descending; see the dispositions paragraph above) and the **ask** (`askSection`, P2 Task 3 — last of the frame and closest to the prose, and the one most expected to change every round) |
