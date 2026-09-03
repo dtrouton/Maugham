@@ -236,12 +236,16 @@ struct ReviewRoundCockpit: View {
     /// lane's spelling cannot multiply. `nil` — a run that wrote no letter, or
     /// a caller holding a note rather than a run — leaves the line exactly what
     /// it was.
+    ///
+    /// **The word appends only beside a NAMED round** (RULING-R14). The em-dash
+    /// arm says nothing has run in this lane, and a stage on it would be the
+    /// last run in some OTHER lane describing a lane that has never been read.
     static func laneLine(
         pass: ReviewPass, round: Int?, stage: DraftStage? = nil
     ) -> String {
         let number = round.map(String.init) ?? "\u{2014}"
         let editor = pass.effectiveEditorName
-        let word = stageWord(stage)
+        let word = stageWord(stage, round: round)
         guard editor != pass.name else {
             return "\(pass.name) \u{00b7} round \(number)\(word)"
         }
@@ -251,8 +255,12 @@ struct ReviewRoundCockpit: View {
     /// The stage as it appends to a lane line, or nothing at all. The ONE
     /// place this file reads `DraftStage.laneWord`, so `laneLine` and
     /// `coachLine` cannot punctuate the same word two ways.
-    private static func stageWord(_ stage: DraftStage?) -> String {
-        guard let stage else { return "" }
+    ///
+    /// **`round` is half the condition** (RULING-R14): the word qualifies a
+    /// round, so no round means no word, in either line. Spelling that once
+    /// here is what stops the two arms disagreeing about it.
+    private static func stageWord(_ stage: DraftStage?, round: Int?) -> String {
+        guard let stage, round != nil else { return "" }
         return " \u{00b7} \(stage.laneWord)"
     }
 
@@ -297,16 +305,18 @@ struct ReviewRoundCockpit: View {
     /// put a lane on screen that no control can select and the board never
     /// shows.
     ///
-    /// **Her introduction carries the stage too, when there is one** (P3). The
-    /// word is the LETTER's stamp rather than a claim about a round, and the
-    /// case is reachable: a piece whose pass was cleared after a run has a last
-    /// run with a stage on its letter and no round in her lane.
+    /// **Her introduction carries NO stage word** (RULING-R14). "Le Guin reads
+    /// this piece" says who she is, not what a run found — and the case is
+    /// reachable rather than theoretical: a piece whose pass was cleared after
+    /// a run has a last run with a stage on its letter and no round in HER
+    /// lane, so the word there would describe a reading she never made. The
+    /// stage qualifies a round, and appends only beside a named one.
     static func coachLine(
         coach: ReviewPass, round: Int?, stage: DraftStage? = nil
     ) -> String {
         let name = coach.effectiveEditorName
-        let word = stageWord(stage)
-        guard let round else { return "\(name) reads this piece\(word)" }
+        let word = stageWord(stage, round: round)
+        guard let round else { return "\(name) reads this piece" }
         return "\(name) \u{00b7} round \(round)\(word)"
     }
 

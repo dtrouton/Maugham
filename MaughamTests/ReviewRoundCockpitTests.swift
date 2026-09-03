@@ -116,6 +116,27 @@ final class ReviewRoundCockpitTests: XCTestCase {
             "the word is `DraftStage.laneWord`, never a second spelling")
     }
 
+    /// **No round, no stage word** (RULING-R14). The em-dash arm says nothing
+    /// has run in this lane, and the stage on the letter belongs to the last
+    /// run in some OTHER lane — a word there would describe a reading this
+    /// lane never had.
+    ///
+    /// **Disable experiment** (2026-09-03): dropping `round != nil` from
+    /// `stageWord` reddens the first assertion — *("Copyedit · Gould · round —
+    /// · drafting") is not equal to ("Copyedit · Gould · round —")* — while
+    /// the named-round control below stays green.
+    func test_theLaneLineNamesNoStageBeforeAnyRoundHasRun() {
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLine(
+                pass: Self.copyedit, round: nil, stage: .drafting),
+            "Copyedit \u{00b7} Gould \u{00b7} round \u{2014}")
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLine(
+                pass: Self.copyedit, round: 3, stage: .drafting),
+            "Copyedit \u{00b7} Gould \u{00b7} round 3 \u{00b7} drafting",
+            "the control \u{2014} the same stage beside a round it can qualify")
+    }
+
     /// **The CONTROL for every stage pin here**: a run that wrote no letter
     /// derived no stage, and the line is exactly the line it always was.
     func test_aRunWithNoStageLeavesTheLaneLineExactlyAsItWas() {
@@ -149,20 +170,33 @@ final class ReviewRoundCockpitTests: XCTestCase {
             line.contains(ReviewPass.coachPreset.name), line)
     }
 
-    /// **Her introduction carries it as well, and that case is reachable.**
-    /// The word is the LETTER's stamp rather than a claim about a round: a
-    /// piece whose pass was cleared after a run has a last run with a stage on
-    /// its letter and no round in HER lane, which is exactly this arm. Pinned
-    /// so the copy is a decision rather than an accident.
-    func test_theCoachsIntroductionCarriesTheStageWhenThereIsOne() {
+    /// **Her introduction carries NO stage word** (RULING-R14), and the case
+    /// it refuses is reachable rather than theoretical: a piece whose pass was
+    /// cleared after a run has a last run with a stage on its letter and no
+    /// round in HER lane, so the word would describe a reading she never made.
+    /// "Le Guin reads this piece" says who she is, not what a run found.
+    ///
+    /// **Disable experiment** (2026-09-03): appending the word in
+    /// `coachLine`'s round-less arm reddens the first assertion — *("Le Guin
+    /// reads this piece · drafting") is not equal to ("Le Guin reads this
+    /// piece")* — while the named-round control below stays green. Note it is
+    /// `coachLine`'s OWN arm that has to be broken: `stageWord`'s `round`
+    /// check makes the refusal doubly enforced here, so dropping that alone
+    /// leaves this green.
+    func test_theCoachsIntroductionCarriesNoStageWord() {
         XCTAssertEqual(
             ReviewRoundCockpit.coachLine(
                 coach: Self.coach, round: nil, stage: .drafting),
-            "Le Guin reads this piece \u{00b7} drafting")
+            "Le Guin reads this piece")
         XCTAssertEqual(
             ReviewRoundCockpit.coachLine(coach: Self.coach, round: nil, stage: nil),
             "Le Guin reads this piece",
-            "and with no stage it is the introduction it always was")
+            "a stage changes nothing here, which is the whole of the ruling")
+        XCTAssertEqual(
+            ReviewRoundCockpit.coachLine(
+                coach: Self.coach, round: 2, stage: .drafting),
+            "Le Guin \u{00b7} round 2 \u{00b7} drafting",
+            "the control \u{2014} beside a round she really counted, it draws")
     }
 
     /// The label threads the stage to whichever arm draws, and the invitation
@@ -180,6 +214,11 @@ final class ReviewRoundCockpitTests: XCTestCase {
                 pass: nil, round: 2, coach: Self.coach, stage: .drafting),
             ReviewRoundCockpit.coachLine(
                 coach: Self.coach, round: 2, stage: .drafting))
+        XCTAssertEqual(
+            ReviewRoundCockpit.laneLabel(
+                pass: nil, round: nil, coach: Self.coach, stage: .drafting),
+            "Le Guin reads this piece",
+            "and the introduction the label threads to carries no word either")
         XCTAssertEqual(
             ReviewRoundCockpit.laneLabel(
                 pass: nil, round: nil, coach: nil, stage: .drafting),

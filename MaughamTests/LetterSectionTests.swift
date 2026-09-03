@@ -1209,6 +1209,15 @@ final class LetterSectionTests: XCTestCase {
 
     /// A revising letter is the full letter, and a run that derived no stage
     /// at all says nothing about dosage either.
+    ///
+    /// **The cover for the `== .drafting` half of the predicate** (fix round 1,
+    /// minor 3). Disable experiment (2026-09-03): widening it to
+    /// `letter.draftStage != nil` reddens the revising assertion — *XCTAssertFalse
+    /// failed - ["Letter", "A short letter while you draft — Fresh Eyes reads
+    /// the whole piece.", …]*. The stageless assertion below stays green under
+    /// that particular widening, which is why both are asserted: only the pair
+    /// distinguishes "drafting" from "any stage at all" from "a stage was
+    /// stamped".
     func test_aRevisingOrStagelessLetterSaysNothingAboutDosage() throws {
         let revising = try axTexts(in: mount(Self.processedLetter(stage: .revising)))
         XCTAssertFalse(

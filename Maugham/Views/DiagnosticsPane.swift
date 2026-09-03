@@ -930,10 +930,11 @@ struct DiagnosticsPane: View {
                 runId: run.id,
                 signature: LetterSection.signature(
                     voice: reader.editorName, round: run.round,
-                    // The stage this run derived, off its own letter's stamp
-                    // (P3 Task 5) \u{2014} Review's lane line carries the same
-                    // word over the same run.
-                    stage: run.letter?.draftStage),
+                    // The stage this run derived, off the SAME letter
+                    // `shortLetterPart` reads (fix round 1, minor 2) \u{2014}
+                    // `run.letter?.draftStage` would be a second path to one
+                    // value, and the two could disagree about one letter.
+                    stage: letter.draftStage),
                 currentText: currentText,
                 onJump: { jump(toParagraph: $0) },
                 // `promote`'s own verb, one layer out: the exercise is the

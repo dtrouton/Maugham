@@ -864,7 +864,9 @@ struct AnnotationsPane: View {
             runId: run?.id,
             signature: LetterSection.signature(
                 voice: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
-                round: run?.round, stage: run?.letter?.draftStage),
+                // The stage off the SAME letter `shortLetterPart` reads (fix
+                // round 1, minor 2), never a second path through the run.
+                round: run?.round, stage: letter.draftStage),
             currentText: { document.paragraphs[$0] },
             onJump: { jump(toParagraph: $0) },
             onAcceptExercise: { habit in
