@@ -101,6 +101,45 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             compilerLessonHeading: heading)
     }
 
+    /// **A second chapter, open and registered** — what makes the project
+    /// bigger than the pane's own document.
+    ///
+    /// Registered rather than left on disk so the project walk reads its LIVE
+    /// projection: an op appended a moment ago is in the document before it is
+    /// in `.maugham/ops/`, and a test that raced the debounce would be
+    /// asserting about a walk that had not seen its own premise yet.
+    @discardableResult
+    private func makeSecondChapter(
+        _ fx: Harness, titled title: String = "Chapter 2"
+    ) async throws -> Document {
+        let item = try await fx.store.addStructureItem(
+            parentId: nil, title: title, kind: .document(extension: "md"))
+        let path = try XCTUnwrap(item.path)
+        try "She counted the bells and lost the number twice.\n".write(
+            to: fx.url.appendingPathComponent(path), atomically: true,
+            encoding: .utf8)
+        let document = try await Document.load(
+            url: fx.url.appendingPathComponent(path),
+            device: "test-mac", session: "s2", presenter: nil)
+        fx.documentStore.register(document: document, for: path)
+        return document
+    }
+
+    /// A question raised under a habit in a document that is not the pane's.
+    @discardableResult
+    private func mintQuestion(
+        in document: Document, body: String,
+        heading: String? = "Filter words"
+    ) async throws -> String {
+        let pid = try XCTUnwrap(document.sequence.first)
+        return try await document.addAnnotation(
+            kind: .query, paragraphId: pid, body: body,
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Le Guin"),
+            reviewPassId: "line",
+            compilerRunId: "run-1", compilerRound: 3,
+            compilerLessonHeading: heading)
+    }
+
     private func ledger(_ fx: Harness) -> String? {
         LessonLedgerVerbs.ledgerText(store: fx.store)
     }
@@ -145,12 +184,14 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
     /// `DesignGateTests`' own way past the same wall.
     private var offer: ChoiceOffer?
 
-    private func mountPane(_ fx: Harness) -> NSWindow {
+    private func mountPane(
+        _ fx: Harness, scope: AnnotationScope = .document
+    ) -> NSWindow {
         let view = AnnotationsPane(
             document: fx.document,
             store: fx.store,
             documentStore: fx.documentStore,
-            scope: .constant(.document),
+            scope: .constant(scope),
             onTravel: { _ in },
             orchestrator: nil,
             diagnostics: nil,
@@ -167,11 +208,14 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         return window
     }
 
-    private func mountRow(_ annotation: Annotation) -> NSWindow {
+    private func mountRow(
+        _ annotation: Annotation, ledgerText: String? = nil
+    ) -> NSWindow {
         let row = AnnotationRow(
             annotation: annotation,
             onAccept: {}, onReject: {}, onArchive: {}, onReply: {},
-            onJumpToParagraph: {})
+            onJumpToParagraph: {},
+            ledgerText: ledgerText)
         let window = TestWindow.mount(AnyView(row),
                                       size: CGSize(width: 620, height: 300))
         windows.append(window)
@@ -766,10 +810,232 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             "a note with no heading stets plainly, whatever else is stetted")
     }
 
-    /// **The unfiltered query, pinned where it can regress.** The document
-    /// overload has to look past the default `[.open]` filter, or the twin it
-    /// is about is invisible and the offer never appears.
-    func test_theDocumentOverloadSeesAStettedTwinTheDefaultQueryHides() async throws {
+    // MARK: - The twin is looked for across the project (P3 Task 8, ruling A)
+
+    /// **A habit is the writer's, not a chapter's** (Denver's ruling A). The
+    /// second stet's evidence is a twin under the same heading anywhere in the
+    /// project, because the ledger it may file into is project-scope and a
+    /// pattern that shows up once per chapter is exactly the pattern worth
+    /// naming.
+    ///
+    /// Document scope, where the search is widest relative to what is on
+    /// screen: the twin is in a chapter this pane is not showing.
+    ///
+    /// **Disable experiment.** With the press searching the pane's own document
+    /// alone — `among: fx.document.annotations(filter: AnnotationFilter(statuses: nil))`,
+    /// which is what the deleted `secondStetOffer(for:in:ledgerText:)` overload
+    /// did — this fails at the `XCTUnwrap(offer)` line with "the offer must be
+    /// raised over a twin in another chapter": the twin is invisible and the
+    /// note simply stets.
+    func test_aStettedTwinInAnotherChapterRaisesTheOfferInDocumentScope() async throws {
+        let fx = try await makeHarness(named: "TwinAcrossDoc")
+        let two = try await makeSecondChapter(fx)
+        let twin = try await mintQuestion(in: two, body: "An earlier one of these.")
+        try await two.stetAnnotation(id: twin)
+        let id = try await mintQuestion(fx)
+        XCTAssertTrue(
+            fx.document.annotations(filter: AnnotationFilter(statuses: nil))
+                .allSatisfy { $0.id != twin },
+            "premise: the twin is in the OTHER chapter, invisible to this "
+            + "pane's own document")
+
+        let window = mountPane(fx)
+        let stet = try button(labelled: "Stet", in: window)
+        _ = stet.perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.3)
+
+        let raised = try XCTUnwrap(
+            offer, "the offer must be raised over a twin in another chapter")
+        XCTAssertEqual(raised.heading, "Filter words")
+        XCTAssertEqual(raised.annotationId, id)
+        XCTAssertEqual(status(fx, id), .open,
+                       "and the note waits for the answer")
+    }
+
+    /// The same, pressed in **project scope** — the scope whose rows come from
+    /// the project walk in the first place, so the two scopes cannot come to
+    /// different answers about one habit.
+    ///
+    /// **Disable experiment.** Same disable as the document-scope case above,
+    /// same failure line: with the document-only search this fails at
+    /// `XCTUnwrap(offer)`, because the row's own document is chapter one and
+    /// the twin is in chapter two.
+    func test_aStettedTwinInAnotherChapterRaisesTheOfferInProjectScope() async throws {
+        let fx = try await makeHarness(named: "TwinAcrossProject")
+        let two = try await makeSecondChapter(fx)
+        let twin = try await mintQuestion(in: two, body: "An earlier one of these.")
+        try await two.stetAnnotation(id: twin)
+        let id = try await mintQuestion(fx)
+
+        let window = mountPane(fx, scope: .project(focusPiece: nil))
+        // The stetted twin is resolved, so the default open-only filter leaves
+        // exactly one row with a Stet on it: the subject.
+        let stet = try button(labelled: "Stet", in: window)
+        _ = stet.perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.3)
+
+        let raised = try XCTUnwrap(
+            offer, "project scope must find the twin too")
+        XCTAssertEqual(raised.heading, "Filter words")
+        XCTAssertEqual(raised.annotationId, id)
+        XCTAssertEqual(status(fx, id), .open)
+    }
+
+    /// **The control: a wider search is not a looser one.** Another chapter
+    /// carrying the same heading on an OPEN note is not a second stet, and the
+    /// press must settle the note without asking anything.
+    func test_anUnstettedTwinElsewhereIsStillAPlainStet() async throws {
+        let fx = try await makeHarness(named: "TwinOpenElsewhere")
+        let two = try await makeSecondChapter(fx)
+        try await mintQuestion(in: two, body: "An earlier one of these.")
+        let id = try await mintQuestion(fx)
+
+        let window = mountPane(fx)
+        let stet = try button(labelled: "Stet", in: window)
+        _ = stet.perform(NSSelectorFromString("accessibilityPerformPress"))
+
+        _ = await pumpUntil(deadline: 8) { self.status(fx, id) == .stetted }
+        XCTAssertEqual(status(fx, id), .stetted,
+                       "an open note under the same heading is not evidence "
+                       + "of a pattern the writer has twice let stand")
+        XCTAssertNil(offer, "so nothing is asked")
+        XCTAssertNil(ledger(fx), "and nothing is filed")
+    }
+
+    // MARK: - Keep as lesson… is withdrawn over a sentence that stands (ruling B)
+
+    /// **A sentence already in the ledger stops being offered** (Denver's
+    /// ruling B) — open, a choice, or retired, which is `LessonOffer.keepIsOffered`'s
+    /// own rule one door over. Each is the writer having already decided about
+    /// exactly this sentence.
+    ///
+    /// **Identity is exact after trimming** (global constraint 15): the
+    /// near-miss below still draws, because the note's body and the standing
+    /// heading are then two different sentences and the app does not guess.
+    /// Hiding on a near-miss would be worse than the duplicate it prevents —
+    /// it would take away the only control that files this note's point.
+    ///
+    /// **Disable experiment.** With the ledger clause dropped from
+    /// `offersAKeep` (the P2 body: kind, status and authorship alone), this
+    /// fails on the first standing case at "a sentence standing as a live
+    /// lesson is one the writer has already filed" — and, being a pure
+    /// predicate over three ledger states, on the other two as well.
+    func test_theKeepVerbIsWithdrawnOnceTheSentenceStands() {
+        let subject = note(kind: .craftNote, status: .accepted, heading: nil)
+        let body = subject.body
+
+        XCTAssertTrue(
+            QueueLedgerVerbs.offersAKeep(subject, ledgerText: nil),
+            "premise: with nothing kept yet, the door is open")
+
+        let standing: [(String, String)] = [
+            ("a sentence standing as a live lesson is one the writer has "
+             + "already filed",
+             "## Rulings\n\n- \(body) \u{2014} ruled 1 Sep 2026\n"),
+            ("a sentence standing as a choice is one they have decided about",
+             "## Rulings\n\n- Choice: \(body) \u{2014} ruled 1 Sep 2026\n"),
+            ("a retired sentence is one they are done with, and re-offering "
+             + "it is the coach forgetting",
+             "## Rulings\n\n- \(LessonsLedger.retiredText(body, on: Date())) "
+             + "\u{2014} ruled 1 Sep 2026\n"),
+        ]
+        for (why, text) in standing {
+            XCTAssertFalse(
+                QueueLedgerVerbs.offersAKeep(subject, ledgerText: text),
+                "the keep verb must be withdrawn: \(why)")
+        }
+
+        XCTAssertTrue(
+            QueueLedgerVerbs.offersAKeep(
+                subject,
+                ledgerText: "## Rulings\n\n- \(body). \u{2014} ruled 1 Sep 2026\n"),
+            "a near-miss \u{2014} one trailing full stop \u{2014} is a "
+            + "different sentence, and identity here is exact after trimming "
+            + "(global constraint 15). `keepAsLesson`'s find-or-create is what "
+            + "guards the duplicate, not a fuzzy match here")
+        XCTAssertFalse(
+            QueueLedgerVerbs.offersAKeep(
+                subject,
+                ledgerText: "## Rulings\n\n-   \(body)   \u{2014} ruled 1 Sep 2026\n"),
+            "the other side of exact-after-trimming: surrounding whitespace is "
+            + "invisible in the file and nothing about the writer's intent "
+            + "rides on it, so a padded row still names the same sentence and "
+            + "the verb stays withdrawn")
+    }
+
+    /// **And the row does not draw it**, mounted, where the writer meets it.
+    ///
+    /// The near-miss is the control in the same register: one full stop apart,
+    /// and the button is back.
+    func test_theMountedRowDoesNotDrawKeepOverASentenceThatStands() throws {
+        let subject = note(kind: .craftNote, status: .accepted, heading: nil)
+        let standing = "## Rulings\n\n- \(subject.body) \u{2014} ruled 1 Sep 2026\n"
+
+        let hidden = try buttonLabels(in: mountRow(subject, ledgerText: standing))
+        XCTAssertFalse(
+            hidden.contains(QueueLedgerVerbs.keepTitle),
+            "a note whose words already stand in the ledger must not carry "
+            + "the verb that files them again. Buttons: \(hidden)")
+
+        let nearMiss = "## Rulings\n\n- \(subject.body). \u{2014} ruled 1 Sep 2026\n"
+        let drawn = try buttonLabels(in: mountRow(subject, ledgerText: nearMiss))
+        XCTAssertTrue(
+            drawn.contains(QueueLedgerVerbs.keepTitle),
+            "control: one full stop apart is a different sentence and the "
+            + "door is open. Buttons: \(drawn)")
+    }
+
+    /// **The pane hands its rows the ledger** — the seam the two tests above
+    /// cannot cross, since they build the row themselves.
+    ///
+    /// A real project with the note's own sentence already filed: the writer
+    /// turns on resolved notes, and the accepted craft note carries every verb
+    /// except the one that would file its words twice.
+    ///
+    /// **Disable experiment.** With `ledgerText:` dropped from the pane's own
+    /// `AnnotationRow(` call (the row's default nil), this fails at "the pane
+    /// must hand its rows the ledger" — the row draws Keep as lesson… over a
+    /// sentence that stands, which is the wiring gap a predicate test cannot
+    /// see.
+    func test_theRealPaneWithdrawsKeepOverASentenceThatStands() async throws {
+        let fx = try await makeHarness(named: "KeepWithdrawn")
+        let sentence = "You reach for a filter verb where the image would carry it."
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        let id = try await fx.document.addAnnotation(
+            kind: .craftNote, paragraphId: pid, body: sentence,
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Le Guin"),
+            reviewPassId: "line", compilerRunId: "run-1", compilerRound: 3)
+        try await fx.document.acceptAnnotation(id: id)
+        let refusal = await QueueLedgerVerbs.keepAsLesson(
+            sentence, from: note(kind: .craftNote, status: .accepted),
+            store: fx.store, world: nil)
+        XCTAssertNil(refusal, "premise: the sentence is filed: \(refusal ?? "")")
+        XCTAssertEqual(LessonsLedger.open(in: ledger(fx) ?? ""), [sentence],
+                       "premise: and it stands as a live lesson")
+
+        let window = mountPane(fx)
+        let resolved = try control(withHelpContaining: "click to include resolved",
+                                   in: window)
+        _ = resolved.perform(NSSelectorFromString("accessibilityPerformPress"))
+        pump(0.3)
+
+        let labels = try buttonLabels(in: window)
+        XCTAssertTrue(labels.contains("Stet"),
+                      "premise: the accepted note's row is on screen. "
+                      + "Buttons: \(labels)")
+        XCTAssertFalse(
+            labels.contains(QueueLedgerVerbs.keepTitle),
+            "the pane must hand its rows the ledger. Buttons: \(labels)")
+    }
+
+    /// **The unfiltered query, pinned where it can regress.** The list the press
+    /// hands over has to carry stetted notes, or the twin this predicate is
+    /// about is invisible and the offer never appears.
+    ///
+    /// The pane's source is `listAnnotationsAcrossProject`, which filters
+    /// nothing; the trap is the default `[.open]` query one line away from it,
+    /// and this asserts both halves against the same twin.
+    func test_theProjectSnapshotCarriesAStettedTwinTheDefaultQueryHides() async throws {
         let fx = try await makeHarness(named: "TwinVisibility")
         let twin = try await mintQuestion(fx, body: "An earlier one of these.")
         try await fx.document.stetAnnotation(id: twin)
@@ -778,14 +1044,16 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             fx.document.annotations().contains { $0.id == twin },
             "premise: the default query cannot see the twin")
 
-        let subject = try XCTUnwrap(
-            fx.document.annotations(filter: AnnotationFilter(statuses: nil))
-                .first { $0.id == id })
+        let all = fx.store.listAnnotationsAcrossProject().annotations
+            .map(\.annotation)
+        XCTAssertTrue(all.contains { $0.id == twin && $0.status == .stetted },
+                      "the project walk filters nothing")
+        let subject = try XCTUnwrap(all.first { $0.id == id })
         XCTAssertEqual(
             QueueLedgerVerbs.secondStetOffer(
-                for: subject, in: fx.document, ledgerText: ledger(fx)),
+                for: subject, among: all, ledgerText: ledger(fx)),
             "Filter words",
-            "and the overload must see it anyway")
+            "and the offer stands over the list the press actually hands over")
     }
 
     /// **Which button carries `.cancel` is Denver's ruling, and no behavioural
@@ -890,7 +1158,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             "premise: an accepted, compiler-authored craft note is the row "
             + "spec \u{00a7}6's second door is for. Buttons: "
             + "\(subjectLabels)")
-        XCTAssertTrue(QueueLedgerVerbs.offersAKeep(subject),
+        XCTAssertTrue(QueueLedgerVerbs.offersAKeep(subject, ledgerText: nil),
                       "and no heading is needed \u{2014} the sheet is where "
                       + "one is made, out of the note's own words")
 
@@ -903,7 +1171,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
              note(kind: .query, status: .accepted, heading: nil)),
         ]
         for (why, annotation) in controls {
-            XCTAssertFalse(QueueLedgerVerbs.offersAKeep(annotation),
+            XCTAssertFalse(QueueLedgerVerbs.offersAKeep(annotation, ledgerText: nil),
                            "the keep verb must not be offered: \(why)")
             let control = mountRow(annotation)
             let labels = try buttonLabels(in: control)

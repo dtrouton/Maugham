@@ -135,10 +135,34 @@ enum QueueLedgerVerbs {
     ///
     /// Compiler-authored for `offersAChoice`'s reason. No heading is required:
     /// the sheet is where a heading is made, out of the note's own words.
-    static func offersAKeep(_ annotation: Annotation) -> Bool {
-        annotation.isCompilerAuthored
+    ///
+    /// **And withdrawn once the note's own sentence stands in the ledger** —
+    /// open, a settled choice, or retired (P3 Task 8, Denver's ruling B).
+    /// `LessonOffer.keepIsOffered` is the same rule one door over and for the
+    /// same reason: each of the three is the writer having already decided
+    /// about exactly this sentence, and a second Keep files a duplicate row
+    /// that then briefs every later round twice about one thing.
+    ///
+    /// **Exact identity of the whole body, after trimming** (global constraint
+    /// 15) — never a fuzzy match. A near-miss, a trailing full stop, still
+    /// draws: the note and the standing entry are then two different sentences
+    /// and the app does not guess on the writer's behalf. That the hide is
+    /// therefore rare is by construction, because the sheet exists to shorten a
+    /// paragraph into a sentence and what is filed is usually the writer's
+    /// edit rather than these words; the honest protection against a duplicate
+    /// stays `LessonLedgerVerbs.keepAsLesson`'s own find-or-create, which is
+    /// asked of the heading actually being filed.
+    static func offersAKeep(_ annotation: Annotation, ledgerText: String?) -> Bool {
+        guard annotation.isCompilerAuthored
             && annotation.status == .accepted
             && annotation.kind == .craftNote
+        else { return false }
+        guard let ledgerText else { return true }
+        let body = annotation.body
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !LessonsLedger.parse(ledgerText).entries.contains { entry in
+            LessonsLedger.matches(body, heading: entry.heading)
+        }
     }
 
     /// **Whether stetting this note should ASK instead of just stetting** —
@@ -151,9 +175,9 @@ enum QueueLedgerVerbs {
     /// Three conditions:
     ///
     /// - the note carries a heading;
-    /// - **another** note in the same document, under the same heading, is
-    ///   already `.stetted` — `LessonsLedger.matches` decides that, exact after
-    ///   trimming, so a heading the model re-spelled names no twin;
+    /// - **another** note under the same heading is already `.stetted` —
+    ///   `LessonsLedger.matches` decides that, exact after trimming, so a
+    ///   heading the model re-spelled names no twin;
     /// - the heading is **not already a choice** in the ledger. A second offer
     ///   for a decision the writer has already filed is noise, and pressing it
     ///   would file the row twice.
@@ -161,6 +185,17 @@ enum QueueLedgerVerbs {
     /// Deliberately NOT gated on kind, status or authorship. What is being
     /// offered is a fact about the *heading*, and a heading only ever reaches an
     /// annotation from a round in the first place.
+    ///
+    /// **`all` is the PROJECT's notes, and unfiltered** (P3 Task 8, Denver's
+    /// ruling A). Project-scope, because the ledger this may file into is
+    /// project-scope and a habit is the writer's rather than a chapter's: a
+    /// pattern showing up once per chapter is exactly the one worth naming, and
+    /// a per-document search would never see it. Unfiltered, because
+    /// `Document.annotations()` defaults to `[.open]` and
+    /// `ProjectStore.listAnnotationsAcrossProject` filters nothing — a caller
+    /// handing over the default query would find no stetted twin, ever, and the
+    /// offer would simply never appear (`stetAnnotation`'s own capture makes
+    /// the same correction for the same reason).
     static func secondStetOffer(
         for annotation: Annotation, among all: [Annotation], ledgerText: String?
     ) -> String? {
@@ -175,23 +210,6 @@ enum QueueLedgerVerbs {
                     heading, heading: (other.lessonHeading ?? ""))
         }
         return twin ? heading : nil
-    }
-
-    /// The same question asked of a live document.
-    ///
-    /// **The unfiltered query is the whole reason this overload exists.**
-    /// `Document.annotations()` defaults to `[.open]`, which hides every
-    /// stetted twin this predicate is about — a caller reading the default
-    /// would find no twin, ever, and the offer would simply never appear
-    /// (`stetAnnotation`'s own capture makes the same correction for the same
-    /// reason). Nothing outside this file should have to know that.
-    static func secondStetOffer(
-        for annotation: Annotation, in document: Document, ledgerText: String?
-    ) -> String? {
-        secondStetOffer(
-            for: annotation,
-            among: document.annotations(filter: AnnotationFilter(statuses: nil)),
-            ledgerText: ledgerText)
     }
 
     // MARK: - Provenance

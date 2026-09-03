@@ -920,6 +920,24 @@ struct AnnotationsPane: View {
             onFailure: { letterLedgerFailure = $0 })
     }
 
+    /// **The lessons ledger as it stands, for the rows** (P3 Task 8).
+    ///
+    /// Every row is handed this so *Keep as lesson…* can be withdrawn over a
+    /// sentence the writer has already filed (`QueueLedgerVerbs.offersAKeep`).
+    /// `letterLedgerRevision` is read for `ledgerHandlers`' reason and the same
+    /// one press-by-press: a note kept from this very queue must take its own
+    /// button off the row, and nothing else observes that counter.
+    ///
+    /// **Read once per pass and threaded DOWN**, on the same reasoning as the
+    /// sequences the project scope carries into its sections (tripwire 4): a
+    /// closed statement's `displayText` re-lists and re-stats its op-log files
+    /// and re-materialises its text on every call, so asking for it per row
+    /// would put a small filesystem walk behind every note in the queue.
+    private var ledgerText: String? {
+        _ = letterLedgerRevision
+        return LessonLedgerVerbs.ledgerText(store: store)
+    }
+
     /// **The offer, decided and written by `TurnClauseOffer`** — the one
     /// builder Author's Diagnostics pane calls too (fix round 1, Minor 4).
     /// The predicate and the ruling live there; this supplies the queue's own
@@ -1089,11 +1107,13 @@ struct AnnotationsPane: View {
             ScrollView {
                 let livePids = Set(document.sequence)
                 let selection = effectiveSelection(in: rows)
+                // One read for the whole pass, for `ledgerText`'s reason.
+                let ledger = ledgerText
                 LazyVStack(spacing: 0) {
                     ForEach(rows) { ann in
                         annotationRow(
                             ann, docId: document.docId, document: document,
-                            livePids: livePids,
+                            livePids: livePids, ledgerText: ledger,
                             isSelectable: showBulkBar,
                             isSelected: selection.contains(ann.id))
                         Divider()
@@ -1148,12 +1168,16 @@ struct AnnotationsPane: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
+                    let ledger = ledgerText
                     LazyVStack(spacing: 0) {
                         ForEach(sections) { section in
                             // The sequences travel DOWN from the one snapshot
                             // read: asking the store per section would restat
                             // every closed piece's op log once per heading.
-                            sectionView(section, sequences: snapshot.sequences)
+                            // The ledger travels with them, for the same reason
+                            // one directory over (`ledgerText`).
+                            sectionView(section, sequences: snapshot.sequences,
+                                        ledgerText: ledger)
                         }
                         if let notice { unreadableFootnote(notice) }
                     }
@@ -1183,7 +1207,8 @@ struct AnnotationsPane: View {
     @ViewBuilder
     private func sectionView(
         _ section: AnnotationScopeSections.Section,
-        sequences: [String: [String]]
+        sequences: [String: [String]],
+        ledgerText: String?
     ) -> some View {
         switch section.kind {
         case .group(let depth):
@@ -1196,14 +1221,15 @@ struct AnnotationsPane: View {
                 .padding(.top, 14).padding(.bottom, 2)
                 .id(section.id)
         case .piece:
-            pieceSection(section, sequences: sequences)
+            pieceSection(section, sequences: sequences, ledgerText: ledgerText)
         }
     }
 
     @ViewBuilder
     private func pieceSection(
         _ section: AnnotationScopeSections.Section,
-        sequences: [String: [String]]
+        sequences: [String: [String]],
+        ledgerText: String?
     ) -> some View {
         // The row's own document, and the whole of the open-vs-closed question:
         // a closed piece's notes are readable here and actable in ITS window.
@@ -1230,7 +1256,8 @@ struct AnnotationsPane: View {
             .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 4)
             ForEach(section.annotations) { ann in
                 annotationRow(ann, docId: section.item.id,
-                              document: rowDocument, livePids: livePids)
+                              document: rowDocument, livePids: livePids,
+                              ledgerText: ledgerText)
                 Divider()
             }
         }
@@ -1262,6 +1289,7 @@ struct AnnotationsPane: View {
         docId: String,
         document rowDocument: Document?,
         livePids: Set<String>,
+        ledgerText: String?,
         isSelectable: Bool = false,
         isSelected: Bool = false
     ) -> some View {
@@ -1297,7 +1325,8 @@ struct AnnotationsPane: View {
                 withdrawConfirm = AnnotationTarget(document: $0, annotation: ann) } },
             onRevert: { withDocument(rowDocument) { revert($0, ann) } },
             onReopen: { withDocument(rowDocument) { reopen($0, id: ann.id) } },
-            onJumpToParagraph: { click(docId: docId, annotation: ann) })
+            onJumpToParagraph: { click(docId: docId, annotation: ann) },
+            ledgerText: ledgerText)
     }
 
     /// Belt behind the disabled verbs: a control that somehow fires with no
@@ -1608,9 +1637,17 @@ struct AnnotationsPane: View {
     /// moves only by the writer's hand. Everything else, including a first stet
     /// and any stet of a note carrying no heading, is the plain stet below,
     /// unchanged.
+    ///
+    /// **The twin is looked for across the PROJECT, in both scopes** (P3 Task
+    /// 8, Denver's ruling A) — the ledger a press may file into is
+    /// project-scope, and a habit shown once in each of two chapters is the
+    /// pattern the second stet is about. The cost is one read of the cached
+    /// project snapshot at the press, which is where a read the writer is
+    /// waiting on can be afforded; the walk itself is `projectSnapshot`'s and
+    /// is already paid for whenever project scope is up.
     private func stet(_ document: Document, _ ann: Annotation) {
         if let heading = QueueLedgerVerbs.secondStetOffer(
-            for: ann, in: document,
+            for: ann, among: projectSnapshot.annotations.map(\.annotation),
             ledgerText: LessonLedgerVerbs.ledgerText(store: store)) {
             setChoiceOffer(ChoiceOffer(
                 annotationId: ann.id, heading: heading,
@@ -1939,6 +1976,11 @@ struct AnnotationRow: View {
     /// shows it — rendered for archived, rejected and (M3 P2) stetted rows.
     var onReopen: () -> Void = {}
     let onJumpToParagraph: () -> Void
+    /// The lessons ledger's markdown as the host last read it — what withdraws
+    /// *Keep as lesson…* over a sentence that already stands (P3 Task 8,
+    /// Denver's ruling B). Defaulted to nil, which is the ledger of a project
+    /// whose writer has kept nothing: every offer stands.
+    var ledgerText: String? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -2244,7 +2286,7 @@ struct AnnotationRow: View {
     /// others.
     @ViewBuilder
     private func keepAsLessonButton(useIcons: Bool) -> some View {
-        if QueueLedgerVerbs.offersAKeep(annotation) {
+        if QueueLedgerVerbs.offersAKeep(annotation, ledgerText: ledgerText) {
             secondary(QueueLedgerVerbs.keepTitle, symbol: "graduationcap",
                       useIcons: useIcons,
                       help: QueueLedgerVerbs.keepHelp,

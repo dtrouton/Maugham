@@ -91,13 +91,18 @@ enum LessonLedgerVerbs {
     ///
     /// **Find-or-create BY HEADING, over ANY entry kind** (P2 fix wave,
     /// finding 2) — `makeChoice`'s idempotence one door over, and wider,
-    /// because the two doors are asked in different states. The letter's own
-    /// Keep is withdrawn by `LessonOffer.keepIsOffered` once the heading
-    /// stands anywhere; the queue's *Keep as lesson…* is a pure annotation
-    /// predicate (`QueueLedgerVerbs.offersAKeep` turns on kind, status and
-    /// authorship alone), so it stays on the row after a press and a second
-    /// press would file the same sentence twice under two dates. A duplicate
-    /// then briefs every later round twice about one thing.
+    /// because the two doors are asked in different states. Both are withdrawn
+    /// once the heading stands anywhere: the letter's own Keep by
+    /// `LessonOffer.keepIsOffered`, and the queue's *Keep as lesson…* by
+    /// `QueueLedgerVerbs.offersAKeep` (P3 Task 8, Denver's ruling B).
+    ///
+    /// **Neither withdrawal makes this one redundant**, which is why it stays.
+    /// The queue's predicate asks about the NOTE's own body; what a press
+    /// actually files is the sentence the writer shortened it to in the sheet,
+    /// and those are different strings whenever the sheet did its job. So the
+    /// row can honestly still be offered over a heading that stands, a second
+    /// press would file the same sentence twice under two dates, and a
+    /// duplicate then briefs every later round twice about one thing.
     ///
     /// Open, a choice, or retired — all three are the writer having already
     /// decided about exactly this sentence, which is `keepIsOffered`'s own

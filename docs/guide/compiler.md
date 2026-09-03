@@ -179,7 +179,8 @@ drew one, otherwise the habit's name — into your ledger (⌘⌥G), dated and
 carrying the letter it came from. Every later check in the project is briefed
 with what stands there, so a lesson you file once is one you stop having to
 remember to mention. A lesson already in the ledger, in any state, stops being
-offered: nothing here files the same sentence twice.
+offered — in the letter, and on your queue's own **Keep as lesson…** when the
+note's words are already the entry: nothing here files the same sentence twice.
 
 The other two verbs belong to a **Fresh Eyes** round, because they're claims
 about the whole piece rather than about what changed. **These are all choices**
