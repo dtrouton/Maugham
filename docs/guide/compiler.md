@@ -250,19 +250,19 @@ nothing for the draft to trail.
 ## What Maugham counts
 
 Beside what you've declared, Maugham quietly counts how you actually work —
-off nothing but the op log, no model involved. Three numbers: how many
-sessions since your **frontier** (the newest page you've actually drafted
-forward, not just revised) last moved, how many times in its last five
-sessions a paragraph has been reworked, and how long you've been away. None
-of it reaches the footer, the tree or the editor — it shows up in exactly two
-places: the Statistics window's **Practice** section, where every row is a
-jump to the chapter it's about, and the letter's own quiet line, *From
-Maugham's numbers*.
+off nothing but your own edit history, no model involved. Three numbers: how
+many sessions since your **frontier** (the newest page you've actually
+drafted forward, not just revised) last moved, how many times in the piece's
+last five sessions a paragraph has been reworked, and how long you've been
+away. None of it reaches the footer, the tree or the editor — it shows up in
+exactly two places: the **Practice** section of the Statistics window (menu:
+**File → Show Project Statistics**), where every row is a jump to the chapter
+it's about, and the letter's own quiet line, *From Maugham's numbers*.
 
 Most weeks are quiet, and a quiet session says nothing at all: the frontier
 has to sit still for **3 sessions running**, or one paragraph has to be
-reworked **5 times within its last 5 sessions**, before there's a sentence
-to write about it — coming back after two weeks away earns one too.
+reworked **5 times within the piece's last 5 sessions**, before there's a
+sentence to write about it — coming back after two weeks away earns one too.
 
 ## Rounds
 

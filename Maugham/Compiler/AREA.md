@@ -137,12 +137,21 @@ folds into `briefingHashInput`** (constraint 25) — the stage flips the moment 
 writer stops adding and starts rewriting, and the process numbers move with
 the writer's own week, so hashing either would re-embed the essay, the
 declared world and the bible slice on an ordinary round. `letterInstruction`'s
-`process` sentence is the one exception, measured into the 715-word budget
-(651 → 635 once tightened → 654 with the sentence back). The lane word has one
+`process` sentence is standing text rather than per-run frame — it tells the
+model what the `Process` heading MEANS, once, the same way the rest of
+`letterInstruction` explains every part — so it IS measured into the 715-word
+budget (651 → 635 once tightened → 654 with the sentence back), unlike
+`stageSection`/`processSection` themselves. The lane word has one
 source, `DraftStage.laneWord`, read by exactly `ReviewRoundCockpit.swift` and
-`LetterSection.swift` (a `.laneWord` census with a planted offender) and
-appended only beside a NAMED round — never over the coach's un-rounded
-introduction. `LetterKeep.laneLine` reads the stage off the letter's own
+`LetterSection.swift` (a `.laneWord` census with a planted offender). The two
+readers do not share one rule: `ReviewRoundCockpit.stageWord` appends it only
+beside a NAMED round — never over the coach's un-rounded introduction, because
+that line names who reads the piece, not a run's result — while
+`LetterSection.signature` appends it whenever a stage was derived, round or
+not, because the signature is built off the one run that wrote this letter
+and that run's stage is its own fact (RULING-R14b; a passless run still signs
+"— Claude · revising", `LetterSectionTests.test_theSignatureCarriesTheStageTheRunDerived`).
+`LetterKeep.laneLine` reads the stage off the letter's own
 stamp rather than re-deriving it, so a kept letter names the stage the run
 that wrote it saw; `QueueLedgerVerbs.provenance` passes `stage: nil`, because
 an annotation filed from the queue carries no run of its own to have derived
@@ -441,7 +450,7 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `CompilerEnvironment+Project.swift` | The production wiring — the window's stores, as the closures the orchestrator runs on. Every capture is weak. `pinnedListing` carries the resolved `PinnedShelf`'s own grouping into the briefing through `pinnedListingLines`: one `pinnedListingLine` per pin, with a `## <title>` line ahead of each TITLED section and no header over an untitled one, so a run reads the same arrangement the References pane draws |
 | `DeltaBuilder.swift` | What changed since the last run's marker, in the writer's order (`sequence`, never raw `paragraphs`) |
 | `Letter.swift` | The sixth section's own shape: `Working`/`Habit`/`Question`/`Scene`, the ledger's own two fields (a `Question`'s `lessonHeading` — the habit it was raised under, matched app-side on the habit's `name`, stamped with its `ledgerHeading` and `nil` on a near-miss — and the letter-wide `retired`, read through `retiredHeadings`); `Habit.ledgerHeading` is the ONE rule for what a habit is called in the ledger, and both the parse and `LessonOffer.lessonHeading(for:)` read it rather than spelling it. Two things a part can be missing are distinct (`scenes == nil` is a piece that does not move by scenes; `[]` is a table with no rows). Codable is synthesized — every part but `about` is optional, so a P2/P3 addition falls out through `decodeIfPresent` — and `isEmpty` is what every surface asks rather than `letter != nil`, because `about` is always present |
-| `ProcessSignals.swift` | The writer's own process, pure over `(ops, sequence, now)` (spec §5, P3 constraint 20): sessions, the frontier (latest `.typingBurst` mint still in `sequence`, ties within one op by position rather than change order — R15), churn hotspots (rewrites over the last `churnWindowSessions` sessions), `sessionsSinceFrontierMoved`, `daysAway`, and `noteworthy` — a plain threshold over these, and the whole of the judgement |
+| `ProcessSignals.swift` | The writer's own process, pure over `(ops, sequence, now)` (spec §5, P3 constraint 20): sessions, the frontier (latest `.typingBurst` mint still in `sequence`, ties within one op by position rather than change order — R15), churn hotspots (rewrites over the last `churnWindowSessions` sessions, counted on a wider allowlist than the frontier's — `.typingBurst` OR `.claudeAccept`, since taking Claude's suggested change is still the writer revising), `sessionsSinceFrontierMoved`, `daysAway`, and `noteworthy` — a plain threshold over these, and the whole of the judgement |
 | `DraftStage.swift` | `.drafting`/`.revising`, derived from `DeltaCounts` and the signals, never set or stored anywhere but `Letter.stage`; `LetterDosage` (`.short` caps questions, drops the exercise, reads scenes as `nil`; Fresh Eyes is always `.full`) |
 | `LetterMarkdown.swift` | **The letter as prose the writer keeps** (spec §3.6). One render, two hosts, one note: the heading carries the voice, the day and the lane line; the parts are `##` sections in the schema's reading order under `LetterSection`'s own copy constants; a ref is the paragraph's words in italics and never a join key. `scrubbed` is the one gate every emitted string passes, so a model's leaked anchor cannot ride into a research note |
 | `ScenePosition.swift` | What form the letter's scene table takes, derived app-side from the project type, the writer's whole intent statement and the pass brief (spec §3.4). Two closed phrase lists — the opt-out and the turn clause — and one rule about which wins. Its raw values reach disk through `Letter.scenePosition` |
