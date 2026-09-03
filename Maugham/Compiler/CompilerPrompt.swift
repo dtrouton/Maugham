@@ -194,7 +194,7 @@ enum CompilerPrompt {
         spelled as briefed. retired lists every briefed lesson you looked \
         for and did not find, verbatim, and is empty when there are none. \
         process is one sentence in your own words from the numbers under \
-        Process, and null when none were given.
+        \(processHeading), and null when none were given.
         """
 
     /// Sent once, when the warm session is spawned — never repeated per run.
@@ -246,6 +246,15 @@ enum CompilerPrompt {
     /// **The ledger's member is the rendered section, not its markdown** —
     /// see `briefingHashInput`, where the reason lives.
     ///
+    /// `freshEyes` reaches the prompt for one thing only: `stageSection` has
+    /// to state the dose that `DiagnosticIngest` will actually enforce, and a
+    /// cold read is always the full letter whatever the stage. **This is the
+    /// first time the flag crosses into `CompilerPrompt`** — everything else a
+    /// fresh-eyes run does differently, it does by omission (no round section,
+    /// no dispositions), which is why the parameter did not exist until P3.
+    /// Do not grow a second use of it here without saying why: "cold read" is
+    /// a fact about the RUN, and the sections are about the piece.
+    ///
     /// `previousRound` is per-run state and is **never** part of that hash —
     /// see `roundSection`. Defaulted because "there is no previous round" is
     /// the ordinary answer (round 1 of a lane, a passless ⌘R, a fresh-eyes
@@ -262,6 +271,7 @@ enum CompilerPrompt {
         ask: String? = nil,
         lessons: String? = nil,
         stage: DraftStage? = nil,
+        freshEyes: Bool = false,
         signals: ProcessSignals? = nil,
         previousBriefingHash: String?
     ) -> (message: String, briefingHash: String?) {
@@ -333,7 +343,7 @@ enum CompilerPrompt {
         // The stage is written on every production run; the numbers only when
         // a plain threshold was crossed. A quiet session says nothing at all
         // rather than saying there is nothing to say.
-        if let stageSection = stageSection(stage) {
+        if let stageSection = stageSection(stage, freshEyes: freshEyes) {
             sections.append(stageSection)
         }
         if let processSection = processSection(signals) {
@@ -635,9 +645,26 @@ enum CompilerPrompt {
     /// the delta, so it flips the first round the writer stops adding and
     /// starts rewriting — a hash covering it would re-embed the essay, the
     /// declared world and the bible slice on exactly that round.
-    static func stageSection(_ stage: DraftStage?) -> String? {
+    /// **`freshEyes` is the second half of the answer, not a detail.** The dose
+    /// is `stage.dosage(freshEyes:)`, and that function answers `.full` on a
+    /// cold read whatever the stage — so a drafting piece read with ⌘⇧R is
+    /// enforced full at ingest, and a section that told it to write the short
+    /// letter would be asking for one thing while allowing another with nothing
+    /// else in the message to say which wins. The two ends state the same dose
+    /// or neither is trustworthy (global constraint 24).
+    static func stageSection(_ stage: DraftStage?, freshEyes: Bool) -> String? {
         guard let stage else { return nil }
         switch stage {
+        case .drafting where freshEyes:
+            return """
+                Draft stage: drafting, and this is a cold read. Most of what \
+                changed is new prose and the frontier moved this session, but \
+                Fresh Eyes rereads the whole piece from nothing, and a cold \
+                read is always the FULL letter: about, working, habits with \
+                their exercise, questions, and the scenes table your scene \
+                position allows. The short letter belongs to the ordinary \
+                round; this is not one.
+                """
         case .drafting:
             return """
                 Draft stage: drafting. The frontier moved this session and most \
@@ -661,8 +688,15 @@ enum CompilerPrompt {
 
     // MARK: - The process numbers (P3 Task 4, spec §5)
 
-    /// What the section is called, so `letterInstruction` can point at it
-    /// ("the numbers under Process") and the coach's brief can name it.
+    /// What the section is called, and the one spelling of it on this side of
+    /// the seam: `letterInstruction` interpolates it ("the numbers under
+    /// \(processHeading)") rather than restating the word, so a rename cannot
+    /// leave the schema pointing at a heading that no longer exists.
+    ///
+    /// The coach's brief names it too, and CANNOT interpolate — `ReviewPass`
+    /// lives in MaughamCore, which does not see this type. That spelling is
+    /// held by `CompilerPromptTests.test_theCoachsBriefNamesTheProcessNumbers\
+    /// Declaratively`, which pins her sentence whole.
     static let processHeading = "Process"
 
     /// The section's own first line — the heading, plus what these numbers are

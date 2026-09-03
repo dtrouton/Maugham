@@ -5847,6 +5847,15 @@ final class CompilerRunCommandTests: XCTestCase {
     /// mostly new and the frontier moved this session, so it reads as drafting
     /// — but a cold read is the classic whole-piece letter and its dosage is
     /// `.full`, so all three questions survive.
+    ///
+    /// Disable experiment (fix round 1): dropped `stageSection`'s
+    /// `case .drafting where freshEyes` arm, so a cold read was briefed with
+    /// the warm short dose while ingest still let everything through. This
+    /// test failed at its `XCTAssertFalse(message.contains(…freshEyes: false))`
+    /// line, and so did
+    /// `CompilerPromptTests.test_aColdReadIsNeverBriefedWithTheShortDose`.
+    /// The three-question assertion above stayed green throughout, which is
+    /// the point: the enforcement half never noticed.
     func test_aFreshEyesDraftingRunStampsDraftingAndStillIngestsTheFullLetter() throws {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: draftingReading())
@@ -5862,6 +5871,23 @@ final class CompilerRunCommandTests: XCTestCase {
                        + "does not change what the writer has been doing")
         XCTAssertEqual(run.letter?.questions.count, 3,
                        "…but Fresh Eyes is always the full letter")
+
+        // **And it was ASKED for the full letter, not merely allowed one**
+        // (global constraint 24, fix round 1). `beginRun` passes its own
+        // fresh-eyes flag to the prompt for this and nothing else: brief the
+        // warm short dose over a run ingest lets through whole and the model
+        // writes one question because it was told to, while the writer loses
+        // two they were entitled to. Only the delivery path can see this —
+        // `stageSection` cannot know what `beginRun` did with the flag.
+        let message = try XCTUnwrap(runner.sends.first?.message)
+        XCTAssertFalse(
+            message.contains(try XCTUnwrap(
+                CompilerPrompt.stageSection(.drafting, freshEyes: false))),
+            "the warm short-dose text reached a cold read; got \(message)")
+        XCTAssertTrue(
+            message.contains(try XCTUnwrap(
+                CompilerPrompt.stageSection(.drafting, freshEyes: true))),
+            "…and the cold-read arm is what it got instead; got \(message)")
     }
 
     /// **The model is TOLD its stage** — the run message carries the section,
@@ -5876,7 +5902,8 @@ final class CompilerRunCommandTests: XCTestCase {
 
         let message = try XCTUnwrap(runner.sends.first?.message)
         XCTAssertTrue(
-            message.contains(try XCTUnwrap(CompilerPrompt.stageSection(.drafting))),
+            message.contains(try XCTUnwrap(
+                CompilerPrompt.stageSection(.drafting, freshEyes: false))),
             "got \(message)")
     }
 

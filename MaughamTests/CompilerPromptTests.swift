@@ -726,7 +726,7 @@ final class CompilerPromptTests: XCTestCase {
     /// (spec §3.8). A first draft in motion should not be line-edited, and the
     /// model is told that in the same breath as what it is allowed to write.
     func test_theDraftingStageNamesItselfAndDosesTheLetter() {
-        guard let section = CompilerPrompt.stageSection(.drafting)
+        guard let section = CompilerPrompt.stageSection(.drafting, freshEyes: false)
         else { return XCTFail("a stage the run derived must reach the model") }
 
         XCTAssertTrue(section.lowercased().contains("drafting"),
@@ -748,7 +748,7 @@ final class CompilerPromptTests: XCTestCase {
     /// the only thing that can shorten an answer is the model deciding to —
     /// which is exactly what this sentence forbids.
     func test_theDraftingStageStillAnswersTheWritersAskInFull() {
-        guard let section = CompilerPrompt.stageSection(.drafting)
+        guard let section = CompilerPrompt.stageSection(.drafting, freshEyes: false)
         else { return XCTFail("a stage the run derived must reach the model") }
         XCTAssertTrue(section.lowercased().contains("in full"),
                       "an ask is answered in full whatever the stage; got \(section)")
@@ -761,7 +761,7 @@ final class CompilerPromptTests: XCTestCase {
     /// and a run that named revising would otherwise read identically to the
     /// model, and the stage is a fact it is entitled to.
     func test_theRevisingStageAsksForTheWholeLetter() {
-        guard let section = CompilerPrompt.stageSection(.revising)
+        guard let section = CompilerPrompt.stageSection(.revising, freshEyes: false)
         else { return XCTFail("a stage the run derived must reach the model") }
         XCTAssertTrue(section.lowercased().contains("revising"))
         XCTAssertTrue(section.lowercased().contains("full letter"),
@@ -777,7 +777,9 @@ final class CompilerPromptTests: XCTestCase {
     /// with `switch stage ?? .revising`, so an absent stage wrote the revising
     /// arm. This test failed at its one `XCTAssertNil` line.
     func test_noStageIsNoSectionAtAll() {
-        XCTAssertNil(CompilerPrompt.stageSection(nil))
+        XCTAssertNil(CompilerPrompt.stageSection(nil, freshEyes: false))
+        XCTAssertNil(CompilerPrompt.stageSection(nil, freshEyes: true),
+                     "…and a cold read with no stage is the same silence")
     }
 
     /// **The dosage doctrine is measured, and deliberately NOT inside
@@ -793,7 +795,7 @@ final class CompilerPromptTests: XCTestCase {
     /// for a paragraph: this text rides every drafting round, which on a
     /// writer mid-draft is most of them.
     func test_theDraftingDosageStaysUnderItsOwnWordCeiling() {
-        guard let section = CompilerPrompt.stageSection(.drafting)
+        guard let section = CompilerPrompt.stageSection(.drafting, freshEyes: false)
         else { return XCTFail("a stage the run derived must reach the model") }
         let words = section.split(whereSeparator: { $0.isWhitespace }).count
         XCTAssertLessThan(words, 120,
@@ -858,26 +860,79 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertTrue(cold.contains("21"), "days away; got \(cold)")
     }
 
-    /// Their place in the message: after the scene position, before the round
-    /// section — the stage first, then the numbers behind it. Both are frame
-    /// for the delta rather than part of it, exactly as their neighbours are.
-    func test_theStageAndTheProcessSitBetweenTheScenePositionAndTheDelta() {
+    /// Their place in the message: after the scene position and **before the
+    /// round section** — the stage first, then the numbers behind it. Both are
+    /// frame for the delta rather than part of it, exactly as their neighbours
+    /// are, and global constraint 25 names the round section rather than the
+    /// delta as the bound: a section that drifted past the round would still
+    /// sit above the delta and read as correct here.
+    ///
+    /// So the message is built WITH a previous round, which is the only way
+    /// that section exists to be measured against.
+    func test_theStageAndTheProcessSitBetweenTheScenePositionAndTheRound() {
         let (message, _) = CompilerPrompt.runMessageV2(
             delta: makeDelta(new: [.init(paragraphId: "p1", text: "The fog came.")]),
             world: nil, essay: nil, bibleFacts: [],
             paletteListing: [], pinnedListing: [],
             pass: lane("copyedit"), scenePosition: .weak,
+            previousRound: makePriorRound(notes: [Self.untouchedQuestion]),
             stage: .drafting, signals: stalledSignals(),
             previousBriefingHash: nil)
         guard let scenes = message.range(
                 of: CompilerPrompt.scenePositionSection(.weak) ?? "!"),
-              let stage = message.range(of: CompilerPrompt.stageSection(.drafting) ?? "!"),
+              let stage = message.range(
+                of: CompilerPrompt.stageSection(.drafting, freshEyes: false) ?? "!"),
               let process = message.range(of: CompilerPrompt.processSectionOpening),
+              let round = message.range(of: "raised these notes"),
               let delta = message.range(of: "This run's delta:")
-        else { return XCTFail("expected all four; got \(message)") }
+        else { return XCTFail("expected all five; got \(message)") }
         XCTAssertLessThan(scenes.lowerBound, stage.lowerBound)
         XCTAssertLessThan(stage.lowerBound, process.lowerBound)
-        XCTAssertLessThan(process.lowerBound, delta.lowerBound)
+        XCTAssertLessThan(process.lowerBound, round.lowerBound)
+        XCTAssertLessThan(round.lowerBound, delta.lowerBound)
+    }
+
+    /// **A cold read is briefed on the dose it will actually be held to.**
+    ///
+    /// `stage.dosage(freshEyes:)` answers `.full` on ⌘⇧R whatever the stage, so
+    /// a drafting piece read cold is enforced full at ingest. Brief it with the
+    /// warm drafting arm and the run asks for one letter and permits another,
+    /// with nothing else in the message to say which wins — the model would
+    /// write one question because it was told to, and the writer would lose two
+    /// it was entitled to (global constraint 24: both ends, never one).
+    ///
+    /// Disable experiment: dropped the `case .drafting where freshEyes` arm so
+    /// both drafting runs got the short-dose text. This test failed at its
+    /// `XCTAssertFalse(cold.contains(shortDose))` line; the warm control below
+    /// it stayed green, which is what makes the pair a discriminator rather
+    /// than a pair of assertions about the same thing.
+    func test_aColdReadIsNeverBriefedWithTheShortDose() {
+        guard let shortDose = CompilerPrompt.stageSection(.drafting, freshEyes: false)
+        else { return XCTFail("the warm drafting arm went missing") }
+
+        func message(freshEyes: Bool) -> String {
+            CompilerPrompt.runMessageV2(
+                delta: makeDelta(new: [.init(paragraphId: "p1", text: "The fog came.")]),
+                world: nil, essay: nil, bibleFacts: [],
+                paletteListing: [], pinnedListing: [],
+                stage: .drafting, freshEyes: freshEyes,
+                previousBriefingHash: nil).message
+        }
+
+        let cold = message(freshEyes: true)
+        XCTAssertFalse(cold.contains(shortDose),
+                       "a Fresh Eyes run ingests the full letter, so it must "
+                       + "not be asked for the short one; got \(cold)")
+        XCTAssertTrue(cold.lowercased().contains("cold read"),
+                      "…and it is told what it is instead; got \(cold)")
+        XCTAssertTrue(cold.lowercased().contains("drafting"),
+                      "…while the stage itself is still a fact about the "
+                      + "delta and is still named; got \(cold)")
+
+        XCTAssertTrue(message(freshEyes: false).contains(shortDose),
+                      "control: the ordinary warm round still gets the short "
+                      + "dose, so the assertion above is reading the flag "
+                      + "rather than a section that stopped being written")
     }
 
     /// **The stage never folds into the briefing hash** (global constraint 25,
@@ -913,7 +968,8 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertTrue(secondMessage.lowercased().contains("unchanged"))
         XCTAssertFalse(secondMessage.contains("Essay text."))
         XCTAssertTrue(
-            secondMessage.contains(CompilerPrompt.stageSection(.revising) ?? "!"),
+            secondMessage.contains(
+                CompilerPrompt.stageSection(.revising, freshEyes: false) ?? "!"),
             "…and the stage still travels")
     }
 
@@ -2015,9 +2071,6 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertFalse(workshop.contains("Shown that the frontier"),
                        "the conditional spelling is gone, not shadowed by a "
                        + "second sentence; got \(workshop)")
-        XCTAssertTrue(workshop.contains(CompilerPrompt.processHeading),
-                      "she is told what the section is called, because that is "
-                      + "how she finds the numbers; got \(workshop)")
     }
 
     // MARK: - The briefing carries the shelf's grouping (references-shelf, Task 3)

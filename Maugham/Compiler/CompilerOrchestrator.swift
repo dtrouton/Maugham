@@ -911,6 +911,10 @@ final class CompilerOrchestrator {
                 ask: ask,
                 lessons: lessons,
                 stage: stage,
+                // The one thing the prompt needs the flag for: a cold read is
+                // always the full letter, so the stage section must not ask
+                // for the short one over a run ingest will let through whole.
+                freshEyes: freshEyes,
                 signals: signals,
                 previousBriefingHash: previousHash)
 
