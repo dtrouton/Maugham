@@ -766,6 +766,126 @@ final class TripwireGrepTests: XCTestCase {
             + "see it")
     }
 
+    // MARK: - The process signals have two surfaces (editorial letter P3, constraint 29)
+
+    /// The files under `Maugham/Views/` that may name `ProcessSignals` or
+    /// `ProjectPractice`: the `statistics/` directory, which IS the Practice
+    /// section; `ProjectStatisticsWindow.swift`, that section's own host, which
+    /// derives the value and hands it down; and `LetterSection.swift`, the
+    /// letter's own surface, whose register note names the type it must never
+    /// say out loud.
+    private static let processSignalsSurfaces: Set<String> = [
+        "ProjectStatisticsWindow.swift", "LetterSection.swift",
+    ]
+
+    /// Every mention of the process signals under `dir`, as `file:line: text`.
+    ///
+    /// A MENTION, not a read: a doc comment counts. Constraint 29 is about
+    /// where these numbers may appear at all, so a file that has started
+    /// talking about them is the thing worth catching, whichever side of a
+    /// `//` it is on.
+    ///
+    /// `exempting` is a parameter rather than a constant so the production
+    /// check can run the SAME scan with nothing exempted and prove the census
+    /// is looking at something.
+    private func processSignalsSites(
+        in dir: URL, exempting: Set<String> = processSignalsSurfaces
+    ) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var sites: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            // The whole `statistics/` directory is the surface, so it is
+            // exempted by PATH rather than by listing its files — a section
+            // added beside `PracticeSection` is part of the same surface.
+            if url.pathComponents.contains("statistics") { continue }
+            if exempting.contains(url.lastPathComponent) { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (index, line) in text
+                .split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let lineText = String(line)
+                guard lineText.contains("ProcessSignals")
+                        || lineText.contains("ProjectPractice") else { continue }
+                sites.append(
+                    "\(url.lastPathComponent):\(index + 1): "
+                    + lineText.trimmingCharacters(in: .whitespaces))
+            }
+        }
+        return sites
+    }
+
+    /// **The signals reach two surfaces and no others** (global constraint 29,
+    /// spec §5, constitution must #2). The Statistics window's Practice section
+    /// and the briefing/letter — never the footer, the tree, the editor or a
+    /// badge.
+    ///
+    /// The rule is a rule about the WRITER'S ATTENTION, not about tidiness: a
+    /// number telling someone their frontier has not moved in three sessions is
+    /// a judgement, and a judgement that follows them around the window while
+    /// they are trying to write is the thing must #2 forbids. It reaches them
+    /// in the window they opened and the letter they asked for, or not at all.
+    func test_theProcessSignalsNameThemselvesOnTwoSurfacesOnly() throws {
+        let viewsDir = sourceDir.appendingPathComponent("Views", isDirectory: true)
+
+        // **Non-vacuous by construction**: the same scan with nothing exempted
+        // must find the exempt files themselves. A scanner that had stopped
+        // matching — a renamed type, a narrowed walk — would answer the empty
+        // set here and the assertion below would go on passing for the wrong
+        // reason.
+        let unexempted = try processSignalsSites(in: viewsDir, exempting: [])
+        XCTAssertEqual(
+            Set(unexempted.compactMap { $0.split(separator: ":").first.map(String.init) }),
+            Self.processSignalsSurfaces,
+            "the census stopped seeing the files it is written around. Sites:\n"
+            + unexempted.joined(separator: "\n"))
+
+        let offenders = try processSignalsSites(in: viewsDir)
+        XCTAssertTrue(offenders.isEmpty,
+            "the process signals must not reach a third surface under "
+            + "Maugham/Views/ (global constraint 29): they are read in the "
+            + "Statistics window's Practice section and in the letter, and "
+            + "nowhere else \u{2014} not the footer, not the tree, not the "
+            + "editor, not a badge. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: a planted badge is caught, and neither
+    /// exemption shape is.
+    func test_theProcessSignalsCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-process-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(
+            at: tmp.appendingPathComponent("statistics"), withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct EditorStatusFooter: View {
+            let signals: ProcessSignals
+        }
+        """.write(to: tmp.appendingPathComponent("EditorStatusFooter.swift"),
+                  atomically: true, encoding: .utf8)
+        // CONTROLS: the surface's own directory, and a named exemption.
+        try "struct AnotherSection { let practice: ProjectPractice? }"
+            .write(to: tmp.appendingPathComponent("statistics/AnotherSection.swift"),
+                   atomically: true, encoding: .utf8)
+        try "// LetterSection names ProcessSignals only to say it never draws it."
+            .write(to: tmp.appendingPathComponent("LetterSection.swift"),
+                   atomically: true, encoding: .utf8)
+
+        let sites = try processSignalsSites(in: tmp)
+        XCTAssertEqual(
+            sites.count, 1,
+            "Self-check: the planted footer should be the one caught, and "
+            + "neither the statistics/ file nor the exempt letter. Got:\n"
+            + sites.joined(separator: "\n"))
+        XCTAssertTrue(
+            sites.first?.hasPrefix("EditorStatusFooter.swift:2") == true,
+            sites.first ?? "nothing caught")
+    }
+
     // MARK: - The stage word has one source (editorial letter P3, constraint 28)
 
     /// Every READ of `DraftStage.laneWord` under `dir`, as `file:line: text`.

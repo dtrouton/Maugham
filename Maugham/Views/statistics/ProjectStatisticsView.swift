@@ -4,6 +4,12 @@ import MaughamCore
 struct ProjectStatisticsView: View {
     @Bindable var store: ProjectStore
     let sessionLog: SessionLog
+    /// The writer's process across the book (editorial letter P3, spec §5
+    /// surface 1). `nil` while the window is still walking the op logs — a
+    /// value the view passes straight through, because "still reading" and
+    /// "nothing to show" are two different sentences and `PracticeSection`
+    /// owns both.
+    let practice: ProjectPractice?
     let onSelectChapter: (String) -> Void
 
     var body: some View {
@@ -20,6 +26,9 @@ struct ProjectStatisticsView: View {
                     onSelectChapter: onSelectChapter)
                 RecentSessionsSection(
                     events: sessionLog.eventsRecent(limit: 50))
+                PracticeSection(
+                    practice: practice,
+                    onSelectChapter: onSelectChapter)
             }
             .padding(24)
         }
