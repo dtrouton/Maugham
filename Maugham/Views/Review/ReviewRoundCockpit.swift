@@ -124,7 +124,18 @@ struct ReviewRoundCockpit: View {
     /// **The stage the last run derived, for the lane line's own word**
     /// (editorial letter P3, spec §3.8). `Letter.draftStage` — the ONE
     /// conversion from the stored raw — off the same run `letterLine` is built
-    /// from, so the number and the word on that line are one run's.
+    /// from.
+    ///
+    /// **The number and the word on that line do not always come from the same
+    /// run, and the difference shows on a lane switch.** The stage is the last
+    /// RUN's, whatever pass that run was in; the round is the LANE's
+    /// (`AnnotationsPane.cockpitRound` → `DiagnosticsStore.latestRound(forPass:docId:)`,
+    /// which answers the standing run's round when its pass matches and
+    /// otherwise falls back to the newest round in the ring for that pass). So
+    /// selecting a pass the writer has not run since some other pass's rounds
+    /// stacked up shows that pass's own round beside the stage of a run filed
+    /// in a different lane. Both are honest facts about the piece; neither is
+    /// "the last run's" on its own.
     ///
     /// Defaulted for `letterLine`'s reason: every probe mount predates it and
     /// keeps compiling with a strip that simply names no stage.

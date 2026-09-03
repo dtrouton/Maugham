@@ -688,6 +688,14 @@ final class CompilerOrchestrator {
         // same reason: a ⌘R with nothing new is not a round, and observing the
         // writer's practice for a check that never happened would put numbers
         // behind a letter nobody is going to read.
+        //
+        // `DeltaBuilder.ordered` therefore runs TWICE per ⌘R — once inside
+        // `DeltaBuilder.delta` above and once inside this initializer — and
+        // that is accepted rather than overlooked: it measured 1 ms, and the
+        // two readers are independent pure values over the same ops. Handing
+        // both a pre-sorted array would couple the delta's shape to the
+        // signals' and give a later change to one a way to move the other
+        // silently. Revisit only if it stops being 1 ms.
         let signals = ProcessSignals(
             ops: reading.ops, sequence: reading.sequence, now: Date())
         // **The stage is derived, never set** (global constraint 23, spec

@@ -40,6 +40,14 @@ struct ProcessSignals: Equatable, Sendable {
     /// One sitting: a run of manuscript ops with no session change and no idle
     /// gap inside it. `index` is 0-based in file order, so the latest session
     /// is `sessions.count - 1`.
+    ///
+    /// **A `.bootstrap` op forms a session and never moves the frontier**
+    /// (ruling R2), and the consequence is worth stating rather than
+    /// rediscovering: importing a finished chapter adds a sitting whose ops
+    /// mint nothing the frontier will accept, so `sessionsSinceFrontierMoved`
+    /// goes up by one on an import. That is the intended reading — the writer
+    /// sat down and did not push the writing forward — not a defect in the
+    /// count.
     struct Session: Equatable, Sendable {
         let index: Int
         let startedAt: Date

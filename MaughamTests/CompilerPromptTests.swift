@@ -803,6 +803,34 @@ final class CompilerPromptTests: XCTestCase {
             + "run, so growth here is a conscious cost")
     }
 
+    /// **The COLD drafting arm has the same ceiling, and needed one for the
+    /// same reason.** `stageSection` has two drafting arms — the warm one
+    /// above and the Fresh-Eyes one, which is the longer piece of doctrine
+    /// (it has to say the stage, the reason, that a cold read is always the
+    /// full letter, and what the full letter contains). Only the warm arm was
+    /// pinned when P3 landed, so the arm with more to say was the one nothing
+    /// stopped from growing.
+    ///
+    /// **Measured at 67 words** when this pin landed. Same ceiling as its
+    /// sibling: they are two spellings of one instruction and a budget that
+    /// differed between them would be arbitrary.
+    ///
+    /// Disable experiment: doubled the arm's text by appending a copy of
+    /// itself to the `.drafting where freshEyes` case. This test failed —
+    /// `CompilerPromptTests.swift: XCTAssertLessThan failed: ("134") is not
+    /// less than ("120") - the Fresh-Eyes drafting arm measures 134 words` —
+    /// and `test_theDraftingDosageStaysUnderItsOwnWordCeiling` stayed green,
+    /// which is the gap this test closes.
+    func test_theFreshEyesDosageStaysUnderTheSameWordCeiling() {
+        guard let section = CompilerPrompt.stageSection(.drafting, freshEyes: true)
+        else { return XCTFail("a stage the run derived must reach the model") }
+        let words = section.split(whereSeparator: { $0.isWhitespace }).count
+        XCTAssertLessThan(words, 120,
+            "the Fresh-Eyes drafting arm measures \(words) words; it rides "
+            + "every cold read of a piece mid-draft, so growth here is a "
+            + "conscious cost")
+    }
+
     /// **A quiet session produces no line at all** (spec §5). The whole point
     /// of the threshold is that Maugham says nothing about the writer's
     /// process most of the time — a `Process` heading over "the frontier moved

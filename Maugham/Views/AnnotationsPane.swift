@@ -737,11 +737,14 @@ struct AnnotationsPane: View {
                 // Author draws, wired to this pane's document and project.
                 letterLine: ReviewRoundCockpit.letterLine(
                     cockpitLetter(diagnostics, docId: document.docId)),
-                // **The stage beside the round, both the last run's** (P3 Task
-                // 5, global constraint 28). Read off the run rather than
-                // `cockpitLetter`, which drops a letter with nothing in it: a
-                // run can derive a stage and still write a letter that says
-                // nothing, and the lane line is about the RUN.
+                // **The stage beside the round — the last RUN's stage, the
+                // LANE's round** (P3 Task 5, global constraint 28). Read off
+                // the run rather than `cockpitLetter`, which drops a letter
+                // with nothing in it: a run can derive a stage and still write
+                // a letter that says nothing, and the stage is about the RUN.
+                // The round beside it is `cockpitRound`'s, which is about the
+                // selected pass — see `ReviewRoundCockpit.stage` for when the
+                // two come from different runs.
                 stage: cockpitStage(diagnostics, docId: document.docId),
                 letterDisclosure: cockpitLetter(diagnostics, docId: document.docId)
                     .map { letter in
