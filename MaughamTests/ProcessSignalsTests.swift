@@ -235,6 +235,35 @@ final class ProcessSignalsTests: XCTestCase {
         XCTAssertEqual(signals.frontier?.sessionIndex, 0)
     }
 
+    /// **Within one op, position breaks the tie — not the id** (RULING R15).
+    /// `PendingBuffer.snapshot()` (`Maugham/OpLog/PendingBuffer.swift:100`)
+    /// sorts a burst's changes alphabetically by paragraph id, so one burst
+    /// that opens two paragraphs hands them over in an order that says nothing
+    /// about the manuscript. The fixture's ids sort OPPOSITE to their sequence
+    /// order for exactly that reason: "aaaa" then "zzzz" is what the buffer
+    /// would emit, and the manuscript puts "zzzz" first.
+    ///
+    /// **Disable experiment.** With the tie-break dropped and the op's changes
+    /// read in reverse for the first mint (the shape before this ruling), this
+    /// test failed at the first assertion: `XCTAssertEqual failed:
+    /// ("Optional("zzzz")") is not equal to ("Optional("aaaa")") - the writer
+    /// drafting forward ended at the later paragraph, whatever its id sorts
+    /// like`.
+    func test_oneBurstsTwoMintsTieBreakByPositionAndNotById() {
+        let ops = [
+            makeOp(opId: "op01", at: minutes(0),
+                   changes: [mint("aaaa"), mint("zzzz")]),
+        ]
+
+        let signals = ProcessSignals(ops: ops, sequence: ["zzzz", "aaaa"],
+                                     now: minutes(1))
+
+        XCTAssertEqual(signals.frontier?.paragraphId, "aaaa",
+                       "the writer drafting forward ended at the later "
+                       + "paragraph, whatever its id sorts like")
+        XCTAssertEqual(signals.frontier?.position, 1)
+    }
+
     /// **A rewind is not writing.** `Restore.makeRestoreOp` writes
     /// `prior: curr`, and `curr` is nil for a paragraph the restore reinstates,
     /// so a `.checkpointRestore` carries a change that looks exactly like a

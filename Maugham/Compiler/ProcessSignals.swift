@@ -192,23 +192,35 @@ struct ProcessSignals: Equatable, Sendable {
 
     /// The frontier is the LATEST mint in op order whose paragraph is still in
     /// `sequence`; `nil` is a legitimate answer.
+    ///
+    /// **Within one op the tie-break is sequence position, not change order**
+    /// (RULING R15). `PendingBuffer.snapshot()` sorts a burst's changes
+    /// alphabetically by paragraph id, so a burst that opened two paragraphs
+    /// offers them in an order that says nothing about the manuscript — reading
+    /// the last of them would hand the frontier to whichever id happens to sort
+    /// higher. The writer drafting forward ended at the paragraph further down
+    /// the document, so that is the one that holds it. Across ops, op order
+    /// still decides.
     private static func frontier(
         in ordered: [Op],
         position: [String: Int],
         sessionIndexByOpId: [String: Int]
     ) -> Frontier? {
         for op in ordered.reversed() where mintsTheFrontier(op.kind) {
-            for change in op.changes.reversed() where change.prior == nil {
-                // No position is no longer in `sequence` — a paragraph typed
-                // and then cut is not where the writing stands.
-                guard let position = position[change.paragraphId],
-                      let sessionIndex = sessionIndexByOpId[op.opId] else { continue }
-                return Frontier(
-                    paragraphId: change.paragraphId,
-                    position: position,
-                    sessionIndex: sessionIndex,
-                    at: op.at)
-            }
+            guard let sessionIndex = sessionIndexByOpId[op.opId] else { continue }
+            // No position is no longer in `sequence` — a paragraph typed and
+            // then cut is not where the writing stands.
+            let mints = op.changes
+                .filter { $0.prior == nil }
+                .compactMap { change in
+                    position[change.paragraphId].map { (id: change.paragraphId, at: $0) }
+                }
+            guard let furthest = mints.max(by: { $0.at < $1.at }) else { continue }
+            return Frontier(
+                paragraphId: furthest.id,
+                position: furthest.at,
+                sessionIndex: sessionIndex,
+                at: op.at)
         }
         return nil
     }
