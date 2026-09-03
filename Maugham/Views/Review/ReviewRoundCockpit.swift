@@ -401,6 +401,36 @@ struct ReviewRoundCockpit: View {
         return "Claude proposes; you dispose. \(round), or ask Claude in Claude Desktop."
     }
 
+    // MARK: - The letter's bound
+
+    /// **How tall the opened letter may grow inside the strip** (Denver's
+    /// 2026-09-03 Review smoke).
+    ///
+    /// `AnnotationsPane.body` stacks this strip above the scrolling queue in a
+    /// NON-scrolling `VStack`: every strip in it demands its full height as a
+    /// MINIMUM (that stack's own note, and `WindowFloorFree.swift`'s). So an
+    /// expanded disclosure drawing the host's whole `LetterSection` inline
+    /// demanded a letter's worth of height from a pane that had a column's —
+    /// SwiftUI cannot compress a minimum, so the letter ran off the bottom of
+    /// the pane unread and the queue below it was squeezed to nothing. Author's
+    /// `DiagnosticsPane` never had this: its report is inside a `ScrollView`
+    /// already.
+    ///
+    /// **A constant rather than a fraction of the pane.** Half the column's
+    /// height is the intent, and this strip cannot read that number honestly:
+    /// it is handed resolved values and no store, and a `GeometryReader` in a
+    /// non-scrolling `VStack` strip is measured against the height the strip
+    /// itself asks for — the very number under repair — so it collapses toward
+    /// zero exactly when the letter is long. 320pt is a little over half the
+    /// window's own 540pt floor (`ProjectWindow.windowHeightFloor`), which is
+    /// the smallest column this can be read in, and leaves the queue the larger
+    /// share at every height above it.
+    ///
+    /// It is a CEILING and never a height: a short letter takes its own
+    /// (`BoundedHeightLayout`), so the common case gains no dead space, and the
+    /// collapsed row is untouched.
+    static let letterDisclosureMaxHeight: CGFloat = 320
+
     // MARK: - Copy
 
     static let runTitle = "Run round"
@@ -576,12 +606,27 @@ struct ReviewRoundCockpit: View {
     /// The line alone draws when a host supplies no disclosure: a caption is
     /// still worth more than nothing, and a triangle that opens an empty box
     /// is worse than no triangle.
+    ///
+    /// **What it opens SCROLLS, inside `letterDisclosureMaxHeight`** (Denver's
+    /// 2026-09-03 Review smoke). Author's pane has this for free — its whole
+    /// report is inside a `ScrollView` — and this strip is the opposite case:
+    /// it lives in `AnnotationsPane.body`'s non-scrolling stack, where its
+    /// height is a MINIMUM propagated out to the pane, so an inline letter
+    /// demanded a letter's worth of column, ran off the bottom unread, and
+    /// squeezed the queue below it to nothing. The bound is a ceiling and not a
+    /// height (`BoundedHeightLayout`), so a three-line letter still costs three
+    /// lines and the collapsed row is untouched.
     @ViewBuilder
     private var letterRow: some View {
         if let letterLine {
             if let letterDisclosure {
                 DisclosureGroup {
-                    letterDisclosure()
+                    BoundedHeightLayout(maxHeight: Self.letterDisclosureMaxHeight) {
+                        ScrollView(.vertical) {
+                            letterDisclosure()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
                 } label: {
                     Text(letterLine)
                         .font(.caption)
@@ -722,5 +767,58 @@ struct ReviewRoundCockpit: View {
             Spacer(minLength: 0)
         }
         .controlSize(.small)
+    }
+}
+
+/// **A ceiling on a subview's height, never a height** — what the cockpit's
+/// opened letter is drawn inside (Denver's 2026-09-03 Review smoke).
+///
+/// It answers every height question with `min(the content's ideal, maxHeight)`,
+/// so a short letter takes its own height and a long one stops at the ceiling
+/// with its `ScrollView` given exactly that much to scroll in. **The two
+/// obvious spellings do neither.** `frame(maxHeight:)` bounds what the child is
+/// PROPOSED, and a `ScrollView` is greedy — it accepts whatever it is offered,
+/// so in a stack with room to spare a three-line letter draws inside 320pt of
+/// empty scroll view. `frame(height:)` is the same dead space, unconditionally.
+/// And `fixedSize(vertical:)` reports the content's full ideal, which is the
+/// defect this repairs: the scroll view then refuses to compress and is simply
+/// clipped, so the letter is unreadable exactly as before.
+///
+/// **The width answer is the PROPOSAL's**, which is the deliberate difference
+/// from ``WindowFloorFreeLayout`` next door, whose width is the content's own.
+/// That container guards a column floor its toolbar is measured against; this
+/// one sits INSIDE that column, wrapping content a model wrote, and a letter
+/// with one unbreakable line in it must never widen the queue — an inflated
+/// layout width is `AnnotationsQueueToolbarWidthTests`' own defect, in which
+/// SwiftUI centres the overflow and clips annotation bodies at the left edge.
+///
+/// It measures and places the FIRST subview only, for the same reason as its
+/// neighbour: written as a `Layout` it is spellable with a multi-view builder,
+/// and everything after the first would be silently unmeasured.
+private struct BoundedHeightLayout: Layout {
+    let maxHeight: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize, subviews: Subviews, cache: inout Void
+    ) -> CGSize {
+        guard let subview = subviews.first else { return .zero }
+        // The ideal is asked for at the width actually on offer — a height
+        // measured at an unconstrained width is the wrong number for every
+        // wrapping thing inside it, and a letter is nothing but wrapping.
+        let ideal = subview.sizeThatFits(
+            ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(
+            width: proposal.width ?? ideal.width,
+            height: min(ideal.height, maxHeight))
+    }
+
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize,
+        subviews: Subviews, cache: inout Void
+    ) {
+        guard let subview = subviews.first else { return }
+        subview.place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
