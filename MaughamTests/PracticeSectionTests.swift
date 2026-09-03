@@ -369,7 +369,8 @@ final class PracticeSectionTests: XCTestCase {
         }
 
         return ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
     }
 
     // MARK: - Mounted

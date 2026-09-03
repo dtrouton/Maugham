@@ -106,6 +106,40 @@ final class ProjectPracticeTests: XCTestCase {
 
     // MARK: - The walk
 
+    /// **The walk runs OFF the main actor, and this is the pin.** Reading every
+    /// op log in a project measured 1.6–1.9 s on a 30-chapter book, 96% of it
+    /// inside `OpLogStore.loadSyncMerged` — run on the main actor, as it was
+    /// until fix round 2, that froze the whole app on every stats-window open
+    /// and on every session end while the window was up.
+    ///
+    /// The guard is the split itself: `Plan(store:)` is the only `@MainActor`
+    /// step and `derive(plan:projectURL:now:)` is `nonisolated`, so this test
+    /// can hand the plan to a detached task and read the answer back.
+    ///
+    /// Disable experiment (run): annotated `ProjectPractice.derive`
+    /// `@MainActor`. The suite stopped COMPILING at this test's
+    /// `Task.detached` closure — `ProjectPracticeTests.swift:135:29: error:
+    /// main actor-isolated static method 'derive(plan:projectURL:now:)' cannot
+    /// be called from outside of the actor` — which is the strongest form this
+    /// guard can take: putting the walk back on the main actor is not a red
+    /// test, it is a build failure.
+    func test_theWalkRunsOffTheMainActor() async throws {
+        let fixture = try await makeProject(type: .novel, docs: [chapterOne])
+        try await write(fixture, chapterOne) {
+            _ = $0.insertParagraph(after: nil, text: "One.")
+        }
+
+        let plan = ProjectPractice.Plan(store: fixture.store)
+        let url = fixture.url
+        let practice = await Task.detached {
+            ProjectPractice.derive(plan: plan, projectURL: url, now: Date())
+        }.value
+
+        XCTAssertEqual(practice.rows.map(\.id), ["ch-1"])
+        XCTAssertNotNil(practice.frontier,
+                        "the detached walk read the same op log the window's would")
+    }
+
     /// The rows are the manuscript DOCUMENTS in structure order — a group is
     /// not a row, and a document the manifest lists with no `path` has no op
     /// log to read and is not a row either.
@@ -120,7 +154,8 @@ final class ProjectPracticeTests: XCTestCase {
         try await write(fixture, chapterTwo) { _ = $0.insertParagraph(after: nil, text: "Two.") }
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
 
         XCTAssertEqual(practice.rows.map(\.id), ["ch-1", "ch-2"])
         XCTAssertEqual(practice.rows.map(\.title), ["Chapter One", "Chapter Two"])
@@ -144,7 +179,8 @@ final class ProjectPracticeTests: XCTestCase {
         }
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
 
         let frontier = try XCTUnwrap(practice.frontier)
         XCTAssertEqual(frontier.row.id, "ch-2")
@@ -160,7 +196,8 @@ final class ProjectPracticeTests: XCTestCase {
         let fixture = try await makeProject(type: .novel, docs: [chapterOne])
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
 
         XCTAssertEqual(practice.rows.count, 1)
         XCTAssertNil(practice.frontier)
@@ -198,7 +235,8 @@ final class ProjectPracticeTests: XCTestCase {
         }
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
 
         XCTAssertEqual(practice.hotspots.count, ProcessSignals.hotspotCount)
         XCTAssertEqual(practice.hotspots.map(\.row.id), ["ch-1", "ch-1", "ch-2"])
@@ -238,7 +276,8 @@ final class ProjectPracticeTests: XCTestCase {
         }
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
 
         XCTAssertEqual(practice.hotspots.map(\.row.id), ["ch-1", "ch-2", "ch-2"])
         XCTAssertEqual(practice.hotspots.map(\.hotspot.paragraphId), [oneA, twoA, twoB])
@@ -274,7 +313,8 @@ final class ProjectPracticeTests: XCTestCase {
         try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: log.path)
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
 
         XCTAssertEqual(practice.unreadableDocIds, ["ch-1"])
         XCTAssertEqual(practice.rows.map(\.id), ["ch-2"])
@@ -299,7 +339,8 @@ final class ProjectPracticeTests: XCTestCase {
         }
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
         let row = try XCTUnwrap(practice.rows.first)
 
         XCTAssertEqual(row.excerpts[longId]?.count, ProjectPractice.excerptCharacterLimit)
@@ -322,7 +363,8 @@ final class ProjectPracticeTests: XCTestCase {
         }
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
         let hotspot = try XCTUnwrap(practice.hotspots.first)
 
         XCTAssertEqual(hotspot.hotspot.paragraphId, id)
@@ -352,7 +394,8 @@ final class ProjectPracticeTests: XCTestCase {
         }
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
         let row = try XCTUnwrap(practice.rows.first)
 
         XCTAssertTrue(practice.isScreenplay)
@@ -372,7 +415,8 @@ final class ProjectPracticeTests: XCTestCase {
         }
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
         let row = try XCTUnwrap(practice.rows.first)
 
         XCTAssertEqual(row.sceneCaptions[sluglineId], "EXT. ROOFTOP - NIGHT")
@@ -399,7 +443,8 @@ final class ProjectPracticeTests: XCTestCase {
         }
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
         let row = try XCTUnwrap(practice.rows.first)
 
         XCTAssertFalse(practice.isScreenplay)
@@ -418,7 +463,8 @@ final class ProjectPracticeTests: XCTestCase {
         }
 
         let practice = ProjectPractice.derive(
-            store: fixture.store, projectURL: fixture.url, now: Date())
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
         let row = try XCTUnwrap(practice.rows.first)
 
         XCTAssertEqual(practice.frontier?.frontier.paragraphId, openingId)

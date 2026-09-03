@@ -9,12 +9,27 @@ struct ProjectStatisticsWindow: View {
     /// surface 1). `nil` until the walk has run once, which is what lets the
     /// section say it is still reading rather than that there is nothing to
     /// read.
+    ///
+    /// **That placeholder is the real first frame** (ruling R18). The walk runs
+    /// on a detached task, so the window draws its four counted sections as
+    /// soon as the stores are open and the Practice section sits on
+    /// `PracticeSection.derivingTitle` until the op logs have been read — which
+    /// on a 30-chapter book is over a second.
     @State private var practice: ProjectPractice?
     @State private var loadError: String?
     /// Hosting window (this is its own scene) for the ADR 0021 project scope +
     /// closed-window liveness guard — a closed stats window's zombie no longer
     /// reloads on a session-log change.
     @State private var window: NSWindow?
+    /// The walk in flight, held so the NEXT one can cancel it.
+    ///
+    /// The walk is seconds long on a real book and a session can end while one
+    /// is running, so two can overlap — and the one that finishes last is not
+    /// the one that started last. Cancelling means the older task drops its
+    /// result instead of writing a stale `practice` over a newer one; the
+    /// detached work itself is left to finish, since it holds no lock and
+    /// nothing waits on it.
+    @State private var deriveTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -61,11 +76,7 @@ struct ProjectStatisticsWindow: View {
             s.documentStore = ds
             self.store = s
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
-            // Closed documents, off their op logs (P3 constraint 30) — this
-            // window runs its own stores, so the walk consults no live
-            // `Document` and cannot disagree with what is on disk.
-            self.practice = ProjectPractice.derive(
-                store: s, projectURL: projectURL, now: Date())
+            rederivePractice(store: s)
         } catch {
             self.loadError = error.localizedDescription
         }
@@ -77,7 +88,30 @@ struct ProjectStatisticsWindow: View {
     private func reloadSessionLog() async {
         guard let store, let documentStore = store.documentStore else { return }
         sessionLog = (try? await documentStore.loadSessionLog()) ?? .empty
-        practice = ProjectPractice.derive(
-            store: store, projectURL: projectURL, now: Date())
+        rederivePractice(store: store)
+    }
+
+    /// **The walk, off the main actor** — the one production caller of
+    /// `ProjectPractice.derive(plan:projectURL:now:)`.
+    ///
+    /// Closed documents, off their op logs (P3 constraint 30): this window runs
+    /// its own stores, so the walk consults no live `Document` and cannot
+    /// disagree with what is on disk. It also reads every op log in the
+    /// project, which measured 1.3–1.9 s on a 30-chapter book — run inline it
+    /// froze the whole app on window open and again on every session end while
+    /// the window was up. So only the manifest read (`ProjectPractice.Plan`)
+    /// happens here; the reading happens detached, and the result comes back to
+    /// the main actor to be assigned.
+    private func rederivePractice(store: ProjectStore) {
+        deriveTask?.cancel()
+        let plan = ProjectPractice.Plan(store: store)
+        let url = projectURL
+        deriveTask = Task {
+            let derived = await Task.detached(priority: .userInitiated) {
+                ProjectPractice.derive(plan: plan, projectURL: url, now: Date())
+            }.value
+            guard !Task.isCancelled else { return }
+            practice = derived
+        }
     }
 }
