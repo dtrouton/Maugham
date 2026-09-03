@@ -19,7 +19,17 @@ public final class SessionTracker {
     /// `ProcessSignals` cuts its op-derived sessions on it, so the Statistics
     /// window and the compiler's briefing cannot disagree about how many
     /// sessions a writer has had.
-    public static let idleThreshold: TimeInterval = 30 * 60
+    ///
+    /// **`nonisolated`, unlike everything else on this class.** The tracker is
+    /// `@MainActor` because it holds mutable session state; this is a `let`
+    /// `TimeInterval`, which is `Sendable` and has nothing to protect. It has
+    /// to be reachable from a nonisolated context because one of its two
+    /// readers is one: `ProcessSignals` is a pure value the Statistics window
+    /// computes on a detached task (`ProjectPractice.derive`). Main-actor
+    /// isolation on the constant is a Swift 6 error at those call sites, and
+    /// duplicating the number to dodge it is exactly the disagreement the
+    /// single constant exists to prevent.
+    nonisolated public static let idleThreshold: TimeInterval = 30 * 60
 
     public private(set) var activeSession: ActiveSession?
 
