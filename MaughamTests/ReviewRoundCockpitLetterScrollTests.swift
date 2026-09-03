@@ -30,6 +30,14 @@ import MaughamCore
 @MainActor
 final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
 
+    override class func setUp() {
+        super.setUp()
+        // Every assertion here is a text-layout measurement through production
+        // typography (`.caption` lines, a letter's wrapped body) across parallel
+        // workers — the fontd cold-start window, CLAUDE.md.
+        FontWarmup.ensure()
+    }
+
     private var windows: [NSWindow] = []
 
     override func tearDown() {
@@ -88,6 +96,43 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
             "the queue below the strip must keep a height. It measured "
             + "\(expanded.queue)pt, which is the strip having taken the whole "
             + "pane and left the writer's notes nowhere to draw")
+    }
+
+    /// **The bounded letter SCROLLS — it is not merely clipped.** The bound
+    /// and the scroll are two claims, and only one of them is about whether the
+    /// writer can read the letter: `frame(maxHeight: 320).clipped()` around the
+    /// bare content bounds the strip, keeps the queue, costs a short letter
+    /// nothing, and passes every other test in this file while leaving
+    /// everything past line eleven unreachable — Denver's report, one layer in.
+    ///
+    /// Two halves. A scroll area must be PUBLISHED (read as a role off the
+    /// accessibility tree rather than by hunting `NSScrollView`, which is a bet
+    /// on which backing class SwiftUI picks this year), and the letter inside it
+    /// must still be laid out at its own full height — a fix that made the
+    /// letter itself smaller to fit would publish a scroll area over nothing to
+    /// scroll.
+    ///
+    /// Measured 2026-09-03: the letter 2,156.0pt inside a 403.0pt strip
+    /// (2,156 plus the strip’s own 83pt of chrome is the 2,239pt the
+    /// unbounded strip used to demand).
+    ///
+    /// **Disable experiment** (run 2026-09-03): with the `ScrollView` replaced
+    /// by `.frame(maxHeight: Self.letterDisclosureMaxHeight).clipped()`, the
+    /// other three tests stayed green and this one went red on
+    /// *"the opened letter must be inside a scroll area"*.
+    func test_theBoundedLetterScrollsRatherThanBeingClipped() throws {
+        let expanded = try measure(disclosure: Self.tallLetter, expand: true)
+
+        XCTAssertTrue(
+            expanded.hasScrollArea,
+            "the opened letter must be inside a scroll area \u{2014} a bound that "
+            + "merely clips leaves everything past the first few lines "
+            + "unreachable, which is the smoke's own complaint one layer in")
+        XCTAssertGreaterThan(
+            expanded.content, ReviewRoundCockpit.letterDisclosureMaxHeight * 2,
+            "and the letter inside it keeps its own full height. It measured "
+            + "\(expanded.content)pt against a strip of \(expanded.strip)pt \u{2014} "
+            + "a letter shrunk to fit is a scroll area with nothing to scroll")
     }
 
     /// **CONTROL: a short letter takes its own height, not the ceiling.** A
@@ -193,6 +238,11 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
     private struct Measurement {
         var strip: CGFloat
         var queue: CGFloat
+        /// What the letter itself was laid out at INSIDE the strip — its full
+        /// height when it is in a scroll view, whatever the strip's own bound.
+        var content: CGFloat
+        /// Whether the surface publishes a scroll area at all.
+        var hasScrollArea: Bool
     }
 
     /// Mount the strip over a greedy stand-in for the queue, in a window too
@@ -219,7 +269,11 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
                 compilerModel: .standard,
                 onCompilerModelChange: { _ in },
                 letterLine: Self.letterLine,
-                letterDisclosure: { AnyView(disclosure) })
+                letterDisclosure: {
+                    AnyView(disclosure
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height }
+                            action: { box.content = $0 })
+                })
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
                     box.strip = $0
                 }
@@ -243,7 +297,11 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
             press(control)
             pump(0.4)
         }
-        return Measurement(strip: box.strip, queue: box.queue)
+        return Measurement(
+            strip: box.strip, queue: box.queue, content: box.content,
+            hasScrollArea: try axElements(in: window).contains {
+                (axAttribute($0, "accessibilityRole") as? String) == "AXScrollArea"
+            })
     }
 
     /// A `DisclosureGroup`'s own control, found by the label it draws —
@@ -268,5 +326,6 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
     private final class HeightBox {
         var strip: CGFloat = 0
         var queue: CGFloat = 0
+        var content: CGFloat = 0
     }
 }

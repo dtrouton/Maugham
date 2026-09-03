@@ -784,13 +784,23 @@ struct ReviewRoundCockpit: View {
 /// defect this repairs: the scroll view then refuses to compress and is simply
 /// clipped, so the letter is unreadable exactly as before.
 ///
-/// **The width answer is the PROPOSAL's**, which is the deliberate difference
-/// from ``WindowFloorFreeLayout`` next door, whose width is the content's own.
-/// That container guards a column floor its toolbar is measured against; this
-/// one sits INSIDE that column, wrapping content a model wrote, and a letter
-/// with one unbreakable line in it must never widen the queue — an inflated
-/// layout width is `AnnotationsQueueToolbarWidthTests`' own defect, in which
-/// SwiftUI centres the overflow and clips annotation bodies at the left edge.
+/// **The width answer is the PROPOSAL's when there is one**, which is the
+/// deliberate difference from ``WindowFloorFreeLayout`` next door, whose width
+/// is always the content's own. That container guards a column floor its
+/// toolbar is measured against; this one sits INSIDE that column, wrapping
+/// content a model wrote, and a letter with one unbreakable line in it must
+/// never widen the queue — an inflated layout width is
+/// `AnnotationsQueueToolbarWidthTests`' own defect, in which SwiftUI centres the
+/// overflow and clips annotation bodies at the left edge.
+///
+/// A nil-width proposal falls back to the content's ideal, and that is right
+/// rather than a hole in the rule: an unspecified proposal is the question *how
+/// wide do you want to be*, not an offer to be answered with a bound (the same
+/// reading `WindowFloorFreeLayout` gives an unspecified HEIGHT). Clamping the
+/// answer there would need a width to clamp against, and this container is
+/// given none. Nothing in the strip asks the question — the row is laid out
+/// inside the pane's column at a definite width — so the arm is a fallback and
+/// not a second policy.
 ///
 /// It measures and places the FIRST subview only, for the same reason as its
 /// neighbour: written as a `Layout` it is spellable with a multi-view builder,
