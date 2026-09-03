@@ -98,7 +98,10 @@ struct PracticeSection: View {
         if let words = quoted(found.row.excerpts[found.frontier.paragraphId]) {
             line += " \u{2014} " + words
         }
-        if let motion = forwardMotionLine(practice) {
+        // The clause off the frontier already in hand, rather than through
+        // `forwardMotionLine`, which would walk every row for the frontier a
+        // second time inside one line.
+        if let motion = forwardMotion(found.row.signals.sessionsSinceFrontierMoved) {
             line += " \u{00b7} " + motion
         }
         return line
@@ -108,9 +111,11 @@ struct PracticeSection: View {
     /// (§5) in the writer's words. `nil` with no frontier — "moved 0 sessions
     /// ago" would claim a desk the writer has never sat at.
     static func forwardMotionLine(_ practice: ProjectPractice) -> String? {
-        guard let found = practice.frontier,
-              let sessions = found.row.signals.sessionsSinceFrontierMoved
-        else { return nil }
+        forwardMotion(practice.frontier?.row.signals.sessionsSinceFrontierMoved)
+    }
+
+    private static func forwardMotion(_ sessions: Int?) -> String? {
+        guard let sessions else { return nil }
         switch sessions {
         case 0: return "moved in this session"
         case 1: return "moved 1 session ago"
@@ -167,14 +172,21 @@ struct PracticeSection: View {
     @ViewBuilder
     private var content: some View {
         if let practice {
+            // **Read once per body pass and passed down.** Both are computed
+            // properties over the whole book — `frontier` walks every row and
+            // `hotspots` merges and sorts every row's own list — and SwiftUI
+            // re-reads `body` on any state change in the window. Tripwire 4's
+            // rule, one level up from a list row.
+            let frontier = practice.frontier
+            let hotspots = practice.hotspots
             VStack(alignment: .leading, spacing: 4) {
-                if practice.frontier == nil && practice.hotspots.isEmpty {
+                if frontier == nil && hotspots.isEmpty {
                     // A `nil` practice is still reading; this one has read and
                     // found nothing. Two states, two sentences.
                     unavailable(Self.nothingYetTitle, Self.nothingYetMessage)
                 } else {
-                    frontierRow(practice)
-                    hotspotRows(practice)
+                    frontierRow(practice, frontier: frontier)
+                    hotspotRows(hotspots, isScreenplay: practice.isScreenplay)
                 }
                 if !practice.unreadableDocIds.isEmpty {
                     Text(Self.unreadableNotice(practice.unreadableDocIds.count))
@@ -190,26 +202,35 @@ struct PracticeSection: View {
     }
 
     @ViewBuilder
-    private func frontierRow(_ practice: ProjectPractice) -> some View {
-        if let found = practice.frontier {
+    private func frontierRow(
+        _ practice: ProjectPractice,
+        frontier: (row: ProjectPractice.DocumentRow, frontier: ProcessSignals.Frontier)?
+    ) -> some View {
+        if let frontier {
             row(Self.frontierLine(practice),
-                docId: found.row.id, isScreenplay: practice.isScreenplay)
+                docId: frontier.row.id, isScreenplay: practice.isScreenplay)
         } else {
             quietLine(Self.noFrontierLine)
         }
     }
 
     @ViewBuilder
-    private func hotspotRows(_ practice: ProjectPractice) -> some View {
-        if practice.hotspots.isEmpty {
+    private func hotspotRows(
+        _ hotspots: [(row: ProjectPractice.DocumentRow, hotspot: ProcessSignals.Hotspot)],
+        isScreenplay: Bool
+    ) -> some View {
+        if hotspots.isEmpty {
             quietLine(Self.noHotspotsLine)
         } else {
             // By offset: a paragraph id is minted per document and two
             // documents can hold the same one, so the id alone is not unique
             // across the book's merged list.
-            ForEach(Array(practice.hotspots.enumerated()), id: \.offset) { _, entry in
+            ForEach(Array(hotspots.enumerated()), id: \.offset) { _, entry in
+                // Each row's OWN document — the book's churn is merged across
+                // documents, so the third row routinely belongs to a different
+                // file than the first.
                 row(Self.hotspotLine(entry.row, entry.hotspot),
-                    docId: entry.row.id, isScreenplay: practice.isScreenplay)
+                    docId: entry.row.id, isScreenplay: isScreenplay)
             }
         }
     }

@@ -420,26 +420,59 @@ final class PracticeSectionTests: XCTestCase {
         XCTAssertEqual(opened, ["ch-2"])
     }
 
-    /// A hotspot row opens ITS OWN chapter, not the frontier's — the book's
-    /// churn is merged across documents, so the third row belongs to a
-    /// different file than the first two.
+    /// **A hotspot row opens ITS OWN chapter, not the frontier's.** The book's
+    /// churn is merged across documents, so the rows do not all belong to one
+    /// file — and the fixture's frontier is in chapter TWO, which is why the
+    /// discriminating press is the FIRST hotspot, a chapter-one paragraph. A
+    /// section that routed every row through the frontier's docId would answer
+    /// `ch-2` here.
+    ///
+    /// Disable experiment (run): passing the frontier's `row.id` instead of
+    /// `entry.row.id` in `hotspotRows` — `PracticeSectionTests.swift:455:
+    /// XCTAssertEqual failed: ("["ch-2", "ch-2"]") is not equal to
+    /// ("["ch-1", "ch-2"]")`. The last-row press stays green under that same
+    /// break, which is the whole reason the first one is here.
     func test_pressingAHotspotRowOpensThatRowsOwnChapter() async throws {
         let practice = try await twoChapterPractice()
+        let first = try XCTUnwrap(practice.hotspots.first)
         let last = try XCTUnwrap(practice.hotspots.last)
+        XCTAssertEqual(first.row.id, "ch-1", "the fixture's own premise")
         XCTAssertEqual(last.row.id, "ch-2", "the fixture's own premise")
 
         var opened: [String] = []
         let window = mount(practice, onSelectChapter: { opened.append($0) })
         let labels = try axButtonLabels(in: window)
-        let button = try XCTUnwrap(
-            axButtons(
-                labelled: PracticeSection.hotspotLine(last.row, last.hotspot),
-                in: window).first,
-            "no hotspot button. Buttons: \(labels)")
-        press(button)
-        pump()
+        for entry in [first, last] {
+            let button = try XCTUnwrap(
+                axButtons(
+                    labelled: PracticeSection.hotspotLine(entry.row, entry.hotspot),
+                    in: window).first,
+                "no hotspot button. Buttons: \(labels)")
+            press(button)
+            pump()
+        }
 
-        XCTAssertEqual(opened, ["ch-2"])
+        XCTAssertEqual(opened, ["ch-1", "ch-2"])
+    }
+
+    /// **What the row promises, read back off the row.** The copy constants are
+    /// pinned above; this is the wiring — a `row(...)` that lost its `.help`
+    /// would leave the constants green and tell the writer nothing about where
+    /// the press goes.
+    ///
+    /// Disable experiment (run): dropping `.help(...)` from `PracticeSection.row`
+    /// — `PracticeSectionTests.swift:473: XCTAssertEqual failed: ("nil") is not
+    /// equal to ("Optional("Opens the chapter")")`.
+    func test_theFrontierRowCarriesItsHelpOnTheSurface() async throws {
+        let practice = try await twoChapterPractice()
+        let window = mount(practice)
+        let button = try XCTUnwrap(
+            axButtons(labelled: PracticeSection.frontierLine(practice), in: window).first,
+            "no frontier button")
+
+        XCTAssertEqual(
+            axAttribute(button, "accessibilityHelp") as? String,
+            PracticeSection.opensTheChapter)
     }
 
     /// While the window is still walking the op logs the section says so, so
