@@ -98,6 +98,17 @@ final class DiagnosticIngestTests: XCTestCase {
             line: line, runId: runId, docId: docId, liveParagraphText: live ?? liveV2())
     }
 
+    /// The same door with the letter's dosage named (P3 Task 3) — separate
+    /// from the helper above so every pre-P3 call site keeps reading as the
+    /// full letter it always was.
+    private func parseSection(
+        _ line: String, dosage: LetterDosage, live: ((String) -> String?)? = nil
+    ) -> DiagnosticIngest.PartialSection? {
+        DiagnosticIngest.parseSection(
+            line: line, runId: runId, docId: docId, liveParagraphText: live ?? liveV2(),
+            dosage: dosage)
+    }
+
     private func parseAll(
         _ text: String, live: ((String) -> String?)? = nil
     ) -> DiagnosticIngest.SectionedOutcome? {
@@ -176,6 +187,13 @@ final class DiagnosticIngestTests: XCTestCase {
             // name above them.
             DiagnosticIngest.SectionField.habit,
             DiagnosticIngest.SectionField.retired,
+            // The process line (P3 Task 3). On the wire, so on this list: the
+            // letter says the sentence in its own words and the parser reads
+            // it back by name. Its sibling `stage` is deliberately NOT here —
+            // it is a stamp the app writes after the parse, and
+            // `test_theSectionSchemaNeverAsksForTheStage` below is the
+            // negative half of that pair.
+            DiagnosticIngest.SectionField.process,
         ]
         for name in names {
             XCTAssertTrue(
@@ -1587,4 +1605,157 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertEqual(section.letter?.about, "You should read this as a ghost story.")
         XCTAssertEqual(section.letter?.working.count, 1)
     }
+
+    // MARK: - The process line and the dosage at ingest (P3 Task 3)
+
+    /// **`stage` is a STAMP, never a wire key** (constraint 27). It is
+    /// derived app-side from the run's own delta and stamped onto the letter
+    /// at `record`, exactly as `asked` and `scenePosition` are, so asking the
+    /// model for it would be the letter telling us what we told it.
+    ///
+    /// Disable experiment, run: appending `,"stage":<string>` to the letter's
+    /// schema line failed this at
+    /// `DiagnosticIngestTests.swift:1619: XCTAssertFalse failed - the section
+    /// schema started asking the model for the draft stage`.
+    func test_theSectionSchemaNeverAsksForTheStage() {
+        XCTAssertFalse(
+            CompilerPrompt.sectionSchemaDescription.contains("\"stage\""),
+            "the section schema started asking the model for the draft stage, "
+            + "which the app derives and stamps itself")
+    }
+
+    /// The planted-offender control for the assertion above: the same test
+    /// against a schema that DOES name the stage must fail, so the negative is
+    /// reading the text rather than a substring that could never appear.
+    func test_plantedOffender_aSchemaNamingTheStageIsCaught() {
+        let offender = CompilerPrompt.sectionSchemaDescription
+            + "\n{\"section\":\"letter\",\"stage\":<string or null>}"
+        XCTAssertTrue(offender.contains("\"stage\""),
+                      "the check above would not catch a schema that asked for it")
+    }
+
+    /// The letter's own process line, read off the wire like `about`.
+    func test_theLetterCarriesItsProcessLine() throws {
+        let line = """
+            {"section":"letter","about":"A fog.",\
+            "process":"You came back to this chapter five days running."}
+            """
+        let letter = try XCTUnwrap(try XCTUnwrap(parseSection(line)).letter)
+        XCTAssertEqual(letter.process,
+                       "You came back to this chapter five days running.")
+    }
+
+    /// **A FIELD, not an entry** — the same rule `answer` keeps. A leaked
+    /// paragraph id empties the process line and costs the writer nothing
+    /// else the letter got right.
+    func test_aProcessLineLeakingAnIdIsEmptiedAndTheLetterSurvives() throws {
+        let line = """
+            {"section":"letter","about":"A fog.",\
+            "process":"You reworked a1b2 five days running."}
+            """
+        let letter = try XCTUnwrap(try XCTUnwrap(parseSection(line)).letter)
+        XCTAssertNil(letter.process, "a leaked id empties the line")
+        XCTAssertEqual(letter.about, "A fog.", "and costs the letter nothing else")
+    }
+
+    /// `process` is a recognised part, so a letter carrying nothing else is
+    /// still a letter — `test_aLetterOfNothingButRetiredIsStillALetter`'s
+    /// shape, one key later.
+    func test_aLetterOfNothingButProcessIsStillALetter() throws {
+        let section = try XCTUnwrap(
+            parseSection("{\"section\":\"letter\",\"process\":\"Five days running.\"}"))
+        XCTAssertEqual(section.letter?.process, "Five days running.")
+    }
+
+    /// Three questions in, one out, and **only one note minted** — the cap
+    /// runs above the loop, so a question the short letter does not carry
+    /// cannot reach the queue as a `.query` either.
+    ///
+    /// Disable experiment, run: moving the cap below the loop — the guard
+    /// back on `letterQuestionsCap` and `Array(questions.prefix(
+    /// dosage.questionsCap))` at the `Letter` — left the letter with its one
+    /// question and the queue with three notes, failing at
+    /// `DiagnosticIngestTests.swift:1678: XCTAssertEqual failed: ("3") is not
+    /// equal to ("1") - a question the short letter never shows must not mint
+    /// a note`.
+    func test_aShortLetterKeepsOneQuestionAndMintsOneNote() throws {
+        let section = try XCTUnwrap(parseSection(Self.threeQuestions, dosage: .short))
+        XCTAssertEqual(section.letter?.questions.map(\.question), ["Question 1?"])
+        XCTAssertEqual(section.accepted.count, 1,
+                       "a question the short letter never shows must not mint a note")
+    }
+
+    /// The control: the same wire under `.full` keeps all three, so the test
+    /// above is measuring the dosage and not a parser that lost two questions.
+    func test_control_aFullLetterKeepsAllThreeQuestions() throws {
+        let section = try XCTUnwrap(parseSection(Self.threeQuestions, dosage: .full))
+        XCTAssertEqual(section.letter?.questions.count, 3)
+        XCTAssertEqual(section.accepted.count, 3)
+    }
+
+    /// **No exercise while drafting** (spec §3.8): a thing to go and do is
+    /// feed-forward for a piece being reworked, and a first draft in motion
+    /// is not being reworked. The habit itself survives — it is the exercise
+    /// the dosage drops, not the observation.
+    func test_aShortLetterDropsTheExerciseAndKeepsTheHabit() throws {
+        let short = try XCTUnwrap(parseSection(Self.oneHabitWithAnExercise, dosage: .short))
+        XCTAssertEqual(short.letter?.habits.map(\.name), ["throat-clearing"])
+        XCTAssertNil(short.letter?.habits.first?.exercise)
+
+        let full = try XCTUnwrap(parseSection(Self.oneHabitWithAnExercise, dosage: .full))
+        XCTAssertEqual(full.letter?.habits.first?.exercise,
+                       "Delete every paragraph's first sentence.",
+                       "control: the full letter keeps it")
+    }
+
+    /// **No scene table while drafting, whatever the wire said.** `nil` is
+    /// the same answer a lyric piece's position gives, and it is what the
+    /// letter section reads to draw no table at all.
+    func test_aShortLetterHasNoSceneTableWhateverTheWireSaid() throws {
+        let short = try XCTUnwrap(parseSection(Self.oneScene, dosage: .short))
+        XCTAssertNil(short.letter?.scenes)
+
+        let full = try XCTUnwrap(parseSection(Self.oneScene, dosage: .full))
+        XCTAssertEqual(full.letter?.scenes?.count, 1, "control: the full letter tables it")
+    }
+
+    /// **The answer is never dosed** (constraint 24). A worry the writer
+    /// asked about is answered in full whatever stage the run derived — the
+    /// ask overrides the dosage, and `parseLetter` never touches `answer`.
+    func test_theAnswerSurvivesAShortLetterUntouched() throws {
+        let line = """
+            {"section":"letter","about":"A fog.",\
+            "answer":"It sags where the scenes stop turning."}
+            """
+        let section = try XCTUnwrap(parseSection(line, dosage: .short))
+        XCTAssertEqual(section.letter?.answer, "It sags where the scenes stop turning.")
+    }
+
+    /// A whole turn carries the dosage to the letter section inside it, so
+    /// the enforcement is not reachable only through the single-section door.
+    func test_parseAllCarriesTheDosageToTheLetter() throws {
+        let outcome = try XCTUnwrap(
+            DiagnosticIngest.parseAll(
+                resultText: Self.threeQuestions, runId: runId, docId: docId,
+                liveParagraphText: liveV2(), dosage: .short))
+        XCTAssertEqual(outcome.letter?.questions.count, 1)
+    }
+
+    private static let threeQuestions = """
+        {"section":"letter","about":"A fog.","questions":[\
+        {"refs":["a1b2"],"question":"Question 1?"},\
+        {"refs":["a1b2"],"question":"Question 2?"},\
+        {"refs":["a1b2"],"question":"Question 3?"}]}
+        """
+
+    private static let oneHabitWithAnExercise = """
+        {"section":"letter","habits":[{"name":"throat-clearing",\
+        "refs":["a1b2"],"cost":"buries the turn","lesson":"cut the first line",\
+        "exercise":"Delete every paragraph's first sentence."}]}
+        """
+
+    private static let oneScene = """
+        {"section":"letter","scenes":[{"refs":["a1b2"],"wants":"to leave",\
+        "changes":"she cannot","turn":"the door is locked","charge":"-"}]}
+        """
 }

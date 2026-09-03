@@ -800,7 +800,10 @@ final class CompilerPromptTests: XCTestCase {
     func test_theLetterInstructionSaysHowAnAskIsAnswered() {
         let letter = CompilerPrompt.letterInstruction.lowercased()
         for (phrase, why) in [
-            ("answer it in answer before anything else", "the ask is answered first"),
+            // Tightened at P3 Task 3 from "answer it in answer before
+            // anything else" — the same clause in three fewer words, and the
+            // pin moved with the wording rather than the clause being cut.
+            ("answer it in answer first", "the ask is answered first"),
             ("your own register", "…in the letter's own voice, not a form reply"),
             ("an opinion where they asked for one", "…and an opinion when one is asked for"),
             ("answer is null when they asked nothing", "…and null when nothing was asked"),
@@ -1300,6 +1303,11 @@ final class CompilerPromptTests: XCTestCase {
             ("verbatim", "a known habit is reported under its own heading"),
             ("lesson null", "…and the writer already has the lesson for it"),
             ("retired", "what the reading looked for and did not find"),
+            // The process line (P3 Task 3).
+            ("numbers under process",
+             "the process line is the app's own numbers said in the reader's words"),
+            ("null when none were given",
+             "…and there is no line at all when no numbers were briefed"),
         ]
         for (phrase, why) in clauses {
             XCTAssertTrue(letter.contains(phrase),
@@ -1634,6 +1642,26 @@ final class CompilerPromptTests: XCTestCase {
     /// lists. That is 58 words for the whole ledger half of this feature, paid
     /// out of the headroom Task 3's tightening left rather than out of the
     /// ceiling, which stays 715 with 64 words of room still in it.
+    ///
+    /// **Re-measured three times at the process line (P3 Task 3)**, because a
+    /// budget only catches what somebody actually counts and this task both
+    /// spent and bought:
+    ///
+    /// - **651 words** before anything moved — the P2 number above, still
+    ///   true, so nothing had grown unnoticed since.
+    /// - **635 words** once `letterInstruction` was rewritten tighter again:
+    ///   the same clauses in 16 fewer words, every one of them still pinned by
+    ///   `test_theLetterInstructionCarriesItsDoctrineClauseByClause`.
+    /// - **654 words** with the process sentence added back on top — 19 words
+    ///   saying where the letter's one line about the writer's own practice
+    ///   comes from and when there is none.
+    ///
+    /// So the process line cost the standing per-run text 3 words net, not 19,
+    /// and the ceiling stays 715 with 61 words of room still in it. The
+    /// dosage doctrine is NOT counted here on purpose (global constraint 26):
+    /// `stageSection` is per-run frame, written only when there is a stage to
+    /// name, and folding it into a standing-overhead budget would measure it
+    /// against every run including the ones that never carry it.
     func test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget() {
         let disciplines = [
             CompilerPrompt.readerBarInstruction,

@@ -197,4 +197,89 @@ final class LetterTests: XCTestCase {
         XCTAssertNil(decoded.retired)
         XCTAssertEqual(decoded.retiredHeadings, [])
     }
+
+    // MARK: - The process line and the stage stamp (editorial letter P3 Task 3)
+
+    /// The process line is a part of the letter the writer READS — one
+    /// sentence in the reader's own words off Maugham's own numbers — so it
+    /// counts towards emptiness on `answer`'s side of that line.
+    func test_isEmpty_isFalseWhenTheProcessLineIsPresentAlone() {
+        var letter = emptyLetter()
+        XCTAssertTrue(letter.isEmpty, "control: the same letter with nothing in it")
+        letter.process = "You have come back to this chapter five days running."
+        XCTAssertFalse(letter.isEmpty)
+    }
+
+    /// The control for the rule above, and the mirror of
+    /// `test_isEmpty_staysTrueWhenOnlyTheAskWasStamped`: the stage is a STAMP
+    /// saying what the run derived, the way `asked` is a stamp saying what it
+    /// was briefed on. A letter carrying only the stamp said nothing.
+    func test_isEmpty_staysTrueWhenOnlyTheStageWasStamped() {
+        var letter = emptyLetter()
+        letter.stage = DraftStage.drafting.rawValue
+        XCTAssertTrue(letter.isEmpty,
+                      "the stage is a fact about the run; only the process line is content")
+    }
+
+    /// Both new fields round-trip, and both are `var` because the run stamps
+    /// one of them after the parse — the stage is never on the wire at all.
+    func test_theProcessLineAndTheStageStampRoundTripThroughJSON() throws {
+        var letter = fullLetter()
+        letter.process = "You have come back to this chapter five days running."
+        letter.stage = DraftStage.revising.rawValue
+
+        let decoded = try JSONDecoder().decode(
+            Letter.self, from: try JSONEncoder().encode(letter))
+
+        XCTAssertEqual(decoded, letter)
+        XCTAssertEqual(decoded.process,
+                       "You have come back to this chapter five days running.")
+        XCTAssertEqual(decoded.stage, "revising")
+    }
+
+    /// **A sidecar written before P3 decodes clean** — literal JSON rather
+    /// than an encode of today's type, because an encode could only ever
+    /// produce today's shape and would pin nothing (constraint 17).
+    func test_aLetterWrittenBeforeP3DecodesWithProcessAndStageNil() throws {
+        let json = """
+            {"about":"The middle third pulls its punches.","working":[],\
+            "habits":[],"questions":[],"retired":["Throat-clearing"]}
+            """
+        let decoded = try JSONDecoder().decode(Letter.self, from: Data(json.utf8))
+
+        XCTAssertNil(decoded.process)
+        XCTAssertNil(decoded.stage)
+        XCTAssertNil(decoded.draftStage)
+        XCTAssertEqual(decoded.retiredHeadings, ["Throat-clearing"],
+                       "control: the fields P2 wrote still decode")
+    }
+
+    /// **`draftStage` is the one conversion from the raw**, so no reader
+    /// re-spells `DraftStage(rawValue:)` against a disk string (constraint
+    /// 23).
+    func test_theDraftStageReadsTheStoredRaw() {
+        var letter = emptyLetter()
+        letter.stage = "drafting"
+        XCTAssertEqual(letter.draftStage, .drafting)
+        letter.stage = "revising"
+        XCTAssertEqual(letter.draftStage, .revising)
+    }
+
+    /// A raw the enum does not know answers `nil` rather than throwing or
+    /// guessing — ADR 0015's shape, and what lets a later build add a third
+    /// stage without a sidecar written by this one becoming unreadable.
+    ///
+    /// Disable experiment, run: implementing `draftStage` as
+    /// `stage.map { DraftStage(rawValue: $0)! }` did not fail this test — it
+    /// CRASHED the worker (`Crash: Maugham at implicit closure #1 in
+    /// LetterTests.test_anUnknownStageRawAnswersNil()`), which is the point:
+    /// an unknown raw on disk is a force-unwrap away from taking a window
+    /// down, not a wrong answer.
+    func test_anUnknownStageRawAnswersNil() {
+        var letter = emptyLetter()
+        letter.stage = "polishing"
+        XCTAssertNil(letter.draftStage)
+        XCTAssertEqual(letter.stage, "polishing",
+                       "the raw is kept whatever this build makes of it")
+    }
 }

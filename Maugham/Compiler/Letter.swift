@@ -105,6 +105,26 @@ struct Letter: Codable, Equatable, Sendable {
     /// said nothing about position.
     var scenePosition: String?
 
+    /// **`DraftStage.rawValue`, the letter's one persisted trace of the stage
+    /// the run derived** (P3 Task 3, global constraint 23). Stamped at
+    /// `record` from the run, exactly as `asked` and `scenePosition` are: the
+    /// stage is derived app-side from this run's own delta, so it is never on
+    /// the wire, never a `SectionField`, and never asked of the model — which
+    /// would be the letter telling us what we told it.
+    ///
+    /// The raw rather than the enum, on `scenePosition`'s rule: what is on
+    /// disk is a string this build may not know, and a sidecar written by a
+    /// later build with a third stage in it must still decode here. Read it
+    /// through `draftStage`.
+    var stage: String? = nil
+
+    /// The stored raw as this build understands it, and **the one conversion
+    /// from it** — no reader re-spells `DraftStage(rawValue:)` against a disk
+    /// string. A raw this build has never heard of answers `nil` rather than
+    /// throwing or guessing (ADR 0015's shape), and `stage` keeps it either
+    /// way.
+    var draftStage: DraftStage? { stage.flatMap(DraftStage.init(rawValue:)) }
+
     /// The model's answer to what the writer asked this round (P2 Task 3),
     /// scrubbed for a leaked paragraph id like `about` and `one_thing` — a
     /// FIELD rather than an entry, so a leak empties it instead of costing
@@ -144,6 +164,16 @@ struct Letter: Codable, Equatable, Sendable {
     /// point of the write (global constraint 15), not the parser's.
     var retired: [String]? = nil
 
+    /// **One sentence about the writer's own process, in the reader's words,
+    /// off Maugham's own numbers** (P3 Task 3, spec §3.1/§5) — how long they
+    /// have been coming back to this, what they keep reworking, how long the
+    /// frontier has stood still.
+    ///
+    /// On the wire, unlike `stage` above it: the NUMBERS are the app's and
+    /// are briefed, but the sentence is the reader's, and `null` when the
+    /// briefing carried no numbers worth a sentence.
+    var process: String? = nil
+
     /// `retired` with the absent/empty distinction collapsed — the one shape
     /// every reader wants, so no caller has to spell `?? []`.
     var retiredHeadings: [String] { retired ?? [] }
@@ -163,8 +193,14 @@ struct Letter: Codable, Equatable, Sendable {
     /// letter that raised nothing but named a lesson the writer no longer
     /// commits is a letter with something in it — the retirement offer is
     /// drawn from exactly this.
+    ///
+    /// **`process` counts and `stage` does not** (P3 Task 3), the same line
+    /// drawn once more. The process line is a sentence the writer reads; the
+    /// stage is a stamp saying what the run made of their delta, and a letter
+    /// carrying only that stamp said nothing at all.
     var isEmpty: Bool {
         oneThing == nil && working.isEmpty && habits.isEmpty && questions.isEmpty
             && answer == nil && (scenes?.isEmpty ?? true) && retiredHeadings.isEmpty
+            && process == nil
     }
 }

@@ -66,7 +66,7 @@ enum CompilerPrompt {
         <habit name or null>,"question":<string>}],"scenes":[{"refs":\
         [<paragraph id>...],"wants":<string>,"changes":<string>,"turn":\
         <string>,"charge":"+"|"-"|null}] or null,"retired":[<lesson \
-        heading>...]}
+        heading>...],"process":<string or null>}
         The fifth line answers one question about this reading as a whole: \
         has the draft drifted from the declared intent? Weigh the prose in \
         this run's delta against the intent declared above — holds when \
@@ -168,33 +168,33 @@ enum CompilerPrompt {
     /// `CompilerPromptTests.test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget`
     /// counts it into the standing per-run overhead every call pays.
     static let letterInstruction = """
-        The letter is about the manuscript as a whole rather than one more \
-        note: it says what no anchored finding can. about is one sentence — \
-        what this piece seems to be about as you read it, not what it set \
-        out to be. one_thing is the single thing to fix if the writer fixes \
-        only one, and null when there is nothing. Name what works before \
-        what does not, and with each the principle behind it, so the writer \
-        can repeat it on purpose. A habit is a pattern across everything you \
-        read rather than one instance — at most 2 habits, 4 refs each — and \
-        one worth testing by name is voice distinctness: could each \
-        character be identified by their lines alone? An exercise is a thing \
-        to go and do, never a rewrite of the writer's words. You ask and \
-        nothing else: at most 3 questions, never a suggested change. Where \
-        the pinned references hold the writer's own pieces, measure this one \
-        against those by name before any rule. One issue still gets one \
-        entry: what is already filed as a strain, a continuity question or a \
-        reader's report does not return here. Write only the parts your pass \
-        brief allows; with no brief, write all of them. About the delta you \
-        were given; on a cold reading, about the whole piece. Where the \
-        writer has asked something, answer it in answer before anything \
-        else, directly and in your own register — an opinion where they \
-        asked for one, never a rewrite; answer is null when they asked \
+        The letter is about the manuscript as a whole: it says what no \
+        anchored finding can. about is one sentence: what this piece seems \
+        to be about as read, not what it set out to be. one_thing is the one \
+        thing to fix if the writer fixes only one, and null when there is \
+        nothing. Name what works before what does not, each with the \
+        principle behind it, so the writer can repeat it on purpose. A habit \
+        is a pattern across everything you read, not one instance — at most \
+        2 habits, 4 refs each — and one worth testing by name is voice \
+        distinctness: could each character be identified by their lines \
+        alone? An exercise is a thing to go and do, never a rewrite of their \
+        words. You ask and nothing else: at most 3 questions, never a \
+        suggested change. Where the pinned references hold the writer's own \
+        pieces, measure this one against them by name before any rule. One \
+        issue gets one entry: what is already filed as a strain, a \
+        continuity question or a reader's report does not return here. Write \
+        only the parts your pass brief allows; with no brief, write all of \
+        them. About the delta you were given; on a cold reading, about the \
+        whole piece. Where the writer has asked something, answer it in \
+        answer first, directly and in your own register — an opinion where \
+        they asked for one, never a rewrite; answer is null when they asked \
         nothing. A habit the ledger above already names is reported under \
-        that heading, verbatim, with lesson null — the writer has the \
-        lesson. A question raised under one of those habits names it in \
-        habit, spelled as briefed. retired lists every briefed lesson you \
-        looked for and found no instance of, verbatim, and is empty when \
-        there are none.
+        that heading, verbatim, with lesson null: the writer already has it. \
+        A question raised under one of those habits names it in habit, \
+        spelled as briefed. retired lists every briefed lesson you looked \
+        for and did not find, verbatim, and is empty when there are none. \
+        process is one sentence in your own words from the numbers under \
+        Process, and null when none were given.
         """
 
     /// Sent once, when the warm session is spawned — never repeated per run.

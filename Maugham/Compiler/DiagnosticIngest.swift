@@ -178,6 +178,14 @@ extension DiagnosticIngest {
         /// statement about the reading as a whole rather than a part of it.
         static let retired = "retired"
 
+        /// **The letter's process line** (P3 Task 3) — one sentence the
+        /// reader writes from the process numbers the briefing carried. A key
+        /// of the LETTER, after `retired`, and the last thing its schema line
+        /// asks for. Its sibling `stage` is NOT here and never will be: the
+        /// stage is derived app-side and stamped onto the parsed letter, so
+        /// there is no wire name for the parser to look for.
+        static let process = "process"
+
         /// Every paragraph reference travels here, in every section.
         static let refs = "refs"
     }
@@ -272,9 +280,15 @@ extension DiagnosticIngest {
     /// Tolerant of what surrounds the object, the way v1 is: a fenced or
     /// narrated line still parses. Given a whole turn it reads only the FIRST
     /// section in it — `parseAll` is the whole-turn entry point.
+    ///
+    /// `dosage` is LAST and defaulted (P3 Task 3) so every caller that has
+    /// no stage to speak of — the whole v2 contract before P3, and every test
+    /// that is not about the dosage — keeps reading as the full letter it
+    /// always was. It reaches only `parseLetter`; no other section is dosed.
     static func parseSection(
         line: String, runId: String, docId: String,
-        liveParagraphText: (String) -> String?
+        liveParagraphText: (String) -> String?,
+        dosage: LetterDosage = .full
     ) -> PartialSection? {
         guard let object = sectionObject(in: line),
               let name = nonEmptyString(object[SectionField.section])?.lowercased()
@@ -292,7 +306,8 @@ extension DiagnosticIngest {
         case SectionField.intentDrift:
             return parseIntentDrift(object)
         case SectionField.letter:
-            return parseLetter(object, runId: runId, docId: docId, live: liveParagraphText)
+            return parseLetter(
+                object, runId: runId, docId: docId, live: liveParagraphText, dosage: dosage)
         default:
             return nil
         }
@@ -303,11 +318,13 @@ extension DiagnosticIngest {
     /// because there is then nothing to salvage (v1's rule).
     static func parseAll(
         resultText: String, runId: String, docId: String,
-        liveParagraphText: (String) -> String?
+        liveParagraphText: (String) -> String?,
+        dosage: LetterDosage = .full
     ) -> SectionedOutcome? {
         let sections = objectSpans(in: resultText).compactMap {
             parseSection(
-                line: $0, runId: runId, docId: docId, liveParagraphText: liveParagraphText)
+                line: $0, runId: runId, docId: docId, liveParagraphText: liveParagraphText,
+                dosage: dosage)
         }
         guard !sections.isEmpty else { return nil }
         return sections.reduce(.empty, combining)
@@ -575,13 +592,22 @@ extension DiagnosticIngest {
     /// stays out of `sidecarDiagnostics`. One with no surviving ref is
     /// letter-only: a `.query` cannot be minted without a paragraph, and a
     /// fingerprint needs an anchor or a clause.
+    ///
+    /// **The dosage is enforced HERE as well as stated in the briefing**
+    /// (global constraint 24, spec §3.8), so the short letter is short
+    /// whatever the model did rather than only what it was asked to do: a
+    /// `.short` letter keeps one question, carries no exercise on any habit,
+    /// and has no scene table at all whatever the wire said. What it never
+    /// touches is `answer` — a worry the writer asked about is answered in
+    /// full whatever stage the run derived.
     private static func parseLetter(
-        _ object: [String: Any], runId: String, docId: String, live: (String) -> String?
+        _ object: [String: Any], runId: String, docId: String, live: (String) -> String?,
+        dosage: LetterDosage
     ) -> PartialSection {
         let recognised = [
             SectionField.answer, SectionField.about, SectionField.oneThing,
             SectionField.working, SectionField.habits, SectionField.questions,
-            SectionField.scenes, SectionField.retired,
+            SectionField.scenes, SectionField.retired, SectionField.process,
         ]
         guard recognised.contains(where: { object[$0] != nil }) else {
             return PartialSection(
@@ -616,7 +642,14 @@ extension DiagnosticIngest {
                     name: name,
                     refs: Array(letterRefs(item[SectionField.refs], live)
                         .refs.prefix(letterHabitRefsCap)),
-                    cost: cost, lesson: lesson, exercise: exercise)
+                    cost: cost, lesson: lesson,
+                    // **Scrubbed as written, dropped as delivered.** The
+                    // leak check above reads the exercise the model actually
+                    // sent whatever the dosage, so a habit whose exercise
+                    // leaked an id is dropped identically under both — the
+                    // dosage decides what the writer is SHOWN, never what the
+                    // parser considers a leak.
+                    exercise: dosage.allowsExercise ? exercise : nil)
             }
 
         // **Capped HERE, above the questions loop, rather than at the `Letter`
@@ -644,7 +677,12 @@ extension DiagnosticIngest {
         var questions: [Letter.Question] = []
         var notes: [Diagnostic] = []
         for item in entries(object[SectionField.questions]) {
-            guard questions.count < letterQuestionsCap,
+            // **The dosage's cap, read here rather than at the `Letter`
+            // below** — above the mint, so a question the short letter does
+            // not carry cannot reach the queue as a `.query` either. Capping
+            // the parsed array afterwards would leave three notes behind one
+            // question.
+            guard questions.count < dosage.questionsCap,
                   let question = nonEmptyString(item[SectionField.question]),
                   !letterProseLeaksAnId([question], live),
                   // **The one part that also mints, and the one the fix-shape
@@ -679,7 +717,7 @@ extension DiagnosticIngest {
             notes.append(note)
         }
 
-        let scenes: [Letter.Scene]? = (object[SectionField.scenes] as? [Any]).map { raw in
+        let wireScenes: [Letter.Scene]? = (object[SectionField.scenes] as? [Any]).map { raw in
             raw.compactMap { entry -> Letter.Scene? in
                 guard let item = entry as? [String: Any] else { return nil }
                 let wants = nonEmptyString(item[SectionField.wants]) ?? ""
@@ -703,6 +741,14 @@ extension DiagnosticIngest {
             }
         }
 
+        // **No scene table while drafting, whatever the wire said** (spec
+        // §3.8). `nil` is the same answer a lyric piece's scene position
+        // gives, and it is what the letter section reads to draw no table at
+        // all. Read off the wire first and dropped after, on the exercise's
+        // rule above: the dosage decides what the writer is shown, never what
+        // the parser makes of what arrived.
+        let scenes: [Letter.Scene]? = dosage.allowsScenes ? wireScenes : nil
+
         // **`about` and `one_thing` are FIELDS, not entries, so a leaked id
         // empties them rather than dropping anything.** There is no entry to
         // lose, and refusing the whole letter over one token in the say-back
@@ -716,6 +762,11 @@ extension DiagnosticIngest {
         // optional where the say-back is not: an empty string here would draw
         // an answer section with nothing in it.
         let answer = nonEmptyString(object[SectionField.answer])
+        // **`process` is a field on the same terms again** (P3 Task 3): a
+        // leaked id empties the sentence and costs the letter nothing else.
+        // Not fix-scrubbed — it is an observation about how the writer has
+        // been working, never a question they are asked to answer.
+        let process = nonEmptyString(object[SectionField.process])
 
         // **Entries, not a field**: a heading carrying a leaked paragraph id
         // costs that heading and leaves the rest of the list intact, the way a
@@ -746,7 +797,8 @@ extension DiagnosticIngest {
             // indistinguishable downstream (`retiredHeadings`), and the
             // distinction costs nothing to keep.
             retired: object[SectionField.retired] == nil
-                ? nil : Array(retired.prefix(letterRetiredCap)))
+                ? nil : Array(retired.prefix(letterRetiredCap)),
+            process: letterProseLeaksAnId([process], live) ? nil : process)
 
         return PartialSection(
             accepted: notes, facts: [], conformance: [], droppedDangling: 0,
