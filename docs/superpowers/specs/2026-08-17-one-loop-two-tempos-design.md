@@ -9,6 +9,8 @@ ships was validated there — the assessment is the spike record
 (`prompt-spike-assessment.md`, session scratchpad; its findings are inlined
 where they bind).*
 
+> **2026-09-05:** §7.0's rule — *wet-ink feedback is not a pass; the byline in Author stays "Claude"* — was reversed without record by the editorial letter spec's §4.1 and is **re-affirmed** by [`2026-09-05-two-loops-two-readers-design.md`](2026-09-05-two-loops-two-readers-design.md), which also revises this spec's "one loop" framing: the findings-by-nature routing (§2) stands; the single run does not — a check and a round are two verbs over one substrate.
+
 ## 1. The problem
 
 M2 built the **compile** loop: drafting-tempo, minutes-scale, ⌘R checks wet

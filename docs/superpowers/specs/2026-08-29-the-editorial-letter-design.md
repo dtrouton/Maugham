@@ -3,6 +3,8 @@
 **Date:** 2026-08-29 · **Status:** approved in brainstorm, plans unwritten · **2026-09-01:** §4 revised — the coach is a seat, not a rung; reader line; depth in Review; Exhaustive
 **Session:** "coach"
 
+> **2026-09-05:** §4.1 "The seat" — the coach as the reader of any piece with no active pass, and §4.2/§9's consequences of it (a stage editor signing Author's ⌘R) — is **superseded** by [`2026-09-05-two-loops-two-readers-design.md`](2026-09-05-two-loops-two-readers-design.md): the coach is Author's reader full stop, a check files no round, and one-loop §7.0 stands. Everything else here stands.
+
 ## 1. The problem
 
 Every piece of feedback Maugham gives today is *corrective, per-instance, and on
