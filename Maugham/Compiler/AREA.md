@@ -64,26 +64,41 @@ is derived at the keystroke, carried on `StreamingRun`, and stamped onto
 answer that supersedes it cannot disagree — its raw values are a disk format.
 
 **The writer's ask lives beside the sidecar, never inside it** (spec §3.7, P2
-Task 3). `DiagnosticsStore` keeps one per-device file for the whole project,
-`.maugham/diagnostics/asks.<slug>.json`, keyed by docId (`asksURL` — a filename
-of its own, and one more place `.raw` is interpolated, tripwire 24). It is NOT a field on `FileContent`, and the reason
-is that the sidecar is written by a run: an ask is typed *before* one, so a
-writer can ask something of a document the compiler has never read, and there
-would be no `CompilerRun` to hang it off. The field itself commits on submit
-and on focus loss and never per keystroke (`AskField`) — `setAsk` rewrites the
-file and bumps `version` on every call — while every keystroke is *noted* into
-an in-memory `pendingAsks` buffer that writes nothing. `CompilerOrchestrator.beginRun`
-calls `commitPendingAsk(docId:)` and then reads the ask, which is why a worry
+Task 3), **and is keyed per document PER TEMPO, not just per document** (two
+loops P1 Task 6). `DiagnosticsStore` keeps one per-device file for the whole
+project, `.maugham/diagnostics/asks.<slug>.json`, keyed through the private
+`askKey(docId:kind:)` = `"\(docId)#\(kind.rawValue)"` (`asksURL` — a filename
+of its own, and one more place `.raw` is interpolated, tripwire 24). The check
+and the round are different readers of the same document — Author's header
+asks the reader who checks, Review's cockpit asks the editor who runs the
+round — and the two sentences are independent for the same document: setting,
+noting or committing one kind's ask never touches the other's. A **legacy
+file** written before this task holds bare `docId` keys with no `#`; `loadAsks`
+reads a bare key as `.check` (every ask on disk before this task was Author's —
+the round cockpit had no field yet) and the in-memory dictionary is keyed in
+the new shape from that point on, so the very next `persistAsks()` — any
+`setAsk` call — rewrites the whole file under new keys only and the bare key
+does not survive. It is NOT a field on `FileContent`, and the reason is that
+the sidecar is written by a run: an ask is typed *before* one, so a writer can
+ask something of a document the compiler has never read, and there would be no
+`CompilerRun` to hang it off. The field itself commits on submit and on focus
+loss and never per keystroke (`AskField`) — `setAsk` rewrites the file and
+bumps `version` on every call — while every keystroke is *noted* into an
+in-memory `pendingAsks` buffer, keyed the same way as `asks`, that writes
+nothing. `CompilerOrchestrator.beginRun` calls `commitPendingAsk(docId:kind:)`
+with its own `kind` and then reads `ask(docId:kind:)`, which is why a worry
 typed and not submitted still reaches the round it was typed for: ⌘R is a menu
 command that never touches the first responder, and `beginRun` is the one line
 every trigger passes (both keystrokes, the cockpit's buttons, the cold-start
-offer). `setAsk` REFUSES over `DiagnosticsStore.askLimit` and answers `false`
-rather than throwing — nothing failed, and the writer keeps their words in the
-field to shorten. The ask is then carried on `StreamingRun.ask`, stamped onto
-`Letter.asked` in the same `record(...)` spelling the position uses, and briefed
-through `askSection` — **outside `briefingHashInput`**, because an ask is
-expected to change every round and a hash covering it would re-embed the essay,
-the declared world and the bible slice on every ⌘R a writer asked anything on.
+offer) — and why a check's pending draft can never be promoted by a round, or
+the reverse. `setAsk` REFUSES over `DiagnosticsStore.askLimit` and answers
+`false` rather than throwing — nothing failed, and the writer keeps their words
+in the field to shorten. The ask is then carried on `StreamingRun.ask`, stamped
+onto `Letter.asked` in the same `record(...)` spelling the position uses, and
+briefed through `askSection` — **outside `briefingHashInput`**, because an ask
+is expected to change every round and a hash covering it would re-embed the
+essay, the declared world and the bible slice on every ⌘R a writer asked
+anything on.
 
 **The lessons ledger is a statement, and the briefing folds the SECTION rather
 than the file** (spec §6, P2 Task 4). `LessonsLedger` is the grammar: a `##

@@ -640,18 +640,23 @@ struct DiagnosticsPane: View {
     private var askField: some View {
         AskField(input: AskField.Input(
             docId: docId,
+            kind: .check,
             text: storedAsk,
-            commit: { AskField.commit($0, docId: docId, diagnostics: diagnostics) },
+            commit: { AskField.commit($0, docId: docId, kind: .check, diagnostics: diagnostics) },
             note: { text, doc in
-                AskField.note(text, docId: doc, diagnostics: diagnostics)
+                AskField.note(text, docId: doc, kind: .check, diagnostics: diagnostics)
             }))
     }
 
-    /// Version-gated like every other read of the sidecar here, so a commit
-    /// made in Review's cockpit is what this field shows.
+    /// Version-gated like every other read of the sidecar here.
+    ///
+    /// **Reads the CHECK's ask, never the round's** (two loops P1 Task 6) —
+    /// this header is Author's, and a worry typed for the reader who checks
+    /// must not echo back a different sentence typed for the editor who runs
+    /// the round in Review's cockpit.
     private var storedAsk: String? {
         _ = diagnostics.version
-        return diagnostics.ask(docId: docId)
+        return diagnostics.ask(docId: docId, kind: .check)
     }
 
     private var isFailureState: Bool {

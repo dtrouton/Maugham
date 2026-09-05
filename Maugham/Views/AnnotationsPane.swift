@@ -757,20 +757,24 @@ struct AnnotationsPane: View {
                         { AnyView(letterSection(letter, document: document,
                                                 diagnostics: diagnostics)) }
                     },
-                // **The same field Author's header carries, over the same
-                // per-document value** (spec §3.7). The strip holds no store,
-                // so the commit arrives as a closure — `AskField.commit` is
-                // the one spelling of it, so neither home can refuse a long
-                // ask in different words.
+                // **The same field Author's header carries, over the ROUND's
+                // own per-document value** (spec §3.7; per tempo as of two
+                // loops P1 Task 6). The strip holds no store, so the commit
+                // arrives as a closure — `AskField.commit` is the one
+                // spelling of it, so neither home can refuse a long ask in
+                // different words. `kind: .round` is what keeps this an
+                // independent sentence from the one Author's header reads
+                // and writes for the same document.
                 ask: AskField.Input(
                     docId: document.docId,
+                    kind: .round,
                     text: cockpitAsk(diagnostics, docId: document.docId),
                     commit: { text in
                         AskField.commit(text, docId: document.docId,
-                                        diagnostics: diagnostics)
+                                        kind: .round, diagnostics: diagnostics)
                     },
                     note: { text, doc in
-                        AskField.note(text, docId: doc, diagnostics: diagnostics)
+                        AskField.note(text, docId: doc, kind: .round, diagnostics: diagnostics)
                     }))
             Divider()
         }
@@ -819,7 +823,7 @@ struct AnnotationsPane: View {
         _ diagnostics: DiagnosticsStore, docId: String
     ) -> String? {
         _ = diagnostics.version
-        return diagnostics.ask(docId: docId)
+        return diagnostics.ask(docId: docId, kind: .round)
     }
 
     /// The standing run's letter for this piece, version-gated exactly as

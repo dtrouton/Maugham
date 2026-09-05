@@ -5870,7 +5870,7 @@ final class CompilerRunCommandTests: XCTestCase {
     func test_aRunBriefsTheWritersAskAndStampsItOntoItsLetter() throws {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
-        harness.diagnostics.setAsk("I'm worried the middle sags.", docId: docId)
+        harness.diagnostics.setAsk("I'm worried the middle sags.", docId: docId, kind: .check)
         runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
 
         harness.orchestrator.runRequested(docId: docId, kind: .check)
@@ -5914,18 +5914,67 @@ final class CompilerRunCommandTests: XCTestCase {
     func test_theStampIsTheAskTheRunWasBriefedOnEvenIfTheWriterClearsIt() throws {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
-        harness.diagnostics.setAsk("Does the middle sag?", docId: docId)
+        harness.diagnostics.setAsk("Does the middle sag?", docId: docId, kind: .check)
         runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
 
         harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
-        harness.diagnostics.setAsk(nil, docId: docId)
+        harness.diagnostics.setAsk(nil, docId: docId, kind: .check)
         settle()
 
         let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
         XCTAssertEqual(run.letter?.asked, "Does the middle sag?")
-        XCTAssertNil(harness.diagnostics.ask(docId: docId),
+        XCTAssertNil(harness.diagnostics.ask(docId: docId, kind: .check),
                      "control: the writer really did clear it")
+    }
+
+    /// **A round is briefed on the round's own ask, and not on the check's**
+    /// (two loops P1 Task 6). The two are independent sentences over the same
+    /// document, and a round begun in Review must never carry a worry the
+    /// writer only ever typed into Author's header.
+    func test_aRoundIsBriefedOnTheRoundsAskAndNotTheChecks() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "line")
+        harness.diagnostics.setAsk("Does the middle sag?", docId: docId, kind: .check)
+        harness.diagnostics.setAsk(
+            "Is the pass's own thread landing?", docId: docId, kind: .round)
+        runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = runner.sends.first?.message ?? ""
+        XCTAssertTrue(
+            message.contains("Is the pass's own thread landing?"),
+            "the round's own ask must reach its briefing; got \(message)")
+        XCTAssertFalse(
+            message.contains("Does the middle sag?"),
+            "and not the check's; got \(message)")
+    }
+
+    /// The converse: a check is briefed on the check's ask and never the
+    /// round's, over the same document.
+    func test_aCheckIsBriefedOnTheChecksAskAndNotTheRounds() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        harness.diagnostics.setAsk("Does the middle sag?", docId: docId, kind: .check)
+        harness.diagnostics.setAsk(
+            "Is the pass's own thread landing?", docId: docId, kind: .round)
+        runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = runner.sends.first?.message ?? ""
+        XCTAssertTrue(
+            message.contains("Does the middle sag?"),
+            "the check's own ask must reach its briefing; got \(message)")
+        XCTAssertFalse(
+            message.contains("Is the pass's own thread landing?"),
+            "and not the round's; got \(message)")
     }
 
     /// **The run derives over the WHOLE statement, not the essay half it

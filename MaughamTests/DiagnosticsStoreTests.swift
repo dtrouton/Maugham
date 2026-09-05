@@ -857,12 +857,12 @@ final class DiagnosticsStoreTests: XCTestCase {
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
         let docId = "doc-ask"
 
-        XCTAssertNil(store.ask(docId: docId))
+        XCTAssertNil(store.ask(docId: docId, kind: .check))
         let versionBefore = store.version
 
-        store.setAsk("I'm worried the middle sags.", docId: docId)
+        store.setAsk("I'm worried the middle sags.", docId: docId, kind: .check)
 
-        XCTAssertEqual(store.ask(docId: docId), "I'm worried the middle sags.")
+        XCTAssertEqual(store.ask(docId: docId, kind: .check), "I'm worried the middle sags.")
         XCTAssertGreaterThan(store.version, versionBefore,
             "a SwiftUI field reading `ask(docId:)` through a method observes nothing "
             + "unless `version` moves")
@@ -874,10 +874,10 @@ final class DiagnosticsStoreTests: XCTestCase {
         let store = DiagnosticsStore(
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
 
-        store.setAsk("Does the ending land?", docId: "doc-one")
+        store.setAsk("Does the ending land?", docId: "doc-one", kind: .check)
 
-        XCTAssertEqual(store.ask(docId: "doc-one"), "Does the ending land?")
-        XCTAssertNil(store.ask(docId: "doc-two"))
+        XCTAssertEqual(store.ask(docId: "doc-one", kind: .check), "Does the ending land?")
+        XCTAssertNil(store.ask(docId: "doc-two", kind: .check))
     }
 
     /// Trimmed, and a blank ask is a REMOVAL rather than an empty string —
@@ -889,15 +889,15 @@ final class DiagnosticsStoreTests: XCTestCase {
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
         let docId = "doc-ask-clear"
 
-        store.setAsk("   Does the middle sag?  \n", docId: docId)
-        XCTAssertEqual(store.ask(docId: docId), "Does the middle sag?")
+        store.setAsk("   Does the middle sag?  \n", docId: docId, kind: .check)
+        XCTAssertEqual(store.ask(docId: docId, kind: .check), "Does the middle sag?")
 
-        store.setAsk("   ", docId: docId)
-        XCTAssertNil(store.ask(docId: docId), "whitespace alone is nothing asked")
+        store.setAsk("   ", docId: docId, kind: .check)
+        XCTAssertNil(store.ask(docId: docId, kind: .check), "whitespace alone is nothing asked")
 
-        store.setAsk("Back again.", docId: docId)
-        store.setAsk(nil, docId: docId)
-        XCTAssertNil(store.ask(docId: docId), "…and so is nil")
+        store.setAsk("Back again.", docId: docId, kind: .check)
+        store.setAsk(nil, docId: docId, kind: .check)
+        XCTAssertNil(store.ask(docId: docId, kind: .check), "…and so is nil")
     }
 
     /// **An ask over `askLimit` is refused, and the one that stood stands.**
@@ -912,14 +912,14 @@ final class DiagnosticsStoreTests: XCTestCase {
         let store = DiagnosticsStore(
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
         let docId = "doc-ask-cap"
-        XCTAssertTrue(store.setAsk("Does the middle sag?", docId: docId))
+        XCTAssertTrue(store.setAsk("Does the middle sag?", docId: docId, kind: .check))
         let versionBefore = store.version
 
         let tooLong = String(repeating: "a", count: DiagnosticsStore.askLimit + 1)
-        XCTAssertFalse(store.setAsk(tooLong, docId: docId),
+        XCTAssertFalse(store.setAsk(tooLong, docId: docId, kind: .check),
                        "an ask over \(DiagnosticsStore.askLimit) characters is refused")
         XCTAssertEqual(
-            store.ask(docId: docId), "Does the middle sag?",
+            store.ask(docId: docId, kind: .check), "Does the middle sag?",
             "a refused edit must not clear the ask the writer believes they are asking")
         XCTAssertEqual(
             store.version, versionBefore,
@@ -938,14 +938,14 @@ final class DiagnosticsStoreTests: XCTestCase {
         let docId = "doc-ask-cap-control"
 
         let atLimit = String(repeating: "b", count: DiagnosticsStore.askLimit)
-        XCTAssertTrue(store.setAsk(atLimit, docId: docId))
-        XCTAssertEqual(store.ask(docId: docId), atLimit)
+        XCTAssertTrue(store.setAsk(atLimit, docId: docId, kind: .check))
+        XCTAssertEqual(store.ask(docId: docId, kind: .check), atLimit)
 
         let padded = "   " + String(repeating: "c", count: DiagnosticsStore.askLimit) + "  \n"
-        XCTAssertTrue(store.setAsk(padded, docId: docId),
+        XCTAssertTrue(store.setAsk(padded, docId: docId, kind: .check),
                       "trailing whitespace is not part of the ask and must not refuse it")
         XCTAssertEqual(
-            store.ask(docId: docId),
+            store.ask(docId: docId, kind: .check),
             String(repeating: "c", count: DiagnosticsStore.askLimit))
     }
 
@@ -958,14 +958,14 @@ final class DiagnosticsStoreTests: XCTestCase {
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
         let docId = "doc-pending"
 
-        store.notePendingAsk("I'm worried the middle sags.", docId: docId)
-        XCTAssertNil(store.ask(docId: docId), "noting is not asking")
+        store.notePendingAsk("I'm worried the middle sags.", docId: docId, kind: .check)
+        XCTAssertNil(store.ask(docId: docId, kind: .check), "noting is not asking")
 
-        XCTAssertTrue(store.commitPendingAsk(docId: docId))
-        XCTAssertEqual(store.ask(docId: docId), "I'm worried the middle sags.")
+        XCTAssertTrue(store.commitPendingAsk(docId: docId, kind: .check))
+        XCTAssertEqual(store.ask(docId: docId, kind: .check), "I'm worried the middle sags.")
 
         XCTAssertFalse(
-            store.commitPendingAsk(docId: docId),
+            store.commitPendingAsk(docId: docId, kind: .check),
             "the pending draft is spent \u{2014} a second round must not rewrite the "
             + "asks file for a sentence that already stands")
     }
@@ -976,13 +976,13 @@ final class DiagnosticsStoreTests: XCTestCase {
         let store = DiagnosticsStore(
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
         let docId = "doc-pending-same"
-        store.setAsk("Does the middle sag?", docId: docId)
+        store.setAsk("Does the middle sag?", docId: docId, kind: .check)
         let versionBefore = store.version
 
-        store.notePendingAsk("  Does the middle sag?  ", docId: docId)
-        XCTAssertFalse(store.commitPendingAsk(docId: docId))
+        store.notePendingAsk("  Does the middle sag?  ", docId: docId, kind: .check)
+        XCTAssertFalse(store.commitPendingAsk(docId: docId, kind: .check))
         XCTAssertEqual(store.version, versionBefore)
-        XCTAssertEqual(store.ask(docId: docId), "Does the middle sag?")
+        XCTAssertEqual(store.ask(docId: docId, kind: .check), "Does the middle sag?")
     }
 
     /// **An emptied field is a withdrawal, not an absence.** A writer who
@@ -992,11 +992,11 @@ final class DiagnosticsStoreTests: XCTestCase {
         let store = DiagnosticsStore(
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
         let docId = "doc-pending-empty"
-        store.setAsk("Does the middle sag?", docId: docId)
+        store.setAsk("Does the middle sag?", docId: docId, kind: .check)
 
-        store.notePendingAsk("", docId: docId)
-        XCTAssertTrue(store.commitPendingAsk(docId: docId))
-        XCTAssertNil(store.ask(docId: docId))
+        store.notePendingAsk("", docId: docId, kind: .check)
+        XCTAssertTrue(store.commitPendingAsk(docId: docId, kind: .check))
+        XCTAssertNil(store.ask(docId: docId, kind: .check))
     }
 
     /// The pending buffer is per document, like the ask itself: a draft typed
@@ -1005,12 +1005,12 @@ final class DiagnosticsStoreTests: XCTestCase {
         let store = DiagnosticsStore(
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
 
-        store.notePendingAsk("Does chapter one sag?", docId: "doc-a")
+        store.notePendingAsk("Does chapter one sag?", docId: "doc-a", kind: .check)
 
-        XCTAssertFalse(store.commitPendingAsk(docId: "doc-b"))
-        XCTAssertNil(store.ask(docId: "doc-b"))
-        XCTAssertTrue(store.commitPendingAsk(docId: "doc-a"), "control")
-        XCTAssertEqual(store.ask(docId: "doc-a"), "Does chapter one sag?")
+        XCTAssertFalse(store.commitPendingAsk(docId: "doc-b", kind: .check))
+        XCTAssertNil(store.ask(docId: "doc-b", kind: .check))
+        XCTAssertTrue(store.commitPendingAsk(docId: "doc-a", kind: .check), "control")
+        XCTAssertEqual(store.ask(docId: "doc-a", kind: .check), "Does chapter one sag?")
     }
 
     /// A submitted ask spends the pending buffer, so a later round cannot
@@ -1020,11 +1020,11 @@ final class DiagnosticsStoreTests: XCTestCase {
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
         let docId = "doc-pending-spent"
 
-        store.notePendingAsk("Half a thou", docId: docId)
-        store.setAsk("Does the ending land?", docId: docId)
+        store.notePendingAsk("Half a thou", docId: docId, kind: .check)
+        store.setAsk("Does the ending land?", docId: docId, kind: .check)
 
-        XCTAssertFalse(store.commitPendingAsk(docId: docId))
-        XCTAssertEqual(store.ask(docId: docId), "Does the ending land?")
+        XCTAssertFalse(store.commitPendingAsk(docId: docId, kind: .check))
+        XCTAssertEqual(store.ask(docId: docId, kind: .check), "Does the ending land?")
     }
 
     /// **A pending draft over the limit is refused exactly as a submitted one
@@ -1034,13 +1034,14 @@ final class DiagnosticsStoreTests: XCTestCase {
         let store = DiagnosticsStore(
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
         let docId = "doc-pending-long"
-        store.setAsk("Does the middle sag?", docId: docId)
+        store.setAsk("Does the middle sag?", docId: docId, kind: .check)
 
         store.notePendingAsk(
-            String(repeating: "a", count: DiagnosticsStore.askLimit + 1), docId: docId)
+            String(repeating: "a", count: DiagnosticsStore.askLimit + 1), docId: docId,
+            kind: .check)
 
-        XCTAssertFalse(store.commitPendingAsk(docId: docId))
-        XCTAssertEqual(store.ask(docId: docId), "Does the middle sag?")
+        XCTAssertFalse(store.commitPendingAsk(docId: docId, kind: .check))
+        XCTAssertEqual(store.ask(docId: docId, kind: .check), "Does the middle sag?")
     }
 
     /// Persisted immediately and survives a relaunch — a fresh store over the
@@ -1052,10 +1053,10 @@ final class DiagnosticsStoreTests: XCTestCase {
         let docId = "doc-ask-relaunch"
 
         let store1 = DiagnosticsStore(projectRoot: project, device: device)
-        store1.setAsk("Is Kelly's grief legible?", docId: docId)
+        store1.setAsk("Is Kelly's grief legible?", docId: docId, kind: .check)
 
         let store2 = DiagnosticsStore(projectRoot: project, device: device)
-        XCTAssertEqual(store2.ask(docId: docId), "Is Kelly's grief legible?")
+        XCTAssertEqual(store2.ask(docId: docId, kind: .check), "Is Kelly's grief legible?")
     }
 
     /// Per device, on the same discipline as every other sidecar here.
@@ -1065,11 +1066,11 @@ final class DiagnosticsStoreTests: XCTestCase {
 
         let storeA = DiagnosticsStore(
             projectRoot: project, device: DeviceSlug.make(from: "mac-a"))
-        storeA.setAsk("Does the middle sag?", docId: docId)
+        storeA.setAsk("Does the middle sag?", docId: docId, kind: .check)
 
         let storeB = DiagnosticsStore(
             projectRoot: project, device: DeviceSlug.make(from: "mac-b"))
-        XCTAssertNil(storeB.ask(docId: docId))
+        XCTAssertNil(storeB.ask(docId: docId, kind: .check))
     }
 
     /// **An ask can be set on a document the compiler has never read** —
@@ -1080,9 +1081,9 @@ final class DiagnosticsStoreTests: XCTestCase {
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
         let docId = "doc-ask-never-run"
 
-        store.setAsk("What is this even about?", docId: docId)
+        store.setAsk("What is this even about?", docId: docId, kind: .check)
 
-        XCTAssertEqual(store.ask(docId: docId), "What is this even about?")
+        XCTAssertEqual(store.ask(docId: docId, kind: .check), "What is this even about?")
         XCTAssertNil(store.lastRun(docId: docId))
         XCTAssertEqual(store.live(docId: docId, currentText: { _ in nil }), [])
     }
@@ -1111,7 +1112,107 @@ final class DiagnosticsStoreTests: XCTestCase {
 
         let store = DiagnosticsStore(projectRoot: project, device: device)
 
-        XCTAssertNil(store.ask(docId: "anything"))
+        XCTAssertNil(store.ask(docId: "anything", kind: .check))
+    }
+
+    // MARK: - The ask, per tempo (two loops P1 Task 6)
+
+    /// **A check's ask and a round's ask are independent sentences over the
+    /// same document.** Author's header and Review's cockpit ask two
+    /// different readers two different questions, and setting one must not
+    /// touch the other, in either direction.
+    func test_theTwoKindsHaveIndependentAsks_forTheSameDocument() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-two-tempos"
+
+        store.setAsk("Does the reader believe the dinner scene?", docId: docId, kind: .check)
+        store.setAsk("Is the pass's own thread landing?", docId: docId, kind: .round)
+
+        XCTAssertEqual(
+            store.ask(docId: docId, kind: .check),
+            "Does the reader believe the dinner scene?")
+        XCTAssertEqual(
+            store.ask(docId: docId, kind: .round),
+            "Is the pass's own thread landing?")
+    }
+
+    /// The converse of the test above, from the other direction: clearing one
+    /// kind's ask leaves the other kind's exactly as it was.
+    func test_clearingOneKindsAskLeavesTheOtherStanding() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-two-tempos-clear"
+        store.setAsk("Does the middle sag?", docId: docId, kind: .check)
+        store.setAsk("Does the ending land?", docId: docId, kind: .round)
+
+        store.setAsk(nil, docId: docId, kind: .check)
+
+        XCTAssertNil(store.ask(docId: docId, kind: .check))
+        XCTAssertEqual(store.ask(docId: docId, kind: .round), "Does the ending land?")
+    }
+
+    /// **`commitPendingAsk` promotes only its own kind's pending text.** A
+    /// worry typed and left uncommitted in Author's field must not be
+    /// promoted by a round begun in Review, and the converse.
+    func test_commitPendingAsk_promotesOnlyItsOwnKindsPendingDraft() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "doc-pending-per-tempo"
+        store.notePendingAsk("I'm worried the middle sags.", docId: docId, kind: .check)
+
+        XCTAssertFalse(
+            store.commitPendingAsk(docId: docId, kind: .round),
+            "a check's pending draft must not be promoted by a round")
+        XCTAssertNil(store.ask(docId: docId, kind: .round))
+        XCTAssertNil(store.ask(docId: docId, kind: .check), "the check's draft is still pending")
+
+        XCTAssertTrue(store.commitPendingAsk(docId: docId, kind: .check), "control")
+        XCTAssertEqual(store.ask(docId: docId, kind: .check), "I'm worried the middle sags.")
+    }
+
+    /// **A legacy asks file — written before the ask was per-tempo — reads as
+    /// the check's ask**, since every ask on disk before this task was
+    /// Author's (the round cockpit had no field yet).
+    func test_aLegacyBareDocIdKeyReadsAsTheChecksAsk() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let url = DiagnosticsStore.asksURL(projectRoot: project, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(["legacy-doc": "Is Kelly's grief legible?"]).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+
+        XCTAssertEqual(
+            store.ask(docId: "legacy-doc", kind: .check), "Is Kelly's grief legible?")
+        XCTAssertNil(
+            store.ask(docId: "legacy-doc", kind: .round),
+            "a legacy ask is the check's alone \u{2014} it must not also answer for the round")
+    }
+
+    /// **A legacy file re-persists under the new key**, so the bare docId key
+    /// does not survive the first write after load. `persistAsks` writes
+    /// whatever is in memory, and `loadAsks` migrates on the way in — this
+    /// pins that the round-trip actually loses the bare key on disk rather
+    /// than merely answering correctly in memory.
+    func test_aLegacyFileRePersistsUnderTheNewKey_andDropsTheBareKey() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let url = DiagnosticsStore.asksURL(projectRoot: project, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(["legacy-doc": "Is Kelly's grief legible?"]).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        // Any mutating call re-persists the whole in-memory dictionary.
+        store.setAsk("Something else entirely.", docId: "other-doc", kind: .check)
+
+        let raw = try JSONDecoder().decode(
+            [String: String].self, from: try Data(contentsOf: url))
+        XCTAssertNil(raw["legacy-doc"], "the bare key must not survive a re-persist")
+        XCTAssertEqual(raw["legacy-doc#check"], "Is Kelly's grief legible?")
+        XCTAssertEqual(raw["other-doc#check"], "Something else entirely.")
     }
 
     // MARK: - The two standing slots (two loops P1 Task 5)

@@ -931,8 +931,8 @@ final class CompilerOrchestrator {
         // one line — the two keystrokes, the cockpit's buttons and the
         // cold-start offer — and because a pending draft equal to the stored
         // ask writes nothing.
-        diagnostics.commitPendingAsk(docId: docId)
-        let ask = diagnostics.ask(docId: docId)
+        diagnostics.commitPendingAsk(docId: docId, kind: kind)
+        let ask = diagnostics.ask(docId: docId, kind: kind)
 
         // **The ledger, read beside the intent** and hashed with it (Task 4):
         // both are declarations the writer has made rather than per-run

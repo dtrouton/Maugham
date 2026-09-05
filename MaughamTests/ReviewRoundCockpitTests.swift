@@ -1603,9 +1603,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
             activePassId: "copyedit", round: 2,
             ask: Self.askInput(
                 nil,
-                commit: { AskField.commit($0, docId: "ch-1", diagnostics: diagnostics) },
+                commit: { AskField.commit($0, docId: "ch-1", kind: .round, diagnostics: diagnostics) },
                 note: { text, doc in
-                    AskField.note(text, docId: doc, diagnostics: diagnostics)
+                    AskField.note(text, docId: doc, kind: .round, diagnostics: diagnostics)
                 }))
         pump(0.3)
 
@@ -1613,14 +1613,14 @@ final class ReviewRoundCockpitTests: XCTestCase {
             askTextField(in: window), "no ask field reached the strip")
         type("I'm worried the middle sags.", into: field)
         pump(0.2)
-        XCTAssertNil(diagnostics.ask(docId: "ch-1"),
+        XCTAssertNil(diagnostics.ask(docId: "ch-1", kind: .round),
                      "premise: typing alone commits nothing")
 
         // What every run trigger does, before it reads the ask.
-        diagnostics.commitPendingAsk(docId: "ch-1")
+        diagnostics.commitPendingAsk(docId: "ch-1", kind: .round)
 
         XCTAssertEqual(
-            diagnostics.ask(docId: "ch-1"), "I'm worried the middle sags.",
+            diagnostics.ask(docId: "ch-1", kind: .round), "I'm worried the middle sags.",
             "a round asked for with words still in the field must carry them")
     }
 
@@ -1837,7 +1837,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
         commit: @escaping (String?) -> String? = { _ in nil },
         note: @escaping (String?, String) -> Void = { _, _ in }
     ) -> AskField.Input {
-        AskField.Input(docId: docId, text: text, commit: commit, note: note)
+        AskField.Input(docId: docId, kind: .round, text: text, commit: commit, note: note)
     }
 
     /// `orchestrator` is explicit and **undefaulted** so the no-compiler host

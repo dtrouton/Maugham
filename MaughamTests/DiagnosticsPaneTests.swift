@@ -4068,7 +4068,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         let (url, store, chapter) = try await loadedNovel(named: "AskFieldSeeded")
         let diagnostics = DiagnosticsStore(
             projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
-        diagnostics.setAsk("I'm worried the middle sags.", docId: chapter.id)
+        diagnostics.setAsk("I'm worried the middle sags.", docId: chapter.id, kind: .check)
 
         let window = mount(pane(store: store, diagnostics: diagnostics, docId: chapter.id))
         pump(0.3)
@@ -4097,7 +4097,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             textFields(in: window).isEmpty,
             "the field is standing, not revealed \u{2014} an ask with no box to type it "
             + "into is a feature the writer cannot reach")
-        XCTAssertNil(diagnostics.ask(docId: chapter.id), "and nothing was written")
+        XCTAssertNil(diagnostics.ask(docId: chapter.id, kind: .check), "and nothing was written")
     }
 
     /// **The commit lands, and it starts no run.** The keystroke is the only
@@ -4121,10 +4121,10 @@ final class DiagnosticsPaneTests: XCTestCase {
 
         let versionBefore = diagnostics.version
         let refusal = AskField.commit(
-            "  Does the middle sag?  ", docId: chapter.id, diagnostics: diagnostics)
+            "  Does the middle sag?  ", docId: chapter.id, kind: .check, diagnostics: diagnostics)
 
         XCTAssertNil(refusal, "the commit reported: \(refusal ?? "")")
-        XCTAssertEqual(diagnostics.ask(docId: chapter.id), "Does the middle sag?",
+        XCTAssertEqual(diagnostics.ask(docId: chapter.id, kind: .check), "Does the middle sag?",
                        "committed trimmed, which is what the briefing carries")
         XCTAssertGreaterThan(diagnostics.version, versionBefore,
                              "control: the store really moved")
@@ -4144,10 +4144,10 @@ final class DiagnosticsPaneTests: XCTestCase {
         let (url, _, chapter) = try await loadedNovel(named: "AskClear")
         let diagnostics = DiagnosticsStore(
             projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
-        diagnostics.setAsk("Does the ending land?", docId: chapter.id)
+        diagnostics.setAsk("Does the ending land?", docId: chapter.id, kind: .check)
 
-        XCTAssertNil(AskField.commit(nil, docId: chapter.id, diagnostics: diagnostics))
-        XCTAssertNil(diagnostics.ask(docId: chapter.id))
+        XCTAssertNil(AskField.commit(nil, docId: chapter.id, kind: .check, diagnostics: diagnostics))
+        XCTAssertNil(diagnostics.ask(docId: chapter.id, kind: .check))
     }
 
     /// **A too-long ask is refused in one line, and the words stay put.** The
@@ -4157,17 +4157,17 @@ final class DiagnosticsPaneTests: XCTestCase {
         let (url, _, chapter) = try await loadedNovel(named: "AskTooLong")
         let diagnostics = DiagnosticsStore(
             projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
-        diagnostics.setAsk("Does the middle sag?", docId: chapter.id)
+        diagnostics.setAsk("Does the middle sag?", docId: chapter.id, kind: .check)
 
         let tooLong = String(repeating: "a", count: DiagnosticsStore.askLimit + 1)
-        let refusal = AskField.commit(tooLong, docId: chapter.id, diagnostics: diagnostics)
+        let refusal = AskField.commit(tooLong, docId: chapter.id, kind: .check, diagnostics: diagnostics)
 
         XCTAssertEqual(refusal, AskField.tooLongNotice)
         XCTAssertTrue(
             AskField.tooLongNotice.contains("\(DiagnosticsStore.askLimit)"),
             "the refusal must say how long is too long: \(AskField.tooLongNotice)")
         XCTAssertEqual(
-            diagnostics.ask(docId: chapter.id), "Does the middle sag?",
+            diagnostics.ask(docId: chapter.id, kind: .check), "Does the middle sag?",
             "and the ask that stood still stands")
     }
 
@@ -4180,8 +4180,51 @@ final class DiagnosticsPaneTests: XCTestCase {
             projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
 
         let atLimit = String(repeating: "a", count: DiagnosticsStore.askLimit)
-        XCTAssertNil(AskField.commit(atLimit, docId: chapter.id, diagnostics: diagnostics))
-        XCTAssertEqual(diagnostics.ask(docId: chapter.id), atLimit)
+        XCTAssertNil(AskField.commit(atLimit, docId: chapter.id, kind: .check, diagnostics: diagnostics))
+        XCTAssertEqual(diagnostics.ask(docId: chapter.id, kind: .check), atLimit)
+    }
+
+    // MARK: - The ask, per tempo (two loops P1 Task 6)
+
+    /// **`Input.kind` carries through `AskField.commit`/`.note` to the store**
+    /// — a commit made with `kind: .round` must land under the round's key
+    /// and never the check's, and the converse. Driven through the named
+    /// functions directly (`AskField.commit`/`.note`), the same wiring the
+    /// field's `.onSubmit`/`.onChange` call — asserted at the source, below.
+    func test_theCommitPathCarriesItsKindThroughToTheStore() async throws {
+        let (url, _, chapter) = try await loadedNovel(named: "AskCommitKind")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+
+        XCTAssertNil(AskField.commit(
+            "Does the middle sag?", docId: chapter.id, kind: .check, diagnostics: diagnostics))
+        XCTAssertNil(AskField.commit(
+            "Is the pass's own thread landing?", docId: chapter.id, kind: .round,
+            diagnostics: diagnostics))
+
+        XCTAssertEqual(diagnostics.ask(docId: chapter.id, kind: .check), "Does the middle sag?")
+        XCTAssertEqual(
+            diagnostics.ask(docId: chapter.id, kind: .round),
+            "Is the pass's own thread landing?")
+    }
+
+    /// The keystroke half of the same wiring: `AskField.note` notes a pending
+    /// draft under its own kind, so a round's draft cannot be promoted by a
+    /// check's run and the converse (`DiagnosticsStoreTests`' store-level
+    /// pin of the same rule).
+    func test_theNotePathCarriesItsKindThroughToTheStore() async throws {
+        let (url, _, chapter) = try await loadedNovel(named: "AskNoteKind")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+
+        AskField.note("Does the middle sag?", docId: chapter.id, kind: .check, diagnostics: diagnostics)
+
+        XCTAssertTrue(diagnostics.commitPendingAsk(docId: chapter.id, kind: .check))
+        XCTAssertFalse(
+            diagnostics.commitPendingAsk(docId: chapter.id, kind: .round),
+            "nothing was ever noted against the round")
+        XCTAssertNil(diagnostics.ask(docId: chapter.id, kind: .round))
+        XCTAssertEqual(diagnostics.ask(docId: chapter.id, kind: .check), "Does the middle sag?")
     }
 
     /// **The field commits on submit and on focus loss, and never per
@@ -4226,19 +4269,19 @@ final class DiagnosticsPaneTests: XCTestCase {
         let versionBefore = diagnostics.version
 
         for prefix in ["I", "I'm", "I'm w", "I'm worried"] {
-            diagnostics.notePendingAsk(prefix, docId: "doc-1")
+            diagnostics.notePendingAsk(prefix, docId: "doc-1", kind: .check)
         }
 
         XCTAssertEqual(diagnostics.version, versionBefore,
                        "noting must not re-render the panes reading this store")
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path),
                        "nor touch the asks file")
-        XCTAssertNil(diagnostics.ask(docId: "doc-1"),
+        XCTAssertNil(diagnostics.ask(docId: "doc-1", kind: .check),
                      "and nothing is asked until something commits it")
 
         // Control: the commit a round makes does all three.
-        XCTAssertTrue(diagnostics.commitPendingAsk(docId: "doc-1"))
-        XCTAssertEqual(diagnostics.ask(docId: "doc-1"), "I'm worried")
+        XCTAssertTrue(diagnostics.commitPendingAsk(docId: "doc-1", kind: .check))
+        XCTAssertEqual(diagnostics.ask(docId: "doc-1", kind: .check), "I'm worried")
         XCTAssertGreaterThan(diagnostics.version, versionBefore)
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
@@ -4275,7 +4318,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         let field = try XCTUnwrap(askTextField(in: window), "no ask field on the pane")
         type(worry, into: field)
         pump(0.2)
-        XCTAssertNil(diagnostics.ask(docId: chapter.id),
+        XCTAssertNil(diagnostics.ask(docId: chapter.id, kind: .check),
                      "premise: typing alone commits nothing")
 
         // The event, then the round — the exact order and the exact
@@ -4288,7 +4331,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         try await waitUntilAsync(timeout: 5) { !runner.sentMessages.isEmpty }
 
         XCTAssertEqual(
-            diagnostics.ask(docId: chapter.id), worry,
+            diagnostics.ask(docId: chapter.id, kind: .check), worry,
             "the round must promote the pending draft into the ask")
         XCTAssertTrue(
             runner.sentMessages.first?.contains(worry) == true,
@@ -4321,7 +4364,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         orchestrator.runRequested(docId: chapter.id, kind: .check)
         try await waitUntilAsync(timeout: 5) { !runner.sentMessages.isEmpty }
 
-        XCTAssertNil(diagnostics.ask(docId: chapter.id))
+        XCTAssertNil(diagnostics.ask(docId: chapter.id, kind: .check))
         XCTAssertFalse(
             runner.sentMessages.first?.contains("I'm worried the middle sags.") == true,
             "nothing was asked, so nothing about a middle may reach the briefing")
@@ -4355,11 +4398,11 @@ final class DiagnosticsPaneTests: XCTestCase {
             "the draft must go with the chapter it was about")
 
         // What a round on either chapter would do.
-        diagnostics.commitPendingAsk(docId: "doc-b")
-        diagnostics.commitPendingAsk(docId: "doc-a")
-        XCTAssertNil(diagnostics.ask(docId: "doc-b"),
+        diagnostics.commitPendingAsk(docId: "doc-b", kind: .check)
+        diagnostics.commitPendingAsk(docId: "doc-a", kind: .check)
+        XCTAssertNil(diagnostics.ask(docId: "doc-b", kind: .check),
                      "and must never be filed against the chapter the writer moved to")
-        XCTAssertNil(diagnostics.ask(docId: "doc-a"),
+        XCTAssertNil(diagnostics.ask(docId: "doc-a", kind: .check),
                      "nor against the one they left \u{2014} it was never committed")
     }
 
@@ -4377,9 +4420,9 @@ final class DiagnosticsPaneTests: XCTestCase {
         type("Does the middle of chapter one sag?",
              into: try XCTUnwrap(askTextField(in: window)))
         pump(0.2)
-        diagnostics.commitPendingAsk(docId: "doc-a")
+        diagnostics.commitPendingAsk(docId: "doc-a", kind: .check)
 
-        XCTAssertEqual(diagnostics.ask(docId: "doc-a"),
+        XCTAssertEqual(diagnostics.ask(docId: "doc-a", kind: .check),
                        "Does the middle of chapter one sag?")
     }
 
@@ -4810,11 +4853,12 @@ struct AskFieldProbe: View {
         return AskField(
             input: AskField.Input(
                 docId: subject.docId,
-                text: diagnostics.ask(docId: subject.docId),
+                kind: .check,
+                text: diagnostics.ask(docId: subject.docId, kind: .check),
                 commit: { AskField.commit($0, docId: subject.docId,
-                                          diagnostics: diagnostics) },
+                                          kind: .check, diagnostics: diagnostics) },
             note: { text, doc in
-                AskField.note(text, docId: doc, diagnostics: diagnostics)
+                AskField.note(text, docId: doc, kind: .check, diagnostics: diagnostics)
             }))
     }
 }

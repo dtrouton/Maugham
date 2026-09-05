@@ -259,8 +259,9 @@ final class DiagnosticsStore {
     /// nothing worse than the offer asking once more.
     private var refusedColdStart: Set<String>
 
-    /// What the writer has asked of the next run, per document, on THIS
-    /// device — "I'm worried the middle sags" (editorial letter P2 §3.7).
+    /// What the writer has asked of the next run, per document PER TEMPO, on
+    /// THIS device — "I'm worried the middle sags" (editorial letter P2
+    /// §3.7; keyed per `RunKind` as of two loops P1 Task 6).
     ///
     /// **Beside `FileContent` rather than inside it, for `refusedColdStart`'s
     /// reason and one sharper.** An ask is written BEFORE a run, and the
@@ -269,10 +270,20 @@ final class DiagnosticsStore {
     /// Putting it in the per-doc file would mean fabricating a run that never
     /// happened, and every ask would be lost the moment the writer typed it.
     ///
-    /// One small file for the whole project, keyed by docId, on the same
-    /// derived-state contract as everything else here — except that this one
-    /// is the writer's own words rather than a run's output, which is why it
-    /// is persisted the instant it is set rather than at the next run.
+    /// One small file for the whole project, keyed by ``askKey(docId:kind:)``,
+    /// on the same derived-state contract as everything else here — except
+    /// that this one is the writer's own words rather than a run's output,
+    /// which is why it is persisted the instant it is set rather than at the
+    /// next run.
+    ///
+    /// **Keyed by `(docId, kind)`, not just `docId`.** The check and the round
+    /// are different readers of the same document — the ask typed in Author's
+    /// header is a worry aimed at the reader who checks, and the one typed in
+    /// Review's cockpit is aimed at the editor who runs the round — and a
+    /// single shared sentence would mean asking the coach the same question
+    /// meant for Gould. `askKey` is the one place the two are joined into a
+    /// dictionary key, so nothing else here can drift into keying one kind's
+    /// read against the other's write.
     private var asks: [String: String]
 
     init(projectRoot: URL, device: DeviceSlug) {
@@ -723,23 +734,39 @@ final class DiagnosticsStore {
         version += 1
     }
 
-    // MARK: - The writer's ask (editorial letter P2 §3.7)
+    // MARK: - The writer's ask (editorial letter P2 §3.7; per tempo, two loops P1 Task 6)
 
-    /// What the writer has asked of the next run against `docId`, or `nil`
-    /// when they have asked nothing. Read by `CompilerOrchestrator.beginRun`
-    /// at the keystroke, and by the field that holds it.
-    func ask(docId: String) -> String? {
-        asks[docId]
+    /// **Join a document and a tempo into the one key `asks`/`pendingAsks`
+    /// are stored under.** The one place `docId` and `kind` combine, so
+    /// nothing else here can key a read against one kind and a write against
+    /// the other.
+    private static func askKey(docId: String, kind: RunKind) -> String {
+        "\(docId)#\(kind.rawValue)"
+    }
+
+    /// What the writer has asked of the next run of THIS KIND against
+    /// `docId`, or `nil` when they have asked nothing of it. Read by
+    /// `CompilerOrchestrator.beginRun` at the keystroke, and by the field
+    /// that holds it.
+    ///
+    /// **A check's ask and a round's ask are independent for the same
+    /// document.** The reader who checks and the editor who runs the round
+    /// are different readers of the same prose, and a worry typed for one is
+    /// not automatically a worry typed for the other.
+    func ask(docId: String, kind: RunKind) -> String? {
+        asks[Self.askKey(docId: docId, kind: kind)]
     }
 
     /// **What the writer has typed into the ask field but not yet committed**,
-    /// per document, in memory only (editorial letter P2 Task 7, fix round 1).
+    /// per document PER TEMPO, in memory only (editorial letter P2 Task 7, fix
+    /// round 1; keyed per `RunKind` as of two loops P1 Task 6).
     ///
-    /// **This is not a second source of truth for the ask.** `ask(docId:)` is
-    /// the ask; this is a keystroke buffer that exists so a round asked for
+    /// **This is not a second source of truth for the ask.** `ask(docId:kind:)`
+    /// is the ask; this is a keystroke buffer that exists so a round asked for
     /// while the field still holds uncommitted words is briefed with them —
-    /// `commitPendingAsk(docId:)` promotes it through `setAsk` at the top of
-    /// every run and it is gone.
+    /// `commitPendingAsk(docId:kind:)` promotes it through `setAsk` at the top
+    /// of every run and it is gone. Keyed through the same ``askKey(docId:kind:)``
+    /// as `asks`, so a check's draft can never be promoted into a round's ask.
     ///
     /// Deliberately not persisted and deliberately not `version`-bumping: it is
     /// written on every keystroke, and the whole reason the field commits on
@@ -760,15 +787,15 @@ final class DiagnosticsStore {
     /// refuses their sentence.
     static let askLimit = 400
 
-    /// Set — or, with `nil` or blank, clear — the ask for `docId`. Answers
-    /// whether it was taken.
+    /// Set — or, with `nil` or blank, clear — the ask for `docId` OF THIS
+    /// KIND. Answers whether it was taken.
     ///
     /// **Trimmed, and an empty ask is a removal rather than an empty string.**
     /// A writer who selects the field's text and deletes it has cleared their
     /// ask, and an empty string kept on disk would brief every later run with
-    /// a question mark of nothing. `ask(docId:)` answering `nil` is the one
-    /// spelling of "nothing was asked", so there is no second empty state for
-    /// the prompt to guard against.
+    /// a question mark of nothing. `ask(docId:kind:)` answering `nil` is the
+    /// one spelling of "nothing was asked", so there is no second empty state
+    /// for the prompt to guard against.
     ///
     /// **Over `askLimit` it REFUSES and writes nothing — `false`, not a throw.**
     /// Nothing here failed: the file system is fine and the store is fine, and
@@ -782,19 +809,20 @@ final class DiagnosticsStore {
     /// Persisted immediately, on `refuseColdStart`'s discipline: a decision
     /// the writer made must survive a relaunch. `version` moves so an
     /// observing field or pane re-reads it — a SwiftUI reader that only
-    /// touched `ask(docId:)` would observe nothing, because a plain
+    /// touched `ask(docId:kind:)` would observe nothing, because a plain
     /// Dictionary read through a method is not a tracked access. Neither
     /// happens on a refusal: nothing changed, so nothing needs re-reading.
     @discardableResult
-    func setAsk(_ text: String?, docId: String) -> Bool {
+    func setAsk(_ text: String?, docId: String, kind: RunKind) -> Bool {
         let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard trimmed.count <= Self.askLimit else { return false }
+        let key = Self.askKey(docId: docId, kind: kind)
         // Whatever was pending has now been decided, one way or the other.
-        pendingAsks[docId] = nil
+        pendingAsks[key] = nil
         if trimmed.isEmpty {
-            asks[docId] = nil
+            asks[key] = nil
         } else {
-            asks[docId] = trimmed
+            asks[key] = trimmed
         }
         persistAsks()
         version += 1
@@ -809,8 +837,8 @@ final class DiagnosticsStore {
     /// writer who selects their ask and deletes it has withdrawn it, and the
     /// round they then ask for must not be briefed with the sentence they just
     /// removed.
-    func notePendingAsk(_ text: String, docId: String) {
-        pendingAsks[docId] = text
+    func notePendingAsk(_ text: String, docId: String, kind: RunKind) {
+        pendingAsks[Self.askKey(docId: docId, kind: kind)] = text
     }
 
     /// **Forget an uncommitted draft entirely** — not the same as noting an
@@ -821,8 +849,8 @@ final class DiagnosticsStore {
     /// no longer the writer's business at all: the field discards what was
     /// typed about a piece when the writer moves to another one, and the ask
     /// that piece already had must survive that untouched.
-    func discardPendingAsk(docId: String) {
-        pendingAsks[docId] = nil
+    func discardPendingAsk(docId: String, kind: RunKind) {
+        pendingAsks[Self.askKey(docId: docId, kind: kind)] = nil
     }
 
     /// **Promote whatever is in the field into the ask, at the top of a run.**
@@ -835,19 +863,25 @@ final class DiagnosticsStore {
     /// the one place that calls this — so the cockpit's buttons and the
     /// cold-start offer are covered by the same line as the two keystrokes.
     ///
+    /// **Promotes only the pending draft OF THIS KIND.** A check and a round
+    /// against the same document have independent drafts, so beginning a
+    /// round must not promote whatever the writer left half-typed in Author's
+    /// field, and vice versa.
+    ///
     /// **A pending draft that matches the stored ask writes nothing**, so an
     /// ordinary round costs no file write; and one over `askLimit` is refused
     /// by `setAsk` exactly as a submitted one is, leaving the round briefed
     /// with the ask that stands. Answers whether anything changed.
     @discardableResult
-    func commitPendingAsk(docId: String) -> Bool {
-        guard let pending = pendingAsks[docId] else { return false }
+    func commitPendingAsk(docId: String, kind: RunKind) -> Bool {
+        let key = Self.askKey(docId: docId, kind: kind)
+        guard let pending = pendingAsks[key] else { return false }
         let trimmed = pending.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed != (asks[docId] ?? "") else {
-            pendingAsks[docId] = nil
+        guard trimmed != (asks[key] ?? "") else {
+            pendingAsks[key] = nil
             return false
         }
-        return setAsk(pending, docId: docId)
+        return setAsk(pending, docId: docId, kind: kind)
     }
 
     /// `.maugham/diagnostics/<docId>.<slug>.json` — per-device so two
@@ -891,23 +925,43 @@ final class DiagnosticsStore {
     }
 
     /// `.maugham/diagnostics/asks.<slug>.json` — one per-device file for the
-    /// whole project, keyed by docId, for the reason `asks` gives. `.raw` is
-    /// interpolated only here (tripwire 24), a third site in this file
-    /// building a third genuinely different filename.
+    /// whole project, keyed by ``askKey(docId:kind:)``, for the reason `asks`
+    /// gives. `.raw` is interpolated only here (tripwire 24), a third site in
+    /// this file building a third genuinely different filename.
     static func asksURL(projectRoot: URL, device: DeviceSlug) -> URL {
         projectRoot
             .appendingPathComponent(".maugham/diagnostics")
             .appendingPathComponent("asks.\(device.raw).json")
     }
 
+    /// **A legacy file written before the ask was per-tempo reads as the
+    /// check's** (two loops P1 Task 6). Before this task the whole file was
+    /// keyed by bare `docId`, and every ask on disk was Author's — the round
+    /// cockpit did not exist to write one — so a bare key with no `#` is
+    /// migrated to `askKey(docId:kind:.check)` on load. A key that already
+    /// carries a `#` is a new-format key and is kept as written.
+    ///
+    /// The migration happens here, in memory, rather than as an immediate
+    /// rewrite of the file: `asks` is always keyed in the new shape from the
+    /// moment this returns, so any later `persistAsks()` — the very next
+    /// `setAsk` — writes the whole dictionary back under new keys only, and a
+    /// bare key never survives a load-and-save.
     private static func loadAsks(
         projectRoot: URL, device: DeviceSlug
     ) -> [String: String] {
         let url = asksURL(projectRoot: projectRoot, device: device)
         guard let data = try? Data(contentsOf: url), // adr-0018-ok: diagnostics sidecar, derived, not manuscript
-              let asks = try? JSONDecoder().decode([String: String].self, from: data)
+              let raw = try? JSONDecoder().decode([String: String].self, from: data)
         else { return [:] }
-        return asks
+        var migrated: [String: String] = [:]
+        for (key, value) in raw {
+            if key.contains("#") {
+                migrated[key] = value
+            } else {
+                migrated[askKey(docId: key, kind: .check)] = value
+            }
+        }
+        return migrated
     }
 
     private func persistAsks() {

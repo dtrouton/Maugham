@@ -91,10 +91,14 @@ never quietly dropped. The ✕ withdraws it.
 It's per document and it's kept until you clear it, because a worry usually
 outlasts one round. Your ask goes into the briefing as its own section and the
 letter answers it **first**, before its own say-back, in the same voice and
-still never as a rewrite. A direct question gets a direct answer. Both homes
-show the same field over the same sentence, so it doesn't matter where you
-type it. **It never starts a check** — the keystroke is still the only trigger,
-and what your ask changes is what the next ⌘R is briefed with. Keep it to a
+still never as a rewrite. A direct question gets a direct answer. **Each home
+has its own ask** — the one you type in Author is for the reader who checks;
+the one in Review is for the editor who runs the round. Asking something in
+one field never shows up in the other, even against the same chapter — a
+worry about the dinner scene you meant for the coach's next check isn't
+automatically a worry you meant for the pass editor's next round. **It never
+starts a check** — the keystroke is still the only trigger, and what your ask
+changes is what the next ⌘R or Run round is briefed with. Keep it to a
 sentence or two: anything over 400 characters is turned away with your words
 left in the field to shorten.
 

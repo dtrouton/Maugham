@@ -10,13 +10,17 @@ import MaughamCore
 /// round — a worry usually outlasts one reading, and a field that emptied
 /// itself after every check would make the writer retype it.
 ///
-/// **Two hosts draw it and neither owns it.** Author's Diagnostics header and
-/// Review's round cockpit are the same field over the same per-document value
-/// (`DiagnosticsStore.ask(docId:)`), so it lives here rather than being spelled
-/// twice — `TurnClauseOffer`'s reason, in a view instead of a verb. The cockpit
-/// holds no store, which is why the verbs arrive inside ``Input``;
-/// ``commit(_:docId:diagnostics:)`` and ``note(_:docId:diagnostics:)`` below are
-/// the one spelling of each, and both hosts call them.
+/// **Two hosts draw it and neither owns it, and each reads its OWN tempo's
+/// sentence** (two loops P1 Task 6). Author's Diagnostics header and Review's
+/// round cockpit are the same field over the same shape of per-document value
+/// (`DiagnosticsStore.ask(docId:kind:)`), keyed `.check` and `.round`
+/// respectively — so it lives here rather than being spelled twice, even
+/// though the two hosts are no longer reading the same sentence —
+/// `TurnClauseOffer`'s reason, in a view instead of a verb. The cockpit holds
+/// no store, which is why the verbs arrive inside ``Input``;
+/// ``commit(_:docId:kind:diagnostics:)`` and ``note(_:docId:kind:diagnostics:)``
+/// below are the one spelling of each, and both hosts call them with their own
+/// `kind`.
 ///
 /// **It COMMITS on submit and on focus loss, and never per keystroke.**
 /// `DiagnosticsStore.setAsk` bumps the store's version and rewrites the asks
@@ -58,10 +62,15 @@ struct AskField: View {
         /// **Which document this ask belongs to.** The field's identity as
         /// well as the verbs' destination: see ``AskField/body``'s reset.
         let docId: String
+        /// **Which loop this ask belongs to** (two loops P1 Task 6) — Author's
+        /// `.check` or Review's `.round`. The two are independent sentences
+        /// over the same document, so a host's `Input` fixes which one this
+        /// mounted field reads and writes; it never changes for a given host.
+        let kind: RunKind
         /// The stored ask, as the host reads it back. `nil` is nothing asked.
         let text: String?
         /// Take the words. Answers the refusal to draw, or `nil` when they
-        /// landed — ``AskField/commit(_:docId:diagnostics:)`` is what every
+        /// landed — ``AskField/commit(_:docId:kind:diagnostics:)`` is what every
         /// production host passes.
         ///
         /// A returned string rather than a `Void` closure plus a `notice`
@@ -267,20 +276,20 @@ struct AskField: View {
     /// place — and, being one function, it is also what stops Author and
     /// Review refusing a long ask in two different sentences.
     static func commit(
-        _ text: String?, docId: String, diagnostics: DiagnosticsStore
+        _ text: String?, docId: String, kind: RunKind, diagnostics: DiagnosticsStore
     ) -> String? {
-        diagnostics.setAsk(text, docId: docId) ? nil : tooLongNotice
+        diagnostics.setAsk(text, docId: docId, kind: kind) ? nil : tooLongNotice
     }
 
     /// **What both hosts put in ``Input/note``** — the keystroke half, in one
     /// spelling for the same reason.
     static func note(
-        _ text: String?, docId: String, diagnostics: DiagnosticsStore
+        _ text: String?, docId: String, kind: RunKind, diagnostics: DiagnosticsStore
     ) {
         if let text {
-            diagnostics.notePendingAsk(text, docId: docId)
+            diagnostics.notePendingAsk(text, docId: docId, kind: kind)
         } else {
-            diagnostics.discardPendingAsk(docId: docId)
+            diagnostics.discardPendingAsk(docId: docId, kind: kind)
         }
     }
 }
