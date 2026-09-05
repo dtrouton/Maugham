@@ -1387,6 +1387,63 @@ final class DiagnosticsStoreTests: XCTestCase {
                        "and now the check is")
     }
 
+    /// **The badge is per verb underneath, and one run never clears the
+    /// other's count** (fix round 1).
+    ///
+    /// `replace` clears the badge when its own run left nothing, and that was
+    /// sound only while a replace superseded the other verb's notes too. With
+    /// two slots it does not: a clean round would erase the badge counting a
+    /// standing check's strains — which are still drawn on Author's pane —
+    /// and a clean check would erase a round's queued notes. What the writer
+    /// is shown is still ONE number per document, the sum.
+    func test_theBadgeIsPerVerbSoNeitherRunClearsTheOthersCount() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docBadgeSlots"
+
+        let check = makeCheck()
+        store.replace(
+            run: check,
+            diagnostics: [makeDiagnostic(docId: docId, runId: check.id),
+                          makeDiagnostic(docId: docId, runId: check.id)],
+            docId: docId)
+        XCTAssertEqual(store.unreadCount(docId: docId), 2, "control: two unread strains")
+
+        var cleanRound = makeRound(round: 1)
+        cleanRound.mintedNotes = 0
+        store.replace(run: cleanRound, diagnostics: [], docId: docId)
+        XCTAssertEqual(store.unreadCount(docId: docId), 2,
+                       "a round that raised nothing cleared the badge counting the "
+                       + "standing check's strains \u{2014} which are still on "
+                       + "Author's pane with nothing left to say they are unread")
+
+        store.markRead(docId: docId)
+        XCTAssertEqual(store.unreadCount(docId: docId), 0,
+                       "the writer read the pane: both verbs' counts drop")
+
+        // The converse: a round's queued notes survive a clean check.
+        var round = makeRound(round: 2)
+        round.mintedNotes = 3
+        store.replace(run: round, diagnostics: [], docId: docId)
+        XCTAssertEqual(store.unreadCount(docId: docId), 3)
+
+        store.replace(run: makeCheck(), diagnostics: [], docId: docId)
+        XCTAssertEqual(store.unreadCount(docId: docId), 3,
+                       "a clean \u{2318}R erased three notes the round put in the "
+                       + "writer's queue")
+
+        // And the original behaviour still holds WITHIN a slot: a run clears
+        // its own stale count, and the badge is the sum of the two.
+        let second = makeCheck()
+        store.replace(
+            run: second,
+            diagnostics: [makeDiagnostic(docId: docId, runId: second.id)], docId: docId)
+        XCTAssertEqual(store.unreadCount(docId: docId), 4, "3 queued + 1 unread strain")
+        store.replace(run: makeCheck(), diagnostics: [], docId: docId)
+        XCTAssertEqual(store.unreadCount(docId: docId), 3,
+                       "the check's own stale count went with it, and only it")
+    }
+
     /// The drift ring is fed by BOTH verbs: a clause strains across the
     /// writer's runs, not across one loop's.
     func test_bothVerbsFeedTheDriftRing() throws {

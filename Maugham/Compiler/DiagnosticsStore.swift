@@ -32,8 +32,8 @@ final class DiagnosticsStore {
     /// an observing pane can invalidate a cached read without diffing arrays.
     private(set) var version: Int = 0
 
-    /// Per document: how many notes a run has landed that the writer has not
-    /// had in front of them yet — the picker's unread badge, the Inbox
+    /// Per document AND VERB: how many notes a run has landed that the writer
+    /// has not had in front of them yet — the picker's unread badge, the Inbox
     /// segment's idiom (`DetailPaneToggle.inboxCount`).
     ///
     /// **In memory only, and deliberately.** Unread is a fact about this
@@ -41,7 +41,20 @@ final class DiagnosticsStore {
     /// the notes back on the pane where they can be read, and a badge restored
     /// with them would be counting something the writer already answered. The
     /// sidecar stays a record of the run.
-    private(set) var unread: [String: Int] = [:]
+    ///
+    /// **Keyed by `SlotKey`, for the reason the slots exist at all** (two
+    /// loops P1 Task 5, fix round 1). `replace` clears the badge when its run
+    /// left nothing, which was right while a replace superseded the other
+    /// verb's notes as well — now it does not, so a document-keyed count let a
+    /// clean round erase the badge counting a standing check's strains, which
+    /// are still on Author's pane, and a clean check erase a round's queued
+    /// notes. A run clears its own contribution and no one else's.
+    ///
+    /// The door is `unreadCount(docId:)`, which SUMS the two: the badge sits
+    /// on the pane picker and says how much this document has waiting,
+    /// whichever loop left it. Private because `SlotKey` is, which is also
+    /// what keeps that sum the only answer anything outside can get.
+    private var unread: [SlotKey: Int] = [:]
 
     private let projectRoot: URL
     private let device: DeviceSlug
@@ -378,8 +391,9 @@ final class DiagnosticsStore {
         content[kind] = Standing(run: run, diagnostics: diagnostics)
         byDoc[docId] = content
         persist(docId: docId, content: content)
-        // A run that raised nothing clears the badge rather than leaving the
-        // previous run's count standing over an empty pane.
+        // A run that raised nothing clears ITS OWN badge rather than leaving
+        // the previous run's count standing over an empty pane — its own, and
+        // not the other verb's, which is what `unread`'s `SlotKey` is for.
         //
         // **"Nothing" means nothing ANYWHERE** (M4 P1). The badge says a
         // finished run left the writer something they have not seen, and since
@@ -388,7 +402,7 @@ final class DiagnosticsStore {
         // counted only this store's rows would clear itself on the very run
         // that queued three questions, which is the one case it exists for.
         let left = diagnostics.count + (run.mintedNotes ?? 0)
-        unread[docId] = left == 0 ? nil : left
+        unread[key] = left == 0 ? nil : left
         version += 1
     }
 
@@ -463,11 +477,17 @@ final class DiagnosticsStore {
     /// pane calls this from its own reaction to a version change (see
     /// `DiagnosticsPane.body`), which a bump here would re-enter.
     func markRead(docId: String) {
-        unread[docId] = nil
+        for kind in RunKind.allCases { unread[SlotKey(docId: docId, kind: kind)] = nil }
     }
 
+    /// **The badge's one answer, and it is the document's**: what this
+    /// document has waiting for the writer, whichever loop left it. The
+    /// per-verb keying underneath exists so a run cannot clear the other
+    /// verb's count (see ``unread``), not so a surface can ask about one verb
+    /// — nothing draws a per-loop badge, and a picker showing two would be
+    /// two numbers for one door.
     func unreadCount(docId: String) -> Int {
-        unread[docId] ?? 0
+        RunKind.allCases.reduce(0) { $0 + (unread[SlotKey(docId: docId, kind: $1)] ?? 0) }
     }
 
     /// The diagnostics for `docId` that are still trustworthy to show:

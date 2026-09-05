@@ -142,11 +142,12 @@ order, not a workflow the app enforces.
 
 ## Rounds and Fresh Eyes
 
-Press **⌘R** — *Check Writing* — while a piece has an active pass, and the
-run is a numbered **round** in that pass's own count. A piece with no pass
-set is the coach's, so its rounds are numbered in **her** lane and the
-cockpit counts them the same way — it is only with the seat vacated that a
-run belongs to no lane and mints no round at all. The report leads with
+Run a round **from Review** — the cockpit's Run button, or **⌘R** while
+you're standing in Review — on a piece with an active pass, and the run is a
+numbered **round** in that pass's own count. A round needs a pass: on a piece
+with none set, Review says so and starts nothing. Your **⌘R in Author** is
+the other loop — a *check*, filed in no lane and given no round number —
+so nothing you do at the desk moves a pass's count. The report leads with
 the distance travelled: *"Since round 4: 2 resolved · 1 persisting · 1 new"*
 — counted from your own queue: notes from an earlier round of this pass
 that you've settled since the last one, notes from an earlier round still
@@ -157,8 +158,7 @@ any one pass's: Maugham remembers a document's last six finished rounds,
 across every pass it's been worked through. Run enough rounds in other
 passes and a pass you haven't touched in a while ages out of that memory —
 the next round in it starts back at round 1, with nothing to compare against.
-Checks you run in Author are the other loop: they file in no lane and never
-age a round out of this memory.
+A check never ages a round out of that memory.
 
 **⌘⇧R** — *Fresh Eyes* — is a different kind of run: it ends the warm
 session and reads the whole piece cold, as if for the first time. It's still
