@@ -1265,6 +1265,177 @@ final class TripwireGrepTests: XCTestCase {
         return here.deletingLastPathComponent().deletingLastPathComponent()
     }
 
+    // MARK: - Tripwire 33: no new press-then-wait test
+
+    /// **A test that presses a mounted control and then waits for its effect
+    /// is the shape behind every red CI run in the sixty before 2026-09-05.**
+    /// `TranslationRoundReportTests` (twice, the second press landing on a
+    /// container the first press's Task still had disabled),
+    /// `StatementEditorMountTests` (a barging gate granted out of order three
+    /// attempts running), `AnnotationsPaneChoiceTests`' Keep end-to-end
+    /// (hardened once, back within a fortnight) — none of them said anything
+    /// about the code, and each cost a re-run or a human read of the log. The
+    /// flake-triage session cut seventy-seven of them and kept the ones named
+    /// below: at most one per file, chosen for the most synchronous effect,
+    /// where a button-to-closure wiring would otherwise have no guard at all —
+    /// plus `StatementDraftHandoffTests`' two, which pin the words-never-lost
+    /// invariant and press a KEYSTROKE rather than a button.
+    ///
+    /// **A new one fails here.** Pin the decision windowlessly (a pure
+    /// predicate, a verbs suite, a source census) and assert only that the
+    /// control is DRAWN. If a press is the only way to guard a wiring, add the
+    /// test to `pressThenWaitRepresentatives` in the same commit, with its
+    /// effect a closure append rather than a store write, and say in its doc
+    /// comment why no windowless pin exists.
+    ///
+    /// The scan is per test function: a press call (`press(` as a statement,
+    /// or a raw `accessibilityPerformPress` perform) followed by
+    /// `pumpUntil(` / `waitUntil(` / `pump(` before the function's closing
+    /// brace, comment lines ignored. Mount-and-read tests, censuses and
+    /// measurements do not match, and the self-check below says so.
+    static let pressThenWaitRepresentatives: Set<String> = [
+        "AnnotationsPaneChoiceTests.swift test_theSheetCommitsTheWriterSentence",
+        "AnnotationsPaneChoiceTests.swift test_theSheetRefusesABlankHeadingBeforeTheVerbIsCalled",
+        "AssistantColumnTests.swift test_theColumnNamesWhatIsBeingStudiedAndCanBeClosed",
+        "DepartmentPaneTests.swift test_theSheetOffersTheBooksOwnLanguageCheckedAndCompilesIt",
+        "DiagnosticsPaneTests.swift test_readerLineButton_callsOnOpenBoard",
+        "LetterSectionTests.swift test_addToIntentCallsTheHostsHandler",
+        "PracticeSectionTests.swift test_pressingAHotspotRowOpensThatRowsOwnChapter",
+        "ReferencesPaneTests.swift test_theShelfDrawsARowPerPinAndAClickPromotesIt",
+        "ReviewRoundCockpitTests.swift test_clearingTheAskReachesTheHostAndStartsNoRun",
+        "StatementDraftHandoffTests.swift test_aMintThatDepositedTheWritersCharacterKeepsItsStatement",
+        "StatementDraftHandoffTests.swift test_aMintThatNeitherBoundNorDepositedLeavesNoStatement",
+    ]
+
+    /// Every `File.swift test_name` under `dir` whose body presses and then
+    /// waits. Pure over the text, so the self-check can plant offenders.
+    static func pressThenWaitTests(under dir: URL) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var hits: [String] = []
+        for case let url as URL in walker
+        where url.pathExtension == "swift" && !url.path.contains("/TestSupport/") {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            var name: String?
+            var pressed = false
+            var waited = false
+            for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                let line = String(raw)
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("//") { continue }
+                if trimmed.hasPrefix("func test_") {
+                    let rest = trimmed.dropFirst("func ".count)
+                    name = String(rest.prefix { $0 == "_" || $0.isLetter || $0.isNumber })
+                    pressed = false; waited = false
+                    continue
+                }
+                if line == "    }" {
+                    if let n = name, pressed, waited { hits.append("\(url.lastPathComponent) \(n)") }
+                    name = nil; pressed = false; waited = false
+                    continue
+                }
+                guard name != nil else { continue }
+                if Self.isPressCall(trimmed) { pressed = true }
+                else if pressed, Self.isWaitCall(trimmed) { waited = true }
+            }
+        }
+        return hits.sorted()
+    }
+
+    private static func isPressCall(_ trimmed: String) -> Bool {
+        if trimmed.contains("accessibilityPerformPress\")") { return true }
+        var s = Substring(trimmed)
+        for prefix in ["_ = ", "try ", "await "] where s.hasPrefix(prefix) { s = s.dropFirst(prefix.count) }
+        // `try await press(` and `_ = try press(` both reduce to `press(`.
+        for prefix in ["try ", "await "] where s.hasPrefix(prefix) { s = s.dropFirst(prefix.count) }
+        return s.hasPrefix("press(")
+    }
+
+    private static func isWaitCall(_ trimmed: String) -> Bool {
+        for token in ["pumpUntil(", "waitUntil(", "pump("] where trimmed.contains(token) { return true }
+        return false
+    }
+
+    func test_noNewTestPressesAControlAndThenWaitsForItsEffect() throws {
+        let testsDir = repoRoot.appendingPathComponent("MaughamTests", isDirectory: true)
+        let found = Set(try Self.pressThenWaitTests(under: testsDir))
+        let offenders = found.subtracting(Self.pressThenWaitRepresentatives).sorted()
+        XCTAssertTrue(offenders.isEmpty,
+            "A test presses a mounted control and then waits for an asynchronous "
+            + "effect — the shape behind every red CI run before 2026-09-05. Pin "
+            + "the decision without a window and assert only that the control is "
+            + "drawn; if a press is genuinely the only guard of a wiring, add it to "
+            + "`pressThenWaitRepresentatives` in the same commit and say why. "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+        let retired = Self.pressThenWaitRepresentatives.subtracting(found).sorted()
+        XCTAssertTrue(retired.isEmpty,
+            "The allow-list names a representative that no longer presses and "
+            + "waits (renamed, cut, or converted) — take it off the list so the "
+            + "list stays a census rather than a memory:\n"
+            + retired.joined(separator: "\n"))
+    }
+
+    /// Self-check: fires on a planted press-then-poll, a planted raw perform
+    /// followed by a fixed pump, and a planted `try await press(`; stays quiet
+    /// on a mount-and-read test, a press with no wait, a wait with no press,
+    /// and prose naming both.
+    func test_thePressThenWaitGuardFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-pressthenwait-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        final class SomeSuite: XCTestCase {
+            func test_pollsAfterAPress() async throws {
+                let window = TestWindow.mount(Text("x"))
+                press(try axButtons(labelled: "Go", in: window)[0])
+                _ = await pumpUntil(deadline: 3) { box.count == 1 }
+            }
+            func test_sleepsAfterARawPerform() {
+                _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
+                pump(0.3)
+                XCTAssertEqual(box.count, 1)
+            }
+            func test_awaitsAPressThenWaits() async throws {
+                try await press("Go", in: window)
+                waitUntil({ done }, timeout: 2)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SomeSuite.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        /// Prose: press( then pumpUntil( is the shape this guard is about.
+        final class Innocent: XCTestCase {
+            func test_mountsAndReads() async throws {
+                let window = TestWindow.mount(Text("x"))
+                pump(0.3)
+                XCTAssertEqual(try axButtons(labelled: "Go", in: window).count, 1)
+            }
+            func test_pressesWithoutWaiting() throws {
+                press(try axButtons(labelled: "Go", in: window)[0])
+                XCTAssertEqual(box.count, 1)   // synchronous effect
+            }
+            func test_waitsBeforeThePress() async throws {
+                _ = await pumpUntil(deadline: 3) { ready }
+                // press(…) discussed in a comment only
+                XCTAssertTrue(ready)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("Innocent.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let found = try Self.pressThenWaitTests(under: tmp)
+        XCTAssertEqual(found, [
+            "SomeSuite.swift test_awaitsAPressThenWaits",
+            "SomeSuite.swift test_pollsAfterAPress",
+            "SomeSuite.swift test_sleepsAfterARawPerform",
+        ])
+    }
+
     /// Recurrence-tripper: `TestMCPToolCatalog` is a dev-only tool catalog for
     /// Claude Code (test MCP) that must NEVER ship in the stable binary. Its
     /// registration in `MaughamApp.swift` is wrapped in `#if MAUGHAM_DEV_BUILD`.

@@ -184,30 +184,6 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
     /// `DesignGateTests`' own way past the same wall.
     private var offer: ChoiceOffer?
 
-    private func mountPane(
-        _ fx: Harness, scope: AnnotationScope = .document
-    ) -> NSWindow {
-        let view = AnnotationsPane(
-            document: fx.document,
-            store: fx.store,
-            documentStore: fx.documentStore,
-            scope: .constant(scope),
-            onTravel: { _ in },
-            orchestrator: nil,
-            diagnostics: nil,
-            onChoiceOfferChanged: { [self] in offer = $0 })
-            .environment(UserPreferences(
-                defaults: UserDefaults(suiteName: "PaneChoice-\(UUID())")!))
-        // Wide enough that `actionRow`'s worded variant is the one drawn, so a
-        // control is found by the words the writer reads rather than by an SF
-        // Symbol name.
-        let window = TestWindow.mount(AnyView(view),
-                                      size: CGSize(width: 620, height: 800))
-        windows.append(window)
-        pump()
-        return window
-    }
-
     private func mountRow(
         _ annotation: Annotation, ledgerText: String? = nil
     ) -> NSWindow {
@@ -253,22 +229,6 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         try axTree(in: window)
             .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
             .compactMap { axAttribute($0, "accessibilityLabel") as? String }
-    }
-
-    /// A control found by the words its tooltip carries — the same words the
-    /// writer reads. The queue's resolved toggle is an unlabelled icon button,
-    /// and its help text is the only thing on it that says what it does.
-    private func control(withHelpContaining text: String,
-                         in window: NSWindow) throws -> NSObject {
-        let tree = try axTree(in: window)
-        let match = tree.first { element in
-            let help = (axAttribute(element, "accessibilityHelp") as? String) ?? ""
-            return help.contains(text)
-        }
-        return try XCTUnwrap(
-            match as? NSObject,
-            "no control whose tooltip contains \u{201C}\(text)\u{201D} reached "
-            + "the hosted view")
     }
 
     /// **A press delivered to a mounted control, once the window is on
@@ -509,31 +469,6 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
 
     // MARK: - The second stet offers; the first does not
 
-    /// **Cancel abandons.** Escape carries this arm (Denver's ruling, fix
-    /// round 1), and it is the only one of the three that touches neither the
-    /// ledger nor the note: a keystroke that settles a note is not a way out of
-    /// a question, and a writer who pressed it to make the dialog go away would
-    /// find the note gone from their queue.
-    func test_cancelAbandonsTheOfferAndTouchesNothing() async throws {
-        let fx = try await makeHarness(named: "CancelOffer")
-        let twin = try await mintQuestion(fx, body: "An earlier one of these.")
-        try await fx.document.stetAnnotation(id: twin)
-        let id = try await mintQuestion(fx)
-
-        let window = mountPane(fx)
-        let stet = try button(labelled: "Stet", in: window)
-        _ = stet.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-        let raised = try XCTUnwrap(offer, "premise: the offer stands")
-
-        raised.cancel()
-        pump(0.4)
-        XCTAssertNil(offer, "the offer is dropped")
-        XCTAssertEqual(status(fx, id), .open,
-                       "and the note is left exactly as the writer found it")
-        XCTAssertNil(ledger(fx), "nothing filed")
-    }
-
     /// The offer's own words, including the sentence about \u{2318}Z. One press
     /// does two things to two logs and only one of them is on the writer's undo
     /// stack; a writer who pressed \u{2318}Z expecting the whole act back would
@@ -589,75 +524,6 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
     }
 
     // MARK: - The twin is looked for across the project (P3 Task 8, ruling A)
-
-    /// **A habit is the writer's, not a chapter's** (Denver's ruling A). The
-    /// second stet's evidence is a twin under the same heading anywhere in the
-    /// project, because the ledger it may file into is project-scope and a
-    /// pattern that shows up once per chapter is exactly the pattern worth
-    /// naming.
-    ///
-    /// Document scope, where the search is widest relative to what is on
-    /// screen: the twin is in a chapter this pane is not showing.
-    ///
-    /// **Disable experiment.** With the press searching the pane's own document
-    /// alone — `among: fx.document.annotations(filter: AnnotationFilter(statuses: nil))`,
-    /// which is what the deleted `secondStetOffer(for:in:ledgerText:)` overload
-    /// did — this fails at the `XCTUnwrap(offer)` line with "the offer must be
-    /// raised over a twin in another chapter": the twin is invisible and the
-    /// note simply stets.
-    func test_aStettedTwinInAnotherChapterRaisesTheOfferInDocumentScope() async throws {
-        let fx = try await makeHarness(named: "TwinAcrossDoc")
-        let two = try await makeSecondChapter(fx)
-        let twin = try await mintQuestion(in: two, body: "An earlier one of these.")
-        try await two.stetAnnotation(id: twin)
-        let id = try await mintQuestion(fx)
-        XCTAssertTrue(
-            fx.document.annotations(filter: AnnotationFilter(statuses: nil))
-                .allSatisfy { $0.id != twin },
-            "premise: the twin is in the OTHER chapter, invisible to this "
-            + "pane's own document")
-
-        let window = mountPane(fx)
-        let stet = try button(labelled: "Stet", in: window)
-        _ = stet.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.3)
-
-        let raised = try XCTUnwrap(
-            offer, "the offer must be raised over a twin in another chapter")
-        XCTAssertEqual(raised.heading, "Filter words")
-        XCTAssertEqual(raised.annotationId, id)
-        XCTAssertEqual(status(fx, id), .open,
-                       "and the note waits for the answer")
-    }
-
-    /// The same, pressed in **project scope** — the scope whose rows come from
-    /// the project walk in the first place, so the two scopes cannot come to
-    /// different answers about one habit.
-    ///
-    /// **Disable experiment.** Same disable as the document-scope case above,
-    /// same failure line: with the document-only search this fails at
-    /// `XCTUnwrap(offer)`, because the row's own document is chapter one and
-    /// the twin is in chapter two.
-    func test_aStettedTwinInAnotherChapterRaisesTheOfferInProjectScope() async throws {
-        let fx = try await makeHarness(named: "TwinAcrossProject")
-        let two = try await makeSecondChapter(fx)
-        let twin = try await mintQuestion(in: two, body: "An earlier one of these.")
-        try await two.stetAnnotation(id: twin)
-        let id = try await mintQuestion(fx)
-
-        let window = mountPane(fx, scope: .project(focusPiece: nil))
-        // The stetted twin is resolved, so the default open-only filter leaves
-        // exactly one row with a Stet on it: the subject.
-        let stet = try button(labelled: "Stet", in: window)
-        _ = stet.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.3)
-
-        let raised = try XCTUnwrap(
-            offer, "project scope must find the twin too")
-        XCTAssertEqual(raised.heading, "Filter words")
-        XCTAssertEqual(raised.annotationId, id)
-        XCTAssertEqual(status(fx, id), .open)
-    }
 
     // MARK: - Keep as lesson… is withdrawn over a sentence that stands (ruling B)
 
@@ -740,49 +606,6 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             drawn.contains(QueueLedgerVerbs.keepTitle),
             "control: one full stop apart is a different sentence and the "
             + "door is open. Buttons: \(drawn)")
-    }
-
-    /// **The pane hands its rows the ledger** — the seam the two tests above
-    /// cannot cross, since they build the row themselves.
-    ///
-    /// A real project with the note's own sentence already filed: the writer
-    /// turns on resolved notes, and the accepted craft note carries every verb
-    /// except the one that would file its words twice.
-    ///
-    /// **Disable experiment.** With `ledgerText:` dropped from the pane's own
-    /// `AnnotationRow(` call (the row's default nil), this fails at "the pane
-    /// must hand its rows the ledger" — the row draws Keep as lesson… over a
-    /// sentence that stands, which is the wiring gap a predicate test cannot
-    /// see.
-    func test_theRealPaneWithdrawsKeepOverASentenceThatStands() async throws {
-        let fx = try await makeHarness(named: "KeepWithdrawn")
-        let sentence = "You reach for a filter verb where the image would carry it."
-        let pid = try XCTUnwrap(fx.document.sequence.first)
-        let id = try await fx.document.addAnnotation(
-            kind: .craftNote, paragraphId: pid, body: sentence,
-            author: AnnotationAuthor(sourceKind: .claude, displayName: "Le Guin"),
-            reviewPassId: "line", compilerRunId: "run-1", compilerRound: 3)
-        try await fx.document.acceptAnnotation(id: id)
-        let refusal = await QueueLedgerVerbs.keepAsLesson(
-            sentence, from: note(kind: .craftNote, status: .accepted),
-            store: fx.store, world: nil)
-        XCTAssertNil(refusal, "premise: the sentence is filed: \(refusal ?? "")")
-        XCTAssertEqual(LessonsLedger.open(in: ledger(fx) ?? ""), [sentence],
-                       "premise: and it stands as a live lesson")
-
-        let window = mountPane(fx)
-        let resolved = try control(withHelpContaining: "click to include resolved",
-                                   in: window)
-        _ = resolved.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.3)
-
-        let labels = try buttonLabels(in: window)
-        XCTAssertTrue(labels.contains("Stet"),
-                      "premise: the accepted note's row is on screen. "
-                      + "Buttons: \(labels)")
-        XCTAssertFalse(
-            labels.contains(QueueLedgerVerbs.keepTitle),
-            "the pane must hand its rows the ledger. Buttons: \(labels)")
     }
 
     /// **The unfiltered query, pinned where it can regress.** The list the press
