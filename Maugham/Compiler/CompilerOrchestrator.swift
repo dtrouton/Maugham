@@ -94,9 +94,15 @@ final class CompilerOrchestrator {
         /// only acknowledgment here that reports a FAILURE rather than a
         /// start, which is why it says what to do next.
         case pieceWouldNotOpen
+        /// A round was asked for on a piece nobody is reading — no pass, and
+        /// the coach's seat vacated. The second acknowledgment that reports a
+        /// FAILURE rather than a start, and it says what to do next for the
+        /// same reason `pieceWouldNotOpen` does. Minted here in P1 and
+        /// consumed in Task 2, where the round verb learns to refuse.
+        case noEditor
 
         /// The capsule's word. Kept beside the case rather than in the window
-        /// that draws it, so all four sentences are assertable without a
+        /// that draws it, so all five sentences are assertable without a
         /// mount — and so the difference between them cannot be lost in a
         /// view's `switch`.
         var flashLabel: String {
@@ -105,6 +111,7 @@ final class CompilerOrchestrator {
             case .alreadyChecking: return "Still checking\u{2026}"
             case .freshEyes: return "Reading whole\u{2026}"
             case .pieceWouldNotOpen: return "Couldn\u{2019}t open the piece \u{2014} try again."
+            case .noEditor: return "Set a pass to run a round."
             }
         }
     }
@@ -527,6 +534,12 @@ final class CompilerOrchestrator {
         /// reason the lane is: the preview and the answer must describe one
         /// round, and the pane draws its header off this stamp.
         let freshEyes: Bool
+        /// **Which loop asked for this run**, minted from the persona at the
+        /// keystroke and carried for the lane's own reason: the writer can
+        /// switch personas while the check runs, and the run belongs to the
+        /// loop that started it. The preview stamps it and so does `finish`,
+        /// so the two cannot disagree about which verb this was.
+        let kind: RunKind
         /// Text delivered that has not closed a line yet. A chunk is cut by
         /// the transport, not by the contract — a section's JSON object
         /// routinely arrives in three pieces — so nothing is read until a
@@ -587,7 +600,15 @@ final class CompilerOrchestrator {
     /// Defaulted `false` so the ordinary key and every caller predating it —
     /// the cold-start offer's Read button among them — say what they always
     /// said.
-    func runRequested(docId: String, freshEyes: Bool = false) {
+    /// - Parameter kind: **which loop asked** (two loops P1). Required and
+    ///   undefaulted, on `record`'s rule: a default would let a call site
+    ///   quietly file a round as a check, and nothing about the run would look
+    ///   wrong. It is minted from the key window's persona in exactly one
+    ///   place — `CompilerRunModifier`, the only site holding a persona — and
+    ///   every other caller is a surface that belongs to one loop by
+    ///   construction and says so literally. **Nothing reads it yet**: P1 Task
+    ///   1 carries and stamps it, and the two verbs part company in Task 2.
+    func runRequested(docId: String, kind: RunKind, freshEyes: Bool = false) {
         guard let environment, diagnostics != nil else { return }
         // A run already in flight. Nothing is queued — there is one session per
         // window, and a second turn is something the next keystroke can do —
@@ -645,7 +666,7 @@ final class CompilerOrchestrator {
                   let diagnostics = self.diagnostics,
                   let reading = environment.reading(docId) else { return }
             self.beginRun(docId: docId, reading: reading, generation: generation,
-                          freshEyes: freshEyes,
+                          kind: kind, freshEyes: freshEyes,
                           environment: environment, diagnostics: diagnostics)
         }
     }
@@ -653,7 +674,8 @@ final class CompilerOrchestrator {
     /// The run proper, from the delta on — everything that was `runRequested`'s
     /// body before the burst-flush hop moved in above it.
     private func beginRun(
-        docId: String, reading: DocumentReading, generation: Int, freshEyes: Bool,
+        docId: String, reading: DocumentReading, generation: Int, kind: RunKind,
+        freshEyes: Bool,
         environment: Environment, diagnostics: DiagnosticsStore
     ) {
         let marker = diagnostics.lastOpId(docId: docId)
@@ -935,7 +957,7 @@ final class CompilerOrchestrator {
                 lastOpId: lastOpId, deltaSummary: deltaSummary,
                 intentSnapshot: briefing?.statementText, activePass: activePass, round: round,
                 scenePosition: scenePosition, stage: stage, dosage: dosage,
-                ask: ask, freshEyes: freshEyes)
+                ask: ask, freshEyes: freshEyes, kind: kind)
             runner.setPartialHandler { [weak self] chunk in
                 self?.receivePartial(chunk, generation: generation)
             }
@@ -947,7 +969,7 @@ final class CompilerOrchestrator {
                               activePass: activePass, round: round,
                               scenePosition: scenePosition, stage: stage,
                               dosage: dosage, ask: ask,
-                              freshEyes: freshEyes,
+                              freshEyes: freshEyes, kind: kind,
                               briefingHash: briefingHash, model: model,
                               generation: generation)
         }
@@ -1013,6 +1035,12 @@ final class CompilerOrchestrator {
                              intentSnapshot: run.intentSnapshot,
                              passId: run.passId, round: run.round,
                              freshEyes: run.freshEyes,
+                             // The verb the run was started as, stamped on the
+                             // preview exactly as `finish` stamps it on the
+                             // answer — a preview that disagreed would change
+                             // which loop the report belonged to as the check
+                             // ended.
+                             kind: run.kind,
                              outcome: run.outcome,
                              // The position the run was briefed on, stamped on
                              // the preview's letter exactly as `finish` stamps
@@ -1077,9 +1105,14 @@ final class CompilerOrchestrator {
     /// otherwise. Undefaulted for `passId`/`round`/`freshEyes`'s reason: a
     /// third call site that quietly omitted either would record a run claiming
     /// it queued nothing and engaged nothing.
+    /// `kind` is undefaulted on the same rule, and its own case is sharper
+    /// than the rest: the two loops are about to diverge on it, so a call site
+    /// that could omit it would file a round as a check with nothing to
+    /// notice.
     private static func record(
         id: String, model: String, lastOpId: String?, deltaSummary: String,
         intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
+        kind: RunKind,
         outcome: DiagnosticIngest.SectionedOutcome, scenePosition: ScenePosition,
         stage: DraftStage, ask: String?, mintedNotes: Int?, openInOtherLanes: Int?
     ) -> CompilerRun {
@@ -1175,6 +1208,18 @@ final class CompilerOrchestrator {
             // the since-line, which is a check that did engage the piece
             // reported as one that found nothing in it.
             openInOtherLanes: openInOtherLanes,
+            // **Which loop asked** (two loops P1). Stamped in the one `record`
+            // spelling for every other field's reason — the preview and the
+            // answer must describe one verb, and a run whose kind changed at
+            // the end would be a different verb's run as far as every record
+            // downstream is concerned.
+            //
+            // **Stamped ALWAYS, and deliberately not on `freshEyes`'
+            // absent-means-false terms.** There is no value here that means
+            // the same as absent: `nil` is a record written before this field
+            // existed, and `CompilerRun.effectiveKind` is the one place that
+            // legacy is read.
+            kind: kind,
             // **The sixth section, P1.** Read straight off the outcome, the
             // same way `intentDriftVerdict` is — the preview and the finished
             // answer describe the same turn's letter, and `nil` where no
@@ -1342,7 +1387,7 @@ final class CompilerOrchestrator {
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
         deltaSummary: String, intentSnapshot: String?, activePass: ActivePass?, round: Int?,
         scenePosition: ScenePosition, stage: DraftStage, dosage: LetterDosage,
-        ask: String?, freshEyes: Bool, briefingHash: String?,
+        ask: String?, freshEyes: Bool, kind: RunKind, briefingHash: String?,
         model: String, generation: Int
     ) async {
         let passId = activePass?.id
@@ -1443,6 +1488,9 @@ final class CompilerOrchestrator {
                 // and the writer may have moved the piece to another pass
                 // while it ran.
                 passId: passId, round: round, freshEyes: freshEyes,
+                // Minted at the keystroke beside them, and carried for their
+                // reason: the writer can switch personas while the check runs.
+                kind: kind,
                 outcome: outcome, scenePosition: scenePosition, stage: stage, ask: ask,
                 mintedNotes: mint.minted,
                 openInOtherLanes: mint.openInOtherLanes)

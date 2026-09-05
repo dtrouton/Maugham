@@ -465,7 +465,9 @@ final class CompilerRunCommandTests: XCTestCase {
             .maughamRunCompiler,
             context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true,
                                             isWindowKey: true) },
-            handler: { [docId] _ in harness.orchestrator.runRequested(docId: docId) })
+            handler: { [docId] _ in
+                harness.orchestrator.runRequested(docId: docId, kind: .check)
+            })
         defer { NotificationCenter.default.removeObserver(token) }
 
         MaughamEvent.postCompilerRun()
@@ -489,7 +491,9 @@ final class CompilerRunCommandTests: XCTestCase {
             .maughamRunCompiler,
             context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true,
                                             isWindowKey: false) },
-            handler: { [docId] _ in harness.orchestrator.runRequested(docId: docId) })
+            handler: { [docId] _ in
+                harness.orchestrator.runRequested(docId: docId, kind: .check)
+            })
         defer { NotificationCenter.default.removeObserver(token) }
 
         MaughamEvent.postCompilerRun()
@@ -512,6 +516,12 @@ final class CompilerRunCommandTests: XCTestCase {
         let modifier = try source(at: "Maugham/Views/CompilerRunModifier.swift")
         for token in [".onKeyWindowCommand(.maughamRunCompiler",
                       "orchestrator.runRequested(",
+                      // **The kind is MINTED here, not chosen here** (two
+                      // loops P1). A literal `.check` in this arm would leave
+                      // every assertion in this file green over a ⌘R pressed
+                      // in Review that filed itself as a check — the persona
+                      // is the input, and this is the only site that has one.
+                      "kind: RunKind.of(persona: persona)",
                       ".onGlobalEvent(.maughamAppWillTerminate)",
                       "orchestrator.shutdown()"] {
             XCTAssertTrue(modifier.contains(token),
@@ -549,14 +559,14 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = nil   // hold the turn open
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         XCTAssertEqual(harness.orchestrator.runState,
                        .running(docId: docId,
                                 checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0)))
         XCTAssertEqual(harness.flashesSaid, [.started])
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
 
         XCTAssertEqual(runner.sends.count, 1, "the second ⌘R must not reach the runner")
@@ -589,7 +599,9 @@ final class CompilerRunCommandTests: XCTestCase {
             .maughamRunCompiler,
             context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true,
                                             isWindowKey: true) },
-            handler: { [docId] _ in harness.orchestrator.runRequested(docId: docId) })
+            handler: { [docId] _ in
+                harness.orchestrator.runRequested(docId: docId, kind: .check)
+            })
         defer { NotificationCenter.default.removeObserver(token) }
 
         MaughamEvent.postCompilerRun()
@@ -626,7 +638,7 @@ final class CompilerRunCommandTests: XCTestCase {
                              "e5f6": "A colder morning."],
                 sequence: ["a1b2", "c3d4", "e5f6"]))
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
 
         guard case .running(_, let checking) = harness.orchestrator.runState else {
@@ -651,7 +663,7 @@ final class CompilerRunCommandTests: XCTestCase {
             reading: CompilerOrchestrator.DocumentReading(
                 ops: [], paragraphs: [:], sequence: []))
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
 
         XCTAssertEqual(runner.sends.count, 0)
@@ -686,7 +698,7 @@ final class CompilerRunCommandTests: XCTestCase {
                              deltaSummary: "1 new, 0 revised \u{00b6}", intentSnapshot: nil),
             diagnostics: [], docId: docId)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
 
         XCTAssertEqual(runner.sends.count, 0)
@@ -703,11 +715,11 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
 
         XCTAssertEqual(runner.sends.count, 1)
@@ -725,7 +737,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
         XCTAssertEqual(harness.flashes, 0)
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         XCTAssertEqual(harness.flashes, 1,
                        "the flash is synchronous with the keystroke — a flash that "
                        + "waits for the subprocess is not an acknowledgment")
@@ -739,7 +751,8 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: BinderSubject.noDocumentSubject)
+        harness.orchestrator.runRequested(
+            docId: BinderSubject.noDocumentSubject, kind: .check)
         settle()
 
         XCTAssertEqual(runner.sends.count, 0)
@@ -758,7 +771,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = .failed(.timedOut)
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -776,7 +789,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // The same document, the same delta, a run that comes back.
         runner.nextEvent = .resultText(
             oneStrain("Two beats, not three?", about: "a1b2"))
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
 
@@ -797,7 +810,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = .resultText("I had a look and it's fine, honestly.")
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -827,7 +840,7 @@ final class CompilerRunCommandTests: XCTestCase {
             """)
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -875,7 +888,7 @@ final class CompilerRunCommandTests: XCTestCase {
             runner: runner, reading: standingReading(),
             liveParagraphText: { _, _ in nil })
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -894,7 +907,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = .resultText(oneQuestion("Two beats, not three?", about: "a1b2"))
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -915,7 +928,7 @@ final class CompilerRunCommandTests: XCTestCase {
             runner.nextEvent = .failed(.sessionDied(detail: detail))
             let harness = try makeHarness(runner: runner, reading: standingReading())
 
-            harness.orchestrator.runRequested(docId: docId)
+            harness.orchestrator.runRequested(docId: docId, kind: .check)
             awaitSends(1, on: runner)
             settle()
 
@@ -931,7 +944,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = .failed(.sessionDied(detail: "the CLI exited with status 1"))
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -966,7 +979,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = nil
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         harness.orchestrator.cancel()
         settle()
@@ -987,7 +1000,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertTrue(FileManager.default.fileExists(atPath: harness.configURL.path))
@@ -995,7 +1008,7 @@ final class CompilerRunCommandTests: XCTestCase {
             .attributesOfItem(atPath: harness.configURL.path)[.creationDate] as? Date
 
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
         XCTAssertEqual(
@@ -1023,13 +1036,13 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertTrue(runner.sends[0].message.contains("Cold, and never wistful."))
 
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
         XCTAssertFalse(runner.sends[1].message.contains("Cold, and never wistful."))
@@ -1045,13 +1058,13 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
         runner.sessionEpoch += 1   // the process was retired between runs
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
 
@@ -1065,11 +1078,11 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
 
@@ -1090,7 +1103,7 @@ final class CompilerRunCommandTests: XCTestCase {
             pinnedListing: { _ in ["Sarah (res-sarah) — read_document"] },
             paletteListing: { ["Act II fog (res-card)"] })
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -1109,7 +1122,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -1177,13 +1190,13 @@ final class CompilerRunCommandTests: XCTestCase {
                 onRunAcknowledged: { _ in }),
             diagnostics: diagnostics)
 
-        orchestrator.runRequested(docId: docA)
+        orchestrator.runRequested(docId: docA, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertTrue(runner.sends[0].message.contains("Intent A."),
                       "document A's first run sends its intent whole")
 
-        orchestrator.runRequested(docId: docB)
+        orchestrator.runRequested(docId: docB, kind: .check)
         awaitSends(2, on: runner)
         settle()
         XCTAssertTrue(runner.sends[1].message.contains("Intent B."),
@@ -1192,7 +1205,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         // More writing on A, so the third run has a non-empty delta.
         readingA.value = reading(docA, opId: "opA2", paragraphId: "cccc", text: "Doc A, part two.")
-        orchestrator.runRequested(docId: docA)
+        orchestrator.runRequested(docId: docA, kind: .check)
         awaitSends(3, on: runner)
         settle()
         XCTAssertTrue(runner.sends[2].message.contains("unchanged since last run"),
@@ -1254,7 +1267,7 @@ final class CompilerRunCommandTests: XCTestCase {
             runner: runner, reading: standingReading(),
             statementText: statement, cachedWorld: readingOf(statement))
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -1289,7 +1302,7 @@ final class CompilerRunCommandTests: XCTestCase {
             runner: runner, reading: standingReading(),
             statementText: statement, cachedWorld: readingOf(statement))
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -1309,7 +1322,7 @@ final class CompilerRunCommandTests: XCTestCase {
             statementText: statement, cachedWorld: nil,
             derivedWorld: readingOf(statement))
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -1330,7 +1343,7 @@ final class CompilerRunCommandTests: XCTestCase {
             runner: runner, reading: standingReading(),
             statementText: statement, cachedWorld: nil, derivedWorld: nil)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -1354,7 +1367,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), statementText: nil)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -1386,7 +1399,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), bibleFacts: [known])
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -1418,7 +1431,7 @@ final class CompilerRunCommandTests: XCTestCase {
             statementText: statement, cachedWorld: nil,
             derivedWorld: readingOf(statement), holdDerivation: gate)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
         XCTAssertEqual(harness.orchestrator.runState, runningOnTheStandingReading)
 
@@ -1435,7 +1448,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // And the orchestrator is still usable — Cancel ends a run, not the
         // session (`shutdown()` is the other verb).
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
         gate.release()
         awaitSends(1, on: runner)
@@ -1456,7 +1469,7 @@ final class CompilerRunCommandTests: XCTestCase {
             statementText: statement, cachedWorld: nil,
             derivedWorld: readingOf(statement), holdDerivation: gate)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
         XCTAssertEqual(gate.entries, 1, "the run is deriving")
 
@@ -1812,12 +1825,12 @@ final class CompilerRunCommandTests: XCTestCase {
             runner: runner, reading: standingReading(),
             prepareForRun: { [gate] in await gate.hold($0) })
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
         XCTAssertEqual(gate.entries, 1, "the run is closing the burst")
         XCTAssertEqual(harness.flashesSaid, [.started])
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
         XCTAssertEqual(gate.entries, 1, "the second press must not start a second run")
         XCTAssertEqual(harness.flashesSaid, [.started, .alreadyChecking],
@@ -1843,7 +1856,7 @@ final class CompilerRunCommandTests: XCTestCase {
             runner: runner, reading: standingReading(),
             prepareForRun: { [gate] in await gate.hold($0) })
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
         harness.orchestrator.shutdown()
 
@@ -1858,7 +1871,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         // And the orchestrator is still usable: a writer who turns Claude off
         // and on again has a working ⌘R (`shutdown()` vs `detach()`).
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
         gate.release()
         awaitSends(1, on: runner)
@@ -1981,7 +1994,7 @@ final class CompilerRunCommandTests: XCTestCase {
                        "precondition: the new paragraph is still in the pending "
                        + "buffer, not the op log")
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await settle()
 
@@ -2030,7 +2043,7 @@ final class CompilerRunCommandTests: XCTestCase {
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
         fx.document.opStore.appendFailureForTesting = InjectedDiskError()
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await settle()
 
@@ -2111,7 +2124,7 @@ final class CompilerRunCommandTests: XCTestCase {
         try await fx.store.appendToStatement(
             "Cold, and never wistful.", to: statement, session: "seed")
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await settle()
         XCTAssertTrue(runner.sends[0].message.contains("Cold, and never wistful."),
@@ -2131,7 +2144,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // all — the run being asserted about would not exist.
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         await settle()
 
@@ -2179,7 +2192,7 @@ final class CompilerRunCommandTests: XCTestCase {
         try await fx.store.appendToStatement(
             "Cold, and never wistful.", to: statement, session: "seed")
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await settle()
         XCTAssertEqual(deriver.calls, 1, "precondition: run 1 derived, on an empty cache")
@@ -2212,7 +2225,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // …and keeps writing, so run 2 has a delta of its own to check.
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         await settle()
 
@@ -2300,7 +2313,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // 1. Run 1 reads the fact off the writer's scene, and the mounted
         //    stratum shows it.
         document.setFullText("Kelly came off a double shift.")
-        orchestrator.runRequested(docId: docId)
+        orchestrator.runRequested(docId: docId, kind: .check)
         await awaitSends(1, on: runner)
         await settle()
         await fixture.pumpUntil(deadline: 5) {
@@ -2332,7 +2345,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // 3. The writer revises the establishing scene; run 2 re-reads it and
         //    re-emits the identical fact. It must not come back.
         document.setFullText("Kelly came off a double shift.\n\nKelly took the long way home.")
-        orchestrator.runRequested(docId: docId)
+        orchestrator.runRequested(docId: docId, kind: .check)
         await awaitSends(2, on: runner)
         await settle()
         await fixture.waitOut(0.4)
@@ -2374,7 +2387,7 @@ final class CompilerRunCommandTests: XCTestCase {
         document.setFullText(
             "Kelly came off a double shift.\n\nKelly took the long way home."
             + "\n\nKelly did not come back for three days.")
-        orchestrator.runRequested(docId: docId)
+        orchestrator.runRequested(docId: docId, kind: .check)
         await awaitSends(3, on: runner)
         await settle()
 
@@ -2406,14 +2419,14 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
         harness.orchestrator.detach()
         XCTAssertEqual(runner.shutdowns, 1)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
         XCTAssertEqual(runner.sends.count, 1,
                        "a detached orchestrator runs nothing — it has no window")
@@ -2426,7 +2439,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = nil
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         XCTAssertEqual(harness.orchestrator.runState, runningOnTheStandingReading)
 
@@ -2442,7 +2455,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = .failed(.cliNotFound)
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         harness.orchestrator.shutdown()
@@ -2469,7 +2482,7 @@ final class CompilerRunCommandTests: XCTestCase {
     private func streamingRun(
         runner: SpyRunner, harness: Harness
     ) {
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
     }
 
@@ -2621,7 +2634,7 @@ final class CompilerRunCommandTests: XCTestCase {
             oneStrain("Should she already know?", about: "a1b2"))
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
@@ -2629,7 +2642,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // A second run, streamed and then cancelled.
         runner.nextEvent = nil
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         runner.stream(conformanceLine("Cold, and never wistful.", "strains",
                                       whatPulls: "Something else entirely.") + "\n")
@@ -2666,7 +2679,7 @@ final class CompilerRunCommandTests: XCTestCase {
             oneStrain("Should she already know?", about: "a1b2"))
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         let sidecar = DiagnosticsStore.sidecarURL(
@@ -2679,7 +2692,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // A second run, held open, one section in.
         runner.nextEvent = nil
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         runner.stream(conformanceLine("Cold, and never wistful.", "strains",
                                       whatPulls: "The last line reaches for a sigh.") + "\n")
@@ -2819,7 +2832,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = nil   // the first turn streams too
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         runner.stream(conformanceLine("Cold, and never wistful.", "strains",
                                       whatPulls: "The last line reaches for a sigh.") + "\n")
@@ -2834,7 +2847,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // A second run, streamed section by section, then finished.
         runner.nextEvent = nil
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         let strain = conformanceLine("Cold, and never wistful.", "strains",
                                      whatPulls: "The last line reaches for a sigh.")
@@ -2937,7 +2950,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), activePass: "line")
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -2953,14 +2966,14 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), activePass: "line")
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
         // The writer keeps writing; a run over unchanged prose is an empty
         // delta and would spend no round at all.
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
 
@@ -2979,14 +2992,14 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), activePass: "line")
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1)
 
         harness.setActivePass("proof")
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
         let proof = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
@@ -2996,7 +3009,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         harness.setActivePass("line")
         harness.setReading(readingAfterAThirdParagraph())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(3, on: runner)
         settle()
         let line = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
@@ -3017,7 +3030,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -3073,6 +3086,60 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(finished.round, 1)
     }
 
+    /// **The verb the run was started as reaches the record, and the preview
+    /// says the same thing** (two loops P1 Task 1).
+    ///
+    /// `test_thePreviewAndTheFinishedRunAgreeOnTheRound`'s shape, one field
+    /// over, and it exists for that test's reason: the kind is minted at the
+    /// keystroke and carried on `StreamingRun`, so a `record` that re-derived
+    /// it — from the lane, say, or from whatever persona the window is in by
+    /// the time the answer lands — would let the preview and the answer
+    /// describe two different verbs.
+    ///
+    /// Falsification: drop `kind` from `StreamingRun` and have `record` infer
+    /// it, and the preview below is a `.check` that becomes a `.round`.
+    func test_theRunKindReachesThePreviewAndTheFinishedRun() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // the turn stays open
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(1, on: runner)
+
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        let preview = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(preview.kind, .round,
+                       "the preview must carry the verb the keystroke asked for")
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+
+        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(finished.kind, .round,
+                       "…and so must the answer that supersedes it")
+        XCTAssertEqual(finished.effectiveKind, .round)
+    }
+
+    /// The control for the test above: the same run asked for as a check
+    /// records a check. Without it the assertions there would pass over a
+    /// `record` that stamped `.round` unconditionally.
+    func test_aCheckRecordsACheck() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), activePass: "line")
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        settle()
+
+        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(finished.kind, .check,
+                       "the keystroke said check, and a lane being active does "
+                       + "not make it a round \u{2014} the persona decides, not the pass")
+        XCTAssertEqual(finished.effectiveKind, .check,
+                       "a record that carries a kind is never second-guessed by "
+                       + "the legacy rule")
+    }
+
     /// **The mint is never reached while a run stands** — R1's other half
     /// (#42). `runRequested`'s `!isRunning` refusal is what a second ⌘R hits
     /// BEFORE `beginRun`'s `latestRound(forPass:docId:)` call, and that is
@@ -3102,7 +3169,7 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(harness.diagnostics.latestRound(forPass: "line", docId: docId), 1,
                        "the first run's own preview is standing")
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
 
         XCTAssertEqual(runner.sends.count, 1, "the second ⌘R must not reach the runner")
@@ -3140,7 +3207,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("copyedit", on: fx)
         fx.documentStore.unregister(path: Self.liveDocPath)
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
 
         // Asserted synchronously because the refusal IS synchronous: the guard
         // sits above the burst hop, so a run that was going to happen has
@@ -3167,7 +3234,7 @@ final class CompilerRunCommandTests: XCTestCase {
                 documentStore.document(forDocId: id) != nil
             },
             run: { [orchestrator = fx.orchestrator] id in
-                orchestrator.runRequested(docId: id)
+                orchestrator.runRequested(docId: id, kind: .check)
             })
 
         XCTAssertTrue(runner.sends.isEmpty,
@@ -3198,7 +3265,7 @@ final class CompilerRunCommandTests: XCTestCase {
                 documentStore.document(forDocId: id) != nil
             },
             run: { [orchestrator = fx.orchestrator] id in
-                orchestrator.runRequested(docId: id)
+                orchestrator.runRequested(docId: id, kind: .check)
             })
 
         let outcome = await waiting.value
@@ -3366,7 +3433,7 @@ final class CompilerRunCommandTests: XCTestCase {
                 waiting = RunWhenDocumentOpens.start(
                     docId: pieceId, polling: .milliseconds(5),
                     isOpen: { documentStore.document(forDocId: $0) != nil },
-                    run: { orchestrator.runRequested(docId: $0) })
+                    run: { orchestrator.runRequested(docId: $0, kind: .check) })
             })
 
         let menu = verbs.chipMenu(
@@ -3513,7 +3580,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), activePass: "line")
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1)
@@ -3522,7 +3589,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         runner.nextEvent = .resultText(Self.fourEmptySections)
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
 
@@ -3562,7 +3629,7 @@ final class CompilerRunCommandTests: XCTestCase {
             runner: runner, reading: standingReading(), activePass: "line",
             liveParagraphText: { _, _ in live.value })
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -3570,7 +3637,7 @@ final class CompilerRunCommandTests: XCTestCase {
         live.value = "The fog lifted before noon."
         runner.nextEvent = .resultText(Self.fourEmptySections)
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
 
@@ -3594,14 +3661,14 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), activePass: "line")
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
         harness.setActivePass("proof")
         runner.nextEvent = .resultText(Self.fourEmptySections)
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
 
@@ -3622,14 +3689,14 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), activePass: "line")
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
         harness.setActivePass(nil)
         runner.nextEvent = .resultText(Self.fourEmptySections)
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
 
@@ -3648,14 +3715,14 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), activePass: "line")
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
                      "control: a failed run records nothing at all")
 
         runner.nextEvent = .resultText(Self.fourEmptySections)
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
 
@@ -3687,7 +3754,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), activePass: "line")
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -3713,7 +3780,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -3743,7 +3810,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = .resultText(Self.fiveSections(verdict: "holds"))
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict,
@@ -3756,7 +3823,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // A second run, held open, its drift section already streamed.
         runner.nextEvent = nil
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         runner.stream("{\"section\":\"intent_drift\",\"verdict\":\"drifted\"}\n")
         XCTAssertEqual(
@@ -3826,7 +3893,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), statementText: nil)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -3851,7 +3918,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = .resultText(Self.fiveSections(verdict: "holds"))
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -3874,7 +3941,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), statementText: intent)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -3888,7 +3955,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // its intent.
         runner.nextEvent = .resultText(Self.fiveSections(verdict: "holds"))
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
 
@@ -3931,7 +3998,10 @@ final class CompilerRunCommandTests: XCTestCase {
 
         let modifier = try source(at: "Maugham/Views/CompilerRunModifier.swift")
         for token in [".onKeyWindowCommand(.maughamFreshEyesCompiler",
-                      "freshEyes: true"] {
+                      "freshEyes: true",
+                      // ⌘⇧R mints its kind from the persona exactly as ⌘R
+                      // does — a cold read in Review is a cold ROUND.
+                      "kind: RunKind.of(persona: persona)"] {
             XCTAssertTrue(modifier.contains(token),
                           "CompilerRunModifier is missing \(token) \u{2014} without it "
                           + "⌘⇧R reaches no orchestrator, or reaches it as an "
@@ -3953,13 +4023,13 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertTrue(runner.sends[0].message.contains("The fog came."))
 
         // Control: the ordinary key, over prose the marker has already seen.
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         settle()
         XCTAssertEqual(runner.sends.count, 1,
                        "control: ⌘R over unchanged prose spends no turn")
@@ -3968,7 +4038,7 @@ final class CompilerRunCommandTests: XCTestCase {
                            + "got \(harness.orchestrator.runState)")
         }
 
-        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
         awaitSends(2, on: runner)
         settle()
 
@@ -3987,7 +4057,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertTrue(runner.sends[0].message.contains("Cold, and never wistful."),
@@ -3997,7 +4067,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // Control: an ordinary second run rides the same process, and the
         // briefing is elided because that process has already read it.
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
         XCTAssertTrue(runner.sends[1].message.contains("unchanged since last run"),
@@ -4007,7 +4077,7 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(harness.spawns, 1, "control: ⌘R spawns nothing")
 
         harness.setReading(readingAfterAThirdParagraph())
-        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
         awaitSends(3, on: runner)
         settle()
 
@@ -4039,7 +4109,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // A real run first, so there IS a warm session to lose. Without it
         // `runner` is still nil inside the orchestrator and `retireSession`
         // would be a silent no-op wherever it sat.
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertEqual(runner.shutdowns, 0)
@@ -4050,7 +4120,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // fresh path (`DeltaBuilder` walks `sequence` when `since` is nil).
         harness.setReading(CompilerOrchestrator.DocumentReading(
             ops: [], paragraphs: [:], sequence: []))
-        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
         settle()
 
         XCTAssertEqual(runner.shutdowns, 0,
@@ -4077,14 +4147,14 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), activePass: "line")
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.round, 1)
 
         runner.nextEvent = .resultText(Self.fourEmptySections)
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
         awaitSends(2, on: runner)
         settle()
 
@@ -4111,7 +4181,7 @@ final class CompilerRunCommandTests: XCTestCase {
             projectRoot: harness.root, docId: docId,
             device: DeviceSlug.make(from: "test-mac"))
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         let ordinary = try String(contentsOf: sidecar, encoding: .utf8) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
@@ -4119,7 +4189,7 @@ final class CompilerRunCommandTests: XCTestCase {
                        "control: an ordinary run stamps no key; got \(ordinary)")
 
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
         awaitSends(2, on: runner)
         settle()
 
@@ -4136,13 +4206,13 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
         awaitSends(1, on: runner)
         settle()
         XCTAssertEqual(harness.spawns, 1)
 
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
 
@@ -4164,7 +4234,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
         awaitSends(1, on: runner)
         settle()
 
@@ -4182,10 +4252,10 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = nil
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
 
-        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
         settle()
 
         XCTAssertEqual(runner.sends.count, 1, "no second turn was started")
@@ -4208,14 +4278,14 @@ final class CompilerRunCommandTests: XCTestCase {
         let ordinaryRunner = SpyRunner()
         ordinaryRunner.nextEvent = .failed(.disabledByToggle)
         let ordinary = try makeHarness(runner: ordinaryRunner, reading: standingReading())
-        ordinary.orchestrator.runRequested(docId: docId)
+        ordinary.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: ordinaryRunner)
         settle()
 
         let coldRunner = SpyRunner()
         coldRunner.nextEvent = .failed(.disabledByToggle)
         let cold = try makeHarness(runner: coldRunner, reading: standingReading())
-        cold.orchestrator.runRequested(docId: docId, freshEyes: true)
+        cold.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
         awaitSends(1, on: coldRunner)
         settle()
 
@@ -4308,7 +4378,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("copyedit", on: fx)
         runner.nextEvent = .resultText(questionAndReport(about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
 
@@ -4412,7 +4482,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = .resultText(
             oneLetterQuestion("Whose fear is this, hers or the narrator\u{2019}s?", about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(1, on: fx.document)
 
@@ -4459,7 +4529,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("structural", on: fx)
         runner.nextEvent = .resultText(oneLetterQuestion("Whose fear is this?", about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(1, on: fx.document)
         XCTAssertEqual(
@@ -4469,7 +4539,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // The writer types, so the next \u{2318}R has a delta to read.
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
         try await fx.document.flushBurstNow()
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         await awaitRound(2, on: fx)
         await awaitNothingMinted()
@@ -4490,7 +4560,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("copyedit", on: fx)
         runner.nextEvent = .resultText(questionAndStrain(about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(1, on: fx.document)
 
@@ -4530,7 +4600,7 @@ final class CompilerRunCommandTests: XCTestCase {
         ) { _ in posts += 1 }
         defer { NotificationCenter.default.removeObserver(token) }
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
         await awaitNothingMinted()
@@ -4549,7 +4619,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("copyedit", on: fx)
         runner.nextEvent = .resultText(questionAndReport(about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
         XCTAssertEqual(
@@ -4559,7 +4629,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // The writer types, so the next \u{2318}R has a delta to read.
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
         try await fx.document.flushBurstNow()
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         await awaitRound(2, on: fx)
         await awaitNothingMinted()
@@ -4593,11 +4663,11 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("copyedit", on: fx)
         runner.nextEvent = .resultText(questionAndReport(about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
 
-        fx.orchestrator.runRequested(docId: "ch-1", freshEyes: true)
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check, freshEyes: true)
         await awaitSends(2, on: runner)
         await awaitNothingMinted()
 
@@ -4615,7 +4685,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("copyedit", on: fx)
         runner.nextEvent = .resultText(questionAndReport(about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
         for note in fx.document.annotations(filter: AnnotationFilter(statuses: [.open])) {
@@ -4627,7 +4697,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
         try await fx.document.flushBurstNow()
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         await awaitOpenNotes(2, on: fx.document)
 
@@ -4653,7 +4723,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let pid = try XCTUnwrap(fx.document.sequence.first)
         runner.nextEvent = .resultText(questionAndReport(about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
 
@@ -4680,7 +4750,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let pid = try XCTUnwrap(fx.document.sequence.first)
         runner.nextEvent = .resultText(questionAndReport(about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
 
@@ -4702,7 +4772,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // The writer types, so the next \u{2318}R has a delta to read.
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
         try await fx.document.flushBurstNow()
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         await awaitRound(2, on: fx)
         XCTAssertEqual(fx.diagnostics.lastRun(docId: "ch-1")?.round, 2,
@@ -4731,7 +4801,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // out — the real window between the parse and the append.
         runner.nextEvent = nil
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         fx.document.setFullText("It stayed.\n")
         runner.release(.resultText(answer))
@@ -4757,7 +4827,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let pid = try XCTUnwrap(fx.document.sequence.first)
         setActivePass("copyedit", on: fx)
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         let sections = questionAndReport(about: pid).components(separatedBy: "\n")
         runner.stream(sections[1] + "\n")
@@ -4800,7 +4870,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("copyedit", on: fx)
         runner.nextEvent = .resultText(anchorlessFindings())
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
 
@@ -4841,7 +4911,7 @@ final class CompilerRunCommandTests: XCTestCase {
             {"section":"facts","candidates":[]}
             """)
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
 
@@ -4874,7 +4944,7 @@ final class CompilerRunCommandTests: XCTestCase {
             {"section":"facts","candidates":[]}
             """)
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(1, on: fx.document)
         await awaitNothingMinted()
@@ -4894,7 +4964,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("proof", on: fx)
         runner.nextEvent = .resultText(questionAndReport(about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
 
@@ -4906,7 +4976,7 @@ final class CompilerRunCommandTests: XCTestCase {
             {"section":"reader","reports":[]}
             {"section":"facts","candidates":[]}
             """)
-        fx.orchestrator.runRequested(docId: "ch-1", freshEyes: true)
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check, freshEyes: true)
         await awaitSends(2, on: runner)
         await awaitOpenNotes(3, on: fx.document)
 
@@ -4953,7 +5023,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("copyedit", on: fx)
 
         runner.nextEvent = .resultText(questionAndReport(about: pid))
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
         XCTAssertEqual(fx.diagnostics.lastRun(docId: "ch-1")?.round, 1)
@@ -4977,7 +5047,7 @@ final class CompilerRunCommandTests: XCTestCase {
             {"section":"reader","reports":[]}
             {"section":"facts","candidates":[]}
             """)
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         await awaitRound(2, on: fx)
         await awaitNothingMinted()
@@ -5032,7 +5102,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("structural", on: fx)
         runner.nextEvent = .resultText(
             oneQuestion("Has anyone said how long yet?", about: pid))
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(1, on: fx.document)
         let structuralRun = await awaitRunAfter(nil, on: fx)
@@ -5047,7 +5117,7 @@ final class CompilerRunCommandTests: XCTestCase {
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
         runner.nextEvent = .resultText(
             oneQuestion("How long has the fog been sitting there?", about: pid))
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         let lineOneRun = await awaitRunAfter(structural.id, on: fx)
         let lineOne = try XCTUnwrap(lineOneRun)
@@ -5065,7 +5135,7 @@ final class CompilerRunCommandTests: XCTestCase {
             "The fog came.\n\nIt stayed for three days.\n\nThen it lifted.")
         runner.nextEvent = .resultText(
             oneQuestion("Is the fog's duration ever established?", about: pid))
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(3, on: runner)
         let lineTwoRun = await awaitRunAfter(lineOne.id, on: fx)
         let lineTwo = try XCTUnwrap(lineTwoRun)
@@ -5121,7 +5191,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("structural", on: fx)
         runner.nextEvent = .resultText(
             oneQuestion("Has anyone said how long yet?", about: pid))
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(1, on: fx.document)
         let structuralOneRecord = await awaitRunAfter(nil, on: fx)
@@ -5144,7 +5214,7 @@ final class CompilerRunCommandTests: XCTestCase {
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
         runner.nextEvent = .resultText(
             oneQuestion("How long has the fog been sitting there?", about: pid))
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         await awaitOpenNotes(1, on: fx.document)
         let lineOneRecord = await awaitRunAfter(structuralOne.id, on: fx)
@@ -5165,7 +5235,7 @@ final class CompilerRunCommandTests: XCTestCase {
             "The fog came.\n\nIt stayed for three days.\n\nThen it lifted.")
         runner.nextEvent = .resultText(
             oneQuestion("Is the fog's duration ever established?", about: pid))
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(3, on: runner)
         let structuralTwoRecord = await awaitRunAfter(lineOne.id, on: fx)
         let structuralTwo = try XCTUnwrap(structuralTwoRecord)
@@ -5190,7 +5260,7 @@ final class CompilerRunCommandTests: XCTestCase {
             "The fog came.\n\nIt stayed for three days.\n\nThen it lifted.\n\nBriefly.")
         runner.nextEvent = .resultText(
             oneQuestion("Does the piece ever fix the fog's duration?", about: pid))
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(4, on: runner)
         let lineTwoRecord = await awaitRunAfter(structuralTwo.id, on: fx)
         let lineTwo = try XCTUnwrap(lineTwoRecord)
@@ -5213,7 +5283,7 @@ final class CompilerRunCommandTests: XCTestCase {
             + "Briefly.\n\nNobody wrote it down.")
         runner.nextEvent = .resultText(
             oneQuestion("Is the duration established anywhere?", about: pid))
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(5, on: runner)
         let proofRecord = await awaitRunAfter(lineTwo.id, on: fx)
         let proof = try XCTUnwrap(proofRecord)
@@ -5243,7 +5313,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), holdMint: gate)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertEqual(gate.entries, 1, "precondition: the run is suspended in its mint")
@@ -5272,7 +5342,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), activePass: "copyedit")
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5290,7 +5360,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5325,7 +5395,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("copyedit", on: fx)
         runner.nextEvent = .resultText(questionReportAndStrain(about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
 
@@ -5338,7 +5408,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
         runner.nextEvent = .resultText(Self.fourEmptySections)
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         await settle()
 
@@ -5379,7 +5449,7 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("copyedit", on: fx)
         runner.nextEvent = .resultText(questionReportAndStrain(about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
 
@@ -5392,7 +5462,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
         runner.nextEvent = .resultText(Self.fourEmptySections)
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         await settle()
 
@@ -5418,12 +5488,12 @@ final class CompilerRunCommandTests: XCTestCase {
         setActivePass("copyedit", on: fx)
         runner.nextEvent = .resultText(questionReportAndStrain(about: pid))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await awaitOpenNotes(2, on: fx.document)
 
         runner.nextEvent = .resultText(Self.fourEmptySections)
-        fx.orchestrator.runRequested(docId: "ch-1", freshEyes: true)
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check, freshEyes: true)
         await awaitSends(2, on: runner)
         await settle()
 
@@ -5468,7 +5538,7 @@ final class CompilerRunCommandTests: XCTestCase {
             projectType: .screenplay)
         runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5494,7 +5564,7 @@ final class CompilerRunCommandTests: XCTestCase {
                 statementText: statement, projectType: type)
             runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
 
-            harness.orchestrator.runRequested(docId: docId)
+            harness.orchestrator.runRequested(docId: docId, kind: .check)
             awaitSends(1, on: runner)
             settle()
 
@@ -5517,7 +5587,7 @@ final class CompilerRunCommandTests: XCTestCase {
         harness.diagnostics.setAsk("I'm worried the middle sags.", docId: docId)
         runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5538,7 +5608,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(runner: runner, reading: standingReading())
         runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5561,7 +5631,7 @@ final class CompilerRunCommandTests: XCTestCase {
         harness.diagnostics.setAsk("Does the middle sag?", docId: docId)
         runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         harness.diagnostics.setAsk(nil, docId: docId)
         settle()
@@ -5599,7 +5669,7 @@ final class CompilerRunCommandTests: XCTestCase {
             statementText: statement, projectType: .novel)
         runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5621,7 +5691,7 @@ final class CompilerRunCommandTests: XCTestCase {
             runner: runner, reading: standingReading(),
             statementText: "Cold, and never wistful.", projectType: .screenplay)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5674,7 +5744,7 @@ final class CompilerRunCommandTests: XCTestCase {
             runner: runner, reading: standingReading(), projectType: .screenplay)
         runner.nextEvent = .resultText(Self.fourEmptySections)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5728,7 +5798,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(runner: runner, reading: draftingReading())
         runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5747,7 +5817,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(runner: runner, reading: standingReading())
         runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5832,7 +5902,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(runner: runner, reading: draftingReading())
         runner.nextEvent = .resultText(Self.aLetterWithThreeQuestions)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5861,7 +5931,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(runner: runner, reading: draftingReading())
         runner.nextEvent = .resultText(Self.aLetterWithThreeQuestions)
 
-        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
         awaitSends(1, on: runner)
         settle()
 
@@ -5896,7 +5966,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: draftingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5921,7 +5991,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: draftingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5952,7 +6022,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), lessons: Self.ledger)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5971,7 +6041,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let runner = SpyRunner()
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
 
@@ -5989,7 +6059,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let harness = try makeHarness(
             runner: runner, reading: standingReading(), lessons: Self.ledger)
 
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         settle()
         XCTAssertTrue(runner.sends[0].message.contains("Filter words"))
@@ -5998,7 +6068,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // Control: the warm process has already read it, so the second run
         // gets the marker line and no ledger.
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId)
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(2, on: runner)
         settle()
         XCTAssertTrue(runner.sends[1].message.contains("unchanged since last run"))
@@ -6007,7 +6077,7 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(harness.spawns, 1)
 
         harness.setReading(readingAfterAThirdParagraph())
-        harness.orchestrator.runRequested(docId: docId, freshEyes: true)
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
         awaitSends(3, on: runner)
         settle()
 
@@ -6056,7 +6126,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = .resultText(
             Self.aLetterCitingHabits(about: pid, cited: "Filter words"))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await settle()
 
@@ -6083,7 +6153,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = .resultText(
             Self.aLetterCitingHabits(about: pid, cited: "Filler words"))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await settle()
 
@@ -6118,7 +6188,7 @@ final class CompilerRunCommandTests: XCTestCase {
         runner.nextEvent = .resultText(
             Self.aLetterCitingHabits(about: pid, cited: "Filter words"))
 
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await settle()
 
@@ -6170,7 +6240,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let fx = try await makeLiveDocumentHarness(runner: runner)
 
         // Control first: with no ledger on disk, no ledger in the briefing.
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(1, on: runner)
         await settle()
         XCTAssertFalse(runner.sends[0].message.contains("Lessons the writer is working on"))
@@ -6181,7 +6251,7 @@ final class CompilerRunCommandTests: XCTestCase {
             to: ledger, session: "test-\(UUID().uuidString)")
 
         fx.document.setFullText("The fog came.\n\nIt stayed for three days.")
-        fx.orchestrator.runRequested(docId: "ch-1")
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
         await awaitSends(2, on: runner)
         await settle()
 

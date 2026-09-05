@@ -720,9 +720,14 @@ struct AnnotationsPane: View {
                 phase: ReviewRoundCockpit.phase(
                     runState: orchestrator.runState, docId: document.docId),
                 reportLine: cockpitReportLine(diagnostics, docId: document.docId),
+                // **The round cockpit's own button, and it is a round by
+                // construction** (two loops P1) — this surface exists only in
+                // Review. Said literally rather than minted from a persona,
+                // because the only persona it could read is the one it is
+                // already standing in.
                 onRun: { freshEyes in
                     orchestrator.runRequested(
-                        docId: document.docId, freshEyes: freshEyes)
+                        docId: document.docId, kind: .round, freshEyes: freshEyes)
                 },
                 onSetActivePass: { passId in
                     onSetActivePass(document.docId, passId)

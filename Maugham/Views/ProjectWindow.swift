@@ -450,6 +450,7 @@ struct ProjectWindow: View {
                                       designer: designer,
                                       coldCall: coldCall,
                                       pipeline: pipeline,
+                                      persona: persona,
                                       window: window,
                                       activeDocId: activeDocId,
                                       mcpEnabled: userPreferences.mcpEnabled))
@@ -3560,7 +3561,14 @@ struct ProjectWindow: View {
             isOpen: { [weak documentStore] docId in
                 documentStore?.document(forDocId: docId) != nil
             },
-            run: { [compiler] docId in compiler.runRequested(docId: docId) },
+            // **A round, said literally.** This is the review board's chip
+            // arriving late — the piece was not open when it was pressed —
+            // and it belongs to the round loop by construction, so it names
+            // the verb rather than re-deriving it from a persona the writer
+            // may have left in the meantime.
+            run: { [compiler] docId in
+                compiler.runRequested(docId: docId, kind: .round)
+            },
             // `[flash]`, not a bare `showCompilerFlash(…)`: this closure is
             // held for the deferral's whole 5s bound, and capturing `self`
             // would hold the window's stores with it — the thing the two

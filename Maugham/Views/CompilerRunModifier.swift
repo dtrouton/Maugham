@@ -9,8 +9,8 @@ import AppKit
 /// whole piece), and the three moments at which the `claude` subprocess must
 /// stop existing. Fresh eyes retires the session too, but from the inside:
 /// it is a run rather than a teardown, so the retirement is the
-/// orchestrator's (`runRequested(docId:freshEyes:)`) and not a fourth arm
-/// here. `ClaudeCLISession` cannot defend
+/// orchestrator's (`runRequested(docId:kind:freshEyes:)`) and not a fourth
+/// arm here. `ClaudeCLISession` cannot defend
 /// itself (its `deinit` is nonisolated and cannot reach its own child), so a
 /// missed teardown here is a live, billing process outliving the window that
 /// started it.
@@ -52,6 +52,16 @@ struct CompilerRunModifier: ViewModifier {
     /// The pipeline sequencing the two above. Owns no session; owns the leg
     /// that waits — see this type's doc comment for why it goes down first.
     let pipeline: TranslationPipeline
+    /// **The window's persona — the loop the writer is standing in.**
+    ///
+    /// The one thing here that is not a session or a subject, and it is here
+    /// because this is the one place a run key is pressed: `RunKind.of` is
+    /// asked exactly once per keystroke, and every other caller of
+    /// `runRequested` belongs to one loop by construction and says so
+    /// literally. `TripwireGrepTests`' census pins that this file is the only
+    /// production site that mints a kind from a persona — a second one would
+    /// be a second answer to which verb a keystroke is.
+    let persona: Persona
     let window: NSWindow?
     /// The window's subject as a document id, or the no-document sentinel.
     /// Resolved by the window, not here: this modifier has no opinion about
@@ -66,14 +76,17 @@ struct CompilerRunModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onKeyWindowCommand(.maughamRunCompiler, window: window) { _ in
-                orchestrator.runRequested(docId: activeDocId)
+                orchestrator.runRequested(
+                    docId: activeDocId, kind: RunKind.of(persona: persona))
             }
             // The cold read (⌘⇧R). A second arm rather than a branch inside
             // the first: the two keystrokes are two promises, and the
             // orchestrator is the one place that knows what the difference
             // costs.
             .onKeyWindowCommand(.maughamFreshEyesCompiler, window: window) { _ in
-                orchestrator.runRequested(docId: activeDocId, freshEyes: true)
+                orchestrator.runRequested(
+                    docId: activeDocId, kind: RunKind.of(persona: persona),
+                    freshEyes: true)
             }
             .onGlobalEvent(.maughamAppWillTerminate) { _ in
                 pipeline.shutdown()

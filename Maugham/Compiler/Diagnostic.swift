@@ -232,6 +232,26 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// run that found nothing standing in another lane.
     var openInOtherLanes: Int?
 
+    /// **Which loop asked for this run** (two loops P1) — Author's ⌘R or
+    /// Review's Run round. Minted from the persona at the keystroke and
+    /// carried through the run, so the record says which verb produced it
+    /// rather than leaving a reader to infer one.
+    ///
+    /// `nil` marks a record written before this field existed, on the same
+    /// convention as `clauseStatuses` and `letter`. **Read it through
+    /// `effectiveKind`, never raw**: that is where the legacy rule for those
+    /// records is stated, and stating it twice is how two readers come to
+    /// disagree about what an old sidecar was.
+    var kind: RunKind?
+
+    /// **What a run's kind is, including for records that never carried one.**
+    ///
+    /// The legacy rule, in one place: before this field existed, a run with a
+    /// lane was a round and a run without one was a check — which is exactly
+    /// what the two verbs were, undeclared. A record written since says so
+    /// itself and the inference is not consulted.
+    var effectiveKind: RunKind { kind ?? (passId == nil ? .check : .round) }
+
     /// **The sixth section, P1** — one editorial letter, read as prose rather
     /// than a list of findings. `nil` marks a record written before the
     /// section existed, on the same convention as `clauseStatuses`.
@@ -242,7 +262,8 @@ struct CompilerRun: Codable, Equatable, Sendable {
          clauseStatuses: [DiagnosticIngest.ClauseStatus]? = nil,
          truncatedReader: Int? = nil, passId: String? = nil, round: Int? = nil,
          freshEyes: Bool? = nil, intentDriftVerdict: String? = nil,
-         mintedNotes: Int? = nil, openInOtherLanes: Int? = nil, letter: Letter? = nil) {
+         mintedNotes: Int? = nil, openInOtherLanes: Int? = nil,
+         kind: RunKind? = nil, letter: Letter? = nil) {
         self.id = id
         self.at = at
         self.model = model
@@ -258,6 +279,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
         self.intentDriftVerdict = intentDriftVerdict
         self.mintedNotes = mintedNotes
         self.openInOtherLanes = openInOtherLanes
+        self.kind = kind
         self.letter = letter
     }
 
@@ -293,6 +315,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
             String.self, forKey: .intentDriftVerdict)
         mintedNotes = try c.decodeIfPresent(Int.self, forKey: .mintedNotes)
         openInOtherLanes = try c.decodeIfPresent(Int.self, forKey: .openInOtherLanes)
+        kind = try c.decodeIfPresent(RunKind.self, forKey: .kind)
         letter = try c.decodeIfPresent(Letter.self, forKey: .letter)
     }
 }

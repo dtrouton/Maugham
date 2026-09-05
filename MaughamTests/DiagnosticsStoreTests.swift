@@ -394,6 +394,85 @@ final class DiagnosticsStoreTests: XCTestCase {
             "a run written before the field existed has no letter to report")
     }
 
+    /// **A sidecar written before `kind` existed still loads, and the legacy
+    /// rule is what answers for it** (two loops P1 Task 1).
+    ///
+    /// The field is optional on `CompilerRun`'s standing convention, but the
+    /// hand-written decoder does not consult a property's default — a field
+    /// added to the type and forgotten there is a compile error at best and a
+    /// throw on every pre-existing sidecar at worst, and an undecodable
+    /// sidecar reads to the writer as a document that was never checked.
+    func test_aSidecarWithoutKindStillLoads_andTheLegacyRuleAnswersForIt() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docNoKind"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // A run written before the field existed, in a lane: no `kind` key at
+        // all, and a `passId` — which is what the two verbs looked like before
+        // either of them was declared.
+        try Data("""
+            {"diagnostics":[],"run":{"at":"2026-08-04T09:00:00Z","deltaSummary":"1 new, 0 revised",
+            "id":"01JABC","lastOpId":"op1","model":"sonnet","passId":"line","round":2}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        let run = try XCTUnwrap(store.lastRun(docId: docId))
+        XCTAssertNil(run.kind, "a run written before the field existed declares nothing")
+        XCTAssertEqual(run.effectiveKind, .round,
+                       "…and a run with a lane was a round, undeclared")
+    }
+
+    /// The other half of the legacy rule, and the control for the test above:
+    /// a lane-less record from the same era was an ordinary \u{2318}R.
+    func test_aLegacyRunWithNoLaneReadsAsACheck() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docNoKindNoLane"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            {"diagnostics":[],"run":{"at":"2026-08-04T09:00:00Z","deltaSummary":"1 new, 0 revised",
+            "id":"01JABD","lastOpId":"op1","model":"sonnet"}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        let run = try XCTUnwrap(store.lastRun(docId: docId))
+        XCTAssertNil(run.kind)
+        XCTAssertEqual(run.effectiveKind, .check)
+    }
+
+    /// A run that DOES declare its kind round-trips it, and the legacy rule
+    /// never second-guesses it — the write half of the compatibility
+    /// contract, and what says the inference is a fallback rather than the
+    /// answer. A `.check` in a lane is the sharp case: infer from `passId`
+    /// and this reads `.round`.
+    func test_aDeclaredKindSurvivesTheSidecar_andOutranksTheLegacyRule() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docWithKind"
+
+        var run = makeRun()
+        run.passId = "line"
+        run.round = 3
+        run.kind = .check
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.replace(run: run, diagnostics: [], docId: docId)
+
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: docId)
+        let reloaded = try XCTUnwrap(reopened.lastRun(docId: docId))
+        XCTAssertEqual(reloaded.kind, .check, "the declaration survives the disk")
+        XCTAssertEqual(reloaded.effectiveKind, .check,
+                       "…and the lane does not overrule it")
+    }
+
     /// A run WITH a letter reloads with the letter equal — the other half of
     /// the compatibility contract (write, not just tolerated-missing read).
     func test_aSidecarWithALetter_reloadsWithTheLetterEqual() throws {

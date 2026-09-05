@@ -1057,7 +1057,11 @@ struct DiagnosticsPane: View {
             HStack(spacing: 8) {
                 Button("Not now") { diagnostics.refuseColdStart(docId: docId) }
                     .buttonStyle(.bordered)
-                Button("Read") { orchestrator.runRequested(docId: docId) }
+                // The cold-start offer is the Diagnostics pane's, which is
+                // Author's report — a check, said literally (two loops P1).
+                Button("Read") {
+                    orchestrator.runRequested(docId: docId, kind: .check)
+                }
                     .buttonStyle(.borderedProminent)
             }
         }

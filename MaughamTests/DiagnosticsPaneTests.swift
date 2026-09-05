@@ -588,18 +588,18 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics: DiagnosticsStore(
                 projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac")))
 
-        orchestrator.runRequested(docId: docId)
+        orchestrator.runRequested(docId: docId, kind: .check)
         await awaitSends(1, on: runner)
         XCTAssertEqual(runner.spawnedModels, ["sonnet"])
 
-        orchestrator.runRequested(docId: docId)
+        orchestrator.runRequested(docId: docId, kind: .check)
         await awaitSends(2, on: runner)
         XCTAssertEqual(runner.spawnedModels, ["sonnet"],
                        "an unchanged choice must reuse the warm session — respawning per run "
                        + "throws away the one thing the warm session is for")
 
         orchestrator.updateModel(CompilerModelChoice.deep.claudeModel)
-        orchestrator.runRequested(docId: docId)
+        orchestrator.runRequested(docId: docId, kind: .check)
         await awaitSends(3, on: runner)
         XCTAssertEqual(runner.spawnedModels, ["sonnet", "opus"],
                        "the gear menu moved and the CLI never heard about it")
@@ -608,7 +608,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         // same way the three original choices do — no special-cased fourth
         // literal anywhere between the menu and the spawn.
         orchestrator.updateModel(CompilerModelChoice.exhaustive.claudeModel)
-        orchestrator.runRequested(docId: docId)
+        orchestrator.runRequested(docId: docId, kind: .check)
         await awaitSends(4, on: runner)
         XCTAssertEqual(runner.spawnedModels, ["sonnet", "opus", "fable"],
                        "Exhaustive must reach the CLI as \"fable\" too")
@@ -2702,7 +2702,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             currentText: { _ in "The fog came." }, compilerModel: .standard,
             store: store)))
 
-        orchestrator.runRequested(docId: chapter.id)
+        orchestrator.runRequested(docId: chapter.id, kind: .check)
         await awaitSends(1, on: runner)
         runner.stream(Self.streamedQuestion + "\n")
         waitUntil { self.staticTextLabels(in: window, containing: Self.questionBody).count == 1 }
@@ -2755,7 +2755,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertNotNil(findButton(labelled: "Answer", in: window),
                         "control: the finished run's note is answerable before anything runs")
 
-        orchestrator.runRequested(docId: otherDocId)
+        orchestrator.runRequested(docId: otherDocId, kind: .check)
         await awaitSends(1, on: runner)
         pump(0.3)
 
@@ -3496,7 +3496,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertNotNil(findButton(labelled: "Got it", in: window),
                         "control: a finished run's note is the writer's to settle")
 
-        orchestrator.runRequested(docId: document.docId)
+        orchestrator.runRequested(docId: document.docId, kind: .check)
         await awaitSends(1, on: runner)
         pump(0.3)
 
@@ -4434,7 +4434,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         // Exactly what ⌘R does: `CompilerRunModifier` calls this and nothing
         // else. Nothing in between touches the first responder, which is why
         // the pending draft has to be promoted by the run itself.
-        orchestrator.runRequested(docId: chapter.id)
+        orchestrator.runRequested(docId: chapter.id, kind: .check)
         try await waitUntilAsync(timeout: 5) { !runner.sentMessages.isEmpty }
 
         XCTAssertEqual(
@@ -4468,7 +4468,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         pump(0.4)
         XCTAssertNotNil(askTextField(in: window), "premise: the field was there to type into")
 
-        orchestrator.runRequested(docId: chapter.id)
+        orchestrator.runRequested(docId: chapter.id, kind: .check)
         try await waitUntilAsync(timeout: 5) { !runner.sentMessages.isEmpty }
 
         XCTAssertNil(diagnostics.ask(docId: chapter.id))
