@@ -260,7 +260,6 @@ final class ReviewRoundCockpitLetterScrollTests: XCTestCase {
                 passes: [Self.line, Self.copyedit],
                 activePassId: "copyedit",
                 round: 2,
-                coach: nil,
                 phase: .idle,
                 reportLine: nil,
                 onRun: { _ in },

@@ -57,25 +57,12 @@ struct ReviewRoundCockpit: View {
     /// (`DiagnosticsStore.latestRound(forPass:docId:)`, which consults the
     /// standing run before the ring — the one spelling).
     ///
-    /// **The lane it counts is the piece's, which is the coach's when no
-    /// stage is set**: the pane asks `latestRound` with `pass?.id ?? coach?.id`
-    /// so her numbered rounds reach this strip (editorial letter P1, Task 6).
+    /// **The lane it counts is the piece's own stage, and nothing else**
+    /// (two loops P1 Task 8): the pane asks `latestRound` with `pass?.id`, so
+    /// a piece with no pass has no lane, no round and nothing to count. The
+    /// coach files no rounds — she reads CHECKS in Author (`AuthorReader`) —
+    /// so there is no second lane this could fall back to.
     let round: Int?
-    /// **Who holds the coach's seat** — `ProjectManifest.effectiveCoach`, nil
-    /// once the writer has vacated it (spec §4.1).
-    ///
-    /// Read for ONE thing: what the lane label says over a piece with no
-    /// stage assigned. She reads any unassigned piece, so "Set a pass" over
-    /// one is not merely terse but wrong — ⌘R already files a numbered round
-    /// in her lane and the notes already arrive signed by her.
-    ///
-    /// She never reaches `lanePickerItems`. She is not a lane a piece can be
-    /// moved into: `ActivePassMemory.validatedActivePass` refuses her id
-    /// because she is absent from `effectiveReviewPasses`, so a menu item
-    /// offering her would be a control that does nothing. Handing a piece
-    /// BACK to her is setting its pass to untouched on the board, which is
-    /// what the guide says (`docs/guide/review-passes.md`).
-    let coach: ReviewPass?
     let phase: RunPhase
     /// What the last round says about itself — the fresh-eyes header or the
     /// since-last-round comparison, resolved by `reportLine(history:run:annotations:)`.
@@ -121,25 +108,6 @@ struct ReviewRoundCockpit: View {
     /// that simply has no letter in it. `AnnotationsPane` is the one
     /// production caller and passes both (its own census).
     var letterLine: String? = nil
-    /// **The stage the last run derived, for the lane line's own word**
-    /// (editorial letter P3, spec §3.8). `Letter.draftStage` — the ONE
-    /// conversion from the stored raw — off the same run `letterLine` is built
-    /// from.
-    ///
-    /// **The number and the word on that line do not always come from the same
-    /// run, and the difference shows on a lane switch.** The stage is the last
-    /// RUN's, whatever pass that run was in; the round is the LANE's
-    /// (`AnnotationsPane.cockpitRound` → `DiagnosticsStore.latestRound(forPass:docId:)`,
-    /// which answers the standing run's round when its pass matches and
-    /// otherwise falls back to the newest round in the ring for that pass). So
-    /// selecting a pass the writer has not run since some other pass's rounds
-    /// stacked up shows that pass's own round beside the stage of a run filed
-    /// in a different lane. Both are honest facts about the piece; neither is
-    /// "the last run's" on its own.
-    ///
-    /// Defaulted for `letterLine`'s reason: every probe mount predates it and
-    /// keeps compiling with a strip that simply names no stage.
-    var stage: DraftStage? = nil
     /// The section the disclosure opens: the host's own `LetterSection`,
     /// wired to the host's verbs. A closure rather than a `Letter`, because
     /// Accept as task, Add to intent and Keep all need the host's document,
@@ -237,42 +205,20 @@ struct ReviewRoundCockpit: View {
     /// pass set and no round yet is exactly the state the Run button is for,
     /// and the line should say where the writer is, not imply a round happened.
     ///
-    /// **The stage the last run derived rides the end of it** (editorial letter
-    /// P3, global constraint 28) — "Copyedit · Gould · round 3 · drafting", so
-    /// a writer who wants the full letter mid-draft knows to ask for Fresh
-    /// Eyes (spec §3.8).
-    ///
-    /// A `DraftStage` rather than a string, so this file and
-    /// `LetterSection.signature` are the only two that read `laneWord` and the
-    /// lane's spelling cannot multiply. `nil` — a run that wrote no letter, or
-    /// a caller holding a note rather than a run — leaves the line exactly what
-    /// it was.
-    ///
-    /// **The word appends only beside a NAMED round** (RULING-R14). The em-dash
-    /// arm says nothing has run in this lane, and a stage on it would be the
-    /// last run in some OTHER lane describing a lane that has never been read.
-    static func laneLine(
-        pass: ReviewPass, round: Int?, stage: DraftStage? = nil
-    ) -> String {
+    /// **It names no draft stage, and the absence is the rule rather than an
+    /// omission** (two loops P1 Task 8, spec §4.8). `DraftStage` is derived
+    /// for a CHECK — it doses Author's letter off the writer's own drafting
+    /// process — and a round is always read full, so the word "drafting" on
+    /// Review's lane line was the other loop's copy standing over a round
+    /// that never derived one. The stage still signs the letter it belongs to
+    /// (`LetterSection.signature`), which is the run's own fact.
+    static func laneLine(pass: ReviewPass, round: Int?) -> String {
         let number = round.map(String.init) ?? "\u{2014}"
         let editor = pass.effectiveEditorName
-        let word = stageWord(stage, round: round)
         guard editor != pass.name else {
-            return "\(pass.name) \u{00b7} round \(number)\(word)"
+            return "\(pass.name) \u{00b7} round \(number)"
         }
-        return "\(pass.name) \u{00b7} \(editor) \u{00b7} round \(number)\(word)"
-    }
-
-    /// The stage as it appends to a lane line, or nothing at all. The ONE
-    /// place this file reads `DraftStage.laneWord`, so `laneLine` and
-    /// `coachLine` cannot punctuate the same word two ways.
-    ///
-    /// **`round` is half the condition** (RULING-R14): the word qualifies a
-    /// round, so no round means no word, in either line. Spelling that once
-    /// here is what stops the two arms disagreeing about it.
-    private static func stageWord(_ stage: DraftStage?, round: Int?) -> String {
-        guard let stage, round != nil else { return "" }
-        return " \u{00b7} \(stage.laneWord)"
+        return "\(pass.name) \u{00b7} \(editor) \u{00b7} round \(number)"
     }
 
     /// **What the lane picker's own label says** — the lane line once a pass is
@@ -285,50 +231,16 @@ struct ReviewRoundCockpit: View {
     /// the passless arm, so a piece already in a pass could only be moved to
     /// another lane by going back to the board and clicking a different chip —
     /// the exact undiscoverability the strip was built to end.
-    /// **Three arms since the seat exists** (editorial letter P1, Task 6): a
-    /// stage's lane line, the coach's own line over an unassigned piece, and
-    /// the invitation when nobody is reading it at all.
-    ///
-    /// A stage always wins. The coach reads what nobody was ASSIGNED, so a
-    /// piece handed to Lish reads through Lish whatever the seat says — the
-    /// label answers the piece's question, never the project's.
-    ///
-    /// **The stage is threaded to whichever arm draws and the invitation
-    /// carries none** (P3): nobody is reading the piece, so no run derived
-    /// anything about its delta.
-    static func laneLabel(
-        pass: ReviewPass?, round: Int?, coach: ReviewPass?, stage: DraftStage? = nil
-    ) -> String {
-        if let pass { return laneLine(pass: pass, round: round, stage: stage) }
-        if let coach { return coachLine(coach: coach, round: round, stage: stage) }
-        return setAPassTitle
-    }
-
-    /// **"Le Guin reads this piece", then "Le Guin · round 3"** — an
-    /// introduction before her first round and the lane line's own shape
-    /// after it.
-    ///
-    /// Deliberately NOT `laneLine`'s "round —" over the first state. A stage
-    /// with no round yet is a lane the writer just chose and the em dash says
-    /// "nothing has run in it"; the coach was never chosen, so her first
-    /// appearance has to say what she IS before it can say what she has
-    /// counted. And her PASS name is never drawn — "Workshop · Le Guin" would
-    /// put a lane on screen that no control can select and the board never
-    /// shows.
-    ///
-    /// **Her introduction carries NO stage word** (RULING-R14). "Le Guin reads
-    /// this piece" says who she is, not what a run found — and the case is
-    /// reachable rather than theoretical: a piece whose pass was cleared after
-    /// a run has a last run with a stage on its letter and no round in HER
-    /// lane, so the word there would describe a reading she never made. The
-    /// stage qualifies a round, and appends only beside a named one.
-    static func coachLine(
-        coach: ReviewPass, round: Int?, stage: DraftStage? = nil
-    ) -> String {
-        let name = coach.effectiveEditorName
-        let word = stageWord(stage, round: round)
-        guard let round else { return "\(name) reads this piece" }
-        return "\(name) \u{00b7} round \(round)\(word)"
+    /// **Two arms, and the seat is not one of them** (two loops P1 Task 8): a
+    /// stage's lane line, or the invitation when the piece has no stage. The
+    /// coach used to hold a third arm here, on the reading that ⌘R filed a
+    /// numbered round in her lane over an unassigned piece. It does not: a
+    /// check is hers and files in no lane, and a ROUND is a stage editor's or
+    /// it is refused (`RoundEditor`), so naming her over this button would
+    /// describe a run it cannot make.
+    static func laneLabel(pass: ReviewPass?, round: Int?) -> String {
+        guard let pass else { return setAPassTitle }
+        return laneLine(pass: pass, round: round)
     }
 
     /// One row of the lane picker: a pass the project names, and whether it is
@@ -395,9 +307,14 @@ struct ReviewRoundCockpit: View {
         // `RoundNarrative.runRoundTitle(editorName:)` to name (its parameter
         // is non-optional on purpose), so this arm is its own hand-written
         // sentence rather than a call through it with a placeholder editor.
-        let round = editorName
-            .map { "\(RoundNarrative.runRoundTitle(editorName: $0)) (\u{2318}R)" }
-            ?? "Run a round (\u{2318}R)"
+        // **And it asks for the pass first** (two loops P1 Task 8): with none
+        // set the keystroke is refused, so "Run a round (⌘R)" over an
+        // unassigned piece taught a loop the writer cannot yet enter.
+        guard let editorName else {
+            return "Claude proposes; you dispose. Set a pass and run its "
+                + "editor\u{2019}s round (\u{2318}R), or ask Claude in Claude Desktop."
+        }
+        let round = "\(RoundNarrative.runRoundTitle(editorName: editorName)) (\u{2318}R)"
         return "Claude proposes; you dispose. \(round), or ask Claude in Claude Desktop."
     }
 
@@ -433,9 +350,21 @@ struct ReviewRoundCockpit: View {
 
     // MARK: - Copy
 
+    /// **Why both buttons refuse over a piece with no pass** (two loops P1
+    /// Task 8). A round is filed in a lane and signed by that lane's editor,
+    /// so a piece nobody has been assigned to has no round to run —
+    /// `RoundEditor` refuses one from the other end, and this is the sentence
+    /// that says so before the press rather than after it.
+    static let noEditorReason =
+        "A round is an editor\u{2019}s. Set a pass and its editor runs the round."
+
     static let runTitle = "Run round"
     static let freshEyesTitle = "Fresh Eyes"
-    static let setAPassTitle = "Set a pass"
+    /// **The invitation names what setting a pass is FOR** (two loops P1
+    /// Task 8). "Set a pass" alone reads as a lane picker's placeholder and
+    /// says nothing about the dead Run button under it; this row is the one
+    /// remedy for both.
+    static let setAPassTitle = "Set a pass to run a round"
     static let cancelTitle = "Cancel"
 
     /// Why both buttons refuse mid-run. RULING-35's other half: a disabled
@@ -453,7 +382,10 @@ struct ReviewRoundCockpit: View {
     /// in two files is how the personification comes to be worded three ways.
     static func runHelp(pass: ReviewPass?, round: Int?) -> String {
         let next = (round ?? 0) + 1
-        guard let pass else { return "Check this piece now (\u{2318}R)" }
+        // **No pass, no round to offer.** The press is refused
+        // (`RoundEditor`), so the tooltip says why rather than naming some
+        // other run this button does not make.
+        guard let pass else { return noEditorReason }
         let offer = RoundNarrative.runRoundTitle(
             editorName: pass.effectiveEditorName)
         return "\(offer) \(next) (\u{2318}R)"
@@ -469,21 +401,6 @@ struct ReviewRoundCockpit: View {
     static let setAPassHelp =
         "Which pass is this piece being read through? The round is filed in "
         + "that lane, and its editor signs the notes."
-
-    /// The same question, plus the answer that already holds while nobody has
-    /// chosen one (editorial letter P1, Task 6). Over a coached piece the
-    /// bare invitation implies the round has no reader and no lane, and both
-    /// are false — so the tooltip says whose it is until a pass is set.
-    ///
-    /// Only the unassigned-and-held state gains the sentence: with a stage
-    /// active the piece is that editor's and the seat has nothing to do with
-    /// it, and with the seat vacant there is nobody to name.
-    static func setAPassHelp(pass: ReviewPass?, coach: ReviewPass?) -> String {
-        guard pass == nil, let coach else { return setAPassHelp }
-        return "Which pass is this piece being read through? Until you set "
-            + "one it is \(coach.effectiveEditorName)'s. The round is filed in "
-            + "that lane, and its editor signs the notes."
-    }
 
     /// **The one thing, else the say-back** — the derivation, in one place,
     /// so the strip and its host cannot disagree about what the letter's line
@@ -710,18 +627,17 @@ struct ReviewRoundCockpit: View {
                     }
                 }
             } label: {
-                Text(Self.laneLabel(pass: activePass, round: round,
-                                    coach: coach, stage: stage))
-                    // The coach's line is a lane the piece is really in, so it
-                    // carries the lane line's own weight; only the invitation
-                    // — nobody reading at all — stays light.
-                    .font(activePass == nil && coach == nil
+                Text(Self.laneLabel(pass: activePass, round: round))
+                    // A lane the piece is really in carries the lane line's
+                    // own weight; the invitation — no pass, so no round to
+                    // run — stays light.
+                    .font(activePass == nil
                           ? .callout : .callout.weight(.medium))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .menuStyle(.borderlessButton)
-            .help(Self.setAPassHelp(pass: activePass, coach: coach))
+            .help(Self.setAPassHelp)
             Spacer(minLength: 0)
             // **The same depth control Author's Diagnostics pane carries**
             // (editorial letter P1, Task 8) — trailing, after the Spacer, so
@@ -737,12 +653,19 @@ struct ReviewRoundCockpit: View {
     /// are second delivery sites for `MaughamApp`'s ⌘R / ⌘⇧R, not second
     /// bindings of them.
     ///
-    /// **Only `.running` refuses, and `.failed` deliberately does not.** The
-    /// remedy for a round that timed out, or for a session that died, is
-    /// another round — a strip that reports a failure and then withholds the
-    /// button that answers it is RULING-35's dead control with a red line over
-    /// it. `isRunning` is therefore the whole predicate; a `!isFailure` added
-    /// here would be the defect.
+    /// **`.running` refuses, and so does a piece with no pass** (two loops P1
+    /// Task 8). A round is filed in a lane and signed by that lane's editor,
+    /// so with no stage set there is no round for these buttons to ask for —
+    /// `RoundEditor` refuses the run from the other end, and a live button
+    /// over a refusal is a control that does nothing. Both carry
+    /// `noEditorReason` rather than going quiet: RULING-35's rule is that a
+    /// disabled control says why, and the remedy is the picker one row above.
+    ///
+    /// **`.failed` deliberately does NOT refuse.** The remedy for a round that
+    /// timed out, or for a session that died, is another round — a strip that
+    /// reports a failure and then withholds the button that answers it is
+    /// RULING-35's dead control with a red line over it. A `!isFailure` added
+    /// to the predicate would be the defect.
     ///
     /// **Cancel is `.running`-only** — the tracked follow-up from the
     /// failure-visibility review. At the 300s timeout the strip can say
@@ -752,18 +675,28 @@ struct ReviewRoundCockpit: View {
     /// strip that launched it. It calls `onCancel` and nothing else — the
     /// writer-caused mapping that returns the strip to idle is the
     /// orchestrator's, not a rule this button restates.
+    /// The tooltip both buttons choose from, in one place so the two cannot
+    /// disagree about which refusal is showing. A run in flight outranks the
+    /// missing pass: it is the state the writer just caused, and the piece's
+    /// lane is not what stands between them and a second turn.
+    private func runButtonHelp(offer: String) -> String {
+        if isRunning { return Self.busyReason }
+        if activePass == nil { return Self.noEditorReason }
+        return offer
+    }
+
     @ViewBuilder
     private var runRow: some View {
         HStack(spacing: 6) {
             Button(Self.runTitle) { run(freshEyes: false) }
                 .buttonStyle(.borderedProminent)
-                .disabled(isRunning)
-                .help(isRunning ? Self.busyReason
-                                : Self.runHelp(pass: activePass, round: round))
+                .disabled(isRunning || activePass == nil)
+                .help(runButtonHelp(
+                    offer: Self.runHelp(pass: activePass, round: round)))
             Button(Self.freshEyesTitle) { run(freshEyes: true) }
                 .buttonStyle(.bordered)
-                .disabled(isRunning)
-                .help(isRunning ? Self.busyReason : Self.freshEyesHelp)
+                .disabled(isRunning || activePass == nil)
+                .help(runButtonHelp(offer: Self.freshEyesHelp))
             if isRunning {
                 Button(Self.cancelTitle) { onCancel() }
                     .buttonStyle(.bordered)

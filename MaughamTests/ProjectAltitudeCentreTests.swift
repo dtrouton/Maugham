@@ -1266,7 +1266,6 @@ private struct AltitudeCentreProbeView: View {
             // off the body path — `ReviewBoardPaneTests` owns what it draws.
             openNotes: [:],
             unreadableDocIds: [],
-            coach: store.manifest.effectiveCoach,
             onOpenNotes: { _ in },
             onNavigate: { pieceId, _ in probe.subject = .item(pieceId) },
             onSetState: { pieceId, passId, state in

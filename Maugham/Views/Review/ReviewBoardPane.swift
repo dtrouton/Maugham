@@ -89,20 +89,6 @@ struct ReviewBoardPane: View {
     /// They get no entry in `openNotes` — a zero would be a lie — so the column
     /// says "unknown" for them instead of "none".
     let unreadableDocIds: Set<String>
-    /// **Who holds the coach's seat** — `ProjectManifest.effectiveCoach`, nil
-    /// once the writer has vacated it (editorial letter P1, spec §4.1).
-    ///
-    /// She is NOT a fifth column and never enters `passes`: no chip, no
-    /// header, no Done/Skipped menu, nothing to rule on. The board reads her
-    /// for ONE thing: the seat row above the grid. Naming her lane in the
-    /// open-notes split deliberately does NOT consult her — a stamp names who
-    /// WROTE the note, and vacating the seat cannot unsay that, so the naming
-    /// goes through `ReviewPass.pass(id:in:)` (Denver's ruling, Task 6 fix
-    /// round).
-    ///
-    /// The board has no selected piece, so it says nothing per piece: it
-    /// states the project-level fact that governs every row with no pass set.
-    let coach: ReviewPass?
     /// A count was clicked: take the writer to that piece's notes. Like
     /// `onNavigate`, the payload is the ROW's own id and the decision about
     /// what it means belongs to the mount.
@@ -173,7 +159,6 @@ struct ReviewBoardPane: View {
         let rows = ReviewBoardRows.derive(structure: structure)
         return VStack(spacing: 0) {
             header
-            seatRow
             Divider()
             if rows.isEmpty {
                 ContentUnavailableView {
@@ -195,40 +180,6 @@ struct ReviewBoardPane: View {
             Spacer()
         }
         .padding(8)
-    }
-
-    /// **One line, above the grid, saying who reads a piece nobody assigned**
-    /// (editorial letter P1, spec §4.1 "Where the seat is seen").
-    ///
-    /// It sits between the title and the grid's own divider rather than in a
-    /// column, because it is not a fact about any piece: the board has no
-    /// selected row, and the seat governs every row whose chips are all
-    /// untouched. Quiet type on purpose — it is context for the grid below,
-    /// not a control, and there is nothing here to press. Vacating is Project
-    /// Settings' row, one door, the way the guide already says.
-    ///
-    /// **The vacant case draws a sentence rather than nothing.** An absent row
-    /// would leave a writer who vacated the seat unable to tell that state
-    /// from a build that never had one, and the plain reader an unassigned
-    /// piece falls back to is worth naming.
-    private var seatRow: some View {
-        HStack {
-            Text(Self.seatLine(coach: coach))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 8)
-        .padding(.bottom, 6)
-    }
-
-    /// The seat row's two sentences, pure so the copy is assertable with
-    /// nothing mounted.
-    static func seatLine(coach: ReviewPass?) -> String {
-        guard let coach else {
-            return "The seat is vacant \u{2014} an unassigned piece gets the plain reader"
-        }
-        return "\(coach.effectiveEditorName) reads any piece with no editor assigned"
     }
 
     /// The grid. `GeometryReader` is here for one reason: the content is as
@@ -630,12 +581,14 @@ enum ReviewBoardOpenNotes {
             accounted += n
         }
         // **Everything else the piece is stamped with, named where a name
-        // exists.** Two kinds land here: the coach's own lane — she files
-        // rounds like any pass and is deliberately absent from the ladder, so
-        // without this her split would print the raw id `workshop`, a schema
-        // key where an editor's name belongs — and a pass the project no
-        // longer lists, which keeps its raw id because there is nothing left
-        // to call it.
+        // exists.** Two kinds land here: the coach's own lane — LEGACY as of
+        // two loops P1, since she reads checks now and a check stamps
+        // nothing, but real op logs carry the rounds she filed while one
+        // resolution served both verbs, and she is deliberately absent from
+        // the ladder, so without this her split would print the raw id
+        // `workshop`, a schema key where an editor's name belongs — and a
+        // pass the project no longer lists, which keeps its raw id because
+        // there is nothing left to call it.
         //
         // Either way it is COUNTED. The note exists and the total already
         // includes it; a split that silently came up short would make the two
@@ -644,8 +597,9 @@ enum ReviewBoardOpenNotes {
         // The naming goes through the one search (`ReviewPass.pass(id:in:)`)
         // and its `laneDisplayName`, which answers her EDITOR name rather than
         // her pass name — "Workshop" is on no surface a writer has ever seen.
-        // The seat is NOT consulted: vacating says who reads next, not who
-        // wrote what is already in the queue (Denver's ruling).
+        // This board holds no seat to consult and never did the asking: a
+        // stamp says who WROTE a note, and neither vacating the seat nor
+        // taking her off the board can unsay that.
         let accountedIds = Set(passes.map(\.id))
         for (id, n) in summary.byPass.sorted(by: { $0.key < $1.key })
         where !accountedIds.contains(id) && n > 0 {

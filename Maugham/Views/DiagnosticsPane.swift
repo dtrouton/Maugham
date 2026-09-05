@@ -689,9 +689,10 @@ struct DiagnosticsPane: View {
 
     private var headerLine: String { Self.headerCopy(for: state, wetInk: wetInk) }
 
-    /// **"Le Guin reads this piece", "Claude reads this piece"** — the same
-    /// resolution the round cockpit's `coachLine` draws, in the header's own
-    /// shape.
+    /// **"Le Guin reads this piece", "Claude reads this piece"** — who reads
+    /// this piece's CHECKS, in the header's own shape. The round cockpit drew
+    /// a sentence like it until two loops P1 Task 8; it does not any more,
+    /// because the seat has nothing to do with a round.
     ///
     /// **One shape, because `AuthorReader` has one held arm** (two loops P1
     /// Task 2). The "editor · pass" spelling this used to carry for a stage is

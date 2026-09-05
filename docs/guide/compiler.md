@@ -24,6 +24,31 @@ check, no linting as you type, no badge that appears while you are mid-sentence.
 That is deliberate: the point is a check you can reach for constantly because it
 is cheap, not one that reaches for you.
 
+## Who reads a check
+
+Above the four review passes sits one more editor who is **not** a pass:
+**Le Guin**, the coach. She reads your checks — every one, on every piece,
+whatever pass that piece sits in on the review board. The four passes are
+stages of finishing; she is the reader for work that isn't there yet, and
+what she writes is a letter about the piece rather than a stack of line
+notes.
+
+The seat sits outside the ladder on purpose. She is never a column on the
+review board, never a row in a piece's Inspector, and never something a piece
+can be "done" with. A check is filed in no lane at all — it takes no round
+number and stamps nothing — so nothing you do here moves a pass's count, and
+nothing you do on the board changes who reads your checks.
+
+If you'd rather not have a coach at all, **vacate the seat** in **Project
+Settings…** (⌘⇧,). A check is then read by nobody in particular and its notes
+are signed *Claude*. Nothing is lost by vacating: her past letters stay in the
+piece's history, and restoring the seat brings her back where she left off.
+There is no beginner mode and no experience setting — the seat is simply your
+own declaration of what kind of writer you are today.
+
+Rounds are the other loop, and they need an editor of their own: see
+[Review Passes](review-passes.md).
+
 ## What it reads
 
 - **Your intent**, read as checkable clauses and rules — your own sentences,

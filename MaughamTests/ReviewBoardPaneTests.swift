@@ -403,56 +403,48 @@ final class ReviewBoardPaneTests: XCTestCase {
         XCTAssertTrue(calls.navigations.allSatisfy { $0.piece == "ref" })
     }
 
-    // MARK: - Mounted: the seat (editorial letter P1, Task 6)
+    // MARK: - The coach is never a column (two loops P1 Task 8)
 
-    /// **The board says who holds the coach's seat, once, above the grid**
-    /// (spec §4.1 "Where the seat is seen").
+    /// **The standing guarantee the seat row's three tests were really
+    /// about.** The board is the ladder and only the ladder: the coach reads
+    /// CHECKS in Author (`AuthorReader`) and a round is a stage editor's, so
+    /// nothing about her belongs on a surface whose whole subject is where a
+    /// piece stands on each pass.
     ///
-    /// The board has no selected piece, so it cannot say anything per piece —
-    /// what it CAN say is the project-level fact that governs every row with
-    /// no chip set: an unassigned piece already has a reader. Without the row
-    /// the seat is invisible from the one surface a reviewer opens to see
-    /// where every piece stands.
-    func test_theBoardNamesWhoHoldsTheSeat() async throws {
-        let window = mount(structure: [doc("ch1", "Chapter One")],
-                           coach: ReviewPass.coachPreset)
-        _ = try await chipsSettling(in: window, expecting: Self.passes.count)
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(
-            texts.contains { $0.contains(
-                "Le Guin reads any piece with no editor assigned") },
-            "the held seat must be named above the grid \u{2014} got \(texts)")
-    }
+    /// She stays out by construction rather than by a filter here — she is
+    /// absent from `effectiveReviewPasses`, in every state of the manifest —
+    /// which is also why `ActivePassMemory.validatedActivePass` refuses her id
+    /// and why the cockpit's picker can never offer her.
+    func test_theCoachIsNeverAColumn() {
+        let uncustomized = ProjectManifest(
+            type: .novel, title: "P", author: "A", created: Date(),
+            modified: Date(), structure: [], research: [])
+        XCTAssertFalse(
+            uncustomized.effectiveReviewPasses.contains {
+                $0.id == ReviewPass.coachPreset.id
+            },
+            "the four presets are the ladder \u{2014} got "
+            + "\(uncustomized.effectiveReviewPasses.map(\.id))")
 
-    /// **The vacant seat says so**, rather than saying nothing: a board with
-    /// no row at all leaves a writer who vacated the seat unable to tell that
-    /// state from a build that never had one, and the sentence names what an
-    /// unassigned piece gets instead.
-    func test_theBoardSaysTheSeatIsVacantWhenItIs() async throws {
-        let window = mount(structure: [doc("ch1", "Chapter One")], coach: nil)
-        _ = try await chipsSettling(in: window, expecting: Self.passes.count)
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(
-            texts.contains { $0.contains(
-                "The seat is vacant \u{2014} an unassigned piece gets the plain reader") },
-            "got \(texts)")
-        XCTAssertFalse(texts.contains { $0.contains("Le Guin") },
-                       "and nobody is named. Got \(texts)")
-    }
+        var customized = uncustomized
+        customized.reviewPasses = [
+            ReviewPass(id: "line", name: "Line"),
+            ReviewPass(id: "polish", name: "Polish")
+        ]
+        XCTAssertFalse(
+            customized.effectiveReviewPasses.contains {
+                $0.id == ReviewPass.coachPreset.id
+            },
+            "\u{2026}and a writer's own ladder is still a ladder of stages")
 
-    /// **The seat is not a column.** She is not a pass, so the grid must be
-    /// untouched: four chips for one piece with the seat held, exactly as
-    /// with it vacant. The row above the grid is the whole of the change.
-    func test_theSeatAddsNoColumnAndNoChip() async throws {
-        let held = mount(structure: [doc("ch1", "Chapter One")],
-                         coach: ReviewPass.coachPreset)
-        let heldChips = try await chipsSettling(in: held, expecting: Self.passes.count)
-        XCTAssertEqual(heldChips.count, Self.passes.count,
-                       "the coach must add no fifth chip \u{2014} she is not a "
-                       + "stage and a piece is never \u{201C}done\u{201D} with her")
-        let headers = try axTexts(in: held)
-        XCTAssertFalse(headers.contains { $0 == ReviewPass.coachPreset.name },
-                       "\u{2026}and no column header of her own. Got \(headers)")
+        var emptied = uncustomized
+        emptied.reviewPasses = []
+        XCTAssertFalse(
+            emptied.effectiveReviewPasses.contains {
+                $0.id == ReviewPass.coachPreset.id
+            },
+            "\u{2026}and an emptied list projects back to the presets, not to "
+            + "a board with the coach on it")
     }
 
     // MARK: - Mounted: one chip per (piece × pass)
@@ -662,9 +654,9 @@ final class ReviewBoardPaneTests: XCTestCase {
     }
 
     /// **Vacating the seat does not unname the notes she already wrote**
-    /// (Denver's ruling, Task 6 fix round). The board takes the seat for its
-    /// row above the grid; the split takes it for nothing, because a stamp
-    /// says who WROTE a note and that cannot be revoked later.
+    /// (Denver's ruling, Task 6 fix round). A stamp says who WROTE a note and
+    /// that cannot be revoked later — not by vacating the seat, and not by
+    /// taking the seat off this board (two loops P1 Task 8).
     ///
     /// The cell is built through the same call the pane makes, which has no
     /// seat argument to pass — that absence IS the ruling.
@@ -1006,13 +998,7 @@ final class ReviewBoardPaneTests: XCTestCase {
 
         for expected in ["title: store.manifest.title",
                          "structure: store.manifest.structure",
-                         "passes: store.manifest.effectiveReviewPasses",
-                         // The seat, and `effectiveCoach` rather than the raw
-                         // flag: a mount reading `coachVacated` itself would be
-                         // a second spelling of "is the seat held", and a board
-                         // that never got the value draws the vacant sentence
-                         // over a project whose pieces Le Guin is reading.
-                         "coach: store.manifest.effectiveCoach"] {
+                         "passes: store.manifest.effectiveReviewPasses"] {
             XCTAssertTrue(code.contains { $0.contains(expected) },
                           "the mount must pass `\(expected)`")
         }
@@ -1024,20 +1010,12 @@ final class ReviewBoardPaneTests: XCTestCase {
                        passes: [ReviewPass] = ReviewBoardPaneTests.passes,
                        openNotes: [String: OpenNotesSummary] = [:],
                        unreadable: Set<String> = [],
-                       // **The production default is the HELD seat**
-                       // (`ProjectManifest.effectiveCoach`), so the harness's
-                       // is too: a default of `nil` had every test in this
-                       // suite but the two seat tests exercising a layout only
-                       // a writer who vacated the seat ever sees. The vacant
-                       // case is asked for by name where it is the subject.
-                       coach: ReviewPass? = ReviewPass.coachPreset,
                        width: CGFloat = 700) -> NSWindow {
         let calls = self.calls
         let window = TestWindow.mount(AnyView(
             ReviewBoardPane(title: "The Project", structure: structure, passes: passes,
                             openNotes: openNotes,
                             unreadableDocIds: unreadable,
-                            coach: coach,
                             onOpenNotes: { calls.opened.append($0) },
                             onNavigate: { piece, pass in
                                 calls.navigations.append(BoardClick(piece: piece, pass: pass))
@@ -1147,10 +1125,10 @@ final class ReviewBoardPaneTests: XCTestCase {
     ///
     /// **The vertical pitch is below the board's own row height**, so no grid
     /// row can fall BETWEEN two sample points. It was a flat eight rows over
-    /// the window's height until the seat row (editorial letter P1, Task 6)
-    /// moved the grid down by its own ~20pt and
-    /// `test_control_theSameSweepOverALoosePieceDoesReachAChip` stopped
-    /// reaching a chip: a sweep whose resolution is tuned to one layout
+    /// the window's height until a row above the grid moved everything down by
+    /// ~20pt and `test_control_theSameSweepOverALoosePieceDoesReachAChip`
+    /// stopped reaching a chip (the seat row, since removed with the seat —
+    /// two loops P1 Task 8): a sweep whose resolution is tuned to one layout
     /// reports "nothing clickable" the next time anything above the grid
     /// changes height, and the negative test it controls for goes green for
     /// the wrong reason.

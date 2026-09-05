@@ -16,28 +16,12 @@ Maugham never refuses it — see "A quiet nudge, not a gate" below.
 
 Each of the four starting passes carries a **named editor voice** — Structural is **Perkins**, Line is **Lish**, Copyedit is **Gould**, Proof is **Argus** — and a **brief**: doctrine for what that pass's rounds attend to, and what they deliberately leave alone (Perkins reads for shape and never touches a sentence; Argus reads the surface only, and advises its rounds be run as Fresh Eyes). A round's notes carry that pass's editor as their author, so a queue spanning several passes still tells you who's speaking. Renaming a pass in **Project Settings…** doesn't move its editor or its brief — both are tied to the pass's identity, not what you call it. A pass you add yourself starts with neither: its rounds are signed with the pass's own name instead of an editor's, and there's no brief behind them — nothing here yet lets you write one in, so a custom pass runs on general editorial judgment until that changes.
 
-### The coach's seat
-
-Above the four passes sits one more editor who is **not** a pass: **Le Guin**,
-the coach. She reads any piece you haven't assigned a pass to — which, if you
-never open Review, is every piece you have. The four passes are stages of
-finishing; she is the reader for work that isn't there yet, and what she
-writes is a letter about the piece rather than a stack of line notes.
-
-The seat sits outside the ladder on purpose. She is never a column on the
-board, never a row in a piece's Inspector, and never something a piece can be
-"done" with — assigning a pass is how you hand a piece to Perkins or Lish
-instead, and setting that pass back to untouched is how you hand it back to
-her. Because she isn't a pass, her name is reserved: adding a pass called
+The coach, **Le Guin**, is not on this ladder and never was: she reads your
+*checks*, at the desk, and a check is filed in no pass at all. See
+[Checking Your Writing → Who reads a check](compiler.md#who-reads-a-check).
+Because she isn't a pass, her name is reserved: adding a pass called
 "Workshop" gets you a pass of your own with a distinct identity, not the
 coach.
-
-If you'd rather not have a coach at all, **vacate the seat** in **Project
-Settings…** (⌘⇧,). An unassigned piece then goes back to the plain
-all-altitudes reader, signed "Claude". Nothing is lost by vacating: her past
-rounds stay in the piece's history, and restoring the seat brings her back
-where she left off. There is no beginner mode and no experience setting — the
-seat is simply your own declaration of what kind of writer you are today.
 
 Where you actually *rule* on a pass is the piece's own **Inspector** (⌘⌥I).
 Each pass gets a row there — **Untouched**, **In Progress**, **Done**, or
@@ -55,11 +39,9 @@ row, or any group row, and the centre column shows the board instead of a
 corkboard: one row per piece, one column per pass, a chip at every
 intersection saying where that piece stands.
 
-One line sits above the grid saying who holds the coach's seat — *Le Guin
-reads any piece with no editor assigned*, or *The seat is vacant — an
-unassigned piece gets the plain reader*. It is context for every row whose
-chips are all untouched, not a control: vacating is Project Settings' row.
-She is never a column here, and no piece is ever "done" with her.
+The board is the ladder and only the ladder. The coach has no column and no
+line here, because nothing on this board is hers: she reads checks at the
+desk, and what the board governs is rounds.
 
 - **Click a chip** to open that piece through that pass — it becomes the
   piece's active pass, which is what the queue and the compiler read next.
@@ -85,10 +67,11 @@ here: the queue carries a **pass filter** alongside its others. Choosing a
 pass shows every note stamped with it *plus* every unstamped note — a note
 only carries a pass if one was active when it was written, so "unstamped"
 covers everything older than passes, everything Claude wrote against a closed
-piece, and everything made with nothing chosen. **Le Guin's notes show
+piece, and everything made with nothing chosen. **Any note Le Guin ever stamped shows
 under every pass**, for the same reason: she isn't a pass, so no choice in
-that menu could bring them back once a piece she read is handed to Perkins
-or Lish. Left alone, the filter
+that menu could bring one back once a piece is handed to Perkins or Lish. (A
+check stamps nothing today, so this covers letters she filed in earlier
+versions.) Left alone, the filter
 follows the piece's own active pass — the one a board chip click just set —
 so clicking through from the board lands you already narrowed to the pass you
 came from. Narrow that filter — or Kind, Author, or Triage — down to nothing
@@ -105,15 +88,13 @@ document scope, and it's the second place you meet a round: the piece's lane
 — *Copyedit · Gould · round 2* — what changed since the last one once one
 exists, and two buttons doing exactly what ⌘R and ⌘⇧R do, **Run round** and
 **Fresh Eyes**, so asking for the next round never means leaving the queue to
-find ⌘R's other home. Once a round has left a letter, the lane line ends with
-the stage that round read your delta at: *Copyedit · Gould · round 2 ·
-drafting*. **The lane line is itself the pass picker** — click it
+find ⌘R's other home. **The lane line is itself the pass picker** — click it
 to read the piece through a different pass, with the one it's in checked, so
 changing lanes never means going back to the board to click another chip. No
-pass active on this piece yet? The line names the coach instead — *Le Guin
-reads this piece* before her first round, *Le Guin · round 3* after — because
-the piece already has a reader; the control is still the picker, so choosing
-a pass hands it over. With the seat vacated it says *Set a pass*. **A check that fails says so right there**,
+pass active on this piece yet? The line reads *Set a pass to run a round*,
+and both buttons are dead with a tooltip saying why: *A round is an editor's.
+Set a pass and its editor runs the round.* The line is still the picker, so
+the remedy is the row you're reading. **A round that fails says so right there**,
 in red, in place of the usual line — *"The check took too long and was
 stopped"* — rather than leaving the strip looking like a round that simply
 came back with nothing, and both buttons stay live, because another round is
@@ -129,8 +110,9 @@ task**, **Add to intent** and **Keep this letter**. See
 [The compiler → The letter](compiler.md#the-letter). An empty queue teaches the
 same loop rather than describing an absence: *"Claude proposes; you dispose.
 Run Gould's round (⌘R), or ask Claude in Claude Desktop."* The editor it names
-is whoever reads that piece — Le Guin on a piece you haven't assigned a
-pass to, and nobody at all once the seat is vacated.
+is the piece's own pass editor. With no pass set there is none to name, and
+the sentence asks for one first: *"Set a pass and run its editor's round
+(⌘R)."*
 
 **A quiet nudge, not a gate.** Work a piece through a later pass while an
 earlier one is still open, and a caption says so — *"Structural still open on

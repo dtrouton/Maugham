@@ -293,11 +293,8 @@ final class LetterKeepTests: XCTestCase {
             LetterKeep.laneLine(
                 for: makeRun(passId: "line", round: 3, stage: .revising),
                 store: store),
-            ReviewRoundCockpit.laneLine(
-                pass: try XCTUnwrap(ReviewPass.pass(
-                    id: "line", in: store.manifest.effectiveReviewPasses)),
-                round: 3, stage: .revising),
-            "a stage's lane says it the cockpit's way, with the word on the end")
+            "Line \u{00b7} Lish \u{00b7} round 3 \u{00b7} revising",
+            "a stage's lane is the cockpit's own line with the word on the end")
     }
 
     /// **A caller holding a NOTE rather than a run passes no stage, and the

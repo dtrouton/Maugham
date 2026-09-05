@@ -421,7 +421,6 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             passes: [pass],
             activePassId: pass.id,
             round: 12,
-            coach: nil,
             phase: .idle,
             reportLine: "Since round 11: 14 resolved \u{00b7} 9 persisting "
                 + "\u{00b7} 21 new",
@@ -453,7 +452,6 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             passes: [ReviewPass(id: "structural", name: "Structural")],
             activePassId: nil,
             round: nil,
-            coach: nil,
             phase: .running(CompilerOrchestrator.DeltaCounts(new: 999, revised: 999)),
             reportLine: nil,
             onRun: { _ in },
@@ -495,7 +493,6 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             passes: [pass],
             activePassId: pass.id,
             round: 12,
-            coach: nil,
             phase: .failed(.cliNotFound, at: Date(timeIntervalSince1970: 1_750_000_000)),
             // Non-nil on purpose: the failure REPLACES it, so a strip that drew
             // both would be measured here as well as caught by

@@ -1108,21 +1108,29 @@ final class TripwireGrepTests: XCTestCase {
 
     /// **The stage word is read in two view files and nowhere else** (global
     /// constraint 28). The word rides the ONE lane string every reader already
-    /// calls — Review's lane line and the letter's own signature — so a third
-    /// file spelling it is a third place the lane's wording could drift, and
-    /// the drift would be silent: two surfaces saying the same round two ways.
+    /// calls — the kept letter's own heading and the letter's signature — so a
+    /// third file spelling it is a third place the lane's wording could drift,
+    /// and the drift would be silent: two surfaces saying the same round two
+    /// ways.
+    ///
+    /// **`ReviewRoundCockpit` was the first of the two until two loops P1 Task
+    /// 8, and its absence is the point of that task.** Review's lane line
+    /// names a stage editor and a round; the draft stage is derived for a
+    /// CHECK and doses Author's letter, so the word there was the other loop's
+    /// copy on Review's strip. It survives where it is a fact about a run that
+    /// happened — a kept letter's heading and the letter's own signature.
     ///
     /// A caller who needs the stage in a line takes it as a `DraftStage?` and
-    /// hands it to one of those two, exactly as `LetterKeep.laneLine` and
-    /// `QueueLedgerVerbs.provenance` do.
+    /// hands it to one of those two, exactly as `QueueLedgerVerbs.provenance`
+    /// does.
     func test_theStageWordIsReadFromTwoViewFilesOnly() throws {
         let sites = try laneWordReadSites(in: sourceDir)
         XCTAssertEqual(
             Set(sites.compactMap { $0.split(separator: ":").first.map(String.init) }),
-            ["ReviewRoundCockpit.swift", "LetterSection.swift"],
+            ["LetterKeep.swift", "LetterSection.swift"],
             "the lane's spelling must not multiply \u{2014} pass a `DraftStage?` "
-            + "to `ReviewRoundCockpit.laneLine`/`coachLine` or "
-            + "`LetterSection.signature` instead. Sites:\n"
+            + "to `LetterKeep.laneLine` or `LetterSection.signature` instead. "
+            + "Sites:\n"
             + sites.joined(separator: "\n"))
         // **Non-vacuous by construction**, unlike the ledger census beside it:
         // a scanner matching nothing answers the EMPTY set, which is not the

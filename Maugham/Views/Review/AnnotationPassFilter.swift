@@ -72,14 +72,18 @@ enum AnnotationPassFilter {
     /// Whether `annotation` belongs in a queue filtered to `passId`
     /// (nil = every pass).
     ///
-    /// **The coach's own lane is never filtered out** (editorial letter P1,
-    /// spec §4.1). Her notes are stamped like any pass's, but she is
-    /// deliberately absent from `effectiveReviewPasses`: the toolbar's menu
-    /// cannot offer her and `resolved` above can never answer her id. So
-    /// filtering her out under a stage leaves NO selection that brings her
-    /// back — assign a coached piece to Line and every letter she wrote about
-    /// it vanishes from the queue with no control on screen to say why. Her
-    /// stamp therefore behaves like an unstamped note: in every pass's queue.
+    /// **The coach's own lane is never filtered out — a LEGACY rule, and
+    /// still load-bearing** (editorial letter P1, spec §4.1; two loops P1
+    /// Task 8). Nothing stamps her lane any more: she reads CHECKS now
+    /// (`AuthorReader`), and a check files in no lane at all. But real op
+    /// logs carry the notes she filed under `workshop` while one resolution
+    /// served both verbs, and she is deliberately absent from
+    /// `effectiveReviewPasses`: the toolbar's menu cannot offer her and
+    /// `resolved` above can never answer her id. So filtering her out under a
+    /// stage leaves NO selection that brings her back — assign such a piece
+    /// to Line and every letter she wrote about it vanishes from the queue
+    /// with no control on screen to say why. Her stamp therefore behaves like
+    /// an unstamped note: in every pass's queue.
     ///
     /// Keyed on the LANE id (`ReviewPass.coachPreset.id`) rather than on
     /// `ProjectManifest.effectiveCoach`, so vacating the seat does not

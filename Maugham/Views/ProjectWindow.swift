@@ -2063,11 +2063,6 @@ struct ProjectWindow: View {
                     // below and merely READ here (M3 P2 Task 9).
                     openNotes: openNotesCounts,
                     unreadableDocIds: openNotesUnreadable,
-                    // The seat, for the row above the grid and for naming her
-                    // lane in the open-notes split. `effectiveCoach` is the one
-                    // spelling of "is the seat held" — she is never in
-                    // `effectiveReviewPasses` and so never a column.
-                    coach: store.manifest.effectiveCoach,
                     // **A count click widens the QUEUE and moves nothing
                     // else.** The right column takes the writer to the notes —
                     // in project scope, pointed at the piece they clicked — and

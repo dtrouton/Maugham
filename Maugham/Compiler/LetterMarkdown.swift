@@ -39,8 +39,9 @@ enum LetterMarkdown {
     ///   - editorName: the run's own reader — `AuthorReader.editorName`
     ///     for a check, the stage's `effectiveEditorName` for a round.
     ///   - laneLine: the round's lane, already built by the caller
-    ///     (`ReviewRoundCockpit.laneLine`/`coachLine`). Empty for a passless
-    ///     run, which has no lane to name.
+    ///     (`LetterKeep.laneLine`, which calls `ReviewRoundCockpit.laneLine`
+    ///     for a stage and spells the coach's legacy lane itself). Empty for
+    ///     a passless run, which has no lane to name.
     ///   - at: the run's own `at`, not "now" — a letter kept a week later is
     ///     still the letter that round wrote.
     static func render(

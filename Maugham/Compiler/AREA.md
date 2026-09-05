@@ -165,11 +165,14 @@ model what the `Process` heading MEANS, once, the same way the rest of
 `letterInstruction` explains every part — so it IS measured into the 715-word
 budget (651 → 635 once tightened → 654 with the sentence back), unlike
 `stageSection`/`processSection` themselves. The lane word has one
-source, `DraftStage.laneWord`, read by exactly `ReviewRoundCockpit.swift` and
-`LetterSection.swift` (a `.laneWord` census with a planted offender). The two
-readers do not share one rule: `ReviewRoundCockpit.stageWord` appends it only
-beside a NAMED round — never over the coach's un-rounded introduction, because
-that line names who reads the piece, not a run's result — while
+source, `DraftStage.laneWord`, read by exactly `LetterKeep.swift` and
+`LetterSection.swift` (a `.laneWord` census with a planted offender).
+**Review's cockpit was the first of those two until two loops P1 Task 8** and
+is not any more: the draft stage is a CHECK's derivation and a round is always
+read full, so the word on Review's lane line was the other loop's copy. The two
+remaining readers do not share one rule: `LetterKeep.stageWord` appends it only
+beside a NAMED round — never over the coach's un-rounded (legacy) introduction,
+because that line names who read the piece, not a run's result — while
 `LetterSection.signature` appends it whenever a stage was derived, round or
 not, because the signature is built off the one run that wrote this letter
 and that run's stage is its own fact (RULING-R14b; a passless run still signs

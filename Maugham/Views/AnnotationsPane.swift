@@ -699,25 +699,22 @@ struct AnnotationsPane: View {
     @ViewBuilder
     private var roundCockpit: some View {
         if !scope.isProject, let document, let orchestrator, let diagnostics {
+            // **The seat is not read here at all** (two loops P1 Task 8).
+            // The coach reads CHECKS, in Author (`AuthorReader`); a round is
+            // the piece's own stage editor's or it is refused
+            // (`RoundEditor`), so every value this strip draws — the lane
+            // label, the round it counts, the round the buttons offer —
+            // comes from `cockpitActivePass` and nothing else.
             let pass = cockpitActivePass
-            // **The seat, for the label alone** (editorial letter P1, Task 6).
-            // `effectiveCoach` rather than a reader resolution: the strip
-            // already holds the piece's resolved stage beside it, and a
-            // second derivation here would be a copy with nothing keeping the
-            // two in step. The coach can no longer run a round (two loops P1
-            // Task 2, `RoundEditor`), so what this label says about her is
-            // Task 8's to settle.
-            let coach = store.manifest.effectiveCoach
             ReviewRoundCockpit(
                 passes: reviewPasses,
                 activePassId: pass?.id,
-                // **Her lane, when the piece has no stage.** `latestRound` is
-                // asked about a LANE id, and an unassigned coached piece files
-                // its rounds under hers — asking with `nil` would report no
-                // round over a piece she has read three times.
+                // **The piece's own lane, or none.** `latestRound` is asked
+                // about a LANE id, and a piece with no stage set is in no
+                // lane: nothing has filed a round on it, because a round with
+                // no editor is refused before it starts.
                 round: cockpitRound(diagnostics, docId: document.docId,
-                                    passId: pass?.id ?? coach?.id),
-                coach: coach,
+                                    passId: pass?.id),
                 phase: ReviewRoundCockpit.phase(
                     runState: orchestrator.runState, docId: document.docId),
                 reportLine: cockpitReportLine(diagnostics, docId: document.docId),
@@ -743,15 +740,6 @@ struct AnnotationsPane: View {
                 // Author draws, wired to this pane's document and project.
                 letterLine: ReviewRoundCockpit.letterLine(
                     cockpitLetter(diagnostics, docId: document.docId)),
-                // **The stage beside the round — the last RUN's stage, the
-                // LANE's round** (P3 Task 5, global constraint 28). Read off
-                // the run rather than `cockpitLetter`, which drops a letter
-                // with nothing in it: a run can derive a stage and still write
-                // a letter that says nothing, and the stage is about the RUN.
-                // The round beside it is `cockpitRound`'s, which is about the
-                // selected pass — see `ReviewRoundCockpit.stage` for when the
-                // two come from different runs.
-                stage: cockpitStage(diagnostics, docId: document.docId),
                 letterDisclosure: cockpitLetter(diagnostics, docId: document.docId)
                     .map { letter in
                         { AnyView(letterSection(letter, document: document,
@@ -804,16 +792,6 @@ struct AnnotationsPane: View {
     ) -> Int? {
         _ = diagnostics.version
         return diagnostics.latestRound(forPass: passId, docId: docId)
-    }
-
-    /// The stage the last run on this piece derived, version-gated exactly as
-    /// every other read of the sidecar here is (P3 Task 5). `Letter.draftStage`
-    /// is the ONE conversion from the stored raw.
-    private func cockpitStage(
-        _ diagnostics: DiagnosticsStore, docId: String
-    ) -> DraftStage? {
-        _ = diagnostics.version
-        return diagnostics.lastRound(docId: docId)?.letter?.draftStage
     }
 
     /// The writer's standing ask for this piece, version-gated exactly as

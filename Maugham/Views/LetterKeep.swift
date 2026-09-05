@@ -53,10 +53,19 @@ enum LetterKeep {
         return confirmation(kept.title)
     }
 
-    /// **The lane, in the words the cockpit already uses.** A stage answers
-    /// `laneLine`; the coach answers `coachLine`, because her pass name
-    /// ("Workshop") names no column, no ladder row and nothing in the guide —
-    /// the same split `ReviewRoundCockpit.laneLabel` makes on screen.
+    /// **The lane, in the words the cockpit uses for a stage — plus the two
+    /// this file now owns alone.** A stage answers
+    /// `ReviewRoundCockpit.laneLine`; the coach answers the line below,
+    /// because her pass name ("Workshop") names no column, no ladder row and
+    /// nothing in the guide.
+    ///
+    /// **Both extra spellings moved here in two loops P1 Task 8, and they are
+    /// about a STORED run rather than a strip.** Review's cockpit draws
+    /// neither any more: a round is a stage editor's, and the draft stage is
+    /// the check loop's own derivation. What this renders is the heading of a
+    /// note kept from a run that already happened — including a legacy round
+    /// the coach filed while one resolution served both verbs — so it names
+    /// what that run was, not what a lane can be now.
     ///
     /// A passless run has no lane at all, and the empty string is what stops
     /// the rendered heading inventing one.
@@ -89,9 +98,27 @@ enum LetterKeep {
               let pass = ReviewPass.pass(
                 id: passId, in: store.manifest.effectiveReviewPasses)
         else { return "" }
-        return pass.id == ReviewPass.coachPreset.id
-            ? ReviewRoundCockpit.coachLine(coach: pass, round: round, stage: stage)
-            : ReviewRoundCockpit.laneLine(pass: pass, round: round, stage: stage)
+        let word = stageWord(stage, round: round)
+        guard pass.id == ReviewPass.coachPreset.id else {
+            return ReviewRoundCockpit.laneLine(pass: pass, round: round) + word
+        }
+        // Her introduction before any round, the lane line's own shape after
+        // one — and her PASS name never, on either.
+        let name = pass.effectiveEditorName
+        guard let round else { return "\(name) reads this piece" }
+        return "\(name) \u{00b7} round \(round)\(word)"
+    }
+
+    /// The stage as it appends to a lane, or nothing at all — the ONE place
+    /// this file reads `DraftStage.laneWord`, so the two arms above cannot
+    /// punctuate the same word two ways.
+    ///
+    /// **`round` is half the condition** (RULING-R14): the word qualifies a
+    /// round, so a run that filed none carries no word. Her introduction is
+    /// naming who read the piece, not reporting what a run found.
+    private static func stageWord(_ stage: DraftStage?, round: Int?) -> String {
+        guard let stage, round != nil else { return "" }
+        return " \u{00b7} \(stage.laneWord)"
     }
 
     /// File the letter as a research note. Returns the item the store made, so
