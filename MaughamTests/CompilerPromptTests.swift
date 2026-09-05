@@ -771,6 +771,220 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertFalse(section.hasSuffix("\n"), section)
     }
 
+    // MARK: - The check's reader (two loops P2 Task 3, spec §4.3/§4.9)
+
+    /// A first reader as the writer wrote her: a description above, standing
+    /// instructions under a `## Rulings` heading below. Spelled once so every
+    /// test below reads one statement rather than four near-copies.
+    private static let firstReaderStatement = """
+        She reads on the train and abandons a book at the third dull page. \
+        She has read the first two novels.
+
+        ## Rulings
+
+        - Always tell me where you got bored — ruled 3 Sep 2026, writer
+        - Nothing about Marnie is new to her
+        """
+
+    private func firstReader(
+        name: String = "Marta", statement: String? = firstReaderStatement
+    ) -> AuthorReader {
+        .firstReader(FirstReader(name: name, statement: statement))
+    }
+
+    private func coachReader() -> AuthorReader { .coach(ReviewPass.coachPreset) }
+
+    /// **She is framed as a person, described in the writer's own prose, and
+    /// given her standing instructions** (spec §4.3). All three halves of the
+    /// statement reach the model: the essay says who she is, the rulings say
+    /// what she is standing under, and the instruction says what a reading is.
+    func test_theFirstReaderIsFramedDescribedAndInstructed() throws {
+        let section = try XCTUnwrap(CompilerPrompt.readerSection(firstReader()))
+
+        XCTAssertEqual(
+            section.split(separator: "\n").first.map(String.init),
+            "You are Marta, this writer's first reader — one specific person "
+            + "they write toward, not an audience.",
+            "got \(section)")
+        XCTAssertTrue(
+            section.contains("She reads on the train and abandons a book at "
+                             + "the third dull page."),
+            "the writer's own description of her must travel; got \(section)")
+        XCTAssertTrue(section.contains("Standing instructions from the writer:"),
+                      "got \(section)")
+        XCTAssertTrue(section.contains("- Always tell me where you got bored"),
+                      "her first ruling must travel; got \(section)")
+        XCTAssertTrue(section.contains("- Nothing about Marnie is new to her"),
+                      "…and so must the second; got \(section)")
+        XCTAssertFalse(section.contains("## Rulings"),
+                       "the heading is the file's, not the briefing's; got \(section)")
+        XCTAssertTrue(section.contains(CompilerPrompt.firstReaderInstruction),
+                      "got \(section)")
+    }
+
+    /// **Two refusals, in as many words** (spec §4.3): no craft vocabulary and
+    /// no proposed change, with the substitution named rather than only the
+    /// noun forbidden — a rule with no example of obedience in it is one a
+    /// model routes around. Pinned clause by clause because each is a separate
+    /// thing a rewording could quietly drop.
+    func test_theReaderInstructionRefusesCraftAndFixesAndNamesTheShelf() {
+        let instruction = CompilerPrompt.firstReaderInstruction
+        XCTAssertTrue(instruction.contains("Never use craft vocabulary"), instruction)
+        XCTAssertTrue(instruction.contains("pacing, structure, voice, arc"),
+                      "the forbidden register is named, not gestured at")
+        XCTAssertTrue(instruction.contains("never propose a change"), instruction)
+        XCTAssertTrue(instruction.contains("has become an editor"), instruction)
+        XCTAssertTrue(instruction.contains("I started skimming around the dinner"),
+                      "the obedient substitution is shown; got \(instruction)")
+        XCTAssertTrue(instruction.contains("at most one question"),
+                      "the short reader form is stated in the briefing too "
+                      + "(constraint 24); got \(instruction)")
+        XCTAssertTrue(
+            instruction.contains(
+                "The pinned references are what you read and love: measure "
+                + "this piece against them by name."),
+            "the shelf rule read for her ends it; got \(instruction)")
+    }
+
+    /// **The four kinds her instruction asks for are the four the schema
+    /// offers.** Bored-and-skimming and no-longer-knowing-who-is-speaking are
+    /// `drag` and `lost`; an instruction asking for a report the schema has no
+    /// kind for would arrive as a category the parser drops.
+    func test_theSchemaOffersTheFourKindsTheReaderIsAskedFor() {
+        let schema = CompilerPrompt.sectionSchemaDescription
+        for kind in ["dream_break", "belief", "drag", "lost"] {
+            XCTAssertTrue(schema.contains("\"\(kind)\""),
+                          "the reader section's schema never names \(kind)")
+        }
+    }
+
+    /// A reader the writer named and has not described yet says so — rather
+    /// than being dropped (losing a reader they picked) or being invented.
+    func test_aNamedButUndescribedFirstReaderIsSaidToBeSo() throws {
+        let section = try XCTUnwrap(
+            CompilerPrompt.readerSection(firstReader(statement: nil)))
+        XCTAssertTrue(section.contains("You are Marta"), section)
+        XCTAssertTrue(section.contains(CompilerPrompt.undescribedFirstReader), section)
+        XCTAssertFalse(section.contains("Standing instructions"),
+                       "there is no statement to have rulings in; got \(section)")
+        XCTAssertTrue(section.contains(CompilerPrompt.firstReaderInstruction),
+                      "…and she still reads as a first reader; got \(section)")
+    }
+
+    /// A statement of nothing but rulings is the undescribed state as well:
+    /// the writer has told her what to do and not yet said who she is.
+    func test_aStatementOfNothingButRulingsStillSaysSheIsUndescribed() throws {
+        let section = try XCTUnwrap(CompilerPrompt.readerSection(
+            firstReader(statement: "## Rulings\n\n- Tell me where you got bored\n")))
+        XCTAssertTrue(section.contains(CompilerPrompt.undescribedFirstReader), section)
+        XCTAssertTrue(section.contains("- Tell me where you got bored"),
+                      "her instructions survive the missing description; got \(section)")
+    }
+
+    /// **The coach reads exactly what she read through `passSection`.** Task 4
+    /// deletes the `isCoach` branch and this section takes its place, so the
+    /// two are pinned against each other here: the swap must not change one
+    /// word of what Le Guin is told.
+    func test_theCoachReadsTheSameHereAsSheDidThroughThePassSection() throws {
+        let coach = ReviewPass.coachPreset
+        let throughThePass = try XCTUnwrap(CompilerPrompt.passSection(
+            CompilerOrchestrator.ActivePass(
+                id: coach.id, name: coach.name,
+                editorName: coach.effectiveEditorName,
+                brief: coach.effectiveBrief, isCoach: true)))
+        let throughTheReader = try XCTUnwrap(CompilerPrompt.readerSection(coachReader()))
+        XCTAssertEqual(throughTheReader, throughThePass)
+        XCTAssertEqual(
+            throughTheReader.split(separator: "\n").first.map(String.init),
+            "You are Le Guin, this writer's workshop teacher.")
+        XCTAssertFalse(throughTheReader.lowercased().contains("first reader"),
+                       "the coach is not the writer's first reader; got \(throughTheReader)")
+    }
+
+    /// A custom coach seat with no doctrine of its own still gets the honest
+    /// fallback — `passSection`'s rule, kept by the arm that replaces it.
+    func test_aCoachWithNoBriefGetsTheAltitudeFallback() throws {
+        let section = try XCTUnwrap(CompilerPrompt.readerSection(
+            .coach(ReviewPass(id: "vibes", name: "Vibes", brief: "   ", editorName: "Marta"))))
+        XCTAssertTrue(section.contains("You are Marta, this writer's vibes teacher."),
+                      "got \(section)")
+        XCTAssertTrue(section.contains(CompilerPrompt.brieflessPassFallback), section)
+    }
+
+    /// Nobody is M2's all-altitudes ⌘R: no reader, no frame, no section.
+    func test_nobodyGetsNoReaderSection() {
+        XCTAssertNil(CompilerPrompt.readerSection(.nobody))
+    }
+
+    /// The section reaches the message a check actually sends.
+    func test_aCheckUnderTheFirstReaderCarriesHerSection() {
+        let (check, _) = CompilerPrompt.checkMessage(
+            delta: makeDelta(new: [.init(paragraphId: "a1b2", text: "The fog came.")]),
+            world: nil, essay: nil, bibleFacts: [], paletteListing: [],
+            pinnedListing: [], reader: firstReader(), previousBriefingHash: nil)
+        XCTAssertTrue(check.contains("You are Marta, this writer's first reader"),
+                      "got \(check)")
+        XCTAssertTrue(check.contains(CompilerPrompt.firstReaderInstruction), "got \(check)")
+        XCTAssertFalse(check.contains("this manuscript's"),
+                       "no editor's frame reached a check under her; got \(check)")
+    }
+
+    /// **A ROUND never carries the reader section** (spec §4.9's round list),
+    /// even handed one — a round is briefed by the lane's editor, and who
+    /// reads the writer's checks is not a fact about this piece's lane.
+    ///
+    /// The control is the same reader on the same delta under `.check`, so
+    /// this measures the kind gate rather than a section that stopped being
+    /// produced at all.
+    func test_aRoundNeverCarriesTheReaderSection() {
+        let delta = makeDelta(new: [.init(paragraphId: "a1b2", text: "The fog came.")])
+        let (round, _) = CompilerPrompt.runMessageV2(
+            delta: delta, kind: .round, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], reader: firstReader(),
+            previousBriefingHash: nil)
+        XCTAssertFalse(round.contains("You are Marta"), "got \(round)")
+        XCTAssertFalse(round.contains(CompilerPrompt.firstReaderInstruction), "got \(round)")
+
+        let (check, _) = CompilerPrompt.runMessageV2(
+            delta: delta, kind: .check, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], reader: firstReader(),
+            previousBriefingHash: nil)
+        XCTAssertTrue(check.contains("You are Marta"),
+                      "control: the same reader briefs a check; got \(check)")
+    }
+
+    /// **The sequencing control** (Task 3's brief): `beginRun` is untouched
+    /// this commit and therefore passes no reader at all, so every existing
+    /// check briefing has to be byte-identical to what it was. `.nobody`
+    /// produces no section, and the message assembled with it is the same
+    /// string as the message assembled without the parameter — including under
+    /// a pass, which is the shape production sends today.
+    func test_control_aCheckUnderNobodyIsByteIdenticalToOneWithNoReaderAtAll() {
+        let delta = makeDelta(new: [.init(paragraphId: "a1b2", text: "The fog came.")])
+        let (withoutTheParameter, _) = CompilerPrompt.checkMessage(
+            delta: delta, world: nil, essay: nil, bibleFacts: [], paletteListing: [],
+            pinnedListing: [], pass: lane("copyedit"), previousBriefingHash: nil)
+        let (underNobody, _) = CompilerPrompt.checkMessage(
+            delta: delta, world: nil, essay: nil, bibleFacts: [], paletteListing: [],
+            pinnedListing: [], pass: lane("copyedit"), reader: .nobody,
+            previousBriefingHash: nil)
+        XCTAssertEqual(underNobody, withoutTheParameter)
+        XCTAssertFalse(underNobody.lowercased().contains("first reader"),
+                       "got \(underNobody)")
+        XCTAssertFalse(underNobody.contains("teacher"), "got \(underNobody)")
+    }
+
+    /// **`passSection` for an editor is byte-identical to before this task**
+    /// — the whole string, not its first line, because Task 4's deletion of
+    /// the coach branch must leave a stage's frame and doctrine untouched.
+    func test_thePassSectionForAnEditorIsUnchangedWholeString() throws {
+        let gould = try XCTUnwrap(ReviewPass.presets.first { $0.id == "copyedit" })
+        let brief = try XCTUnwrap(gould.effectiveBrief)
+        XCTAssertEqual(
+            CompilerPrompt.passSection(lane("copyedit")),
+            "You are Gould, this manuscript's Copyedit editor.\n" + brief)
+    }
+
     /// A passless \u{2318}R is an ordinary M2 run: no editor, no register, no
     /// section. The message must read exactly as it did before passes existed.
     func test_aPasslessRunHasNoPassSection() {
@@ -2299,7 +2513,16 @@ final class CompilerPromptTests: XCTestCase {
     ///   comes from and when there is none.
     ///
     /// So the process line cost the standing per-run text 3 words net, not 19,
-    /// and the ceiling stays 715 with 61 words of room still in it. The
+    /// and the ceiling stays 715 with 61 words of room still in it.
+    ///
+    /// **Re-measured at 654 words — unchanged — at the first reader (two loops
+    /// P2 Task 3).** Her instruction is 130 words and NONE of them are counted
+    /// here, on the dosage doctrine's rule below:
+    /// `CompilerPrompt.firstReaderInstruction` rides a run only when a first
+    /// reader is briefed on it, so a check under the coach or under nobody
+    /// pays nothing, and folding it into a standing-overhead total would
+    /// measure it against every run including the ones that never carry a
+    /// word of it. The four reader kinds cost the schema two words. The
     /// dosage doctrine is NOT counted here on purpose (global constraint 26):
     /// `stageSection` is per-run frame, written only when there is a stage to
     /// name, and folding it into a standing-overhead budget would measure it

@@ -148,6 +148,10 @@ final class DiagnosticIngestTests: XCTestCase {
             DiagnosticIngest.SectionField.silent,
             DiagnosticIngest.SectionField.dreamBreak,
             DiagnosticIngest.SectionField.belief,
+            // The reader's other two kinds (two loops P2 Task 3): parsed, so
+            // asked for, on the same rule as every name above them.
+            DiagnosticIngest.SectionField.drag,
+            DiagnosticIngest.SectionField.lost,
             DiagnosticIngest.SectionField.intentDrift,
             DiagnosticIngest.SectionField.verdict,
             DiagnosticIngest.SectionField.drifted,
@@ -303,6 +307,48 @@ final class DiagnosticIngestTests: XCTestCase {
             section.accepted.map { $0.category }, ["dream_break", "belief"],
             "the section's two-valued kind is content, and it is the only thing v2 puts on category")
         XCTAssertEqual(section.accepted[1].refs?.first?.paragraphId, "e5f6")
+    }
+
+    /// **All four kinds are the reader's vocabulary** (two loops P2 Task 3,
+    /// spec §4.3). `drag` and `lost` are the first reader's own — where she
+    /// got bored, and where she no longer knew who was speaking — and a
+    /// parser that dropped them to `nil` would flatten two findings on one
+    /// paragraph into one at the fingerprint.
+    ///
+    /// Two lines rather than one, because `readerReportCap` is 3: a single
+    /// four-entry section would truncate and this test would be measuring the
+    /// cap instead of the vocabulary.
+    func test_theReaderSectionAcceptsAllFourKinds() throws {
+        let firstThree = try XCTUnwrap(parseSection("""
+            {"section":"reader","reports":[\
+            {"kind":"dream_break","refs":["a1b2"],"report":"The spell broke."},\
+            {"kind":"belief","refs":["a1b2"],"report":"She is lying."},\
+            {"kind":"drag","refs":["a1b2"],"report":"I skimmed the dinner."}]}
+            """))
+        XCTAssertEqual(firstThree.accepted.map(\.category),
+                       ["dream_break", "belief", "drag"])
+
+        let fourth = try XCTUnwrap(parseSection("""
+            {"section":"reader","reports":[\
+            {"kind":"lost","refs":["a1b2"],"report":"I lost who was speaking."}]}
+            """))
+        XCTAssertEqual(fourth.accepted.map(\.category), ["lost"])
+        XCTAssertEqual(fourth.accepted.map(\.kind), [.readerReport])
+    }
+
+    /// The control for the four above: a kind from outside the vocabulary is
+    /// no category at all rather than a free-form tag travelling through a
+    /// side door (spec §5 removed the tag from the shipped design). The report
+    /// itself survives — the finding is the writer's, the label was the
+    /// model's.
+    func test_aReaderKindOutsideTheVocabularyCarriesNoCategory() throws {
+        let section = try XCTUnwrap(parseSection("""
+            {"section":"reader","reports":[\
+            {"kind":"boredom","refs":["a1b2"],"report":"I skimmed the dinner."}]}
+            """))
+        XCTAssertEqual(section.accepted.count, 1)
+        XCTAssertNil(section.accepted.first?.category)
+        XCTAssertEqual(section.accepted.first?.body, "I skimmed the dinner.")
     }
 
     /// The cap the schema asks for, enforced. Over-reporting is the model
@@ -1740,6 +1786,89 @@ final class DiagnosticIngestTests: XCTestCase {
                 liveParagraphText: liveV2(), dosage: .short))
         XCTAssertEqual(outcome.letter?.questions.count, 1)
     }
+
+    // MARK: - The first reader's letter form (two loops P2 Task 3, spec §4.3)
+
+    /// **A reader's letter is a different letter, not a smaller one** — so the
+    /// craft parts go whatever the model wrote: no one thing to fix, no
+    /// habits, no scene table, no ledger retirements, and one question. What
+    /// stays is what a reading actually produced: the say-back, the answer to
+    /// what the writer asked, and what she loved.
+    func test_aReadersLetterDropsEveryCraftPart() throws {
+        let section = try XCTUnwrap(parseSection(Self.craftLetter, dosage: .reader))
+        let letter = try XCTUnwrap(section.letter)
+
+        XCTAssertNil(letter.oneThing, "a reader names no one thing to fix")
+        XCTAssertEqual(letter.habits, [], "a habit is a craft verdict")
+        XCTAssertNil(letter.scenes, "…and so is a scene table")
+        XCTAssertNil(letter.retired, "…and so is a report on the writer's ledger")
+        XCTAssertEqual(letter.questions.map(\.question), ["Question 1?"],
+                       "at most one question")
+        XCTAssertEqual(section.accepted.count, 1,
+                       "a question the reader's letter never shows must not "
+                       + "mint a note either")
+        XCTAssertEqual(letter.about, "A fog.", "the say-back is hers to write")
+        XCTAssertEqual(letter.answer, "It held me.",
+                       "and the writer's ask is answered whatever the dose")
+        XCTAssertEqual(letter.working.map(\.what), ["the fog"],
+                       "what she loved is the whole of what she reports")
+    }
+
+    /// The control: the same wire under `.full` keeps every part, so the test
+    /// above is measuring the dose and not a parser that lost them.
+    func test_control_aFullLetterKeepsEveryCraftPart() throws {
+        let letter = try XCTUnwrap(
+            try XCTUnwrap(parseSection(Self.craftLetter, dosage: .full)).letter)
+        XCTAssertEqual(letter.oneThing, "Cut the dinner.")
+        XCTAssertEqual(letter.habits.map(\.name), ["throat-clearing", "hedging"])
+        XCTAssertEqual(letter.scenes?.count, 1)
+        XCTAssertEqual(letter.retired, ["the semicolon lesson"])
+        XCTAssertEqual(letter.questions.count, 3)
+    }
+
+    /// The short letter is unmoved by the new flags: a drafting round still
+    /// names the one thing and still reports a habit that runs through the
+    /// whole delta, which is what `stageSection` tells the model in as many
+    /// words. Only the reader's dose drops them.
+    func test_control_aShortLetterStillNamesTheOneThingAndItsHabits() throws {
+        let letter = try XCTUnwrap(
+            try XCTUnwrap(parseSection(Self.craftLetter, dosage: .short)).letter)
+        XCTAssertEqual(letter.oneThing, "Cut the dinner.")
+        XCTAssertEqual(letter.habits.map(\.name), ["throat-clearing", "hedging"])
+        XCTAssertEqual(letter.retired, ["the semicolon lesson"])
+        XCTAssertNil(letter.scenes, "…and the stage's own drops stay dropped")
+        XCTAssertNil(letter.habits.first?.exercise)
+        XCTAssertEqual(letter.questions.count, 1)
+    }
+
+    /// A whole turn carries the reader's dose to the letter inside it, so the
+    /// enforcement is not reachable only through the single-section door.
+    func test_parseAllCarriesTheReaderDoseToTheLetter() throws {
+        let outcome = try XCTUnwrap(
+            DiagnosticIngest.parseAll(
+                resultText: Self.craftLetter, runId: runId, docId: docId,
+                liveParagraphText: liveV2(), dosage: .reader))
+        XCTAssertNil(outcome.letter?.oneThing)
+        XCTAssertEqual(outcome.letter?.habits, [])
+    }
+
+    /// A letter carrying every craft part the schema offers, so one fixture
+    /// can be read under all three doses.
+    private static let craftLetter = """
+        {"section":"letter","about":"A fog.","answer":"It held me.",\
+        "one_thing":"Cut the dinner.",\
+        "working":[{"refs":["a1b2"],"what":"the fog","why":"it stays cold"}],\
+        "habits":[{"name":"throat-clearing","refs":["a1b2"],"cost":"buries the turn",\
+        "lesson":"cut the first line","exercise":"Delete every first sentence."},\
+        {"name":"hedging","refs":["a1b2"],"cost":"softens the blow","lesson":null,\
+        "exercise":null}],\
+        "questions":[{"refs":["a1b2"],"question":"Question 1?"},\
+        {"refs":["a1b2"],"question":"Question 2?"},\
+        {"refs":["a1b2"],"question":"Question 3?"}],\
+        "scenes":[{"refs":["a1b2"],"wants":"to leave","changes":"she cannot",\
+        "turn":"the door is locked","charge":"-"}],\
+        "retired":["the semicolon lesson"]}
+        """
 
     private static let threeQuestions = """
         {"section":"letter","about":"A fog.","questions":[\

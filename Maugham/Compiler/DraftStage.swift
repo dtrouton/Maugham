@@ -49,14 +49,47 @@ enum DraftStage: String, Codable, Equatable, Sendable {
 enum LetterDosage: Equatable, Sendable {
     case full
     case short
+    /// **The first reader's letter** (two loops P2, spec §4.3) — and the one
+    /// dose that is not a stage's.
+    ///
+    /// `.full` and `.short` are two amounts of the SAME letter: a craft
+    /// verdict, dosed by how far along the draft is. This one is a different
+    /// letter — `answer`, `about`, `working` (what she loved and why, as a
+    /// reader) and at most one question. The parts it drops are dropped
+    /// because they are craft: the one thing to fix, the habits across the
+    /// whole piece and the exercise that goes with one, the scene table, and
+    /// the ledger's `retired` list. A reader who names a habit and prescribes
+    /// an exercise for it has become an editor, which is the whole thing
+    /// §4.3 exists to prevent.
+    ///
+    /// **Its precedence over the stage is the orchestrator's** (Task 4): who
+    /// is reading decides the dose before how far along the draft is, and a
+    /// cold read does not make a first reader write a craft letter. Nothing
+    /// here chooses between them — this case only says what the dose IS, and
+    /// `DiagnosticIngest.parseLetter` enforces it whatever the model wrote.
+    case reader
 
     var questionsCap: Int {
         switch self {
         case .full: return DiagnosticIngest.letterQuestionsCap
-        case .short: return 1
+        // A reader asks at most one question for the short letter's reason
+        // and one of her own: she is reporting a reading, not conducting an
+        // interview.
+        case .short, .reader: return 1
         }
     }
 
     var allowsExercise: Bool { self == .full }
     var allowsScenes: Bool { self == .full }
+    /// **The two flags the reader's letter added** (two loops P2 Task 3).
+    /// Both are true for every stage dose — a drafting letter still names the
+    /// one thing and still reports a habit that runs through the whole delta
+    /// (`stageSection` says so in as many words) — and false for the reader
+    /// alone, so the dose that drops them is the one that is not a craft
+    /// verdict.
+    var allowsOneThing: Bool { self != .reader }
+    /// Governs the `retired` list as well as the habits themselves: retiring
+    /// a lesson is a report on the writer's own ledger, which is the same
+    /// craft register the habits are in and nothing a reader is briefed on.
+    var allowsHabits: Bool { self != .reader }
 }

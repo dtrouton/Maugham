@@ -51,8 +51,8 @@ enum CompilerPrompt {
         <string or null>}]}
         {"section":"continuity","questions":[{"cites":<string>,"refs":\
         [<paragraph id>...],"question":<string>}]}
-        {"section":"reader","reports":[{"kind":"dream_break"|"belief","refs":\
-        [<paragraph id>...],"report":<string>}]}
+        {"section":"reader","reports":[{"kind":"dream_break"|"belief"|"drag"\
+        |"lost","refs":[<paragraph id>...],"report":<string>}]}
         {"section":"facts","candidates":[{"subject":<string>,"fact":<string>,\
         "refs":[<paragraph id>...]}]}
         {"section":"intent_drift","verdict":"holds"|"drifted","note":<one \
@@ -243,6 +243,7 @@ enum CompilerPrompt {
         delta: CompilerDelta, world: DerivedWorld?, essay: String?,
         bibleFacts: [BibleFact], paletteListing: [String], pinnedListing: [String],
         pass: CompilerOrchestrator.ActivePass? = nil,
+        reader: AuthorReader = .nobody,
         scenePosition: ScenePosition = .none,
         dispositions: [CompilerAnnotationDisposition] = [],
         ask: String? = nil,
@@ -255,7 +256,8 @@ enum CompilerPrompt {
         runMessageV2(
             delta: delta, kind: .check, world: world, essay: essay,
             bibleFacts: bibleFacts, paletteListing: paletteListing,
-            pinnedListing: pinnedListing, pass: pass, scenePosition: scenePosition,
+            pinnedListing: pinnedListing, pass: pass, reader: reader,
+            scenePosition: scenePosition,
             dispositions: dispositions, ask: ask, lessons: lessons,
             stage: stage, freshEyes: freshEyes, signals: signals,
             previousBriefingHash: previousBriefingHash)
@@ -356,6 +358,7 @@ enum CompilerPrompt {
         world: DerivedWorld?, essay: String?,
         bibleFacts: [BibleFact], paletteListing: [String], pinnedListing: [String],
         pass: CompilerOrchestrator.ActivePass? = nil,
+        reader: AuthorReader = .nobody,
         scenePosition: ScenePosition = .none,
         previousRound: PriorRound? = nil,
         dispositions: [CompilerAnnotationDisposition] = [],
@@ -411,6 +414,26 @@ enum CompilerPrompt {
         // ⌘R. Who is reading, what they said last time, and what the writer
         // has done about it — in that order, because the frame is what the
         // rest is read through.
+        // **Who reads a CHECK, and it is a check's question alone** (spec
+        // §4.9): a round is briefed by the lane's editor through
+        // `passSection` below, a check by the writer's own reader. Switched on
+        // the kind rather than gated on the reader being `.nobody`, on
+        // `RunKind.of(persona:)`'s rule — a third loop is then a compile error
+        // here instead of silently inheriting the check's frame.
+        //
+        // **Defaulted to `.nobody`, whose section is nil** (Task 3's
+        // sequencing), so every existing call — `beginRun` included, until
+        // Task 4 passes the real reader — assembles a byte-identical message.
+        // `passSection` keeps the coach's `isCoach` branch for that one
+        // commit; Task 4 deletes it and this is what replaces it.
+        switch kind {
+        case .check:
+            if let readerSection = readerSection(reader) {
+                sections.append(readerSection)
+            }
+        case .round:
+            break
+        }
         if let passSection = passSection(pass) {
             sections.append(passSection)
         }
@@ -667,6 +690,128 @@ enum CompilerPrompt {
             \(frame)
             \(brief ?? brieflessPassFallback)
             """
+    }
+
+    // MARK: - The check's reader (two loops P2 Task 3, spec §4.3/§4.9)
+
+    /// **What the first reader is asked for, in her own register** — and the
+    /// one instruction in this file that is not standing overhead.
+    ///
+    /// It rides a run only when a first reader is briefed on it, which is why
+    /// it is not counted into
+    /// `CompilerPromptTests.test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget`:
+    /// that budget measures what EVERY run pays, and a check under the coach
+    /// or under nobody never carries a word of this.
+    ///
+    /// **Two refusals, stated in as many words** (spec §4.3). No craft
+    /// vocabulary, and no proposed fix — a reader who says "the pacing sags"
+    /// has become an editor, and the sentence names the substitution rather
+    /// than only forbidding the noun, because a rule with no example of
+    /// obedience in it is a rule a model routes around. The second refusal
+    /// has an enforcement behind it as well: `DiagnosticIngest.isFixShaped`
+    /// drops a fix-shaped report at ingest whoever wrote it.
+    ///
+    /// **It ends with the shelf rule, read for her** (spec §4.3's last
+    /// paragraph). `letterInstruction` already tells every run to measure a
+    /// piece against the writer's own pinned work by name; for a first reader
+    /// that same shelf is not a standard, it is her taste — the books she
+    /// reads and loves — so the sentence is restated here in those terms
+    /// rather than left to be inferred from the general one.
+    static let firstReaderInstruction = """
+        Report what happened in you as you read: what you now take to be \
+        true, where the fiction stopped holding you, where you got bored and \
+        would have skimmed or put it down, where you no longer knew what was \
+        happening or who was speaking. Quote the words that did it. Never use \
+        craft vocabulary — pacing, structure, voice, arc — and never propose \
+        a change: a reader who says "the pacing sags" has become an editor, \
+        where you would say "I started skimming around the dinner". Your \
+        letter is the short reader form — answer, about, working (what you \
+        loved and why, as a reader) and at most one question, and nothing \
+        else. The pinned references are what you read and love: measure this \
+        piece against them by name.
+        """
+
+    /// **A reader with a name and no description is a valid state** (spec
+    /// §4.3), so the section says so rather than either dropping her or
+    /// inventing who she is. The general reader she is pointed at is the one
+    /// the rest of the message already describes — the session preamble's
+    /// first-reader paragraph, and the reader section's own four kinds — so
+    /// the fallback costs the writer nothing they did not write and invents
+    /// no taste on their behalf.
+    static let undescribedFirstReader =
+        "The writer has named you but not yet described you; read as the "
+        + "general reader the schema describes."
+
+    /// **The role frame for a CHECK** (spec §4.9): who is reading it, and what
+    /// they read for.
+    ///
+    /// `passSection`'s sibling and, from Task 4, its replacement on this side
+    /// of the split — a round is briefed by the lane's editor, a check by the
+    /// writer's own reader, and the two questions stopped having one answer
+    /// when the loops parted. `nil` for `nobody`, which is M2's all-altitudes
+    /// ⌘R and has no reader to be: a frame invented for it would be a register
+    /// the writer never chose.
+    ///
+    /// **The coach's arm is `passSection`'s coach branch, moved verbatim**, and
+    /// that is a contract rather than an accident:
+    /// `test_theCoachReadsTheSameHereAsSheDidThroughThePassSection` pins the
+    /// two against each other, so Task 4's deletion of the `isCoach` branch
+    /// cannot change one word of what Le Guin is told.
+    ///
+    /// **Never folded into `briefingHashInput`** (global constraint 5), on
+    /// `passSection`'s reason: the writer changes who reads their checks, and a
+    /// hash that moved with them would re-embed the whole declared world on the
+    /// next run.
+    static func readerSection(_ reader: AuthorReader) -> String? {
+        switch reader {
+        case .nobody:
+            return nil
+        case .coach(let pass):
+            // `effectiveBrief`, never the raw field, and a brief the writer
+            // emptied is a brief they do not have — `passSection`'s two rules,
+            // because this arm has to answer exactly what it answers.
+            let brief = pass.effectiveBrief
+                .map(cleaned)
+                .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+            return """
+                You are \(pass.effectiveEditorName), this writer's \
+                \(pass.name.lowercased()) teacher.
+                \(brief ?? brieflessPassFallback)
+                """
+        case .firstReader(let person):
+            // Her description is the writer's own prose and her rulings are
+            // standing instructions to her, so the two are read out of one
+            // statement the way `StatementPane` draws it: the essay half above,
+            // the `## Rulings` stratum below. Parsed here rather than carried
+            // pre-split on `FirstReader`, because the statement is the thing
+            // the writer edits and a second decomposition of it is a second
+            // answer to what she knows.
+            let parsed = person.statement.map { RulingsSection.parse(cleaned($0)) }
+            let essay = (parsed?.essay ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            var blocks: [String] = [
+                "You are \(person.name), this writer's first reader — one "
+                + "specific person they write toward, not an audience.",
+                // A statement of nothing but rulings is the undescribed state
+                // too: the writer has given her standing instructions and not
+                // yet said who she is, and a blank line where the description
+                // goes would read as a description they wrote and lost.
+                essay.isEmpty ? undescribedFirstReader : essay,
+            ]
+            let rulings = parsed?.rulings ?? []
+            if !rulings.isEmpty {
+                blocks.append(
+                    (["Standing instructions from the writer:"]
+                        + rulings.map { "- \(cleaned($0.text))" })
+                        .joined(separator: "\n"))
+            }
+            blocks.append(firstReaderInstruction)
+            // Blank lines between the blocks, where `passSection` uses single
+            // ones: the description is the writer's own prose and may be
+            // several paragraphs, and a frame running straight into it reads
+            // as one paragraph that changes person halfway through.
+            return blocks.joined(separator: "\n\n")
+        }
     }
 
     // MARK: - The scene position (editorial letter P1 §3.4)

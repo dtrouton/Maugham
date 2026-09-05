@@ -14,13 +14,14 @@ import MaughamCore
 /// report carries `(kind, category, paragraphId)` and no quote, because a
 /// reader report is not measured against a clause at all.
 ///
-/// **The category is in the identity because without it the reader's two kinds
-/// collapse** (M4 P1). "The dream broke here" and "I stopped believing her" are
-/// two different findings about the same paragraph, and a fingerprint of
-/// `(readerReport, nil, a1b2)` makes them one — so a round raising both would
-/// count as one finding, and the mint's dedupe would silently discard the
-/// second. `category` is the schema's own `dream_break`/`belief`
-/// (`Diagnostic.category`), never a free-form tag.
+/// **The category is in the identity because without it the reader's four kinds
+/// collapse** (M4 P1; four rather than two since two loops P2). "The dream
+/// broke here" and "I stopped believing her" are two different findings about
+/// the same paragraph, and a fingerprint of `(readerReport, nil, a1b2)` makes
+/// them one — so a round raising both would count as one finding, and the
+/// mint's dedupe would silently discard the second. `category` is the schema's
+/// own `dream_break`/`belief`/`drag`/`lost` (`Diagnostic.category`,
+/// `DiagnosticIngest.readerKinds`), never a free-form tag.
 ///
 /// Matching is struct equality; nothing here is fuzzy. **`Equatable` is what
 /// is actually used** — `RoundRecord`'s own conformance rests on it, and the
@@ -38,7 +39,8 @@ struct RoundFingerprint: Codable, Hashable, Sendable {
     let kind: String
     let clauseQuote: String?
     let paragraphId: String?
-    /// The reader section's own kind (`dream_break` / `belief`), and `nil` for
+    /// The reader section's own kind (`DiagnosticIngest.readerKinds` — since
+    /// two loops P2, `dream_break` / `belief` / `drag` / `lost`), and `nil` for
     /// every other section — a strain and a continuity question have a
     /// `clauseQuote` doing this work. Optional and appended, so a `RoundRecord`
     /// written before M4 P1 decodes with it `nil` through the synthesised

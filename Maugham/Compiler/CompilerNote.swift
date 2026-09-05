@@ -74,11 +74,16 @@ struct CompilerNote: Equatable, Sendable {
         self.lessonHeading = lessonHeading
     }
 
-    /// The reader's own two-valued kind, as words — and **nothing else**. v2
-    /// mints no free-form category (spec §5: the tag is "removed from the
-    /// shipped design"), so a value from anywhere but the schema gets no label
-    /// rather than putting the old tag in front of the writer through a side
-    /// door.
+    /// The reader's own kind, as words — and **nothing else**. v2 mints no
+    /// free-form category (spec §5: the tag is "removed from the shipped
+    /// design"), so a value from anywhere but the schema gets no label rather
+    /// than putting the old tag in front of the writer through a side door.
+    ///
+    /// **Four kinds since two loops P2** (spec §4.3): the two a continuity
+    /// editor reports, plus the two the first reader's instruction asks for by
+    /// name. This switch is the label half of `DiagnosticIngest.readerKinds` —
+    /// a kind the parser accepts and this function cannot name would reach the
+    /// writer as a bare report with the label silently missing.
     ///
     /// It lives here rather than on the pane because the label is now part of
     /// what the note SAYS: the reader's reports leave for the queue, and a
@@ -88,6 +93,8 @@ struct CompilerNote: Equatable, Sendable {
         switch category {
         case DiagnosticIngest.SectionField.dreamBreak: return "Dream break"
         case DiagnosticIngest.SectionField.belief: return "Belief"
+        case DiagnosticIngest.SectionField.drag: return "Drag"
+        case DiagnosticIngest.SectionField.lost: return "Lost"
         default: return nil
         }
     }

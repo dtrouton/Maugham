@@ -106,6 +106,16 @@ extension DiagnosticIngest {
         static let report = "report"
         static let dreamBreak = "dream_break"
         static let belief = "belief"
+        /// **The reader's other two kinds** (two loops P2 Task 3, spec §4.3).
+        /// The vocabulary widened from two to four when the first reader
+        /// arrived, because the two it had are the two a continuity editor
+        /// can report: where the fiction stopped holding, and what is now
+        /// taken to be true. `drag` — I got bored and would have skimmed —
+        /// and `lost` — I no longer knew what was happening or who was
+        /// speaking — are the reader's own, and the ones her instruction
+        /// asks for by name.
+        static let drag = "drag"
+        static let lost = "lost"
 
         static let facts = "facts"
         static let candidates = "candidates"
@@ -456,8 +466,7 @@ extension DiagnosticIngest {
             notes.append(
                 Diagnostic(
                     id: ULID.generate(), docId: docId, anchor: resolved.anchor, body: report,
-                    category: [SectionField.dreamBreak, SectionField.belief].contains(kind ?? "")
-                        ? kind : nil,
+                    category: readerKinds.contains(kind ?? "") ? kind : nil,
                     runId: runId, kind: .readerReport, refs: resolved.refs, clauseQuote: nil))
         }
 
@@ -474,6 +483,20 @@ extension DiagnosticIngest {
 
     /// The schema's "at most 3 entries — the sharpest three".
     static let readerReportCap = 3
+
+    /// **The reader section's whole vocabulary, in one place** (spec §4.3's
+    /// table). A kind from anywhere but this list gets no category rather
+    /// than travelling as a free-form tag — v2 mints none (spec §5) — and
+    /// `CompilerNote.readerKindLabel` is the other half of the pair, turning
+    /// each of these into the words the writer reads.
+    ///
+    /// A list rather than four literals at the filter, because the filter and
+    /// the label are two readers of one vocabulary and a fifth kind added to
+    /// one of them alone would parse into a category nothing can name.
+    static let readerKinds = [
+        SectionField.dreamBreak, SectionField.belief,
+        SectionField.drag, SectionField.lost,
+    ]
 
     private static func parseFacts(
         _ object: [String: Any], docId: String, live: (String) -> String?
@@ -600,6 +623,14 @@ extension DiagnosticIngest {
     /// and has no scene table at all whatever the wire said. What it never
     /// touches is `answer` — a worry the writer asked about is answered in
     /// full whatever stage the run derived.
+    ///
+    /// **`.reader` is the dose that is not a stage's** (two loops P2 Task 3,
+    /// spec §4.3): the first reader's letter keeps `answer`, `about`,
+    /// `working` and one question, and drops `one_thing`, every habit, the
+    /// scene table and the `retired` list whatever the model wrote. A model
+    /// briefed as a reader that writes a craft letter anyway is the failure
+    /// this end of the enforcement exists for — the briefing's own half is
+    /// `CompilerPrompt.firstReaderInstruction`.
     private static func parseLetter(
         _ object: [String: Any], runId: String, docId: String, live: (String) -> String?,
         dosage: LetterDosage
@@ -657,7 +688,13 @@ extension DiagnosticIngest {
         // question is stamped only with one of them (next paragraph) — take
         // the names off the uncapped list and a third habit's heading could
         // stamp a question about a habit the letter never shows.
-        let habits = Array(raisedHabits.prefix(letterHabitsCap))
+        //
+        // **And the reader's dose empties it here, for that same reason**
+        // (two loops P2 Task 3). A habit is a craft verdict and her letter
+        // carries none; dropping them at the `Letter` below instead would
+        // leave the questions loop stamping a question with the heading of a
+        // habit the writer is never shown.
+        let habits = dosage.allowsHabits ? Array(raisedHabits.prefix(letterHabitsCap)) : []
 
         // **Read after the habits, because a citation is checked against
         // them** (global constraint 15). The model was briefed on the ledger
@@ -781,7 +818,12 @@ extension DiagnosticIngest {
 
         let letter = Letter(
             about: letterProseLeaksAnId([about], live) ? "" : (about ?? ""),
-            oneThing: letterProseLeaksAnId([oneThing], live) ? nil : oneThing,
+            // **Read off the wire above and dropped here** on the exercise's
+            // rule: the dosage decides what the writer is SHOWN, never what
+            // the parser made of what arrived. A reader's letter names no one
+            // thing to fix — naming it is the editing her instruction refuses.
+            oneThing: dosage.allowsOneThing
+                ? (letterProseLeaksAnId([oneThing], live) ? nil : oneThing) : nil,
             working: Array(working.prefix(letterWorkingCap)),
             habits: habits,
             questions: questions,
@@ -796,7 +838,12 @@ extension DiagnosticIngest {
             // retirement does not decode as one that retired nothing —
             // indistinguishable downstream (`retiredHeadings`), and the
             // distinction costs nothing to keep.
-            retired: object[SectionField.retired] == nil
+            // **`nil` under a dose that allows no habits**, which reads as
+            // the letter having said nothing about retirement — exactly what
+            // a reader's letter did say. Gated on `allowsHabits` rather than
+            // on a flag of its own because retiring a lesson is a report on
+            // the writer's ledger, the same craft register the habits are in.
+            retired: (object[SectionField.retired] == nil || !dosage.allowsHabits)
                 ? nil : Array(retired.prefix(letterRetiredCap)),
             process: letterProseLeaksAnId([process], live) ? nil : process)
 
