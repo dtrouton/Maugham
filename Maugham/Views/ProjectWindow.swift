@@ -3427,6 +3427,10 @@ struct ProjectWindow: View {
         // mark on a promoted lesson opens it rather than falling through to a
         // Research pane that would show the writer nothing.
         case .lessons: return .lessons
+        // Two loops P2 Task 1: she has a pane of her own, so a mark on her
+        // statement opens it rather than falling through to a Research pane
+        // that would show the writer nothing.
+        case .firstReader: return .firstReader
         // A kind a newer build wrote, retained and ignored everywhere else
         // (`Statement.Kind`). There is no pane for it here either.
         case .unknown: return nil

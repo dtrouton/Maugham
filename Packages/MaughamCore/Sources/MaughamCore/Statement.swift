@@ -1,13 +1,14 @@
 import Foundation
 
 /// The writer's stated intent, the book's visual language, an edition's brief,
-/// the lessons ledger: one artifact, several kinds, scoped to the project or to
-/// a single manuscript document. Count `Kind`'s cases, never a number here.
+/// the lessons ledger, the first reader: one artifact, several kinds, scoped to
+/// the project or to a single manuscript document. Count `Kind`'s cases, never a
+/// number here.
 ///
 /// A statement's content lives in the open at the project root — `intent.md`,
-/// `intent/<slug>.md`, `visual-language.md`, `lessons.md` — carried as an
-/// ordinary `Document` so history, undo and cross-device merge arrive built
-/// rather than invented.
+/// `intent/<slug>.md`, `visual-language.md`, `lessons.md`, `first-reader.md` —
+/// carried as an ordinary `Document` so history, undo and cross-device merge
+/// arrive built rather than invented.
 /// This type is only the manifest's registry entry: identity, what it is, what
 /// it is about, and where it currently sits.
 ///
@@ -40,6 +41,14 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
         /// ledger whose entries are ordinary rulings under `## Rulings`, read
         /// through `LessonsLedger`'s grammar.
         case lessons
+        /// **Who reads this project's checks as a reader** — the writer's own
+        /// first reader, named on the manifest (`ProjectManifest.firstReaderName`)
+        /// and described here: what she knows about the book, what she has
+        /// already read, and the standing instructions she is to read under.
+        /// Project scope only, for the lessons ledger's reason — a first reader
+        /// is a person the whole book is read by, not a fact a chapter holds a
+        /// private copy of.
+        case firstReader
         /// A kind written by a newer build. Carries the original raw string so
         /// re-encode is lossless (see type doc).
         case unknown(String)
@@ -48,6 +57,7 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
         private static let visualLanguageRaw = "visual_language"
         private static let editionBriefPrefix = "edition_brief:"
         private static let lessonsRaw = "lessons"
+        private static let firstReaderRaw = "first-reader"
 
         /// The stable on-disk string. Known cases emit their canonical value;
         /// an `.unknown` emits the preserved original raw.
@@ -57,6 +67,7 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
             case .visualLanguage: return Self.visualLanguageRaw
             case .editionBrief(let lang): return Self.editionBriefPrefix + lang
             case .lessons: return Self.lessonsRaw
+            case .firstReader: return Self.firstReaderRaw
             case .unknown(let raw): return raw
             }
         }
@@ -67,6 +78,7 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
             case Self.intentRaw: self = .intent
             case Self.visualLanguageRaw: self = .visualLanguage
             case Self.lessonsRaw: self = .lessons
+            case Self.firstReaderRaw: self = .firstReader
             default:
                 if raw.hasPrefix(Self.editionBriefPrefix) {
                     let lang = String(raw.dropFirst(Self.editionBriefPrefix.count))

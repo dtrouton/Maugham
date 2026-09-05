@@ -345,7 +345,7 @@ final class DocSyncTests: XCTestCase {
 
         let doctoredDoc = "The right column has modes: Inspector, Research, Outline, "
             + "Tasks, Annotations, History, Palette, Translation, Intent, Lessons, "
-            + "Visual Language, Diagnostics, References, Department."
+            + "First Reader, Visual Language, Diagnostics, References, Department."
         let missing = Self.missingCaseMentions(caseNames, in: doctoredDoc)
         XCTAssertEqual(missing, ["inbox"],
             "Self-check expected exactly the omitted \"inbox\" case to be reported missing. Got: \(missing).")

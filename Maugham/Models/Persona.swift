@@ -272,7 +272,15 @@ public extension Persona {
             // sentence — the standing lesson and the local aim — and the ledger
             // sits after Intent because the piece in front of you comes first.
             // It stays on the working-with side of Tasks with them.
-            return [.diagnostics, .intent, .lessons, .references,
+            //
+            // **`.firstReader` takes the seat immediately after `.lessons`**
+            // (two loops P2). The ledger is what the writer has learned; the
+            // first reader is who the work is read BY. Both are standing facts
+            // about the project rather than about the piece in front of the
+            // writer, so they sit together, after Intent and before the pinned
+            // shelf — and the reader comes after the ledger because a check is
+            // briefed on the ledger and then read by her.
+            return [.diagnostics, .intent, .lessons, .firstReader, .references,
                     .tasks, .history, .inspector]
         case .review:
             // Annotations · Intent · What I've Learned · References · Tasks ·
@@ -370,7 +378,14 @@ public extension Persona {
             // what every check is briefed on, so it is the standard the notes
             // in the queue beside it were raised against. It does not lead;
             // adjudicating does.
-            return [.annotations, .intent, .lessons, .references,
+            //
+            // **`.firstReader` is in for the ledger's reason applied to the
+            // person rather than the habit** (two loops P2). Review adjudicates
+            // notes against a standard, and who the piece is being read by is
+            // part of that standard — a reviewer asking why a note reads the
+            // way it does has her without leaving the persona. It does not
+            // lead; adjudicating does.
+            return [.annotations, .intent, .lessons, .firstReader, .references,
                     .tasks, .history, .inspector]
         case .publish:
             // Department · Visual Language · Tasks · Translation · History ·

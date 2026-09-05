@@ -233,4 +233,86 @@ final class StatementTests: XCTestCase {
                 "\(raw) must re-encode byte-identically")
         }
     }
+
+    // MARK: - The first reader kind (two loops P2, Task 1)
+
+    /// The first reader is a FIFTH kind, and her wire string is
+    /// `"first-reader"` — hyphenated, matching her file (`first-reader.md`)
+    /// rather than the visual language's underscored `"visual_language"`.
+    /// Pinned here for the reason the other four are: this string lands in every
+    /// writer's `project.maugham.json`, so changing it is a data migration
+    /// rather than a rename.
+    func test_firstReaderEncodesAndRoundTrips() throws {
+        let kind = Statement.Kind.firstReader
+        let encoded = String(decoding: try JSONEncoder().encode(kind), as: UTF8.self)
+        XCTAssertEqual(encoded, #""first-reader""#)
+        XCTAssertEqual(try JSONDecoder().decode(Statement.Kind.self, from: Data(encoded.utf8)), kind)
+    }
+
+    /// CONTROL for the assertion above: the decoder matches the raw EXACTLY, so
+    /// a near-miss — an underscored spelling, a camelCased one, a newer build's
+    /// suffixed variant — is `.unknown` and is preserved verbatim rather than
+    /// fuzzily folded into `.firstReader`.
+    func test_aNearMissOfTheFirstReaderRawIsPreservedAsUnknown() throws {
+        for raw in ["first_reader", "firstReader", "first-readers", "First-Reader"] {
+            let decoded = try JSONDecoder().decode(
+                Statement.Kind.self, from: Data(#""\#(raw)""#.utf8))
+            XCTAssertEqual(decoded, .unknown(raw), "\(raw) must not decode as .firstReader")
+            XCTAssertEqual(
+                String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self),
+                #""\#(raw)""#,
+                "\(raw) must re-encode byte-identically")
+        }
+    }
+
+    // MARK: - The first reader's name on the manifest (two loops P2, Task 1)
+
+    /// **A manifest written before this milestone has no `firstReaderName` key**
+    /// and must open with no first reader — not throw, and not invent one. This
+    /// is the whole reason the field is optional and `decodeIfPresent`: there is
+    /// no migration (tripwire 11), and a project the writer has not named a
+    /// reader for is a project with no reader.
+    func test_aManifestWithNoFirstReaderNameKeyDecodesToNil() throws {
+        let manifest = try ProjectManifest.decodeGuardingSchema(
+            manifestJSON(schemaVersion: ProjectManifest.currentSchemaVersion))
+        XCTAssertNil(manifest.firstReaderName)
+    }
+
+    /// And one that carries the key round-trips it. Asserted through the real
+    /// encoder so the key's spelling on disk is pinned too — the synthesized
+    /// `CodingKeys` means the property name IS the wire name.
+    func test_aFirstReaderNameRoundTripsThroughTheManifest() throws {
+        let json = Data("""
+        {
+          "schemaVersion": \(ProjectManifest.currentSchemaVersion),
+          "type": "novel",
+          "title": "The Book",
+          "author": "A",
+          "created": "2026-01-01T00:00:00Z",
+          "modified": "2026-01-01T00:00:00Z",
+          "structure": [],
+          "research": [],
+          "firstReaderName": "Tabitha",
+          "showElementGutter": false
+        }
+        """.utf8)
+
+        let manifest = try ProjectManifest.decodeGuardingSchema(json)
+        XCTAssertEqual(manifest.firstReaderName, "Tabitha")
+
+        let resaved = try wire(manifest)
+        XCTAssertTrue(resaved.contains(#""firstReaderName" : "Tabitha""#),
+            "re-saved manifest must carry the name back out; got:\n\(resaved)")
+    }
+
+    /// CONTROL for the pair above: a manifest with no name must not EMIT the
+    /// key either. The synthesized encoder uses `encodeIfPresent` for an
+    /// optional, and that is what keeps an untouched pre-milestone manifest
+    /// byte-stable through an open-and-save.
+    func test_aManifestWithNoFirstReaderEmitsNoKey() throws {
+        let manifest = try ProjectManifest.decodeGuardingSchema(
+            manifestJSON(schemaVersion: ProjectManifest.currentSchemaVersion))
+        XCTAssertFalse(try wire(manifest).contains("firstReaderName"),
+            "an unnamed first reader must leave no key behind")
+    }
 }

@@ -101,7 +101,13 @@ enum StatementEssay {
     /// leave empty.
     static func carriesRulings(_ kind: Statement.Kind) -> Bool {
         switch kind {
-        case .intent, .editionBrief, .lessons: return true
+        //
+        // **The first reader carries rulings too** (two loops P2). Her `##
+        // Rulings` are standing instructions — read for the plot, don't tell me
+        // about the commas — so the stratum must draw under her essay or the
+        // writer has nowhere to put them. `RulingsStratumView` titles them
+        // "Instructions" rather than "Rulings" for that reason.
+        case .intent, .editionBrief, .lessons, .firstReader: return true
         case .visualLanguage, .unknown: return false
         }
     }

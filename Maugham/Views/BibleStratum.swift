@@ -60,7 +60,10 @@ enum BibleStratum {
         // The lessons ledger is about the WRITER, not about the book's world —
         // the bible establishes what is true of Kelly, and nothing in a lesson
         // about the writer's own habits belongs under it.
-        case .visualLanguage, .editionBrief, .lessons, .unknown: return false
+        // The first reader is a PERSON reading the book, not a fact inside it —
+        // nothing about who she is belongs under what is true of Kelly.
+        case .visualLanguage, .editionBrief, .lessons, .firstReader, .unknown:
+            return false
         }
     }
 

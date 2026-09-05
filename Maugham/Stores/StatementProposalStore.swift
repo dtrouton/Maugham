@@ -25,7 +25,10 @@ enum ProposableStatement: Equatable, Hashable, Codable, Sendable {
         switch kind {
         case .editionBrief(let language): self = .editionBrief(language.lowercased())
         case .visualLanguage: self = .visualLanguage
-        case .intent, .lessons, .unknown: return nil
+        // The first reader joins that list (two loops P2): who reads this book
+        // is the writer's own choice, and a Claude that could propose her could
+        // propose the standard it is judged by.
+        case .intent, .lessons, .firstReader, .unknown: return nil
         }
     }
 

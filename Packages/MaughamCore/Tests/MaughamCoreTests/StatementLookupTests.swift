@@ -132,4 +132,28 @@ final class StatementLookupTests: XCTestCase {
                 kind: .lessons, scope: .document("doc-9"), documentSlug: nil),
             "and a missing slug does not make one appear either")
     }
+
+    // MARK: - The first reader row (two loops P2, Task 1)
+
+    /// She is one per project: the person the book is read by, not a
+    /// per-chapter fact — the ledger's argument one row up, applied to a reader.
+    func test_firstReaderMintsTheRowForProjectScope() {
+        XCTAssertEqual(
+            StatementConvention.newPath(kind: .firstReader, scope: .project, documentSlug: nil),
+            "first-reader.md")
+    }
+
+    /// CONTROL for the row above: document scope has no row, with or without a
+    /// slug, so the store throws `.statementHasNoStorage` rather than minting a
+    /// second reader under `first-reader/`.
+    func test_firstReaderHasNoPathForDocumentScope() {
+        XCTAssertNil(
+            StatementConvention.newPath(
+                kind: .firstReader, scope: .document("doc-9"), documentSlug: "chapter-nine"),
+            "the first reader is project-scope only — there is no per-document row")
+        XCTAssertNil(
+            StatementConvention.newPath(
+                kind: .firstReader, scope: .document("doc-9"), documentSlug: nil),
+            "and a missing slug does not make one appear either")
+    }
 }

@@ -135,6 +135,25 @@ extension ProjectStore {
         try await saveManifest()
     }
 
+    /// **Name the project's first reader, or clear the name** (two loops P2).
+    ///
+    /// The name is trimmed and a blank maps to `nil`, so `""` and "no first
+    /// reader" cannot both be reachable states meaning the same thing — every
+    /// surface that renders her asks one question (`firstReaderName == nil`)
+    /// rather than two.
+    ///
+    /// Deliberately separate from her statement (`Statement.Kind.firstReader`,
+    /// `first-reader.md`): the NAME is metadata every surface renders, and what
+    /// she knows is prose the writer edits in a pane. Clearing the name here
+    /// takes nothing away from that file — a reader who is unnamed is not a
+    /// reader whose words are gone.
+    public func setFirstReaderName(_ name: String?) async throws {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        manifest.firstReaderName = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
     /// Toggle the per-project element gutter. nil = default (show); false =
     /// hide. The screenplay editor reads this on each layout pass.
     public func setShowElementGutter(_ value: Bool?) async throws {

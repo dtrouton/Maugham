@@ -289,6 +289,11 @@ struct MaughamApp: App {
                 // Next/Previous and neither takes ⌥.
                 Button("What I've Learned") { postSegment(.lessons) }
                     .keyboardShortcut("g", modifiers: [.command, .option])
+                // **⌘⌥Y, and the argument is at the case in `DetailSegment`**:
+                // every letter of "first reader" is bound except S, and S is
+                // one ⌥ slip from ⌘S, the checkpoint reflex. Y is free.
+                Button("First Reader") { postSegment(.firstReader) }
+                    .keyboardShortcut("y", modifiers: [.command, .option])
                 Button("Visual Language") { postSegment(.visualLanguage) }
                     .keyboardShortcut("v", modifiers: [.command, .option])
                 Button("Diagnostics") { postSegment(.diagnostics) }

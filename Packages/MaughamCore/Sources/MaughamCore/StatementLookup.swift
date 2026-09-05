@@ -11,6 +11,7 @@ import Foundation
 /// | `visual-language.md` | project visual language |
 /// | `editions/<lang>.md` | one per edition brief language |
 /// | `lessons.md` | the project's lessons ledger |
+/// | `first-reader.md` | who reads this project, and what she knows |
 ///
 /// Shared rather than Mac-local (tripwire 19): the Mac mints these paths and the
 /// phone reads statements, and a table with two spellings is a table that drifts.
@@ -26,6 +27,8 @@ public enum StatementConvention {
     public static let editionsFolder = "editions"
     /// The project's lessons ledger.
     public static let lessonsPath = "lessons.md"
+    /// The project's first reader — who she is and what she knows.
+    public static let firstReaderPath = "first-reader.md"
 
     /// The project-relative path a NEW statement of this `kind` and `scope`
     /// takes, or **nil when the pair has no row in the table**.
@@ -60,6 +63,11 @@ public enum StatementConvention {
         // chapter can hold a private copy of.
         case (.lessons, .project):
             return lessonsPath
+        // Project scope only, and for the ledger's reason one row up: a first
+        // reader is a person the whole book is read by, so a per-chapter copy
+        // of her would be a second reader wearing the first one's name.
+        case (.firstReader, .project):
+            return firstReaderPath
         default:
             return nil
         }

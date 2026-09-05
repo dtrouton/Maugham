@@ -145,6 +145,12 @@ struct StatementPane: View {
         // `.intent`, so without an arm here the ledger wore the craft intent's
         // sentence over a different document entirely.
         if case .lessons = kind { return "What I've learned" }
+        // **The first reader is a PERSON**, so the header names her rather than
+        // describing a document. Scope-blind for the reason the three above are:
+        // `effectiveScope` coerces every subject to `.project` for any kind but
+        // `.intent`, so without an arm here she wore the craft intent's sentence
+        // over a different document entirely.
+        if case .firstReader = kind { return "First reader" }
         guard case .document(let id) = scope else {
             return "What this project is going for"
         }

@@ -19,6 +19,19 @@ public enum DetailSegment: String, Codable, Equatable, Sendable, CaseIterable {
     // they are two — the ledger is about the WRITER rather than about the book,
     // so it is a different object that happens to render through the same pane.
     case lessons
+    // two-loops P2: the project's first reader (⌘⌥Y) — who reads your checks
+    // as a reader, and what she knows. Another `Statement.Kind` and another
+    // case for the reason the ones above it are separate: she is a person the
+    // book is read by, not a thing the book is made of.
+    //
+    // **⌘⌥Y, because the word's own letters are spoken for.** Of "first
+    // reader": F is Find in Project, I Inspector, R Research, T Tasks, E
+    // References, A Annotations, D Diagnostics. That leaves S, and S is the one
+    // to refuse rather than take — ⌘S is the checkpoint reflex this app goes
+    // out of its way to keep (CLAUDE.md's hard invariants), and a pane one ⌥
+    // slip away from it would open on a writer trying to save. Y is free across
+    // the whole ⌘⌥ keyspace (verified 2026-09-05) and takes nothing.
+    case firstReader
     case diagnostics     // m2-compiler-loop: the compiler's notes (⌘⌥D)
     case references      // m2-author-surfaces: what this piece is pinned to (⌘⌥E)
     // publish-department: the desk (⌘⌥K) — Publish's own working pane, where
@@ -50,6 +63,9 @@ public extension DetailSegment {
         // pieces already finished and what they taught, rather than the one
         // open on the desk.
         case .lessons: return "book.closed"
+        // A person in a circle, because that is what this pane holds: one
+        // named reader, not a document about reading.
+        case .firstReader: return "person.crop.circle"
         case .diagnostics: return "checkmark.seal"
         // A pin, because that is the word the design uses for what this pane
         // holds — the piece's *pinned* set — and the shelf is a row of things
@@ -72,6 +88,8 @@ public extension DetailSegment {
         case .intent: return "Intent — what you're going for, here or across the project (⌘⌥N)"
         case .visualLanguage: return "Visual Language — how the book looks (⌘⌥V)"
         case .lessons: return "What I've learned — lessons and choices, across the project (⌘⌥G)"
+        case .firstReader:
+            return "First reader — who reads your checks as a reader, and what she knows (⌘⌥Y)"
         case .diagnostics: return "Diagnostics — the compiler's notes on what you've written (⌘⌥D)"
         case .references: return "References — what this piece is pinned to (⌘⌥E)"
         case .department: return "Department — the book's design and its language editions (⌘⌥K)"

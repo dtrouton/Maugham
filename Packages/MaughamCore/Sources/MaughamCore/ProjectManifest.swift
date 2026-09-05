@@ -190,6 +190,24 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// coaches this project".
     public var coachVacated: Bool
 
+    /// **The project's first reader, by name** — the person Author's checks are
+    /// read by, chosen and named by the writer (two loops P2). `nil` is the
+    /// state every project starts in and stays in until the writer names one:
+    /// there is no default first reader, because a reader the writer did not
+    /// choose is a stranger with opinions.
+    ///
+    /// Tolerated-missing and optional, so no schema bump and no migration
+    /// (tripwire 11) — a manifest written before this milestone decodes to a
+    /// project with no first reader, which is exactly what it is. Who she is
+    /// beyond her name lives in her own statement (`Statement.Kind.firstReader`,
+    /// `first-reader.md`); only the name is manifest metadata, because the name
+    /// is what every surface that mentions her has to render.
+    ///
+    /// Always trimmed and never empty: `ProjectStore.setFirstReaderName` maps a
+    /// blank to `nil`, so `""` and "no first reader" cannot both be reachable
+    /// states meaning the same thing.
+    public var firstReaderName: String?
+
     /// The coach a reader should actually use: `ReviewPass.coachPreset`
     /// while the seat is held, nil once it has been vacated.
     ///
@@ -332,6 +350,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         statements: [Statement] = [],
         reviewPasses: [ReviewPass] = [],
         coachVacated: Bool = false,
+        firstReaderName: String? = nil,
         productionRoles: [ProductionRole] = [],
         targets: ProjectTargets? = nil,
         typography: TypographySettings? = nil,
@@ -349,6 +368,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.statements = statements
         self.reviewPasses = reviewPasses
         self.coachVacated = coachVacated
+        self.firstReaderName = firstReaderName
         self.productionRoles = productionRoles
         self.targets = targets
         self.typography = typography
@@ -381,6 +401,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.statements = try c.decodeIfPresent([Statement].self, forKey: .statements) ?? []
         self.reviewPasses = try c.decodeIfPresent([ReviewPass].self, forKey: .reviewPasses) ?? []
         self.coachVacated = try c.decodeIfPresent(Bool.self, forKey: .coachVacated) ?? false
+        self.firstReaderName = try c.decodeIfPresent(String.self, forKey: .firstReaderName)
         self.productionRoles = try c.decodeIfPresent(
             [ProductionRole].self, forKey: .productionRoles) ?? []
         self.targets = try c.decodeIfPresent(ProjectTargets.self, forKey: .targets)

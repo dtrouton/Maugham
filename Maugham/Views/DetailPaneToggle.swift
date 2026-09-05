@@ -524,6 +524,8 @@ struct DetailPaneToggle<Inspector: View>: View {
             statementPane(kind: .visualLanguage)
         case .lessons:
             statementPane(kind: .lessons)
+        case .firstReader:
+            statementPane(kind: .firstReader)
         case .diagnostics:
             diagnosticsPane
         case .references:

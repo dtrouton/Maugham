@@ -419,6 +419,7 @@ struct ArtifactIndex: Equatable {
         case .visualLanguage: return visualLanguageTitle
         case .editionBrief(let lang): return "Edition Brief · \(lang)"
         case .lessons: return lessonsTitle
+        case .firstReader: return firstReaderTitle
         case .unknown(let raw): return raw
         }
     }
@@ -436,6 +437,15 @@ struct ArtifactIndex: Equatable {
     /// its stratum names the rows ("Ledger"). A mark says which artifact a card
     /// became, and that is this.
     static let lessonsTitle = "Lessons"
+
+    /// The writer's word for the first reader's statement, as a mark names it.
+    ///
+    /// The artifact's name, not the person's: her own name lives on the manifest
+    /// (`ProjectManifest.firstReaderName`) and changes when the writer changes
+    /// their mind about who reads the book, while the statement stays the one
+    /// artifact it always was. A mark that wore her name would go stale the day
+    /// after it was made.
+    static let firstReaderTitle = "First Reader"
 
     /// The bare name, and the project's scope answers with it alone.
     ///

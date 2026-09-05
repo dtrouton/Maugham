@@ -132,9 +132,15 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// and the piece in front of the writer comes before the standing ledger.
     /// Everything downstream of Intent shifts one place right and nothing
     /// changes its neighbours.
+    /// **`.firstReader` takes the seat immediately after `.lessons`** (two
+    /// loops P2 Task 1). The two personas that hold her hold the ledger as
+    /// well, so the only thing this position decides is which of the pair comes
+    /// first — and what the writer has learned comes before who is reading,
+    /// because a check is briefed on the ledger and then read by her.
     static let canonicalPaneOrder: [DetailSegment] = [
         .diagnostics, .annotations, .inbox, .department, .intent, .lessons,
-        .references, .visualLanguage, .tasks, .translation, .history, .inspector
+        .firstReader, .references, .visualLanguage, .tasks, .translation,
+        .history, .inspector
     ]
 
     /// **The order guard, and it is the first assertion of pane ORDER this
@@ -194,8 +200,8 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// every derived array-equality in `DetailPaneTogglePersonaTests` pass).
     /// Only the guard above sees it. A plant that does not fire is the finding.
     func test_theOrderGuardCatchesAReorderThatKeepsEveryFirstElement() {
-        let offender: [DetailSegment] = [.diagnostics, .intent, .lessons, .references,
-                                         .history, .tasks, .inspector]
+        let offender: [DetailSegment] = [.diagnostics, .intent, .lessons, .firstReader,
+                                         .references, .history, .tasks, .inspector]
 
         // The plant is honest: a permutation of Author's own panes, not a
         // membership change wearing a permutation's clothes.
@@ -791,9 +797,10 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// matrix no document contains.
     private static let designMatrix: [Persona: Set<DetailSegment>] = [
         .plan: [.inbox, .tasks, .history],
-        .author: [.diagnostics, .intent, .lessons, .references,
+        .author: [.diagnostics, .intent, .lessons, .firstReader, .references,
                   .tasks, .history],
-        .review: [.annotations, .intent, .lessons, .references, .tasks, .history],
+        .review: [.annotations, .intent, .lessons, .firstReader, .references,
+                  .tasks, .history],
         .publish: [.department, .visualLanguage, .tasks, .translation, .history]
     ]
 

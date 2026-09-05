@@ -279,6 +279,11 @@ struct RulingsStratumView: View {
     /// of kinds can be asked of it.
     static func title(for kind: Statement.Kind) -> String {
         if case .lessons = kind { return "Ledger" }
+        // **"Instructions" under the first reader.** Her rows are not decisions
+        // made against an essay and not entries in a record — they are standing
+        // instructions she reads under, which is what the writer would call them
+        // if asked. Naming them rulings there would name the mechanism.
+        if case .firstReader = kind { return "Instructions" }
         return "Rulings"
     }
 

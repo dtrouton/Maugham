@@ -42,6 +42,7 @@ The ones you'll use most:
 | `⌘⌥L` | Translation pane |
 | `⌘⌥N` | Intent pane |
 | `⌘⌥G` | What I've Learned pane — the lessons ledger, across the whole project |
+| `⌘⌥Y` | First Reader pane — who reads this project, and what she knows |
 | `⌘⌥V` | Visual Language pane |
 | `⌘⌥D` | Diagnostics pane — the compiler's notes on what you've written |
 | `⌘⌥E` | References pane — what this piece is pinned to |

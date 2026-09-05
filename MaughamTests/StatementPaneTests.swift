@@ -566,4 +566,41 @@ final class StatementPaneTests: XCTestCase {
                            "\(kind) keeps the original heading")
         }
     }
+
+    // MARK: - The first reader (two loops P2, Task 1)
+
+    /// Her header names a PERSON rather than describing a document, and — like
+    /// the ledger's and the brief's — it says the same thing whatever the tree
+    /// names, because `effectiveScope` coerces every subject to `.project` for
+    /// any kind but `.intent`. Without an arm of its own she wore the craft
+    /// intent's sentence over a different document entirely.
+    func test_theFirstReaderHeaderNamesHerAndIgnoresTheSubject() {
+        XCTAssertEqual(
+            StatementPane.headerCaption(
+                kind: .firstReader, scope: .project, structure: structure),
+            "First reader")
+        XCTAssertEqual(
+            StatementPane.headerCaption(
+                kind: .firstReader, scope: .document("doc-1"), structure: structure),
+            "First reader",
+            "the first reader is project-scope, and her header says so whatever "
+            + "the tree names")
+    }
+
+    /// Her rows are standing instructions, not decisions itemized under an
+    /// essay, so the stratum's heading says **Instructions**.
+    func test_theStratumTitlesTheFirstReadersRowsInstructions() {
+        XCTAssertEqual(RulingsStratumView.title(for: .firstReader), "Instructions")
+    }
+
+    /// And the stratum must DRAW under her at all: her instructions live in a
+    /// `## Rulings` section like every other kind that carries one, so
+    /// `carriesRulings` has to answer true or the writer has nowhere to put
+    /// them. This is the predicate the pane gates the strip on.
+    func test_theFirstReaderCarriesRulingsSoTheStripCanDraw() {
+        XCTAssertTrue(StatementEssay.carriesRulings(.firstReader))
+        XCTAssertFalse(BibleStratum.belongsTo(.firstReader),
+                       "she is a person reading the book, not a fact inside it — "
+                       + "nothing about her belongs under the bible")
+    }
 }
