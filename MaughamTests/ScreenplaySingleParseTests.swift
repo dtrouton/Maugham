@@ -18,6 +18,15 @@ import AppKit
 ///     re-parse storage (parse #3 removed) — and produces output identical to
 ///     the legacy self-parsing path when given the script for the same text.
 final class ScreenplaySingleParseTests: XCTestCase {
+
+    override class func setUp() {
+        super.setUp()
+        // The parallel-worker fontd cold-start window (CLAUDE.md): this suite
+        // styles real text through production typography, and
+        // test_applyTypography_usesPassedScript_notReparse crashed at 0.000s
+        // twice in that window (2026-08-09, 2026-08-13), green in isolation.
+        FontWarmup.ensure()
+    }
     private let mode = ScreenplayMode()
     private let parser = FountainTokenizer()
 

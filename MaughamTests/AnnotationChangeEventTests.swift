@@ -590,20 +590,21 @@ final class AnnotationChangeEventTests: XCTestCase {
             .deletingLastPathComponent()   // MaughamTests/
             .deletingLastPathComponent()   // repo root
             .appendingPathComponent(target, isDirectory: true)
-            // The enumerator hands back RESOLVED paths, so the prefix strip
-            // below silently fails when the checkout sits behind a symlink
-            // (`/tmp` → `/private/tmp` on macOS: every entry came back as
-            // "/privateCompiler/…" in a worktree gate, 2026-09-05).
-            .resolvingSymlinksInPath()
+        // The PATH enumerator, which yields paths relative to `root` as
+        // strings. The URL enumerator hands back RESOLVED absolute paths, so
+        // stripping `root.path` as a prefix silently fails when the checkout
+        // sits behind a symlink (`/tmp` → `/private/tmp` on macOS: every entry
+        // came back "/privateCompiler/…" in a worktree gate, 2026-09-05 — and
+        // `resolvingSymlinksInPath()` is no fix, since Foundation strips
+        // `/private` from its result on purpose).
         let fm = FileManager.default
-        guard let walk = fm.enumerator(at: root, includingPropertiesForKeys: nil) else {
+        guard let walk = fm.enumerator(atPath: root.path) else {
             return []
         }
         var out: [(String, String)] = []
-        for case let url as URL in walk where url.pathExtension == "swift" {
-            let text = try String(contentsOf: url, encoding: .utf8)
-            let relative = url.path.replacingOccurrences(
-                of: root.path + "/", with: "")
+        for case let relative as String in walk where relative.hasSuffix(".swift") {
+            let text = try String(contentsOf: root.appendingPathComponent(relative),
+                                  encoding: .utf8)
             out.append((relative, text))
         }
         return out.sorted { $0.0 < $1.0 }
