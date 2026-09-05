@@ -456,18 +456,23 @@ struct DiagnosticsPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
             diagnostics.load(docId: docId)
-            diagnostics.markRead(docId: docId)
+            diagnostics.markRead(docId: docId, kind: .check)
         }
         .onChange(of: docId) { _, new in
             diagnostics.load(docId: new)
-            diagnostics.markRead(docId: new)
+            diagnostics.markRead(docId: new, kind: .check)
         }
         // Notes landing while this pane is already on screen were never
         // unread: the picker's badge is for a run that finished somewhere the
         // writer wasn't looking. `markRead` does not bump `version`, so this
         // cannot re-enter itself.
+        //
+        // `.check` because that is what this pane draws (whole-branch review,
+        // finding 2): a round's notes are unread until they are read in
+        // Review's queue, and nothing about opening Author's pane says they
+        // were.
         .onChange(of: diagnostics.version) { _, _ in
-            diagnostics.markRead(docId: docId)
+            diagnostics.markRead(docId: docId, kind: .check)
         }
     }
 

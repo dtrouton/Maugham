@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Which of the v2 contract's sections a note came out of (spec §5). The
 /// enumeration is the whole vocabulary: v2 has no severity, and the section a
@@ -247,10 +248,26 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// **What a run's kind is, including for records that never carried one.**
     ///
     /// The legacy rule, in one place: before this field existed, a run with a
-    /// lane was a round and a run without one was a check — which is exactly
-    /// what the two verbs were, undeclared. A record written since says so
-    /// itself and the inference is not consulted.
-    var effectiveKind: RunKind { kind ?? (passId == nil ? .check : .round) }
+    /// STAGE lane was a round and a run without a lane was a check — which is
+    /// exactly what the two verbs were, undeclared. A record written since
+    /// says so itself and the inference is not consulted.
+    ///
+    /// **The coach's lane is the exception, and it is the whole reason this
+    /// is a two-clause rule.** Under the previous build the coach was the
+    /// default reader of every unassigned piece, so an Author ⌘R stamped
+    /// `workshop` on its record — the fusion the two-loops spec's §1 names as
+    /// this milestone's defect ("the wet-ink check IS a review round"). Those
+    /// records were checks by the spec's own account, and every one of them on
+    /// disk today was written by a keystroke in Author. Read as rounds they
+    /// empty Author's pane over a piece checked yesterday, hand Review's
+    /// cockpit the coach's letter as a standing round, and take the delta
+    /// marker with them so the next ⌘R re-reads the whole chapter. They keep
+    /// their `round` and their letter as history; what this decides is the
+    /// slot. `RunKindTests`' legacy pins and `DiagnosticsStoreTests`' two
+    /// real-sidecar fixtures are the guard.
+    var effectiveKind: RunKind {
+        kind ?? (passId == nil || passId == ReviewPass.coachPreset.id ? .check : .round)
+    }
 
     /// **The sixth section, P1** — one editorial letter, read as prose rather
     /// than a list of findings. `nil` marks a record written before the

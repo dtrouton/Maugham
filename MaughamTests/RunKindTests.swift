@@ -1,5 +1,6 @@
 import XCTest
 @testable import Maugham
+import MaughamCore
 
 /// **Which loop asked for a run** (two loops P1 Task 1).
 ///
@@ -43,5 +44,54 @@ final class RunKindTests: XCTestCase {
         XCTAssertEqual(RunKind.round.rawValue, "round")
         XCTAssertEqual(RunKind(rawValue: "check"), .check)
         XCTAssertEqual(RunKind(rawValue: "round"), .round)
+    }
+
+    // MARK: - The legacy rule (whole-branch review, finding 1)
+
+    /// **The coach's lane is the one id where a stored `passId` does not name
+    /// the verb.**
+    ///
+    /// Before this milestone the coach was the default reader of every
+    /// unassigned piece, so an Author ⌘R — a wet-ink check by every account
+    /// including the spec's §1, which names that fusion as the defect — wrote
+    /// `passId: "workshop"` on its record. Reading those back as rounds
+    /// empties Author's pane over a piece checked yesterday, resets the delta
+    /// marker so the next ⌘R re-reads the whole chapter, and draws
+    /// the coach's letter in Review's cockpit as a standing round. So the
+    /// inference is: no lane, or the coach's, is a check.
+    func test_aLegacyRecordInTheCoachsLaneIsACheck() {
+        XCTAssertEqual(makeLegacyRun(passId: ReviewPass.coachPreset.id).effectiveKind, .check,
+                       "a run filed in the coach's lane was an Author keystroke")
+        XCTAssertEqual(makeLegacyRun(passId: nil).effectiveKind, .check,
+                       "and so was one filed in no lane at all")
+    }
+
+    /// The other half, unchanged: a stage lane is a rung on the ladder, and a
+    /// run filed in one was a numbered round.
+    func test_aLegacyRecordInAStageLaneIsARound() {
+        XCTAssertEqual(makeLegacyRun(passId: "line").effectiveKind, .round)
+    }
+
+    /// **A record that says what it is is never inferred about.** The
+    /// inference exists for records written before `kind` did; a declared kind
+    /// wins over any lane, including the coach's.
+    func test_aDeclaredKindOutranksTheInference() {
+        var declared = makeLegacyRun(passId: ReviewPass.coachPreset.id)
+        declared.kind = .round
+        XCTAssertEqual(declared.effectiveKind, .round,
+                       "the record declared a round; nothing infers over that")
+
+        var check = makeLegacyRun(passId: "line")
+        check.kind = .check
+        XCTAssertEqual(check.effectiveKind, .check)
+    }
+
+    /// A record of the shape written before `kind` existed: no `kind`, a lane
+    /// or no lane, and nothing else this pin depends on.
+    private func makeLegacyRun(passId: String?) -> CompilerRun {
+        CompilerRun(
+            id: "01JRUN", at: Date(timeIntervalSince1970: 1_780_000_000),
+            model: "sonnet", lastOpId: "op1", deltaSummary: "1 new, 0 revised",
+            intentSnapshot: nil, passId: passId, round: passId == nil ? nil : 1)
     }
 }

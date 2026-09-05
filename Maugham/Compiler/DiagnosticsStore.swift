@@ -50,10 +50,17 @@ final class DiagnosticsStore {
     /// are still on Author's pane, and a clean check erase a round's queued
     /// notes. A run clears its own contribution and no one else's.
     ///
-    /// The door is `unreadCount(docId:)`, which SUMS the two: the badge sits
-    /// on the pane picker and says how much this document has waiting,
-    /// whichever loop left it. Private because `SlotKey` is, which is also
-    /// what keeps that sum the only answer anything outside can get.
+    /// **The door is `unreadCount(docId:)`, and it answers for the CHECK
+    /// alone** (whole-branch review, finding 2 — Ruling 9). The badge sits on
+    /// the `.diagnostics` segment, and since Task 7 that pane draws the check
+    /// and nothing else: a number on its door counting a round's notes sends
+    /// the writer to a pane with none of them on it, and opening that pane
+    /// then clears a count on notes still sitting unread in Review's queue.
+    /// A round's findings are open rows in that queue; that is where they are
+    /// counted, and giving them a badge of their own here would be a second
+    /// number on one door. The round's own count is still kept — `replace`
+    /// records per verb so neither run can clear the other's — and no P1
+    /// surface reads it.
     private var unread: [SlotKey: Int] = [:]
 
     private let projectRoot: URL
@@ -482,23 +489,37 @@ final class DiagnosticsStore {
         load(docId: docId)
     }
 
-    /// The writer has the pane in front of them — drop `docId`'s badge.
+    /// The writer has the pane in front of them — drop the badge `kind`'s run
+    /// left on `docId`.
+    ///
+    /// **`kind` is the SURFACE's, not the document's** (whole-branch review,
+    /// finding 2). Author's Diagnostics pane is the check's, so it clears the
+    /// check's count and nothing else: clearing both would mark a round's
+    /// queued notes read on the strength of a pane that does not draw them,
+    /// which is the same rule `replace` follows — a run clears its own
+    /// contribution and no one else's.
     ///
     /// Does **not** bump `version`: the notes did not change, and a mounted
     /// pane calls this from its own reaction to a version change (see
     /// `DiagnosticsPane.body`), which a bump here would re-enter.
-    func markRead(docId: String) {
-        for kind in RunKind.allCases { unread[SlotKey(docId: docId, kind: kind)] = nil }
+    func markRead(docId: String, kind: RunKind) {
+        unread[SlotKey(docId: docId, kind: kind)] = nil
     }
 
-    /// **The badge's one answer, and it is the document's**: what this
-    /// document has waiting for the writer, whichever loop left it. The
-    /// per-verb keying underneath exists so a run cannot clear the other
-    /// verb's count (see ``unread``), not so a surface can ask about one verb
-    /// — nothing draws a per-loop badge, and a picker showing two would be
-    /// two numbers for one door.
+    /// **The badge's one answer, and it is Author's**: what this document's
+    /// last check left waiting on the Diagnostics pane. See ``unread`` for why
+    /// it is not the sum — the pane the badge sits over draws the check alone,
+    /// and a round's notes are counted as open rows in Review's queue.
     func unreadCount(docId: String) -> Int {
-        RunKind.allCases.reduce(0) { $0 + (unread[SlotKey(docId: docId, kind: $1)] ?? 0) }
+        unreadCount(docId: docId, kind: .check)
+    }
+
+    /// The accounting underneath, per verb. Kept reachable so a test can say
+    /// that a round's count survives Author reading its own pane; nothing in
+    /// P1 draws a per-loop badge, and a picker showing two would be two
+    /// numbers for one door.
+    func unreadCount(docId: String, kind: RunKind) -> Int {
+        unread[SlotKey(docId: docId, kind: kind)] ?? 0
     }
 
     /// The diagnostics for `docId` that are still trustworthy to show:

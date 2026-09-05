@@ -1309,6 +1309,151 @@ final class DiagnosticsStoreTests: XCTestCase {
                      + "how Author's next check skipped the prose it had never read")
     }
 
+    /// **A legacy record in the COACH's lane is a check, not a round**
+    /// (whole-branch review, finding 1).
+    ///
+    /// `workshop` is the one stored `passId` that never named a round. Under
+    /// the previous build the coach read every unassigned piece, so an Author
+    /// ⌘R stamped her lane on a wet-ink check — the fusion the spec's §1 names
+    /// as this milestone's defect. Slotting those as rounds would empty
+    /// Author's pane over a piece checked yesterday, hand the cockpit her
+    /// letter as a standing round, and drop the delta marker so the next ⌘R
+    /// re-read the whole chapter. It keeps its `round` and its letter as
+    /// history; what moves is the slot.
+    func test_aLegacySidecarInTheCoachsLaneLoadsAsTheStandingCheck() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docLegacyCoach"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            {"clauseHistory":[],"rounds":[],\
+            "diagnostics":[{"anchor":{"anchorText":"steady","paragraphId":"efgh"},\
+            "body":"A strain","docId":"docLegacyCoach","id":"01JCOACHNOTE",\
+            "kind":"conformanceStrain","runId":"01JCOACHRUN"}],\
+            "run":{"at":"2026-09-04T15:39:12Z","deltaSummary":"1 new, 0 revised",\
+            "droppedDangling":0,"id":"01JCOACHRUN","lastOpId":"opCoach","model":"sonnet",\
+            "passId":"workshop","round":1}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(store.lastCheck(docId: docId)?.id, "01JCOACHRUN",
+                       "the coach's lane was Author's ⌘R, so its record is the "
+                       + "standing check")
+        XCTAssertNil(store.lastRound(docId: docId),
+                     "…and the cockpit has no round to draw — Le Guin was never "
+                     + "on the ladder")
+        XCTAssertEqual(store.lastOpId(docId: docId), "opCoach",
+                       "the marker came with it; read as a round it would be nil "
+                       + "and the next ⌘R would re-read the whole chapter")
+        XCTAssertEqual(
+            store.live(docId: docId, currentText: { _ in "steady" }).map(\.id),
+            ["01JCOACHNOTE"],
+            "and Author's rows are still on the pane")
+    }
+
+    // MARK: - The real sidecars on the developer's machine
+
+    /// Real sidecar SHAPES, written by real runs on 2026-09-03 and 2026-09-04
+    /// and copied out of `~/Documents/Maugham Tests/Playlist Test`, **with the
+    /// writer's prose redacted**: every excerpt, clause quote, anchor text,
+    /// note body, intent snapshot and letter field is a `«redacted …»`
+    /// placeholder, and every id, lane, round number, timestamp, marker,
+    /// paragraph id, array length and nesting level is the file's own. The
+    /// hand-written fixtures above state the rule; these are the files the
+    /// rule was found wrong against, and they carry every field a real run
+    /// writes — `letter`, `clauseStatuses`, `mintedNotes`, `openInOtherLanes`
+    /// — which a shortened literal cannot vouch for. Nothing here asserts on
+    /// prose, so the redaction costs the pins nothing.
+    private func stageLegacyFixture(
+        named name: String, docId: String, projectRoot: URL, device: DeviceSlug
+    ) throws {
+        let bundle = Bundle(for: type(of: self))
+        let source = try XCTUnwrap(
+            bundle.url(forResource: name, withExtension: "json", subdirectory: "Fixtures")
+                ?? bundle.url(forResource: name, withExtension: "json"),
+            "Fixture \(name).json not found in the test bundle")
+        let url = DiagnosticsStore.sidecarURL(
+            projectRoot: projectRoot, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(contentsOf: source).write(to: url)
+    }
+
+    /// **Both real coach-lane sidecars land in the check slot with their
+    /// diagnostics intact.** These are the two files finding 1 was raised
+    /// against: each was written by an Author ⌘R the day before, and each was
+    /// being read back as a standing round.
+    func test_theRealCoachLaneSidecarsLoadAsChecks() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+
+        try stageLegacyFixture(named: "legacy-sidecar-coach-lane-empty",
+                               docId: "doc-88efe0d0", projectRoot: project, device: device)
+        try stageLegacyFixture(named: "legacy-sidecar-coach-lane-one-strain",
+                               docId: "doc-a362cf8d", projectRoot: project, device: device)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: "doc-88efe0d0")
+        store.load(docId: "doc-a362cf8d")
+
+        XCTAssertEqual(store.lastCheck(docId: "doc-88efe0d0")?.id,
+                       "01M1MKWZKRVH2QT9SQN9FQ44WC")
+        XCTAssertNil(store.lastRound(docId: "doc-88efe0d0"))
+        XCTAssertEqual(store.lastOpId(docId: "doc-88efe0d0"),
+                       "01M1MKWZKF2N2XVFE907VG599Q",
+                       "the marker Author's next ⌘R begins from")
+        XCTAssertNotNil(store.lastCheck(docId: "doc-88efe0d0")?.letter,
+                        "the letter that run wrote is history and is kept")
+
+        XCTAssertEqual(store.lastCheck(docId: "doc-a362cf8d")?.id,
+                       "01M1PH0HY3P759TY3BQT68R5DP")
+        XCTAssertNil(store.lastRound(docId: "doc-a362cf8d"))
+        XCTAssertEqual(store.lastOpId(docId: "doc-a362cf8d"),
+                       "01M1PH0GHG8J3EGKYX3WQC98JZ")
+        XCTAssertEqual(
+            // The note's anchor text, which in this fixture is the redacted
+            // placeholder — liveness is an exact match against whatever the
+            // anchor holds, so the redaction changes the string and not the
+            // rule it exercises.
+            store.live(docId: "doc-a362cf8d",
+                       currentText: { _ in "\u{ab}redacted paragraph\u{bb}" }).map(\.id),
+            ["01M1PH5VG7MJQN079S09JY6BMH"],
+            "the standing conformance strain is still on Author's pane")
+        XCTAssertEqual(store.latestRound(forPass: "workshop", docId: "doc-a362cf8d"), nil,
+                       "the coach's lane counts no rounds and never did")
+    }
+
+    /// The control from the same directory: a real STAGE-lane sidecar still
+    /// loads as the standing round, its lane still counts, and its five-deep
+    /// ring survives. The fix moves one lane and no others.
+    func test_aRealStageLaneSidecarStillLoadsAsTheStandingRound() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        try stageLegacyFixture(named: "legacy-sidecar-stage-lane-proof",
+                               docId: "doc-2c6051f2", projectRoot: project, device: device)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: "doc-2c6051f2")
+
+        XCTAssertEqual(store.lastRound(docId: "doc-2c6051f2")?.id,
+                       "01M11A4Q2CV13QZYMX73CRAAKT")
+        XCTAssertNil(store.lastCheck(docId: "doc-2c6051f2"),
+                     "nobody has ever ⌘R'd this document in Author")
+        XCTAssertEqual(store.latestRound(forPass: "proof", docId: "doc-2c6051f2"), 2,
+                       "the standing round is proof round 2")
+        XCTAssertEqual(
+            store.roundHistory(docId: "doc-2c6051f2").map { [$0.passId ?? "-", "\($0.round ?? -1)"] },
+            [["structural", "4"], ["line", "1"], ["line", "2"],
+             ["copyedit", "1"], ["proof", "1"]],
+            "and the ring came through whole")
+        XCTAssertEqual(store.latestRound(forPass: "line", docId: "doc-2c6051f2"), 2,
+                       "a lane the ring alone answers for")
+    }
+
     /// **A check replaces the check and leaves the round exactly where the
     /// cockpit is drawing it** — the whole point of the two slots.
     func test_aCheckOverAStandingRoundLeavesTheRoundUntouched() throws {
@@ -1488,16 +1633,20 @@ final class DiagnosticsStoreTests: XCTestCase {
                        "and now the check is")
     }
 
-    /// **The badge is per verb underneath, and one run never clears the
-    /// other's count** (fix round 1).
+    /// **The badge is Author's, and it counts the CHECK slot alone**
+    /// (whole-branch review, finding 2 — Ruling 9).
     ///
-    /// `replace` clears the badge when its own run left nothing, and that was
-    /// sound only while a replace superseded the other verb's notes too. With
-    /// two slots it does not: a clean round would erase the badge counting a
-    /// standing check's strains — which are still drawn on Author's pane —
-    /// and a clean check would erase a round's queued notes. What the writer
-    /// is shown is still ONE number per document, the sum.
-    func test_theBadgeIsPerVerbSoNeitherRunClearsTheOthersCount() throws {
+    /// Two facts, and the second is the fix. `replace` records unread per
+    /// verb, so a clean run cannot erase the other verb's count — that was fix
+    /// round 1, and it stands. What the badge on the `.diagnostics` segment
+    /// then SHOWS is the check's count only: after Task 7 that pane draws no
+    /// round content at all, so a number on its door counting a round's notes
+    /// sent the writer to a pane with nothing on it, and opening that pane
+    /// cleared the count on notes still sitting unread in Review's queue. A
+    /// round's notes are open rows in the queue; that is where they are
+    /// counted. The round's own per-slot count is still recorded, and no P1
+    /// surface reads it.
+    func test_theBadgeCountsTheCheckSlotAndNeitherRunClearsTheOthersCount() throws {
         let store = DiagnosticsStore(
             projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
         let docId = "docBadgeSlots"
@@ -1518,30 +1667,42 @@ final class DiagnosticsStoreTests: XCTestCase {
                        + "standing check's strains \u{2014} which are still on "
                        + "Author's pane with nothing left to say they are unread")
 
-        store.markRead(docId: docId)
-        XCTAssertEqual(store.unreadCount(docId: docId), 0,
-                       "the writer read the pane: both verbs' counts drop")
-
-        // The converse: a round's queued notes survive a clean check.
+        // The badge does not SUM: a round's queued notes reach the writer as
+        // rows in Review's queue, and putting them on Author's door is a
+        // number over a pane that draws none of them.
         var round = makeRound(round: 2)
         round.mintedNotes = 3
         store.replace(run: round, diagnostics: [], docId: docId)
-        XCTAssertEqual(store.unreadCount(docId: docId), 3)
+        XCTAssertEqual(store.unreadCount(docId: docId), 2,
+                       "the badge is the check's own count; the round's three "
+                       + "notes are counted in the queue they landed in")
+        XCTAssertEqual(store.unreadCount(docId: docId, kind: .round), 3,
+                       "\u{2026}and they ARE recorded \u{2014} the accounting is per verb, "
+                       + "it is the door that is Author's")
 
+        // Author's pane marking read is Author's alone.
+        store.markRead(docId: docId, kind: .check)
+        XCTAssertEqual(store.unreadCount(docId: docId), 0,
+                       "the writer read the pane: the check's count drops")
+        XCTAssertEqual(store.unreadCount(docId: docId, kind: .round), 3,
+                       "opening Author's pane cleared the count on three notes "
+                       + "sitting unread in Review's queue")
+
+        // The converse, unchanged: a round's queued notes survive a clean check.
         store.replace(run: makeCheck(), diagnostics: [], docId: docId)
-        XCTAssertEqual(store.unreadCount(docId: docId), 3,
+        XCTAssertEqual(store.unreadCount(docId: docId, kind: .round), 3,
                        "a clean \u{2318}R erased three notes the round put in the "
                        + "writer's queue")
 
         // And the original behaviour still holds WITHIN a slot: a run clears
-        // its own stale count, and the badge is the sum of the two.
+        // its own stale count.
         let second = makeCheck()
         store.replace(
             run: second,
             diagnostics: [makeDiagnostic(docId: docId, runId: second.id)], docId: docId)
-        XCTAssertEqual(store.unreadCount(docId: docId), 4, "3 queued + 1 unread strain")
+        XCTAssertEqual(store.unreadCount(docId: docId), 1)
         store.replace(run: makeCheck(), diagnostics: [], docId: docId)
-        XCTAssertEqual(store.unreadCount(docId: docId), 3,
+        XCTAssertEqual(store.unreadCount(docId: docId), 0,
                        "the check's own stale count went with it, and only it")
     }
 

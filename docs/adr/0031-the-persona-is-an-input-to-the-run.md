@@ -172,22 +172,32 @@ censuses guard the shape of. This is CLAUDE.md's tripwire 34.
   `FileContent` gains `check` and `round` slots, each replaced only by its own
   kind, so a ⌘R no longer lands on the round the cockpit is showing and a round
   no longer takes Author's notes and delta marker. `lastCheck` is Author's pane,
-  `lastRound` the cockpit; `lastRun` is the newer of the two, kept for the two
-  questions that are about the document rather than either loop (the intent-drift
-  mark and the unread badge, which is counted per kind and summed). The clause
+  `lastRound` the cockpit; `lastRun` is the newer of the two, kept for the one
+  question that is about the document rather than either loop — the intent-drift
+  mark. The unread badge on the `.diagnostics` segment is the CHECK's alone: it
+  sits over a pane that draws the check alone, so counting a round's notes there
+  would point the writer at a pane holding none of them and clear that count the
+  moment they looked. Unread is still recorded per kind, so neither verb's run
+  can clear the other's; no P1 surface reads the round's. The clause
   history and drift ring are fed by both — a clause strains across the writer's
   runs, not across one verb's — and the rounds ring, `standingRound` and
   `latestRound` are fed by rounds alone. A sidecar written before the split reads
-  its single run into whichever slot its own `passId` says (`effectiveKind`), and
-  the legacy keys are never written again.
+  its single run into whichever slot its own `passId` says (`effectiveKind`),
+  with ONE exception which is the coach's lane: `workshop` was stamped on Author
+  ⌘Rs under the build where she read every unassigned piece, so a legacy
+  `workshop` record loads as a **check** — readable in Author, never counted as
+  a round, never drawn as the cockpit's standing round. The legacy keys are
+  never written again.
 - **The ask belongs to the loop it was typed in.** `DiagnosticsStore.asks` is
   keyed `(docId, RunKind)`: an ask to Le Guin and an ask to Gould are different
   sentences. A legacy asks file's bare-docId keys read as the check's.
 - **The coach leaves the review board.** The board's seat row, the cockpit's
   coach arm and its `coachLine` are gone; the board is the ladder and only the
-  ladder, and Project Settings keeps Vacate / Restore. Historical `workshop`-lane
-  rounds in existing sidecars and op logs stay readable — a stamp says who wrote
-  a note and vacating cannot unsay that — and are simply never counted again.
+  ladder, and Project Settings keeps Vacate / Restore. Historical `workshop`
+  stamps in existing op logs stay readable — a stamp says who wrote a note and
+  vacating cannot unsay that. A `workshop` SIDECAR record is not a round at all:
+  it loads into the check slot (see the first consequence), so it is readable in
+  Author, is never counted in a lane, and is never drawn as a standing round.
 - **"A round needs an editor" is a precondition of a VERB, not a gate on a
   piece**, and that is the reconciliation with [ADR 0025](0025-persona-shell.md)
   §1's *lenses, not gates*. Nothing is withheld from a piece: every persona stays
@@ -241,8 +251,8 @@ censuses guard the shape of. This is CLAUDE.md's tripwire 34.
   a session; none starts one.
 - **Nothing pushed** (must #2: *metrics are available when sought and never
   pushed — no streaks, no badges, no nagging*). This milestone adds no badge, no
-  timer and no nag. The unread badge is counted per kind and summed, which is a
-  narrowing of what one count can claim, not a new one. `Acknowledgment.noEditor`
+  timer and no nag. The unread badge is counted per kind and shows the check's,
+  which is a narrowing of what one count can claim, not a new one. `Acknowledgment.noEditor`
   is a flash in answer to a press the writer made. **Violated if** a surface ever
   proposes a run the writer did not ask for, or counts one loop's work at the
   writer as a standing they must maintain.

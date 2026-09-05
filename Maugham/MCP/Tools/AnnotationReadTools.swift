@@ -77,8 +77,10 @@ public enum ListAnnotationsTool: MCPTool {
         "`review_pass_id` is the review pass a note was written under; a null one " +
         "belongs to EVERY pass, not to none. `lesson_heading` is the ledger " +
         "heading a letter question was raised under, when it was. " +
-        "`review_pass_id` `workshop` is the coach's lane (Le Guin's) and is " +
-        "never listed in `get_outline`'s `review_passes`. " +
+        "`review_pass_id` `workshop` WAS the coach's lane (Le Guin's) on notes " +
+        "written before the check and the round became two verbs; nothing " +
+        "stamps it now, and it is never listed in `get_outline`'s " +
+        "`review_passes`. " +
         "`triage` (do/decline/discuss) and " +
         "stetting are the writer's own marks — Claude never sets either."
     public static let inputSchemaJSON =

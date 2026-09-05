@@ -1331,11 +1331,23 @@ refuses in words when the ring has aged it out, and this area's own writes
   Author's pane, `lastRound` is the Review cockpit, `lastOpId` and `live`/
   `dismiss` are the check's, `standingRound`/`latestRound` and the round ring
   are the round's, and `lastRun` (the NEWER of the two by `at`) is kept for
-  exactly two questions that are about the document rather than either loop:
-  `IntentDrift.mayTrailDraft`'s mark and the unread badge. The on-disk keys
-  are `check` and `round`; the legacy top-level `run`/`diagnostics` pair is
-  READ and never written again, landing in the slot its own `effectiveKind`
-  names (tripwire 11 — no migration, the old file simply loads). **A round's
+  exactly ONE question that is about the document rather than either loop:
+  `IntentDrift.mayTrailDraft`'s mark. **The unread badge is the CHECK's**
+  (whole-branch review, finding 2 — Ruling 9): `unreadCount(docId:)` reads the
+  check slot alone, because the pane the badge sits over draws the check alone,
+  and `markRead(docId:kind:)` clears one verb's count for the same reason — a
+  round's notes are open rows in Review's queue and are counted there. The
+  round's own per-slot count is still recorded by `replace` and no P1 surface
+  reads it. The on-disk keys are `check` and `round`; the legacy top-level
+  `run`/`diagnostics` pair is READ and never written again, landing in the slot
+  its own `effectiveKind` names (tripwire 11 — no migration, the old file
+  simply loads) — **and `effectiveKind` is a two-clause rule, because the
+  coach's lane never named a round**: a legacy record carrying
+  `passId: "workshop"` was an Author ⌘R under the build where the coach read
+  every unassigned piece, so it loads as a CHECK. Read as a round it emptied
+  Author's pane, handed the cockpit her letter as a standing round and dropped
+  the delta marker (`RunKindTests`' legacy pins; `DiagnosticsStoreTests`' two
+  real-sidecar fixtures under `MaughamTests/Fixtures/`). **A round's
   conformance strains are stored in the round slot and drawn nowhere in P1**
   — a deliberate carry, not an omission: the round's findings reach the writer
   as annotations in the queue. `DeviceSlug.raw` is interpolated in

@@ -184,7 +184,7 @@ enum CompilerPrompt {
         issue gets one entry: what is already filed as a strain, a \
         continuity question or a reader's report does not return here. Write \
         only the parts your pass brief allows; with no brief, write all of \
-        them. About the delta you were given; on a cold reading, about the \
+        them. About the prose you were given; on a cold reading, about the \
         whole piece. Where the writer has asked something, answer it in \
         answer first, directly and in your own register — an opinion where \
         they asked for one, never a rewrite; answer is null when they asked \

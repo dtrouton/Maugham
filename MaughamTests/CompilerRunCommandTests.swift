@@ -6442,6 +6442,42 @@ final class CompilerRunCommandTests: XCTestCase {
                        + "behind it")
     }
 
+    /// **A document that has only ever been rounded, checked for the first
+    /// time** (whole-branch review, finding 7).
+    ///
+    /// A round records the marker it FOUND, and on a document nobody has ⌘R'd
+    /// there is none to find — so the check slot's `lastOpId` is nil and the
+    /// first check reads the piece whole rather than a delta since a position
+    /// some round invented. Afterwards the marker is the newest op, and the
+    /// standing round is exactly where the cockpit left it: the check writes
+    /// its own slot and no other.
+    func test_aFirstCheckOnAnOnlyEverRoundedDocumentReadsTheWholePiece() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: readingAfterMoreWriting(), stage: "copyedit")
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(1, on: runner)
+        settle()
+        let standingRound = try XCTUnwrap(harness.diagnostics.lastRound(docId: docId))
+        XCTAssertNil(harness.diagnostics.lastOpId(docId: docId),
+                     "control: a round moves no marker, so the check slot is empty")
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertTrue(runner.sends[1].message.contains("The fog came."),
+                      "the first paragraph must reach a check with no marker; "
+                      + "got \(runner.sends[1].message)")
+        XCTAssertTrue(runner.sends[1].message.contains("It stayed."),
+                      "\u{2026}and so must the second; got \(runner.sends[1].message)")
+        XCTAssertEqual(harness.diagnostics.lastOpId(docId: docId), "op2",
+                       "and the check leaves the marker at the newest op it saw")
+        XCTAssertEqual(harness.diagnostics.lastRound(docId: docId), standingRound,
+                       "the standing round is untouched, byte for byte")
+    }
+
     /// **`test_anEmptyDeltaStillAdvancesTheMarker`'s round twin, and it says
     /// the opposite.** That pin is the CHECK's: ops that changed no prose are
     /// passed so a later check does not re-walk them. A round has no marker to

@@ -635,7 +635,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(docId: "some-other-doc"), 0,
                        "the badge belongs to the document the run checked")
 
-        store.markRead(docId: docId)
+        store.markRead(docId: docId, kind: .check)
         XCTAssertEqual(store.unreadCount(docId: docId), 0)
 
         // A clean run clears rather than leaving the previous count standing
@@ -657,7 +657,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
         store.replace(run: makeRun(),
                       diagnostics: [makeDiagnostic(docId: docId)], docId: docId)
-        store.markRead(docId: docId)
+        store.markRead(docId: docId, kind: .check)
         XCTAssertEqual(store.unreadCount(docId: docId), 0, "control: cleared")
 
         store.replace(run: makeRun(mintedNotes: 3), diagnostics: [], docId: docId)
