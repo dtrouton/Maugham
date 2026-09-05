@@ -94,11 +94,12 @@ final class CompilerOrchestrator {
         /// only acknowledgment here that reports a FAILURE rather than a
         /// start, which is why it says what to do next.
         case pieceWouldNotOpen
-        /// A round was asked for on a piece nobody is reading — no pass, and
-        /// the coach's seat vacated. The second acknowledgment that reports a
-        /// FAILURE rather than a start, and it says what to do next for the
-        /// same reason `pieceWouldNotOpen` does. Minted here in P1 and
-        /// consumed in Task 2, where the round verb learns to refuse.
+        /// A round was asked for on a piece with no STAGE — unassigned, or
+        /// parked in a pass the writer has since retired. The seat does not
+        /// enter into it: the coach reads checks, and a round with no lane is
+        /// a numbered entry in nothing (`RoundEditor`). The second
+        /// acknowledgment that reports a FAILURE rather than a start, and it
+        /// says what to do next for the same reason `pieceWouldNotOpen` does.
         case noEditor
 
         /// The capsule's word. Kept beside the case rather than in the window
@@ -184,13 +185,19 @@ final class CompilerOrchestrator {
         let brief: String?
         /// Whether this pass is the **coach's seat** rather than a rung of the
         /// ladder (editorial letter P1, spec §4.1). Resolved once, in
-        /// `PieceReader`, and read by `CompilerPrompt.passSection`, which
+        /// `AuthorReader` — the CHECK's reader, and the only verb that can
+        /// carry it, since a round's frame is always a stage's (two loops P1
+        /// Task 2) — and read by `CompilerPrompt.passSection`, which
         /// frames a coach as a teacher and a stage as an editor. She is a pass
-        /// in every other respect the run cares about, which is what gives her
-        /// a lane, numbered rounds and pass-stamped notes with no orchestrator
-        /// change — so a second branch on this flag would be a second place
-        /// the seat stops behaving like a pass. No census guards that; the
-        /// claim here is about what SHOULD branch, not a counted fact.
+        /// in every other respect the run cares about — a name, an editor, a
+        /// brief — so a second branch on this flag would be a second place the
+        /// seat stops behaving like a pass. No census guards that; the claim
+        /// here is about what SHOULD branch, not a counted fact.
+        ///
+        /// **What she is NOT is a lane** (two loops P1 Task 2). She held one
+        /// under `PieceReader`, and numbered rounds and pass-stamped notes
+        /// came with it; now `beginRun` stamps a lane for a round alone, so a
+        /// check she reads files nowhere however completely she frames it.
         ///
         /// Defaulted in the initializer so every construction site that
         /// predates the seat still compiles and still means "a stage".
@@ -292,14 +299,27 @@ final class CompilerOrchestrator {
         /// every `Environment` built before the ledger existed still compiles
         /// and still runs.
         var lessons: @MainActor () -> String? = { nil }
-        /// **The review pass the writer has active on this piece** — the
-        /// round's comparison lane, asked once per run at the keystroke.
+        /// **Who reads this piece, for THIS verb** — asked once per run at the
+        /// keystroke (two loops P1 Task 2).
+        ///
+        /// **The kind is a parameter because the two loops have two
+        /// resolutions**, and that is the whole of this milestone's first
+        /// half. A `.check` is `AuthorReader` — the coach while her seat is
+        /// held, else nobody — and never reads the review board's memory. A
+        /// `.round` is `RoundEditor` — the stage the writer put this piece in,
+        /// validated against the ladder — and is never the coach. Answering
+        /// one question for both verbs is what filed an Author ⌘R as a
+        /// numbered round in a lane the writer was not standing in.
         ///
         /// Already validated against the project's live pass list by whoever
         /// answers: a lane is a pass that exists, and a run filed against a
-        /// retired id would be a round nothing can ever compare. `nil` is the
-        /// passless lane — an ordinary M2 ⌘R, which mints no round number at
-        /// all rather than round 1 of nothing.
+        /// retired id would be a round nothing can ever compare.
+        ///
+        /// `nil` means two different things by kind, and both are handled at
+        /// the one call site. For a `.check` it is the passless lane — an
+        /// ordinary M2 ⌘R, which mints no round number at all rather than
+        /// round 1 of nothing. For a `.round` it is a REFUSAL:
+        /// `runRequested` flashes `.noEditor` and starts nothing.
         ///
         /// Defaulted so that every `Environment` built before rounds existed
         /// still compiles: the answer it gives is the passless lane, which is
@@ -309,7 +329,7 @@ final class CompilerOrchestrator {
         /// lane, the editor's name and the brief are resolved together here and
         /// nowhere else, so the round's filing, the notes' authorship and the
         /// briefing cannot describe different passes.
-        var activePass: @MainActor (String) -> ActivePass? = { _ in nil }
+        var reader: @MainActor (String, RunKind) -> ActivePass? = { _, _ in nil }
         /// **The project's own type**, for the letter's scene position (spec
         /// §3.4, editorial letter P1 Task 3). A screenplay moves by scenes in
         /// the strong sense by its form; everything else reads as prose until
@@ -492,14 +512,20 @@ final class CompilerOrchestrator {
         let lastOpId: String?
         let deltaSummary: String
         let intentSnapshot: String?
-        /// The round's lane and its number, minted at the keystroke
+        /// **Who read this run** — the frame, minted at the keystroke
         /// (`beginRun`) and carried so the preview cannot describe a different
-        /// round from the answer that supersedes it. The lane travels WHOLE
-        /// (M4 P1) — the editor's name and the brief are resolved with it and
+        /// reader from the answer that supersedes it. It travels WHOLE (M4
+        /// P1) — the editor's name and the brief are resolved with it and
         /// never re-asked, because the writer can move the piece to another
-        /// pass while the check runs.
+        /// pass, or vacate the seat, while the run is in flight.
         let activePass: ActivePass?
-        var passId: String? { activePass?.id }
+        /// **The LANE, which is not the reader's id** (two loops P1 Task 2).
+        /// A check has a reader — the coach signs what it writes — and no
+        /// lane at all, so this is `nil` for every check and the frame beside
+        /// it is not. Stored rather than derived from `activePass`, because a
+        /// derivation here would be a second place the decision is made, and
+        /// the two would part company the first time either changed.
+        let passId: String?
         let round: Int?
         /// **The letter's scene position, derived at the keystroke and
         /// carried** (spec §3.4). Carried for the lane's own reason: the
@@ -632,6 +658,25 @@ final class CompilerOrchestrator {
         // reading the delta is built from is taken below, after the burst.
         guard environment.reading(docId) != nil else { return }
 
+        // **A round needs an editor, and there is no substitute for one** (two
+        // loops P1 Task 2). A round is a numbered entry in a named lane; with
+        // no stage on this piece there is no lane, so there is nothing to
+        // number and nothing a later round could be measured against. The
+        // coach is not a fallback here — she reads checks (`AuthorReader`),
+        // and filing her a round is how an unassigned piece came to have a
+        // lane at all.
+        //
+        // **Above the flash, so the refusal is the ONLY thing the press
+        // does.** Nothing is spawned, no marker moves, no `runState` changes:
+        // the writer gets one sentence telling them what to set, and the
+        // window is exactly as they left it. It sits below the `isRunning`
+        // guard on purpose — a press arriving mid-run is still "still
+        // checking", whatever the piece's lane says.
+        if kind == .round, environment.reader(docId, .round) == nil {
+            environment.onRunAcknowledged(.noEditor)
+            return
+        }
+
         // Synchronous with the keystroke, and deliberately ahead of the hop
         // below: the flash is ⌘S's muscle-memory acknowledgment, not a progress
         // indicator, and one that waited on a disk write would be neither.
@@ -754,15 +799,26 @@ final class CompilerOrchestrator {
         // a round, and numbering it would leave a gap in the lane the writer
         // never saw a report for.
         //
-        // **The lane is resolved WHOLE, and this is the one site** (M4 P1
-        // Task 3). The pass's editor signs the notes this round mints and its
-        // brief is what the round is briefed on; asking for either again later
+        // **The frame is resolved WHOLE, and this is the one site** (M4 P1
+        // Task 3). The reader's editor signs the notes this run mints and
+        // their brief is what it is briefed on; asking for either again later
         // would read a project the writer may have moved on since.
-        let activePass = environment.activePass(docId)
-        let passId = activePass?.id
+        //
+        // **Asked for THIS verb** (two loops P1 Task 2): a check is the
+        // coach's or nobody's, a round is the stage's. A round with no editor
+        // never reaches here at all — `runRequested` refused the press — so
+        // `nil` at this point is always a check with a vacated seat.
+        let activePass = environment.reader(docId, kind)
+        // **A CHECK is filed in no lane, whoever read it.** The coach is a
+        // reader and not a lane: her frame briefs the run and signs its notes,
+        // and stamping her id here would enter an Author ⌘R into a numbered
+        // lane the writer was never standing in — the exact defect the two
+        // resolutions split apart. Only a round has a lane, and by the guard
+        // above a round always has one.
+        let passId = kind == .round ? activePass?.id : nil
         // A passless run mints no number at all rather than round 1 of
         // nothing (decision 1: the passless lane is a lane, and an ordinary M2
-        // run is what it holds).
+        // run is what it holds). Every check is now such a run.
         let round = passId == nil
             ? nil
             : (diagnostics.latestRound(forPass: passId, docId: docId) ?? 0) + 1
@@ -783,7 +839,16 @@ final class CompilerOrchestrator {
         // since-last-round line refuses the same round from the other end
         // (`RoundNarrative.sinceLastRoundLine`), so the briefing and the
         // report agree about what this round was measured against — nothing.
-        let previousRound = freshEyes ? nil : Self.previousRound(
+        //
+        // **And a CHECK is briefed on none of it either** (two loops P1 Task
+        // 2). "What the last round raised, and what became of each" is the
+        // round loop's question; a check is the writer's own read of what they
+        // have just written, and handing it a lane's history would make ⌘R
+        // answer for a loop it does not belong to. Asked on the kind rather
+        // than on `passId == nil`, which is the same answer today by
+        // arithmetic and would stop being one the moment a check acquires a
+        // lane of its own.
+        let previousRound = (freshEyes || kind == .check) ? nil : Self.previousRound(
             inLane: passId, docId: docId, diagnostics: diagnostics, environment: environment)
 
         // **What the writer has already done about this piece's notes**, read
@@ -955,7 +1020,8 @@ final class CompilerOrchestrator {
             self.streaming = StreamingRun(
                 generation: generation, docId: docId, runId: runId, model: model,
                 lastOpId: lastOpId, deltaSummary: deltaSummary,
-                intentSnapshot: briefing?.statementText, activePass: activePass, round: round,
+                intentSnapshot: briefing?.statementText, activePass: activePass,
+                passId: passId, round: round,
                 scenePosition: scenePosition, stage: stage, dosage: dosage,
                 ask: ask, freshEyes: freshEyes, kind: kind)
             runner.setPartialHandler { [weak self] chunk in
@@ -966,7 +1032,7 @@ final class CompilerOrchestrator {
             await self.finish(event, docId: docId, runId: runId, lastOpId: lastOpId,
                               deltaSummary: deltaSummary,
                               intentSnapshot: briefing?.statementText,
-                              activePass: activePass, round: round,
+                              activePass: activePass, passId: passId, round: round,
                               scenePosition: scenePosition, stage: stage,
                               dosage: dosage, ask: ask,
                               freshEyes: freshEyes, kind: kind,
@@ -1385,12 +1451,12 @@ final class CompilerOrchestrator {
     /// mint is synchronous with the turn's own resumption and needs no guard.
     private func finish(
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
-        deltaSummary: String, intentSnapshot: String?, activePass: ActivePass?, round: Int?,
+        deltaSummary: String, intentSnapshot: String?, activePass: ActivePass?,
+        passId: String?, round: Int?,
         scenePosition: ScenePosition, stage: DraftStage, dosage: LetterDosage,
         ask: String?, freshEyes: Bool, kind: RunKind, briefingHash: String?,
         model: String, generation: Int
     ) async {
-        let passId = activePass?.id
         switch event {
         case .started:
             // Unreachable through `send`, which resolves with a terminal event
@@ -1468,13 +1534,16 @@ final class CompilerOrchestrator {
                         // the label `AnnotationAuthorPresentation` already
                         // gives an author-less note. **The fallback is read
                         // off the resolution rather than off the constant**
-                        // (editorial letter P1 Task 5): `PieceReader.nobody`
-                        // IS the case this `??` covers, and naming it here
-                        // keeps `passlessEditorName` to the one production use
+                        // (editorial letter P1 Task 5): `AuthorReader.nobody`
+                        // IS the case this `??` covers — a check with the seat
+                        // vacated, the only way a run reaches here with no
+                        // frame at all — and naming it keeps
+                        // `passlessEditorName` to the one production use
                         // `TripwireGrepTests`' census pins. A held seat never
-                        // reaches the fallback at all — the coach is an
-                        // `ActivePass` with an editor of her own.
-                        editorName: activePass?.editorName ?? PieceReader.nobody.editorName))
+                        // reaches the fallback — the coach is an `ActivePass`
+                        // with an editor of her own — and neither does a
+                        // round, which was refused without one.
+                        editorName: activePass?.editorName ?? AuthorReader.nobody.editorName))
             }
             // The one suspension in this method, and the writes below are what
             // make it worth guarding. See the doc comment.

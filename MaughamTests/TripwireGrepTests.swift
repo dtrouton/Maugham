@@ -452,14 +452,14 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// **Tripwire: `CompilerOrchestrator.passlessEditorName` has exactly ONE
-    /// production use, and it is `PieceReader`'s *nobody* arm.**
+    /// production use, and it is `AuthorReader`'s *nobody* arm.**
     ///
-    /// Who reads a piece is one resolution (spec §4.1): *stage / coach /
-    /// nobody*. A second site reaching for the constant is a second answer to
-    /// "who signs this piece's notes" — and the answer it gives is always
-    /// "Claude", which since the coach took the seat is wrong for every
-    /// unassigned piece. The mint site is the one that used to hold it and now
-    /// reads `PieceReader.nobody.editorName` instead, so the fallback and the
+    /// Who reads a CHECK is one resolution (two loops P1, spec §2): the coach
+    /// or nobody. A second site reaching for the constant is a second answer
+    /// to "who signs this piece's notes" — and the answer it gives is always
+    /// "Claude", which while the seat is held is wrong for every piece. The
+    /// mint site is the one that used to hold it and now reads
+    /// `AuthorReader.nobody.editorName` instead, so the fallback and the
     /// resolution cannot drift apart.
     func test_thePasslessEditorNameHasExactlyOneProductionUse() throws {
         let offenders = try grepSwift(
@@ -468,8 +468,8 @@ final class TripwireGrepTests: XCTestCase {
             excludeLine: { self.passlessNameNonUse($0) })
         XCTAssertEqual(
             offenders.compactMap { $0.split(separator: ":").first.map(String.init) },
-            ["PieceReader.swift"],
-            "the passless name is read in one place \u{2014} PieceReader's "
+            ["AuthorReader.swift"],
+            "the passless name is read in one place \u{2014} AuthorReader's "
             + "nobody arm \u{2014} and every other site asks the resolution "
             + "instead. Offenders:\n" + offenders.joined(separator: "\n"))
 
@@ -517,6 +517,143 @@ final class TripwireGrepTests: XCTestCase {
             + "the declaration nor the comment. Got:\n"
             + offenders.joined(separator: "\n"))
         XCTAssertTrue(offenders[0].hasPrefix("SecondReader.swift:"), offenders[0])
+    }
+
+    // MARK: - The two readers never read each other's input (two loops P1)
+
+    /// The two files the split lives in. Named rather than globbed, because
+    /// the claim is about THESE resolutions: a third file reading either value
+    /// is not what these censuses are about, and widening them to the whole
+    /// tree would catch every legitimate reader of the board's memory.
+    private static let checkReaderFiles: Set<String> = [
+        "AuthorReader.swift", "CompilerEnvironment+Project.swift"
+    ]
+    private static let roundEditorFiles: Set<String> = [
+        "RoundEditor.swift", "CompilerEnvironment+Project.swift"
+    ]
+
+    /// Lines that mention a value but are not a READ of it: any comment.
+    /// The censuses below are about wiring, and both files explain themselves
+    /// at length — a doc comment naming the value it deliberately does not
+    /// read is the opposite of the defect.
+    private func commentLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+    }
+
+    /// **Tripwire: the CHECK's reader never reads the review board's memory.**
+    ///
+    /// `ActivePassMemory` is where the writer's Review board records which
+    /// pass a piece is parked in. That is the ROUND loop's input. A check that
+    /// read it is exactly the defect two loops P1 removed: an Author ⌘R on a
+    /// chapter parked in Gould's lane signed its notes "Gould" and filed them
+    /// as a numbered round in a lane the writer was not standing in.
+    ///
+    /// So the memory may be named in exactly one place across the two files
+    /// the split lives in — the `.round` arm of the production wiring — and
+    /// `AuthorReader.swift` may not name it at all. Asserted structurally as
+    /// well as by count, because a hit that MOVED from the round arm to the
+    /// check arm would keep the count and lose the whole rule.
+    func test_theCheckReaderNeverReadsTheBoardsMemory() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            files: Self.checkReaderFiles,
+            patterns: ["activePassMemory"],
+            excludeLine: { self.commentLine($0) })
+        XCTAssertEqual(
+            offenders.compactMap { $0.split(separator: ":").first.map(String.init) },
+            ["CompilerEnvironment+Project.swift"],
+            "the board's memory is read in ONE place across these two files, "
+            + "and never by the check's own resolution. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+
+        // …and that one read is inside the `.round` arm. The count above
+        // cannot tell a read that moved arms from one that did not.
+        let wiring = try String(
+            contentsOf: sourceDir
+                .appendingPathComponent("Compiler/CompilerEnvironment+Project.swift"),
+            encoding: .utf8)
+        let check = try XCTUnwrap(wiring.range(of: "case .check:"),
+                                  "find the reader closure's switch by name if "
+                                  + "it moved")
+        let round = try XCTUnwrap(wiring.range(of: "case .round:",
+                                               range: check.upperBound..<wiring.endIndex))
+        XCTAssertFalse(
+            wiring[check.upperBound..<round.lowerBound].contains("activePassMemory"),
+            "the check arm must not reach for the board's memory")
+        XCTAssertTrue(
+            wiring[round.lowerBound...].contains("activePassMemory"),
+            "control: the round arm is where it really is read")
+    }
+
+    /// **Tripwire: the ROUND's editor is never the coach.**
+    ///
+    /// The seat is the check loop's (`AuthorReader`). A round is a numbered
+    /// entry in a named lane, and the coach has no lane a reviewer can select
+    /// — filing her one is how an unassigned piece came to have rounds at all.
+    /// `RoundEditor` refuses instead, and the refusal is the whole point, so
+    /// neither it nor the round arm of the production wiring may name the
+    /// seat.
+    func test_theRoundEditorNeverReachesForTheCoachsSeat() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            files: Self.roundEditorFiles,
+            patterns: ["effectiveCoach"],
+            excludeLine: { self.commentLine($0) })
+        XCTAssertEqual(
+            offenders, [],
+            "a round is a stage's or it is refused \u{2014} the seat is not a "
+            + "fallback, and naming it here is how it becomes one. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the two censuses above: they are not passing because the
+    /// patterns match nothing. Planted offenders in both files are caught, and
+    /// a comment naming either value is not.
+    func test_theTwoReaderCensusesFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-two-readers-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        extension ProjectManifest {
+            // A comment naming activePassMemory is not a read.
+            var authorReader: AuthorReader {
+                let stored = documentStore.uiState.activePassMemory
+                return stored.isEmpty ? .nobody : .coach(ReviewPass.coachPreset)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("AuthorReader.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        extension ProjectManifest {
+            // A comment naming effectiveCoach is not a read.
+            func roundEditor(forPiece piece: String) -> ReviewPass? {
+                effectiveCoach
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("RoundEditor.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let memoryHits = try grepSwift(
+            in: tmp, files: Self.checkReaderFiles,
+            patterns: ["activePassMemory"],
+            excludeLine: { self.commentLine($0) })
+        XCTAssertEqual(memoryHits.count, 1,
+            "Self-check: the planted read should be the one caught, and not the "
+            + "comment. Got:\n" + memoryHits.joined(separator: "\n"))
+        XCTAssertTrue(memoryHits[0].hasPrefix("AuthorReader.swift:"), memoryHits[0])
+
+        let seatHits = try grepSwift(
+            in: tmp, files: Self.roundEditorFiles,
+            patterns: ["effectiveCoach"],
+            excludeLine: { self.commentLine($0) })
+        XCTAssertEqual(seatHits.count, 1,
+            "Self-check: the planted seat read should be caught, and not the "
+            + "comment. Got:\n" + seatHits.joined(separator: "\n"))
+        XCTAssertTrue(seatHits[0].hasPrefix("RoundEditor.swift:"), seatHits[0])
     }
 
     // MARK: - A run's kind is minted from the persona in one place (two loops P1)

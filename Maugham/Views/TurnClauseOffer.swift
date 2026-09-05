@@ -101,7 +101,8 @@ enum TurnClauseOffer {
     }
 
     /// What the ruling's line says about where it came from. The voice is the
-    /// piece's reader (`PieceReader.editorName`), so a writer reading their
+    /// piece's reader (`AuthorReader.editorName`, or the round's own stage),
+    /// so a writer reading their
     /// own intent months later can see which letter asked.
     static func provenance(voice: String) -> String { "from \(voice)'s letter" }
 

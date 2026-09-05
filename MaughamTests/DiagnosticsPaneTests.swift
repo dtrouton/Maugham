@@ -946,18 +946,17 @@ final class DiagnosticsPaneTests: XCTestCase {
                        DetailSegment.intent.rawValue)
     }
 
-    // MARK: - Who reads this piece (editorial letter P1 Task 7)
+    // MARK: - Who reads this piece's checks (two loops P1 Task 2)
     //
-    // `PieceReader` is the one resolution (`PieceReaderTests` pins the rule
-    // itself); these pin the header's line and the empty-state promise it
-    // computes from the SAME value, so the two surfaces cannot name two
-    // different people.
-
-    func test_readerCopy_stageNamesTheStagesEditorAndPassName() {
-        XCTAssertEqual(
-            DiagnosticsPane.readerCopy(for: .stage(ReviewPass.presets[1])),
-            "Lish \u{00b7} Line")
-    }
+    // `AuthorReader` is the check loop's resolution (`AuthorReaderTests` pins
+    // the rule itself); these pin the header's line and the empty-state
+    // promise it computes from the SAME value, so the two surfaces cannot name
+    // two different people.
+    //
+    // There is no stage arm here and no test for one: a piece parked in
+    // Gould's lane on the review board is still read in Author by the seat,
+    // and the "editor · pass" spelling this pane used to draw went with the
+    // arm.
 
     /// **Never her pass name** — "Workshop" appears on no surface a writer
     /// has ever seen (`ReviewPass.laneDisplayName`'s own rule); the coach
@@ -974,22 +973,22 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     /// **One input, two readers.** A test constructing the pane with a coach
     /// reader gets the coach's name in both the header line and the
-    /// empty-state promise; the stage arm is the control, since it carries a
-    /// different shape ("editor · pass name") and must still agree on WHO.
+    /// empty-state promise; the vacated seat is the control, since it is the
+    /// other arm and must agree with itself the same way.
     func test_theHeaderLineAndTheEmptyStatePromiseNameTheSameReader_coach() {
-        let reader = PieceReader.coach(ReviewPass.coachPreset)
+        let reader = AuthorReader.coach(ReviewPass.coachPreset)
         let header = DiagnosticsPane.readerCopy(for: reader)
         let empty = DiagnosticsPane.emptyState(for: .neverRun, readerName: reader.editorName)
         XCTAssertTrue(header.contains("Le Guin"), "got: \(header)")
         XCTAssertTrue(empty.description.contains("Le Guin"), "got: \(empty.description)")
     }
 
-    func test_theHeaderLineAndTheEmptyStatePromiseNameTheSameReader_stage() {
-        let reader = PieceReader.stage(ReviewPass.presets[2])
+    func test_theHeaderLineAndTheEmptyStatePromiseNameTheSameReader_nobody() {
+        let reader = AuthorReader.nobody
         let header = DiagnosticsPane.readerCopy(for: reader)
         let empty = DiagnosticsPane.emptyState(for: .neverRun, readerName: reader.editorName)
-        XCTAssertTrue(header.contains("Gould"), "got: \(header)")
-        XCTAssertTrue(empty.description.contains("Gould"), "got: \(empty.description)")
+        XCTAssertTrue(header.contains("Claude"), "got: \(header)")
+        XCTAssertTrue(empty.description.contains("Claude"), "got: \(empty.description)")
     }
 
     func test_emptyState_neverRun_promiseNamesTheGivenReader() {
@@ -1025,26 +1024,6 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(
             labels.contains { $0.contains("Le Guin reads what you've written") },
             "the empty-state promise must name the same editor the header does; got \(labels)")
-    }
-
-    /// Control: a stage reader's own editor reaches both surfaces too, in the
-    /// header's different ("editor · pass") shape.
-    func test_mountedPane_headerAndEmptyStateNameTheSameReader_stage() throws {
-        let docId = "doc-reader-stage"
-        let diagnosticsStore = DiagnosticsStore(
-            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: diagnosticsStore, docId: docId,
-            currentText: { _ in nil }, compilerModel: .standard,
-            reader: .stage(ReviewPass.presets[2]))))
-        pump(0.2)
-
-        let labels = allLabels(in: window)
-        XCTAssertTrue(labels.contains("Gould \u{00b7} Copyedit"), "got: \(labels)")
-        XCTAssertTrue(
-            labels.contains { $0.contains("Gould reads what you've written") },
-            "got: \(labels)")
     }
 
     /// **`.nobody` — the pane's default — reads exactly as it did before the
@@ -4016,7 +3995,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     /// **The signature names the piece's reader**, which is the one resolution
-    /// the header and the empty state already read (`PieceReader`).
+    /// the header and the empty state already read (`AuthorReader`).
     func test_theLetterIsSignedByThePiecesReader() throws {
         let docId = "doc-signature"
         let diagnostics = DiagnosticsStore(
@@ -4619,7 +4598,7 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     private func mountLetterPane(
         store: ProjectStore?, docId: String, letter: Letter,
-        reader: PieceReader = .nobody,
+        reader: AuthorReader = .nobody,
         freshEyes: Bool? = nil,
         passId: String? = nil, round: Int? = nil
     ) -> NSWindow {

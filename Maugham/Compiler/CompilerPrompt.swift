@@ -525,7 +525,8 @@ enum CompilerPrompt {
         // **The coach is a teacher, not an editor** (spec §4.1, §4.4). She is
         // a pass in every respect this file cares about — a name, an editor,
         // a brief — and `isCoach` is the ONE thing that differs, resolved once
-        // in `PieceReader` and read only here. Her own name is the noun in the
+        // in `AuthorReader` — a CHECK's reader, and the only verb that can
+        // carry the flag — and read only here. Her own name is the noun in the
         // frame (lowercased, because it is a common noun in this sentence
         // where a stage's is a proper one), so a writer who renames the seat
         // renames what she teaches rather than leaving a second spelling of

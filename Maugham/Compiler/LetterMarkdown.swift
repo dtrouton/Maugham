@@ -36,7 +36,8 @@ enum LetterMarkdown {
     /// months later has to tell two letters apart by.
     ///
     /// - Parameters:
-    ///   - editorName: the piece's reader (`PieceReader.editorName`).
+    ///   - editorName: the run's own reader — `AuthorReader.editorName`
+    ///     for a check, the stage's `effectiveEditorName` for a round.
     ///   - laneLine: the round's lane, already built by the caller
     ///     (`ReviewRoundCockpit.laneLine`/`coachLine`). Empty for a passless
     ///     run, which has no lane to name.

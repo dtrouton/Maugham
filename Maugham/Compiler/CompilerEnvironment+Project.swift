@@ -165,16 +165,24 @@ extension CompilerOrchestrator.Environment {
                 else { return nil }
                 return try? store.statementText(of: ledger)
             },
-            activePass: { [weak store, weak documentStore] docId in
-                // **`ProjectManifest.reader(forPiece:memory:)` — the one
-                // resolution** (editorial letter P1, spec §4.1). Who reads a
-                // piece is *stage / coach / nobody*, decided in `PieceReader`
-                // and nowhere else, so the run, the Author header and the
-                // round lines cannot name three different people. An
-                // unassigned piece with the seat held is the coach's, and she
-                // is an `ActivePass` like any other — which is what gives her
-                // a lane, a numbered round and a pass-stamped byline with no
-                // orchestrator change. A vacated seat answers nil, the M2 lane.
+            reader: { [weak store, weak documentStore] docId, kind in
+                // **Two verbs, two resolutions** (two loops P1 Task 2, spec
+                // §2). The switch is exhaustive rather than a ternary so a
+                // third loop is a compile error here: which reader a new verb
+                // gets is a decision, not a default.
+                //
+                // A **check** is `ProjectManifest.authorReader` — the coach
+                // while her seat is held, else nobody. It takes no piece and
+                // reads no review-board memory: what lane a chapter is parked
+                // in is a fact about the round loop, and a check that read it
+                // signed Author's notes with an editor the writer never chose.
+                // A vacated seat answers nil, the M2 lane.
+                //
+                // A **round** is `ProjectManifest.roundEditor(forPiece:memory:)`
+                // — the stage the writer put this piece in, validated against
+                // the ladder as it stands. It is never the coach, and nil is
+                // not a fallback: `runRequested` refuses the press with
+                // `.noEditor` and starts nothing.
                 //
                 // The memory is read off `uiState` rather than any window's
                 // `@State` mirror, for the margin stamp's reason
@@ -186,10 +194,25 @@ extension CompilerOrchestrator.Environment {
                 //
                 // Keyed `forPiece:` with a document id, as every other reader
                 // of the memory is: the piece IS the document here.
-                guard let store, let documentStore else { return nil }
-                return store.manifest.reader(
-                    forPiece: docId,
-                    memory: documentStore.uiState.activePassMemory).activePass
+                guard let store else { return nil }
+                switch kind {
+                case .check:
+                    return store.manifest.authorReader.activePass
+                case .round:
+                    guard let documentStore,
+                          let stage = store.manifest.roundEditor(
+                            forPiece: docId,
+                            memory: documentStore.uiState.activePassMemory)
+                    else { return nil }
+                    // **`isCoach: false`, always.** A round is a stage's by
+                    // construction, and the flag is what frames its reader as
+                    // a teacher rather than an editor.
+                    return CompilerOrchestrator.ActivePass(
+                        id: stage.id, name: stage.name,
+                        editorName: stage.effectiveEditorName,
+                        brief: stage.effectiveBrief,
+                        isCoach: false)
+                }
             },
             // **The project's own type**, for the letter's scene position
             // (spec §3.4). `ProjectManifest.type` — the same field

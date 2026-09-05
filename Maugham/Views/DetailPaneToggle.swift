@@ -616,10 +616,11 @@ struct DetailPaneToggle<Inspector: View>: View {
                 // run checks the writer against a world derived before their
                 // ruling existed, and nothing anywhere says so.
                 world: declaredWorldStore,
-                // Who reads THIS piece — the one resolution (`PieceReader`),
-                // read the same way the round cockpit's own line does.
-                reader: store.manifest.reader(
-                    forPiece: activeDocId, memory: ds.uiState.activePassMemory),
+                // **Who reads this piece's CHECKS** — `AuthorReader` (two
+                // loops P1 Task 2). This pane is Author's, and Author checks;
+                // the piece's lane on the review board is the round loop's
+                // fact and is deliberately not read here.
+                reader: store.manifest.authorReader,
                 onOpenBoard: { Self.openBoardInReview(selectedSubject: $selectedSubject) })
         } else {
             ContentUnavailableView(

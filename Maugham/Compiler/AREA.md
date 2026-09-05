@@ -224,12 +224,13 @@ seeded `brief` — what its rounds attend to, and as sharply what they leave
 alone — and an `editorName`. A pass's own `brief`/`editorName` field wins when
 set; a customized manifest can store a preset-id pass that predates both
 fields, so every reader resolves through `ReviewPass.effectiveBrief`/
-`.effectiveEditorName` rather than the raw fields. `PieceReader`
-(`Maugham/Models/PieceReader.swift`) is the COMPILER's one call site — every
-run's voice and brief resolve there, and its own comment names why reading
-`pass.editorName` directly would sign a Copyedit round's notes with nothing at
-all — while the surfaces that merely NAME a lane (the cockpit, the board, the
-settings sheet, `get_outline`) resolve for themselves at the point of display.
+`.effectiveEditorName` rather than the raw fields. `AuthorReader` and
+`RoundEditor` (`Maugham/Models/`) are the COMPILER's two call sites — every
+run's voice and brief resolve through one of them, and `AuthorReader`'s own
+comment names why reading `pass.editorName` directly would sign a Copyedit
+round's notes with nothing at all — while the surfaces that merely NAME a lane
+(the cockpit, the board, the settings sheet, `get_outline`) resolve for
+themselves at the point of display.
 A custom pass with no brief of its own and no matching preset gets the honest
 fallback: attend at the altitude the pass's name suggests.
 
@@ -242,27 +243,53 @@ the register the writer chose. Grep `effectiveEditorName` for the readers
 rather than trusting a number here — the display surfaces resolve for
 themselves and nothing censuses them.
 
-**Who reads a piece has ONE resolution** (editorial letter P1 Task 5, spec
-§4.1): `ProjectManifest.reader(forPiece:memory:)` answers a `PieceReader` —
-*stage* / *coach* / *nobody* — and `CompilerEnvironment+Project.swift`'s
-`activePass` closure asks it rather than re-deriving the rule. A stored active
-pass that still names a stage wins; else the coach, unless the writer vacated
-her seat; else nobody. So an **unassigned piece is Le Guin's**, files rounds in
-her `workshop` lane and mints notes signed "Le Guin" — with no orchestrator
-change, because she is an `ActivePass` like any pass. A **retired** pass id
-reads as unassigned (`validatedActivePass`) and therefore falls to the coach:
-deleting a pass gives its pieces back to her. `ActivePass.isCoach` is the one
-thing that differs downstream, and it is read by `CompilerPrompt.passSection` —
-a coach is framed as a teacher ("You are Le Guin, this writer's workshop
-teacher.") where a stage is framed as an editor. Nothing counts the readers of
-that flag, so treat it as the rule it is rather than a fact: a second branch on
-it is a second place the seat stops behaving like a pass. `nil` — no
-`ActivePass` at all — is now reached ONLY by a vacated seat: that is the
-passless lane, which mints no round, stamps nothing and signs "Claude", M2's
-identity, unchanged. `CompilerOrchestrator.passlessEditorName` has exactly one
-production use, in `PieceReader`'s *nobody* arm, and
+**Who reads a piece has TWO resolutions, because there are two loops** (two
+loops P1 Task 2, spec §2). Author's ⌘R is a **check**; Review's Run is a
+**round**; `RunKind` says which, minted from the persona at the keystroke, and
+`Environment.reader(docId, kind)` is the one closure both go through
+(`CompilerEnvironment+Project.swift`, whose switch is exhaustive so a third
+loop is a compile error rather than a default).
+
+A **check** is `ProjectManifest.authorReader` → `AuthorReader`: the coach while
+her seat is held, else nobody. It is per PROJECT and takes no piece, and it
+reads no `ActivePassMemory` at all — what lane a chapter is parked in on the
+review board is the round loop's fact. So an unassigned piece is Le Guin's to
+READ, and a piece parked in Gould's lane is *also* hers to read in Author. A
+check files in **no lane whatever**: `beginRun` stamps `passId` only for a
+round, so a check mints no round number, stamps nothing on what it writes, and
+is briefed on no prior round. Her name still signs its notes, which is the
+distinction the split turns on — *a reader is not a lane*. `nil` — a vacated
+seat — is the passless lane: notes signed "Claude", M2's identity, unchanged.
+`CompilerOrchestrator.passlessEditorName` has exactly one production use, in
+`AuthorReader`'s *nobody* arm, and
 `TripwireGrepTests.test_thePasslessEditorNameHasExactlyOneProductionUse` keeps
 it that way.
+
+A **round** is `ProjectManifest.roundEditor(forPiece:memory:)` → a `ReviewPass?`:
+the stage the writer put this piece in, validated through
+`ActivePassMemory.validatedActivePass` against `effectiveReviewPasses`. It is
+**never the coach** — she is deliberately absent from that list, so a stored
+`workshop` id resolves to nothing — and `nil` is a REFUSAL rather than a
+fallback: `runRequested` flashes `Acknowledgment.noEditor` ("Set a pass to run
+a round.") and starts nothing at all — no session spawned, no marker moved, no
+record, `runState` still `.idle`. A **retired** pass id refuses the same way;
+under the old single resolution it fell to the coach and quietly filed a round
+in her lane.
+
+Two censuses keep the two inputs apart, each with a planted offender:
+`TripwireGrepTests.test_theCheckReaderNeverReadsTheBoardsMemory` (no
+`activePassMemory` in `AuthorReader.swift`, and exactly one read in the
+wiring's `.round` arm — asserted structurally, since a read that moved arms
+would keep the count) and `test_theRoundEditorNeverReachesForTheCoachsSeat`
+(no `effectiveCoach` in `RoundEditor.swift` or the wiring).
+
+`ActivePass.isCoach` is the one thing that differs downstream, and it is read
+by `CompilerPrompt.passSection` — a coach is framed as a teacher ("You are Le
+Guin, this writer's workshop teacher.") where a stage is framed as an editor.
+Only a CHECK can carry it: a round's `ActivePass` is always a stage's, built
+`isCoach: false`. Nothing counts the readers of that flag, so treat it as the
+rule it is rather than a fact: a second branch on it is a second place the seat
+stops behaving like a pass.
 
 **The dispositions section is the warm path's duplicate guard, and its two
 halves are asymmetric on purpose** (`CompilerPrompt.dispositionsSection`,

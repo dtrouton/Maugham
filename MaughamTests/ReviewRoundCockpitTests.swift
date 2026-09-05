@@ -390,29 +390,44 @@ final class ReviewRoundCockpitTests: XCTestCase {
 
     // MARK: - The empty queue names the piece's own reader (Task 6 fix round)
 
-    /// **An unassigned piece under a held seat offers HER round**, not "ask
-    /// Claude in Claude Desktop".
+    /// **An unassigned piece offers NO editor's round, held seat or not** (two
+    /// loops P1 Task 2).
     ///
     /// The teaching's whole job is to name the loop the writer is one
-    /// keystroke from. Over a coached piece \u{2318}R runs Le Guin's round and
-    /// signs her name to what comes back, so an empty state that names nobody
-    /// describes an app the writer is not in.
+    /// keystroke from, and over an unassigned piece there is no round to
+    /// name: a round is a stage's or it is refused (`RoundEditor`), and the
+    /// press would flash "Set a pass to run a round." The seat reads CHECKS
+    /// now, so offering Le Guin's round here would describe a run this button
+    /// cannot make.
+    ///
+    /// This test asserted the opposite until two loops P1, and the assertion
+    /// was right while one resolution served both verbs. It is inverted rather
+    /// than deleted because the sentence the queue draws is the writer-visible
+    /// half of the refusal.
     ///
     /// Driven through the real pane on a document with no notes, so it is the
     /// wiring under test and not `emptyQueueTeaching`'s own truth table (which
     /// `test_theEmptyQueueNamesBothWaysItFills` owns).
-    func test_theEmptyQueueOffersTheCoachsRoundOverAnUnassignedPiece() async throws {
+    func test_theEmptyQueueOffersNoEditorsRoundOverAnUnassignedPiece() async throws {
         let fx = try await makeHarness()
         XCTAssertEqual(fx.store.manifest.effectiveCoach, ReviewPass.coachPreset,
-                       "premise: the seat is held")
+                       "premise: the seat is held \u{2014} and it makes no "
+                       + "difference to a round")
 
         let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
         let labels = allLabels(in: window)
-        XCTAssertTrue(
+        XCTAssertTrue(labels.contains { $0.contains("\u{2318}R") },
+                      "the keystroke is still named \u{2014} got \(labels)")
+        XCTAssertFalse(
             labels.contains { $0.contains(
                 RoundNarrative.runRoundTitle(editorName: "Le Guin")) },
-            "the empty queue must offer the round \u{2318}R would actually run "
+            "the queue must not offer a round the press would refuse "
             + "\u{2014} got \(labels)")
+        XCTAssertFalse(
+            labels.contains { $0.contains(
+                RoundNarrative.runRoundTitle(editorName: "Claude")) },
+            "\u{2026}least of all \u{201C}Claude\u{201D}'s, which is a byline "
+            + "and not an editor to invite. Got \(labels)")
     }
 
     /// **Control: an assigned piece names its own stage's editor.** The seat
@@ -457,20 +472,25 @@ final class ReviewRoundCockpitTests: XCTestCase {
             + "and not an editor to invite. Got \(labels)")
     }
 
-    /// The pane asks the ONE reader resolution, and asks it for the arm that
-    /// can be nil. `editorName` is never nil — it falls back to "Claude" — so
-    /// a site reading it instead would invent "Run Claude's round" for a piece
-    /// nobody reads, which is exactly the sentence the vacated case avoids.
-    func test_theEmptyStateReadsTheOneResolutionAndItsNilableArm() throws {
+    /// The pane offers the round its own STAGE would run, and reads the arm
+    /// that can be nil (two loops P1 Task 2).
+    ///
+    /// Two claims in one census. The offer is derived from `cockpitActivePass`
+    /// — the piece's validated stage, the same value the strip's lane label
+    /// and the Run button read — so the sentence and the press cannot describe
+    /// different rounds. And it is the OPTIONAL that is read:
+    /// `effectiveEditorName` behind a `??` would invent "Run Claude's round"
+    /// for a piece no stage reads, which is exactly the sentence the nil arm
+    /// exists to avoid.
+    func test_theEmptyStateReadsThePiecesStageAndItsNilableArm() throws {
         let pane = try Self.source(of: "Views/AnnotationsPane.swift")
-        let reader = try XCTUnwrap(
-            Self.declaration(named: "private var cockpitReader: PieceReader? {", in: pane),
-            "the pane must resolve the piece's reader in one readable place")
-        XCTAssertTrue(reader.contains("store.manifest.reader(forPiece:"),
-                      "through the one resolution and never a second derivation. "
-                      + "Got:\n\(reader)")
-        XCTAssertTrue(pane.contains("editorName: cockpitReader?.activePass?.editorName"),
-                      "and the offer reads the arm that is nil for nobody")
+        XCTAssertFalse(pane.contains("cockpitReader"),
+                       "the check loop's resolution has no business in Review's "
+                       + "queue \u{2014} a round is run by the piece's stage")
+        XCTAssertTrue(
+            pane.contains("editorName: cockpitActivePass?.effectiveEditorName)"),
+            "the offer must read the piece's stage, through the arm that is "
+            + "nil when there is none")
     }
 
     /// **The Run button's tooltip names the round the press would produce** —

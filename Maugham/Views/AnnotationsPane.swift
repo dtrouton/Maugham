@@ -701,11 +701,12 @@ struct AnnotationsPane: View {
         if !scope.isProject, let document, let orchestrator, let diagnostics {
             let pass = cockpitActivePass
             // **The seat, for the label alone** (editorial letter P1, Task 6).
-            // `effectiveCoach` rather than `PieceReader`: the strip already
-            // holds the piece's resolved stage beside it, and the two values
-            // together are exactly the resolution's arms — a second reader
-            // here would be a copy of `reader(forPiece:memory:)` with nothing
-            // keeping the two in step.
+            // `effectiveCoach` rather than a reader resolution: the strip
+            // already holds the piece's resolved stage beside it, and a
+            // second derivation here would be a copy with nothing keeping the
+            // two in step. The coach can no longer run a round (two loops P1
+            // Task 2, `RoundEditor`), so what this label says about her is
+            // Task 8's to settle.
             let coach = store.manifest.effectiveCoach
             ReviewRoundCockpit(
                 passes: reviewPasses,
@@ -791,26 +792,6 @@ struct AnnotationsPane: View {
         return reviewPasses.first { $0.id == id }
     }
 
-    /// **Who reads this piece** — the one resolution (`PieceReader`, spec §4.1),
-    /// asked here so the empty queue's offer names the same editor the run
-    /// will sign with.
-    ///
-    /// Deliberately not a second copy of `cockpitActivePass`: that value is
-    /// the piece's STAGE and must stay nil over a coached piece, because the
-    /// cockpit's lane label takes its coach arm on exactly that. This answers
-    /// the whole question — stage, coach, or nobody — and the two agree by
-    /// construction, since the resolution reads `validatedActivePass` too.
-    ///
-    /// The offer reads `activePass?.editorName` rather than `editorName`,
-    /// because a piece nobody reads has no editor to name in an invitation:
-    /// `editorName` is never nil (it falls back to "Claude", the byline a
-    /// passless run signs with), and naming that in "Run Claude's round" would
-    /// invent a personification the seat-vacant case exists to avoid.
-    private var cockpitReader: PieceReader? {
-        guard let docId = document?.docId else { return nil }
-        return store.manifest.reader(forPiece: docId, memory: activePassMemory)
-    }
-
     /// The lane's newest round number. `latestRound` consults the standing run
     /// before the ring — the ONE spelling of "which round is this lane on",
     /// shared with the round mint, so the strip and the run cannot disagree.
@@ -871,7 +852,7 @@ struct AnnotationsPane: View {
             // an index means nothing outside one letter (final review).
             runId: run?.id,
             signature: LetterSection.signature(
-                voice: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
+                voice: cockpitActivePass?.effectiveEditorName ?? AuthorReader.nobody.editorName,
                 // The stage off the SAME letter `shortLetterPart` reads (fix
                 // round 1, minor 2), never a second path through the run.
                 round: run?.round, stage: letter.draftStage),
@@ -894,7 +875,7 @@ struct AnnotationsPane: View {
             // the queue and a letter kept from the report are the same note.
             onKeep: LetterKeep.handler(
                 letter: letter, run: run, docId: document.docId, store: store,
-                editorName: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
+                editorName: cockpitActivePass?.effectiveEditorName ?? AuthorReader.nobody.editorName,
                 onKept: { keptLetter = $0 },
                 onFailure: { letterKeepFailure = $0 }),
             offerFailure: letterOfferFailure,
@@ -923,7 +904,7 @@ struct AnnotationsPane: View {
         _ = letterLedgerRevision
         return LessonOffer.handlers(
             letter: letter, run: run, store: store, world: world,
-            voice: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
+            voice: cockpitActivePass?.effectiveEditorName ?? AuthorReader.nobody.editorName,
             onFiled: { letterLedgerRevision += 1 },
             onFailure: { letterLedgerFailure = $0 })
     }
@@ -955,7 +936,7 @@ struct AnnotationsPane: View {
     ) -> (() -> Void)? {
         TurnClauseOffer.handler(
             letter: letter, run: run, docId: docId, store: store, world: world,
-            voice: cockpitReader?.editorName ?? PieceReader.nobody.editorName,
+            voice: cockpitActivePass?.effectiveEditorName ?? AuthorReader.nobody.editorName,
             filedRunId: turnClauseFiledForRun,
             onFiled: { turnClauseFiledForRun = $0 },
             onFailure: { letterOfferFailure = $0 })
@@ -1099,16 +1080,21 @@ struct AnnotationsPane: View {
                 // and by the editor who reads it
                 // (`ReviewRoundCockpit.emptyQueueTeaching`).
                 //
-                // **The editor comes from the one reader resolution**
-                // (`cockpitReader`, editorial letter P1 Task 6 fix round), so
-                // an unassigned piece under a held seat offers Le Guin's round
-                // rather than falling back to "ask Claude in Claude Desktop" —
-                // the round it offers is the round the run would actually make.
+                // **The editor comes from the piece's STAGE, and from
+                // nothing else** (two loops P1 Task 2). The teaching's whole
+                // job is to name the round ⌘R would actually make here, and a
+                // round is a stage's or it is refused (`RoundEditor`) — so an
+                // unassigned piece names nobody and falls back to the
+                // keystroke alone. It reads the nilable arm rather than
+                // `effectiveEditorName ?? "Claude"`, because "Claude" is the
+                // byline a passless run signs with and not an editor to
+                // invite: "Run Claude's round" is the sentence this optional
+                // exists to avoid.
                 ContentUnavailableView(
                     "No annotations",
                     systemImage: "bubble.left.and.bubble.right",
                     description: Text(ReviewRoundCockpit.emptyQueueTeaching(
-                        editorName: cockpitReader?.activePass?.editorName)))
+                        editorName: cockpitActivePass?.effectiveEditorName)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {

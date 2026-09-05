@@ -102,14 +102,18 @@ struct DiagnosticsPane: View {
     /// passed `nil` here because no pane held the store; `ProjectWindow` builds
     /// one now, and this is where it arrives.
     var world: DeclaredWorldStore? = nil
-    /// **Who reads this piece** — the one resolution (`PieceReader`, spec
-    /// §4.1). Defaulted to `.nobody` for every caller that has not been given
-    /// one, which reads exactly as this pane did before the seat existed:
-    /// "Claude reads this piece" and "Press ⌘R and Claude reads what you've
-    /// written." Named by the header's reader line and the empty state's
-    /// promise — one input, two readers, so neither can name someone the
-    /// other doesn't.
-    var reader: PieceReader = .nobody
+    /// **Who reads this piece's CHECKS** — `AuthorReader`, the resolution
+    /// Author's ⌘R uses (two loops P1 Task 2). This pane is the check loop's
+    /// own surface, so it names the coach or nobody and never a stage: a
+    /// chapter parked in Gould's lane on the review board is still read here
+    /// by the seat, because the lane belongs to the round loop.
+    ///
+    /// Defaulted to `.nobody` for every caller that has not been given one,
+    /// which reads exactly as this pane did before the seat existed: "Claude
+    /// reads this piece" and "Press ⌘R and Claude reads what you've written."
+    /// Named by the header's reader line and the empty state's promise — one
+    /// input, two readers, so neither can name someone the other doesn't.
+    var reader: AuthorReader = .nobody
     /// What pressing the reader line does — travel to Review, where the seat
     /// is actually held. The line names but never picks (spec §4.2); a
     /// caller that has not been given a destination gets a no-op rather than
@@ -654,24 +658,24 @@ struct DiagnosticsPane: View {
 
     private var headerLine: String { Self.headerCopy(for: state, wetInk: wetInk) }
 
-    /// **"Le Guin reads this piece", "Le Guin · Structural", "Claude reads
-    /// this piece"** — the same resolution the round cockpit's `coachLine`
-    /// draws, in the header's own shape: a stage names its lane after the
-    /// editor, since that is the word the board and the ladder already use
-    /// for it; the coach and the vacant seat both read as an introduction,
-    /// because neither is ever a lane a control can select
+    /// **"Le Guin reads this piece", "Claude reads this piece"** — the same
+    /// resolution the round cockpit's `coachLine` draws, in the header's own
+    /// shape.
+    ///
+    /// **One shape, because `AuthorReader` has one held arm** (two loops P1
+    /// Task 2). The "editor · pass" spelling this used to carry for a stage is
+    /// gone with the stage arm: the coach and the vacant seat both read as an
+    /// introduction, because neither is ever a lane a control can select
     /// (`ReviewPass.laneDisplayName`'s reasoning — her pass name, "Workshop",
-    /// is never drawn).
+    /// is never drawn), and a stage's lane is named in Review, where the round
+    /// it belongs to is run.
     ///
     /// Static and pure for `emptyState`'s reason: every sentence this pane can
     /// say is assertable without mounting anything, and a test constructing
-    /// one `PieceReader` gets the header's answer and the empty state's from
+    /// one `AuthorReader` gets the header's answer and the empty state's from
     /// the same value rather than two independently-spelled copies.
-    static func readerCopy(for reader: PieceReader) -> String {
-        if case .stage(let pass) = reader {
-            return "\(reader.editorName) \u{00b7} \(pass.name)"
-        }
-        return "\(reader.editorName) reads this piece"
+    static func readerCopy(for reader: AuthorReader) -> String {
+        "\(reader.editorName) reads this piece"
     }
 
     private var readerLine: String { Self.readerCopy(for: reader) }
@@ -1505,7 +1509,7 @@ struct DiagnosticsPane: View {
     /// that two sentences about one fact are two sentences that can disagree.
     static func emptyState(
         for state: HeaderState, wetInk: WetInk = .none,
-        readerName: String = PieceReader.nobody.editorName
+        readerName: String = AuthorReader.nobody.editorName
     ) -> (title: String, symbol: String, description: String) {
         // **Ordered above every arm below**, including the failure and
         // never-run ones, is deliberate only in appearance: `wetInk` is
