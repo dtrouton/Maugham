@@ -270,3 +270,71 @@ final class UIStatePersonaTests: XCTestCase {
         XCTAssertEqual(UIState.currentSchemaVersion, 5)
     }
 }
+
+/// **The writer's choice of who reads a check** (two loops P2, Task 2).
+///
+/// The choice is UI state and the NAME is manifest identity — never the
+/// reverse. A reader's name is a fact about the book that travels with it; a
+/// pick from a menu is a preference this machine holds, and it is tolerated
+/// missing for exactly the reason every other additive key here is: a file
+/// written by an older build has never heard of it, and a raw value written by
+/// a NEWER one must read as "unchosen" rather than throwing the whole of the
+/// window's state away.
+final class UIStateAuthorReaderChoiceTests: XCTestCase {
+
+    func test_empty_hasNoChoice() {
+        XCTAssertNil(UIState.empty.authorReaderChoice,
+                     "unchosen is the state every project starts in")
+    }
+
+    func test_everyChoiceSurvivesARoundTrip() throws {
+        for choice in [AuthorReaderChoice.coach, .firstReader, .nobody] {
+            var state = UIState.empty
+            state.authorReaderChoice = choice
+            let decoded = try JSONDecoder().decode(
+                UIState.self, from: JSONEncoder().encode(state))
+            XCTAssertEqual(decoded.authorReaderChoice, choice)
+            XCTAssertEqual(decoded, state, "and nothing else moves with it")
+        }
+    }
+
+    /// A raw value this build has never heard of — a choice added by a newer
+    /// build, read on an older one — decodes to nil, and every other field of
+    /// the file still arrives.
+    func test_anUnknownRawValueDecodesAsUnchosenAndCostsNothingElse() throws {
+        let raw = #"""
+        {"schemaVersion": 5, "selectedItemId": "doc-x", "isNoChromeOn": true,
+         "authorReaderChoice": "someday"}
+        """#
+        let decoded = try JSONDecoder().decode(
+            UIState.self, from: raw.data(using: .utf8)!)
+        XCTAssertNil(decoded.authorReaderChoice)
+        XCTAssertEqual(decoded.selectedSubject, .item("doc-x"),
+                       "the rest of the file must survive an unreadable choice")
+        XCTAssertTrue(decoded.isNoChromeOn)
+    }
+
+    /// A file written before this milestone carries no such key at all.
+    func test_aFileWithoutTheKeyDecodesAsUnchosen() throws {
+        let raw = #"{"schemaVersion": 5, "isNoChromeOn": false}"#
+        let decoded = try JSONDecoder().decode(
+            UIState.self, from: raw.data(using: .utf8)!)
+        XCTAssertNil(decoded.authorReaderChoice)
+    }
+
+    /// **No schema bump** — the key is additive with a tolerated-missing
+    /// default, so both directions of the version skew read cleanly. This is
+    /// the same claim `UIStatePersonaTests` pins for the constant itself; here
+    /// it is the reason this milestone did not touch it.
+    func test_theChoiceCostsNoSchemaBump() {
+        XCTAssertEqual(UIState.currentSchemaVersion, 5)
+    }
+
+    /// An unchosen state writes no key at all, rather than a null: an older
+    /// build reading the file sees exactly what it would have written itself.
+    func test_anUnchosenStateWritesNoKey() throws {
+        let json = try XCTUnwrap(
+            String(data: JSONEncoder().encode(UIState.empty), encoding: .utf8))
+        XCTAssertFalse(json.contains("authorReaderChoice"), json)
+    }
+}

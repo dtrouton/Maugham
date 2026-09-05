@@ -244,6 +244,20 @@ public final class DocumentStore {
         uiStateScheduler.schedule(draft)
     }
 
+    /// Pick who reads this project's Author checks — or `nil` to un-pick and
+    /// go back to the default rule (two loops P2).
+    ///
+    /// A named verb rather than a `updateUIState { $0.authorReaderChoice = … }`
+    /// at each call site, because this is the only field of the UI state whose
+    /// value is resolved against the manifest before it means anything: the
+    /// picker, the header and the run all ask
+    /// `ProjectManifest.authorReader(choice:statementText:)` what it resolves
+    /// to, and one door in is what keeps the write side as small as the read
+    /// side is.
+    public func setAuthorReaderChoice(_ choice: AuthorReaderChoice?) {
+        updateUIState { $0.authorReaderChoice = choice }
+    }
+
     // MARK: - Non-Document file save path (research notes, partial-restore)
 
     /// Schedule a coordinated write of `text` to `path` on a 750ms debounce.

@@ -1,5 +1,23 @@
 import Foundation
 
+/// **Which reader the writer picked for Author's checks** (two loops P2).
+///
+/// A pick from a menu, not a person: `.firstReader` names nobody, because who
+/// she IS is manifest identity (`ProjectManifest.firstReaderName`) and travels
+/// with the book, while a pick is a preference this machine holds. Storing the
+/// name here instead would give a project two answers to who its first reader
+/// is, one of which never leaves this Mac.
+///
+/// Optional wherever it is held: `nil` is "not chosen", which is a different
+/// state from `.nobody` — the first falls to the default rule (the coach while
+/// her seat is held, else a named first reader, else nobody) and the second is
+/// the writer saying they want no reader at all.
+public enum AuthorReaderChoice: String, Codable, Equatable, Sendable {
+    case coach
+    case firstReader
+    case nobody
+}
+
 /// Per-project UI state persisted to `.maugham/ui-state.json`.
 /// Schema-versioned for forward compatibility.
 public struct UIState: Codable, Equatable, Sendable {
@@ -70,6 +88,24 @@ public struct UIState: Codable, Equatable, Sendable {
     /// here — the desk's picker is where a stale name falls back to the book,
     /// because that is where the config is actually read.
     public var publishImprint: String?
+
+    /// **Who the writer picked to read this project's checks**
+    /// (`AuthorReaderChoice`, two loops P2) — `nil` while they have not picked,
+    /// which is not the same as picking nobody.
+    ///
+    /// **No schema bump**, for `publishImprint`'s reason one field up: one
+    /// additive optional key, so a file written without it decodes to
+    /// "unchosen" — the state every project starts in — and an older build
+    /// ignores a key it has never heard of. The decode is tolerant in the
+    /// other direction too: a raw value written by a NEWER build reads as
+    /// unchosen rather than throwing away the whole of the window's state.
+    ///
+    /// **A pick, never a name.** A stale pick is resolved against the project's
+    /// own facts every time it is read (`ProjectManifest.authorReader(choice:
+    /// statementText:)`), so a coach whose seat has since been vacated, or a
+    /// first reader whose name has since been cleared, falls back to the
+    /// default rule instead of being swept here.
+    public var authorReaderChoice: AuthorReaderChoice?
 
     /// Which review pass each piece was last looked at through
     /// (`ActivePassMemory`, M3-P1 Task 5).
@@ -149,7 +185,8 @@ public struct UIState: Codable, Equatable, Sendable {
         compilerModel: CompilerModelChoice = .standard,
         activePassMemory: ActivePassMemory = .empty,
         detailColumnWidth: Double = UIState.defaultDetailColumnWidth,
-        publishImprint: String? = nil
+        publishImprint: String? = nil,
+        authorReaderChoice: AuthorReaderChoice? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.selectedSubject = selectedSubject
@@ -165,6 +202,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.detailColumnWidth =
             UIState.clampedDetailColumnWidth(detailColumnWidth)
         self.publishImprint = publishImprint
+        self.authorReaderChoice = authorReaderChoice
     }
 
     public static let empty = UIState()
@@ -175,7 +213,7 @@ public struct UIState: Codable, Equatable, Sendable {
              isNoChromeOn,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
              persona, personaMemory, compilerModel, activePassMemory,
-             detailColumnWidth, publishImprint
+             detailColumnWidth, publishImprint, authorReaderChoice
     }
 
     /// Hand-written because `selectedSubject` is not stored the way it is
@@ -205,6 +243,7 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(activePassMemory, forKey: .activePassMemory)
         try c.encode(detailColumnWidth, forKey: .detailColumnWidth)
         try c.encodeIfPresent(publishImprint, forKey: .publishImprint)
+        try c.encodeIfPresent(authorReaderChoice, forKey: .authorReaderChoice)
     }
 
     public init(from decoder: Decoder) throws {
@@ -243,6 +282,12 @@ public struct UIState: Codable, Equatable, Sendable {
                 ?? UIState.defaultDetailColumnWidth)
         self.publishImprint =
             (try? c.decodeIfPresent(String.self, forKey: .publishImprint)) ?? nil
+        // Tolerated in BOTH directions: an absent key is the writer's
+        // unchosen state, and a raw value this build has never heard of (a
+        // choice a newer build offers) reads as unchosen too rather than
+        // throwing the rest of the file away with it.
+        self.authorReaderChoice =
+            (try? c.decodeIfPresent(AuthorReaderChoice.self, forKey: .authorReaderChoice)) ?? nil
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep), and `binderSegment` in shell-finish stage
         // 2b Task 7, when the binder strip died with `BinderSegment`, and
