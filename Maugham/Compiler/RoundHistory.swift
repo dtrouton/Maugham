@@ -9,10 +9,10 @@ import MaughamCore
 /// resolved plus one new, and "since last round" would say nothing true. What
 /// is stable is the section it came from, the writer's own clause it is
 /// measured against, the paragraph it is anchored to, and — for a reader
-/// report alone — the reader's own two-valued kind. A conformance strain and a
-/// continuity question carry a `clauseQuote` (plus their anchor); a reader
-/// report carries `(kind, category, paragraphId)` and no quote, because a
-/// reader report is not measured against a clause at all.
+/// report alone — the reader's own kind (`DiagnosticIngest.readerKinds`). A
+/// conformance strain and a continuity question carry a `clauseQuote` (plus
+/// their anchor); a reader report carries `(kind, category, paragraphId)` and
+/// no quote, because a reader report is not measured against a clause at all.
 ///
 /// **The category is in the identity because without it the reader's four kinds
 /// collapse** (M4 P1; four rather than two since two loops P2). "The dream

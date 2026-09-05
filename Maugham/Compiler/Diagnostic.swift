@@ -15,7 +15,9 @@ enum DiagnosticKind: String, Codable, Sendable {
     /// (the schema's `cites`).
     case continuity
     /// What happened in the reading itself. Its `category` is the schema's
-    /// two-valued `kind` (`dream_break` / `belief`).
+    /// own `kind` — `dream_break` / `belief`, plus `drag` / `lost` since two
+    /// loops P2 gave the first reader the two kinds only she reports. The one
+    /// list is `DiagnosticIngest.readerKinds`.
     case readerReport
     /// A question the sixth section's editorial letter asked (spec §3.2).
     /// Carries neither a clause nor a category: it is identified by the

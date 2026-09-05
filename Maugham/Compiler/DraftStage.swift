@@ -92,4 +92,16 @@ enum LetterDosage: Equatable, Sendable {
     /// a lesson is a report on the writer's own ledger, which is the same
     /// craft register the habits are in and nothing a reader is briefed on.
     var allowsHabits: Bool { self != .reader }
+    /// **The letter's process line is craft too** (controller ruling, two
+    /// loops P2 Task 3 review). It says how long the writer has been reworking
+    /// a paragraph and what their frontier is doing — an observation about
+    /// their practice, made from numbers Maugham counted off the op log — and
+    /// a first reader who reported it would be doing exactly what her
+    /// instruction forbids: talking about the writing instead of the reading.
+    /// A drafting letter still carries it, which is why this is a flag rather
+    /// than a second reading of `allowsHabits`.
+    ///
+    /// Task 4 also stops briefing her on the numbers at all (`signals: nil`);
+    /// this end is what makes the drop true whatever the model wrote.
+    var allowsProcess: Bool { self != .reader }
 }

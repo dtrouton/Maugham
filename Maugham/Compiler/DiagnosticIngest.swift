@@ -627,7 +627,8 @@ extension DiagnosticIngest {
     /// **`.reader` is the dose that is not a stage's** (two loops P2 Task 3,
     /// spec §4.3): the first reader's letter keeps `answer`, `about`,
     /// `working` and one question, and drops `one_thing`, every habit, the
-    /// scene table and the `retired` list whatever the model wrote. A model
+    /// scene table, the `retired` list and the process line whatever the model
+    /// wrote. A model
     /// briefed as a reader that writes a craft letter anyway is the failure
     /// this end of the enforcement exists for — the briefing's own half is
     /// `CompilerPrompt.firstReaderInstruction`.
@@ -845,7 +846,12 @@ extension DiagnosticIngest {
             // the writer's ledger, the same craft register the habits are in.
             retired: (object[SectionField.retired] == nil || !dosage.allowsHabits)
                 ? nil : Array(retired.prefix(letterRetiredCap)),
-            process: letterProseLeaksAnId([process], live) ? nil : process)
+            // **Dropped by the reader's dose** on `one_thing`'s rule: read
+            // off the wire above, dropped as delivered here. A sentence about
+            // how the writer has been working is an observation about their
+            // practice, which is the craft register her instruction refuses.
+            process: (!dosage.allowsProcess || letterProseLeaksAnId([process], live))
+                ? nil : process)
 
         return PartialSection(
             accepted: notes, facts: [], conformance: [], droppedDangling: 0,

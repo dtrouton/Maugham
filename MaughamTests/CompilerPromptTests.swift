@@ -846,16 +846,38 @@ final class CompilerPromptTests: XCTestCase {
             "the shelf rule read for her ends it; got \(instruction)")
     }
 
-    /// **The four kinds her instruction asks for are the four the schema
-    /// offers.** Bored-and-skimming and no-longer-knowing-who-is-speaking are
-    /// `drag` and `lost`; an instruction asking for a report the schema has no
-    /// kind for would arrive as a category the parser drops.
-    func test_theSchemaOffersTheFourKindsTheReaderIsAskedFor() {
+    /// **Every kind the parser accepts is a kind the schema offers.** Read off
+    /// `DiagnosticIngest.readerKinds` rather than a literal list, so a fifth
+    /// kind taught to the parser and not to the prompt goes red here — the
+    /// prompt is the only reason a category ever arrives.
+    func test_theSchemaOffersEveryKindTheParserAccepts() {
         let schema = CompilerPrompt.sectionSchemaDescription
-        for kind in ["dream_break", "belief", "drag", "lost"] {
+        for kind in DiagnosticIngest.readerKinds {
             XCTAssertTrue(schema.contains("\"\(kind)\""),
                           "the reader section's schema never names \(kind)")
         }
+    }
+
+    /// **Her instruction names the four kinds, in the schema's order.**
+    /// Describing them without their wire names left the model to invent the
+    /// `kind` value, and a near-miss parses as no category at all — which
+    /// collapses two findings on one paragraph to one at the fingerprint.
+    /// Order matters because the two lists must be one list: derived from
+    /// `readerKinds` rather than written out, so a reordering or a fifth kind
+    /// fails here rather than drifting quietly.
+    func test_theReaderInstructionNamesTheFourKindsInTheSchemasOrder() {
+        let instruction = CompilerPrompt.firstReaderInstruction
+        let positions = DiagnosticIngest.readerKinds.map { kind -> Int in
+            guard let range = instruction.range(of: kind) else { return -1 }
+            return instruction.distance(from: instruction.startIndex,
+                                        to: range.lowerBound)
+        }
+        XCTAssertFalse(positions.contains(-1),
+                       "a kind the parser accepts is never named to the reader; "
+                       + "got \(instruction)")
+        XCTAssertEqual(positions, positions.sorted(),
+                       "the instruction names the kinds out of the schema's "
+                       + "order; got \(instruction)")
     }
 
     /// A reader the writer named and has not described yet says so — rather
@@ -903,12 +925,36 @@ final class CompilerPromptTests: XCTestCase {
 
     /// A custom coach seat with no doctrine of its own still gets the honest
     /// fallback — `passSection`'s rule, kept by the arm that replaces it.
+    ///
+    /// **Pinned equal to `passSection` as well**, because this is the arm where
+    /// the two could genuinely diverge: `readerSection` resolves the brief
+    /// through `ReviewPass.effectiveBrief` and `passSection` reads an
+    /// `ActivePass`'s already-resolved field, so a seat matching no preset —
+    /// nil brief on one side, an emptied string on the other — is the case that
+    /// would show it. The with-brief pin above cannot.
     func test_aCoachWithNoBriefGetsTheAltitudeFallback() throws {
-        let section = try XCTUnwrap(CompilerPrompt.readerSection(
-            .coach(ReviewPass(id: "vibes", name: "Vibes", brief: "   ", editorName: "Marta"))))
+        let seat = ReviewPass(id: "vibes", name: "Vibes", brief: "   ", editorName: "Marta")
+        let section = try XCTUnwrap(CompilerPrompt.readerSection(.coach(seat)))
         XCTAssertTrue(section.contains("You are Marta, this writer's vibes teacher."),
                       "got \(section)")
         XCTAssertTrue(section.contains(CompilerPrompt.brieflessPassFallback), section)
+        XCTAssertEqual(
+            section,
+            CompilerPrompt.passSection(CompilerOrchestrator.ActivePass(
+                id: seat.id, name: seat.name, editorName: seat.effectiveEditorName,
+                brief: seat.effectiveBrief, isCoach: true)),
+            "the two spellings of a briefless coach must agree before Task 4 "
+            + "deletes one of them")
+
+        // And the same seat with no brief field at all, which is the other way
+        // a coach reaches the fallback.
+        let unwritten = ReviewPass(id: "vibes", name: "Vibes", editorName: "Marta")
+        XCTAssertEqual(
+            CompilerPrompt.readerSection(.coach(unwritten)),
+            CompilerPrompt.passSection(CompilerOrchestrator.ActivePass(
+                id: unwritten.id, name: unwritten.name,
+                editorName: unwritten.effectiveEditorName,
+                brief: unwritten.effectiveBrief, isCoach: true)))
     }
 
     /// Nobody is M2's all-altitudes ⌘R: no reader, no frame, no section.
@@ -925,8 +971,16 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertTrue(check.contains("You are Marta, this writer's first reader"),
                       "got \(check)")
         XCTAssertTrue(check.contains(CompilerPrompt.firstReaderInstruction), "got \(check)")
-        XCTAssertFalse(check.contains("this manuscript's"),
-                       "no editor's frame reached a check under her; got \(check)")
+        // **Where it sits, rather than that no editor's frame appeared.** This
+        // call passes no `pass:`, so an absent editor frame would assert
+        // nothing — while a reader briefed BELOW the prose she is reading is a
+        // real regression this catches. The frame is what the rest is read
+        // through, so it precedes the delta (`passSection`'s own position).
+        guard let frame = check.range(of: "You are Marta"),
+              let delta = check.range(of: "This run's delta:")
+        else { return XCTFail("expected both sections; got \(check)") }
+        XCTAssertLessThan(frame.lowerBound, delta.lowerBound,
+                          "the reader is briefed after the prose; got \(check)")
     }
 
     /// **A ROUND never carries the reader section** (spec §4.9's round list),
@@ -2516,7 +2570,9 @@ final class CompilerPromptTests: XCTestCase {
     /// and the ceiling stays 715 with 61 words of room still in it.
     ///
     /// **Re-measured at 654 words — unchanged — at the first reader (two loops
-    /// P2 Task 3).** Her instruction is 130 words and NONE of them are counted
+    /// P2 Task 3), and again at 654 in the fix round.** Her instruction is 141
+    /// words (130 before the fix round named the four kinds) and NONE of them
+    /// are counted
     /// here, on the dosage doctrine's rule below:
     /// `CompilerPrompt.firstReaderInstruction` rides a run only when a first
     /// reader is briefed on it, so a check under the coach or under nobody

@@ -40,8 +40,8 @@ struct CompilerNote: Equatable, Sendable {
     /// which is doc-scoped and takes none.
     let paragraphId: String?
     /// The model's own words: the question, or the report — the reader's
-    /// prefixed with its kind, so the two-valued label the pane used to draw
-    /// above the row travels with the note instead of being lost at the seam.
+    /// prefixed with its kind, so the label the pane used to draw above the
+    /// row travels with the note instead of being lost at the seam.
     let body: String
     /// **The one identity spelling** (`RoundFingerprint.stringValue`), stamped
     /// on the op so a later round can recognise the same finding without

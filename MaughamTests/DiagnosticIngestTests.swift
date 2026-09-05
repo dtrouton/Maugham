@@ -305,7 +305,7 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertEqual(section.accepted.map { $0.kind }, [.readerReport, .readerReport])
         XCTAssertEqual(
             section.accepted.map { $0.category }, ["dream_break", "belief"],
-            "the section's two-valued kind is content, and it is the only thing v2 puts on category")
+            "the section's own kind is content, and it is the only thing v2 puts on category")
         XCTAssertEqual(section.accepted[1].refs?.first?.paragraphId, "e5f6")
     }
 
@@ -1802,6 +1802,9 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertEqual(letter.habits, [], "a habit is a craft verdict")
         XCTAssertNil(letter.scenes, "…and so is a scene table")
         XCTAssertNil(letter.retired, "…and so is a report on the writer's ledger")
+        XCTAssertNil(letter.process,
+                     "…and so is a sentence about how the writer has been "
+                     + "working: her instruction refuses the register")
         XCTAssertEqual(letter.questions.map(\.question), ["Question 1?"],
                        "at most one question")
         XCTAssertEqual(section.accepted.count, 1,
@@ -1824,6 +1827,7 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertEqual(letter.scenes?.count, 1)
         XCTAssertEqual(letter.retired, ["the semicolon lesson"])
         XCTAssertEqual(letter.questions.count, 3)
+        XCTAssertEqual(letter.process, "You came back five days running.")
     }
 
     /// The short letter is unmoved by the new flags: a drafting round still
@@ -1836,6 +1840,8 @@ final class DiagnosticIngestTests: XCTestCase {
         XCTAssertEqual(letter.oneThing, "Cut the dinner.")
         XCTAssertEqual(letter.habits.map(\.name), ["throat-clearing", "hedging"])
         XCTAssertEqual(letter.retired, ["the semicolon lesson"])
+        XCTAssertEqual(letter.process, "You came back five days running.",
+                       "a drafting letter still reports the writer's practice")
         XCTAssertNil(letter.scenes, "…and the stage's own drops stay dropped")
         XCTAssertNil(letter.habits.first?.exercise)
         XCTAssertEqual(letter.questions.count, 1)
@@ -1867,7 +1873,8 @@ final class DiagnosticIngestTests: XCTestCase {
         {"refs":["a1b2"],"question":"Question 3?"}],\
         "scenes":[{"refs":["a1b2"],"wants":"to leave","changes":"she cannot",\
         "turn":"the door is locked","charge":"-"}],\
-        "retired":["the semicolon lesson"]}
+        "retired":["the semicolon lesson"],\
+        "process":"You came back five days running."}
         """
 
     private static let threeQuestions = """

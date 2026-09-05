@@ -711,6 +711,14 @@ enum CompilerPrompt {
     /// has an enforcement behind it as well: `DiagnosticIngest.isFixShaped`
     /// drops a fix-shaped report at ingest whoever wrote it.
     ///
+    /// **The four kinds are named, in the schema's order.** Describing them
+    /// without their wire names left the model to map "where you got bored"
+    /// onto a `kind` value itself, and a near-miss (`boredom`) parses as no
+    /// category at all — two findings on one paragraph then collapse to one at
+    /// the fingerprint. The order is `DiagnosticIngest.readerKinds`', pinned by
+    /// `test_theReaderInstructionNamesTheFourKindsInTheSchemasOrder`, so the
+    /// two lists cannot drift.
+    ///
     /// **It ends with the shelf rule, read for her** (spec §4.3's last
     /// paragraph). `letterInstruction` already tells every run to measure a
     /// piece against the writer's own pinned work by name; for a first reader
@@ -718,9 +726,10 @@ enum CompilerPrompt {
     /// reads and loves — so the sentence is restated here in those terms
     /// rather than left to be inferred from the general one.
     static let firstReaderInstruction = """
-        Report what happened in you as you read: what you now take to be \
-        true, where the fiction stopped holding you, where you got bored and \
-        would have skimmed or put it down, where you no longer knew what was \
+        Report what happened in you as you read, each report under the kind \
+        it is: dream_break, where the fiction stopped holding you; belief, \
+        what you now take to be true; drag, where you got bored and would \
+        have skimmed or put it down; lost, where you no longer knew what was \
         happening or who was speaking. Quote the words that did it. Never use \
         craft vocabulary — pacing, structure, voice, arc — and never propose \
         a change: a reader who says "the pacing sags" has become an editor, \
