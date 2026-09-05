@@ -263,7 +263,7 @@ enum CompilerPrompt {
 
     /// **Review's Run round.** The piece whole, read by the pass's editor,
     /// with the prior round in this lane above it — so this door has no
-    /// `stage` and no `freshEyes` to pass.
+    /// `stage`, no `freshEyes` and no `signals` to pass.
     ///
     /// `freshEyes` is absent rather than defaulted because the flag's ONLY
     /// reader in this file is `stageSection`, which a round never gets: a cold
@@ -272,6 +272,11 @@ enum CompilerPrompt {
     /// those are the orchestrator's decision, not this function's. If a second
     /// reader of the flag ever appears on the round side, it arrives with a
     /// parameter and a reason, not by inheriting one nothing here would read.
+    ///
+    /// `signals` is absent on that same rule (Task 4): its only reader here is
+    /// `processSection`, which spec §4.9's round list omits — the writer's own
+    /// drafting process is what a CHECK is read against, and an editor is
+    /// handed the manuscript rather than the month that produced it.
     static func roundMessage(
         delta: CompilerDelta, world: DerivedWorld?, essay: String?,
         bibleFacts: [BibleFact], paletteListing: [String], pinnedListing: [String],
@@ -281,7 +286,6 @@ enum CompilerPrompt {
         dispositions: [CompilerAnnotationDisposition] = [],
         ask: String? = nil,
         lessons: String? = nil,
-        signals: ProcessSignals? = nil,
         previousBriefingHash: String?
     ) -> (message: String, briefingHash: String?) {
         runMessageV2(
@@ -289,7 +293,7 @@ enum CompilerPrompt {
             bibleFacts: bibleFacts, paletteListing: paletteListing,
             pinnedListing: pinnedListing, pass: pass, scenePosition: scenePosition,
             previousRound: previousRound, dispositions: dispositions, ask: ask,
-            lessons: lessons, signals: signals,
+            lessons: lessons,
             previousBriefingHash: previousBriefingHash)
     }
 
@@ -333,9 +337,10 @@ enum CompilerPrompt {
     /// above once Task 4 splits its send.
     ///
     /// **`kind` changes what is briefed and never the hashed unit** (two loops
-    /// P1 Task 3). Three sections are scoped by it: the prose is the delta for
-    /// a check and the piece whole for a round, the draft stage doses a check
-    /// alone, and the prior round in this lane briefs a round alone. The
+    /// P1 Tasks 3 and 4). Four sections are scoped by it: the prose is the
+    /// delta for a check and the piece whole for a round, the draft stage and
+    /// the process numbers behind it reach a check alone, and the prior round
+    /// in this lane briefs a round alone. The
     /// essay, the world, the bible slice and the ledger are what the writer
     /// DECLARED — which loop asked for this run is not one of those — so a
     /// check and a round over an unchanged intent hash identically and the
@@ -437,16 +442,26 @@ enum CompilerPrompt {
         // `if kind == .check`, on `RunKind.of(persona:)`'s rule: a third loop
         // is then a compile error at every fork that decides on the kind,
         // instead of silently taking the arm nobody wrote for it.
+        //
+        // **And the numbers go with it** (two loops P1 Task 4, spec §4.9's
+        // round list, which omits them). `ProcessSignals` is Maugham's own
+        // observation of the WRITER's process — sessions since the frontier
+        // moved, a paragraph rewritten seven times, three weeks away — and it
+        // is the check's context because a check is the writer's own read of
+        // what they have just been doing. An editor reads the manuscript, not
+        // the working month that produced it. Inside the `.check` arm rather
+        // than beside it, so the two halves of that one answer cannot part
+        // company.
         switch kind {
         case .check:
             if let stageSection = stageSection(stage, freshEyes: freshEyes) {
                 sections.append(stageSection)
             }
+            if let processSection = processSection(signals) {
+                sections.append(processSection)
+            }
         case .round:
             break
-        }
-        if let processSection = processSection(signals) {
-            sections.append(processSection)
         }
         // And its mirror: the prior round in this lane reaches the ROUND loop
         // alone. A check is filed in no lane (Task 1), so "last round you

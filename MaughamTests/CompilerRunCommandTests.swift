@@ -6208,6 +6208,238 @@ final class CompilerRunCommandTests: XCTestCase {
                        "one sitting, nothing rewritten, nobody away; got \(message)")
     }
 
+    // MARK: - The marker and the dose, per verb (two loops P1 Task 4)
+
+    /// **A round reads the piece whole, however current the marker is** (spec
+    /// §4.5). The marker is the CHECK's — what the writer has written since
+    /// their last read of it — and an editor asked to read a chapter is not
+    /// asked to read the sentences added since Tuesday.
+    ///
+    /// Written as `test_freshEyesReadsTheWholePieceThoughTheMarkerIsCurrent`'s
+    /// twin, with the kind doing what the cold flag does there and the same
+    /// control between them: an ordinary ⌘R over the same prose is
+    /// `nothingNew` and spends no turn.
+    ///
+    /// Falsification: build a round's delta `since: marker` and this run is
+    /// `nothingNew` with no second send at all.
+    func test_aRoundReadsTheWholePieceThoughTheMarkerIsCurrent() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "copyedit")
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertTrue(runner.sends[0].message.contains("The fog came."))
+
+        // Control: the ordinary key, over prose the marker has already seen.
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        settle()
+        XCTAssertEqual(runner.sends.count, 1,
+                       "control: \u{2318}R over unchanged prose spends no turn")
+        guard case .nothingNew = harness.orchestrator.runState else {
+            return XCTFail("control: the ordinary key must report nothing new, "
+                           + "got \(harness.orchestrator.runState)")
+        }
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertTrue(runner.sends[1].message.contains("The piece, whole:"),
+                      "a round is handed the piece; got \(runner.sends[1].message)")
+        XCTAssertTrue(runner.sends[1].message.contains("The fog came."),
+                      "\u{2026}including the paragraph the marker already "
+                      + "covered; got \(runner.sends[1].message)")
+    }
+
+    /// **And it consumes nothing on its way past.** The check's next delta
+    /// begins where the check's own last run left it, whatever rounds happened
+    /// in between — otherwise the writer's ⌘R would silently skip the
+    /// paragraphs a round read for a different purpose in a different column.
+    ///
+    /// Falsification: advance the marker on a round and the third press is
+    /// `nothingNew` with no third send.
+    func test_aCheckAfterARoundStillReadsWhatTheRoundDidNotConsume() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "copyedit")
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        settle()
+
+        // The writer writes a second paragraph, and Review reads the piece.
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(2, on: runner)
+        settle()
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(3, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.deltaSummary,
+                       "1 new, 0 revised \u{00b6}",
+                       "the check reads the one paragraph written since ITS own "
+                       + "last run")
+        XCTAssertTrue(runner.sends[2].message.contains("It stayed."),
+                      "got \(runner.sends[2].message)")
+        XCTAssertFalse(runner.sends[2].message.contains("The fog came."),
+                       "\u{2026}and not the paragraph its own marker already "
+                       + "covered; got \(runner.sends[2].message)")
+    }
+
+    /// The same fact read off the store rather than off the next delta: after
+    /// a round, the marker is exactly where the last check put it. A round
+    /// RECORDS the marker it found rather than nil-ing it, so the check's
+    /// position can never regress either.
+    func test_aRoundLeavesTheMarkerWhereTheLastCheckPutIt() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "copyedit")
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(harness.diagnostics.lastOpId(docId: docId), "op1",
+                       "control: the check moved it")
+
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.diagnostics.lastOpId(docId: docId), "op1",
+                       "a round read op2 and must have left the check's marker "
+                       + "behind it")
+    }
+
+    /// **`test_anEmptyDeltaStillAdvancesTheMarker`'s round twin, and it says
+    /// the opposite.** That pin is the CHECK's: ops that changed no prose are
+    /// passed so a later check does not re-walk them. A round has no marker to
+    /// keep current — it reads whole every time — so an empty piece moves
+    /// nothing at all, and moving it here would consume, for a round, the ops
+    /// the writer's own next ⌘R is owed.
+    func test_anEmptyPieceMovesNoMarkerForARound() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner,
+            // The writer deleted the paragraph, and an annotation landed
+            // afterwards: a piece with nothing in it, which is the only way a
+            // round's whole-piece read is empty at all.
+            reading: CompilerOrchestrator.DocumentReading(
+                ops: [makeOp(opId: "op1", changes: [
+                          .init(paragraphId: "a1b2", prior: nil, next: "The fog came.")]),
+                      makeOp(opId: "op2", kind: .claudeComment, changes: [
+                          .init(paragraphId: "a1b2", prior: nil, next: "The fog came.")])],
+                paragraphs: [:],
+                sequence: []),
+            stage: "copyedit")
+        // A check already happened and read as of op1.
+        harness.diagnostics.replace(
+            run: CompilerRun(id: "r0", at: Date(), model: "test-model", lastOpId: "op1",
+                             deltaSummary: "1 new, 0 revised \u{00b6}", intentSnapshot: nil),
+            diagnostics: [], docId: docId)
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        settle()
+
+        XCTAssertEqual(runner.sends.count, 0)
+        guard case .nothingNew = harness.orchestrator.runState else {
+            return XCTFail("expected the idle 'nothing new' variant, got "
+                           + "\(harness.orchestrator.runState)")
+        }
+        XCTAssertEqual(harness.diagnostics.lastOpId(docId: docId), "op1",
+                       "a round moved the check's marker past an op the check "
+                       + "has never read")
+    }
+
+    /// **The draft stage is the CHECK's, both ends of it** (spec §4.8). It is
+    /// derived from what the writer has been doing to their own draft, and a
+    /// round is always the full letter whatever that is — its pass brief
+    /// decides which parts. So a round derives none, is briefed none, and
+    /// stamps none on its letter.
+    ///
+    /// The control is the second run in this test rather than another
+    /// fixture's: the same document, the same prose, the same delta shape, the
+    /// verb the only difference.
+    func test_theDraftStageStampsAndBriefsACheckAndNeverARound() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: draftingReading(), stage: "copyedit")
+        runner.nextEvent = .resultText(Self.aLetterAndNothingElse)
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.letter?.stage,
+                     "a round stamped a stage on its letter")
+        XCTAssertFalse(runner.sends[0].message.contains("Draft stage:"),
+                       "\u{2026}and was told one; got \(runner.sends[0].message)")
+
+        // Control: the same delta through the other verb derives, briefs and
+        // stamps it. The round left the marker alone, so this check reads the
+        // same prose the round did.
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(2, on: runner)
+        settle()
+
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.letter?.stage,
+                       "drafting", "control: a check stamps what it derived")
+        XCTAssertTrue(runner.sends[1].message.contains("Draft stage:"),
+                      "control: \u{2026}and states it; got \(runner.sends[1].message)")
+    }
+
+    /// A letter carrying three ANCHORED questions — the full dosage's cap, and
+    /// each with a ref, so the count can be read where it matters most: the
+    /// queue. A question that resolves a ref rides into the annotation layer
+    /// as a `.query` the writer is asked to answer, so a dose applied to a
+    /// round would be two questions the writer never sees at all.
+    private static let aLetterWithThreeAnchoredQuestions = """
+        {"section":"conformance","checks":[]}
+        {"section":"continuity","questions":[]}
+        {"section":"reader","reports":[]}
+        {"section":"facts","candidates":[]}
+        {"section":"intent_drift","verdict":"holds"}
+        {"section":"letter","about":"A woman waits out a fog.","one_thing":null,\
+        "working":[],"habits":[],"questions":[\
+        {"refs":["a1b2"],"habit":null,"question":"Whose fog is it?"},\
+        {"refs":["a1b2"],"habit":null,"question":"Where is she standing?"},\
+        {"refs":["a1b2"],"habit":null,"question":"What does she want from the weather?"}],\
+        "scenes":null}
+        """
+
+    /// **A round's letter is full even where its delta reads as drafting**
+    /// (spec §4.8). `test_aWarmDraftingRunIngestsOneQuestion` is the check's
+    /// pin over the identical fixture; this is the same prose, the same
+    /// derivation, the other verb — and the dose is `.full`, so all three
+    /// questions survive ingest and all three reach the queue.
+    ///
+    /// Falsification: derive the stage for a round as well and the second
+    /// assertion reads 1.
+    func test_aRoundsLetterIsFullEvenWhereItsDeltaWouldReadAsDrafting() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: draftingReading(), stage: "copyedit")
+        runner.nextEvent = .resultText(Self.aLetterWithThreeAnchoredQuestions)
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(1, on: runner)
+        settle()
+
+        let run = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertNil(run.letter?.stage, "control: no stage was derived at all")
+        XCTAssertEqual(run.letter?.questions.count, 3,
+                       "a round was dosed by a stage it never had")
+        // The fixture's continuity section is empty, so every `.query` in the
+        // mint is one of the letter's own questions.
+        XCTAssertEqual(
+            harness.minted().first?.notes.filter { $0.kind == .query }.count, 3,
+            "\u{2026}and all three reached the queue as queries")
+    }
+
     // MARK: - The ledger in the briefing (editorial letter P2 Task 4)
 
     /// A ledger of the shape `LessonsLedger` reads, with one entry of each

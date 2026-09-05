@@ -542,7 +542,11 @@ final class CompilerOrchestrator {
         /// not about the document by the time the answer lands. The preview
         /// stamps it and so does `finish`, so the two cannot disagree about
         /// what the model was asked for.
-        let stage: DraftStage
+        ///
+        /// **`nil` for a round** (two loops P1 Task 4): the stage is derived
+        /// for a check alone, so a round has none to carry rather than one it
+        /// carries and never uses.
+        let stage: DraftStage?
         /// **How much letter that stage earned** (global constraint 24), the
         /// same value the briefing stated, carried so ingest can enforce it.
         /// Derived rather than re-asked at `finish`: `dosage(freshEyes:)`
@@ -730,14 +734,29 @@ final class CompilerOrchestrator {
         // The marker is still READ above and still advances below — a fresh
         // run leaves the document exactly as any run does, or the ⌘R after it
         // would re-read the piece a second time.
+        //
+        // **And a ROUND does not consult it either — ever** (two loops P1 Task
+        // 4, spec §4.5). The marker is the CHECK's: it records what the writer
+        // has read of their own prose, and a round is somebody else's read of
+        // the piece entire. `since: nil` is the same "everything is new" a
+        // cold read gets, for a different reason — a round has no history of
+        // its own to diff against, and what changed since the last round
+        // reaches it through the prior-round and dispositions sections rather
+        // than through a diff.
         let delta = DeltaBuilder.delta(
-            ops: reading.ops, since: freshEyes ? nil : marker,
+            ops: reading.ops, since: (freshEyes || kind == .round) ? nil : marker,
             currentParagraphs: reading.paragraphs, sequence: reading.sequence)
 
         guard !delta.isEmpty else {
             // Ops may still have landed that changed no prose. Passing them
             // costs nothing and saves every later run from re-reading them.
-            if let newest = delta.newestOpId {
+            //
+            // **The CHECK's alone** (Task 4). A round is here only over a
+            // piece with nothing in it, and moving the marker for it would
+            // consume, on the round loop's behalf, ops the writer's own next
+            // ⌘R is owed — the check would open on a document whose opening
+            // paragraphs it has never read and nothing on screen would say so.
+            if kind == .check, let newest = delta.newestOpId {
                 diagnostics.advanceMarker(to: newest, docId: docId)
             }
             runState = .nothingNew(docId: docId, at: Date())
@@ -763,19 +782,36 @@ final class CompilerOrchestrator {
         // both a pre-sorted array would couple the delta's shape to the
         // signals' and give a later change to one a way to move the other
         // silently. Revisit only if it stops being 1 ms.
-        let signals = ProcessSignals(
-            ops: reading.ops, sequence: reading.sequence, now: Date())
+        //
+        // **The CHECK's, both of its readers** (two loops P1 Task 4): the
+        // signals brief the check and the stage they feed doses it, and a
+        // round wants neither, so a round takes no reading at all rather than
+        // computing one nothing downstream would look at.
+        let signals = kind == .check
+            ? ProcessSignals(ops: reading.ops, sequence: reading.sequence, now: Date())
+            : nil
         // **The stage is derived, never set** (global constraint 23, spec
         // §3.8). Two inputs, both already in hand: what this delta is made of,
         // and whether the frontier moved in the latest sitting. The writer is
         // never asked, no manifest field records it, and the only persisted
         // trace is the stamp `record` puts on the letter.
-        let stage = DraftStage.derive(counts: DeltaCounts(of: delta), signals: signals)
+        //
+        // **And it is derived for a CHECK alone** (spec §4.8). The stage says
+        // how far along the writer's own draft is; a round is always the full
+        // letter, because its pass brief is what decides which parts an editor
+        // writes. So a round derives none, states none and stamps none —
+        // `nil` here rather than a stage the dose below then has to ignore,
+        // which would leave two places to remember the rule.
+        let stage: DraftStage? = kind == .check
+            ? DraftStage.derive(counts: DeltaCounts(of: delta), signals: signals)
+            : nil
         // **Stated in the briefing AND enforced at ingest** (global constraint
         // 24) — derived once, here, so the two ends cannot ask for different
         // amounts of letter. Fresh Eyes is always the full letter, which is why
         // the flag is an argument rather than something `parseLetter` re-reads.
-        let dosage = stage.dosage(freshEyes: freshEyes)
+        // No stage — a round — is `.full` for that rule's own reason: the dose
+        // is a stage's to shorten, and nothing else may.
+        let dosage = stage?.dosage(freshEyes: freshEyes) ?? .full
 
         // **The lane and the round, minted HERE — at the keystroke, before a
         // single byte of the answer can arrive** (M3-P3 §6).
@@ -980,7 +1016,16 @@ final class CompilerOrchestrator {
         // nothing after the marker still checked the prose it was given, and
         // nil-ing the marker would make the next run re-read the whole
         // document.
-        let lastOpId = delta.newestOpId ?? marker
+        //
+        // **A round records the marker it FOUND** (two loops P1 Task 4). Its
+        // own delta was built `since: nil`, so `newestOpId` is the newest op
+        // in the document — writing that would advance the check's position
+        // past prose the writer has never had read back to them. Carrying the
+        // marker forward unchanged is what makes a round invisible to the
+        // check loop while the two still share one standing record (Task 5
+        // gives them a slot each; until then this is what keeps the check's
+        // position from regressing OR jumping).
+        let lastOpId = kind == .check ? (delta.newestOpId ?? marker) : marker
         let deltaSummary = Self.summary(of: delta)
         Task { [weak self] in
             let world = await Self.resolveWorld(briefing, model: model, in: environment)
@@ -996,31 +1041,46 @@ final class CompilerOrchestrator {
             let previousHash = self.sentBriefing[docId].flatMap {
                 $0.epoch == runner.sessionEpoch ? $0.hash : nil
             }
-            let (message, briefingHash) = CompilerPrompt.runMessageV2(
-                delta: delta,
-                // **Which loop asked, at the one place the message is built**
-                // (two loops P1 Task 3). The prompt scopes three sections by
-                // it — the prose, the draft stage, the prior round — and a
-                // round sent under the check's default would be handed a diff
-                // with a stage's dose on it. Task 4 replaces this call with
-                // `checkMessage`/`roundMessage`, whose signatures make the
-                // pairing unforgettable; until then the kind travels here.
-                kind: kind,
-                world: world, essay: essay, bibleFacts: bibleFacts,
-                paletteListing: paletteListing, pinnedListing: pinnedListing,
-                pass: activePass,
-                scenePosition: scenePosition,
-                previousRound: previousRound,
-                dispositions: dispositions,
-                ask: ask,
-                lessons: lessons,
-                stage: stage,
-                // The one thing the prompt needs the flag for: a cold read is
-                // always the full letter, so the stage section must not ask
-                // for the short one over a run ingest will let through whole.
-                freshEyes: freshEyes,
-                signals: signals,
-                previousBriefingHash: previousHash)
+            // **Which loop asked, said by WHICH DOOR is used** (two loops P1
+            // Task 4). The two builders are `runMessageV2` with their kind
+            // fixed and the other loop's inputs absent from the signature —
+            // there is no `previousRound` to hand a check and no `stage`,
+            // `freshEyes` or `signals` to hand a round — so a round briefed as
+            // a check is a compile error here rather than a diff arriving with
+            // a stage's dose on it.
+            let (message, briefingHash): (String, String?)
+            switch kind {
+            case .check:
+                (message, briefingHash) = CompilerPrompt.checkMessage(
+                    delta: delta,
+                    world: world, essay: essay, bibleFacts: bibleFacts,
+                    paletteListing: paletteListing, pinnedListing: pinnedListing,
+                    pass: activePass,
+                    scenePosition: scenePosition,
+                    dispositions: dispositions,
+                    ask: ask,
+                    lessons: lessons,
+                    stage: stage,
+                    // The one thing the prompt needs the flag for: a cold read
+                    // is always the full letter, so the stage section must not
+                    // ask for the short one over a run ingest will let through
+                    // whole.
+                    freshEyes: freshEyes,
+                    signals: signals,
+                    previousBriefingHash: previousHash)
+            case .round:
+                (message, briefingHash) = CompilerPrompt.roundMessage(
+                    delta: delta,
+                    world: world, essay: essay, bibleFacts: bibleFacts,
+                    paletteListing: paletteListing, pinnedListing: pinnedListing,
+                    pass: activePass,
+                    scenePosition: scenePosition,
+                    previousRound: previousRound,
+                    dispositions: dispositions,
+                    ask: ask,
+                    lessons: lessons,
+                    previousBriefingHash: previousHash)
+            }
 
             // **Armed immediately before the send, and never earlier.** A run
             // abandoned while its declared world derived — a subprocess, and
@@ -1174,7 +1234,11 @@ final class CompilerOrchestrator {
     /// downstream could notice — the preview and the answer would simply
     /// disagree. `stage` is undefaulted on that rule (P3 Task 4): a default
     /// would let a call site stamp `revising` over a drafting run's letter,
-    /// and nothing about the record would look wrong.
+    /// and nothing about the record would look wrong. It is OPTIONAL as of two
+    /// loops P1 Task 4 — a round derives no stage — and `nil` leaves
+    /// `Letter.stage` unset, which is the field's own tolerated-missing case
+    /// (`Letter.draftStage` reads an absent or unknown raw value as `nil`, and
+    /// every surface that draws the word already handles it).
     /// `mintedNotes` and `openInOtherLanes` are `nil` for a preview — nothing
     /// is minted until the turn ends — and the finished run's real counts
     /// otherwise. Undefaulted for `passId`/`round`/`freshEyes`'s reason: a
@@ -1189,7 +1253,7 @@ final class CompilerOrchestrator {
         intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
         kind: RunKind,
         outcome: DiagnosticIngest.SectionedOutcome, scenePosition: ScenePosition,
-        stage: DraftStage, ask: String?, mintedNotes: Int?, openInOtherLanes: Int?
+        stage: DraftStage?, ask: String?, mintedNotes: Int?, openInOtherLanes: Int?
     ) -> CompilerRun {
         // **The letter's one mutable field, stamped here** (spec §3.4). The
         // position is the run's, not the model's: it is derived app-side at
@@ -1210,7 +1274,7 @@ final class CompilerOrchestrator {
         // say what was asked after the writer has cleared the field — which
         // they do the moment they have read the answer.
         letter?.asked = ask
-        letter?.stage = stage.rawValue
+        letter?.stage = stage?.rawValue
         // **The letter's third stamp, and it is deliberately on the line
         // touching the second** (spec §3.8, global constraint 23). The stage is
         // the same kind of fact as the position and the ask — the run's own,
@@ -1462,7 +1526,7 @@ final class CompilerOrchestrator {
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
         deltaSummary: String, intentSnapshot: String?, activePass: ActivePass?,
         passId: String?, round: Int?,
-        scenePosition: ScenePosition, stage: DraftStage, dosage: LetterDosage,
+        scenePosition: ScenePosition, stage: DraftStage?, dosage: LetterDosage,
         ask: String?, freshEyes: Bool, kind: RunKind, briefingHash: String?,
         model: String, generation: Int
     ) async {

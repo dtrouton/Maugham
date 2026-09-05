@@ -1131,9 +1131,10 @@ final class CompilerPromptTests: XCTestCase {
     /// **Two messages, because the stage and the prior round can no longer
     /// meet in one** (two loops P1 Task 3): the stage doses a check, the prior
     /// round briefs a round. The chain they used to pin end to end is pinned
-    /// across the pair instead — scenes → stage → process → the check's delta,
-    /// and scenes → process → round → the round's piece — which together still
-    /// place every section between the role frame and the prose.
+    /// across the pair instead — scenes → stage → process → the check's delta
+    /// here, and scenes → round → the round's piece in its neighbour below —
+    /// which together still place every section between the role frame and the
+    /// prose.
     func test_theStageAndTheProcessSitBetweenTheScenePositionAndTheChecksDelta() {
         let (message, _) = CompilerPrompt.runMessageV2(
             delta: makeDelta(new: [.init(paragraphId: "p1", text: "The fog came.")]),
@@ -1154,8 +1155,12 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertLessThan(process.lowerBound, delta.lowerBound)
     }
 
-    /// The round half of the chain above.
-    func test_TheProcessSitsBetweenTheScenePositionAndTheRound() {
+    /// The round half of the chain above — **and it is one section shorter,
+    /// because the process numbers do not travel to a round** (two loops P1
+    /// Task 4, spec §4.9's round list). What is left still runs from the role
+    /// frame to the prose: scenes, then what this lane raised last time, then
+    /// the piece.
+    func test_theRoundSitsBetweenTheScenePositionAndThePiece() {
         let (message, _) = CompilerPrompt.runMessageV2(
             delta: makeDelta(new: [.init(paragraphId: "p1", text: "The fog came.")]),
             kind: .round, world: nil, essay: nil, bibleFacts: [],
@@ -1166,13 +1171,46 @@ final class CompilerPromptTests: XCTestCase {
             previousBriefingHash: nil)
         guard let scenes = message.range(
                 of: CompilerPrompt.scenePositionSection(.weak) ?? "!"),
-              let process = message.range(of: CompilerPrompt.processSectionOpening),
               let round = message.range(of: "raised these notes"),
               let piece = message.range(of: "The piece, whole:")
-        else { return XCTFail("expected all four; got \(message)") }
-        XCTAssertLessThan(scenes.lowerBound, process.lowerBound)
-        XCTAssertLessThan(process.lowerBound, round.lowerBound)
+        else { return XCTFail("expected all three; got \(message)") }
+        XCTAssertLessThan(scenes.lowerBound, round.lowerBound)
         XCTAssertLessThan(round.lowerBound, piece.lowerBound)
+    }
+
+    /// **The process numbers are the CHECK's alone** (two loops P1 Task 4,
+    /// spec §4.9). `ProcessSignals` is Maugham's own observation of the
+    /// WRITER's drafting process — sessions since the frontier moved, a
+    /// paragraph rewritten seven times, three weeks away — and an editor reads
+    /// the manuscript rather than the working month that produced it. So
+    /// §4.9's round list omits the section, and the gate inside the builder
+    /// says so even when a caller hands a round the signals anyway.
+    ///
+    /// `roundMessage` has no `signals` parameter for `stage`/`freshEyes`'s own
+    /// reason, so the door cannot express this at all — this is the pin for
+    /// the callers that pass a kind directly.
+    ///
+    /// Disable experiment: leave `processSection` outside the `switch kind`.
+    /// This test fails at its first assertion, and nothing else in the suite
+    /// notices.
+    func test_aRoundIsBriefedOnNoProcessNumbersEvenWhenTheyAreHandedToIt() {
+        let delta = makeDelta(new: [.init(paragraphId: "p1", text: "The fog came.")])
+        let (round, _) = CompilerPrompt.runMessageV2(
+            delta: delta, kind: .round, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            signals: stalledSignals(), previousBriefingHash: nil)
+        XCTAssertFalse(round.contains(CompilerPrompt.processSectionOpening),
+                       "a round was told how the writer's month went; got \(round)")
+
+        // Control: the same signals, the same threshold crossed, the check's
+        // kind — so the absence above is the kind's doing and not a quiet
+        // reading.
+        let (check, _) = CompilerPrompt.runMessageV2(
+            delta: delta, kind: .check, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            signals: stalledSignals(), previousBriefingHash: nil)
+        XCTAssertTrue(check.contains(CompilerPrompt.processSectionOpening),
+                      "control: a check carries the numbers; got \(check)")
     }
 
     /// **A cold read is briefed on the dose it will actually be held to.**
