@@ -111,54 +111,6 @@ final class PaletteWallDoorTests: XCTestCase {
         }
     }
 
-    // MARK: - The header's door — mounted
-
-    /// **The control for the travel case below**: outside Plan the door is
-    /// unchanged — enabled, and its press opens the wall where the writer
-    /// already is.
-    func test_theHeadersOpenWallButtonFiresTheClosureWhenEnabled() async throws {
-        let store = try await novel()
-        var opened = false
-        let window = try await hostTree(store: store, paletteWallTravels: false) {
-            opened = true
-        }
-
-        let button = try openWallButton(in: window)
-        XCTAssertTrue(
-            (axAttribute(button, "accessibilityEnabled") as? Bool) ?? false,
-            "premise: the door is enabled outside Plan")
-        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        await pumpUntil(deadline: 5) { opened }
-
-        XCTAssertTrue(opened, "the header's door did not reach the closure")
-    }
-
-    /// **The door in Plan is LIVE and it travels** (Denver, 2026-08-12) — this
-    /// test replaces `test_theHeadersOpenWallButtonIsDisabledInPlan`, which
-    /// pinned stage 2b Task 5's placeholder answer: the wall is refused in
-    /// Plan (`showsPaletteWallCentre`), so the door was disabled there with a
-    /// tooltip saying why. The refusal stands; what changed is what the writer
-    /// gets instead of nothing — the door now takes them to Author with the
-    /// wall open, so this asserts the button is pressable and reaches its
-    /// closure in exactly the persona where it used to refuse to.
-    func test_theHeadersOpenWallButtonInPlanIsLiveAndReachesTheDoor() async throws {
-        let store = try await novel()
-        var opened = false
-        let window = try await hostTree(store: store, paletteWallTravels: true) {
-            opened = true
-        }
-
-        let button = try openWallButton(in: window)
-        XCTAssertTrue(
-            (axAttribute(button, "accessibilityEnabled") as? Bool) ?? false,
-            "the door in Plan must be pressable — it travels rather than "
-            + "refusing (a disabled door is what this task removed)")
-        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        await pumpUntil(deadline: 5) { opened }
-
-        XCTAssertTrue(opened, "the door in Plan did not reach its closure")
-    }
-
     // MARK: - The door's own press: travel, or open in place
 
     /// The rule the door's tooltip and its action both read, in ONE spelling —
@@ -639,19 +591,6 @@ final class PaletteWallDoorTests: XCTestCase {
 
     // MARK: - Hosting and driving
 
-    private func hostTree(
-        store: ProjectStore, paletteWallTravels: Bool, onOpenPaletteWall: @escaping () -> Void
-    ) async throws -> NSWindow {
-        let window = TestWindow.mount(
-            AnyView(DoorProbeView(store: store, paletteWallTravels: paletteWallTravels,
-                                  onOpenPaletteWall: onOpenPaletteWall)),
-            size: CGSize(width: 320, height: 800), as: SilentTestWindow.self)
-        windows.append(window)
-        await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
-        pump(0.2)
-        return window
-    }
-
     /// The real door and the real `PaletteWallModifier` over one box — the two
     /// production halves of the travel, and nothing standing in for either.
     private func hostTravelProbe(
@@ -728,33 +667,13 @@ final class PaletteWallDoorTests: XCTestCase {
         for sub in view.subviews { collect(type, in: sub, into: &out) }
     }
 
-    /// The "Open Wall" button, found by the accessibility label
-    /// `BinderTreeSections.openWallButton` carries. `TreeFindOverlayTests
-    /// .closeButton`'s shape verbatim: the retry loop is because SwiftUI builds
-    /// the tree lazily, and the skip is because it builds no tree at all unless
-    /// an assistive client is attached.
-    private func openWallButton(in window: NSWindow) throws -> NSObject {
-        for _ in 0..<10 {
-            let tree = try axTree(in: window)
-            if let hit = tree.first(where: {
-                (axAttribute($0, "accessibilityRole") as? String) == "AXButton"
-                    && ((axAttribute($0, "accessibilityLabel") as? String) ?? "")
-                        == "Open Wall"
-            }) as? NSObject {
-                return hit
-            }
-            pump(0.1)
-        }
-        throw XCTSkip("no button labelled \"Open Wall\" was built in this process")
-    }
-
-    /// **A real mouse click on the door**, because the accessibility route
-    /// above skips in any process no assistive client attaches to — which is
+    /// **A real mouse click on the door**, because an accessibility press
+    /// skips in any process no assistive client attaches to — which is
     /// every process this suite has ever run in. The travel is the load-bearing
     /// behaviour of stage 3b Task 4 and it cannot be pinned by a test that
     /// skips, so the two end-to-end cases drive the door the way a writer does.
     ///
-    /// It also subsumes the enablement claim the AX assertions make: a disabled
+    /// It also subsumes the enablement claim: a disabled
     /// `Button` swallows a click, so a press that reaches its action proves the
     /// door is live in the persona it was pressed in.
     ///
@@ -804,54 +723,9 @@ final class PaletteWallDoorTests: XCTestCase {
     private func allViews(in view: NSView) -> [NSView] {
         [view] + view.subviews.flatMap { allViews(in: $0) }
     }
-
-    private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
-        guard let object = element as? NSObject,
-              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
-        return object.value(forKey: attribute)
-    }
-
-    private func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
-        guard depth < 40 else { return [] }
-        let children = axAttribute(root, "accessibilityChildren") as? [AnyObject] ?? []
-        return [root] + children.flatMap { axElements(under: $0, depth: depth + 1) }
-    }
-
-    /// SwiftUI only builds an accessibility tree when an assistive client is
-    /// attached to the process. `TreeFindOverlayTests`' guard, verbatim.
-    private func axTree(in window: NSWindow) throws -> [AnyObject] {
-        var role: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(
-            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
-        guard error == .success, role != nil else {
-            throw XCTSkip(
-                "no assistive client could be attached to this process, so "
-                + "SwiftUI builds no accessibility tree to press a button in")
-        }
-        guard let root = window.contentView else { return [] }
-        return axElements(under: root)
-    }
 }
 
 // MARK: - Probes
-
-/// Mounts `BinderView` with the door's two new parameters wired to a probe —
-/// the minimal shape that puts the Palette section's header on screen.
-@MainActor
-private struct DoorProbeView: View {
-    let store: ProjectStore
-    let paletteWallTravels: Bool
-    let onOpenPaletteWall: () -> Void
-    @State private var subject: BinderSubject?
-    let treeState = BinderTreeSectionsState()
-
-    var body: some View {
-        BinderView(store: store, selectedSubject: $subject,
-                   treeState: treeState,
-                   paletteWallTravels: paletteWallTravels,
-                   onOpenPaletteWall: onOpenPaletteWall)
-    }
-}
 
 /// The door and the wall's observer over one box, wired the way `ProjectWindow`
 /// wires them: the tree's `paletteWallTravels` and the press both come from

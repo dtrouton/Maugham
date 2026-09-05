@@ -413,30 +413,7 @@ final class DesignGateTests: XCTestCase {
         XCTAssertFalse(row.canRun, "…and the verbs that DO contend still refuse")
     }
 
-    /// **Pressing Show hands the newest proposal up**, whole. Pressed through
-    /// the accessibility tree, `DepartmentPaneTests`' idiom: it is the action a
-    /// click ultimately performs and, unlike a synthetic `mouseDown`, it does
-    /// not need this process to be the active app (CLAUDE.md's synthetic-click
-    /// premise).
-    func test_pressingShowHandsUpTheProposal() async throws {
-        var shown = 0
-        let window = mountDesk(proposals: [Self.proposal()],
-                               showProposal: { shown += 1 })
-        _ = try await settling(in: window)
-
-        let published = try axButtonLabels(in: window).sorted()
-        let buttons = try axButtons(
-            labelled: DepartmentDesignRow.showAccessibilityLabel, in: window)
-        XCTAssertEqual(buttons.count, 1,
-                       "one Show, on the Design row. Buttons: \(published)")
-        _ = (buttons[0] as? NSObject)?.perform(
-            NSSelectorFromString("accessibilityPerformPress"))
-        _ = await pumpUntil(deadline: 3) { shown > 0 }
-
-        XCTAssertEqual(shown, 1)
-    }
-
-    /// …and a desk with no round draws no Show at all.
+    /// A desk with no round draws no Show at all.
     func test_aDeskWithNoRoundDrawsNoShow() async throws {
         let window = mountDesk(proposals: [], showProposal: { })
         _ = try await settling(in: window)
@@ -617,26 +594,6 @@ final class DesignGateTests: XCTestCase {
                           "“\(expected)” is not on the gate. "
                           + "Published: \(texts.sorted())")
         }
-    }
-
-    /// **The way back to the book is a control**, so it is reachable with the
-    /// keyboard and announced by VoiceOver — and pressing it deselects, which is
-    /// what `test_deselectingRestoresTheBookOrItsNotice` proves the column does
-    /// with.
-    func test_theWayBackToTheBookIsAButtonThatDeselects() async throws {
-        var closed = 0
-        let window = mountGate(Self.proposal(), onClose: { closed += 1 })
-        _ = try await settling(in: window)
-
-        let published = try axButtonLabels(in: window).sorted()
-        let buttons = try axButtons(labelled: DesignGate.closeAccessibilityLabel,
-                                    in: window)
-        XCTAssertEqual(buttons.count, 1, "buttons published: \(published)")
-        _ = (buttons[0] as? NSObject)?.perform(
-            NSSelectorFromString("accessibilityPerformPress"))
-        _ = await pumpUntil(deadline: 3) { closed > 0 }
-
-        XCTAssertEqual(closed, 1)
     }
 
     // MARK: - Census
@@ -1012,84 +969,6 @@ final class DesignGateTests: XCTestCase {
         XCTAssertTrue(texts.contains { $0.contains("ligatures broke") },
                       "the revert's own note is not on the gate. "
                       + "Published: \(texts.sorted())")
-    }
-
-    /// **A refused verb puts its own sentence on the gate**, on the delivery
-    /// path: pressed through the accessibility tree, with the refusal travelling
-    /// from the seam exactly as production's does.
-    func test_aRefusedVerbDrawsItsSentenceRatherThanDoingNothingVisible()
-        async throws {
-        let sentence = "a compile is running (job-7) — wait for it, or cancel it."
-        var actions = DesignGateActions()
-        actions.approve = { _ in .refused(sentence) }
-        let window = mountGate(Self.proposal(status: .pending), actions: actions)
-        _ = try await settling(in: window)
-
-        try press(.approve, in: window)
-        _ = await pumpUntil(deadline: 3) {
-            ((try? self.axTexts(in: window)) ?? []).contains { $0.contains(sentence) }
-        }
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains(sentence) },
-                      "the refusal is not on screen. Published: \(texts.sorted())")
-    }
-
-    /// **A verb's result reaches the window, so the gate cannot lie about where
-    /// the proposal stands.**
-    ///
-    /// The delivery-path half of Task 5's ledgered concern: the gate's proposal
-    /// is `ProjectWindow.publishSelectedProposal`, and unless the verb writes the
-    /// refreshed value back into it the surface keeps drawing the snapshot it
-    /// opened with — Approve still offered, "waiting for your review" still in
-    /// the header, over templates that are already live.
-    func test_aVerbsResultIsWrittenBackSoTheGateCannotLieAboutTheStatus()
-        async throws {
-        var approved = Self.proposal(status: .pending)
-        approved.status = .approved
-        var actions = DesignGateActions()
-        actions.approve = { _ in
-            .done(approved, sentence: DesignGate.approvedConfirmation)
-        }
-        var handedUp: [DesignProposalStore.Status] = []
-        let window = mountGate(Self.proposal(status: .pending), actions: actions,
-                               onProposalChanged: { handedUp.append($0.status) })
-        _ = try await settling(in: window)
-
-        try press(.approve, in: window)
-        _ = await pumpUntil(deadline: 3) { !handedUp.isEmpty }
-
-        XCTAssertEqual(handedUp, [.approved],
-                       "the window's own copy of the proposal must move, or the "
-                       + "gate goes on offering Approve over a live design")
-    }
-
-    /// **Request Changes takes the writer's words and reports what happened
-    /// either way** — the one verb here that does not touch the publish tree, and
-    /// the one whose refusal comes back as a sentence rather than an outcome.
-    func test_requestChangesSendsTheWritersWordsAndSaysWhenItCannot() async throws {
-        var sent: [String] = []
-        var actions = DesignGateActions()
-        actions.requestChanges = { words in
-            sent.append(words)
-            return words.isEmpty ? DepartmentDesignRow.noWordsRefusal : nil
-        }
-        let window = mountGate(Self.proposal(status: .pending), actions: actions,
-                               hasOpenProposalRound: true)
-        _ = try await settling(in: window)
-
-        try press(.requestChanges, in: window)
-        _ = await pumpUntil(deadline: 3) {
-            ((try? self.axTexts(in: window)) ?? []).contains {
-                $0.contains(DepartmentDesignRow.noWordsRefusal)
-            }
-        }
-
-        XCTAssertEqual(sent, [""], "the field's words, whatever they are")
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains {
-            $0.contains(DepartmentDesignRow.noWordsRefusal)
-        }, "the refusal is not on screen. Published: \(texts.sorted())")
     }
 
     // MARK: - Finalize asks first

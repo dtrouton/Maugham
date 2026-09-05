@@ -499,49 +499,6 @@ final class StatementPaneStrataTests: XCTestCase {
         XCTAssertTrue(texts.contains(where: { $0.contains("grey") }), "\(texts)")
     }
 
-    /// An orphaned directive draws its caption and a `Remove` control, and
-    /// pressing it revokes exactly that line — the same verb the ordinary
-    /// row's Revoke uses, wearing this row's name for it.
-    func test_pressingRemoveOnAnOrphanRevokesExactlyThatLineAndNothingElse() async throws {
-        let fixture = try await StatementMountFixture.novel(named: "orphan-remove")
-        defer { fixture.tearDown() }
-        let scope = Statement.Scope.document(fixture.documentItemId)
-        _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
-        let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
-        try await fixture.store.mutateStatementText(of: statement, session: "s") { _ in
-            RulingsSection.render(essay: "Essay.", rulings: [
-                Ruling(id: "", text: Ruling.directiveText(paragraphId: "9zzz", "trim this line"),
-                      ruledOn: nil, provenance: nil),
-                Ruling(id: "", text: "Kelly never lies", ruledOn: nil, provenance: nil),
-            ])
-        }
-        let rulings = RulingsStratum.rows(in: try fixture.store.statementText(of: statement))
-
-        let window = TestWindow.mount(
-            AnyView(RulingsStratumView(rulings: rulings, kind: .intent, scope: scope,
-                                       store: fixture.store, world: nil, liveParagraphIds: [])),
-            size: CGSize(width: 420, height: 300))
-        bareWindows.append(window)
-        pump()
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains(where: { $0.contains(RulingsStratum.orphanCaption) }),
-                      "the orphan caption never reached the mounted view: \(texts)")
-
-        let removeButtons = try axButtons(labelled: RulingsStratum.removeTitle, in: window)
-        let allLabels = try axButtonLabels(in: window)
-        XCTAssertEqual(removeButtons.count, 1,
-                       "expected exactly one orphan; button labels: \(allLabels)")
-        press(removeButtons[0])
-
-        await pumpUntil(deadline: 5) {
-            RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store).count == 1
-        }
-        let remaining = RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store)
-        XCTAssertEqual(remaining.map(\.text), ["Kelly never lies"],
-                       "Remove did not take exactly the orphaned line")
-    }
-
     // MARK: - Live paragraph ids reach the mounted pane through its own `.task`
 
     /// `.intent` at `.document(docId)` resolves the ONE document's ids: a

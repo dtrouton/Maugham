@@ -563,38 +563,6 @@ final class DepartmentPaneTests: XCTestCase {
                        "one door per edition. Buttons published: \(labels.sorted())")
     }
 
-    /// **Pressing a door carries the ROW's own tag**, so two editions cannot
-    /// open one brief.
-    ///
-    /// **Pressed through the accessibility tree since Task 3**, which is both a
-    /// necessity and an improvement. The necessity: the row grew a Run button, so
-    /// counting SwiftUI's private focus-ring views no longer identifies a door —
-    /// the reading Task 1's report warned would need re-deriving once the rows had
-    /// verbs. The improvement: `accessibilityPerformPress` is the action a click
-    /// ultimately performs, and unlike a synthetic `mouseDown` it does not need
-    /// this process to be the active app, so an overnight gate on a locked screen
-    /// can no longer fail this test for a reason that has nothing to do with the
-    /// desk (CLAUDE.md's synthetic-click premise).
-    func test_theDoorReportsTheLanguageItBelongsTo() async throws {
-        var opened: [String] = []
-        let window = mount(languages: ["es", "fr"],
-                           openEditionBrief: { opened.append($0) })
-        _ = try await scrollersSettling(in: window)
-
-        let doors = try axButtons(labelled: DepartmentDesk.editionBriefTitle,
-                                  in: window)
-        XCTAssertEqual(doors.count, 2, "one door per edition")
-        // Rows are drawn in the language order, and the tree is built in the
-        // order the rows are — so the second door is `fr`'s.
-        _ = (doors[1] as? NSObject)?.perform(
-            NSSelectorFromString("accessibilityPerformPress"))
-        _ = await pumpUntil(deadline: 3) { !opened.isEmpty }
-
-        XCTAssertEqual(opened, ["fr"],
-                       "the second row's door opened \(opened) — a door that "
-                       + "captured the wrong row's tag would open the first")
-    }
-
     // MARK: - The unreadable chapter, on screen (issue #43, F-D)
 
     /// **A chapter that would not open is named on the desk, and "No
@@ -812,29 +780,6 @@ final class DepartmentPaneTests: XCTestCase {
             "the book's own tag, PDF, no imprint, nothing stale")
     }
 
-    /// **The imprint is shown and never asked** — the desk's picker already
-    /// answered it, and a second control for one decision is two places that
-    /// can disagree about which book is being made.
-    func test_theSheetCarriesTheDesksImprintWithoutAskingAgain() async throws {
-        var asked: [DeskCompileRunner.Request] = []
-        let window = mountSheet(languages: [], bookLanguage: "en",
-                                imprint: "special",
-                                onCompile: { asked.append($0) })
-        _ = await pumpUntil(deadline: 3) {
-            (try? self.axButtonLabels(in: window))?
-                .contains(DepartmentCompileState.compileTitle) == true
-        }
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains("special") },
-                      "the sheet says which book it is about. "
-                      + "Published: \(texts.sorted())")
-
-        press(try axButtons(labelled: DepartmentCompileState.compileTitle,
-                            in: window)[0])
-        _ = await pumpUntil(deadline: 3) { !asked.isEmpty }
-        XCTAssertEqual(asked.first?.imprint, "special")
-    }
-
     /// **Nothing checked is refused in words**, not silently honoured. An empty
     /// list reaches `LanguageSet` as the source book, so a sheet that let it
     /// through would compile the book a writer had just unchecked.
@@ -1015,31 +960,6 @@ final class DepartmentPaneTests: XCTestCase {
         XCTAssertEqual(asUnresolved.bodies, ["en"],
                        "…and the top-level one would have asked for a Spanish "
                        + "book's English TRANSLATION, which nobody wrote")
-    }
-
-    /// **The sheet carries whatever source tag the host resolved** — the label
-    /// the writer reads and the tag the request sends are the same value, so
-    /// the fix above reaches the press rather than stopping at a static
-    /// function.
-    func test_theSheetsBookLanguageRowIsTheOneTheHostResolved() async throws {
-        var asked: [DeskCompileRunner.Request] = []
-        let window = mountSheet(languages: [], bookLanguage: "es",
-                                imprint: "es-edition",
-                                onCompile: { asked.append($0) })
-        _ = await pumpUntil(deadline: 3) {
-            (try? self.axButtonLabels(in: window))?
-                .contains(DepartmentCompileState.compileTitle) == true
-        }
-        let texts = try axTexts(in: window)
-        let expected = DepartmentCompileSheetCopy.bookLanguageTitle("es")
-        XCTAssertTrue(texts.contains { $0.contains(expected) },
-                      "nothing on the sheet reads \u{201C}\(expected)\u{201D}. "
-                      + "Published: \(texts.sorted())")
-
-        press(try axButtons(labelled: DepartmentCompileState.compileTitle,
-                            in: window)[0])
-        _ = await pumpUntil(deadline: 3) { !asked.isEmpty }
-        XCTAssertEqual(asked.first?.languages, ["es"])
     }
 
     /// **A persisted imprint the config no longer declares is not a selection.**

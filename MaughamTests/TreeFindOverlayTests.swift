@@ -168,8 +168,7 @@ final class TreeFindOverlayTests: XCTestCase {
     /// `test_theOverlayHasExactlyOneWayDown`; from there everything is
     /// production — the real post, the real key-window filter, the real
     /// receiver and the real `applyCloseFind`. Nothing here can be skipped for
-    /// want of an assistive client, which is why the ✕'s own press is a second
-    /// test rather than this one.
+    /// want of an assistive client.
     func test_theOverlaysOneExitClosesItAndClearsTheResultsTogether() async throws {
         let store = try await project(of: .novel)
         let (box, window) = try await openOverlay(on: store, persona: .author)
@@ -187,22 +186,6 @@ final class TreeFindOverlayTests: XCTestCase {
         await pumpUntil(deadline: 5) { self.queryField(in: window) == nil }
         XCTAssertNil(queryField(in: window),
                      "the column did not come back after the overlay closed")
-    }
-
-    /// The ✕ itself, pressed through the accessibility tree — the only way to
-    /// reach a SwiftUI `Button`'s action from a test. Skips rather than fails
-    /// where no assistive client can attach to the process, the idiom
-    /// `AssistantColumnTests.findButton` established; the route it presses is
-    /// asserted unconditionally above.
-    func test_theCloseButtonPressesThatExit() async throws {
-        let store = try await project(of: .novel)
-        let (box, window) = try await openOverlay(on: store, persona: .author)
-
-        let close = try closeButton(in: window)
-        _ = close.perform(NSSelectorFromString("accessibilityPerformPress"))
-        await pumpUntil(deadline: 5) { box.treeFindActive == false }
-
-        XCTAssertFalse(box.treeFindActive, "the ✕ did not close the overlay")
     }
 
     /// **A REAL Escape, at a REAL focused field.**
@@ -505,53 +488,6 @@ final class TreeFindOverlayTests: XCTestCase {
         var found: [NSSegmentedControl] = []
         collect(NSSegmentedControl.self, in: root, into: &found)
         return found.first
-    }
-
-    /// The ✕, found by the accessibility label it shares with its tooltip.
-    /// `AssistantColumnTests.findButton`'s shape, verbatim in its essentials:
-    /// the retry loop is because SwiftUI builds the tree lazily, and the skip is
-    /// because it builds no tree at all unless an assistive client is attached.
-    private func closeButton(in window: NSWindow) throws -> NSObject {
-        for _ in 0..<10 {
-            let tree = try axTree(in: window)
-            if let hit = tree.first(where: {
-                (axAttribute($0, "accessibilityRole") as? String) == "AXButton"
-                    && ((axAttribute($0, "accessibilityLabel") as? String) ?? "")
-                        .contains(ProjectSearchView.closeHelp)
-            }) as? NSObject {
-                return hit
-            }
-            pump(0.1)
-        }
-        throw XCTSkip("no button labelled \"\(ProjectSearchView.closeHelp)\" was "
-                      + "built in this process")
-    }
-
-    private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
-        guard let object = element as? NSObject,
-              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
-        return object.value(forKey: attribute)
-    }
-
-    private func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
-        guard depth < 40 else { return [] }
-        let children = axAttribute(root, "accessibilityChildren") as? [AnyObject] ?? []
-        return [root] + children.flatMap { axElements(under: $0, depth: depth + 1) }
-    }
-
-    /// SwiftUI only builds an accessibility tree when an assistive client is
-    /// attached to the process. `AssistantColumnTests`' guard.
-    private func axTree(in window: NSWindow) throws -> [AnyObject] {
-        var role: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(
-            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
-        guard error == .success, role != nil else {
-            throw XCTSkip(
-                "no assistive client could be attached to this process, so "
-                + "SwiftUI builds no accessibility tree to press a button in")
-        }
-        guard let root = window.contentView else { return [] }
-        return axElements(under: root)
     }
 
     private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {

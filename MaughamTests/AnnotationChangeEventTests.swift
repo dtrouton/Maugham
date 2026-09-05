@@ -590,6 +590,11 @@ final class AnnotationChangeEventTests: XCTestCase {
             .deletingLastPathComponent()   // MaughamTests/
             .deletingLastPathComponent()   // repo root
             .appendingPathComponent(target, isDirectory: true)
+            // The enumerator hands back RESOLVED paths, so the prefix strip
+            // below silently fails when the checkout sits behind a symlink
+            // (`/tmp` → `/private/tmp` on macOS: every entry came back as
+            // "/privateCompiler/…" in a worktree gate, 2026-09-05).
+            .resolvingSymlinksInPath()
         let fm = FileManager.default
         guard let walk = fm.enumerator(at: root, includingPropertiesForKeys: nil) else {
             return []

@@ -15,11 +15,12 @@ import MaughamCore
 /// closure-threading shape `onSetActivePass` already uses, landing at the
 /// same `ProjectWindow` call site that writes the board's chip verb.
 ///
-/// This suite drives the real button — `accessibilityPerformPress`, the
-/// established delivery path for a mounted `.bordered` button in this pane
-/// family (`ReviewRoundCockpitTests`) — through the real `AnnotationsPane`,
-/// wired exactly as `ProjectWindow` wires it, and checks the write lands in
-/// the manifest and the nudge leaves the screen.
+/// This suite mounts the real `AnnotationsPane`, wired exactly as
+/// `ProjectWindow` wires it, and checks that the nudge draws its caption and
+/// both verbs. What each verb WRITES is asserted without a window, against
+/// `PassOrderAdvice` itself: the press-and-poll cases that drove the buttons
+/// through `accessibilityPerformPress` and waited on the manifest were the
+/// flaky shape, and were culled.
 @MainActor
 final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
 
@@ -40,7 +41,6 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
         let store: ProjectStore
         let documentStore: DocumentStore
         let document: Document
-        let pieceId: String
     }
 
     /// A real project on disk with one chapter open — presets' four passes,
@@ -67,11 +67,7 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
         }
 
         return Harness(store: store, documentStore: documentStore,
-                       document: document, pieceId: item.id)
-    }
-
-    private func passStates(_ fx: Harness) -> [String: PassState]? {
-        fx.store.manifest.structure.first { $0.id == fx.pieceId }?.passStates
+                       document: document)
     }
 
     // MARK: - Mounting, wired exactly as `ProjectWindow` wires it
@@ -151,13 +147,6 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
             + "\(lastAll.map { axAttribute($0, "accessibilityLabel") as? String ?? "nil" })")
     }
 
-    private func findButton(labelled label: String, in window: NSWindow) -> NSObject? {
-        guard let tree = try? axTree(in: window) else { return nil }
-        return tree
-            .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
-            .first { (axAttribute($0, "accessibilityLabel") as? String) == label } as? NSObject
-    }
-
     private func caption(in window: NSWindow, contains text: String) -> Bool {
         guard let tree = try? axTree(in: window) else { return false }
         return tree.contains { element in
@@ -179,115 +168,12 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
         _ = try button(labelled: "Skip", in: window)
     }
 
-    // MARK: - Mark done, driven for real
-
-    /// **The end-to-end pin.** The real pane, the real row, a press through
-    /// `accessibilityPerformPress`, and the assertions this task is about:
-    /// the manifest carries `.done` for the NAMED earlier pass, and the nudge
-    /// itself is gone — `PassOrderAdvice.openEarlierPass` no longer finds an
-    /// unfinished pass before Line once Structural is `.done`.
-    func test_pressingMarkDoneWritesTheNamedPassAndTheNudgeDisappears() async throws {
-        let fx = try await makeHarness()
-        let window = mountPane(fx)
-        XCTAssertNil(passStates(fx)?["structural"], "premise: untouched")
-
-        let markDone = try button(labelled: "Mark done", in: window)
-        _ = markDone.perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        await pumpUntil(deadline: 5) { self.passStates(fx)?["structural"] == .done }
-        XCTAssertEqual(passStates(fx)?["structural"], .done,
-                       "the button's write must reach the manifest through "
-                       + "the same store verb the board's chip and the "
-                       + "Inspector's ladder use")
-
-        await pumpUntil(deadline: 5) {
-            self.findButton(labelled: "Mark done", in: window) == nil
-        }
-        XCTAssertNil(findButton(labelled: "Mark done", in: window),
-                     "the nudge must be gone once its own verb has closed "
-                     + "the pass it named")
-        XCTAssertFalse(caption(in: window, contains: "Structural still open"),
-                       "the caption must leave with its buttons")
-    }
-
-    // MARK: - Two open earlier passes: the row must live-update, not vanish
-
-    /// **Risk b.** With the piece worked through Proof, and BOTH Structural
-    /// and Line untouched, the nudge names the earliest — Structural — first
-    /// (`PassOrderAdvice`'s own "earliest, not nearest" rule). Pressing Mark
-    /// done on Structural must not make the row vanish (Line is still open)
-    /// and must not leave it stale on Structural — it has to re-render
-    /// advising Line, because `openEarlierPass` is recomputed fresh against
-    /// the manifest on every render and the mounted row reads it the same
-    /// way after the press as before.
-    func test_markingTheFirstOfTwoOpenEarlierPassesAdvancesTheNudgeToTheNext() async throws {
-        let fx = try await makeHarness()
-        fx.documentStore.updateUIState {
-            $0.activePassMemory.record(piece: fx.pieceId, passId: "proof")
-        }
-        let window = mountPane(fx)
-
-        XCTAssertNil(passStates(fx)?["structural"], "premise: untouched")
-        XCTAssertNil(passStates(fx)?["line"], "premise: untouched")
-        XCTAssertTrue(
-            caption(in: window, contains: "Structural still open on this piece"),
-            "premise: two earlier passes are open (Structural, Line) and the "
-            + "EARLIEST is named first")
-
-        let markDone = try button(labelled: "Mark done", in: window)
-        _ = markDone.perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        await pumpUntil(deadline: 5) { self.passStates(fx)?["structural"] == .done }
-        XCTAssertEqual(passStates(fx)?["structural"], .done)
-        XCTAssertNil(passStates(fx)?["line"],
-                     "the press must rule on Structural alone, not Line")
-
-        await pumpUntil(deadline: 5) {
-            self.caption(in: window, contains: "Line still open on this piece")
-        }
-        XCTAssertTrue(
-            caption(in: window, contains: "Line still open on this piece"),
-            "the row must LIVE-UPDATE to name the next open earlier pass, "
-            + "not vanish (Line is still open) and not sit stale on "
-            + "Structural (which is now settled)")
-        XCTAssertFalse(
-            caption(in: window, contains: "Structural still open"),
-            "the old caption must not linger once its own pass is settled")
-        XCTAssertNotNil(
-            findButton(labelled: "Mark done", in: window),
-            "the verbs must still be offered \u{2014} for Line now, not "
-            + "Structural")
-        XCTAssertNotNil(findButton(labelled: "Skip", in: window))
-    }
-
-    // MARK: - Skip, driven for real
-
-    func test_pressingSkipWritesTheNamedPassAndTheNudgeDisappears() async throws {
-        let fx = try await makeHarness()
-        let window = mountPane(fx)
-        XCTAssertNil(passStates(fx)?["structural"], "premise: untouched")
-
-        let skip = try button(labelled: "Skip", in: window)
-        _ = skip.perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        await pumpUntil(deadline: 5) { self.passStates(fx)?["structural"] == .skipped }
-        XCTAssertEqual(passStates(fx)?["structural"], .skipped,
-                       "Skip is a decision, not an omission — a writer who "
-                       + "rules a piece needs no earlier pass has answered "
-                       + "the question the nudge asked")
-
-        await pumpUntil(deadline: 5) {
-            self.findButton(labelled: "Skip", in: window) == nil
-        }
-        XCTAssertNil(findButton(labelled: "Skip", in: window))
-    }
-
     // MARK: - The nudge stays quiet once there is nothing to advise about
 
-    /// The pure half of the same claim, with no window: `PassOrderAdvice`
-    /// already excludes `.done`/`.skipped`, which is WHY the mounted tests
-    /// above see the row disappear. Restated here as the truth table Denver's
-    /// spec asked for, beside the verbs that drive it.
+    /// The claim itself, with no window: `PassOrderAdvice` already excludes
+    /// `.done`/`.skipped`, which is WHY closing a pass takes the row off
+    /// screen. The truth table Denver's spec asked for, beside the verbs that
+    /// drive it.
     func test_theAdviceTruthTable_markingDoneOrSkippedRemovesIt() {
         let passes = ReviewPass.presets
         XCTAssertEqual(

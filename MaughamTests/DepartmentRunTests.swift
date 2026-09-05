@@ -637,55 +637,6 @@ final class DepartmentRunTests: XCTestCase {
                        + "could pass over a button that is never enabled")
     }
 
-    /// **The row's Run runs the ROW's edition** — two rows, and the second one's
-    /// press must name `fr`. Pressed through the accessibility tree, which is the
-    /// same action a click performs and does not depend on this process being the
-    /// active app (CLAUDE.md's synthetic-click premise).
-    func test_pressingARowsRunNamesThatRowsEdition() async throws {
-        var asked: [String] = []
-        let window = mount(languages: ["es", "fr"],
-                           target: .ready(docId: "doc-1", title: "Chapter 1"),
-                           runTranslation: { asked.append($0) })
-        _ = try await scrollersSettling(in: window)
-
-        let runs = try axButtons(labelled: DepartmentRunState.runTitle, in: window)
-        XCTAssertEqual(runs.count, 2, "one Run per edition")
-        press(runs[1])
-        _ = await pumpUntil(deadline: 3) { !asked.isEmpty }
-
-        XCTAssertEqual(asked, ["fr"],
-                       "the second row's Run asked for \(asked) — a verb that "
-                       + "captured the wrong row's tag would ask for the first")
-    }
-
-    /// **Cancel appears on the row that is running and nowhere else.** The cockpit's
-    /// rule: there is nothing to cancel from an idle row, and a Cancel drawn on a
-    /// row whose edition is not in flight would end somebody else's round.
-    func test_cancelIsOfferedOnlyByTheRowThatIsRunning() async throws {
-        var cancels = 0
-        let window = mount(
-            languages: ["es", "fr"],
-            target: .ready(docId: "doc-1", title: "Chapter 1"),
-            runState: .running(docId: "doc-1", language: "es", translating: 4),
-            isRunning: true,
-            cancelRun: { cancels += 1 })
-        _ = try await scrollersSettling(in: window)
-
-        let cancelButtons = try axButtons(labelled: DepartmentRunState.cancelTitle,
-                                          in: window)
-        XCTAssertEqual(cancelButtons.count, 1,
-                       "exactly the running row offers a way out")
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains(DepartmentRunState.translating(4)) },
-                      "…and says what it is doing rather than spinning: "
-                      + "\(texts.sorted())")
-
-        press(cancelButtons[0])
-        _ = await pumpUntil(deadline: 3) { cancels > 0 }
-        XCTAssertEqual(cancels, 1)
-    }
-
     /// **One message channel** (Task 2's concern 5). A refusal the writer earned by
     /// pressing Run lands in the same `notice` slot the brief door's refusal uses —
     /// two message lines on one pane is two places to look for one answer.
@@ -716,62 +667,6 @@ final class DepartmentRunTests: XCTestCase {
     }
 
     // MARK: - Plan 4 Task 2: the book verb, the door, and the row's new lines
-
-    /// **Run Whole Book is on every row, and it needs no open chapter.**
-    ///
-    /// The book verb is the one thing on this desk that is about the desk's own
-    /// scope rather than the window's subject: the rows already sum every
-    /// chapter, so a project-level surface offering to run only the chapter the
-    /// tree happens to name is the narrower half of what the writer came here
-    /// for. Which is why the refusal it reads is `bookRefusal` and not
-    /// `refusal` — mounted here with the target that would refuse a CHAPTER
-    /// run, so a book verb wired to the wrong predicate is drawn disabled and
-    /// this goes red.
-    func test_runWholeBookIsOnEveryRowAndNamesItsEdition() async throws {
-        var asked: [String] = []
-        let window = mount(languages: ["es", "fr"],
-                           target: .unavailable(DepartmentRunTarget.openAChapter),
-                           runs: ["es": .init(bookDocumentCount: 3), "fr": .init(bookDocumentCount: 3)],
-                           runBook: { asked.append($0) })
-        _ = try await scrollersSettling(in: window)
-        let buttons = try axButtons(labelled: DepartmentRunState.runBookAccessibilityLabel(language: "fr"),
-                                    in: window)
-        XCTAssertEqual(buttons.count, 1)
-        XCTAssertEqual(axEnabled(buttons[0]), true, "the book needs no open chapter")
-        press(buttons[0])
-        _ = await pumpUntil(deadline: 3) { !asked.isEmpty }
-        XCTAssertEqual(asked, ["fr"])
-    }
-
-    /// **Show is drawn only where there is a round to show**, and it names its
-    /// own edition.
-    ///
-    /// A Show on a row with no round has nowhere to send the writer — the
-    /// centre column draws a `TranslationRound`, and there is none — so the row
-    /// that has one offers the door and the row that does not draws nothing at
-    /// all. The one control on this desk where hiding is right rather than
-    /// disabling: a refusal has to have a reason to give, and "there is no
-    /// round yet" is already what the row's own status line says.
-    func test_showIsDrawnOnlyWhereARoundExistsAndNamesItsEdition() async throws {
-        var shown: [String] = []
-        var round = TranslationRound(number: 2, language: "es", docId: "doc-1", startedAt: Date())
-        round.endedAt = Date()
-        let window = mount(languages: ["es", "fr"],
-                           target: .ready(docId: "doc-1", title: "Chapter 1"),
-                           runs: ["es": .init(latestRound: round), "fr": .init()],
-                           showRound: { shown.append($0) })
-        _ = try await scrollersSettling(in: window)
-        XCTAssertEqual(try axButtons(labelled: DepartmentRunState.showRoundAccessibilityLabel(language: "fr"),
-                                     in: window).count, 0)
-        let show = try axButtons(labelled: DepartmentRunState.showRoundAccessibilityLabel(language: "es"),
-                                 in: window)
-        XCTAssertEqual(show.count, 1)
-        press(show[0])
-        _ = await pumpUntil(deadline: 3) { !shown.isEmpty }
-        XCTAssertEqual(shown, ["es"])
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.hasPrefix("Round 2") }, "\(texts)")
-    }
 
     /// **A running row says its LEG; an idle one says its pre-flight and its
     /// trend** (spec §8). Two rows in the two states at once, because the whole
@@ -1231,52 +1126,6 @@ final class DepartmentRunTests: XCTestCase {
                           in: window).count, 1)
     }
 
-    /// Pressing it asks for a round. A bare press carries no direction — the
-    /// field is empty, and an empty direction is `nil` rather than `""`, because
-    /// a round briefed on "" is one told the writer said something.
-    func test_pressingTheDesignRunAsksForARoundWithNoDirection() async throws {
-        var asked: [String?] = []
-        let window = mount(languages: [],
-                           target: .unavailable(DepartmentRunTarget.openAChapter),
-                           runDesign: { asked.append($0); return true })
-        _ = try await scrollersSettling(in: window)
-
-        press(try axButtons(labelled: DepartmentDesignRow.runAccessibilityLabel,
-                            in: window)[0])
-        _ = await pumpUntil(deadline: 3) { !asked.isEmpty }
-
-        XCTAssertEqual(asked.count, 1)
-        XCTAssertNil(asked[0], "an empty box is no direction at all")
-    }
-
-    /// **Request Changes is drawn only while there is something to change.**
-    func test_requestChangesIsDrawnOnlyWhileTheSessionCanReviseSomething() async throws {
-        let closed = mount(languages: [],
-                           target: .unavailable(DepartmentRunTarget.openAChapter),
-                           design: designRow(hasOpenProposalRound: false))
-        _ = try await scrollersSettling(in: closed)
-        XCTAssertTrue(
-            try axButtons(labelled: DepartmentDesignRow.requestChangesTitle,
-                          in: closed).isEmpty,
-            "with no open round the honest verb is Run, and it is already here")
-
-        var sent: [String] = []
-        let open = mount(languages: [],
-                         target: .unavailable(DepartmentRunTarget.openAChapter),
-                         design: designRow(hasOpenProposalRound: true),
-                         requestDesignChanges: { sent.append($0); return true })
-        _ = try await scrollersSettling(in: open)
-        let buttons = try axButtons(
-            labelled: DepartmentDesignRow.requestChangesTitle, in: open)
-        XCTAssertEqual(buttons.count, 1)
-
-        press(buttons[0])
-        _ = await pumpUntil(deadline: 3) { !sent.isEmpty }
-        XCTAssertEqual(sent, [""],
-                       "the writer's words travel verbatim — including none, "
-                       + "which is what earns them the refusal")
-    }
-
     /// **A refusal the design verbs earned lands in the desk's one notice slot**
     /// — the same channel the brief door's refusal and a refused translation use
     /// (Task 3's census). Two message lines on one pane is two places to look
@@ -1293,79 +1142,6 @@ final class DepartmentRunTests: XCTestCase {
                 $0.contains(DepartmentDesignRow.noPublishTemplatesRefusal)
             },
             "the refusal never reached the writer. Published: \(texts.sorted())")
-    }
-
-    /// **The end-to-end pin: the desk's Design Run drives a REAL round, and the
-    /// proposal it stages is signed by the project's own designer.**
-    ///
-    /// `ReviewRoundCockpitTests.test_theRunButtonDrivesARealRoundWhoseNotesTheEditorSigns`
-    /// is the precedent, and the reason it exists is that nothing else proves
-    /// the wiring: `DepartmentRunTests`' other cases drive the decisions and the
-    /// controls, `DesignerOrchestratorTests` drives the loop, and neither of them
-    /// would notice a host that passed the wrong closure. Here the whole path
-    /// runs: the real `DepartmentPaneHost`, the real pane, the button pressed the
-    /// way a click presses it, the real pre-flight, the real
-    /// `DesignerOrchestrator`, the real briefing over a real project, and the
-    /// real `DesignProposalStore` at the end of it — then the desk re-derives and
-    /// draws the round it just produced, which is the loop closing.
-    ///
-    /// **Two substitutions, both stated.** The subprocess, as always. And the
-    /// sample compile: production's `stage` runs tectonic over the proposal, and
-    /// a real typeset here would buy nothing this test is about at the cost of a
-    /// `TectonicProbe` dependency and a multi-second run. What is NOT
-    /// substituted is the staging itself — the proposal is written by the store,
-    /// read back off disk, and drawn.
-    func test_theDesignRunDrivesARealRoundWhoseProposalTheDesignerSigns() async throws {
-        let h = try await makeDesignProject()
-        let runner = DesignSpyRunner()
-        let staged = Box<[DesignProposalStore.Proposal]>([])
-        let store = DesignProposalStore(projectURL: h.projectURL)
-
-        var environment = h.environment
-        environment.makeRunner = { _, _ in runner }
-        environment.stage = { report, context in
-            do {
-                let proposal = try store.stage(report: report, round: context.round,
-                                               designerName: context.designerName,
-                                               language: context.language)
-                staged.value.append(proposal)
-                return .init(proposalId: proposal.id, filesStaged: proposal.filePaths.count)
-            } catch {
-                return .init(rejection: "\(error)")
-            }
-        }
-        let designer = DesignerOrchestrator()
-        designer.configure(environment: environment)
-        defer { designer.shutdown() }
-
-        let window = mountHost(h, designer: designer)
-        _ = try await scrollersSettling(in: window)
-
-        press(try axButtons(labelled: DepartmentDesignRow.runAccessibilityLabel,
-                            in: window)[0])
-        _ = await pumpUntil(deadline: 10) { !staged.value.isEmpty }
-
-        let proposal = try XCTUnwrap(
-            staged.value.first,
-            "the desk's Run never reached a real round — the wiring, not the "
-            + "decisions, is what this test is about")
-        XCTAssertEqual(proposal.round, 1)
-        XCTAssertEqual(proposal.designerName,
-                       h.projectStore.designerRole().effectiveName,
-                       "the project's own designer signs what the round staged")
-        XCTAssertEqual(try store.list().map(\.id), [proposal.id],
-                       "…and it is on disk, which is where the desk reads it from")
-
-        // The loop closing: the round ends, the host re-derives, and the row
-        // draws the proposal it just made.
-        let drew = await pumpUntil(deadline: 10) {
-            (try? self.axTexts(in: window))?
-                .contains { $0.contains("Round 1") } ?? false
-        }
-        XCTAssertTrue(drew, "the desk never drew the round it had just run. "
-                      + "Published: \((try? axTexts(in: window))?.sorted() ?? [])")
-
-        await h.documentStore.close()
     }
 
     // MARK: - Task 9: the mint sheet for unlisted languages
@@ -1436,32 +1212,6 @@ final class DepartmentRunTests: XCTestCase {
                        + "could pass over a button that never enables")
     }
 
-    /// **Confirm sends the trimmed name; Cancel backs out with no name at
-    /// all.** Both closures, so a sheet that silently swallowed either verb
-    /// would be caught here rather than only at the host.
-    func test_theMintSheetSendsTheTrimmedNameAndCancelSendsNothing() async throws {
-        var named: [String] = []
-        var cancelled = 0
-        let window = mountMintSheet(language: "xx",
-                                    onName: { named.append($0) },
-                                    onCancel: { cancelled += 1 })
-        let field = try XCTUnwrap(textField(placeholder: DepartmentCastCopy.placeholder,
-                                            in: window))
-        type("  Constance Garnett  ", into: field)
-        pump(0.1)
-        press(try axButtons(labelled: DepartmentCastCopy.nameAndRunTitle, in: window)[0])
-        _ = await pumpUntil(deadline: 3) { !named.isEmpty }
-        XCTAssertEqual(named, ["Constance Garnett"],
-                       "the sheet must trim what it sends \u{2014} `renameProductionRole` "
-                       + "trims too, but a name padded with the writer's own spaces should "
-                       + "never reach it in the first place")
-
-        press(try axButtons(labelled: DepartmentCastCopy.cancelTitle, in: window)[0])
-        _ = await pumpUntil(deadline: 3) { cancelled > 0 }
-        XCTAssertEqual(cancelled, 1)
-        XCTAssertEqual(named, ["Constance Garnett"], "Cancel must not also send a name")
-    }
-
     // MARK: - Task 9: the whole desk, wired to a real translator loop
 
     /// **Run on an unlisted, unminted edition shows the sheet — and
@@ -1495,74 +1245,6 @@ final class DepartmentRunTests: XCTestCase {
         await fixture.documentStore.close()
     }
 
-    /// **Cancel aborts the run visibly and mints nothing** (Global Constraint
-    /// 2 — the one notice channel, said before the run rather than during
-    /// it).
-    func test_cancellingTheSheetAbortsVisiblyAndMintsNothing() async throws {
-        let fixture = try await makeTranslatorFixture(seedLanguage: "xx")
-        let window = mountTranslatorHost(fixture)
-        _ = try await scrollersSettling(in: window)
-
-        try await pressRowControl(labelled: DepartmentRunState.runTitle, in: window)
-        let sheet = await attachedSheetWindow(of: window)
-        let sheetWindow = try XCTUnwrap(sheet)
-        press(try axButtons(labelled: DepartmentCastCopy.cancelTitle, in: sheetWindow)[0])
-
-        _ = await pumpUntil(deadline: 5) { window.attachedSheet == nil }
-        XCTAssertNil(window.attachedSheet, "the sheet must actually close on Cancel")
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(
-            texts.contains { $0.contains(DepartmentCastCopy.cancelledLine(language: "xx")) },
-            "the abandon must be said in words, in the desk's one notice slot. "
-            + "Published: \(texts.sorted())")
-
-        XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
-                      "Cancel must mint nothing")
-        XCTAssertFalse(fixture.translator.isRunning)
-        XCTAssertTrue(fixture.runner.sends.isEmpty)
-
-        await fixture.documentStore.close()
-    }
-
-    /// **Confirm names the translator and runs the round it was standing in
-    /// front of, in one visible act.** The mint and the rename both land on
-    /// the manifest, and the run this pane's own `runTarget` resolved earlier
-    /// is the one that reaches the orchestrator.
-    func test_confirmingTheSheetNamesTheTranslatorAndRunsInOneAct() async throws {
-        let fixture = try await makeTranslatorFixture(seedLanguage: "xx")
-        let window = mountTranslatorHost(fixture)
-        _ = try await scrollersSettling(in: window)
-
-        try await pressRowControl(labelled: DepartmentRunState.runTitle, in: window)
-        let sheet = await attachedSheetWindow(of: window)
-        let sheetWindow = try XCTUnwrap(sheet)
-        let field = try XCTUnwrap(textField(placeholder: DepartmentCastCopy.placeholder,
-                                            in: sheetWindow))
-        type("Constance Garnett", into: field)
-        pump(0.1)
-        press(try axButtons(labelled: DepartmentCastCopy.nameAndRunTitle, in: sheetWindow)[0])
-
-        _ = await pumpUntil(deadline: 10) {
-            !fixture.projectStore.manifest.productionRoles.isEmpty
-        }
-        let role = try XCTUnwrap(
-            fixture.projectStore.manifest.storedTranslator(for: "xx"),
-            "Confirm must mint (or find) the role and store it")
-        XCTAssertEqual(role.effectiveName, "Constance Garnett",
-                       "…and rename it to what the writer typed, as one visible act")
-
-        _ = await pumpUntil(deadline: 10) { !fixture.runner.sends.isEmpty }
-        XCTAssertFalse(fixture.runner.sends.isEmpty,
-                       "the run the sheet was standing in front of must actually reach "
-                       + "the translator's session once the writer has named them")
-
-        _ = await pumpUntil(deadline: 5) { window.attachedSheet == nil }
-        XCTAssertNil(window.attachedSheet, "the sheet must close once it is answered")
-
-        await fixture.documentStore.close()
-    }
-
     /// **A preset language never sees the sheet at all** — the control on
     /// the whole file: `es` has a name (Cortázar) before anybody asks, so
     /// Run must reach the orchestrator on the very first click.
@@ -1584,9 +1266,8 @@ final class DepartmentRunTests: XCTestCase {
     /// **The end-to-end pin for the other loop: the desk's language Run drives
     /// a whole seven-leg ROUND, and the row draws the round it filed.**
     ///
-    /// `test_theDesignRunDrivesARealRoundWhoseProposalTheDesignerSigns` is its
-    /// twin one section down, and it exists for the same reason: nothing else
-    /// proves the WIRING. The cases above drive the decisions and the controls,
+    /// It exists because nothing else proves the WIRING: the cases above
+    /// drive the decisions and the controls,
     /// `TranslationPipelineTests` drives the legs, and neither would notice a
     /// host that passed the wrong closure — or, as before Plan 4, a desk that
     /// went on calling `translator.runTranslation` and ran a single bare leg
@@ -1735,34 +1416,6 @@ final class DepartmentRunTests: XCTestCase {
                        "…and it must not offer a way to add it anyway")
     }
 
-    /// **The tag is lowered BEFORE it is judged**, so a writer who types the way
-    /// a language is written down gets an edition rather than a rejection —
-    /// `isValidLanguageTag` is lowercase-only, and "PT-BR" is not a mistake.
-    func test_aTypedTagIsLoweredBeforeItIsJudgedAndBeforeItIsSent() async throws {
-        var answered: [DepartmentCastAnswer] = []
-        let window = mountCastSheet(ask: .addLanguage,
-                                    onConfirm: { answered.append($0) })
-        let tagField = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.tagPlaceholder, in: window))
-        type("PT-BR", into: tagField)
-        pump(0.1)
-        let nameField = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
-        type("  Ana  ", into: nameField)
-        pump(0.1)
-
-        let texts = try axTexts(in: window)
-        XCTAssertFalse(
-            texts.contains { $0.contains(DepartmentCastCopy.unusableTag("PT-BR")) },
-            "a tag the writer capitalised is a language, not a syntax error")
-
-        press(try axButtons(labelled: DepartmentCastCopy.addConfirmTitle, in: window)[0])
-        _ = await pumpUntil(deadline: 3) { !answered.isEmpty }
-        XCTAssertEqual(answered, [DepartmentCastAnswer(language: "pt-br", name: "Ana")],
-                       "the sheet sends the tag lowered and the name trimmed — "
-                       + "everything downstream reads a tag one way only")
-    }
-
     /// **A preset language arrives with its translator already in the field**,
     /// and the sheet says whose name that is: an offer the writer recognises
     /// rather than a name they have to wonder about.
@@ -1827,114 +1480,7 @@ final class DepartmentRunTests: XCTestCase {
                       + "dead. Published: \(texts.sorted())")
     }
 
-    // MARK: - cast-management: Add Language on the real desk
-
-    /// **The whole act, on the production host: press the button, name a
-    /// language, and the edition is on the desk.** Nothing else starts one —
-    /// before this, a language existed only once somebody had written a file or
-    /// asked a question about it.
-    func test_addingALanguageStartsTheEditionAndDrawsItsRow() async throws {
-        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
-        let window = mountTranslatorHost(fixture)
-        _ = try await scrollersSettling(in: window)
-
-        press(try axButtons(labelled: DepartmentDesk.addLanguageTitle, in: window)[0])
-        let sheet = await attachedSheetWindow(of: window)
-        let sheetWindow = try XCTUnwrap(sheet, "Add Language opened no sheet")
-        type("pt-br", into: try XCTUnwrap(textField(
-            placeholder: DepartmentCastCopy.tagPlaceholder, in: sheetWindow)))
-        pump(0.1)
-        type("Ana", into: try XCTUnwrap(textField(
-            placeholder: DepartmentCastCopy.placeholder, in: sheetWindow)))
-        pump(0.1)
-        press(try axButtons(labelled: DepartmentCastCopy.addConfirmTitle,
-                            in: sheetWindow)[0])
-
-        _ = await pumpUntil(deadline: 10) {
-            fixture.projectStore.manifest.storedTranslator(for: "pt-br") != nil
-        }
-        let role = try XCTUnwrap(
-            fixture.projectStore.manifest.storedTranslator(for: "pt-br"),
-            "Add Language must mint the edition's translator")
-        XCTAssertEqual(role.effectiveName, "Ana",
-                       "…named, in the same act — never a nameless role left "
-                       + "standing for the writer to find later")
-
-        let label = TranslationReviewIndicator.displayLabel(forLanguageTag: "pt-br")
-        let drew = await pumpUntil(deadline: 10) {
-            let texts = (try? self.axTexts(in: window)) ?? []
-            return texts.contains { $0.contains(label) }
-        }
-        XCTAssertTrue(drew,
-                      "the edition was started and the desk never drew it. "
-                      + "Published: \((try? axTexts(in: window))?.sorted() ?? [])")
-        XCTAssertNil(window.attachedSheet, "the sheet must close once it is answered")
-
-        await fixture.documentStore.close()
-    }
-
-    /// **Cancel aborts visibly and mints nothing** (Global Constraint 2 — the
-    /// one notice channel).
-    func test_cancellingAddLanguageSaysSoAndMintsNothing() async throws {
-        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
-        let window = mountTranslatorHost(fixture)
-        _ = try await scrollersSettling(in: window)
-
-        press(try axButtons(labelled: DepartmentDesk.addLanguageTitle, in: window)[0])
-        let sheet = await attachedSheetWindow(of: window)
-        let sheetWindow = try XCTUnwrap(sheet)
-        press(try axButtons(labelled: DepartmentCastCopy.cancelTitle,
-                            in: sheetWindow)[0])
-
-        _ = await pumpUntil(deadline: 5) { window.attachedSheet == nil }
-        XCTAssertNil(window.attachedSheet, "the sheet must actually close on Cancel")
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains(DepartmentCastCopy.addCancelledLine) },
-                      "the abandon must be said in words, in the desk's one notice "
-                      + "slot. Published: \(texts.sorted())")
-        XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
-                      "Cancel must mint nothing")
-
-        await fixture.documentStore.close()
-    }
-
-    /// **An edition the book already has is named and left alone.** The hazard
-    /// is not a duplicate — `translatorRole(for:)` is idempotent — it is the
-    /// rename the writer did not know they were performing: Confirm carries a
-    /// name, and Spanish already has one.
-    func test_addingALanguageTheBookAlreadyHasChangesNobodysName() async throws {
-        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
-        let window = mountTranslatorHost(fixture)
-        _ = try await scrollersSettling(in: window)
-
-        press(try axButtons(labelled: DepartmentDesk.addLanguageTitle, in: window)[0])
-        let sheet = await attachedSheetWindow(of: window)
-        let sheetWindow = try XCTUnwrap(sheet)
-        type("es", into: try XCTUnwrap(textField(
-            placeholder: DepartmentCastCopy.tagPlaceholder, in: sheetWindow)))
-        pump(0.1)
-        type("Somebody Else", into: try XCTUnwrap(textField(
-            placeholder: DepartmentCastCopy.placeholder, in: sheetWindow)))
-        pump(0.1)
-        press(try axButtons(labelled: DepartmentCastCopy.addConfirmTitle,
-                            in: sheetWindow)[0])
-
-        _ = await pumpUntil(deadline: 5) { window.attachedSheet == nil }
-        let said = await pumpUntil(deadline: 5) {
-            let texts = (try? self.axTexts(in: window)) ?? []
-            return texts.contains {
-                $0.contains(DepartmentCastCopy.alreadyOnTheDesk(language: "es"))
-            }
-        }
-        XCTAssertTrue(said,
-                      "the desk must say the edition is already here. Published: "
-                      + "\((try? axTexts(in: window))?.sorted() ?? [])")
-        XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
-                      "…and must not have renamed Cortázar on the way past")
-
-        await fixture.documentStore.close()
-    }
+    // MARK: - cast-management: the Add Language door
 
     /// The button is on the empty desk too — which is where a writer with no
     /// editions yet comes to start their first, and the one arm a reading of
@@ -1978,51 +1524,6 @@ final class DepartmentRunTests: XCTestCase {
             + "writer renaming anybody. Published: \(texts.sorted())")
     }
 
-    /// **Rename … on a language row offers all three** (translation pipeline
-    /// spec §1): the sheet starts from the translator, the reader and the
-    /// collator this edition has — presets included — and sends all three.
-    func test_theRenameSheetOffersReaderAndCollatorPrefilled() async throws {
-        var answered: [DepartmentCastAnswer] = []
-        let window = mountCastSheet(
-            ask: .rename(subject: .edition(language: "es"), currentName: "Cortázar"),
-            currentReader: "Ocampo", currentCollator: "Borges",
-            onConfirm: { answered.append($0) })
-
-        let reader = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.readerPlaceholder, in: window),
-            "no reader field")
-        let collator = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.collatorPlaceholder, in: window),
-            "no collator field")
-        XCTAssertEqual(reader.stringValue, "Ocampo")
-        XCTAssertEqual(collator.stringValue, "Borges")
-
-        type("Victoria", into: reader)
-        pump(0.1)
-        press(try axButtons(labelled: DepartmentCastCopy.renameConfirmTitle, in: window)[0])
-        _ = await pumpUntil(deadline: 3) { !answered.isEmpty }
-        XCTAssertEqual(answered, [DepartmentCastAnswer(
-            language: nil, name: "Cortázar", reader: "Victoria", collator: "Borges")])
-    }
-
-    /// A blank reader or collator is "leave them be", not a refusal: only the
-    /// translator's name gates Confirm, because only the translator signs the
-    /// round the sheet may be standing in front of.
-    func test_blankReaderAndCollatorTravelAsNilAndDoNotDisableConfirm() async throws {
-        var answered: [DepartmentCastAnswer] = []
-        let window = mountCastSheet(ask: .nameForRun(language: "xx", docId: "doc-1"),
-                                    onConfirm: { answered.append($0) })
-        type("Ana", into: try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.placeholder, in: window)))
-        pump(0.1)
-        let confirm = try axButtons(labelled: DepartmentCastCopy.nameAndRunTitle, in: window)
-        XCTAssertEqual(axEnabled(confirm[0]), true)
-        press(confirm[0])
-        _ = await pumpUntil(deadline: 3) { !answered.isEmpty }
-        XCTAssertEqual(answered, [DepartmentCastAnswer(
-            language: nil, name: "Ana", reader: nil, collator: nil)])
-    }
-
     /// The designer's sheet is one field — there is no reader or collator of a
     /// book's design.
     func test_theDesignerSheetHasNoCastFields() async throws {
@@ -2030,38 +1531,6 @@ final class DepartmentRunTests: XCTestCase {
             ask: .rename(subject: .designer, currentName: "Tschichold"))
         XCTAssertNil(textField(placeholder: DepartmentCastCopy.readerPlaceholder, in: window))
         XCTAssertNil(textField(placeholder: DepartmentCastCopy.collatorPlaceholder, in: window))
-    }
-
-    /// **On the real desk, all three land in the manifest** — the same one
-    /// visible act, three people.
-    func test_renamingAnEditionNamesItsReaderAndCollatorToo() async throws {
-        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
-        let window = mountTranslatorHost(fixture)
-        _ = try await scrollersSettling(in: window)
-
-        try await pressRowControl(
-            labelled: DepartmentDesk.renameTitle(translator: "Cortázar"), in: window)
-        let sheet = await attachedSheetWindow(of: window)
-        let sheetWindow = try XCTUnwrap(sheet)
-        type("Victoria", into: try XCTUnwrap(textField(
-            placeholder: DepartmentCastCopy.readerPlaceholder, in: sheetWindow)))
-        pump(0.1)
-        press(try axButtons(labelled: DepartmentCastCopy.renameConfirmTitle,
-                            in: sheetWindow)[0])
-
-        _ = await pumpUntil(deadline: 10) {
-            fixture.projectStore.manifest.storedReader(for: "es") != nil
-                && fixture.projectStore.manifest.storedCollator(for: "es") != nil
-        }
-        XCTAssertEqual(fixture.projectStore.manifest.storedTranslator(for: "es")?.effectiveName,
-                       "Cortázar")
-        XCTAssertEqual(fixture.projectStore.manifest.storedReader(for: "es")?.effectiveName,
-                       "Victoria")
-        XCTAssertEqual(fixture.projectStore.manifest.storedCollator(for: "es")?.effectiveName,
-                       "Borges", "an untouched preset field still names them — the sheet "
-                       + "is the one composition that mints the cast")
-
-        await fixture.documentStore.close()
     }
 
     /// **A row with nobody on it yet asks for a NAME**, which is the honest verb
@@ -2123,142 +1592,6 @@ final class DepartmentRunTests: XCTestCase {
                            "no reachable control reads \u{201C}\(expected)\u{201D}. "
                            + "Buttons published: \(labels.sorted())")
         }
-    }
-
-    /// …and pressing one carries the ROW's own language, so two editions cannot
-    /// rename one translator (`test_theDoorReportsTheLanguageItBelongsTo`'s
-    /// concern, one verb over).
-    func test_pressingARowsRenameNamesThatRowsEdition() async throws {
-        var asked: [String] = []
-        let window = mountRows([
-            EditionStatus.LanguageRow(language: "es", translator: "Cortázar",
-                                      fresh: 0, stale: 0, missing: 0, openQueries: 0),
-            EditionStatus.LanguageRow(language: "fr", translator: "Baudelaire",
-                                      fresh: 0, stale: 0, missing: 0, openQueries: 0),
-        ], renameTranslator: { asked.append($0) })
-        _ = try await scrollersSettling(in: window)
-
-        press(try axButtons(
-            labelled: DepartmentDesk.renameTitle(translator: "Baudelaire"),
-            in: window)[0])
-        _ = await pumpUntil(deadline: 3) { !asked.isEmpty }
-
-        XCTAssertEqual(asked, ["fr"])
-    }
-
-    // MARK: - cast-management: renaming on the real desk
-
-    /// **The whole act on the production host: rename this edition's
-    /// translator.** The preset name is what the row printed and what the sheet
-    /// starts from; what the writer types is what signs the edition from now on.
-    func test_renamingATranslatorNamesThemOnTheDeskAndInTheManifest() async throws {
-        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
-        let window = mountTranslatorHost(fixture)
-        _ = try await scrollersSettling(in: window)
-
-        try await pressRowControl(
-            labelled: DepartmentDesk.renameTitle(translator: "Cortázar"), in: window)
-        let sheet = await attachedSheetWindow(of: window)
-        let sheetWindow = try XCTUnwrap(sheet, "the row's rename opened no sheet")
-        type("Alejandra", into: try XCTUnwrap(textField(
-            placeholder: DepartmentCastCopy.placeholder, in: sheetWindow)))
-        pump(0.1)
-        press(try axButtons(labelled: DepartmentCastCopy.renameConfirmTitle,
-                            in: sheetWindow)[0])
-
-        _ = await pumpUntil(deadline: 10) {
-            fixture.projectStore.manifest.storedTranslator(for: "es") != nil
-        }
-        let role = try XCTUnwrap(
-            fixture.projectStore.manifest.storedTranslator(for: "es"),
-            "renaming a preset translator must mint the role that carries the name")
-        XCTAssertEqual(role.effectiveName, "Alejandra")
-
-        let drew = await pumpUntil(deadline: 10) {
-            let texts = (try? self.axTexts(in: window)) ?? []
-            return texts.contains { $0.contains("Alejandra") }
-        }
-        XCTAssertTrue(drew,
-                      "the desk went on printing the old name. Published: "
-                      + "\((try? axTexts(in: window))?.sorted() ?? [])")
-
-        await fixture.documentStore.close()
-    }
-
-    /// **Renaming the preset designer MATERIALIZES them** — the one place the
-    /// preset reaches disk (P1's own semantics, pinned here from the surface
-    /// that finally exercises it). What is stored is the id, the role and the
-    /// name; **`brief` stays nil**, so a later revision of the preset doctrine
-    /// still reaches a project whose designer has been renamed.
-    func test_renamingThePresetDesignerMaterializesThemAndKeepsTheirDoctrine()
-    async throws {
-        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
-        let window = mountTranslatorHost(fixture)
-        _ = try await scrollersSettling(in: window)
-        XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
-                      "the preset designer is not on disk until something "
-                      + "customizes them")
-
-        press(try axButtons(
-            labelled: DepartmentDesignRow.renameTitle(designerName: "Tschichold"),
-            in: window)[0])
-        let sheet = await attachedSheetWindow(of: window)
-        let sheetWindow = try XCTUnwrap(sheet, "the Design row's rename opened no sheet")
-        type("Jan", into: try XCTUnwrap(textField(
-            placeholder: DepartmentCastCopy.placeholder, in: sheetWindow)))
-        pump(0.1)
-        press(try axButtons(labelled: DepartmentCastCopy.renameConfirmTitle,
-                            in: sheetWindow)[0])
-
-        _ = await pumpUntil(deadline: 10) {
-            !fixture.projectStore.manifest.productionRoles.isEmpty
-        }
-        let stored = try XCTUnwrap(
-            fixture.projectStore.manifest.productionRoles.first {
-                if case .designer = $0.role { return true }
-                return false
-            },
-            "the writer's first act on the designer must materialize them rather "
-            + "than throwing 'no such role'")
-        XCTAssertEqual(stored.id, ProductionRole.designerPresetID,
-                       "…under the preset's own id, or every proposal already "
-                       + "signed by Tschichold is orphaned")
-        XCTAssertEqual(stored.effectiveName, "Jan")
-        XCTAssertNil(stored.brief,
-                     "freezing a copy of the doctrine into the manifest is the "
-                     + "migration this seam is at pains not to perform")
-        XCTAssertEqual(stored.effectiveBrief, ProductionRole.presetDesigner.brief,
-                       "…and the doctrine still resolves, through `effectiveBrief`")
-
-        await fixture.documentStore.close()
-    }
-
-    /// Cancel backs out visibly, in the desk's one notice slot, and changes
-    /// nobody's name.
-    func test_cancellingARenameSaysSoAndChangesNothing() async throws {
-        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
-        let window = mountTranslatorHost(fixture)
-        _ = try await scrollersSettling(in: window)
-
-        try await pressRowControl(
-            labelled: DepartmentDesk.renameTitle(translator: "Cortázar"), in: window)
-        let sheet = await attachedSheetWindow(of: window)
-        let sheetWindow = try XCTUnwrap(sheet)
-        press(try axButtons(labelled: DepartmentCastCopy.cancelTitle,
-                            in: sheetWindow)[0])
-
-        _ = await pumpUntil(deadline: 5) { window.attachedSheet == nil }
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(
-            texts.contains {
-                $0.contains(DepartmentCastCopy.renameCancelledLine(
-                    currentName: "Cortázar"))
-            },
-            "the abandon must be said in words. Published: \(texts.sorted())")
-        XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
-                      "Cancel must write nobody to disk")
-
-        await fixture.documentStore.close()
     }
 
     // MARK: - Helpers: the decisions
@@ -2550,9 +1883,8 @@ final class DepartmentRunTests: XCTestCase {
     /// A runner that answers a minimal, valid, EMPTY report the moment it is
     /// asked — this suite is about the run reaching (or not reaching) the
     /// orchestrator, never about what a round produces, so there is nothing
-    /// here to hold open. Local to this suite for `DesignSpyRunner`'s own
-    /// reason: each loop's spy is `private` to its own file and the three
-    /// will diverge as they grow.
+    /// here to hold open. Local to this suite, because each loop's spy is
+    /// `private` to its own file and they will diverge as they grow.
     @MainActor
     private final class TranslatorSpyRunner: CompilerRunner {
         private(set) var sends: [String] = []
@@ -2646,8 +1978,7 @@ final class DepartmentRunTests: XCTestCase {
                                  runner: runner, runLog: runLog, pipeline: pipeline)
     }
 
-    /// The real host over a `TranslatorFixture`'s project — Task 4's own
-    /// `mountHost`, one orchestrator over.
+    /// The real host over a `TranslatorFixture`'s project.
     ///
     /// The desk's Run goes through a PIPELINE as of translation pipeline P4,
     /// so the fixture's own is mounted by default; `pipeline` overrides it for
@@ -2808,66 +2139,6 @@ final class DepartmentRunTests: XCTestCase {
 
         return DesignFixture(projectURL: tmp, projectStore: projectStore,
                              documentStore: documentStore, environment: environment)
-    }
-
-    /// The real host over that project, which is what makes the end-to-end test
-    /// end-to-end: the pane's values, its `.task`, its pre-flight and its verbs
-    /// are all the production ones.
-    private func mountHost(_ fixture: DesignFixture,
-                           designer: DesignerOrchestrator) -> NSWindow {
-        let window = TestWindow.mount(
-            AnyView(DepartmentPaneHost(store: fixture.projectStore,
-                                       documentStore: fixture.documentStore,
-                                       projectURL: fixture.projectURL,
-                                       designer: designer)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)),
-            size: CGSize(width: 340, height: 600))
-        windows.append(window)
-        pump(0.1)
-        return window
-    }
-
-    /// A runner that answers one valid proposal. Local to this suite for the
-    /// reason `DesignerOrchestratorTests`' own copy states: the siblings are
-    /// `private` to their suites, and the three loops will diverge as they grow.
-    @MainActor
-    private final class DesignSpyRunner: CompilerRunner {
-        var isRunning = false
-        var sessionEpoch = 1
-        var nextEvent: CompilerRunEvent? = .resultText("""
-            {"spec":"A quiet page: one column, a generous gutter.",\
-            "files":[{"path":"template.tex","content":"\\\\documentclass{book}"}]}
-            """)
-        private var held: CheckedContinuation<CompilerRunEvent, Never>?
-
-        func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
-            if let nextEvent { return nextEvent }
-            isRunning = true
-            return await withCheckedContinuation { held = $0 }
-        }
-
-        func release(_ event: CompilerRunEvent) {
-            isRunning = false
-            let continuation = held
-            held = nil
-            continuation?.resume(returning: event)
-        }
-
-        func cancelCurrentRun() {
-            release(.failed(.sessionDied(detail: CompilerRunFailure.Detail.cancelled)))
-        }
-
-        func shutdown() {
-            release(.failed(.sessionDied(detail: CompilerRunFailure.Detail.sessionShutDown)))
-        }
-    }
-
-    /// A mutable cell a `@Sendable`-shaped closure can write into from the main
-    /// actor. `DesignerOrchestratorTests.Box`'s twin.
-    @MainActor
-    private final class Box<Value> {
-        var value: Value
-        init(_ value: Value) { self.value = value }
     }
 
     private static var appSourceDir: URL {

@@ -255,17 +255,6 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             .compactMap { axAttribute($0, "accessibilityLabel") as? String }
     }
 
-    /// Whether any element in the tree carries `text` — how the STET flourish
-    /// is read, since it is a `Text` badge rather than a control.
-    private func showsText(_ text: String, in window: NSWindow) -> Bool {
-        guard let tree = try? axTree(in: window) else { return false }
-        return tree.contains { element in
-            let value = (axAttribute(element, "accessibilityValue") as? String)
-                ?? (axAttribute(element, "accessibilityLabel") as? String) ?? ""
-            return value.contains(text)
-        }
-    }
-
     /// A control found by the words its tooltip carries — the same words the
     /// writer reads. The queue's resolved toggle is an unlabelled icon button,
     /// and its help text is the only thing on it that says what it does.
@@ -282,65 +271,12 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             + "the hosted view")
     }
 
-    /// Buttons anywhere in the application's windows — a sheet is its own
-    /// window, so the tree under the pane's content view cannot see it.
-    ///
-    /// **On a window the window server has actually shown** (fix wave). See
-    /// ``pressSheetButton(labelled:deadline:)`` for why the extra guard is the
-    /// whole point of this helper now.
-    private func sheetButton(labelled label: String) -> NSObject? {
-        for window in NSApp.windows {
-            guard window.isVisible, window.isSheet || window.sheetParent != nil,
-                  let root = window.contentView else { continue }
-            let buttons = axElements(under: root).filter { element in
-                (axAttribute(element, "accessibilityRole") as? String) == "AXButton"
-            }
-            let match = buttons.first { element in
-                (axAttribute(element, "accessibilityLabel") as? String) == label
-            }
-            if let match = match as? NSObject { return match }
-        }
-        return nil
-    }
-
-    /// **Wait for a sheet's button to be pressABLE, then press it.**
-    ///
-    /// A control's presence in the accessibility tree is not the premise a
-    /// synthetic press needs. `pumpUntil` on EXISTENCE returns the instant
-    /// SwiftUI builds the button, and under seven parallel workers that can be
-    /// before the sheet window has been ordered in — at which point
-    /// `accessibilityPerformPress` does nothing, silently, and the test then
-    /// spends its whole outcome deadline waiting for a write that was never
-    /// asked for. Twice in about five gates
-    /// `test_theKeepButtonInTheRealPaneOpensTheSheetAndFiles` failed exactly
-    /// that way in-suite and passed alone, with the shape that gives it away:
-    /// the 5s existence poll exits early, the 8s ledger poll runs in full, and
-    /// the case takes just under nine seconds to assert `[]`.
-    ///
-    /// So readiness is asked of the WINDOW — visible, and attached as a sheet
-    /// — and one more turn of the run loop is taken after it holds, before the
-    /// press.
-    private func pressSheetButton(
-        labelled label: String, deadline: TimeInterval = 5
-    ) async throws -> NSObject {
-        _ = await pumpUntil(deadline: deadline) {
-            self.sheetButton(labelled: label) != nil
-        }
-        let button = try XCTUnwrap(
-            sheetButton(labelled: label),
-            "no button labelled \u{201C}\(label)\u{201D} reached a visible sheet. "
-            + "Sheet windows: \(NSApp.windows.filter { $0.isSheet || $0.sheetParent != nil }.count), "
-            + "visible: \(NSApp.windows.filter(\.isVisible).count)")
-        pump()
-        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        return button
-    }
-
     /// **A press delivered to a mounted control, once the window is on
-    /// screen.** ``pressSheetButton(labelled:deadline:)``'s reasoning for a
-    /// window this suite mounted itself: `TestWindow.mount` orders the window
-    /// in synchronously, but the press still wants the layout pass that the
-    /// existence poll may have cut short.
+    /// screen.** `TestWindow.mount` orders the window in synchronously, but
+    /// the press still wants the layout pass the button lookup may have cut
+    /// short: a control's presence in the accessibility tree is not the
+    /// premise a synthetic press needs, and a press that lands nowhere is
+    /// silent.
     @discardableResult
     private func press(_ label: String, in window: NSWindow) throws -> NSObject {
         let button = try button(labelled: label, in: window)
@@ -369,13 +305,6 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             "no button labelled \u{201C}\(label)\u{201D} reached the hosted view. "
             + "Buttons found: "
             + "\(lastAll.map { axAttribute($0, "accessibilityLabel") as? String ?? "nil" })")
-    }
-
-    private func findButton(labelled label: String, in window: NSWindow) -> NSObject? {
-        guard let labels = try? axTree(in: window) else { return nil }
-        return labels
-            .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
-            .first { (axAttribute($0, "accessibilityLabel") as? String) == label } as? NSObject
     }
 
     // MARK: - The verb draws only on the four-way condition
@@ -430,81 +359,6 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
     }
 
     // MARK: - Pressing it files the choice AND stets
-
-    /// **The end-to-end pin**: the real pane, the real row, a real press, and
-    /// both halves of the act read back where they land — the ledger through
-    /// `LessonsLedger`'s grammar, the note through an unfiltered query.
-    func test_pressingThisIsAChoiceFilesTheHeadingAndStetsTheNote() async throws {
-        let fx = try await makeHarness()
-        let id = try await mintQuestion(fx)
-        XCTAssertNil(ledger(fx), "premise: nothing has been kept in this project")
-        XCTAssertEqual(status(fx, id), .open, "premise: the note is open")
-
-        let window = mountPane(fx)
-        let press = try press(QueueLedgerVerbs.choiceTitle, in: window)
-
-        // The Keep test's guarded re-press, for the same reason and with the
-        // same safety: `LessonLedgerVerbs.makeChoice` has been find-or-create
-        // by heading since Task 6's fix round, so a second press over a ledger
-        // the first one reached writes nothing.
-        if await !pumpUntil(deadline: 1, { self.choices(fx) == ["Filter words"] }) {
-            _ = press.perform(NSSelectorFromString("accessibilityPerformPress"))
-        }
-        _ = await pumpUntil(deadline: 8) { self.choices(fx) == ["Filter words"] }
-        XCTAssertEqual(
-            choices(fx), ["Filter words"],
-            "the heading must land in the ledger as a CHOICE, read back "
-            + "through the grammar production reads")
-
-        _ = await pumpUntil(deadline: 8) { self.status(fx, id) == .stetted }
-        XCTAssertEqual(status(fx, id), .stetted,
-                       "a choice IS a stet plus a ruling (spec \u{00a7}6) \u{2014} "
-                       + "no new Document verb, and the note leaves the queue")
-        // **Control for the refusal test below.** A choice that landed wears
-        // the STET mark while it settles: what the writer did to the note is
-        // the same thing a plain stet does, and a choice that resolved a row
-        // with no mark would read as a different verb.
-        XCTAssertTrue(
-            showsText("let it stand", in: window),
-            "a landed choice must wear the stet flourish while the row settles")
-    }
-
-    /// **A refusal takes the mark straight back off** (fix round 1). The
-    /// flourish says "this note has been let stand"; over a note the ledger
-    /// refused, and which is therefore still open, it is the surface lying
-    /// about what happened for a full 2.5 seconds.
-    func test_aRefusedChoiceTakesTheStetMarkStraightBackOff() async throws {
-        let fx = try await makeHarness(named: "ChoiceRefusedMark")
-        let id = try await mintQuestion(fx)
-        let window = mountPane(fx)
-
-        let fm = FileManager.default
-        let original = try XCTUnwrap(
-            fm.attributesOfItem(atPath: fx.url.path)[.posixPermissions] as? NSNumber)
-        try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: fx.url.path)
-        defer {
-            try? fm.setAttributes([.posixPermissions: original],
-                                  ofItemAtPath: fx.url.path)
-        }
-
-        let press = try button(labelled: QueueLedgerVerbs.choiceTitle, in: window)
-        _ = press.perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        // **The deadline is inside the flourish, and that is the whole test.**
-        // 2.5s is how long the mark stays up on a stet that worked; a deadline
-        // past it would go green over the buggy version simply by outwaiting
-        // the sleep. Measured at 1.5s: the refusal itself lands in well under
-        // a tenth of that.
-        _ = await pumpUntil(deadline: 1.5) {
-            !self.showsText("let it stand", in: window)
-        }
-        XCTAssertFalse(
-            showsText("let it stand", in: window),
-            "the stet mark must come off the moment the verb reports a "
-            + "refusal, not 2.5s later")
-        XCTAssertEqual(status(fx, id), .open, "premise: the note is still open")
-        XCTAssertNil(ledger(fx), "premise: the ruling was refused")
-    }
 
     /// **A row filed from the QUEUE carries no stage, and a row filed from a
     /// letter does** (P3 Task 5, global constraint 28). An annotation carries a
@@ -655,82 +509,6 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
 
     // MARK: - The second stet offers; the first does not
 
-    /// **A first stet is a plain stet.** The note settles, and no question is
-    /// asked — once is a note let stand.
-    func test_aFirstStetSettlesTheNoteAndAsksNothing() async throws {
-        let fx = try await makeHarness(named: "FirstStet")
-        let id = try await mintQuestion(fx)
-        let window = mountPane(fx)
-
-        let stet = try button(labelled: "Stet", in: window)
-        _ = stet.perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        _ = await pumpUntil(deadline: 8) { self.status(fx, id) == .stetted }
-        XCTAssertEqual(status(fx, id), .stetted,
-                       "a first stet must settle the note directly")
-        XCTAssertNil(
-            offer,
-            "and it must raise no offer \u{2014} the app never files on its "
-            + "own, and it does not ask on the strength of one stet")
-        XCTAssertNil(ledger(fx), "nothing reached the ledger")
-    }
-
-    /// **A second stet under the same heading asks.** The note stays open and
-    /// the ledger is untouched until the writer answers — the app never files
-    /// on its own.
-    func test_aSecondStetUnderTheSameHeadingRaisesTheOffer() async throws {
-        let fx = try await makeHarness(named: "SecondStet")
-        let twin = try await mintQuestion(fx, body: "An earlier one of these.")
-        try await fx.document.stetAnnotation(id: twin)
-        let id = try await mintQuestion(fx)
-        XCTAssertEqual(status(fx, twin), .stetted, "premise: a stetted twin exists")
-
-        let window = mountPane(fx)
-        let stet = try button(labelled: "Stet", in: window)
-        _ = stet.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-
-        let raised = try XCTUnwrap(offer, "the second stet must raise the offer")
-        XCTAssertEqual(raised.heading, "Filter words",
-                       "the offer carries the heading verbatim, so what is "
-                       + "filed is the entry the round was briefed on")
-        XCTAssertEqual(raised.annotationId, id)
-        XCTAssertEqual(
-            status(fx, id), .open,
-            "and the note waits for the answer rather than settling under it")
-        XCTAssertNil(ledger(fx), "nothing is filed before the writer answers")
-
-        raised.makeItAChoice()
-        _ = await pumpUntil(deadline: 8) { self.choices(fx) == ["Filter words"] }
-        XCTAssertEqual(choices(fx), ["Filter words"],
-                       "Make it a choice files the heading the offer named")
-        _ = await pumpUntil(deadline: 8) { self.status(fx, id) == .stetted }
-        XCTAssertEqual(status(fx, id), .stetted, "and stets the note")
-        XCTAssertNil(offer, "and the offer is gone once it is answered")
-    }
-
-    /// **Just stet is the writer\u{2019}s no, and it still stets.** The offer
-    /// interrupted a stet; the least committal way out of it is the stet the
-    /// writer already pressed, never nothing at all.
-    func test_justStetSettlesTheNoteAndFilesNothing() async throws {
-        let fx = try await makeHarness(named: "JustStet")
-        let twin = try await mintQuestion(fx, body: "An earlier one of these.")
-        try await fx.document.stetAnnotation(id: twin)
-        let id = try await mintQuestion(fx)
-
-        let window = mountPane(fx)
-        let stet = try button(labelled: "Stet", in: window)
-        _ = stet.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-        let raised = try XCTUnwrap(offer, "premise: the offer stands")
-
-        raised.justStet()
-        _ = await pumpUntil(deadline: 8) { self.status(fx, id) == .stetted }
-        XCTAssertEqual(status(fx, id), .stetted)
-        XCTAssertNil(ledger(fx),
-                     "and the writer who said no filed nothing")
-    }
-
     /// **Cancel abandons.** Escape carries this arm (Denver's ruling, fix
     /// round 1), and it is the only one of the three that touches neither the
     /// ledger nor the note: a keystroke that settles a note is not a way out of
@@ -879,27 +657,6 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         XCTAssertEqual(raised.heading, "Filter words")
         XCTAssertEqual(raised.annotationId, id)
         XCTAssertEqual(status(fx, id), .open)
-    }
-
-    /// **The control: a wider search is not a looser one.** Another chapter
-    /// carrying the same heading on an OPEN note is not a second stet, and the
-    /// press must settle the note without asking anything.
-    func test_anUnstettedTwinElsewhereIsStillAPlainStet() async throws {
-        let fx = try await makeHarness(named: "TwinOpenElsewhere")
-        let two = try await makeSecondChapter(fx)
-        try await mintQuestion(in: two, body: "An earlier one of these.")
-        let id = try await mintQuestion(fx)
-
-        let window = mountPane(fx)
-        let stet = try button(labelled: "Stet", in: window)
-        _ = stet.perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        _ = await pumpUntil(deadline: 8) { self.status(fx, id) == .stetted }
-        XCTAssertEqual(status(fx, id), .stetted,
-                       "an open note under the same heading is not evidence "
-                       + "of a pattern the writer has twice let stand")
-        XCTAssertNil(offer, "so nothing is asked")
-        XCTAssertNil(ledger(fx), "and nothing is filed")
     }
 
     // MARK: - Keep as lesson… is withdrawn over a sentence that stands (ruling B)

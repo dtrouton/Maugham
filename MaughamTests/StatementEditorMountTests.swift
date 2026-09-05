@@ -768,55 +768,28 @@ final class StatementEditorMountTests: XCTestCase {
     /// the defect one level below the superseded-load one above — that was the
     /// wrong scope's document, this is two of the right scope's.
     ///
-    /// **The interleaving is the test's, not the runloop's.** Three openers
-    /// queue on the production gate in a known order — the mint, this test, and
-    /// then the pane's `reconcile` — so the test holds the path at exactly the
-    /// instant the mint has bound and the reconcile has not yet loaded, and
-    /// asserts that the second load never displaces the first. Without the
-    /// middle waiter the only window is one `Document.load` wide and can be
-    /// observed only by polling.
-    /// **The interleaving is probable per attempt, not guaranteed — so this
-    /// retries rather than assuming.** `ProjectStore.lockStatementOpen` is a
-    /// BARGING lock by design: `unlockStatementOpen`
-    /// (`ProjectStore+Statements.swift:135`) wakes *every* waiter and each
-    /// re-checks `statementOpensInFlight` in the `while` loop, which is what
-    /// makes the pane's re-ask correct. Production relies only on "everyone
-    /// re-asks once inside" and never on order — so park order is not grant
-    /// order, and this test's [mint, wedge, pane] queue can be granted with the
-    /// pane ahead of the wedge. When it inverts, the pane drains before we read
-    /// the queue, `queuedBehindUs` is 0, and the arrangement under test simply
-    /// did not occur — nothing is wrong with the code being guarded.
+    /// **Order-agnostic, so it asserts on every grant order rather than
+    /// discarding the ones it did not want.** The earlier form parked THREE
+    /// openers on the production gate — the mint, a wedge of its own, and the
+    /// returning pane's `reconcile` — and needed them granted in park order,
+    /// which `ProjectStore.lockStatementOpen` does not promise: it is a BARGING
+    /// lock (`unlockStatementOpen` wakes every waiter and each re-checks), and
+    /// production relies only on "everyone re-asks once inside". Under parallel
+    /// workers the grant inverted often enough that three attempts all
+    /// inverted on CI (run 33115733566, 2026-08-27) and the test failed on its
+    /// own precondition, having asserted nothing.
     ///
-    /// MainActor scheduling usually preserves append order, so a single attempt
-    /// nearly always achieves it; under parallel test workers the executor
-    /// jitter inverts it in roughly one gate in three. An attempt that inverts
-    /// is therefore DISCARDED and retried on a fresh fixture, never failed.
-    /// Each attempt needs its own project: `createStatement` is idempotent per
-    /// scope, so a second run against the same fixture would find the statement
-    /// already made and never re-park the mint.
+    /// The invariant does not depend on the order. Two loads are parked — the
+    /// mint and the pane's — and the gate is released. Whichever is granted
+    /// first binds and registers; the other must find the live `Document` and
+    /// take it (the mint deposits the writer's character; the pane's load
+    /// re-asks and declines to open a second one). So after both have drained:
+    /// exactly one `Document` is live on the path, it is the one first seen
+    /// bound, it was never closed, and the pane shows the prose plus the
+    /// character typed before the pane moved. Whichever order the gate chose,
+    /// a displacement fails the identity check and a close fails `isClosed`.
     func test_aMintAndAReturningPaneDoNotBothBindTheSameStatement() async throws {
-        let attempts = 3
-        for attempt in 1...attempts {
-            if try await mintAndReturnInterleaving(named: "MintAndReturn\(attempt)") {
-                return
-            }
-        }
-        XCTFail("the barging open gate never granted [mint, wedge, pane] in park "
-                + "order across \(attempts) attempts, so the returning pane's load "
-                + "was never observed queued behind this test and the interleaving "
-                + "this test is about never happened. Nothing below it was "
-                + "asserted. That is a scheduling pathology worth a human look, "
-                + "not a defect in the code this test guards")
-    }
-
-    /// One attempt at the arrangement above.
-    ///
-    /// Returns `true` when the gate granted in park order, in which case the
-    /// assertions ran; `false` when it granted out of order, in which case
-    /// **nothing was asserted** and the caller should try again on a fresh
-    /// fixture.
-    private func mintAndReturnInterleaving(named name: String) async throws -> Bool {
-        let fixture = try await fixture(named: name)
+        let fixture = try await fixture(named: "MintAndReturn")
         let docId = fixture.documentItemId
         let prose = "the book is about a house"
 
@@ -847,73 +820,43 @@ final class StatementEditorMountTests: XCTestCase {
                      "the mint's load got past the gate this test is holding, so "
                      + "the wedge did not work and nothing below is evidence")
 
-        // Queued behind the mint and ahead of everything the pane does next.
-        let between = Task { @MainActor in
-            await fixture.store.lockStatementOpen(projectIntent.id)
-        }
-        // Both the mint and this wedge must be PARKED before the pane moves, or
-        // the wedge does not sit between them. Same reading as the poll below,
-        // and for the same reason (Measured 2026-08-02): a fixed window here is
-        // a guess about how long the mint takes to reach the gate.
-        await fixture.pumpUntil(deadline: 5) {
-            (fixture.store.statementOpenWaiters[projectIntent.id]?.count ?? 0) >= 2
-        }
-
         // The writer visits the chapter (no intent, so it resolves
         // synchronously) and comes back. `reconcile` finds the statement that
-        // now exists and starts a load of its own, which queues behind us.
+        // now exists and starts a load of its own, which parks behind the mint.
         await fixture.selectDocument(docId)
         await fixture.selectDocument(nil)
-        // **Wait for the third opener to actually REACH the gate**, rather than
-        // trusting `selectDocument`'s fixed settle window to have been long
-        // enough. All three — the mint, this test's wedge and the returning
-        // pane's load — have to be parked before the release, or the
-        // interleaving this test is about never happens and it fails on its own
-        // precondition. Measured 2026-08-02: in a 4,089-test run the pane's load
-        // had not reached `lockStatementOpen` within the 0.3s window, and the
-        // test went red without anything it guards having changed. A poll on the
-        // queue itself is the deterministic form of the same wait; when the
-        // window was already enough it returns at once.
-        await fixture.pumpUntil(deadline: 5) {
-            (fixture.store.statementOpenWaiters[projectIntent.id]?.count ?? 0) >= 3
+        // Both loads must be PARKED before the release, or the interleaving
+        // this test is about never happens. A poll on the queue itself rather
+        // than a fixed window (measured 2026-08-02: the pane's load had not
+        // reached `lockStatementOpen` within 0.3s in a 4,089-test run).
+        let bothParked = await fixture.pumpUntil(deadline: 5) {
+            (fixture.store.statementOpenWaiters[projectIntent.id]?.count ?? 0) >= 2
         }
+        XCTAssertTrue(bothParked,
+                      "the mint and the returning pane's load were not both "
+                      + "parked on the gate within 5s, so the interleaving "
+                      + "under test never happened and nothing below is evidence")
 
-        // Released: the mint takes the path, binds and registers; we take it
-        // next; the returning pane's load is still queued.
+        // Released: the gate grants in whatever order it likes. Capture the
+        // first `Document` seen bound — that is the one the other load must
+        // not displace.
         fixture.store.unlockStatementOpen(projectIntent.id)
-        await between.value
-        let bound = fixture.store.openStatementDocument(id: projectIntent.id)
-        let queuedBehindUs = fixture.store.statementOpenWaiters[projectIntent.id]?.count ?? 0
-        // Before any assertion — and before any early return — so neither can
-        // leave the pane's load parked on a gate nobody will open.
-        fixture.store.unlockStatementOpen(projectIntent.id)
-
-        // **Did we actually get the arrangement?** The gate barges (see this
-        // test's own note), so the pane's load may have been granted ahead of
-        // our wedge and already drained. Then `queuedBehindUs` is 0, the pane's
-        // load did not run while we held the path, and every assertion below
-        // would be reading a state this test never set up. Discard the attempt
-        // rather than fail it: this is the arrangement not occurring, not the
-        // refusal under test breaking. Let the gate drain first so the
-        // abandoned project is torn down with nothing still parked on it.
-        guard queuedBehindUs == 1 else {
-            await fixture.pumpUntil(deadline: 5) {
-                (fixture.store.statementOpenWaiters[projectIntent.id]?.count ?? 0) == 0
-            }
-            fixture.tearDown()
-            return false
+        let bound = await fixture.pumpUntil(deadline: 5) {
+            fixture.store.openStatementDocument(id: projectIntent.id) != nil
         }
-
-        // fixed window: asserting nothing happens. The released load has to be
-        // given room to displace the first `Document` (or close it) — the
-        // assertions below read state that must be UNCHANGED once it has run.
+        XCTAssertTrue(bound, "neither load bound within 5s of the release")
+        let first = try XCTUnwrap(fixture.store.openStatementDocument(id: projectIntent.id),
+                                  "no first `Document` for a second one to displace")
+        // Let the other load drain, and give it room to displace the first (or
+        // close it) — the assertions below read state that must be UNCHANGED
+        // once it has run.
+        _ = await fixture.pumpUntil(deadline: 5) {
+            (fixture.store.statementOpenWaiters[projectIntent.id]?.count ?? 0) == 0
+        }
         await fixture.waitOut(0.6)
 
-        let first = try XCTUnwrap(bound,
-                                  "the mint bound nothing, so there is no first "
-                                  + "`Document` for a second one to displace")
         XCTAssertTrue(fixture.store.openStatementDocument(id: projectIntent.id) === first,
-                      "the returning pane opened a SECOND `Document` on a path "
+                      "the second load opened a SECOND `Document` on a path "
                       + "that already had a live one — same scope, so no "
                       + "cancellation and no mismatched destination refuses it")
         XCTAssertFalse(first.isClosed,
@@ -923,17 +866,14 @@ final class StatementEditorMountTests: XCTestCase {
         // **`prose` was the wrong expectation here too** (issue #21), for the
         // same reason and through the same door: the "x" was typed into this
         // pane while it showed this scope, and `reconcile`'s `release()` used to
-        // empty it out from under the mint that was creating its file. The pane
-        // returning is what makes this arm different from the one above — the
-        // mint may bind — and either way the character belongs in the statement
-        // the writer typed it into.
+        // empty it out from under the mint that was creating its file. Either
+        // way the character belongs in the statement the writer typed it into.
         XCTAssertEqual(try fixture.textView(in: window).string, prose + "\n\nx",
                        "the pane never came back off its placeholder, or came "
                        + "back empty over the writer's prose — a load that "
                        + "declines to open a second `Document` must still leave "
                        + "the scope resolved, showing the prose AND the character "
                        + "typed before the pane moved")
-        return true
     }
 
     /// The rule itself, over the whole product of its inputs — the file's own
