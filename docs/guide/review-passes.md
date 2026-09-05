@@ -153,10 +153,12 @@ that you've settled since the last one, notes from an earlier round still
 open in front of you, and notes this round raised. A note you're holding in
 another pass's lane is counted separately — *"1 was already open in another
 lane"* — since the three counts read only the pass the round was run in. Round numbers are per pass, but the memory is the document's, not
-any one pass's: Maugham remembers a document's last six finished checks,
-across every pass it's been worked through. Run enough checks in other
+any one pass's: Maugham remembers a document's last six finished rounds,
+across every pass it's been worked through. Run enough rounds in other
 passes and a pass you haven't touched in a while ages out of that memory —
-the next check in it starts back at round 1, with nothing to compare against.
+the next round in it starts back at round 1, with nothing to compare against.
+Checks you run in Author are the other loop: they file in no lane and never
+age a round out of this memory.
 
 **⌘⇧R** — *Fresh Eyes* — is a different kind of run: it ends the warm
 session and reads the whole piece cold, as if for the first time. It's still

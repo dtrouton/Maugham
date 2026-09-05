@@ -23,7 +23,12 @@ import Foundation
 /// `CompilerRun.kind` is optional precisely so a record written before this
 /// type existed still decodes (`CompilerRun.effectiveKind` states the legacy
 /// rule for those).
-enum RunKind: String, Codable, Equatable, Sendable {
+///
+/// `CaseIterable` because the diagnostics sidecar holds one standing slot per
+/// case (two loops P1 Task 5) and has to walk them: a hand-written list of the
+/// two would be the one enumeration a third case could not make the compiler
+/// complain about.
+enum RunKind: String, Codable, Equatable, Sendable, CaseIterable {
     /// Author's ⌘R: the delta since the marker, read by the reader, filed in
     /// no lane.
     case check

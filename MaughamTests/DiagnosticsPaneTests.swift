@@ -77,7 +77,8 @@ final class DiagnosticsPaneTests: XCTestCase {
                          freshEyes: Bool? = nil,
                          mintedNotes: Int? = nil,
                          openInOtherLanes: Int? = nil,
-                         letter: Letter? = nil) -> CompilerRun {
+                         letter: Letter? = nil,
+                         kind: RunKind? = nil) -> CompilerRun {
         let wholeSecond = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         return CompilerRun(id: ULID.generate(), at: wholeSecond, model: model,
                            lastOpId: lastOpId, deltaSummary: "1 new, 0 revised \u{00b6}",
@@ -85,7 +86,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                            clauseStatuses: clauseStatuses, truncatedReader: truncatedReader,
                            passId: passId, round: round, freshEyes: freshEyes,
                            mintedNotes: mintedNotes, openInOtherLanes: openInOtherLanes,
-                           letter: letter)
+                           kind: kind, letter: letter)
     }
 
     private func makeClause(
@@ -1471,218 +1472,61 @@ final class DiagnosticsPaneTests: XCTestCase {
             run: makeRun(passId: "line", round: 2, freshEyes: true), annotations: []))
     }
 
-    /// **The report leads with it** — above the drift line and above the
-    /// conformance summary, mounted for real.
-    func test_theSinceLastRoundLineLeadsTheReport() throws {
-        let docId = "doc-rounds"
+    /// **Author's report is the CHECK's, and it narrates no rounds** (two
+    /// loops P1 Task 5).
+    ///
+    /// This replaces four mounted tests that put a round in the sidecar and
+    /// read Author's pane for its since-last-round line
+    /// (`test_theSinceLastRoundLine…LeadsTheReport` / `…CountsTheQueueOfThe`
+    /// `OpenDocument` / `…FollowsAStetWithoutAnotherCheck` /
+    /// `…RendersAboveTheEmptyStateToo`, M4 P1 Task 5). They could only pass
+    /// while one standing run served both verbs: a check carries no lane and
+    /// no round number (Task 2), so `RoundNarrative.sinceLastRoundLine`
+    /// refuses it, and the sentence now belongs to the round cockpit, which
+    /// derives it from the round slot (`AnnotationsPane.cockpitReportLine`).
+    /// The arithmetic those four asserted is `SinceLastRound`'s own and is
+    /// pinned windowlessly in `RoundHistoryTests`; what they also asserted —
+    /// where the sentence sits in THIS pane — is what this task ends.
+    func test_theReportIsTheChecksAndAuthorNarratesNoRounds() throws {
+        let docId = "doc-two-slots"
         let store = DiagnosticsStore(
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
         let quote = "Cold, and never wistful."
-        let note = makeDiagnostic(
+
+        // Two rounds, so the ring holds one and a since-line would have every
+        // input it needs.
+        store.replace(run: makeRun(passId: "line", round: 1), diagnostics: [], docId: docId)
+        let roundStrain = makeDiagnostic(
+            docId: docId, anchor: .init(paragraphId: "a1b2", anchorText: "The fog came."),
+            body: "The round found a sigh here.", kind: .conformanceStrain,
+            clauseQuote: quote)
+        store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")],
+                                   passId: "line", round: 2),
+                      diagnostics: [roundStrain], docId: docId)
+
+        // And the writer's own last check, which is what this pane reports on.
+        let checkStrain = makeDiagnostic(
             docId: docId, anchor: .init(paragraphId: "a1b2", anchorText: "The fog came."),
             body: "The last line reaches for a sigh.", kind: .conformanceStrain,
             clauseQuote: quote)
         store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")],
-                                   passId: "line", round: 1),
-                      diagnostics: [note], docId: docId)
-        store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "holds")],
-                                   passId: "line", round: 2),
-                      diagnostics: [], docId: docId)
+                                   kind: .check),
+                      diagnostics: [checkStrain], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in "The fog came." }, compilerModel: .standard)))
         pump(0.3)
 
-        // No document behind this pane, so the queue is empty and the line says
-        // so — three zeroes is a legitimate reading, and what is under test
-        // here is WHERE the sentence sits, not what it counted.
-        let expected = try XCTUnwrap(RoundNarrative.sinceLastRoundLine(
-            history: store.roundHistory(docId: docId),
-            run: store.lastRun(docId: docId),
-            annotations: []))
-        XCTAssertEqual(expected, "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
-
         let labels = allLabels(in: window)
-        let lineIndex = labels.firstIndex { $0 == expected }
-        let conformanceIndex = labels.firstIndex { $0 == "CONFORMANCE" }
-        XCTAssertNotNil(lineIndex, "got: \(labels)")
-        XCTAssertNotNil(conformanceIndex, "got: \(labels)")
-        XCTAssertTrue((lineIndex ?? .max) < (conformanceIndex ?? -1),
-                      "the since-last-round line leads the report")
-    }
-
-    /// **The wiring, mounted** (M4 P1 Task 5): the sentence on screen counts
-    /// the notes on the OPEN DOCUMENT, not a second account of them kept in
-    /// the sidecar. Two of the three kinds a round raises are annotations now,
-    /// so a pane that still read the sidecar's own record of the last round
-    /// would report zero for a round that queued three questions.
-    func test_theSinceLastRoundLineCountsTheQueueOfTheOpenDocument() async throws {
-        let document = try await makeMultiParagraphDocument()
-        let docId = document.docId
-        let paragraphId = try XCTUnwrap(document.sequence.first)
-        let store = DiagnosticsStore(
-            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-
-        store.replace(run: makeRun(passId: "line", round: 1), diagnostics: [], docId: docId)
-        // Round 1's two notes, as the mint writes them.
-        let settled = try await document.addAnnotation(
-            kind: .query, paragraphId: paragraphId, body: "Whose coat is this?",
-            reviewPassId: "line", compilerRunId: "run-1", compilerRound: 1,
-            compilerFingerprint: "continuity\u{1f}the coat\u{1f}\(paragraphId)\u{1f}")
-        _ = try await document.addAnnotation(
-            kind: .comment, paragraphId: paragraphId, body: "The fog stops convincing here.",
-            reviewPassId: "line", compilerRunId: "run-1", compilerRound: 1,
-            compilerFingerprint: "readerReport\u{1f}\u{1f}\(paragraphId)\u{1f}belief")
-        // The writer settles one of them, then round 2 lands raising nothing.
-        try await document.stetAnnotation(id: settled)
-        // A clause that holds: the report renders, and nothing in it is a note
-        // — so the only sentence with a count in it is the one under test.
-        store.replace(run: makeRun(clauseStatuses: [makeClause("Cold.", "holds")],
-                                   passId: "line", round: 2),
-                      diagnostics: [], docId: docId)
-
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
-            currentText: { _ in nil }, compilerModel: .standard,
-            activeDocument: { document })))
-        pump(0.3)
-
-        let expected = "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 0 new"
-        XCTAssertFalse(
-            staticTextLabels(in: window, containing: expected).isEmpty,
-            "the line must count the document's own queue; got \(allLabels(in: window))")
-    }
-
-    /// **The strongest case for the sentence is the one it used to be missing
-    /// from** (M4 P1 Task 5 review, Important 1).
-    ///
-    /// A round in a pass over a piece with no declared intent raises no clauses
-    /// and no strains, so `hasReport` is false and this pane draws its empty
-    /// state — and since Task 3 that round's ENTIRE output is in the queue,
-    /// with nothing on this pane at all. The empty state's own copy says how
-    /// many notes were queued, which is the `new` count and only that; what
-    /// became of the last round's findings had no surface anywhere. The line
-    /// now sits above the empty state, where the counts are all there is.
-    func test_theSinceLastRoundLineRendersAboveTheEmptyStateToo() async throws {
-        let document = try await makeMultiParagraphDocument()
-        let docId = document.docId
-        let paragraphId = try XCTUnwrap(document.sequence.first)
-        let store = DiagnosticsStore(
-            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-
-        // No intent declared, so neither run carries a clause: every finding
-        // this pass has ever raised is a queued note.
-        let round1 = makeRun(passId: "line", round: 1, mintedNotes: 2)
-        store.replace(run: round1, diagnostics: [], docId: docId)
-        let settled = try await document.addAnnotation(
-            kind: .query, paragraphId: paragraphId, body: "Whose coat is this?",
-            reviewPassId: "line", compilerRunId: round1.id, compilerRound: 1,
-            compilerFingerprint: "continuity\u{1f}the coat\u{1f}\(paragraphId)\u{1f}")
-        _ = try await document.addAnnotation(
-            kind: .comment, paragraphId: paragraphId, body: "The fog stops convincing here.",
-            reviewPassId: "line", compilerRunId: round1.id, compilerRound: 1,
-            compilerFingerprint: "readerReport\u{1f}\u{1f}\(paragraphId)\u{1f}belief")
-        try await document.stetAnnotation(id: settled)
-        // Round 2 raises one new question and nothing else. Its
-        // `compilerRunId` is the SAME id `store.replace` below hands `lastRun`
-        // — the correlation `thisCheckAnnotations`/`WetInk` key on, and the
-        // one a real run always has (one `CompilerRun` value supplies both).
-        let round2 = makeRun(passId: "line", round: 2, mintedNotes: 1)
-        _ = try await document.addAnnotation(
-            kind: .query, paragraphId: paragraphId, body: "Is it the same afternoon?",
-            reviewPassId: "line", compilerRunId: round2.id, compilerRound: 2,
-            compilerFingerprint: "continuity\u{1f}the afternoon\u{1f}\(paragraphId)\u{1f}")
-        store.replace(run: round2, diagnostics: [], docId: docId)
-
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
-            currentText: { _ in nil }, compilerModel: .standard,
-            activeDocument: { document })))
-        pump(0.3)
-
-        let labels = allLabels(in: window)
-        let expected = "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 1 new"
-        let lineIndex = labels.firstIndex { $0 == expected }
-        XCTAssertNotNil(lineIndex,
-                        "a round whose whole output is in the queue is exactly the "
-                        + "round with nothing else to say; got \(labels)")
-        // …and it leads, the way it leads a report: above the wet-ink section
-        // this round's own note now shows in (§7.0), and above the empty
-        // state beneath that.
-        let noteIndex = labels.firstIndex { $0 == "Is it the same afternoon?" }
-        let emptyIndex = labels.firstIndex { $0 == "Nothing else to flag." }
-        XCTAssertNotNil(noteIndex,
-                        "the round's own open note must show in the wet-ink "
-                        + "section; got \(labels)")
-        XCTAssertNotNil(emptyIndex,
-                        "control: the empty state is what is being drawn; got \(labels)")
-        XCTAssertTrue((lineIndex ?? .max) < (noteIndex ?? -1),
-                      "the line leads here as it leads a report; got \(labels)")
-        XCTAssertTrue((noteIndex ?? .max) < (emptyIndex ?? -1),
-                      "the note leads the empty state below it; got \(labels)")
-        // The copy the writer would otherwise have had to make do with said
-        // only the `new` half and nothing about what was resolved or what
-        // persists — and now, with the note showing directly above, neither
-        // the header nor the empty state may re-announce it as queued
-        // elsewhere (the CUV copy invariant, review Important 2).
-        XCTAssertTrue(
-            staticTextLabels(in: window, containing: "went to your queue").isEmpty,
-            "the header or the empty state re-announced as waiting the note "
-            + "shown directly above; got \(labels)")
-    }
-
-    /// **The line moves when the writer does** (M4 P1 Task 5 review,
-    /// Important 2). A stet in the queue is not a new check, and the sentence
-    /// must not sit stale until the next ⌘R — the writer just settled one of
-    /// the notes it is counting.
-    ///
-    /// Mounted and driven through the real verb, after the first render: the
-    /// only thing that can carry the change is the pane's own dependency on
-    /// the document's annotation state.
-    func test_theSinceLastRoundLineFollowsAStetWithoutAnotherCheck() async throws {
-        let document = try await makeMultiParagraphDocument()
-        let docId = document.docId
-        let paragraphId = try XCTUnwrap(document.sequence.first)
-        let store = DiagnosticsStore(
-            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-
-        store.replace(run: makeRun(passId: "line", round: 1), diagnostics: [], docId: docId)
-        let standing = try await document.addAnnotation(
-            kind: .query, paragraphId: paragraphId, body: "Whose coat is this?",
-            reviewPassId: "line", compilerRunId: "run-1", compilerRound: 1,
-            compilerFingerprint: "continuity\u{1f}the coat\u{1f}\(paragraphId)\u{1f}")
-        _ = try await document.addAnnotation(
-            kind: .comment, paragraphId: paragraphId, body: "The fog stops convincing here.",
-            reviewPassId: "line", compilerRunId: "run-1", compilerRound: 1,
-            compilerFingerprint: "readerReport\u{1f}\u{1f}\(paragraphId)\u{1f}belief")
-        store.replace(run: makeRun(clauseStatuses: [makeClause("Cold.", "holds")],
-                                   passId: "line", round: 2),
-                      diagnostics: [], docId: docId)
-
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
-            currentText: { _ in nil }, compilerModel: .standard,
-            activeDocument: { document })))
-        pump(0.3)
-
-        let before = "Since round 1: 0 resolved \u{00b7} 2 persisting \u{00b7} 0 new"
-        XCTAssertFalse(staticTextLabels(in: window, containing: before).isEmpty,
-                       "control: both notes are standing; got \(allLabels(in: window))")
-
-        // The writer reads one and lets the words stand — no check, no store
-        // mutation, nothing but the queue moving under the pane.
-        try await document.stetAnnotation(id: standing)
-        pump(0.3)
-
-        let after = "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 0 new"
-        XCTAssertFalse(
-            staticTextLabels(in: window, containing: after).isEmpty,
-            "the line stayed stale after a stet \u{2014} the writer settled a note it "
-            + "is counting and the sentence still said otherwise; got "
-            + "\(allLabels(in: window))")
-        XCTAssertTrue(staticTextLabels(in: window, containing: before).isEmpty,
-                      "…and the old count must be gone, not merely joined")
+        XCTAssertTrue(labels.contains("The last line reaches for a sigh."),
+                      "the check's own strain is the report; got \(labels)")
+        XCTAssertFalse(labels.contains("The round found a sigh here."),
+                       "a round's strains are stored in their own slot and drawn "
+                       + "nowhere in P1; got \(labels)")
+        XCTAssertTrue(labels.allSatisfy { !$0.hasPrefix("Since round") },
+                      "the round's sentence belongs to the cockpit, not to Author's "
+                      + "report; got \(labels)")
     }
 
     // MARK: - Fresh eyes (M3-P3 Task 6)
@@ -1779,11 +1623,13 @@ final class DiagnosticsPaneTests: XCTestCase {
             docId: docId, anchor: .init(paragraphId: "a1b2", anchorText: "The fog came."),
             body: "The last line reaches for a sigh.", kind: .conformanceStrain,
             clauseQuote: quote)
+        // Checks, because Fresh Eyes in Author is a check (two loops P1), and
+        // this pane reports on the check.
         store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")],
-                                   passId: "line", round: 1),
+                                   kind: .check),
                       diagnostics: [note], docId: docId)
         store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "holds")],
-                                   passId: "line", round: 2, freshEyes: true),
+                                   freshEyes: true, kind: .check),
                       diagnostics: [], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
@@ -1792,7 +1638,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         pump(0.3)
 
         let labels = allLabels(in: window)
-        let headerIndex = labels.firstIndex { $0 == "Fresh eyes \u{00b7} round 2" }
+        let headerIndex = labels.firstIndex { $0 == "Fresh eyes" }
         let conformanceIndex = labels.firstIndex { $0 == "CONFORMANCE" }
         XCTAssertNotNil(headerIndex, "got: \(labels)")
         XCTAssertNotNil(conformanceIndex, "got: \(labels)")

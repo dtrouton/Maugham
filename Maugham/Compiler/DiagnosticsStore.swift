@@ -13,8 +13,19 @@ import MaughamCore
 /// One file per `(docId, device)` under `.maugham/diagnostics/` (tripwire 17
 /// spirit: a diagnostics run on one Mac must not collide with a run on
 /// another writing the same doc). `replace` is the compiler's write: a new
-/// run's diagnostics wholly supersede the previous run's for that doc — there
-/// is never more than one run's worth of notes live per document.
+/// run's diagnostics wholly supersede the previous run's **of the same
+/// verb** — there is never more than one check's worth and one round's worth
+/// of notes live per document.
+///
+/// **Two standing slots, one per `RunKind`** (two loops P1 Task 5). Author's
+/// ⌘R and Review's Run round are two verbs against the same document, with
+/// separate readers and separate briefings; while this file held one standing
+/// run they also shared one shelf, so a check landed on top of the round the
+/// cockpit was showing and a round took the marker and the notes Author's
+/// pane was drawing. Each slot is replaced only by its own kind
+/// (`CompilerRun.effectiveKind`), and the readers are split to match:
+/// `lastCheck` for Author's pane, `lastRound` for the Review cockpit, both
+/// for the drift ring and for `lastRun`.
 @Observable @MainActor
 final class DiagnosticsStore {
     /// Monotonic; bumped by every mutation (`load`, `replace`, `dismiss`) so
@@ -35,9 +46,26 @@ final class DiagnosticsStore {
     private let projectRoot: URL
     private let device: DeviceSlug
 
-    private struct FileContent: Codable, Equatable {
+    /// **One verb's standing answer**: the run and the notes it raised, kept
+    /// together because they are one report and are superseded as one.
+    ///
+    /// A struct rather than two dictionaries keyed the same way, for the
+    /// reason `SlotKey` exists: a run and its notes that can be written
+    /// separately are a run and its notes that can disagree about which check
+    /// the writer is looking at.
+    private struct Standing: Codable, Equatable {
         var run: CompilerRun
         var diagnostics: [Diagnostic]
+    }
+
+    private struct FileContent: Codable, Equatable {
+        /// **What Author's ⌘R last said about this document.** `nil` for a
+        /// document only ever run against from Review — which is exactly what
+        /// the Author pane should say about it: no check has been made.
+        var check: Standing?
+        /// **What Review's last round said about this document**, whatever
+        /// lane it was filed in. `nil` for a document only ever checked.
+        var round: Standing?
         /// The drift ring: clause-status snapshots from ingests that carried
         /// them, oldest→newest, capped at `clauseHistoryDepth`. Appended only
         /// by `replace` — never reconstructed on `load` — so a sidecar
@@ -50,20 +78,54 @@ final class DiagnosticsStore {
         /// a round's notes are gone the moment the next round replaces them,
         /// and this is the only thing left that says the round happened.
         ///
+        /// **Rounds only** (two loops P1 Task 5). It was a ring of "whatever
+        /// finished last" while the two verbs shared one slot, so a ⌘R between
+        /// two rounds filed itself as the round the next one was measured
+        /// since. A check finishes in its own slot now and contributes
+        /// nothing here.
+        ///
         /// **What it does not hold is what the rounds FOUND** (M4 P1 Task 5):
         /// that is counted off the queue by `SinceLastRound`, whose boundary is
         /// this record's `at`.
         var rounds: [RoundRecord]
 
         init(
-            run: CompilerRun, diagnostics: [Diagnostic],
+            check: Standing? = nil, round: Standing? = nil,
             clauseHistory: [[DiagnosticIngest.ClauseStatus]] = [],
             rounds: [RoundRecord] = []
         ) {
-            self.run = run
-            self.diagnostics = diagnostics
+            self.check = check
+            self.round = round
             self.clauseHistory = clauseHistory
             self.rounds = rounds
+        }
+
+        /// The slot a verb's answer stands in — the one place a `RunKind`
+        /// becomes a property, so no caller writing one slot can name the
+        /// other's field by hand.
+        subscript(kind: RunKind) -> Standing? {
+            get {
+                switch kind {
+                case .check: return check
+                case .round: return round
+                }
+            }
+            set {
+                switch kind {
+                case .check: check = newValue
+                case .round: round = newValue
+                }
+            }
+        }
+
+        /// **`run`/`diagnostics` are read and never written again.** A sidecar
+        /// this build wrote carries `check` and/or `round`; one written before
+        /// Task 5 carries a single run at the top level, and which verb it was
+        /// is `CompilerRun.effectiveKind`'s answer — the one place that legacy
+        /// is stated (tripwire 11: no migration, the old file simply loads).
+        private enum CodingKeys: String, CodingKey {
+            case check, round, clauseHistory, rounds
+            case run, diagnostics
         }
 
         /// Hand-written so a v1/v2 sidecar (written before these fields
@@ -74,24 +136,69 @@ final class DiagnosticsStore {
         /// falls back to.
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
-            run = try c.decode(CompilerRun.self, forKey: .run)
-            diagnostics = try c.decode([Diagnostic].self, forKey: .diagnostics)
+            check = try c.decodeIfPresent(Standing.self, forKey: .check)
+            round = try c.decodeIfPresent(Standing.self, forKey: .round)
             clauseHistory = try c.decodeIfPresent(
                 [[DiagnosticIngest.ClauseStatus]].self, forKey: .clauseHistory) ?? []
             rounds = try c.decodeIfPresent([RoundRecord].self, forKey: .rounds) ?? []
+
+            // The legacy shape lands in the slot its own kind names, and never
+            // over a slot the new keys already filled: a file carrying both is
+            // one this build wrote, and its top-level run would be the stale
+            // half of a shape nothing writes any more.
+            guard let legacy = try c.decodeIfPresent(CompilerRun.self, forKey: .run)
+            else { return }
+            let standing = Standing(
+                run: legacy,
+                diagnostics: try c.decodeIfPresent(
+                    [Diagnostic].self, forKey: .diagnostics) ?? [])
+            if self[legacy.effectiveKind] == nil { self[legacy.effectiveKind] = standing }
+        }
+
+        /// Hand-written for the decoder's other half: the legacy keys are
+        /// declared so they can be READ, and Swift will not synthesise an
+        /// encoder over a `CodingKeys` carrying a case no property answers to.
+        /// Written out, this is also the assertion that the two of them are
+        /// never emitted again — a sidecar this build writes has slots and
+        /// rings and nothing else.
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encodeIfPresent(check, forKey: .check)
+            try c.encodeIfPresent(round, forKey: .round)
+            try c.encode(clauseHistory, forKey: .clauseHistory)
+            try c.encode(rounds, forKey: .rounds)
         }
     }
 
+    /// **One document's one verb** — the key every piece of per-slot state is
+    /// held under.
+    ///
+    /// A struct rather than a `checkPreviewing`/`roundPreviewing` pair beside
+    /// every existing dictionary: parallel dictionaries are two places to
+    /// forget one verb, and the bug that would leave is a preview of a check
+    /// hiding the round the cockpit is drawing.
+    private struct SlotKey: Hashable {
+        let docId: String
+        let kind: RunKind
+    }
+
+    /// **Keyed by document, because the FILE is per document.** The two
+    /// standing slots live inside one `FileContent` rather than under two
+    /// `SlotKey`s here: the drift ring and the round ring belong to the
+    /// document rather than to either verb, and splitting the file across two
+    /// dictionary entries would give each verb its own copy of both.
+    /// Everything that is genuinely per-verb — which slot is previewing, and
+    /// what that preview is standing in front of — is keyed by `SlotKey`.
     private var byDoc: [String: FileContent] = [:]
 
-    /// Documents whose in-memory content is a `preview` — a run still
-    /// arriving — rather than a run that finished. Read by `load`, which must
-    /// not read the sidecar back over one.
-    private var previewing: Set<String> = []
+    /// Slots whose in-memory content is a `preview` — a run still arriving —
+    /// rather than a run that finished. Read by `load`, which must not read
+    /// the sidecar back over one.
+    private var previewing: Set<SlotKey> = []
 
-    /// For a document whose in-memory content is a preview: the last content
-    /// that belonged to a run which FINISHED — `replace`'s snapshot source for
-    /// the round ring.
+    /// For a slot whose in-memory content is a preview: the last answer in
+    /// that slot that belonged to a run which FINISHED — `replace`'s snapshot
+    /// source for the round ring.
     ///
     /// **A preview overwrites the very record the ring is owed.** `replace`
     /// remembers the run it supersedes, and in production every run streams,
@@ -104,11 +211,12 @@ final class DiagnosticsStore {
     /// This is not a preview writing the ring (the global rule): nothing is
     /// appended anywhere until `replace` runs, and a preview that never
     /// finishes (`discardPreview`) drops it untouched.
-    private var finishedBeforePreview: [String: FileContent] = [:]
+    private var finishedBeforePreview: [SlotKey: Standing] = [:]
 
-    /// The content of the last run against `docId` that actually FINISHED —
-    /// the standing content, unless a preview has been standing in for it, in
-    /// which case the shadow is the only place a finished run can be.
+    /// The answer in `docId`'s `kind` slot from the last run that actually
+    /// FINISHED — the standing answer, unless a preview has been standing in
+    /// for it, in which case the shadow is the only place a finished run can
+    /// be.
     ///
     /// **Keyed on the previewing FLAG, never on the shadow's nil-ness.** A
     /// cold document's first preview captures nothing, and assigning nil to a
@@ -121,8 +229,9 @@ final class DiagnosticsStore {
     /// filing it into the ring, and `standingRound` handing it to the briefing
     /// of the round about to begin — so the two can never disagree about which
     /// run that is.
-    private func finishedContent(docId: String) -> FileContent? {
-        previewing.contains(docId) ? finishedBeforePreview[docId] : byDoc[docId]
+    private func finishedStanding(docId: String, kind: RunKind) -> Standing? {
+        let key = SlotKey(docId: docId, kind: kind)
+        return previewing.contains(key) ? finishedBeforePreview[key] : byDoc[docId]?[kind]
     }
 
     /// docIds the writer has told the cold-start offer "Not now" to, on THIS
@@ -172,7 +281,8 @@ final class DiagnosticsStore {
     /// RECORD is kept, so the pane can still say when the document was last
     /// checked and what that run discarded.
     ///
-    /// **A standing preview is never read over.** A run still arriving is by
+    /// **A standing preview is never read over, slot by slot.** A run still
+    /// arriving is by
     /// construction newer than the sidecar, which holds the last run that
     /// finished — so re-reading the file mid-stream would put an OLDER answer
     /// on a pane whose header says "Checking…". The real caller is
@@ -182,18 +292,31 @@ final class DiagnosticsStore {
     /// section lands. `discardPreview` is how a preview is deliberately
     /// dropped, and it clears this first.
     func load(docId: String) {
-        guard !previewing.contains(docId) else { return }
+        let held = RunKind.allCases.filter {
+            previewing.contains(SlotKey(docId: docId, kind: $0))
+        }
+        guard held.count < RunKind.allCases.count else { return }
         let url = Self.sidecarURL(projectRoot: projectRoot, docId: docId, device: device)
         guard let data = try? Data(contentsOf: url), // adr-0018-ok: diagnostics sidecar, derived, not manuscript
-              let content = try? Self.makeDecoder().decode(FileContent.self, from: data)
+              var content = try? Self.makeDecoder().decode(FileContent.self, from: data)
         else {
-            byDoc[docId] = nil
+            // Nothing readable on disk. A slot standing in front of a preview
+            // is still newer than the file, so the whole entry is left alone
+            // when one is; otherwise this document has no record at all.
+            if held.isEmpty { byDoc[docId] = nil }
             version += 1
             return
         }
-        byDoc[docId] = FileContent(
-            run: content.run, diagnostics: content.diagnostics.filter { $0.kind != nil },
-            clauseHistory: content.clauseHistory, rounds: content.rounds)
+        for kind in RunKind.allCases {
+            if held.contains(kind) {
+                // A run still arriving is by construction newer than the file.
+                content[kind] = byDoc[docId]?[kind]
+            } else if var standing = content[kind] {
+                standing.diagnostics = standing.diagnostics.filter { $0.kind != nil }
+                content[kind] = standing
+            }
+        }
+        byDoc[docId] = content
         version += 1
     }
 
@@ -212,35 +335,47 @@ final class DiagnosticsStore {
     /// **Neither is the round ring**, and it remembers the opposite end: the
     /// clause ring takes the INCOMING run's snapshot, while a `RoundRecord` is
     /// built from the run being superseded, because a round can only be
-    /// compared against once the round after it exists. So the first replace
+    /// compared against once the round after it exists. So the first round
     /// against a document contributes nothing, and each one after it files the
-    /// run it replaced.
+    /// round it replaced.
+    ///
+    /// **Only the run's own slot moves** (two loops P1 Task 5). A check
+    /// replaces the standing check and leaves the round the cockpit is showing
+    /// byte-identical, and a round replaces the standing round and leaves
+    /// Author's notes and delta marker where they were. Both kinds feed the
+    /// drift ring — a clause strains across the writer's runs, not across one
+    /// verb's — and only a round feeds the round ring.
     func replace(run: CompilerRun, diagnostics: [Diagnostic], docId: String) {
-        var history = byDoc[docId]?.clauseHistory ?? []
+        let kind = run.effectiveKind
+        var content = byDoc[docId] ?? FileContent()
+
         if let statuses = run.clauseStatuses {
-            history.append(statuses)
-            if history.count > Self.clauseHistoryDepth {
-                history.removeFirst(history.count - Self.clauseHistoryDepth)
+            content.clauseHistory.append(statuses)
+            if content.clauseHistory.count > Self.clauseHistoryDepth {
+                content.clauseHistory.removeFirst(
+                    content.clauseHistory.count - Self.clauseHistoryDepth)
             }
         }
 
-        var rounds = byDoc[docId]?.rounds ?? []
-        // The outgoing run is whatever finished last. `previewing.remove` runs
-        // further down, so the flag `finishedContent` reads is still set here.
-        let outgoing = finishedContent(docId: docId)
-        if let outgoing {
-            rounds.append(RoundRecord(run: outgoing.run))
-            if rounds.count > Self.roundHistoryDepth {
-                rounds.removeFirst(rounds.count - Self.roundHistoryDepth)
+        // The outgoing run is whatever finished last IN THIS SLOT, and only a
+        // round is filed — a check has no lane and no number, and one filed
+        // here would become the round the next round says it is measured
+        // since. `previewing.remove` runs further down, so the flag
+        // `finishedStanding` reads is still set here.
+        let outgoing = finishedStanding(docId: docId, kind: kind)
+        if kind == .round, let outgoing {
+            content.rounds.append(RoundRecord(run: outgoing.run))
+            if content.rounds.count > Self.roundHistoryDepth {
+                content.rounds.removeFirst(content.rounds.count - Self.roundHistoryDepth)
             }
         }
-        finishedBeforePreview[docId] = nil
+        let key = SlotKey(docId: docId, kind: kind)
+        finishedBeforePreview[key] = nil
 
         // The run finished: what is in memory is an answer again, and the
         // sidecar below is about to say the same thing.
-        previewing.remove(docId)
-        let content = FileContent(run: run, diagnostics: diagnostics,
-                                  clauseHistory: history, rounds: rounds)
+        previewing.remove(key)
+        content[kind] = Standing(run: run, diagnostics: diagnostics)
         byDoc[docId] = content
         persist(docId: docId, content: content)
         // A run that raised nothing clears the badge rather than leaving the
@@ -281,17 +416,23 @@ final class DiagnosticsStore {
     ///   not survive the turn, and a badge for notes that no longer exist is a
     ///   badge nothing can clear.
     ///
+    /// **And it stands in one slot only** (two loops P1 Task 5): a check
+    /// streaming onto Author's pane leaves the standing round exactly where
+    /// the cockpit is drawing it, and the other way round.
+    ///
     /// Undone by `discardPreview`; superseded by `replace` when the turn ends.
     func preview(run: CompilerRun, diagnostics: [Diagnostic], docId: String) {
+        let key = SlotKey(docId: docId, kind: run.effectiveKind)
         // The FIRST section of a turn is where the finished run is set aside
         // (see `finishedBeforePreview`); every section after it is already
         // standing over a preview and has nothing to keep.
-        if !previewing.contains(docId) { finishedBeforePreview[docId] = byDoc[docId] }
-        previewing.insert(docId)
-        byDoc[docId] = FileContent(
-            run: run, diagnostics: diagnostics,
-            clauseHistory: byDoc[docId]?.clauseHistory ?? [],
-            rounds: byDoc[docId]?.rounds ?? [])
+        if !previewing.contains(key) {
+            finishedBeforePreview[key] = byDoc[docId]?[key.kind]
+        }
+        previewing.insert(key)
+        var content = byDoc[docId] ?? FileContent()
+        content[key.kind] = Standing(run: run, diagnostics: diagnostics)
+        byDoc[docId] = content
         version += 1
     }
 
@@ -302,11 +443,17 @@ final class DiagnosticsStore {
     /// actually finished, so reading it back is exactly "put the standing
     /// answer back". A document with no finished run reads as nothing, which
     /// is the correct answer for a first check the writer cancelled.
-    func discardPreview(docId: String) {
-        previewing.remove(docId)
+    ///
+    /// **`kind` is the run's own, never inferred here.** The caller is holding
+    /// the run it is abandoning (`CompilerOrchestrator.discardStreamPreview`),
+    /// and a cancel that cleared both slots' previews would take down a report
+    /// the writer is watching in the other loop.
+    func discardPreview(docId: String, kind: RunKind) {
+        let key = SlotKey(docId: docId, kind: kind)
+        previewing.remove(key)
         // The run that was set aside is about to be read back off disk as the
-        // standing content, so the shadow has nothing left to protect.
-        finishedBeforePreview[docId] = nil
+        // standing answer, so the shadow has nothing left to protect.
+        finishedBeforePreview[key] = nil
         load(docId: docId)
     }
 
@@ -333,9 +480,16 @@ final class DiagnosticsStore {
     /// resolving ref; the other `refs` are the excerpt chips the pane shows
     /// beside the note. Liveness depends only on the anchor, so changing a
     /// non-anchor ref's paragraph does not dismiss the note.
+    ///
+    /// **The CHECK slot's notes** (two loops P1 Task 5). These are Author's
+    /// rows, and Author's ⌘R is the check. A round's conformance strains are
+    /// stored in the round slot and drawn nowhere in P1 — a deliberate carry:
+    /// the round's findings reach the writer as annotations in the queue, and
+    /// giving its strains a surface is a later task, not something to smuggle
+    /// in by pointing Author's pane at whichever run happened to be newer.
     func live(docId: String, currentText: (String) -> String?) -> [Diagnostic] {
-        guard let content = byDoc[docId] else { return [] }
-        return content.diagnostics.filter { diagnostic in
+        guard let standing = byDoc[docId]?[.check] else { return [] }
+        return standing.diagnostics.filter { diagnostic in
             guard let anchor = diagnostic.anchor else { return true }
             guard let text = currentText(anchor.paragraphId) else { return false }
             return text == anchor.anchorText
@@ -350,13 +504,17 @@ final class DiagnosticsStore {
     /// `replace` cannot do this: it would drop the standing notes for a run
     /// that produced none.
     ///
-    /// **A doc with no run record is left alone.** The marker is a property of
-    /// a run that happened, and a document nobody has ever checked has nothing
-    /// to move; the empty delta on a first run means an empty document, and the
-    /// next run's answer is the same either way.
+    /// **A doc with no CHECK record is left alone.** The marker is a property
+    /// of a run that happened, and a document nobody has ever checked has
+    /// nothing to move; the empty delta on a first run means an empty
+    /// document, and the next run's answer is the same either way. A document
+    /// that has only ever had rounds run against it is that same case — the
+    /// marker is the check loop's position, and a round moves no marker (Task
+    /// 4).
     func advanceMarker(to opId: String, docId: String) {
-        guard var content = byDoc[docId] else { return }
-        content.run.lastOpId = opId
+        guard var content = byDoc[docId], var standing = content[.check] else { return }
+        standing.run.lastOpId = opId
+        content[.check] = standing
         byDoc[docId] = content
         persist(docId: docId, content: content)
         version += 1
@@ -365,7 +523,8 @@ final class DiagnosticsStore {
     /// Remove one diagnostic (the writer answered or ignored it). Persists
     /// immediately. No-op if `docId`/`id` is unknown.
     ///
-    /// **Precondition: `docId` is not previewing.** This is the store's third
+    /// **Precondition: `docId`'s CHECK slot is not previewing** — these are
+    /// the check's notes, `live`'s rule one verb over. This is the store's third
     /// writer, and the only one that predates streaming — it was written when
     /// every note it could reach belonged to a run that had finished. Against a
     /// preview it would persist the half-report as the standing sidecar, and
@@ -387,16 +546,50 @@ final class DiagnosticsStore {
     /// door rather than a hidden handle, and it is the rule any future per-note
     /// mutator inherits.
     func dismiss(_ id: String, docId: String) {
-        guard !previewing.contains(docId) else { return }
-        guard var content = byDoc[docId] else { return }
-        content.diagnostics.removeAll { $0.id == id }
+        guard !previewing.contains(SlotKey(docId: docId, kind: .check)) else { return }
+        guard var content = byDoc[docId], var standing = content[.check] else { return }
+        standing.diagnostics.removeAll { $0.id == id }
+        content[.check] = standing
         byDoc[docId] = content
         persist(docId: docId, content: content)
         version += 1
     }
 
+    /// **What Author's ⌘R last said about `docId`** — the standing check
+    /// (two loops P1 Task 5). What the Diagnostics pane reports on.
+    func lastCheck(docId: String) -> CompilerRun? {
+        byDoc[docId]?[.check]?.run
+    }
+
+    /// **What Review's last round said about `docId`**, whatever lane it was
+    /// filed in — the standing round (two loops P1 Task 5). What the round
+    /// cockpit reports on, and where the letter it draws comes from.
+    func lastRound(docId: String) -> CompilerRun? {
+        byDoc[docId]?[.round]?.run
+    }
+
+    /// **The newer of the two standing runs**, and the only reader that mixes
+    /// them.
+    ///
+    /// It exists for the two questions that are about the DOCUMENT rather
+    /// than about either loop: `IntentDrift.mayTrailDraft`, whose mark says
+    /// the draft may have wandered from the intent and is answered by whoever
+    /// judged that last, and the unread badge, which counts what any finished
+    /// run left the writer unread. Every other reader wants one verb's answer
+    /// and asks `lastCheck` or `lastRound` by name — a surface reading
+    /// "whichever ran last" is a surface that changes what it is reporting on
+    /// when the writer switches persona.
+    ///
+    /// A tie goes to the check, which is the loop the intent strip is drawn
+    /// in; two runs sharing a whole second is a fixture, not a session.
     func lastRun(docId: String) -> CompilerRun? {
-        byDoc[docId]?.run
+        guard let content = byDoc[docId] else { return nil }
+        switch (content[.check]?.run, content[.round]?.run) {
+        case (let check?, let round?): return check.at >= round.at ? check : round
+        case (let check?, nil): return check
+        case (nil, let round?): return round
+        case (nil, nil): return nil
+        }
     }
 
     /// How many clause-status snapshots the drift ring keeps — enough for
@@ -423,8 +616,13 @@ final class DiagnosticsStore {
     }
 
     /// **The round a run beginning now is briefed against**, and the notes it
-    /// raised — the last run that FINISHED against `docId`, whatever lane it
+    /// raised — the last ROUND that FINISHED against `docId`, whatever lane it
     /// belonged to (the caller matches the lane; this reader has no opinion).
+    ///
+    /// It reads the round slot alone as of two loops P1 Task 5: a check that
+    /// landed between two rounds is a different verb's answer, and briefing a
+    /// round on it said the previous round had raised what Author's own ⌘R
+    /// did.
     ///
     /// It is deliberately not the ring: a round's notes are gone the moment
     /// the next round replaces them, so the standing content is the only
@@ -435,25 +633,26 @@ final class DiagnosticsStore {
     /// **Read at the keystroke, before the run's first section lands.** From
     /// the first closed line onward the standing content is this run's own
     /// preview — asked later, it would brief a round against itself.
-    /// `finishedContent` is what makes an answer mid-preview still honest.
+    /// `finishedStanding` is what makes an answer mid-preview still honest.
     func standingRound(docId: String) -> (record: RoundRecord, notes: [Diagnostic])? {
-        guard let content = finishedContent(docId: docId) else { return nil }
-        return (RoundRecord(run: content.run), content.diagnostics)
+        guard let standing = finishedStanding(docId: docId, kind: .round) else { return nil }
+        return (RoundRecord(run: standing.run), standing.diagnostics)
     }
 
     /// The most recent round number in `passId`'s lane for this document, or
     /// `nil` when the lane has no prior round — which is what makes the next
     /// one round 1.
     ///
-    /// The standing run is asked first, because it is the newest round of all
-    /// and is not in the ring yet (the ring holds runs that have been
-    /// superseded). Then the ring, newest first. A lane is matched exactly:
+    /// The standing ROUND is asked first, because it is the newest round of
+    /// all and is not in the ring yet (the ring holds rounds that have been
+    /// superseded). A standing check is not consulted at all — it has no lane
+    /// and no number. Then the ring, newest first. A lane is matched exactly:
     /// the passless lane (`nil`) resolves against passless records only, and
     /// since a passless run mints no round number this reader answers `nil`
     /// for it — an ordinary M2 run, not round 1 of nothing.
     ///
     /// **Reads `byDoc` directly, deliberately never the preview shadow
-    /// (`finishedContent`, which `standingRound` reads instead) — R1, #42.**
+    /// (`finishedStanding`, which `standingRound` reads instead) — R1, #42.**
     /// The two answer different questions and must, on purpose, disagree
     /// while a preview stands: this reader answers "which round is this lane
     /// on, the one in flight included", `standingRound` answers "what did the
@@ -470,7 +669,9 @@ final class DiagnosticsStore {
     /// `test_latestRound_answersTheRoundInFlightWhileAPreviewStands`.
     func latestRound(forPass passId: String?, docId: String) -> Int? {
         guard let content = byDoc[docId] else { return nil }
-        if content.run.passId == passId, let round = content.run.round { return round }
+        if let run = content[.round]?.run, run.passId == passId, let round = run.round {
+            return round
+        }
         for record in content.rounds.reversed() where record.passId == passId {
             if let round = record.round { return round }
         }
@@ -479,7 +680,7 @@ final class DiagnosticsStore {
 
     /// The delta marker: the op-log position the last run checked as of.
     func lastOpId(docId: String) -> String? {
-        byDoc[docId]?.run.lastOpId
+        byDoc[docId]?[.check]?.run.lastOpId
     }
 
     // MARK: - The cold-start offer's refusal memory

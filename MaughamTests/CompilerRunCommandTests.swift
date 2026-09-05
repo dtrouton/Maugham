@@ -180,6 +180,24 @@ final class CompilerRunCommandTests: XCTestCase {
             sequence: ["a1b2", "c3d4", "e5f6"])
     }
 
+    /// A fourth paragraph, for the one test that needs four runs: two rounds
+    /// and then two checks, so a check can supersede a check.
+    private func readingAfterAFourthParagraph() -> CompilerOrchestrator.DocumentReading {
+        CompilerOrchestrator.DocumentReading(
+            ops: [makeOp(opId: "op1", kind: .bootstrap,
+                         changes: [.init(paragraphId: "a1b2", prior: nil, next: "The fog came.")]),
+                  makeOp(opId: "op2",
+                         changes: [.init(paragraphId: "c3d4", prior: nil, next: "It stayed.")]),
+                  makeOp(opId: "op3",
+                         changes: [.init(paragraphId: "e5f6", prior: nil, next: "Then it lifted.")]),
+                  makeOp(opId: "op4",
+                         changes: [.init(paragraphId: "g7h8", prior: nil,
+                                         next: "She walked out into it.")])],
+            paragraphs: ["a1b2": "The fog came.", "c3d4": "It stayed.",
+                         "e5f6": "Then it lifted.", "g7h8": "She walked out into it."],
+            sequence: ["a1b2", "c3d4", "e5f6", "g7h8"])
+    }
+
     private struct Harness {
         let orchestrator: CompilerOrchestrator
         let diagnostics: DiagnosticsStore
@@ -2869,16 +2887,17 @@ final class CompilerRunCommandTests: XCTestCase {
     func test_aPreviewNeverEntersTheRoundRing() throws {
         let runner = SpyRunner()
         runner.nextEvent = nil   // the first turn streams too
-        let harness = try makeHarness(runner: runner, reading: standingReading())
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "line")
 
-        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
         awaitSends(1, on: runner)
         runner.stream(conformanceLine("Cold, and never wistful.", "strains",
                                       whatPulls: "The last line reaches for a sigh.") + "\n")
         runner.release(.resultText(
             oneStrain("Should she already know?", about: "a1b2")))
         settle()
-        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        let finished = try XCTUnwrap(harness.diagnostics.lastRound(docId: docId))
         XCTAssertEqual(harness.diagnostics.roundHistory(docId: docId), [],
                        "a cold document's first run has no prior round to file — "
                        + "least of all itself")
@@ -2886,7 +2905,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // A second run, streamed section by section, then finished.
         runner.nextEvent = nil
         harness.setReading(readingAfterMoreWriting())
-        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
         awaitSends(2, on: runner)
         let strain = conformanceLine("Cold, and never wistful.", "strains",
                                      whatPulls: "The last line reaches for a sigh.")
@@ -2913,6 +2932,59 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(history.first?.fingerprints, [],
                        "the ring records THAT the round happened and when \u{2014} what "
                        + "it found is counted off the queue (M4 P1 Task 5)")
+    }
+
+    /// **A check enters the ring at neither end** (two loops P1 Task 5):
+    /// not while it streams, and not when it finishes.
+    ///
+    /// The ring is what "since last round" is measured from, so an Author
+    /// keystroke filed there becomes the round the next round says it is
+    /// measured since — a writer who ⌘R'd twice between two rounds would be
+    /// told the last round found what their own check found. Falsification:
+    /// file the outgoing run whatever its kind, and the last assertion reads
+    /// three.
+    func test_aChecksPreviewAndItsAnswerBothStayOutOfTheRing() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "line")
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(1, on: runner)
+        settle()
+        harness.setReading(readingAfterMoreWriting())
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(2, on: runner)
+        settle()
+        let filed = harness.diagnostics.roundHistory(docId: docId).map(\.runId)
+        XCTAssertEqual(filed.count, 1, "control: two rounds put one in the ring")
+
+        // Now the writer checks, twice, streaming both times.
+        runner.nextEvent = nil
+        harness.setReading(readingAfterAThirdParagraph())
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(3, on: runner)
+        runner.stream(conformanceLine("Cold, and never wistful.", "strains",
+                                      whatPulls: "The last line reaches for a sigh.") + "\n")
+        XCTAssertEqual(harness.diagnostics.roundHistory(docId: docId).map(\.runId), filed,
+                       "a check's half-report is not a round")
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+
+        XCTAssertEqual(harness.diagnostics.roundHistory(docId: docId).map(\.runId), filed,
+                       "and neither is the check that finished — the ring still "
+                       + "holds the one round that has been superseded")
+
+        // A SECOND check, so the first one is a superseded check: the outgoing
+        // answer exists now, and only its kind keeps it out of the ring.
+        runner.nextEvent = .resultText(Self.fourEmptySections)
+        harness.setReading(readingAfterAFourthParagraph())
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(4, on: runner)
+        settle()
+        XCTAssertEqual(harness.diagnostics.roundHistory(docId: docId).map(\.runId), filed,
+                       "a check superseding a check files nothing either")
+        XCTAssertEqual(harness.diagnostics.latestRound(forPass: "line", docId: docId), 2,
+                       "and the lane is still on the round it was on")
     }
 
     /// **A preview is never written to disk.** A half-report in the sidecar
@@ -4809,12 +4881,18 @@ final class CompilerRunCommandTests: XCTestCase {
         await awaitSends(1, on: runner)
         await awaitOpenNotes(1, on: fx.document)
 
-        let rows = fx.diagnostics.live(docId: "ch-1", currentText: { paragraphId in
-            fx.document.paragraph(id: paragraphId)
-        })
+        // Through the ROUND slot, because this is a round: a round's strains
+        // are stored there and drawn nowhere in P1 (two loops P1 Task 5), and
+        // `live` — Author's rows — reads the check slot.
+        let rows = try XCTUnwrap(fx.diagnostics.standingRound(docId: "ch-1")).notes
         XCTAssertEqual(rows.map(\.kind), [.conformanceStrain],
                        "the sidecar must hold the strain and nothing else "
                        + "\u{2014} got \(rows.map { ($0.kind, $0.body) })")
+        XCTAssertEqual(
+            fx.diagnostics.live(docId: "ch-1", currentText: { fx.document.paragraph(id: $0) }),
+            [],
+            "and none of it reached Author's pane \u{2014} a round leaves the "
+            + "standing check exactly as the writer's own last \u{2318}R left it")
 
         let sidecar = DiagnosticsStore.sidecarURL(
             projectRoot: fx.root, docId: "ch-1",

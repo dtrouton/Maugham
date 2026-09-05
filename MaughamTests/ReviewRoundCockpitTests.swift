@@ -1645,10 +1645,13 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_theQueuesStripShowsTheOpenDocumentsLetter() async throws {
         let fx = try await makeHarness()
         fx.diagnostics.replace(
+            // A ROUND, because the cockpit draws the round's letter (two loops
+            // P1 Task 5): the sidecar keeps one standing run per verb, and
+            // Author's own check lands in the other slot.
             run: CompilerRun(
                 id: "r-1", at: Date(), model: "test-model", lastOpId: "op-1",
-                deltaSummary: "1 new", intentSnapshot: nil, passId: nil, round: 1,
-                freshEyes: nil,
+                deltaSummary: "1 new", intentSnapshot: nil, passId: "line", round: 1,
+                freshEyes: nil, kind: .round,
                 letter: Self.letter(oneThing: "Give the reader the dock before the fire.")),
             diagnostics: [], docId: fx.document.docId)
 
@@ -1658,6 +1661,74 @@ final class ReviewRoundCockpitTests: XCTestCase {
             allLabels(in: window).contains("Give the reader the dock before the fire."),
             "the queue's strip must carry the letter the open piece's last run left. "
             + "Read: \(allLabels(in: window))")
+    }
+
+    /// **The cockpit's letter is signed by the round that wrote it, never by
+    /// the lane the writer has selected now** (two loops P1 Task 5, Controller
+    /// Ruling 5).
+    ///
+    /// Windowless and over the product of the inputs, because the signature
+    /// lives inside a collapsed disclosure and the selection it must NOT read
+    /// is not a parameter of this function at all — which is the point. A
+    /// chip click moves the piece into another lane; it does not rewrite who
+    /// wrote the letter standing in the queue, and with the seat vacated or
+    /// the piece in no lane it must not re-sign a real round "Claude" either.
+    func test_theLettersVoiceIsTheStandingRoundsOwnEditor() {
+        let passes = [Self.line, Self.copyedit]
+        let stamped = CompilerRun(
+            id: "r-line", at: Date(), model: "m", lastOpId: nil, deltaSummary: "d",
+            intentSnapshot: nil, passId: "line", round: 2, kind: .round)
+
+        XCTAssertEqual(
+            AnnotationsPane.letterVoice(run: stamped, passes: passes), "Lish",
+            "the round says which lane it was read in, and that lane's editor "
+            + "signed it \u{2014} whatever the writer has selected since")
+        XCTAssertEqual(
+            AnnotationsPane.letterVoice(
+                run: CompilerRun(
+                    id: "r-coach", at: Date(), model: "m", lastOpId: nil,
+                    deltaSummary: "d", intentSnapshot: nil,
+                    passId: ReviewPass.coachPreset.id, round: 1, kind: .round),
+                passes: passes),
+            ReviewPass.coachPreset.effectiveEditorName,
+            "a round the coach ran is signed with her name, never her schema id")
+        XCTAssertEqual(
+            AnnotationsPane.letterVoice(
+                run: CompilerRun(
+                    id: "r-gone", at: Date(), model: "m", lastOpId: nil,
+                    deltaSummary: "d", intentSnapshot: nil, passId: "retired",
+                    round: 1, kind: .round),
+                passes: passes),
+            AuthorReader.nobody.editorName,
+            "a lane this project no longer has leaves nobody to name")
+        XCTAssertEqual(
+            AnnotationsPane.letterVoice(run: nil, passes: passes),
+            AuthorReader.nobody.editorName,
+            "and no standing round names nobody at all")
+    }
+
+    /// **The census the mount cannot make**: every letter verb in the queue
+    /// takes its voice from the ONE resolution above, and none of them reads
+    /// the pane's current pass selection.
+    ///
+    /// Four call sites — the signature, Keep, the ledger handlers and the turn
+    /// clause. Falsification: put `cockpitActivePass?.effectiveEditorName`
+    /// back on any one of them and the last assertion fails.
+    func test_everyLetterVerbTakesItsVoiceFromTheStandingRound() throws {
+        let source = try readSource("Maugham/Views/AnnotationsPane.swift")
+        XCTAssertEqual(
+            source.components(separatedBy: "voice: letterVoice(run)").count - 1, 3,
+            "the signature, the ledger handlers and the turn clause each take the "
+            + "round's own voice")
+        XCTAssertTrue(source.contains("editorName: letterVoice(run)"),
+                      "and so does Keep, whose parameter is spelled differently")
+        XCTAssertFalse(
+            source.contains(
+                "cockpitActivePass?.effectiveEditorName ?? AuthorReader.nobody.editorName"),
+            "a letter verb is reading the writer's current selection again \u{2014} "
+            + "a chip click would re-sign a standing letter. (The empty state's "
+            + "own read of the selection is a different question: which round "
+            + "\u{2318}R would make HERE, which is the selection's to answer.)")
     }
 
     /// **The census the mount cannot make**: the pane derives the line through

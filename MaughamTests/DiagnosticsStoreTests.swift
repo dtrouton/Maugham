@@ -281,8 +281,11 @@ final class DiagnosticsStoreTests: XCTestCase {
         let store = DiagnosticsStore(
             projectRoot: project, device: DeviceSlug.make(from: "test-mac"))
         let docId = "docG"
-        let firstRun = makeRun(lastOpId: "op0")
-        store.replace(run: firstRun, diagnostics: [], docId: docId)
+        // Two rounds, so the ring below has something in it to ride along: a
+        // check contributes nothing to it (two loops P1 Task 5).
+        let firstRound = makeRound(round: 1)
+        store.replace(run: firstRound, diagnostics: [], docId: docId)
+        store.replace(run: makeRound(round: 2), diagnostics: [], docId: docId)
         let run = makeRun(lastOpId: "op1")
         let note = makeDiagnostic(docId: docId, runId: run.id)
         store.replace(run: run, diagnostics: [note], docId: docId)
@@ -291,7 +294,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         store.advanceMarker(to: "op2", docId: docId)
 
         XCTAssertEqual(store.lastOpId(docId: docId), "op2")
-        XCTAssertEqual(store.roundHistory(docId: docId).map(\.runId), [firstRun.id],
+        XCTAssertEqual(store.roundHistory(docId: docId).map(\.runId), [firstRound.id],
                        "moving the marker copies the whole record — the round ring "
                        + "rides along with the notes")
         XCTAssertEqual(store.live(docId: docId, currentText: { _ in nil }).map(\.id),
@@ -305,7 +308,7 @@ final class DiagnosticsStoreTests: XCTestCase {
             projectRoot: project, device: DeviceSlug.make(from: "test-mac"))
         reread.load(docId: docId)
         XCTAssertEqual(reread.lastOpId(docId: docId), "op2")
-        XCTAssertEqual(reread.roundHistory(docId: docId).map(\.runId), [firstRun.id],
+        XCTAssertEqual(reread.roundHistory(docId: docId).map(\.runId), [firstRound.id],
                        "…and so does the ring, or a marker-only run would cost the "
                        + "next one its comparison")
     }
@@ -1109,5 +1112,299 @@ final class DiagnosticsStoreTests: XCTestCase {
         let store = DiagnosticsStore(projectRoot: project, device: device)
 
         XCTAssertNil(store.ask(docId: "anything"))
+    }
+
+    // MARK: - The two standing slots (two loops P1 Task 5)
+
+    /// A round fixture: `passId` is what `CompilerRun.effectiveKind` reads for
+    /// a record written before `kind` existed, and `kind` is what a record
+    /// written since says outright. Both are set, so nothing here depends on
+    /// which of the two the store consults.
+    private func makeRound(
+        passId: String = "line", round: Int = 1, lastOpId: String = ULID.generate(),
+        at: Date? = nil
+    ) -> CompilerRun {
+        let wholeSecond = at ?? Date(
+            timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        return CompilerRun(
+            id: ULID.generate(), at: wholeSecond, model: "test-model",
+            lastOpId: lastOpId, deltaSummary: "the piece whole",
+            intentSnapshot: "intent snapshot", passId: passId, round: round,
+            kind: .round)
+    }
+
+    private func makeCheck(
+        lastOpId: String = ULID.generate(), at: Date? = nil
+    ) -> CompilerRun {
+        let wholeSecond = at ?? Date(
+            timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        return CompilerRun(
+            id: ULID.generate(), at: wholeSecond, model: "test-model",
+            lastOpId: lastOpId, deltaSummary: "3 new, 2 revised \u{00b6}",
+            intentSnapshot: "intent snapshot", kind: .check)
+    }
+
+    /// **A sidecar written before this task loads, and its one run lands in
+    /// the slot its own kind names.** No migration (tripwire 11): the legacy
+    /// keys are read, and a passless run is a check.
+    func test_aLegacySidecarWithNoLaneLoadsAsTheStandingCheck() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docLegacyCheck"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            {"clauseHistory":[],\
+            "diagnostics":[{"anchor":{"anchorText":"steady","paragraphId":"efgh"},\
+            "body":"A strain","docId":"docLegacyCheck","id":"01JNOTE","kind":"conformanceStrain",\
+            "runId":"01JRUN"}],\
+            "run":{"at":"2026-09-01T09:00:00Z","deltaSummary":"1 new, 0 revised",\
+            "droppedDangling":0,"id":"01JRUN","lastOpId":"op1","model":"sonnet",\
+            "passId":null,"round":null}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(store.lastCheck(docId: docId)?.id, "01JRUN",
+                       "a run with no lane is a check, and the file's one run is it")
+        XCTAssertNil(store.lastRound(docId: docId),
+                     "nothing in that file was ever a round")
+        XCTAssertEqual(store.lastOpId(docId: docId), "op1",
+                       "the marker is the check's, and the check is where it landed")
+        XCTAssertEqual(
+            store.live(docId: docId, currentText: { _ in "steady" }).map(\.id), ["01JNOTE"],
+            "and Author's rows came with it")
+    }
+
+    /// The other half: a legacy run filed in a lane was a round, so it loads
+    /// as one — and Author's pane, the marker and the check slot are all empty
+    /// for a document nobody has ever ⌘R'd.
+    func test_aLegacySidecarWithALaneLoadsAsTheStandingRound() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docLegacyRound"
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("""
+            {"clauseHistory":[],"diagnostics":[],\
+            "run":{"at":"2026-09-01T09:00:00Z","deltaSummary":"the piece whole",\
+            "droppedDangling":0,"id":"01JROUND","lastOpId":"op7","model":"sonnet",\
+            "passId":"line","round":2}}
+            """.utf8).write(to: url)
+
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+        store.load(docId: docId)
+
+        XCTAssertEqual(store.lastRound(docId: docId)?.id, "01JROUND")
+        XCTAssertEqual(store.latestRound(forPass: "line", docId: docId), 2,
+                       "the lane's count came with it")
+        XCTAssertNil(store.lastCheck(docId: docId),
+                     "no check has ever been made against this document")
+        XCTAssertNil(store.lastOpId(docId: docId),
+                     "and a round moves no marker \u{2014} reading one off a round is "
+                     + "how Author's next check skipped the prose it had never read")
+    }
+
+    /// **A check replaces the check and leaves the round exactly where the
+    /// cockpit is drawing it** — the whole point of the two slots.
+    func test_aCheckOverAStandingRoundLeavesTheRoundUntouched() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docBothVerbs"
+
+        let round = makeRound(round: 4)
+        let roundNote = makeDiagnostic(docId: docId, runId: round.id, body: "the round's")
+        store.replace(run: round, diagnostics: [roundNote], docId: docId)
+
+        let check = makeCheck(lastOpId: "op-check")
+        let checkNote = makeDiagnostic(docId: docId, runId: check.id, body: "the check's")
+        store.replace(run: check, diagnostics: [checkNote], docId: docId)
+
+        XCTAssertEqual(store.lastRound(docId: docId), round,
+                       "the whole record, byte for byte \u{2014} a check that landed on "
+                       + "the round would have taken the cockpit's report with it")
+        XCTAssertEqual(store.lastCheck(docId: docId), check)
+        XCTAssertEqual(store.lastOpId(docId: docId), "op-check",
+                       "the marker is the check's own")
+        XCTAssertEqual(
+            store.live(docId: docId, currentText: { _ in nil }).map(\.body), ["the check's"],
+            "Author's rows are the check's notes; the round's strains are stored "
+            + "and drawn nowhere in P1")
+        XCTAssertEqual(store.roundHistory(docId: docId), [],
+                       "and a check files no round \u{2014} the ring would otherwise say "
+                       + "the last round was an Author keystroke")
+    }
+
+    /// And the reverse: a round leaves Author's notes and marker alone, while
+    /// filing the round it superseded.
+    func test_aRoundOverAStandingCheckLeavesTheCheckUntouched() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docRoundOverCheck"
+
+        let first = makeRound(round: 1)
+        store.replace(run: first, diagnostics: [], docId: docId)
+        let check = makeCheck(lastOpId: "op-check")
+        let checkNote = makeDiagnostic(docId: docId, runId: check.id, body: "the check's")
+        store.replace(run: check, diagnostics: [checkNote], docId: docId)
+
+        let second = makeRound(round: 2)
+        store.replace(run: second, diagnostics: [], docId: docId)
+
+        XCTAssertEqual(store.lastCheck(docId: docId), check)
+        XCTAssertEqual(store.lastOpId(docId: docId), "op-check",
+                       "a round moves no marker, and must not take the check's")
+        XCTAssertEqual(
+            store.live(docId: docId, currentText: { _ in nil }).map(\.body), ["the check's"])
+        XCTAssertEqual(store.roundHistory(docId: docId).map(\.runId), [first.id],
+                       "the outgoing ROUND is filed \u{2014} and only it, though a check "
+                       + "finished between the two")
+    }
+
+    /// The ring's rule from the reading end: any number of checks between two
+    /// rounds changes neither the lane's count nor what the next round is
+    /// measured since.
+    func test_latestRoundIgnoresAnyNumberOfChecks() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docChecksBetween"
+
+        store.replace(run: makeRound(round: 3), diagnostics: [], docId: docId)
+        for _ in 1...3 {
+            store.replace(run: makeCheck(), diagnostics: [], docId: docId)
+        }
+
+        XCTAssertEqual(store.roundHistory(docId: docId), [],
+                       "and none of the three superseded checks was filed as a "
+                       + "round \u{2014} the ring is what the next round is measured "
+                       + "since, and an Author keystroke in it moves that boundary")
+        XCTAssertEqual(store.latestRound(forPass: "line", docId: docId), 3,
+                       "three ⌘Rs are not three rounds; the lane is still on 3")
+        XCTAssertEqual(store.standingRound(docId: docId)?.record.round, 3,
+                       "and the round the next one is briefed against is still that one")
+    }
+
+    /// And the marker's rule from the reading end: any number of rounds leaves
+    /// the check loop's position where the last check left it.
+    func test_lastOpIdIgnoresAnyNumberOfRounds() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docRoundsBetween"
+
+        store.replace(run: makeCheck(lastOpId: "op-check"), diagnostics: [], docId: docId)
+        for round in 1...3 {
+            store.replace(run: makeRound(round: round, lastOpId: "op-round-\(round)"),
+                          diagnostics: [], docId: docId)
+        }
+
+        XCTAssertEqual(store.lastOpId(docId: docId), "op-check",
+                       "the next check reads the delta from where the last CHECK "
+                       + "stopped, whatever Review has done since")
+    }
+
+    /// **A preview stands in one slot.** A check streaming onto Author's pane
+    /// must not blank the round the cockpit is showing, and the round the next
+    /// round is briefed against is still the one that finished.
+    func test_aPreviewOfOneVerbDoesNotHideTheOthersStandingAnswer() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docCrossPreview"
+
+        let round = makeRound(round: 2)
+        store.replace(run: round, diagnostics: [], docId: docId)
+        let check = makeCheck()
+        store.replace(run: check, diagnostics: [], docId: docId)
+
+        store.preview(run: makeCheck(), diagnostics: [], docId: docId)
+        XCTAssertEqual(store.lastRound(docId: docId), round,
+                       "a check's preview left the cockpit's report blank")
+        XCTAssertEqual(store.standingRound(docId: docId)?.record.runId, round.id)
+
+        store.preview(run: makeRound(round: 3), diagnostics: [], docId: docId)
+        XCTAssertEqual(store.latestRound(forPass: "line", docId: docId), 3,
+                       "control: the round in flight is the one the lane is on")
+        XCTAssertEqual(store.standingRound(docId: docId)?.record.runId, round.id,
+                       "and the round BEFORE it is still the one that finished")
+    }
+
+    /// Both slots survive a relaunch with their own notes — and the file this
+    /// build writes carries the two slot keys and neither legacy one.
+    func test_roundTrip_survivesRelaunchWithBothSlots() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docTwoSlots"
+
+        let store1 = DiagnosticsStore(projectRoot: project, device: device)
+        let round = makeRound(round: 2)
+        let roundNote = makeDiagnostic(docId: docId, runId: round.id, body: "the round's")
+        store1.replace(run: round, diagnostics: [roundNote], docId: docId)
+        let check = makeCheck(lastOpId: "op-check")
+        let checkNote = makeDiagnostic(docId: docId, runId: check.id, body: "the check's")
+        store1.replace(run: check, diagnostics: [checkNote], docId: docId)
+
+        let store2 = DiagnosticsStore(projectRoot: project, device: device)
+        store2.load(docId: docId)
+
+        XCTAssertEqual(store2.lastCheck(docId: docId), check)
+        XCTAssertEqual(store2.lastRound(docId: docId), round)
+        XCTAssertEqual(store2.lastOpId(docId: docId), "op-check")
+        XCTAssertEqual(
+            store2.live(docId: docId, currentText: { _ in nil }).map(\.body), ["the check's"])
+        XCTAssertEqual(store2.standingRound(docId: docId)?.notes.map(\.body), ["the round's"],
+                       "the round's own notes are still what the next round is "
+                       + "briefed against")
+
+        let url = DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
+        let keys = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any])
+        XCTAssertEqual(Set(keys.keys), ["check", "round", "clauseHistory", "rounds"],
+                       "the legacy keys are READ and never written again; a file "
+                       + "carrying both shapes is one the next build would have to "
+                       + "choose between. Got: \(keys.keys.sorted())")
+    }
+
+    /// **`lastRun` is the newer of the two**, and nothing else — the one
+    /// reader that mixes the verbs, for the intent mark and the unread badge.
+    func test_lastRunIsTheNewerOfTheTwoStandingRuns() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docNewer"
+        let early = Date(timeIntervalSince1970: 1_780_000_000)
+        let late = early.addingTimeInterval(600)
+
+        store.replace(run: makeRound(round: 1, at: late), diagnostics: [], docId: docId)
+        store.replace(run: makeCheck(at: early), diagnostics: [], docId: docId)
+
+        XCTAssertEqual(store.lastRun(docId: docId)?.effectiveKind, .round,
+                       "the round is newer, though the check landed last")
+
+        store.replace(run: makeCheck(at: late.addingTimeInterval(60)),
+                      diagnostics: [], docId: docId)
+        XCTAssertEqual(store.lastRun(docId: docId)?.effectiveKind, .check,
+                       "and now the check is")
+    }
+
+    /// The drift ring is fed by BOTH verbs: a clause strains across the
+    /// writer's runs, not across one loop's.
+    func test_bothVerbsFeedTheDriftRing() throws {
+        let store = DiagnosticsStore(
+            projectRoot: try makeProject(), device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docDriftBoth"
+        let statuses = [DiagnosticIngest.ClauseStatus(
+            clauseQuote: "Cold, and never wistful.", status: "strains", refs: [])]
+
+        var round = makeRound(round: 1)
+        round.clauseStatuses = statuses
+        store.replace(run: round, diagnostics: [], docId: docId)
+        var check = makeCheck()
+        check.clauseStatuses = statuses
+        store.replace(run: check, diagnostics: [], docId: docId)
+
+        XCTAssertEqual(store.clauseStatusHistory(docId: docId), [statuses, statuses],
+                       "one ring over both loops, or a clause straining through a "
+                       + "round and a check reads as two unrelated single sightings")
     }
 }

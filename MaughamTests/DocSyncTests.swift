@@ -640,13 +640,19 @@ final class DocSyncTests: XCTestCase {
         let rememberedLower = remembered.lowercased()
         let staleLower = stale.lowercased()
 
-        let hasCorrect = lowered.contains("\(rememberedLower) finished checks")
-            || lowered.contains("\(rememberedLower) later checks")
+        // **Either noun** (two loops P1 Task 5): the ring became rounds-only,
+        // so a doc that says "six finished rounds" is the correct sentence and
+        // one still saying "checks" is a wording this guard does not police —
+        // the NUMBER is what it exists to keep in step.
+        let nouns = ["finished checks", "later checks", "finished rounds", "later rounds"]
+        let hasCorrect = nouns.contains { lowered.contains("\(rememberedLower) \($0)") }
 
         let staleDigit = numberWords.first { $0.value == staleLower }?.key
-        let hasBareStaleRing = staleDigit.map { lowered.contains("\($0)-deep ring of finished checks") } ?? false
-        let hasStale = lowered.contains("\(staleLower) finished checks")
-            || lowered.contains("\(staleLower) later checks")
+        let hasBareStaleRing = staleDigit.map { digit in
+            lowered.contains("\(digit)-deep ring of finished checks")
+                || lowered.contains("\(digit)-deep ring of finished rounds")
+        } ?? false
+        let hasStale = nouns.contains { lowered.contains("\(staleLower) \($0)") }
             || hasBareStaleRing
 
         if hasStale {
@@ -704,6 +710,9 @@ final class DocSyncTests: XCTestCase {
                 + "ring remembers at all.", true),
             ("correct control", "Maugham remembers a document's last SIX finished checks, "
                 + "across every pass.", false),
+            ("stale, rounds noun", "The document remembers five finished rounds in Line.", true),
+            ("correct control, rounds noun",
+             "Maugham remembers a document's last six finished rounds.", false),
         ]
 
         let fired = offenders.filter {

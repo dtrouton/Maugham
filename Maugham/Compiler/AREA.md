@@ -1296,7 +1296,22 @@ refuses in words when the ring has aged it out, and this area's own writes
 
 - **17 / 24 — the sidecar.** `.maugham/diagnostics/<docId>.<slug>.json` is
   per-`(document, device)`: two Macs running the compiler against one document
-  must not race each other's file. `DeviceSlug.raw` is interpolated in
+  must not race each other's file. **It holds TWO standing runs, one per
+  `RunKind`** (two loops P1 Task 5): `FileContent.check` and `FileContent.round`,
+  each replaced only by its own kind (`CompilerRun.effectiveKind`), with the
+  drift ring and the round ring beside them belonging to the document rather
+  than to either verb. The readers are split to match — `lastCheck` is
+  Author's pane, `lastRound` is the Review cockpit, `lastOpId` and `live`/
+  `dismiss` are the check's, `standingRound`/`latestRound` and the round ring
+  are the round's, and `lastRun` (the NEWER of the two by `at`) is kept for
+  exactly two questions that are about the document rather than either loop:
+  `IntentDrift.mayTrailDraft`'s mark and the unread badge. The on-disk keys
+  are `check` and `round`; the legacy top-level `run`/`diagnostics` pair is
+  READ and never written again, landing in the slot its own `effectiveKind`
+  names (tripwire 11 — no migration, the old file simply loads). **A round's
+  conformance strains are stored in the round slot and drawn nowhere in P1**
+  — a deliberate carry, not an omission: the round's findings reach the writer
+  as annotations in the queue. `DeviceSlug.raw` is interpolated in
   `DiagnosticsStore.sidecarURL` and in `DiagnosticsStore.refusedColdStartURL`
   — the cold-start offer's refusal memory, `.maugham/diagnostics/
   cold-start-refused.<slug>.json`, ONE small per-device file for the whole
@@ -1309,20 +1324,24 @@ refuses in words when the ring has aged it out, and this area's own writes
   one per statement scope) and `.maugham/bible.<slug>.json`
   (`BibleStore.sidecarURL`, one per project). `.raw` is interpolated only at
   each of those two call sites.
-- **The round ring is the DOCUMENT's, not any one pass's.** `FileContent.rounds`
-  is one array per `docId`, capped at `roundHistoryDepth` (5) — every pass
-  files into the same ring. The document actually remembers six finished
-  checks — the ring plus the standing run, which is filed into the ring only
-  when superseded — so a Structural round is pushed out once six later checks
-  (in any lane) stack up behind it. It is written
-  only by `replace`, and only for the run being SUPERSEDED — `RoundRecord(run:)`
-  is built from `finishedContent(docId:)`, which reads the
-  in-memory `byDoc` entry directly except while a preview is standing in for
-  it, when it reads the shadow `finishedBeforePreview` captured the moment the
-  preview began (keyed on the `previewing` Set, never on the shadow's
+- **The round ring is the DOCUMENT's, not any one pass's — and it is ROUNDS
+  only.** `FileContent.rounds` is one array per `docId`, capped at
+  `roundHistoryDepth` (5) — every pass files into the same ring. The document
+  actually remembers six finished rounds — the ring plus the standing round,
+  which is filed into the ring only when superseded — so a Structural round is
+  pushed out once six later rounds (in any lane) stack up behind it. A CHECK
+  contributes nothing to it (two loops P1 Task 5): it was a ring of "whatever
+  finished last" while the two verbs shared one slot, so an Author ⌘R between
+  two rounds became the round the next one said it was measured since. It is
+  written only by `replace`, and only for the run being SUPERSEDED —
+  `RoundRecord(run:)` is built from `finishedStanding(docId:kind:)`, which
+  reads the in-memory `byDoc` entry's own slot directly except while a preview
+  is standing in for that slot, when it reads the shadow
+  `finishedBeforePreview` captured the moment the preview began (keyed by
+  `SlotKey` in the `previewing` Set, never on the shadow's
   nil-ness — a cold document's first preview captures nothing, and a `??`
   fallthrough there would read the run's own half-report as the previous
-  round). `latestRound(forPass:docId:)` reads `byDoc` directly, never that
+  round). `latestRound(forPass:docId:)` reads the ROUND slot of `byDoc` directly, never that
   shadow (R1, #42) — its two readers are `beginRun`'s round mint, reached only
   when `runRequested` finds `!isRunning`, and the Review cockpit strip
   (`AnnotationsPane.cockpitRound`), both of which need "which round is this
@@ -1332,7 +1351,7 @@ refuses in words when the ring has aged it out, and this area's own writes
   run first (newest of all, and not yet in the ring) and only then walks the
   ring newest-first for a record matching that `passId`; a lane
   whose records have all aged out of the shared ring answers `nil`, same as a
-  lane that has never run, so the next check in it mints round 1. **The round
+  lane that has never run, so the next round in it mints round 1. **The round
   number, and which pass it belongs to, are minted in `beginRun`'s synchronous
   prefix — before the request is sent, before a single byte of preview
   arrives.** They cannot wait: from the first closed section onward the
@@ -1343,7 +1362,15 @@ refuses in words when the ring has aged it out, and this area's own writes
   round rather than two checks that happen to disagree.
 - **The round line's PLACEMENT in the pane is hoisted above the
   report/no-report fork, and a future `content` refactor could silently undo
-  it** (M4 P1 Task 5 review, Important). It used to render only inside the
+  it** (M4 P1 Task 5 review, Important). **Since two loops P1 Task 5 the
+  since-last-round sentence cannot draw in this pane at all**: Author's pane
+  reads the CHECK slot, and a check carries no lane and no round number (Task
+  2), so `RoundNarrative.sinceLastRoundLine` refuses it. The sentence's home
+  is the round cockpit (`AnnotationsPane.cockpitReportLine`, off the round
+  slot). The Fresh Eyes header still draws here, because Author's ⌘⇧R is a
+  check. The placement note below is kept for the day a check gets a
+  comparison of its own — and for the Fresh Eyes label, which shares the
+  hoisted slot. It used to render only inside the
   report arm, which put it out of reach in the state that needs it most: a
   round in a pass over a piece with no declared intent raises no clauses and
   no strains, so `DiagnosticsPane.hasReport` is `false` — and since Task 3

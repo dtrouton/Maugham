@@ -1221,7 +1221,10 @@ final class CompilerOrchestrator {
         guard let run = streaming else { return }
         streaming = nil
         guard run.isShowing else { return }
-        diagnostics?.discardPreview(docId: run.docId)
+        // The run's own kind, so a cancelled check leaves the standing round
+        // on the cockpit and a cancelled round leaves Author's notes alone
+        // (two loops P1 Task 5).
+        diagnostics?.discardPreview(docId: run.docId, kind: run.kind)
     }
 
     /// The run record — **one spelling, read by the preview and by the final

@@ -195,9 +195,12 @@ struct DiagnosticsPane: View {
         return diagnostics.live(docId: docId, currentText: currentText)
     }
 
+    /// **The standing CHECK** (two loops P1 Task 5). This pane reports on
+    /// Author's ⌘R; a round finishing in Review must not change what it says
+    /// the writer last checked, which is what one shared slot made it do.
     private var lastRun: CompilerRun? {
         _ = diagnostics.version
-        return diagnostics.lastRun(docId: docId)
+        return diagnostics.lastCheck(docId: docId)
     }
 
     /// Every clause the last run checked, whatever the answer. Empty for a run

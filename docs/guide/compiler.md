@@ -280,11 +280,12 @@ clause a round that engaged a question you're already holding in Structural
 would read as three zeroes, because the three counts only ever look at the pass the round
 was run in. Round numbers are per pass, but the
 memory behind them is the document's, not any one pass's: Maugham remembers a document's last six
-finished checks, across every pass. Once enough later checks stack up behind
+finished rounds, across every pass. Once enough later rounds stack up behind
 a round — six, counting the one still standing — it ages out of memory, so a
-Structural round buried under a long run of Line checks is gone, and the next
-check back in Structural starts over at round 1, with nothing behind it to
-compare against. See [Review Passes](review-passes.md#rounds-and-fresh-eyes) for the
+Structural round buried under a long run of Line rounds is gone, and the next
+round back in Structural starts over at round 1, with nothing behind it to
+compare against. Your own ⌘R checks never enter that memory and never age a
+round out of it: a check is the other loop, and it is filed in no lane. See [Review Passes](review-passes.md#rounds-and-fresh-eyes) for the
 pass side of this.
 
 ## Fresh Eyes

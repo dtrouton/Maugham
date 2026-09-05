@@ -659,7 +659,7 @@ final class RoundHistoryTests: XCTestCase {
                       diagnostics: [], docId: docId)
         store.preview(run: makeRun(id: "run-2", passId: "P", round: 2),
                       diagnostics: [], docId: docId)
-        store.discardPreview(docId: docId)
+        store.discardPreview(docId: docId, kind: .round)
         store.replace(run: makeRun(id: "run-3", passId: "P", round: 2),
                       diagnostics: [], docId: docId)
 
@@ -761,7 +761,7 @@ final class RoundHistoryTests: XCTestCase {
         XCTAssertEqual(store.standingRound(docId: docId)?.record.round, 1,
                        "the round before it — the shadow, not the preview")
 
-        store.discardPreview(docId: docId)
+        store.discardPreview(docId: docId, kind: .round)
 
         XCTAssertEqual(store.latestRound(forPass: "line", docId: docId), 1,
                        "the preview is gone; both readers agree again")

@@ -461,6 +461,56 @@ final class IntentStripTests: XCTestCase {
             + "(`DiagnosticIngest` admits two verdicts and nil)")
     }
 
+    /// **The mark follows the NEWER of the two standing slots** (two loops P1
+    /// Task 5), which is the one question in the window that is about the
+    /// document rather than about either loop: the draft may have wandered
+    /// from the intent, and whoever judged that last is who answered it.
+    ///
+    /// Asked through a real store, because the claim is about which run
+    /// `lastRun(docId:)` hands over now that a check and a round stand side by
+    /// side. Falsification: point `lastRun` at either slot by name and one of
+    /// the two halves goes red.
+    func test_theMarkFollowsWhicheverVerbJudgedTheIntentLast() throws {
+        let intent = "Cold, and never wistful."
+        let store = DiagnosticsStore(
+            projectRoot: FileManager.default.temporaryDirectory
+                .appendingPathComponent("IntentStripSlots-\(UUID())"),
+            device: DeviceSlug.make(from: "test-mac"))
+        let docId = "docMarkSlots"
+        let early = Date(timeIntervalSince1970: 1_780_000_000)
+
+        store.replace(
+            run: Self.runRecord(verdict: "holds", snapshot: intent, at: early,
+                                passId: "line", round: 1),
+            diagnostics: [], docId: docId)
+        store.replace(
+            run: Self.runRecord(verdict: "drifted", snapshot: intent,
+                                at: early.addingTimeInterval(600)),
+            diagnostics: [], docId: docId)
+
+        XCTAssertTrue(
+            IntentDrift.mayTrailDraft(
+                lastRun: store.lastRun(docId: docId), currentStatementText: intent),
+            "the writer's own \u{2318}R drifted after the round held; the mark is "
+            + "the newer judgement's, not the round's")
+
+        // And the reverse: a round that holds, after a check that drifted.
+        store.replace(
+            run: Self.runRecord(verdict: "holds", snapshot: intent,
+                                at: early.addingTimeInterval(1200),
+                                passId: "line", round: 2),
+            diagnostics: [], docId: docId)
+
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(
+                lastRun: store.lastRun(docId: docId), currentStatementText: intent),
+            "a round judged the same intent later and said it holds \u{2014} the "
+            + "mark a check raised must clear")
+        XCTAssertEqual(store.lastCheck(docId: docId)?.intentDriftVerdict, "drifted",
+                       "control: the check's own record is untouched, and its "
+                       + "verdict is still on it")
+    }
+
     /// **The clearing rule end-to-end, through a real statement edit and with
     /// NO further run** — the half a stored mark would get wrong.
     ///
@@ -570,11 +620,18 @@ final class IntentStripTests: XCTestCase {
 
     /// A run record with just enough on it for the drift decision — the fields
     /// this contract reads and no fixture arithmetic beside them.
-    private static func runRecord(verdict: String?, snapshot: String?) -> CompilerRun {
+    /// `at`/`passId`/`round` are defaulted so every existing caller reads as
+    /// it did; the slot test above sets them, because which slot a record
+    /// lands in is `effectiveKind`'s answer and which of two is newer is `at`'s.
+    private static func runRecord(
+        verdict: String?, snapshot: String?, at: Date = Date(),
+        passId: String? = nil, round: Int? = nil
+    ) -> CompilerRun {
         CompilerRun(
-            id: "run-1", at: Date(), model: "test-model", lastOpId: "op1",
+            id: "run-\(UUID().uuidString.prefix(6))", at: at, model: "test-model",
+            lastOpId: "op1",
             deltaSummary: "1 new, 0 revised \u{00b6}", intentSnapshot: snapshot,
-            intentDriftVerdict: verdict)
+            passId: passId, round: round, intentDriftVerdict: verdict)
     }
 
     /// Every string the tree speaks, which is what a writer with VoiceOver

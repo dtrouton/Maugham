@@ -809,7 +809,7 @@ struct AnnotationsPane: View {
         _ diagnostics: DiagnosticsStore, docId: String
     ) -> DraftStage? {
         _ = diagnostics.version
-        return diagnostics.lastRun(docId: docId)?.letter?.draftStage
+        return diagnostics.lastRound(docId: docId)?.letter?.draftStage
     }
 
     /// The writer's standing ask for this piece, version-gated exactly as
@@ -831,9 +831,41 @@ struct AnnotationsPane: View {
         _ diagnostics: DiagnosticsStore, docId: String
     ) -> Letter? {
         _ = diagnostics.version
-        guard let letter = diagnostics.lastRun(docId: docId)?.letter,
+        guard let letter = diagnostics.lastRound(docId: docId)?.letter,
               !letter.isEmpty else { return nil }
         return letter
+    }
+
+    /// **Who signs what the cockpit is drawing — the standing ROUND's own
+    /// editor, never the pass the writer has selected now** (two loops P1
+    /// Task 5, Controller Ruling 5).
+    ///
+    /// The letter, the lesson and the turn clause on screen were written by
+    /// the editor whose round produced them, and a chip click that moves the
+    /// piece into another lane does not rewrite what a note in the queue was
+    /// signed. Reading `cockpitActivePass` here re-signed a standing letter
+    /// with whichever lane the writer had just selected — Gould's words filed
+    /// under Perkins — and, with the seat vacated or the piece parked in no
+    /// lane, signed a real round "Claude".
+    ///
+    /// `ReviewPass.pass(id:in:)` rather than the ladder alone, so a round the
+    /// coach ran is signed with her name and not her schema id. A record
+    /// naming no pass, or one naming a pass this project has since retired,
+    /// falls back to the passless byline — the same one Author's own unread
+    /// piece gets, which is where that constant's single production use lives.
+    ///
+    /// Static and pure so the rule can be asked over its inputs rather than
+    /// only down the path a mounted disclosure takes — the selection is not a
+    /// parameter, which is how it cannot creep back in.
+    static func letterVoice(run: CompilerRun?, passes: [ReviewPass]) -> String {
+        guard let passId = run?.passId,
+              let pass = ReviewPass.pass(id: passId, in: passes)
+        else { return AuthorReader.nobody.editorName }
+        return pass.effectiveEditorName
+    }
+
+    private func letterVoice(_ run: CompilerRun?) -> String {
+        Self.letterVoice(run: run, passes: reviewPasses)
     }
 
     /// **The disclosure's contents: Author's own section, in Review's
@@ -844,7 +876,7 @@ struct AnnotationsPane: View {
     private func letterSection(
         _ letter: Letter, document: Document, diagnostics: DiagnosticsStore
     ) -> some View {
-        let run = diagnostics.lastRun(docId: document.docId)
+        let run = diagnostics.lastRound(docId: document.docId)
         let ledger = ledgerHandlers(letter, run: run)
         LetterSection(
             letter: letter,
@@ -852,7 +884,7 @@ struct AnnotationsPane: View {
             // an index means nothing outside one letter (final review).
             runId: run?.id,
             signature: LetterSection.signature(
-                voice: cockpitActivePass?.effectiveEditorName ?? AuthorReader.nobody.editorName,
+                voice: letterVoice(run),
                 // The stage off the SAME letter `shortLetterPart` reads (fix
                 // round 1, minor 2), never a second path through the run.
                 round: run?.round, stage: letter.draftStage),
@@ -875,7 +907,7 @@ struct AnnotationsPane: View {
             // the queue and a letter kept from the report are the same note.
             onKeep: LetterKeep.handler(
                 letter: letter, run: run, docId: document.docId, store: store,
-                editorName: cockpitActivePass?.effectiveEditorName ?? AuthorReader.nobody.editorName,
+                editorName: letterVoice(run),
                 onKept: { keptLetter = $0 },
                 onFailure: { letterKeepFailure = $0 }),
             offerFailure: letterOfferFailure,
@@ -904,7 +936,7 @@ struct AnnotationsPane: View {
         _ = letterLedgerRevision
         return LessonOffer.handlers(
             letter: letter, run: run, store: store, world: world,
-            voice: cockpitActivePass?.effectiveEditorName ?? AuthorReader.nobody.editorName,
+            voice: letterVoice(run),
             onFiled: { letterLedgerRevision += 1 },
             onFailure: { letterLedgerFailure = $0 })
     }
@@ -936,7 +968,7 @@ struct AnnotationsPane: View {
     ) -> (() -> Void)? {
         TurnClauseOffer.handler(
             letter: letter, run: run, docId: docId, store: store, world: world,
-            voice: cockpitActivePass?.effectiveEditorName ?? AuthorReader.nobody.editorName,
+            voice: letterVoice(run),
             filedRunId: turnClauseFiledForRun,
             onFiled: { turnClauseFiledForRun = $0 },
             onFailure: { letterOfferFailure = $0 })
@@ -948,7 +980,7 @@ struct AnnotationsPane: View {
         _ = diagnostics.version
         return ReviewRoundCockpit.reportLine(
             history: diagnostics.roundHistory(docId: docId),
-            run: diagnostics.lastRun(docId: docId),
+            run: diagnostics.lastRound(docId: docId),
             annotations: cockpitAnnotations)
     }
 
