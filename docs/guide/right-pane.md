@@ -157,7 +157,7 @@ A mark on the ⌘⌥V segment means a proposal is waiting here.
 
 ### Diagnostics mode (⌘⌥D)
 
-The compiler's report on the open document — Author's own pane, and its default. Press ⌘R ("Check Writing") to ask Claude to check what you've written since the last check, or ⌘⇧R ("Fresh Eyes") to have it reread the whole piece cold; the header line says what happened last, and while a check is running you can press **Cancel**. See [Review Passes](review-passes.md#rounds-and-fresh-eyes) for what a check becomes once a piece has an active review pass.
+The compiler's report on the open document — Author's own pane, and its default. Press ⌘R ("Check Writing") to ask Claude to check what you've written since the last check, or ⌘⇧R ("Fresh Eyes"), or the header's **Reread** button, to have it reread the whole piece cold; the header line says what happened last and who read the piece, and while a check is running you can press **Cancel**. Numbered rounds in a named pass are Review's, not Author's — see [Review Passes](review-passes.md#rounds-and-fresh-eyes).
 
 It reads as a report: **Conformance** — every clause you've declared, quoted back in your own words, each *holds*, *strains*, or untouched by this draft, with an **Open Intent** button in the section header. No strain ever shows a paragraph id — each carries the words that paragraph said, as a chip you click to jump there.
 

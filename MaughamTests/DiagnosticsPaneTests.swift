@@ -186,31 +186,6 @@ final class DiagnosticsPaneTests: XCTestCase {
             "Checking 14 new and 3 revised paragraphs\u{2026}")
     }
 
-    /// **A round is not counting paragraphs, it is reading the piece** (two
-    /// loops P1 Task 3). A round passes `since: nil`, so its counts are the
-    /// whole manuscript — "Checking 40 new paragraphs\u{2026}" over one would be
-    /// a true number saying a false thing about what the editor is doing.
-    ///
-    /// Author's pane is the check's home and says the check's sentence; the
-    /// cockpit's is pinned where the cockpit is (`ReviewRoundCockpitTests`).
-    func test_aRoundSaysItIsReadingTheWholePieceAndACheckCountsTheDelta() {
-        XCTAssertEqual(
-            RoundNarrative.checkingCopy(counts(new: 40, revised: 2), kind: .round),
-            "Reading the whole piece\u{2026}")
-        XCTAssertEqual(
-            RoundNarrative.checkingCopy(counts(new: 3, revised: 0), kind: .check),
-            "Checking 3 new paragraphs\u{2026}")
-        XCTAssertEqual(
-            DiagnosticsPane.headerCopy(for: .running(checking: counts(new: 3, revised: 0))),
-            "Checking 3 new paragraphs\u{2026}",
-            "Author's pane is the check's home")
-        XCTAssertEqual(
-            RoundNarrative.checkingCopy(counts(new: 0, revised: 0), kind: .round),
-            "Reading the whole piece\u{2026}",
-            "\u{2026}and a round says it over counts a delta cannot have too — "
-            + "it never had a number in it to lose")
-    }
-
     /// The arm a delta cannot reach — `beginRun` refuses an empty one before
     /// the running state is ever set — asserted anyway, because a function
     /// whose caller has to reason before calling it is one the next caller gets
@@ -1071,56 +1046,141 @@ final class DiagnosticsPaneTests: XCTestCase {
             "got: \(labels)")
     }
 
-    /// The reader line's only action is travel: pressing it calls
-    /// `onOpenBoard` and nothing else — no picker, per spec §4.2.
-    func test_readerLineButton_callsOnOpenBoard() throws {
-        let docId = "doc-reader-open-board"
+    /// **The reader line is a label and nothing else** (two loops P1 Task 7).
+    ///
+    /// It used to be a button that switched the window to Review — the mode
+    /// error this milestone removes. Who reads a CHECK is the coach or nobody,
+    /// and neither of those is chosen on the review board, so travelling there
+    /// answered a question the writer had not asked. Asserted as an ABSENCE of
+    /// the button role rather than by pressing nothing: a plain `Text` publishes
+    /// its string with no `AXButton` above it, which is exactly what a reader
+    /// with VoiceOver hears the difference as.
+    func test_theReaderLineIsALabelAndNotADoorToReview() throws {
+        let docId = "doc-reader-label"
         let diagnosticsStore = DiagnosticsStore(
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-        let calls = CallCounter()
 
         let window = mount(AnyView(DiagnosticsPane(
             orchestrator: CompilerOrchestrator(), diagnostics: diagnosticsStore, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard,
-            reader: .coach(ReviewPass.coachPreset),
-            onOpenBoard: { calls.count += 1 })))
+            reader: .coach(ReviewPass.coachPreset))))
         pump(0.2)
 
-        let readerButton = try button(labelled: "Le Guin reads this piece", in: window)
-        _ = readerButton.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-
-        XCTAssertEqual(calls.count, 1, "pressing the reader line must call onOpenBoard exactly once")
+        XCTAssertTrue(allLabels(in: window).contains("Le Guin reads this piece"),
+                      "control: the line is drawn; got \(allLabels(in: window))")
+        XCTAssertNil(findButton(labelled: "Le Guin reads this piece", in: window),
+                     "the reader line must be a label \u{2014} a button here travels to "
+                     + "Review, which is the round loop's furniture")
     }
 
-    /// **`DetailPaneToggle.openBoardInReview`'s exact event spelling**, pinned
-    /// without mounting `DetailPaneToggle` itself (it pulls in the whole
-    /// project store) — the same technique `notesPosted` uses, over the
-    /// production static the diagnostics pane's `onOpenBoard` closure calls.
-    /// Posts `.maughamSetPersona` with `Persona.review` — the same event
-    /// `MaughamApp.postPersona`/the persona bar post — and sets the subject to
-    /// `.project`, because the board is Review's project-level centre
-    /// (`ProjectWindow.reviewCentreShowsBoard`): a chapter subject would open
-    /// that chapter's editor instead of the grid the writer asked to see.
-    func test_openBoardInReview_postsThePersonaEventAndSelectsTheProjectSubject() {
-        var subject: BinderSubject? = .item("ch-3")
-        let binding = Binding<BinderSubject?>(get: { subject }, set: { subject = $0 })
-        let box = PostBox()
-        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
-            forName: .maughamSetPersona, object: nil, queue: nil
-        ) { box.record($0) }
-        defer { NotificationCenter.default.removeObserver(token) }
+    // MARK: - Reread (two loops P1 Task 7)
 
-        DetailPaneToggle<EmptyView>.openBoardInReview(selectedSubject: binding)
+    /// **Reread asks for a cold CHECK of this document, and nothing else.**
+    ///
+    /// The call is what is asserted, never its effect: `reading` and
+    /// `onRunAcknowledged` are closures the harness appends to, and both are
+    /// reached synchronously inside `runRequested` — before the hop that would
+    /// spawn anything — so there is no window between the press and the
+    /// assertion for a poll to have to wait out (tripwire 33).
+    ///
+    /// Three appends, three claims. `readings` says the press named THIS
+    /// document. `acknowledgments` says `freshEyes: true`, because the
+    /// orchestrator answers a cold press with its own case. And `readerAsks`
+    /// being empty says the press was a `.check`: a `.round` asks the reader
+    /// for an editor synchronously, one line above the acknowledgment, and is
+    /// refused when there is none — so a Reread that had been wired to the
+    /// round loop would leave a `.round` in this array and no acknowledgment
+    /// at all.
+    func test_theRereadButtonAsksForAColdCheckOfThisDocument() throws {
+        let docId = "doc-reread-call"
+        let runner = SpyRunner()
+        let recorder = RunRequests()
+        let orchestrator = CompilerOrchestrator()
+        var environment = makeEnvironment(docId: docId, runner: runner)
+        let readingOfRecord = environment.reading
+        environment.reading = { id in
+            recorder.readings.append(id)
+            return readingOfRecord(id)
+        }
+        environment.reader = { _, kind in
+            recorder.readerAsks.append(kind)
+            return nil
+        }
+        environment.onRunAcknowledged = { recorder.acknowledgments.append($0) }
+        orchestrator.configure(
+            environment: environment,
+            diagnostics: DiagnosticsStore(
+                projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac")))
 
-        XCTAssertEqual(subject, .project,
-            "the board is Review's project-level centre; a chapter subject would open that chapter instead")
-        XCTAssertEqual(box.received.count, 1, "must post exactly one persona-change event")
-        XCTAssertEqual(box.received.first?.userInfo?[MaughamEvent.personaKey] as? String,
-                       Persona.review.rawValue)
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: orchestrator,
+            diagnostics: DiagnosticsStore(
+                projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac")),
+            docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
+        let reread = try button(labelled: DiagnosticsPane.rereadTitle, in: window)
+
+        _ = reread.perform(NSSelectorFromString("accessibilityPerformPress"))
+
+        XCTAssertEqual(recorder.readings, [docId],
+                       "Reread must ask about the document this pane is about")
+        XCTAssertEqual(recorder.acknowledgments, [.freshEyes],
+                       "a cold press is answered with its own case \u{2014} an ordinary "
+                       + ".started here means freshEyes never reached the orchestrator")
+        XCTAssertTrue(recorder.readerAsks.isEmpty,
+                      "Author's Reread is a check; a round would have asked for an "
+                      + "editor here and been refused \u{2014} got \(recorder.readerAsks)")
+
+        runner.release(.failed(.timedOut))
     }
 
-    private final class CallCounter { var count = 0 }
+    /// Every append the Reread press makes, in order. A reference box because
+    /// `Environment`'s closures are stored rather than captured-by-inout.
+    @MainActor
+    private final class RunRequests {
+        var readings: [String] = []
+        var readerAsks: [RunKind] = []
+        var acknowledgments: [CompilerOrchestrator.Acknowledgment] = []
+    }
+
+    /// **Reread refuses while a run is in flight, and in no other state.**
+    ///
+    /// The run is driven directly rather than by pressing anything, so nothing
+    /// here presses a control and then waits for its effect (tripwire 33): by
+    /// the time the pane is mounted the orchestrator is already running, and
+    /// the button's state is read off the tree it was built with.
+    func test_theRereadButtonIsDrawnAndRefusesOnlyWhileARunIsInFlight() async throws {
+        let docId = "doc-reread-busy"
+        let runner = SpyRunner()
+        // Nothing to answer with: the send suspends, so the run stays in flight
+        // for as long as this test needs it to.
+        runner.nextEvent = nil
+        let orchestrator = CompilerOrchestrator()
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+
+        let idle = mount(AnyView(DiagnosticsPane(
+            orchestrator: orchestrator, diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard)))
+        let idleButton = try button(labelled: DiagnosticsPane.rereadTitle, in: idle)
+        XCTAssertEqual(axEnabled(idleButton), true,
+                       "an idle pane offers the cold read")
+
+        orchestrator.configure(
+            environment: makeEnvironment(docId: docId, runner: runner),
+            diagnostics: diagnostics)
+        orchestrator.runRequested(docId: docId, kind: .check)
+        await awaitSends(1, on: runner)
+
+        let busy = mount(AnyView(DiagnosticsPane(
+            orchestrator: orchestrator, diagnostics: diagnostics, docId: docId,
+            currentText: { _ in nil }, compilerModel: .standard)))
+        let busyButton = try button(labelled: DiagnosticsPane.rereadTitle, in: busy)
+        XCTAssertEqual(axEnabled(busyButton), false,
+                       "a second read while one is under way starts nothing \u{2014} "
+                       + "the button must say so rather than swallow the press")
+
+        runner.release(.failed(.timedOut))
+    }
 
     // MARK: - Drift (spec §4's last bullet, computed in Stage 3 by `DriftDetector`)
     //
@@ -1276,22 +1336,6 @@ final class DiagnosticsPaneTests: XCTestCase {
             "the clause holding this run must break the streak, and the line with it")
     }
 
-    // MARK: - Since last round (M3-P3 Task 3, recounted off the queue in M4 P1)
-    //
-    // The arithmetic itself belongs to `SinceLastRound` (`RoundHistoryTests`);
-    // these pin what the PANE decides — when there is a line at all, which
-    // record it is measured against, and that it never speaks over a fresh-eyes
-    // round.
-
-    private func makeRoundRecord(
-        passId: String? = "line", round: Int? = 1,
-        freshEyes: Bool? = nil, at: Date = Date(timeIntervalSince1970: 0)
-    ) -> RoundRecord {
-        RoundRecord(runId: ULID.generate(), at: at,
-                    passId: passId, round: round, freshEyes: freshEyes,
-                    fingerprints: [])
-    }
-
     /// A bare `Annotation` value for the pure ordering tests below —
     /// `inManuscriptOrder` only reads `paragraphId` (for rank) and identity
     /// (for the stable-tie assertion), so every other field is an arbitrary
@@ -1306,171 +1350,11 @@ final class DiagnosticsPaneTests: XCTestCase {
             status: .open, userResponse: nil, resolvedAt: nil, isStale: false)
     }
 
-    /// A compiler-authored note in the queue, in the state the count turns on.
-    private func makeCompilerNote(
-        lane: String? = "line", round: Int? = 1,
-        status: AnnotationStatus = .open, resolvedAt: Date? = nil
-    ) -> Annotation {
-        Annotation(
-            id: ULID.generate(), kind: .query, paragraphId: "a1b2",
-            body: "Whose coat is on the chair?", suggestedText: nil, priorText: nil,
-            createdAt: Date(timeIntervalSince1970: 10), createdBySession: nil,
-            status: status, userResponse: nil, resolvedAt: resolvedAt,
-            isStale: false, reviewPassId: lane,
-            compilerRunId: "run-1", compilerRound: round,
-            compilerFingerprint: "continuity\u{1f}the fog\u{1f}a1b2\u{1f}")
-    }
-
-    func test_sinceLastRoundLine_isNilWithoutARoundNumber() {
-        XCTAssertNil(RoundNarrative.sinceLastRoundLine(
-            history: [makeRoundRecord()], run: nil, annotations: []))
-        XCTAssertNil(RoundNarrative.sinceLastRoundLine(
-            history: [makeRoundRecord()], run: makeRun(), annotations: []),
-            "a passless run is an ordinary M2 run \u{2014} there is no round to be since")
-    }
-
-    /// **Round 1 has nothing behind it.** The line is about the distance
-    /// travelled, and the first round of a lane has travelled none.
-    func test_sinceLastRoundLine_isNilForTheFirstRoundOfALane() {
-        XCTAssertNil(RoundNarrative.sinceLastRoundLine(
-            history: [], run: makeRun(passId: "line", round: 1), annotations: []))
-    }
-
-    func test_sinceLastRoundLine_countsResolvedPersistingAndNew() {
-        let filed = Date(timeIntervalSince1970: 1_000)
-        XCTAssertEqual(
-            RoundNarrative.sinceLastRoundLine(
-                history: [makeRoundRecord(round: 1, at: filed)],
-                run: makeRun(passId: "line", round: 2),
-                annotations: [
-                    makeCompilerNote(round: 2),
-                    makeCompilerNote(round: 1),
-                    makeCompilerNote(round: 1, status: .stetted,
-                                     resolvedAt: filed.addingTimeInterval(60)),
-                ]),
-            "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 1 new")
-    }
-
-    /// **Nothing standing in another lane changes nothing** (#42 F-H). Zero and
-    /// a record written before the field existed are the same answer, and both
-    /// leave the sentence a writer already knows byte-for-byte what it was.
-    func test_sinceLastRoundLine_saysNothingAboutOtherLanesWhenThereIsNothingToSay() {
-        for run in [makeRun(passId: "line", round: 2),
-                    makeRun(passId: "line", round: 2, openInOtherLanes: 0)] {
-            XCTAssertEqual(
-                RoundNarrative.sinceLastRoundLine(
-                    history: [makeRoundRecord(round: 1)], run: run, annotations: []),
-                "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
-        }
-    }
-
-    /// **A finding the writer is holding in another pass is said aloud** (#42
-    /// F-H) — the three counts are lane-local, and without the clause a round
-    /// that re-raised a question open in the Structural lane read as three
-    /// zeroes. Singular and plural, because one is the common case and reading
-    /// "1 were already open in other lanes" would make the writer doubt the count.
-    func test_sinceLastRoundLine_saysWhatIsOpenInAnotherLane() {
-        XCTAssertEqual(
-            RoundNarrative.sinceLastRoundLine(
-                history: [makeRoundRecord(round: 1)],
-                run: makeRun(passId: "line", round: 2, openInOtherLanes: 1),
-                annotations: []),
-            "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new "
-            + "\u{00b7} 1 was already open in another lane")
-        XCTAssertEqual(
-            RoundNarrative.sinceLastRoundLine(
-                history: [makeRoundRecord(round: 1)],
-                run: makeRun(passId: "line", round: 2, openInOtherLanes: 2),
-                annotations: []),
-            "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new "
-            + "\u{00b7} 2 were already open in other lanes")
-    }
-
-    /// **It is appended, not substituted.** The lane-local counts keep their
-    /// own meaning beside it: a writer reading "1 persisting · 1 also open in
-    /// another lane" is holding two findings, one of them from here.
-    func test_sinceLastRoundLine_keepsItsThreeCountsBesideTheOtherLaneClause() {
-        let filed = Date(timeIntervalSince1970: 1_000)
-        XCTAssertEqual(
-            RoundNarrative.sinceLastRoundLine(
-                history: [makeRoundRecord(round: 1, at: filed)],
-                run: makeRun(passId: "line", round: 2, openInOtherLanes: 1),
-                annotations: [
-                    makeCompilerNote(round: 2),
-                    makeCompilerNote(round: 1),
-                    makeCompilerNote(round: 1, status: .stetted,
-                                     resolvedAt: filed.addingTimeInterval(60)),
-                ]),
-            "Since round 1: 1 resolved \u{00b7} 1 persisting \u{00b7} 1 new "
-            + "\u{00b7} 1 was already open in another lane")
-    }
-
-    /// **The record it measures FROM is the record it counts from.** The
-    /// resolved half is "settled since the last round finished", and the
-    /// instant that means is the ring record's own `at` — read from the wrong
-    /// record and every note the writer ever settled in this pass is counted
-    /// again, every round.
-    func test_sinceLastRoundLine_measuresResolvedFromThatRecordsOwnTime() {
-        let filed = Date(timeIntervalSince1970: 1_000)
-        let settledBefore = makeCompilerNote(
-            round: 1, status: .stetted, resolvedAt: filed.addingTimeInterval(-60))
-        XCTAssertEqual(
-            RoundNarrative.sinceLastRoundLine(
-                history: [makeRoundRecord(round: 1, at: filed)],
-                run: makeRun(passId: "line", round: 2),
-                annotations: [settledBefore]),
-            "Since round 1: 0 resolved \u{00b7} 0 persisting \u{00b7} 0 new")
-    }
-
-    /// **It reads only its own lane.** A Proof round filed between two Line
-    /// rounds is newer in the ring and is not what the Line round is measured
-    /// against — and its NOTES take no part either.
-    func test_sinceLastRoundLine_readsOnlyItsOwnLane() {
-        let filed = Date(timeIntervalSince1970: 1_000)
-        let line = makeRoundRecord(passId: "line", round: 1, at: filed)
-        let proof = makeRoundRecord(passId: "proof", round: 1,
-                                    at: filed.addingTimeInterval(30))
-
-        XCTAssertEqual(
-            RoundNarrative.sinceLastRoundLine(
-                history: [line, proof], run: makeRun(passId: "line", round: 2),
-                annotations: [
-                    makeCompilerNote(lane: "proof", round: 2),
-                    makeCompilerNote(lane: "proof", round: 1),
-                    makeCompilerNote(lane: "line", round: 1, status: .stetted,
-                                     resolvedAt: filed.addingTimeInterval(60)),
-                ]),
-            "Since round 1: 1 resolved \u{00b7} 0 persisting \u{00b7} 0 new",
-            "the Proof round sits newest in the ring and must take no part \u{2014} "
-            + "neither its record nor its notes")
-    }
-
-    /// **A round still streaming has not filed the round it supersedes.**
-    /// Mid-preview the newest same-lane record is N−2, and a line drawn
-    /// against it would name the wrong round and then correct itself when the
-    /// turn ended. The pane simply says nothing until the answer lands.
-    func test_sinceLastRoundLine_isNilWhileTheRoundBeforeItIsStillStanding() {
-        let twoBack = makeRoundRecord(round: 1)
-        XCTAssertNil(RoundNarrative.sinceLastRoundLine(
-            history: [twoBack], run: makeRun(passId: "line", round: 3), annotations: []))
-        XCTAssertNotNil(RoundNarrative.sinceLastRoundLine(
-            history: [twoBack], run: makeRun(passId: "line", round: 2), annotations: []),
-            "control: the record IS round 2's predecessor")
-    }
-
-    /// **A fresh-eyes round is not a comparison.** It was read cold and
-    /// deliberately briefed on no prior findings (spec §6), so measuring it
-    /// against the last round would report a difference the run never made.
-    /// Its header says what it is instead (Task 6).
-    func test_sinceLastRoundLine_isNilForAFreshEyesRound() {
-        let previous = makeRoundRecord(round: 1)
-        XCTAssertNotNil(RoundNarrative.sinceLastRoundLine(
-            history: [previous], run: makeRun(passId: "line", round: 2), annotations: []),
-            "control: an ordinary round 2 does speak")
-        XCTAssertNil(RoundNarrative.sinceLastRoundLine(
-            history: [previous],
-            run: makeRun(passId: "line", round: 2, freshEyes: true), annotations: []))
-    }
+    // MARK: - Author narrates no rounds (two loops P1 Tasks 5 and 7)
+    //
+    // The sentences themselves belong to `RoundNarrative` and are pinned in
+    // `RoundNarrativeTests`; what is asserted here is that this pane says none
+    // of them.
 
     /// **Author's report is the CHECK's, and it narrates no rounds** (two
     /// loops P1 Task 5).
@@ -1529,108 +1413,38 @@ final class DiagnosticsPaneTests: XCTestCase {
                       + "report; got \(labels)")
     }
 
-    // MARK: - Fresh eyes (M3-P3 Task 6)
-    //
-    // The cold read's header occupies the slot the since-last-round line would
-    // have taken, and the two are mutually exclusive by construction: a round
-    // that was briefed on no prior findings has no distance to report.
-
-    func test_freshEyesHeader_namesTheRoundWhenThereIsOne() {
-        XCTAssertEqual(
-            RoundNarrative.freshEyesHeader(
-                run: makeRun(passId: "line", round: 3, freshEyes: true)),
-            "Fresh eyes \u{00b7} round 3")
-    }
-
-    /// A passless cold read is still a cold read — it just has no number to
-    /// name, the way an ordinary passless ⌘R has none.
-    func test_freshEyesHeader_saysSoWithoutARoundNumber() {
-        XCTAssertEqual(
-            RoundNarrative.freshEyesHeader(run: makeRun(freshEyes: true)),
-            "Fresh eyes")
-    }
-
-    func test_freshEyesHeader_isNilForAnOrdinaryRun() {
-        XCTAssertNil(RoundNarrative.freshEyesHeader(run: nil))
-        XCTAssertNil(RoundNarrative.freshEyesHeader(
-            run: makeRun(passId: "line", round: 2)),
-            "a run that was never stamped is an ordinary round")
-        XCTAssertNil(RoundNarrative.freshEyesHeader(
-            run: makeRun(passId: "line", round: 2, freshEyes: false)),
-            "…and so is one stamped false by some earlier build")
-    }
-
-    /// **A cold read carries the cross-lane clause too** (#42, whole-branch
-    /// review I2). Fresh Eyes is one of the states in which the since-line is
-    /// silent by construction, so without this the count would be recorded on
-    /// the run and drawn nowhere \u{2014} and a cold reread whose every finding was
-    /// already open in another pass is exactly the round a writer would
-    /// otherwise read as having found nothing.
-    func test_freshEyesHeader_saysWhatWasAlreadyOpenInAnotherLane() {
-        XCTAssertEqual(
-            RoundNarrative.freshEyesHeader(
-                run: makeRun(passId: "line", round: 2, freshEyes: true,
-                             openInOtherLanes: 1)),
-            "Fresh eyes \u{00b7} round 2 \u{00b7} 1 was already open in another lane")
-        // Plural, and with no round number to hang it on: a passless cold read
-        // still has a lane-crossing to report, and the wording comes from the
-        // same helper the since-line reads, so the two cannot disagree about
-        // when one becomes many.
-        XCTAssertEqual(
-            RoundNarrative.freshEyesHeader(
-                run: makeRun(freshEyes: true, openInOtherLanes: 3)),
-            "Fresh eyes \u{00b7} 3 were already open in other lanes")
-    }
-
-    /// The control: zero and nil both leave the header byte-identical to what
-    /// it said before the clause existed.
-    func test_freshEyesHeader_saysNothingAboutOtherLanesWhenThereIsNothingToSay() {
-        for quiet in [makeRun(passId: "line", round: 3, freshEyes: true,
-                              openInOtherLanes: 0),
-                      makeRun(passId: "line", round: 3, freshEyes: true)] {
-            XCTAssertEqual(RoundNarrative.freshEyesHeader(run: quiet),
-                           "Fresh eyes \u{00b7} round 3")
-        }
-    }
-
-    /// **The two lines never co-render.** Task 3's guard refuses the
-    /// comparison for a fresh-eyes round; this is the same rule read from the
-    /// other end, so a later change to either function cannot quietly put both
-    /// sentences on one report.
-    func test_theRoundHeaderAndTheSinceLastRoundLineAreMutuallyExclusive() {
-        let previous = makeRoundRecord(round: 1)
-        for run in [makeRun(passId: "line", round: 2),
-                    makeRun(passId: "line", round: 2, freshEyes: true),
-                    makeRun(freshEyes: true),
-                    makeRun()] {
-            let since = RoundNarrative.sinceLastRoundLine(
-                history: [previous], run: run, annotations: [makeCompilerNote(round: 1)])
-            let fresh = RoundNarrative.freshEyesHeader(run: run)
-            XCTAssertFalse(since != nil && fresh != nil,
-                           "both lines spoke for one round: \(String(describing: since)) "
-                           + "/ \(String(describing: fresh))")
-        }
-    }
-
-    /// Mounted: the header leads the report, and the comparison the ordinary
-    /// round would have drawn is nowhere on the pane.
-    func test_theFreshEyesHeaderLeadsTheReportAndTheComparisonIsAbsent() throws {
-        let docId = "doc-fresh"
+    /// **Neither round sentence reaches this pane, and the sharpest case is
+    /// the one Reread makes** (two loops P1 Task 7).
+    ///
+    /// A standing round in the ring is what a since-line would be measured
+    /// against; a standing CHECK read cold — which is exactly what the new
+    /// Reread button files — is what the fresh-eyes header used to name. Both
+    /// inputs are present here and neither sentence is drawn, because both
+    /// lines left this pane with the round loop they belong to.
+    ///
+    /// The fresh-eyes half is not hypothetical: before this task a Reread put
+    /// "Fresh eyes" at the top of Author's report, borrowing the round
+    /// cockpit's vocabulary for a check that has no round to be fresh about.
+    func test_neitherRoundSentenceIsDrawnOverAColdCheck() throws {
+        let docId = "doc-no-round-lines"
         let store = DiagnosticsStore(
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
         let quote = "Cold, and never wistful."
-        let note = makeDiagnostic(
+
+        // Two rounds in the lane, so the ring holds a predecessor and a
+        // since-line would have every input it needs.
+        store.replace(run: makeRun(passId: "line", round: 1), diagnostics: [], docId: docId)
+        store.replace(run: makeRun(passId: "line", round: 2), diagnostics: [], docId: docId)
+
+        // …and the writer's own last check, read cold. This is what the pane
+        // reports on, and it is a `freshEyes` run.
+        let strain = makeDiagnostic(
             docId: docId, anchor: .init(paragraphId: "a1b2", anchorText: "The fog came."),
             body: "The last line reaches for a sigh.", kind: .conformanceStrain,
             clauseQuote: quote)
-        // Checks, because Fresh Eyes in Author is a check (two loops P1), and
-        // this pane reports on the check.
         store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")],
-                                   kind: .check),
-                      diagnostics: [note], docId: docId)
-        store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "holds")],
                                    freshEyes: true, kind: .check),
-                      diagnostics: [], docId: docId)
+                      diagnostics: [strain], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
@@ -1638,14 +1452,13 @@ final class DiagnosticsPaneTests: XCTestCase {
         pump(0.3)
 
         let labels = allLabels(in: window)
-        let headerIndex = labels.firstIndex { $0 == "Fresh eyes" }
-        let conformanceIndex = labels.firstIndex { $0 == "CONFORMANCE" }
-        XCTAssertNotNil(headerIndex, "got: \(labels)")
-        XCTAssertNotNil(conformanceIndex, "got: \(labels)")
-        XCTAssertTrue((headerIndex ?? .max) < (conformanceIndex ?? -1),
-                      "the fresh-eyes header leads the report")
+        XCTAssertTrue(labels.contains("The last line reaches for a sigh."),
+                      "control: the cold check's own report is drawn; got \(labels)")
         XCTAssertTrue(labels.allSatisfy { !$0.hasPrefix("Since round") },
-                      "a cold read reports no distance travelled; got \(labels)")
+                      "no since-line, whatever the ring holds; got \(labels)")
+        XCTAssertTrue(labels.allSatisfy { !$0.contains("Fresh eyes") },
+                      "a check has no round to be fresh about \u{2014} the header the "
+                      + "cold read used to draw belongs to the cockpit; got \(labels)")
     }
 
     // MARK: - Click-to-jump (wiring census — see reasoning below)
@@ -3484,8 +3297,14 @@ final class DiagnosticsPaneTests: XCTestCase {
             scenePosition: scenePosition)
     }
 
-    /// **Where the letter draws, in BOTH arms** — after the round line and
-    /// before This check.
+    /// **Where the letter draws, in BOTH arms** — first, and before This
+    /// check.
+    ///
+    /// It led the report after the round line until two loops P1 Task 7, which
+    /// took the round line and the fresh-eyes header off this pane entirely: a
+    /// check has no lane and no round number, so neither sentence had anything
+    /// to say here. The letter simply moved up into the slot they left, and
+    /// this census now also refuses their return.
     ///
     /// A census rather than a mount, because the placement claim is about the
     /// `content` builder's two branches and a mounted pane only ever renders
@@ -3502,7 +3321,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// census whose subject can quietly become empty is a census that passes
     /// over the defect it exists for — so both arms are named, and each is
     /// required to be non-empty before anything is asserted about it.
-    func test_theLetterDrawsAfterTheRoundLineAndBeforeThisCheckInBothArms() throws {
+    func test_theLetterLeadsBothArmsAndPrecedesThisCheck() throws {
         let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
         let declaration = "private var content: some View {"
         let bodyStart = try XCTUnwrap(
@@ -3534,20 +3353,20 @@ final class DiagnosticsPaneTests: XCTestCase {
                 arm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 "the \(name) arm sliced to nothing \u{2014} the anchors are wrong, and "
                 + "an empty arm asserts nothing")
-            guard let round = arm.range(of: "roundLine"),
-                  let letter = arm.range(of: "letterSection"),
+            XCTAssertFalse(
+                arm.contains("roundLine") || arm.contains("freshEyesLine"),
+                "the round loop's two sentences left this pane in two loops P1 "
+                + "Task 7 \u{2014} a check has no round to narrate:\n\(arm)")
+            guard let letter = arm.range(of: "letterSection"),
                   let check = arm.range(of: "thisCheckSection") else {
                 return XCTFail(
-                    "the \(name) arm is missing one of roundLine / letterSection / "
+                    "the \(name) arm is missing letterSection or "
                     + "thisCheckSection:\n\(arm)")
             }
             XCTAssertTrue(
-                round.lowerBound < letter.lowerBound,
-                "the letter follows the round line in the \(name) arm:\n\(arm)")
-            XCTAssertTrue(
                 letter.lowerBound < check.lowerBound,
-                "and precedes This check in the \(name) arm \u{2014} the letter is what "
-                + "the writer reads first; the notes are the margin:\n\(arm)")
+                "the letter precedes This check in the \(name) arm \u{2014} the letter "
+                + "is what the writer reads first; the notes are the margin:\n\(arm)")
         }
     }
 

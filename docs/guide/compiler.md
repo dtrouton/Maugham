@@ -4,12 +4,12 @@ Maugham can read what you have just written and check it two ways at once —
 as a continuity editor, against what you've declared and what the manuscript
 has already established, and as a first reader, reporting what happens in the
 reading itself. Press **⌘R** — *Check Writing* — and the piece's reader does
-the reading: **Le Guin**, the coach, for any piece you haven't put in a pass of
-your own — which, until you open Review, is every piece you have — or that
-pass's own editor once you have. The report appears in the **Diagnostics** pane
-(⌘⌥D), which leads the pane picker in the **Author** persona (⌘2); its header
-names who just read the piece, and that line takes you to **Review** (⌘3) if
-you want to change who it is. A capsule flashes **Checking…**, the same
+the reading: **Le Guin**, the coach, whatever pass a piece sits in on the
+review board, unless you have vacated her seat — after which a check is read
+by nobody in particular and its notes are signed *Claude*. The report appears
+in the **Diagnostics** pane (⌘⌥D), which leads the pane picker in the
+**Author** persona (⌘2); its header names who just read the piece, beside a
+**Reread** button and the gear. A capsule flashes **Checking…**, the same
 register as ⌘S's; press ⌘R again while one is already running and it flashes
 **Still checking…** instead of starting a second one.
 
@@ -268,40 +268,21 @@ has to sit still for **3 sessions running**, or one paragraph has to be
 reworked **5 times within the piece's last 5 sessions**, before there's a
 sentence to write about it — coming back after two weeks away earns one too.
 
-## Rounds
+## Reread
 
-Check a piece while it has an active review pass — set by clicking a chip on
-the [Review board](review-passes.md#the-board) — and the check becomes a
-numbered **round** in that pass's own count. The report leads with what
-changed since the last one: *"Since round 4: 2 resolved · 1 persisting · 1
-new"*. The three counts come off your queue, not off what Claude happened to
-repeat: *resolved* is what you've settled from an earlier round, *persisting*
-is what's still open from an earlier one, and *new* is what this round
-raised. A finding Claude raises again in different words is not a new note —
-it's the one already in your queue — and if that note lives in another pass's
-lane, the line says so: *"1 was already open in another lane"*. Without that
-clause a round that engaged a question you're already holding in Structural
-would read as three zeroes, because the three counts only ever look at the pass the round
-was run in. Round numbers are per pass, but the
-memory behind them is the document's, not any one pass's: Maugham remembers a document's last six
-finished rounds, across every pass. Once enough later rounds stack up behind
-a round — six, counting the one still standing — it ages out of memory, so a
-Structural round buried under a long run of Line rounds is gone, and the next
-round back in Structural starts over at round 1, with nothing behind it to
-compare against. Your own ⌘R checks never enter that memory and never age a
-round out of it: a check is the other loop, and it is filed in no lane. See [Review Passes](review-passes.md#rounds-and-fresh-eyes) for the
-pass side of this.
+**⌘⇧R** — *Fresh Eyes* — and the **Reread** button beside the header's gear
+ask for a different kind of read: they end the warm session and read the whole
+piece cold, briefed on your intent, your rulings, your lessons ledger, and the
+bible, but deliberately not on anything an earlier check found. Same reader,
+the whole piece, nothing carried over. A reread is still a check — it is filed
+in no lane, carries no round number, and the report reads exactly like any
+other check's.
 
-## Fresh Eyes
-
-**⌘⇧R** — *Fresh Eyes* — asks for a different kind of read: it ends the
-warm session and reads the whole piece cold, briefed on your intent, your
-rulings, your lessons ledger, and the bible, but deliberately not on anything
-an earlier round found. Its report says so where the since-last-round line would otherwise
-be: *"Fresh eyes"*, or *"Fresh eyes · round 3"* when it's also filed against
-a pass — and, when the cold read turned up something already open in another
-pass, *"Fresh eyes · round 3 · 1 was already open in another lane"*, since the
-line that would ordinarily carry that isn't there.
+Rounds are Review's, not Author's. A numbered round in a named pass is what the
+**Run** button in Review's round cockpit files, and what it reports — the
+distance travelled since the last round in that lane — is reported there. See
+[Review Passes](review-passes.md#rounds-and-fresh-eyes). Your ⌘R checks never
+enter that memory and never age a round out of it: a check is the other loop.
 
 ## Reading a piece for the first time
 

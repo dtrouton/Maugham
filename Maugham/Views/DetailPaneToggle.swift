@@ -620,8 +620,7 @@ struct DetailPaneToggle<Inspector: View>: View {
                 // loops P1 Task 2). This pane is Author's, and Author checks;
                 // the piece's lane on the review board is the round loop's
                 // fact and is deliberately not read here.
-                reader: store.manifest.authorReader,
-                onOpenBoard: { Self.openBoardInReview(selectedSubject: $selectedSubject) })
+                reader: store.manifest.authorReader)
         } else {
             ContentUnavailableView(
                 "Select a document",
@@ -629,28 +628,6 @@ struct DetailPaneToggle<Inspector: View>: View {
                 description: Text("Open a manuscript, then press \u{2318}R to check your writing."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    /// **Opening the board from the Diagnostics header's reader line.**
-    /// Mirrors `MaughamApp.postPersona`/`ProjectWindow`'s persona-bar post —
-    /// same event, same payload key — then sets the subject to `.project`
-    /// because the board is Review's project-level centre
-    /// (`ProjectWindow.reviewCentreShowsBoard`): a chapter subject would open
-    /// that chapter's editor instead of the grid the writer just asked to
-    /// see. Unlike `annotationsPane`'s `onTravel`
-    /// closure at `:675`, which deliberately carries NO persona (a reviewer
-    /// following a note about another chapter stays in Review), this one
-    /// exists to change persona — the reader line's whole point is "go
-    /// change who reads this".
-    ///
-    /// A named `static func` rather than an inline closure so
-    /// `DiagnosticsPaneTests` can pin the exact event spelling without
-    /// mounting this view — the call site above is the one production
-    /// caller.
-    static func openBoardInReview(selectedSubject: Binding<BinderSubject?>) {
-        MaughamEvent.post(.maughamSetPersona, to: .keyWindow,
-                           payload: [MaughamEvent.personaKey: Persona.review.rawValue])
-        selectedSubject.wrappedValue = .project
     }
 
     /// **This switch is why a new right-pane surface touches this file.**

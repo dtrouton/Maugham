@@ -1505,7 +1505,6 @@ final class TripwireGrepTests: XCTestCase {
         "AnnotationsPaneChoiceTests.swift test_theSheetRefusesABlankHeadingBeforeTheVerbIsCalled",
         "AssistantColumnTests.swift test_theColumnNamesWhatIsBeingStudiedAndCanBeClosed",
         "DepartmentPaneTests.swift test_theSheetOffersTheBooksOwnLanguageCheckedAndCompilesIt",
-        "DiagnosticsPaneTests.swift test_readerLineButton_callsOnOpenBoard",
         "LetterSectionTests.swift test_addToIntentCallsTheHostsHandler",
         "PracticeSectionTests.swift test_pressingAHotspotRowOpensThatRowsOwnChapter",
         "ReferencesPaneTests.swift test_theShelfDrawsARowPerPinAndAClickPromotesIt",

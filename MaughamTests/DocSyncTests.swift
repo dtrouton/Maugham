@@ -569,10 +569,17 @@ final class DocSyncTests: XCTestCase {
     /// memory). This array is the census of every doc that states it — add a
     /// doc here the moment it starts stating the ring's memory, or it can
     /// drift a third time with nothing to catch it.
+    ///
+    /// **`docs/guide/compiler.md` left this census in two loops P1 Task 7**,
+    /// and it is a removal rather than an omission: rounds are Review's loop
+    /// now, that guide is Author's, and its Rounds section moved out whole to
+    /// `review-passes.md`, which still states the figure. A doc that no longer
+    /// states the ring's memory must leave the list — the check fires on
+    /// silence, so keeping it here would demand the guide say a number it has
+    /// no business saying.
     static let roundRingDocs: [String] = [
         "CLAUDE.md",
         "Maugham/Compiler/AREA.md",
-        "docs/guide/compiler.md",
         "docs/guide/review-passes.md",
         "docs/roadmap.md",
     ]

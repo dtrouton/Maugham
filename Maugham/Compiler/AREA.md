@@ -1375,29 +1375,26 @@ refuses in words when the ring has aged it out, and this area's own writes
   itself. Minted once, the pair rides `StreamingRun` and threads through the
   one `record(...)` spelling, so the preview and the final answer describe one
   round rather than two checks that happen to disagree.
-- **The round line's PLACEMENT in the pane is hoisted above the
-  report/no-report fork, and a future `content` refactor could silently undo
-  it** (M4 P1 Task 5 review, Important). **Since two loops P1 Task 5 the
-  since-last-round sentence cannot draw in this pane at all**: Author's pane
-  reads the CHECK slot, and a check carries no lane and no round number (Task
-  2), so `RoundNarrative.sinceLastRoundLine` refuses it. The sentence's home
-  is the round cockpit (`AnnotationsPane.cockpitReportLine`, off the round
-  slot). The Fresh Eyes header still draws here, because Author's ⌘⇧R is a
-  check. The placement note below is kept for the day a check gets a
-  comparison of its own — and for the Fresh Eyes label, which shares the
-  hoisted slot. It used to render only inside the
-  report arm, which put it out of reach in the state that needs it most: a
-  round in a pass over a piece with no declared intent raises no clauses and
-  no strains, so `DiagnosticsPane.hasReport` is `false` — and since Task 3
-  that round's WHOLE output is in the writer's queue, with nothing at all on
-  this pane. `DiagnosticsPane.content` now renders `freshEyesLine`/`roundLine`
-  in a `VStack` that wraps the empty state rather than living inside the
-  `else` branch that only fires when there IS a report, so the since-last-round
-  sentence (and the Fresh Eyes label) survive exactly the case that used to
-  swallow them. If a later change moves the round lines back inside the
-  report arm — reads as a harmless dedup of two nearly-identical branches —
-  a pass round over an intentless piece goes back to showing nothing at all
-  about what the round found. **`DiagnosticsPane.thisCheckSection` (M4 P2
+- **Neither round sentence draws in Author's pane any more** (two loops P1
+  Tasks 5 and 7). The since-last-round line went first: Author reads the CHECK
+  slot, and a check carries no lane and no round number (Task 2), so
+  `RoundNarrative.sinceLastRoundLine` refuses it. The Fresh Eyes header went
+  with it in Task 7 — Author's ⌘⇧R IS a check, so a cold reread was drawing
+  the round cockpit's vocabulary over a run that has no round to be fresh
+  about. Both sentences' home is the round cockpit
+  (`AnnotationsPane.cockpitReportLine`, off the round slot); the narration
+  itself still has one owner (`RoundNarrative`) and its tests moved with it to
+  `RoundNarrativeTests`. `DiagnosticsPaneTests.test_neitherRoundSentenceIsDraw`
+  `nOverAColdCheck` mounts the sharpest case — a standing round in the ring
+  beside a standing fresh-eyes check — and refuses both strings; the
+  `content`-arm census
+  (`test_theLetterLeadsBothArmsAndPrecedesThisCheck`) refuses their
+  return at the source. **The hoist-above-the-fork note they used to carry
+  still applies to what took their slot**: `content` forks on `hasReport`, and
+  a round in a pass over a piece with no declared intent raises no clause and
+  no strain, so `hasReport` is `false` and that run's whole output is queued
+  notes. Anything that must be seen in THAT state has to render in both arms,
+  not only inside the `else`. **`DiagnosticsPane.thisCheckSection` (M4 P2
   Task 1, spec §7.0) is the second resident of both arms and is there for the
   same case**: Author's live view of the notes the latest run minted, filtered
   out of the annotation layer by `lastRun.id`, whose whole point is the

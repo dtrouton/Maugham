@@ -114,11 +114,6 @@ struct DiagnosticsPane: View {
     /// Named by the header's reader line and the empty state's promise — one
     /// input, two readers, so neither can name someone the other doesn't.
     var reader: AuthorReader = .nobody
-    /// What pressing the reader line does — travel to Review, where the seat
-    /// is actually held. The line names but never picks (spec §4.2); a
-    /// caller that has not been given a destination gets a no-op rather than
-    /// a button that presses into nowhere.
-    var onOpenBoard: () -> Void = {}
 
     @Environment(\.undoManager) private var undoManager
 
@@ -218,16 +213,8 @@ struct DiagnosticsPane: View {
         return DriftDetector.drift(history: diagnostics.clauseStatusHistory(docId: docId))
     }
 
-    /// The rounds this document has finished, oldest→newest — the ring the
-    /// since-last-round line is measured against, read the same version-gated
-    /// way as everything else here.
-    private var roundHistory: [RoundRecord] {
-        _ = diagnostics.version
-        return diagnostics.roundHistory(docId: docId)
-    }
-
-    /// **The open document's queue, in every state** — what the
-    /// since-last-round line is counted from (M4 P1 Task 5).
+    /// **The open document's queue, in every state** — what `thisCheckSection`
+    /// draws the last check's own notes from (M4 P2 Task 1).
     ///
     /// Read through `activeDocument`, which this pane already holds for
     /// `promote()` and the cold-start offer, and gated on `annotationsVersion`
@@ -245,11 +232,11 @@ struct DiagnosticsPane: View {
     /// a CACHE INTERNAL staying observable: mark those two properties
     /// `@ObservationIgnored` — a plausible perf change, since the lazy rebuild
     /// writes observable state during body evaluation — and this line is the
-    /// only thing left holding the seam up. Both halves were run:
-    /// `test_theSinceLastRoundLineFollowsAStetWithoutAnotherCheck` goes red
-    /// with the cache ignored AND this line gone, and green with the cache
-    /// ignored and this line present. Keep it; the test pins the behaviour
-    /// under either mechanism.
+    /// only thing left holding the seam up. Both halves were run when the
+    /// since-last-round line still lived here (M4 P1 Task 5 review): the pin
+    /// went red with the cache ignored AND this line gone, and green with the
+    /// cache ignored and this line present. The reader it feeds has changed —
+    /// This check draws the notes now — but the seam has not. Keep it.
     ///
     /// Empty when there is no document behind the pane — which is a legitimate
     /// reading (three zeroes), not a missing one.
@@ -610,20 +597,38 @@ struct DiagnosticsPane: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }
+                // **Reread — Author's ⌘⇧R, given a control** (two loops P1
+                // Task 7). Same reader, the whole piece, read cold: a check
+                // with `freshEyes: true`, never a round, because this pane is
+                // the check loop's own surface.
+                //
+                // **No `keyboardShortcut` here**, on the cockpit's rule: ⌘⇧R
+                // is bound once, in `MaughamApp`, and this is a second
+                // DELIVERY site for that command rather than a second binding
+                // of the key. Two bindings of one keystroke in one window is a
+                // race over which view claims it.
+                //
+                // Refuses while a run is in flight and in no other state —
+                // `.failed`'s remedy is another read, and a control that
+                // reports a failure then withholds the button answering it is
+                // RULING-35's dead control with a red line over it.
+                Button(Self.rereadTitle) {
+                    orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
+                }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isRunningState)
+                    .help(Self.rereadHelp)
                 gearMenu
             }
-            // **A label whose only action is travel — no picker here** (spec
-            // §4.2). Changing who holds the seat is Review's own control (the
-            // board's coach line, or the Inspector's pass rows); this line
-            // only says who it is today and takes the writer to where that's
-            // changed.
-            Button(action: onOpenBoard) {
-                Text(readerLine)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Change who reads in Review")
+            // **A label, and only a label** (two loops P1 Task 7). It used to
+            // be a button that switched the window to Review — the mode error
+            // this milestone removes: who reads a CHECK is the coach or
+            // nobody, and neither is chosen on the review board, which is the
+            // round loop's furniture. The picker that does belong here is P2's.
+            Text(readerLine)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             // **Under the reader line, because it is addressed TO them**
             // (spec §3.7). The header already says who reads this piece; the
             // ask is what the writer wants them to look at, and it belongs in
@@ -666,6 +671,21 @@ struct DiagnosticsPane: View {
         if case .failed = state { return true }
         return false
     }
+
+    /// The one state Reread refuses in — the same predicate Cancel's presence
+    /// turns on, read off `state` rather than the orchestrator so both
+    /// controls in this row answer to one description of the run.
+    private var isRunningState: Bool {
+        if case .running = state { return true }
+        return false
+    }
+
+    /// Reread's word and its promise. `static let` for `headerCopy`'s reason:
+    /// every sentence this pane says is assertable without mounting anything,
+    /// and the help text names the keystroke because the button IS the
+    /// keystroke's second delivery site.
+    static let rereadTitle = "Reread"
+    static let rereadHelp = "Read the whole piece cold (\u{2318}\u{21e7}R)"
 
     private var headerLine: String { Self.headerCopy(for: state, wetInk: wetInk) }
 
@@ -886,8 +906,6 @@ struct DiagnosticsPane: View {
             GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        freshEyesLine
-                        roundLine
                         letterSection
                         // **The state §7.0 exists for.** A round in a pass over a
                         // piece with no declared intent raises no clause and no
@@ -910,8 +928,6 @@ struct DiagnosticsPane: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    freshEyesLine
-                    roundLine
                     letterSection
                     thisCheckSection
                     driftLine
@@ -1085,56 +1101,6 @@ struct DiagnosticsPane: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// **The report leads with the distance travelled** (spec §6): what the
-    /// writer has settled since the last round in this lane, what is still in
-    /// front of them, and what this round raised. Above the drift line and
-    /// above the conformance summary, because it is the sentence a writer in a
-    /// review pass reads first — and above the empty state too, for the same
-    /// reason (`content`).
-    ///
-    /// Not a button and not a `Diagnostic`: there is nothing to dismiss, and
-    /// nowhere for it to go that would be right. **The notes it counts are not
-    /// on this pane at all** since Task 3 — they are in the queue — so the
-    /// obvious link would be to the Notes pane, and the obvious link is wrong:
-    /// the sentence is about three different sets of notes at once and could
-    /// only travel to one of them. The next round replaces it; a round that
-    /// cannot be compared simply has no line. See `RoundNarrative.sinceLastRoundLine`.
-    @ViewBuilder
-    private var roundLine: some View {
-        if let line = RoundNarrative.sinceLastRoundLine(
-            history: roundHistory, run: lastRun, annotations: queueAnnotations) {
-            Text(line)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-            Divider()
-        }
-    }
-
-    /// **The cold read names itself**, in `roundLine`'s own register and its
-    /// own slot — the two never render together (`RoundNarrative.freshEyesHeader`). Drawn
-    /// above the comparison line rather than below it because it is the same
-    /// sentence's place in the report: what this round IS, before what it
-    /// found.
-    @ViewBuilder
-    private var freshEyesLine: some View {
-        if let line = RoundNarrative.freshEyesHeader(run: lastRun) {
-            Text(line)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-            Divider()
-        }
     }
 
     /// **The drift line — a pattern across runs, not a note about one.**
