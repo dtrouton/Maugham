@@ -633,9 +633,12 @@ struct DiagnosticsPane: View {
         .padding(.horizontal, 8).padding(.vertical, 6)
     }
 
-    /// **Ask about…, in Author's header** — the same field Review's cockpit
-    /// draws, over the same per-document value (`AskField`). This pane holds
-    /// the store, so the commit is direct; the cockpit's arrives as a closure.
+    /// **Ask about…, in Author's header** — the same field SHAPE Review's
+    /// cockpit draws (`AskField`), but each home reads and writes its own
+    /// tempo's sentence (two loops P1 Task 6): this one is `.check`, the
+    /// cockpit's is `.round`, independent asks over the same document. This
+    /// pane holds the store, so the commit is direct; the cockpit's arrives
+    /// as a closure.
     @ViewBuilder
     private var askField: some View {
         AskField(input: AskField.Input(
