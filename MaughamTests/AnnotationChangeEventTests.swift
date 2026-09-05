@@ -41,13 +41,26 @@ final class AnnotationChangeEventTests: XCTestCase {
     }
 
     /// Collects every `.maughamAnnotationsChanged` posted while the block runs.
+    ///
+    /// **Filtered to the document under test when one is named.** The Mac
+    /// scheme runs classes in parallel worker processes but a worker hosts
+    /// MANY classes serially, and a document another suite left open (an
+    /// autosave still debouncing, a store still closing) posts into the same
+    /// `NotificationCenter` this collector is listening on. An unfiltered
+    /// "expecting none" collector heard a `stmt-…` document's announcement
+    /// three gates running (2026-09-03, the third sighting) and went red over
+    /// nothing this suite guards. The filter is on `docId` because that is
+    /// the one field every announcement carries.
     private func announcements(
+        for docId: String? = nil,
         during body: () async throws -> Void
     ) async rethrows -> [Announcement] {
         var seen: [Announcement] = []
         let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
             forName: .maughamAnnotationsChanged, object: nil, queue: nil
         ) { note in
+            let heard = note.userInfo?[MaughamEvent.annotationDocIdKey] as? String
+            if let docId, heard != docId { return }
             seen.append(Announcement(
                 docId: note.userInfo?[MaughamEvent.annotationDocIdKey] as? String,
                 scopeKind: note.userInfo?[MaughamEvent.scopeKindKey] as? String,
@@ -61,6 +74,7 @@ final class AnnotationChangeEventTests: XCTestCase {
     /// The same, for the presenter's arm — which hops through a `Task`, so the
     /// post lands after the call returns.
     private func announcementsSettling(
+        for docId: String? = nil,
         expecting count: Int,
         during body: () async throws -> Void
     ) async rethrows -> [Announcement] {
@@ -68,6 +82,8 @@ final class AnnotationChangeEventTests: XCTestCase {
         let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
             forName: .maughamAnnotationsChanged, object: nil, queue: nil
         ) { note in
+            let heard = note.userInfo?[MaughamEvent.annotationDocIdKey] as? String
+            if let docId, heard != docId { return }
             seen.append(Announcement(
                 docId: note.userInfo?[MaughamEvent.annotationDocIdKey] as? String,
                 scopeKind: note.userInfo?[MaughamEvent.scopeKindKey] as? String,
@@ -478,7 +494,7 @@ final class AnnotationChangeEventTests: XCTestCase {
             url: docURL, device: "test", session: "s", presenter: nil)
         ds.register(document: doc, for: "manuscript/c1.md")
 
-        let said = try await announcementsSettling(expecting: 0) {
+        let said = try await announcementsSettling(for: doc.docId, expecting: 0) {
             ds.presenterDidChangeSubitem(
                 at: dir.appendingPathComponent(".maugham/ops/doc-test.jsonl"))
         }
@@ -510,7 +526,7 @@ final class AnnotationChangeEventTests: XCTestCase {
         XCTAssertEqual(onTheWrite.count, 1,
                        "premise: the append itself announced, exactly once")
 
-        let echo = try await announcementsSettling(expecting: 0) {
+        let echo = try await announcementsSettling(for: doc.docId, expecting: 0) {
             ds.presenterDidChangeSubitem(
                 at: dir.appendingPathComponent(".maugham/ops/\(doc.docId).jsonl"))
         }

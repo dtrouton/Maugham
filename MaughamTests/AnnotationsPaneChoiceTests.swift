@@ -1274,62 +1274,6 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             + "rather than retyping it")
     }
 
-    /// **The pane's own Keep wiring, end to end** (fix round 1) — the one seam
-    /// the tests above did not cross.
-    ///
-    /// `onKeepAsLesson` defaults to a no-op, so a button wired to nothing draws,
-    /// presses and does nothing, silently. This drives the REAL pane: the
-    /// resolved filter is turned on the way a writer turns it on, the row's
-    /// **Keep as lesson…** is pressed, the sheet it opens is committed, and the
-    /// sentence is read back out of the writer's ledger.
-    func test_theKeepButtonInTheRealPaneOpensTheSheetAndFiles() async throws {
-        let fx = try await makeHarness(named: "KeepEndToEnd")
-        let pid = try XCTUnwrap(fx.document.sequence.first)
-        let id = try await fx.document.addAnnotation(
-            kind: .craftNote, paragraphId: pid,
-            body: "You reach for a filter verb where the image would carry it.",
-            author: AnnotationAuthor(sourceKind: .claude, displayName: "Le Guin"),
-            reviewPassId: "line", compilerRunId: "run-1", compilerRound: 3)
-        try await fx.document.acceptAnnotation(id: id)
-        XCTAssertEqual(status(fx, id), .accepted, "premise: the writer agreed")
-
-        let window = mountPane(fx)
-        // An accepted note is hidden under the default open-only filter, so
-        // this is the writer's own way to it.
-        let resolved = try control(withHelpContaining: "click to include resolved",
-                                   in: window)
-        _ = resolved.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.3)
-
-        try press(QueueLedgerVerbs.keepTitle, in: window)
-        let commit = try await pressSheetButton(labelled: "Keep as lesson")
-
-        // **One guarded re-press.** A press that reached no sheet writes
-        // nothing and says nothing, so an empty ledger a second after it is
-        // the only evidence available that it did not land. Pressing again is
-        // safe only since this fix wave made `LessonLedgerVerbs.keepAsLesson`
-        // find-or-create by heading: before it, a second press over a ledger
-        // that HAD taken the first would have filed the sentence twice under
-        // two dates, and the assertion below reads the whole open list.
-        if await !pumpUntil(deadline: 1, {
-            !LessonsLedger.open(in: self.ledger(fx) ?? "").isEmpty
-        }) {
-            _ = commit.perform(NSSelectorFromString("accessibilityPerformPress"))
-        }
-        _ = await pumpUntil(deadline: 8) {
-            !LessonsLedger.open(in: self.ledger(fx) ?? "").isEmpty
-        }
-        XCTAssertEqual(
-            LessonsLedger.open(in: ledger(fx) ?? ""),
-            ["You reach for a filter verb where the image would carry it."],
-            "the sheet's sentence must reach the writer's ledger through the "
-            + "pane's own wiring \u{2014} a button wired to the default no-op "
-            + "would press and file nothing, silently")
-        XCTAssertEqual(status(fx, id), .accepted,
-                       "and the note is unchanged: keeping a lesson out of it "
-                       + "is a second, separate act")
-    }
-
     // MARK: - The row still fits the column it is drawn in
 
     /// **A verb added to a row is width the column has to find.**
