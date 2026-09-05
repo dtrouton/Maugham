@@ -1,6 +1,6 @@
 # Two loops, two readers — the check and the round part ways
 
-**Date:** 2026-09-05 · **Status:** approved in discussion, plans unwritten
+**Date:** 2026-09-05 · **Status:** approved 2026-09-05; P1 built 2026-09-05 (branch `claude/two-loops-p1-2026-09-05`, [ADR 0031](../../adr/0031-the-persona-is-an-input-to-the-run.md)); P2/P3 unwritten
 **Session:** "compiler / author / review split"
 
 *Brainstormed with Denver 2026-09-05, out of a code reading of the seam between
@@ -303,6 +303,12 @@ one with more optionals:
 The section schema is shared; a check under the first reader is told the
 letter's short reader form the way a pass brief tells Gould to leave it
 empty. `sectionSchemaDescription` gains the two reader kinds.
+
+*P1 note (controller ruling, 2026-09-05):* P1 built `checkMessage`/`roundMessage`
+as two named doors over the one builder, and kept `passSection` as the coach's
+frame on **both** kinds — `ActivePass.isCoach` already frames her as a teacher
+rather than an editor. `readerSection` arrives with P2, alongside the first
+reader it exists to describe.
 
 ### 4.10 MCP
 

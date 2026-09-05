@@ -2,6 +2,8 @@
 
 **Date:** 2026-08-17 · **Status:** Accepted · **Milestone:** m4-p1-the-wire-and-the-briefing (branch `feat/m4-p1-the-wire-2026-08-17`)
 
+*§1's amended sentence is amended once more by [ADR 0031](0031-the-persona-is-an-input-to-the-run.md) §5: the report is materialized by the app into the layers the writer governs, **and which loop asked for it is a fact the run carries**. Nothing §2 or §3 decided moves.*
+
 ## Context
 
 [ADR 0028](0028-maugham-goes-outbound.md) §3 recorded, correctly, that the MCP

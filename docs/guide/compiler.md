@@ -109,12 +109,12 @@ in the Diagnostics header, in Review between the letter and the Run buttons.
 Type what you want this check to look at — *I'm worried the middle sags*, *is
 her voice distinct from his?*, *just tell me whether the ending lands* — and
 press Return. Clicking away saves it too, and so does simply pressing ⌘R:
-whatever is in the field when you ask for a round is what that round is
+whatever is in the field when you ask for the run is what that run is
 briefed with, so a worry you typed and didn't get around to submitting is
 never quietly dropped. The ✕ withdraws it.
 
 It's per document and it's kept until you clear it, because a worry usually
-outlasts one round. Your ask goes into the briefing as its own section and the
+outlasts one run. Your ask goes into the briefing as its own section and the
 letter answers it **first**, before its own say-back, in the same voice and
 still never as a rewrite. A direct question gets a direct answer. **Each home
 has its own ask** — the one you type in Author is for the reader who checks;
@@ -135,11 +135,11 @@ The pane reads as a report, in this order:
 
 **The letter comes first**, above everything else, because it's what you read
 first — the notes are the margin. It's a letter about the draft rather than a
-list of findings, and it's signed: *— Le Guin · round 3*, or whoever reads
-this piece. The signature carries the **stage** the round read your delta at —
-*— Le Guin · round 3 · drafting* — and a letter written while you're drafting
-says so under its title, naming Fresh Eyes as the way to ask for the whole
-thing.
+list of findings, and it's signed: *— Le Guin*, or whoever reads this piece.
+A check carries no round number — numbered rounds are Review's — and the
+signature carries instead the **stage** the check read your delta at: *— Le
+Guin · drafting*. A letter written while you're drafting says so under its
+title, naming Reread as the way to ask for the whole thing.
 
 If you've asked something (see "Ask about…" above), the letter **answers it
 first**, ahead of everything else. Then it says, in this order: what the piece
@@ -164,7 +164,7 @@ paragraph id.
 A habit can come with an exercise — a thing to *do*, never a rewrite:
 *rewrite the scene without a single "was"*, *read the dialogue aloud with the
 names removed*. **Accept as task** files it as a task anchored at the first
-paragraph the habit shows in, so you leave a round with something to try. It's
+paragraph the habit shows in, so you leave a check with something to try. It's
 one undo step, and pressing it again does nothing — the button stays put and
 goes quiet, so you can see it fired.
 
@@ -187,13 +187,13 @@ neither earns a strain — instead the table ends with one standing line,
 **Hold every scene to a turn?**, and a button that files the clause. Clicking
 it writes *"Every scene must turn."* as a dated ruling **in the intent this
 piece is measured against** — its own if it has one, the book's if it
-doesn't — in your own words, and from the next round on a turn-less scene
+doesn't — in your own words, and from the next check on a turn-less scene
 strains against a clause you can find in your own statement. The button says
 which one it means: **Add to intent** for the piece's own, **Add to the book's
 intent** when the piece is read against the book's. Nothing here mints a new
 intent for a piece that was reading the book's; taking the offer never
 quietly detaches a chapter from the book it belongs to. The offer appears on every
-strong-form round until a clause exists, then never again — and it goes away
+strong-form run until a clause exists, then never again — and it goes away
 the moment you take it.
 
 **Keep this letter** writes the whole letter, with its date and its lane, as
@@ -207,7 +207,7 @@ A letter you didn't keep was a letter you read and let go, which is what
 happens to letters.
 
 **What I've learned.** A habit the letter raises can be kept as a standing
-lesson: **Keep as lesson** files it — the round's own one-sentence lesson if it
+lesson: **Keep as lesson** files it — the letter's own one-sentence lesson if it
 drew one, otherwise the habit's name — into your ledger (⌘⌥G), dated and
 carrying the letter it came from. Every later check in the project is briefed
 with what stands there, so a lesson you file once is one you stop having to
@@ -215,13 +215,14 @@ remember to mention. A lesson already in the ledger, in any state, stops being
 offered — in the letter, and on your queue's own **Keep as lesson…** when the
 note's words are already the entry: nothing here files the same sentence twice.
 
-The other two verbs belong to a **Fresh Eyes** round, because they're claims
-about the whole piece rather than about what changed. **These are all choices**
+The other two verbs belong to a cold read — **Reread** in Author, Fresh Eyes
+in Review — because they're claims about the whole piece rather than about what
+changed. **These are all choices**
 files every habit in the letter as a settled choice in one press — the seeding
 gesture, for a finished draft where the "problems" are how you write. And when
 a cold read looked for a lesson you're carrying and found no instance of it,
 the letter says so and offers **Retire**, which retires that lesson in place,
-dated, without deleting it. A warm round still tells you what it didn't find,
+dated, without deleting it. A warm check still tells you what it didn't find,
 in its own tense — *I didn't find "…" in what changed* — and offers no button,
 because three paragraphs prove nothing about a habit.
 
@@ -422,7 +423,8 @@ started in, and the next one is the one that changes. That next check starts a
 fresh session behind the scenes, so it's a few seconds slower than the warm
 session you're used to — a one-time cost of the switch.
 
-Exhaustive earns its cost on a Fresh Eyes over a long piece: a cold reread with
+Exhaustive earns its cost on a cold read over a long piece — a Reread here, a
+Fresh Eyes in Review: a cold read with
 no prior findings to lean on has the most ground to cover, and that is where
 the extra depth pays for itself. Reach for it there rather than as your
 everyday setting.

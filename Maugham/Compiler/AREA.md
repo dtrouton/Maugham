@@ -1,12 +1,16 @@
 # Compiler — Area guide
 
-Maugham's **author compiler** (M2, rewired to the review queue in M4 P1): the
-writer presses ⌘R, a warm `claude -p` session reads what has changed since the
-last run, and each finding lands where its NATURE says it belongs (ADR 0029;
+Maugham's **author compiler** (M2, rewired to the review queue in M4 P1, split
+into two verbs in two loops P1): the writer presses ⌘R and a warm `claude -p`
+session reads the piece — **what** it reads is the persona's, not the
+keystroke's (`RunKind`, ADR 0031). Author's ⌘R is a **check** over what has
+changed since its own last one; Review's is a **round** over the piece whole.
+Either way each finding lands where its NATURE says it belongs (ADR 0029;
 spec `2026-08-17-one-loop-two-tempos-design.md` §2) — a conformance strain
 stays report-side as a ¶-anchored diagnostic in the Diagnostics pane; a
-continuity question or a reader's report mints as a pass-stamped annotation
-instead, a margin card in Author and a queue row in Review, with the full
+continuity question or a reader's report mints as an annotation instead
+(pass-stamped over a round, unstamped over a check), a margin card in Author
+and a queue row in Review, with the full
 disposition vocabulary every other note already has. Read this before editing
 in `Maugham/Compiler/`. Also read the project root `CLAUDE.md` for
 cross-cutting invariants, the design of record —
@@ -14,9 +18,12 @@ cross-cutting invariants, the design of record —
 supersession —
 `docs/superpowers/specs/2026-08-07-compiler-second-draft-design.md`, which
 keeps the run's mechanism unchanged (§5's opening line) but replaces the
-workflow half: notes, fates, the answer flow and the pane's organization — and
+workflow half: notes, fates, the answer flow and the pane's organization —
 `docs/superpowers/specs/2026-08-17-one-loop-two-tempos-design.md`, which routes
-findings by nature and personifies each pass as a named editor.
+findings by nature and personifies each pass as a named editor — and
+`docs/superpowers/specs/2026-09-05-two-loops-two-readers-design.md`, which
+parts the check from the round (P1 built; P2's first reader and P3's polish
+unwritten).
 
 **The run speaks the v2 contract** (spec §5), M3-P3 added a fifth line to it
 and the editorial letter (P1 Task 2) a sixth: four line-delimited note sections
@@ -151,15 +158,16 @@ else remembers it.
 (constraint 24): `LetterDosage.short` caps `parseLetter`'s questions at 1,
 drops the exercise and reads `scenes` as `nil` **at ingest**, whatever the
 model wrote, and `CompilerPrompt.stageSection` states the identical doctrine
-in the briefing; Fresh Eyes is always `.full`, a round is always `.full`, and
-the ask's answer is never dosed. `stageSection` and the noteworthy-only
+in the briefing; a cold read is always `.full` (the dose keys on `freshEyes`,
+so Author's Reread and Review's Fresh Eyes are the same case here), a round is
+always `.full`, and the ask's answer is never dosed. `stageSection` and the noteworthy-only
 `processSection` are per-run frame, sitting between the scene position and the
 prose **inside the prompt's `.check` arm** (Task 4 — the numbers describe the
 writer's process, which is what a check is read against), and **neither
 folds into `briefingHashInput`** (constraint 25) — the stage flips the moment a
 writer stops adding and starts rewriting, and the process numbers move with
 the writer's own week, so hashing either would re-embed the essay, the
-declared world and the bible slice on an ordinary round. `letterInstruction`'s
+declared world and the bible slice on an ordinary run. `letterInstruction`'s
 `process` sentence is standing text rather than per-run frame — it tells the
 model what the `Process` heading MEANS, once, the same way the rest of
 `letterInstruction` explains every part — so it IS measured into the 715-word
@@ -270,7 +278,8 @@ rather than trusting a number here — the display surfaces resolve for
 themselves and nothing censuses them.
 
 **Who reads a piece has TWO resolutions, because there are two loops** (two
-loops P1 Task 2, spec §2). Author's ⌘R is a **check**; Review's Run is a
+loops P1 Task 2, spec §2; ADR 0031 §2–§3, and CLAUDE.md's tripwire 34).
+`PieceReader`, the single resolution these replaced, is deleted. Author's ⌘R is a **check**; Review's Run is a
 **round**; `RunKind` says which, minted from the persona at the keystroke, and
 `Environment.reader(docId, kind)` is the one closure both go through
 (`CompilerEnvironment+Project.swift`, whose switch is exhaustive so a third
@@ -1387,8 +1396,8 @@ refuses in words when the ring has aged it out, and this area's own writes
   about. Both sentences' home is the round cockpit
   (`AnnotationsPane.cockpitReportLine`, off the round slot); the narration
   itself still has one owner (`RoundNarrative`) and its tests moved with it to
-  `RoundNarrativeTests`. `DiagnosticsPaneTests.test_neitherRoundSentenceIsDraw`
-  `nOverAColdCheck` mounts the sharpest case — a standing round in the ring
+  `RoundNarrativeTests`. `DiagnosticsPaneTests`'
+  `test_neitherRoundSentenceIsDrawnOverAColdCheck` mounts the sharpest case — a standing round in the ring
   beside a standing fresh-eyes check — and refuses both strings; the
   `content`-arm census
   (`test_theLetterLeadsBothArmsAndPrecedesThisCheck`) refuses their
@@ -1399,9 +1408,10 @@ refuses in words when the ring has aged it out, and this area's own writes
   notes. Anything that must be seen in THAT state has to render in both arms,
   not only inside the `else`. **`DiagnosticsPane.thisCheckSection` (M4 P2
   Task 1, spec §7.0) is the second resident of both arms and is there for the
-  same case**: Author's live view of the notes the latest run minted, filtered
-  out of the annotation layer by `lastRun.id`, whose whole point is the
-  intentless round whose entire output is queued notes. Anything that dedups
+  same case**: Author's live view of the notes the latest CHECK minted, filtered
+  out of the annotation layer by `lastRun.id` (the pane's own private name for
+  `DiagnosticsStore.lastCheck` since two loops P1 Task 5), whose whole point is
+  the intentless check whose entire output is queued notes. Anything that dedups
   the fork has to keep both arms drawing it.
 - **3 / 6 — the arrival.** Nothing here holds an editor binding or a
   `Document`. What a run needs off the live document arrives as a
