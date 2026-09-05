@@ -700,7 +700,10 @@ struct DiagnosticsPane: View {
         case .idle(let run):
             return "Last checked \(relative(run.at)) \u{00b7} \(run.deltaSummary)"
         case .running(let checking):
-            return RoundNarrative.checkingCopy(checking)
+            // `.check`, always: this pane is Author's, and Author's ⌘R is the
+            // check (two loops P1 Task 3). The cockpit passes `.round` at the
+            // mirror of this line.
+            return RoundNarrative.checkingCopy(checking, kind: .check)
         case .nothingNew:
             return "Nothing new since the last check."
         case .failed(let failure, _):

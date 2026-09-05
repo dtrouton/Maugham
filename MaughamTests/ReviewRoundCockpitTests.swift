@@ -852,16 +852,27 @@ final class ReviewRoundCockpitTests: XCTestCase {
             + picker)
     }
 
-    /// While this document is being checked the strip says what is being read
+    /// While this round is being read the strip says what is being read
     /// — `RoundNarrative.checkingCopy`, the pane's own copy and not a second
     /// spelling — and both buttons refuse with a reason (RULING-35).
+    ///
+    /// **The cockpit is the round loop, so the sentence is the round's** (two
+    /// loops P1 Task 3): a round reads the piece whole and its counts are the
+    /// whole manuscript, so "Checking 14 new paragraphs\u{2026}" here would be
+    /// a true number about the wrong act.
     func test_whileRunningTheStripSaysWhatItIsCheckingAndBothButtonsRefuse() throws {
         let counts = CompilerOrchestrator.DeltaCounts(new: 14, revised: 2)
         let window = mountCockpit(
             activePassId: "copyedit", round: 2, phase: .running(counts))
 
-        XCTAssertTrue(allLabels(in: window).contains(RoundNarrative.checkingCopy(counts)),
-                      "the wait must be legible \u{2014} got \(allLabels(in: window))")
+        XCTAssertTrue(allLabels(in: window).contains("Reading the whole piece\u{2026}"),
+                      "the wait must be legible, and in the round's own words "
+                      + "\u{2014} got \(allLabels(in: window))")
+        XCTAssertTrue(
+            allLabels(in: window).contains(
+                RoundNarrative.checkingCopy(counts, kind: .round)),
+            "\u{2026}off the one spelling, not a second copy of it \u{2014} got "
+            + "\(allLabels(in: window))")
         for title in [ReviewRoundCockpit.runTitle, ReviewRoundCockpit.freshEyesTitle] {
             let button = try XCTUnwrap(findButton(labelled: title, in: window),
                                        "\(title) must still be drawn while running")

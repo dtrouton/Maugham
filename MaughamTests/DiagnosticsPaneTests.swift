@@ -185,6 +185,31 @@ final class DiagnosticsPaneTests: XCTestCase {
             "Checking 14 new and 3 revised paragraphs\u{2026}")
     }
 
+    /// **A round is not counting paragraphs, it is reading the piece** (two
+    /// loops P1 Task 3). A round passes `since: nil`, so its counts are the
+    /// whole manuscript — "Checking 40 new paragraphs\u{2026}" over one would be
+    /// a true number saying a false thing about what the editor is doing.
+    ///
+    /// Author's pane is the check's home and says the check's sentence; the
+    /// cockpit's is pinned where the cockpit is (`ReviewRoundCockpitTests`).
+    func test_aRoundSaysItIsReadingTheWholePieceAndACheckCountsTheDelta() {
+        XCTAssertEqual(
+            RoundNarrative.checkingCopy(counts(new: 40, revised: 2), kind: .round),
+            "Reading the whole piece\u{2026}")
+        XCTAssertEqual(
+            RoundNarrative.checkingCopy(counts(new: 3, revised: 0), kind: .check),
+            "Checking 3 new paragraphs\u{2026}")
+        XCTAssertEqual(
+            DiagnosticsPane.headerCopy(for: .running(checking: counts(new: 3, revised: 0))),
+            "Checking 3 new paragraphs\u{2026}",
+            "Author's pane is the check's home")
+        XCTAssertEqual(
+            RoundNarrative.checkingCopy(counts(new: 0, revised: 0), kind: .round),
+            "Reading the whole piece\u{2026}",
+            "\u{2026}and a round says it over counts a delta cannot have too — "
+            + "it never had a number in it to lose")
+    }
+
     /// The arm a delta cannot reach — `beginRun` refuses an empty one before
     /// the running state is ever set — asserted anyway, because a function
     /// whose caller has to reason before calling it is one the next caller gets

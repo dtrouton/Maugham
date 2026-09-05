@@ -16,9 +16,30 @@ enum RoundNarrative {
     /// Total over counts a delta cannot have — `beginRun` refuses an empty one
     /// before the running state is ever set — because a function that has to be
     /// reasoned about before it can be called is one a later caller gets wrong.
-    static func checkingCopy(_ counts: CompilerOrchestrator.DeltaCounts) -> String {
-        guard let phrase = paragraphPhrase(counts) else { return "Checking\u{2026}" }
-        return "Checking \(phrase)\u{2026}"
+    ///
+    /// **A round says what it is doing instead of counting** (two loops P1
+    /// Task 3). A round reads the piece whole, so its counts ARE the whole
+    /// manuscript: "Checking 40 new paragraphs…" over one is a true number
+    /// saying a false thing, and the writer who has typed four sentences today
+    /// would read it as the app having lost track of their work. The counts
+    /// are still passed — the caller is one `.running(counts)` case, and a
+    /// second running state per kind would be two things that can disagree
+    /// about whether a run is in flight — they are simply not what a round has
+    /// to say for itself.
+    ///
+    /// `kind` defaults to `.check` for `runMessageV2`'s reason: the check is
+    /// the verb that predates the split, and the one call site that is not a
+    /// check — Review's cockpit — names itself.
+    static func checkingCopy(
+        _ counts: CompilerOrchestrator.DeltaCounts, kind: RunKind = .check
+    ) -> String {
+        switch kind {
+        case .round:
+            return "Reading the whole piece\u{2026}"
+        case .check:
+            guard let phrase = paragraphPhrase(counts) else { return "Checking\u{2026}" }
+            return "Checking \(phrase)\u{2026}"
+        }
     }
 
     /// What a delta is, in the writer's English — the ONE spelling, read by the

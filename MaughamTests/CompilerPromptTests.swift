@@ -265,6 +265,236 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertFalse(message.contains("-->"))
     }
 
+    // MARK: - The two builders (two loops P1 Task 3)
+    //
+    // A check and a round send the same sections in the same order, and read
+    // different prose: `deltaSection` under `.check`, `wholePieceSection`
+    // under `.round`. What changed since the last round reaches a round
+    // through the prior-round and dispositions sections instead of a diff
+    // (spec §4.5), which is why a round's prose carries no labels at all.
+
+    private static let mixedDelta = CompilerDelta(
+        new: [.init(paragraphId: "a1b2", text: "Brand new sentence.")],
+        revised: [.init(paragraphId: "c3d4", prior: "Old text.", text: "New text.")],
+        newestOpId: "op9")
+
+    /// **A round reads the piece whole; a check reads what changed.** An
+    /// editor handed a diff is being asked about the diff — the round's whole
+    /// point is the piece — so the labels a check depends on (`(new)`,
+    /// `(revised)`, the before/after pair) are absent rather than restated
+    /// with nothing behind them: over a whole read every paragraph is "new"
+    /// and none of them has a prior version.
+    func test_aRoundIsBriefedOnThePieceWholeAndACheckOnTheDelta() {
+        let (round, _) = CompilerPrompt.roundMessage(
+            delta: Self.mixedDelta, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+
+        XCTAssertTrue(round.contains("The piece, whole:"),
+                      "a round is handed the piece; got \(round)")
+        XCTAssertFalse(round.contains("This run's delta:"),
+                       "\u{2026}and never the diff heading as well")
+        XCTAssertFalse(round.contains("(new)"), "got \(round)")
+        XCTAssertFalse(round.contains("(revised)"), "got \(round)")
+        XCTAssertFalse(round.contains("Before:"), "got \(round)")
+        XCTAssertFalse(round.contains("Old text."),
+                       "a whole read has no prior version to show")
+        XCTAssertTrue(round.contains("Brand new sentence."),
+                      "\u{2026}but every paragraph's prose still travels")
+        XCTAssertTrue(round.contains("New text."))
+
+        // The control, and the reason this is one test rather than two: the
+        // same delta under the other kind carries all three labels, so a
+        // section that stopped labeling anything would fail here rather than
+        // read as a round.
+        let (check, _) = CompilerPrompt.checkMessage(
+            delta: Self.mixedDelta, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        XCTAssertFalse(check.contains("The piece, whole:"), "got \(check)")
+        XCTAssertTrue(check.contains("This run's delta:"))
+        XCTAssertTrue(check.contains("(new)"))
+        XCTAssertTrue(check.contains("(revised)"))
+        XCTAssertTrue(check.contains("Before: Old text."))
+    }
+
+    /// The ids are spelled `[a1b2]` — the same spelling the section schema
+    /// tells the model to copy back into every `refs` array. A whole-piece
+    /// section that dropped or re-spelled them would leave a round's findings
+    /// unanchorable at ingest.
+    func test_theWholePieceSectionSpellsIdsTheWayTheSchemaAsksForThemBack() {
+        let (round, _) = CompilerPrompt.roundMessage(
+            delta: Self.mixedDelta, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        XCTAssertTrue(round.contains("[a1b2]"), "got \(round)")
+        XCTAssertTrue(round.contains("[c3d4]"), "got \(round)")
+    }
+
+    /// **The order is the manuscript's, not this function's.** `DeltaBuilder`
+    /// walks `sequence` and hands the paragraphs over in it, so the section's
+    /// whole job is to keep the order it was given — a sort of any kind here
+    /// would hand the editor a piece whose scenes are in the wrong order and
+    /// nothing in the message would say so.
+    ///
+    /// Built by hand rather than through `DeltaBuilder`, precisely because
+    /// that builder can only produce sequence order: the ids below run
+    /// backwards through the alphabet, so an id sort would be visible.
+    func test_theWholePieceSectionKeepsTheOrderItWasGiven() {
+        let delta = CompilerDelta(
+            new: [.init(paragraphId: "z9c1", text: "Third in the manuscript."),
+                  .init(paragraphId: "m4n5", text: "Second in the manuscript."),
+                  .init(paragraphId: "a2b3", text: "First in the manuscript.")],
+            revised: [], newestOpId: "op9")
+        let (round, _) = CompilerPrompt.roundMessage(
+            delta: delta, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+
+        guard let first = round.range(of: "[z9c1]"),
+              let second = round.range(of: "[m4n5]"),
+              let third = round.range(of: "[a2b3]")
+        else { return XCTFail("expected all three paragraphs; got \(round)") }
+        XCTAssertLessThan(first.lowerBound, second.lowerBound)
+        XCTAssertLessThan(second.lowerBound, third.lowerBound)
+    }
+
+    /// `cleaned` is applied here as it is in `deltaSection` — nothing embedded
+    /// in a prompt leaks an anchor, whichever section carries the prose.
+    func test_theWholePieceSectionIsCleanedOfAnchors() {
+        let delta = CompilerDelta(
+            new: [.init(paragraphId: "a1b2",
+                        text: "<!-- \u{00b6}a1b2 -->\n\nThe fog came.")],
+            revised: [], newestOpId: "op9")
+        let (round, _) = CompilerPrompt.roundMessage(
+            delta: delta, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        XCTAssertFalse(round.contains("<!--"), "got \(round)")
+        XCTAssertFalse(round.contains("-->"), "got \(round)")
+        XCTAssertTrue(round.contains("The fog came."))
+    }
+
+    /// **The draft stage doses the check's letter alone** (spec §4.8). A round
+    /// is always the full letter — its pass brief decides which parts — so a
+    /// stage that reached a round would ask for the short letter over a piece
+    /// the editor was asked to read whole.
+    func test_theDraftStageDosesAChecksLetterAndNeverARounds() {
+        let (round, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(new: [.init(paragraphId: "a1b2", text: "The fog came.")]),
+            kind: .round, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], stage: .drafting,
+            previousBriefingHash: nil)
+        XCTAssertFalse(round.contains("Draft stage:"),
+                       "a round is never dosed by the stage; got \(round)")
+
+        let (check, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(new: [.init(paragraphId: "a1b2", text: "The fog came.")]),
+            kind: .check, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], stage: .drafting,
+            previousBriefingHash: nil)
+        XCTAssertTrue(check.contains("Draft stage:"),
+                      "\u{2026}and the check still is; got \(check)")
+    }
+
+    /// The other half of the same rule: the prior round in this lane belongs
+    /// to the round loop. A check is filed in no lane, so "last round you
+    /// raised these notes" over one would be the compiler confirming findings
+    /// from a conversation this run is not part of.
+    func test_ThePriorRoundReachesARoundAndNeverACheck() {
+        let (check, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), kind: .check, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            previousRound: makePriorRound(notes: [Self.untouchedQuestion]),
+            previousBriefingHash: nil)
+        XCTAssertFalse(check.lowercased().contains("raised these notes"),
+                       "got \(check)")
+        XCTAssertFalse(check.contains("Whose coat is on the chair?"))
+
+        let (round, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), kind: .round, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            previousRound: makePriorRound(notes: [Self.untouchedQuestion]),
+            previousBriefingHash: nil)
+        XCTAssertTrue(round.lowercased().contains("raised these notes"),
+                      "got \(round)")
+        XCTAssertTrue(round.contains("Whose coat is on the chair?"))
+    }
+
+    /// **The kind changes what is briefed, never the hashed unit.** The essay,
+    /// the declared world, the bible slice and the ledger are what the writer
+    /// DECLARED; which loop asked for this run is not one of them, so a check
+    /// followed by a round over an unchanged intent gets the marker line
+    /// rather than the whole briefing again.
+    func test_theKindNeverMovesTheBriefingHash() {
+        let world = makeWorld(clauses: [.init(quote: "Keep it wry.", check: "tone check")])
+        let facts = [makeFact(subject: "Kelly", fact: "Kelly grew up on the coast.")]
+
+        let (_, checkHash) = CompilerPrompt.checkMessage(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        let (_, roundHash) = CompilerPrompt.roundMessage(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        XCTAssertEqual(checkHash, roundHash)
+        XCTAssertNotNil(checkHash)
+
+        let (roundMessage, secondHash) = CompilerPrompt.roundMessage(
+            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            paletteListing: [], pinnedListing: [], previousBriefingHash: checkHash)
+        XCTAssertEqual(secondHash, checkHash,
+                       "the intent did not move; a hash that folded the kind in "
+                       + "would re-embed the whole briefing on every switch of loop")
+        XCTAssertTrue(roundMessage.lowercased().contains("unchanged"))
+        XCTAssertFalse(roundMessage.contains("Essay text."))
+    }
+
+    /// **The two entry points are thin, and that is the point of them.** They
+    /// exist so the orchestrator cannot hand a round's inputs to a check by
+    /// forgetting an argument — the stage does not exist on `roundMessage`,
+    /// the prior round does not exist on `checkMessage` — and a builder that
+    /// quietly said something else than `runMessageV2` under the same kind
+    /// would put a second spelling of the briefing in the app.
+    func test_theTwoEntryPointsAreRunMessageV2WithTheirKindFixed() {
+        let (check, checkHash) = CompilerPrompt.checkMessage(
+            delta: Self.mixedDelta, world: nil, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [], pass: lane("copyedit"),
+            stage: .revising, previousBriefingHash: nil)
+        let (checkTwin, checkTwinHash) = CompilerPrompt.runMessageV2(
+            delta: Self.mixedDelta, kind: .check, world: nil, essay: "Essay text.",
+            bibleFacts: [], paletteListing: [], pinnedListing: [],
+            pass: lane("copyedit"), stage: .revising, previousBriefingHash: nil)
+        XCTAssertEqual(check, checkTwin)
+        XCTAssertEqual(checkHash, checkTwinHash)
+
+        let (round, roundHash) = CompilerPrompt.roundMessage(
+            delta: Self.mixedDelta, world: nil, essay: "Essay text.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [], pass: lane("copyedit"),
+            previousRound: makePriorRound(notes: [Self.untouchedQuestion]),
+            previousBriefingHash: nil)
+        let (roundTwin, roundTwinHash) = CompilerPrompt.runMessageV2(
+            delta: Self.mixedDelta, kind: .round, world: nil, essay: "Essay text.",
+            bibleFacts: [], paletteListing: [], pinnedListing: [],
+            pass: lane("copyedit"),
+            previousRound: makePriorRound(notes: [Self.untouchedQuestion]),
+            previousBriefingHash: nil)
+        XCTAssertEqual(round, roundTwin)
+        XCTAssertEqual(roundHash, roundTwinHash)
+        XCTAssertNotEqual(check, round,
+                          "\u{2026}and the two kinds do not send the same message")
+    }
+
+    /// The coach's role frame survives a check (Ruling 3): she arrives as an
+    /// `ActivePass` with `isCoach`, and `passSection` is what frames her, so a
+    /// check under her keeps the section a round under Gould keeps. The
+    /// spec's own `readerSection` is P2's; until it exists, dropping the pass
+    /// section from checks would leave a coached check with no reader at all.
+    func test_thePassSectionTravelsOnBothKinds() {
+        for kind in [RunKind.check, RunKind.round] {
+            let (message, _) = CompilerPrompt.runMessageV2(
+                delta: makeDelta(), kind: kind, world: nil, essay: nil, bibleFacts: [],
+                paletteListing: [], pinnedListing: [], pass: lane("copyedit"),
+                previousBriefingHash: nil)
+            XCTAssertTrue(message.contains("You are Gould"),
+                          "\(kind.rawValue) lost its role frame; got \(message)")
+        }
+    }
+
     // MARK: - The previous round (M3-P3 Task 3)
     //
     // Per-run state, and the reason it lives outside the hash-gated briefing
@@ -301,12 +531,16 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertFalse(message.contains("Round 1"))
     }
 
-    /// **Between the listings and the delta**, because it is context about the
-    /// prose the delta is about to show — not part of the standing briefing
-    /// above it, and not the thing being checked.
-    func test_theRoundSectionSitsBetweenTheListingsAndTheDelta() {
+    /// **Between the listings and the prose**, because it is context about the
+    /// prose it sits above — not part of the standing briefing above it, and
+    /// not the thing being read.
+    ///
+    /// A round, since two loops P1 Task 3: the prior round in this lane
+    /// reaches the round loop alone, so this is the only kind that has a
+    /// section here to place — and the prose below it is the piece whole.
+    func test_theRoundSectionSitsBetweenTheListingsAndThePiece() {
         let (message, _) = CompilerPrompt.runMessageV2(
-            delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
+            delta: makeDelta(), kind: .round, world: nil, essay: nil, bibleFacts: [],
             paletteListing: ["Villain sketch (card-xyz)"],
             pinnedListing: ["Chapter One (doc-abc)"],
             previousRound: makePriorRound(notes: [Self.untouchedQuestion]),
@@ -314,10 +548,10 @@ final class CompilerPromptTests: XCTestCase {
 
         guard let listing = message.range(of: "Villain sketch (card-xyz)"),
               let round = message.range(of: "raised these notes"),
-              let delta = message.range(of: "This run's delta:")
-        else { return XCTFail("expected listings, round section and delta; got \(message)") }
+              let piece = message.range(of: "The piece, whole:")
+        else { return XCTFail("expected listings, round section and piece; got \(message)") }
         XCTAssertLessThan(listing.lowerBound, round.lowerBound)
-        XCTAssertLessThan(round.lowerBound, delta.lowerBound)
+        XCTAssertLessThan(round.lowerBound, piece.lowerBound)
     }
 
     /// The register: it names the lane and the round, and it partitions the
@@ -413,13 +647,15 @@ final class CompilerPromptTests: XCTestCase {
         let facts = [makeFact(subject: "Kelly", fact: "Kelly grew up on the coast.")]
 
         let (_, firstHash) = CompilerPrompt.runMessageV2(
-            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            delta: makeDelta(), kind: .round, world: world, essay: "Essay text.",
+            bibleFacts: facts,
             paletteListing: [], pinnedListing: [], previousRound: nil,
             previousBriefingHash: nil)
         XCTAssertNotNil(firstHash)
 
         let (secondMessage, secondHash) = CompilerPrompt.runMessageV2(
-            delta: makeDelta(), world: world, essay: "Essay text.", bibleFacts: facts,
+            delta: makeDelta(), kind: .round, world: world, essay: "Essay text.",
+            bibleFacts: facts,
             paletteListing: [], pinnedListing: [],
             previousRound: makePriorRound(notes: [Self.untouchedQuestion]),
             previousBriefingHash: firstHash)
@@ -889,21 +1125,21 @@ final class CompilerPromptTests: XCTestCase {
     }
 
     /// Their place in the message: after the scene position and **before the
-    /// round section** — the stage first, then the numbers behind it. Both are
-    /// frame for the delta rather than part of it, exactly as their neighbours
-    /// are, and global constraint 25 names the round section rather than the
-    /// delta as the bound: a section that drifted past the round would still
-    /// sit above the delta and read as correct here.
+    /// prose** — the stage first, then the numbers behind it. Both are frame
+    /// for the prose rather than part of it, exactly as their neighbours are.
     ///
-    /// So the message is built WITH a previous round, which is the only way
-    /// that section exists to be measured against.
-    func test_theStageAndTheProcessSitBetweenTheScenePositionAndTheRound() {
+    /// **Two messages, because the stage and the prior round can no longer
+    /// meet in one** (two loops P1 Task 3): the stage doses a check, the prior
+    /// round briefs a round. The chain they used to pin end to end is pinned
+    /// across the pair instead — scenes → stage → process → the check's delta,
+    /// and scenes → process → round → the round's piece — which together still
+    /// place every section between the role frame and the prose.
+    func test_theStageAndTheProcessSitBetweenTheScenePositionAndTheChecksDelta() {
         let (message, _) = CompilerPrompt.runMessageV2(
             delta: makeDelta(new: [.init(paragraphId: "p1", text: "The fog came.")]),
-            world: nil, essay: nil, bibleFacts: [],
+            kind: .check, world: nil, essay: nil, bibleFacts: [],
             paletteListing: [], pinnedListing: [],
             pass: lane("copyedit"), scenePosition: .weak,
-            previousRound: makePriorRound(notes: [Self.untouchedQuestion]),
             stage: .drafting, signals: stalledSignals(),
             previousBriefingHash: nil)
         guard let scenes = message.range(
@@ -911,13 +1147,32 @@ final class CompilerPromptTests: XCTestCase {
               let stage = message.range(
                 of: CompilerPrompt.stageSection(.drafting, freshEyes: false) ?? "!"),
               let process = message.range(of: CompilerPrompt.processSectionOpening),
-              let round = message.range(of: "raised these notes"),
               let delta = message.range(of: "This run's delta:")
-        else { return XCTFail("expected all five; got \(message)") }
+        else { return XCTFail("expected all four; got \(message)") }
         XCTAssertLessThan(scenes.lowerBound, stage.lowerBound)
         XCTAssertLessThan(stage.lowerBound, process.lowerBound)
+        XCTAssertLessThan(process.lowerBound, delta.lowerBound)
+    }
+
+    /// The round half of the chain above.
+    func test_TheProcessSitsBetweenTheScenePositionAndTheRound() {
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(new: [.init(paragraphId: "p1", text: "The fog came.")]),
+            kind: .round, world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [],
+            pass: lane("copyedit"), scenePosition: .weak,
+            previousRound: makePriorRound(notes: [Self.untouchedQuestion]),
+            signals: stalledSignals(),
+            previousBriefingHash: nil)
+        guard let scenes = message.range(
+                of: CompilerPrompt.scenePositionSection(.weak) ?? "!"),
+              let process = message.range(of: CompilerPrompt.processSectionOpening),
+              let round = message.range(of: "raised these notes"),
+              let piece = message.range(of: "The piece, whole:")
+        else { return XCTFail("expected all four; got \(message)") }
+        XCTAssertLessThan(scenes.lowerBound, process.lowerBound)
         XCTAssertLessThan(process.lowerBound, round.lowerBound)
-        XCTAssertLessThan(round.lowerBound, delta.lowerBound)
+        XCTAssertLessThan(round.lowerBound, piece.lowerBound)
     }
 
     /// **A cold read is briefed on the dose it will actually be held to.**

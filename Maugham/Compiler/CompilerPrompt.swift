@@ -224,6 +224,75 @@ enum CompilerPrompt {
         """
     }
 
+    // MARK: - The two builders (two loops P1 Task 3, spec §4.9)
+
+    /// **Author's ⌘R.** The delta since the marker, dosed by the draft stage,
+    /// filed in no lane — so this door has no `previousRound` to pass.
+    ///
+    /// Thin on purpose: one message builder, two named doors. The alternative
+    /// — two builders assembling their own sections — is two spellings of the
+    /// briefing, and the sections they share are all of them but one.
+    ///
+    /// The value of the door is what it CANNOT say: a caller holding a prior
+    /// round has nowhere to put it here, so a check briefed on another loop's
+    /// conversation is a compile error rather than a silent section. The gates
+    /// inside `runMessageV2` say the same thing a second time, for the callers
+    /// that pass a kind directly — its tests, and `beginRun` until Task 4
+    /// splits its one send into these two doors.
+    static func checkMessage(
+        delta: CompilerDelta, world: DerivedWorld?, essay: String?,
+        bibleFacts: [BibleFact], paletteListing: [String], pinnedListing: [String],
+        pass: CompilerOrchestrator.ActivePass? = nil,
+        scenePosition: ScenePosition = .none,
+        dispositions: [CompilerAnnotationDisposition] = [],
+        ask: String? = nil,
+        lessons: String? = nil,
+        stage: DraftStage? = nil,
+        freshEyes: Bool = false,
+        signals: ProcessSignals? = nil,
+        previousBriefingHash: String?
+    ) -> (message: String, briefingHash: String?) {
+        runMessageV2(
+            delta: delta, kind: .check, world: world, essay: essay,
+            bibleFacts: bibleFacts, paletteListing: paletteListing,
+            pinnedListing: pinnedListing, pass: pass, scenePosition: scenePosition,
+            dispositions: dispositions, ask: ask, lessons: lessons,
+            stage: stage, freshEyes: freshEyes, signals: signals,
+            previousBriefingHash: previousBriefingHash)
+    }
+
+    /// **Review's Run round.** The piece whole, read by the pass's editor,
+    /// with the prior round in this lane above it — so this door has no
+    /// `stage` and no `freshEyes` to pass.
+    ///
+    /// `freshEyes` is absent rather than defaulted because the flag's ONLY
+    /// reader in this file is `stageSection`, which a round never gets: a cold
+    /// round differs from a warm one in the session it is sent to and the
+    /// sections it is not given (no prior round, no dispositions), and both of
+    /// those are the orchestrator's decision, not this function's. If a second
+    /// reader of the flag ever appears on the round side, it arrives with a
+    /// parameter and a reason, not by inheriting one nothing here would read.
+    static func roundMessage(
+        delta: CompilerDelta, world: DerivedWorld?, essay: String?,
+        bibleFacts: [BibleFact], paletteListing: [String], pinnedListing: [String],
+        pass: CompilerOrchestrator.ActivePass? = nil,
+        scenePosition: ScenePosition = .none,
+        previousRound: PriorRound? = nil,
+        dispositions: [CompilerAnnotationDisposition] = [],
+        ask: String? = nil,
+        lessons: String? = nil,
+        signals: ProcessSignals? = nil,
+        previousBriefingHash: String?
+    ) -> (message: String, briefingHash: String?) {
+        runMessageV2(
+            delta: delta, kind: .round, world: world, essay: essay,
+            bibleFacts: bibleFacts, paletteListing: paletteListing,
+            pinnedListing: pinnedListing, pass: pass, scenePosition: scenePosition,
+            previousRound: previousRound, dispositions: dispositions, ask: ask,
+            lessons: lessons, signals: signals,
+            previousBriefingHash: previousBriefingHash)
+    }
+
     /// The run message: the declared world (essay + derived clauses/rules),
     /// the bible slice, the listings, the delta, and the section schema.
     ///
@@ -260,9 +329,26 @@ enum CompilerPrompt {
     /// the ordinary answer (round 1 of a lane, a passless ⌘R, a fresh-eyes
     /// read) and because this function has exactly one production caller,
     /// `CompilerOrchestrator.beginRun`, which is where the lane rule is
-    /// decided.
+    /// decided — and which will reach it through `checkMessage`/`roundMessage`
+    /// above once Task 4 splits its send.
+    ///
+    /// **`kind` changes what is briefed and never the hashed unit** (two loops
+    /// P1 Task 3). Three sections are scoped by it: the prose is the delta for
+    /// a check and the piece whole for a round, the draft stage doses a check
+    /// alone, and the prior round in this lane briefs a round alone. The
+    /// essay, the world, the bible slice and the ledger are what the writer
+    /// DECLARED — which loop asked for this run is not one of those — so a
+    /// check and a round over an unchanged intent hash identically and the
+    /// second of them gets the marker line, not the briefing again.
+    ///
+    /// Defaulted to `.check` because the check is the verb that predates the
+    /// split: every call site written before `RunKind` existed was one, and a
+    /// default that silently briefed a round as a check would be the wrong way
+    /// round.
     static func runMessageV2(
-        delta: CompilerDelta, world: DerivedWorld?, essay: String?,
+        delta: CompilerDelta,
+        kind: RunKind = .check,
+        world: DerivedWorld?, essay: String?,
         bibleFacts: [BibleFact], paletteListing: [String], pinnedListing: [String],
         pass: CompilerOrchestrator.ActivePass? = nil,
         scenePosition: ScenePosition = .none,
@@ -340,19 +426,41 @@ enum CompilerPrompt {
         // their week, so a hash covering either would never match its
         // predecessor.
         //
-        // The stage is written on every production run; the numbers only when
-        // a plain threshold was crossed. A quiet session says nothing at all
-        // rather than saying there is nothing to say.
-        if let stageSection = stageSection(stage, freshEyes: freshEyes) {
-            sections.append(stageSection)
+        // The stage is written on every production check; the numbers only
+        // when a plain threshold was crossed. A quiet session says nothing at
+        // all rather than saying there is nothing to say.
+        //
+        // **The stage doses a CHECK and never a round** (spec §4.8, two loops
+        // P1): a round is always the full letter — its pass brief decides
+        // which parts — so a stage reaching one would ask for the short letter
+        // over a piece the editor was told to read whole. Switched rather than
+        // `if kind == .check`, on `RunKind.of(persona:)`'s rule: a third loop
+        // is then a compile error at every fork that decides on the kind,
+        // instead of silently taking the arm nobody wrote for it.
+        switch kind {
+        case .check:
+            if let stageSection = stageSection(stage, freshEyes: freshEyes) {
+                sections.append(stageSection)
+            }
+        case .round:
+            break
         }
         if let processSection = processSection(signals) {
             sections.append(processSection)
         }
-        if let previousRound,
-           let round = roundSection(
-            previousRound: previousRound.record, notes: previousRound.notes) {
-            sections.append(round)
+        // And its mirror: the prior round in this lane reaches the ROUND loop
+        // alone. A check is filed in no lane (Task 1), so "last round you
+        // raised these notes" over one would ask this run to confirm findings
+        // from a conversation it is not part of.
+        switch kind {
+        case .round:
+            if let previousRound,
+               let round = roundSection(
+                previousRound: previousRound.record, notes: previousRound.notes) {
+                sections.append(round)
+            }
+        case .check:
+            break
         }
         if let dispositions = dispositionsSection(dispositions) {
             sections.append(dispositions)
@@ -370,7 +478,13 @@ enum CompilerPrompt {
             sections.append(ask)
         }
 
-        sections.append(deltaSection(delta))
+        // The prose itself, and the one thing the two verbs actually read
+        // differently (spec §4.5). What changed since the last round reaches a
+        // round through the two sections above rather than through a diff.
+        switch kind {
+        case .check: sections.append(deltaSection(delta))
+        case .round: sections.append(wholePieceSection(delta))
+        }
 
         sections.append(sectionSchemaDescription)
 
@@ -1091,6 +1205,57 @@ enum CompilerPrompt {
                 lines.append("Before: \(cleaned(paragraph.prior))")
                 lines.append("After: \(cleaned(paragraph.text))")
             }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - The piece, whole (two loops P1 Task 3, spec §4.5)
+
+    /// **What a round reads.** A round passes `since: nil` to `DeltaBuilder`
+    /// (Task 4), so the delta it hands over is the whole standing manuscript
+    /// in `sequence` order — every paragraph `new`, nothing `revised`. This
+    /// renders it as what it is: the piece, with no labels on it.
+    ///
+    /// **The labels are dropped rather than kept for tidiness.** Over a whole
+    /// read "(new)" is true of every paragraph and says nothing, and there is
+    /// no prior version to put after "Before:" — a diff's vocabulary over a
+    /// whole read tells the editor they are being shown a change when they are
+    /// being shown a book. What DID change since the last round reaches the
+    /// round through the prior-round and dispositions sections above, which is
+    /// the spec's answer (§4.5) and the one M4 P1 already built.
+    ///
+    /// **The order is the manuscript's.** `DeltaBuilder` walks `sequence`, so
+    /// the arrays arrive in the order the writer reads them in; this function
+    /// keeps that order and never sorts. A sort of any kind here would hand
+    /// the editor a piece whose scenes are out of order with nothing in the
+    /// message to say so.
+    ///
+    /// `revised` is walked after `new` rather than dropped: production hands a
+    /// round nothing there, but a delta this function cannot interleave (the
+    /// two arrays are each in sequence order and their join is not recoverable
+    /// from them) must still lose no prose — the words are safe is the first
+    /// invariant, and a caller who builds a round's delta some other way gets
+    /// every paragraph, out of order, rather than silence.
+    private static func wholePieceSection(_ delta: CompilerDelta) -> String {
+        var lines: [String] = ["The piece, whole:"]
+
+        if delta.new.isEmpty && delta.revised.isEmpty {
+            // Unreachable from `beginRun`, which refuses an empty delta before
+            // a message is ever built — stated anyway, on `deltaSection`'s
+            // rule: a function whose caller must reason before calling it is
+            // one the next caller gets wrong.
+            lines.append("This piece has no prose in it yet.")
+            return lines.joined(separator: "\n")
+        }
+
+        for paragraph in delta.new {
+            lines.append("[\(paragraph.paragraphId)]")
+            lines.append(cleaned(paragraph.text))
+        }
+        for paragraph in delta.revised {
+            lines.append("[\(paragraph.paragraphId)]")
+            lines.append(cleaned(paragraph.text))
         }
 
         return lines.joined(separator: "\n")

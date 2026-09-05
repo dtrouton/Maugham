@@ -997,7 +997,16 @@ final class CompilerOrchestrator {
                 $0.epoch == runner.sessionEpoch ? $0.hash : nil
             }
             let (message, briefingHash) = CompilerPrompt.runMessageV2(
-                delta: delta, world: world, essay: essay, bibleFacts: bibleFacts,
+                delta: delta,
+                // **Which loop asked, at the one place the message is built**
+                // (two loops P1 Task 3). The prompt scopes three sections by
+                // it — the prose, the draft stage, the prior round — and a
+                // round sent under the check's default would be handed a diff
+                // with a stage's dose on it. Task 4 replaces this call with
+                // `checkMessage`/`roundMessage`, whose signatures make the
+                // pairing unforgettable; until then the kind travels here.
+                kind: kind,
+                world: world, essay: essay, bibleFacts: bibleFacts,
                 paletteListing: paletteListing, pinnedListing: pinnedListing,
                 pass: activePass,
                 scenePosition: scenePosition,

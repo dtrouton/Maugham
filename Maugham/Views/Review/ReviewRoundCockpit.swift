@@ -571,7 +571,11 @@ struct ReviewRoundCockpit: View {
     /// of it (`ReviewRoundCockpitTests`' one-spelling census).
     private var statusLine: String? {
         switch phase {
-        case .running(let counts): return RoundNarrative.checkingCopy(counts)
+        // `.round`, always: this cockpit IS the round loop, and its runs read
+        // the piece whole (two loops P1 Task 3). Author's pane says the
+        // check's sentence at the mirror of this line.
+        case .running(let counts):
+            return RoundNarrative.checkingCopy(counts, kind: .round)
         case .failed(let failure, _): return RoundNarrative.failureCopy(failure)
         case .idle: return reportLine
         }
