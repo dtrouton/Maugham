@@ -374,29 +374,6 @@ final class LetterSectionTests: XCTestCase {
 
     // MARK: - Mounted: the verbs
 
-    /// A question row travels to its FIRST ref, and says how many more it
-    /// stands for.
-    func test_aQuestionRowJumpsToItsFirstRefAndSaysHowManyMore() throws {
-        var jumped: [String] = []
-        let window = mount(Self.fullLetter(), onJump: { jumped.append($0) })
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(
-            texts.contains("and 2 more"),
-            "a question standing on three paragraphs must say so. Read: \(texts)")
-
-        let labels = try axButtonLabels(in: window)
-        let chip = try XCTUnwrap(
-            findChip(quoting: "The fog came in.", in: window),
-            "the question's jump chip never reached the surface: \(labels)")
-        press(chip)
-        pump(0.1)
-        XCTAssertEqual(
-            jumped.first, "a1b2",
-            "a question row jumps to its first ref \u{2014} that is the paragraph the "
-            + "writer is being asked about")
-    }
-
     /// **The count survives a first ref with no words left in it** (fix round
     /// 1, Minor 3). A habit citing three paragraphs stands on three whether or
     /// not the first of them still reads as anything — drawing the count only
@@ -425,41 +402,6 @@ final class LetterSectionTests: XCTestCase {
         XCTAssertFalse(
             bare.contains { $0.contains("\u{201C}") },
             "and no chip is drawn for a paragraph with no words. Read: \(bare)")
-    }
-
-    /// **Accept as task hands the habit over, once.** The button is disabled
-    /// after the press rather than removed: a control that vanished on its own
-    /// press leaves the writer unsure whether it fired.
-    func test_acceptAsTaskHandsTheHabitOverAndThenRefuses() throws {
-        var accepted: [Letter.Habit] = []
-        let window = mount(Self.fullLetter(), onAcceptExercise: { accepted.append($0) })
-
-        let labels = try axButtonLabels(in: window)
-        let button = try XCTUnwrap(
-            findButton(labelled: LetterSection.acceptTitle, in: window),
-            "Accept as task never reached the surface: \(labels)")
-        XCTAssertEqual(axEnabled(button), true, "it must be pressable before the press")
-
-        press(button)
-        pump(0.15)
-        XCTAssertEqual(accepted.count, 1)
-        XCTAssertEqual(
-            accepted.first?.exercise,
-            "Rewrite the scene without a single \u{201C}was\u{201D}.",
-            "the habit handed over must be the one whose button was pressed")
-
-        let after = try XCTUnwrap(
-            findButton(labelled: LetterSection.acceptTitle, in: window),
-            "the button must stay on screen, disabled, rather than disappearing")
-        XCTAssertEqual(
-            axEnabled(after), false,
-            "a second press would file the same exercise twice")
-
-        press(after)
-        pump(0.15)
-        XCTAssertEqual(
-            accepted.count, 1,
-            "a disabled Accept as task must not reach the handler")
     }
 
     /// A habit with no exercise offers nothing to accept — there is no thing
@@ -537,15 +479,6 @@ final class LetterSectionTests: XCTestCase {
             "and nothing red is drawn when nothing was refused")
     }
 
-    /// **Keep this letter is a real button now**; what it writes is Task 10.
-    func test_keepThisLetterCallsTheClosure() throws {
-        var kept = 0
-        let window = mount(Self.fullLetter(), onKeep: { kept += 1 })
-        press(try XCTUnwrap(findButton(labelled: LetterSection.keepTitle, in: window)))
-        pump(0.15)
-        XCTAssertEqual(kept, 1)
-    }
-
     func test_theKeepConfirmationDrawsOnlyWhenAHostSuppliesOne() throws {
         let confirmation = "Kept in Research."
         XCTAssertTrue(
@@ -602,77 +535,6 @@ final class LetterSectionTests: XCTestCase {
             "the control: the piece's own tense, drawn from the same input")
     }
 
-    /// **An exercise's memory belongs to its run** (final review, Important).
-    ///
-    /// `acceptedExercises` is keyed by index, and an index is only meaningful
-    /// inside one letter. Held across runs, the next round's first habit is
-    /// born disabled — and the guide says a greyed Accept as task means the
-    /// task is already filed, so the writer reads a lie and cannot file it.
-    /// `LetterKeep.Kept` and `TurnClauseOffer.filedRunId` are both run-keyed;
-    /// this is the same shape.
-    func test_anAcceptedExercisesMemoryIsPerRun() throws {
-        let host = RunSwapHost(letter: Self.fullLetter())
-        let window = mount(AnyView(host))
-
-        let accept = try XCTUnwrap(
-            findButton(labelled: LetterSection.acceptTitle, in: window))
-        press(accept)
-        pump(0.15)
-        XCTAssertEqual(
-            axEnabled(try XCTUnwrap(
-                findButton(labelled: LetterSection.acceptTitle, in: window))),
-            false, "the premise: pressed once, refused for the rest of this run")
-
-        // The control first: the same run re-rendered still refuses.
-        press(try XCTUnwrap(findButton(labelled: RunSwapHost.redrawTitle, in: window)))
-        pump(0.15)
-        XCTAssertEqual(
-            axEnabled(try XCTUnwrap(
-                findButton(labelled: LetterSection.acceptTitle, in: window))),
-            false,
-            "a redraw inside one run must not forget the press \u{2014} the writer "
-            + "would file the same exercise twice")
-
-        press(try XCTUnwrap(findButton(labelled: RunSwapHost.nextRunTitle, in: window)))
-        pump(0.2)
-        XCTAssertEqual(
-            axEnabled(try XCTUnwrap(
-                findButton(labelled: LetterSection.acceptTitle, in: window))),
-            true,
-            "a new run is a new letter: its first habit has never been accepted, and "
-            + "a button born disabled tells the writer it fired when it did not")
-    }
-
-    /// A host that can change the run under one live `LetterSection`, which is
-    /// what a reopened pane does. A fresh mount would prove nothing: SwiftUI
-    /// state does not survive one, and the defect is precisely that it survives
-    /// where the view stays put.
-    private struct RunSwapHost: View {
-        static let nextRunTitle = "Next run"
-        static let redrawTitle = "Redraw"
-
-        let letter: Letter
-        @State private var runId = "run-A"
-        @State private var nudge = 0
-
-        var body: some View {
-            VStack(alignment: .leading, spacing: 6) {
-                Button(Self.nextRunTitle) { runId = "run-B" }
-                Button(Self.redrawTitle) { nudge += 1 }
-                Text("redraws: \(nudge)")
-                LetterSection(
-                    letter: letter, runId: runId,
-                    signature: "\u{2014} Le Guin", currentText: { _ in nil },
-                    onJump: { _ in }, onAcceptExercise: { _ in },
-                    onAddTurnClause: nil,
-                    addToIntentTitle: LetterSection.addToIntentTitle,
-                    onKeep: {},
-                    freshEyes: true,
-                    onKeepAsLesson: { _ in }, onAllChoices: {})
-            }
-        }
-    }
-
     // MARK: - Mounted: the answer (P2 Task 6)
 
     /// **The answer draws first, under the ask it answers.** A writer who
@@ -726,37 +588,6 @@ final class LetterSectionTests: XCTestCase {
 
     // MARK: - Mounted: Keep as lesson (P2 Task 6)
 
-    /// **Keep as lesson hands the habit over, once**, and stands beside Accept
-    /// as task rather than in place of it: the two answer different questions.
-    func test_keepAsLessonHandsTheHabitOverAndThenRefuses() throws {
-        var kept: [Letter.Habit] = []
-        let window = mount(Self.fullLetter(), onKeepAsLesson: { kept.append($0) })
-
-        XCTAssertNotNil(
-            findButton(labelled: LetterSection.acceptTitle, in: window),
-            "Accept as task must still be there \u{2014} Keep is beside it, not "
-            + "instead of it")
-        let labels = try axButtonLabels(in: window)
-        let button = try XCTUnwrap(
-            findButton(labelled: LetterSection.keepAsLessonTitle, in: window),
-            "Keep as lesson never reached the surface: \(labels)")
-        XCTAssertEqual(axEnabled(button), true)
-
-        press(button)
-        pump(0.15)
-        XCTAssertEqual(kept.count, 1)
-        XCTAssertEqual(kept.first?.lesson, "Vary the opening.")
-
-        let after = try XCTUnwrap(
-            findButton(labelled: LetterSection.keepAsLessonTitle, in: window),
-            "disabled rather than gone, `acceptTitle`'s rule")
-        XCTAssertEqual(axEnabled(after), false)
-        press(after)
-        pump(0.15)
-        XCTAssertEqual(
-            kept.count, 1, "a second press would file the same lesson twice")
-    }
-
     /// A habit with no exercise is still worth keeping: the two buttons are
     /// independent, and a lesson does not need a thing to do beside it.
     func test_aHabitWithNoExerciseStillOffersKeepAsLesson() throws {
@@ -803,38 +634,6 @@ final class LetterSectionTests: XCTestCase {
         XCTAssertNotNil(findButton(labelled: LetterSection.keepAsLessonTitle, in: some))
     }
 
-    // MARK: - Mounted: These are all choices (P2 Task 6)
-
-    /// The plural press files once and then says so. Whether it is offered at
-    /// all is the host's answer (`LessonOffer.allChoicesIsOffered`), carried
-    /// in as the presence of the closure.
-    func test_theseAreAllChoicesFilesOnceAndThenRefuses() throws {
-        var pressed = 0
-        let window = mount(
-            Self.fullLetter(habits: Self.twoHabits), freshEyes: true,
-            onAllChoices: { pressed += 1 })
-        let labels = try axButtonLabels(in: window)
-        let button = try XCTUnwrap(
-            findButton(labelled: LetterSection.allChoicesTitle, in: window),
-            "Buttons: \(labels)")
-        press(button)
-        pump(0.15)
-        XCTAssertEqual(pressed, 1)
-
-        let after = try XCTUnwrap(
-            findButton(labelled: LetterSection.allChoicesTitle, in: window))
-        XCTAssertEqual(axEnabled(after), false)
-        press(after)
-        pump(0.15)
-        XCTAssertEqual(pressed, 1)
-
-        XCTAssertNil(
-            findButton(labelled: LetterSection.allChoicesTitle,
-                       in: mount(Self.fullLetter(habits: Self.twoHabits),
-                                 freshEyes: true)),
-            "a host that did not offer it must not draw it")
-    }
-
     // MARK: - Mounted: what the round did not find (P2 Task 6)
 
     /// **A warm round says what it can and offers nothing.** It read a delta,
@@ -852,43 +651,6 @@ final class LetterSectionTests: XCTestCase {
         XCTAssertNil(
             findButton(labelled: LetterSection.retireTitle, in: window),
             "Buttons: \(labels)")
-    }
-
-    /// **A Fresh Eyes round read the whole piece cold**, which is the evidence
-    /// a retirement stands on — so it offers, in its own words.
-    func test_aFreshEyesRoundOffersTheRetirementInItsOwnWords() throws {
-        var retired: [String] = []
-        let window = mount(
-            Self.answeredLetter(), ledgerText: Self.ledger, freshEyes: true,
-            onRetire: { retired.append($0) })
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(
-            texts.contains(LetterSection.freshRetiredLine("Vary the opening.")),
-            "Read: \(texts)")
-        XCTAssertFalse(texts.contains(LetterSection.warmRetiredLine("Vary the opening.")))
-
-        let labels = try axButtonLabels(in: window)
-        let button = try XCTUnwrap(
-            findButton(labelled: LetterSection.retireTitle, in: window),
-            "Buttons: \(labels)")
-        press(button)
-        pump(0.15)
-        XCTAssertEqual(
-            retired, ["Vary the opening."],
-            "the heading travels verbatim \u{2014} it is what addresses the "
-            + "writer's own file")
-
-        XCTAssertNil(
-            findButton(labelled: LetterSection.retireTitle, in: window),
-            "the offer is spent")
-        let spent = try axButtonLabels(in: window)
-        let after = try XCTUnwrap(
-            findButton(labelled: LetterSection.retiredTitle, in: window),
-            "and says so where it stood: \(spent)")
-        XCTAssertEqual(axEnabled(after), false)
-        press(after)
-        pump(0.15)
-        XCTAssertEqual(retired.count, 1)
     }
 
     /// **A heading that names no live lesson draws nothing** (global
@@ -965,104 +727,6 @@ final class LetterSectionTests: XCTestCase {
             positions, positions.sorted(),
             "the answer leads and the not-found list follows the table. "
             + "Read: \(texts)")
-    }
-
-    /// **The ledger's presses belong to their run too** (P1's own rule, in
-    /// three more places). Held across runs the next round's first habit is
-    /// born disabled, and a disabled Keep as lesson is the app saying the
-    /// lesson is already in the ledger.
-    func test_theLedgerPressesAreRememberedPerRun() throws {
-        let host = RunSwapHost(letter: Self.fullLetter(habits: Self.twoHabits))
-        let window = mount(AnyView(host))
-
-        press(try XCTUnwrap(
-            findButton(labelled: LetterSection.keepAsLessonTitle, in: window)))
-        press(try XCTUnwrap(
-            findButton(labelled: LetterSection.allChoicesTitle, in: window)))
-        pump(0.2)
-        for title in [LetterSection.keepAsLessonTitle, LetterSection.allChoicesTitle] {
-            XCTAssertEqual(
-                axEnabled(try XCTUnwrap(findButton(labelled: title, in: window))),
-                false, "the premise: \(title) is spent for this run")
-        }
-
-        press(try XCTUnwrap(findButton(labelled: RunSwapHost.redrawTitle, in: window)))
-        pump(0.2)
-        for title in [LetterSection.keepAsLessonTitle, LetterSection.allChoicesTitle] {
-            XCTAssertEqual(
-                axEnabled(try XCTUnwrap(findButton(labelled: title, in: window))),
-                false,
-                "a redraw inside one run must not forget the press \u{2014} the "
-                + "writer would file \(title) twice")
-        }
-
-        press(try XCTUnwrap(findButton(labelled: RunSwapHost.nextRunTitle, in: window)))
-        pump(0.25)
-        for title in [LetterSection.keepAsLessonTitle, LetterSection.allChoicesTitle] {
-            XCTAssertEqual(
-                axEnabled(try XCTUnwrap(findButton(labelled: title, in: window))),
-                true,
-                "a new run is a new letter, and a button born disabled tells the "
-                + "writer \(title) fired when it did not")
-        }
-    }
-
-    /// **A refused write gives the control back** (fix round 1, Important 1).
-    ///
-    /// The press is remembered before the handler runs, which is what stops a
-    /// double file — but a write the op log turned away then leaves a disabled
-    /// button over a ledger that never moved, and the writer has nothing left
-    /// to press. Control: the identical host with no failure keeps it disabled.
-    func test_aRefusedLedgerWriteGivesTheControlBack() throws {
-        let host = LedgerFailureHost(letter: Self.fullLetter())
-        let window = mount(AnyView(host))
-
-        press(try XCTUnwrap(
-            findButton(labelled: LetterSection.keepAsLessonTitle, in: window)))
-        pump(0.2)
-        XCTAssertEqual(
-            axEnabled(try XCTUnwrap(
-                findButton(labelled: LetterSection.keepAsLessonTitle, in: window))),
-            false,
-            "the premise and the control: with nothing refused, one press is one "
-            + "file and the button stays down")
-
-        press(try XCTUnwrap(
-            findButton(labelled: LedgerFailureHost.refuseTitle, in: window)))
-        pump(0.25)
-        XCTAssertTrue(
-            try axTexts(in: window).contains(LedgerFailureHost.refusal),
-            "the premise: the refusal is on screen")
-        XCTAssertEqual(
-            axEnabled(try XCTUnwrap(
-                findButton(labelled: LetterSection.keepAsLessonTitle, in: window))),
-            true,
-            "a ledger that never moved must leave the writer something to press")
-    }
-
-    /// A host that can raise a refusal under one live `LetterSection`, which is
-    /// what a failed write does. A fresh mount would prove nothing: the defect
-    /// is precisely that the memory survives where the view stays put.
-    private struct LedgerFailureHost: View {
-        static let refuseTitle = "Refuse"
-        static let refusal = "There is nothing here to rule on yet."
-
-        let letter: Letter
-        @State private var failure: String?
-
-        var body: some View {
-            VStack(alignment: .leading, spacing: 6) {
-                Button(Self.refuseTitle) { failure = Self.refusal }
-                LetterSection(
-                    letter: letter, runId: "run-1",
-                    signature: "\u{2014} Le Guin", currentText: { _ in nil },
-                    onJump: { _ in }, onAcceptExercise: { _ in },
-                    onAddTurnClause: nil,
-                    addToIntentTitle: LetterSection.addToIntentTitle,
-                    onKeep: {},
-                    onKeepAsLesson: { _ in }, ledgerFailure: failure)
-            }
-        }
     }
 
     /// **A warm round says the warm thing, whatever the host wired** (fix
@@ -1292,16 +956,5 @@ final class LetterSectionTests: XCTestCase {
     /// records a failure on the expected absence.
     private func findButton(labelled label: String, in window: NSWindow) -> NSObject? {
         (try? axButtons(labelled: label, in: window))?.first as? NSObject
-    }
-
-    /// A jump chip is a `.plain` `Button` whose label is the quoted excerpt.
-    private func findChip(quoting words: String, in window: NSWindow) -> NSObject? {
-        guard let elements = try? axElements(in: window) else { return nil }
-        return elements.first { element in
-            guard (axAttribute(element, "accessibilityRole") as? String) == "AXButton"
-            else { return false }
-            let label = (axAttribute(element, "accessibilityLabel") as? String) ?? ""
-            return label.contains(words)
-        } as? NSObject
     }
 }

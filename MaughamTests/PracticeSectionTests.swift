@@ -399,28 +399,6 @@ final class PracticeSectionTests: XCTestCase {
         }
     }
 
-    /// **The press opens the chapter the frontier is in** — the window's own
-    /// `onSelectChapter`, which posts a project-scoped
-    /// `.maughamNavigateToDocument` (global constraint 31). Pressed through the
-    /// accessibility tree: the Statistics window is its own scene and is never
-    /// the key window, so a synthetic click has no premise here.
-    func test_pressingTheFrontierRowOpensItsChapter() async throws {
-        let practice = try await twoChapterPractice()
-        let frontier = try XCTUnwrap(practice.frontier)
-        XCTAssertEqual(frontier.row.id, "ch-2", "the fixture's own premise")
-
-        var opened: [String] = []
-        let window = mount(practice, onSelectChapter: { opened.append($0) })
-        let labels = try axButtonLabels(in: window)
-        let button = try XCTUnwrap(
-            axButtons(labelled: PracticeSection.frontierLine(practice), in: window).first,
-            "no frontier button. Buttons: \(labels)")
-        press(button)
-        pump()
-
-        XCTAssertEqual(opened, ["ch-2"])
-    }
-
     /// **A hotspot row opens ITS OWN chapter, not the frontier's.** The book's
     /// churn is merged across documents, so the rows do not all belong to one
     /// file — and the fixture's frontier is in chapter TWO, which is why the

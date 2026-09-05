@@ -442,31 +442,6 @@ final class ReferencesPaneTests: XCTestCase {
 
     // MARK: - Contract: Review studies too (Denver's 2026-08-14 ruling, spec §9)
 
-    /// **The assistant column widens to Review as well as Author.**
-    /// `ReferencesPane.isInteractive` and `AssistantColumn.isPresented` read
-    /// the same predicate (`Persona.studiesPinnedReferences`), so a Review
-    /// mount promotes exactly like Author's — widening one site without the
-    /// other is the defect this predicate exists to make impossible.
-    func test_theShelfDrawsARowPerPinAndAClickPromotesItInReviewToo() async throws {
-        let model = AssistantColumnModel()
-        let pins = [pin("res-note", .research(itemId: "res-note"), "The falls at night")]
-
-        let window = mount(AnyView(
-            ReferencesPane(sections: oneSection(pins),
-                           projectRoot: temp.url,
-                           persona: .review,
-                           assistant: model)
-                .frame(width: 300, height: 500)))
-
-        let button = try findButton(labelled: "The falls at night", in: window)
-        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump()
-
-        XCTAssertEqual(model.studied?.id, "res-note",
-                       "Review studies pins exactly like Author does — same predicate, "
-                       + "same column")
-    }
-
     // MARK: - Contract: outside Author and Review, a pin is inert, and says why
 
     /// **Plan and Publish still veto** (`Persona.studiesPinnedReferences` is

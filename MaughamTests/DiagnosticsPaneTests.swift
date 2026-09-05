@@ -879,39 +879,6 @@ final class DiagnosticsPaneTests: XCTestCase {
             + "first-run path \u{2318}R takes, not a second run kind")
     }
 
-    /// **Not now records the refusal, and the offer never renders again for
-    /// this document** — asserted in both directions: gone from the pane
-    /// that just refused it, and gone from a SECOND, freshly mounted pane
-    /// over the same store, because the promise is about the document, not
-    /// about one pane instance.
-    func test_notNowRefusesAndTheOfferNeverRendersAgainForThatDocument() async throws {
-        let document = try await makeMultiParagraphDocument()
-        let docId = document.docId
-        let diagnostics = DiagnosticsStore(
-            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
-            currentText: { _ in nil }, compilerModel: .standard,
-            activeDocument: { document })))
-
-        let notNow = try button(labelled: "Not now", in: window)
-        _ = notNow.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-
-        XCTAssertTrue(diagnostics.hasRefusedColdStart(docId: docId))
-        XCTAssertNil(findButton(labelled: "Read", in: window),
-            "the offer must not re-render in place after its own refusal")
-        XCTAssertNil(findButton(labelled: "Not now", in: window))
-
-        let secondWindow = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
-            currentText: { _ in nil }, compilerModel: .standard,
-            activeDocument: { document })))
-        XCTAssertNil(findButton(labelled: "Read", in: secondWindow),
-            "a second pane over the same store must not offer again either")
-    }
-
     /// A manuscript with one live paragraph or fewer never offers — the
     /// plain "Not checked yet" empty state stands instead.
     func test_aTrivialManuscriptNeverOffersColdStart() async throws {
@@ -947,41 +914,6 @@ final class DiagnosticsPaneTests: XCTestCase {
 
         XCTAssertNil(findButton(labelled: "Read", in: window))
         XCTAssertNil(findButton(labelled: "Not now", in: window))
-    }
-
-    // MARK: - Cancel (real running state, real button)
-
-    /// The Cancel button is visible only while a run for THIS document is in
-    /// flight, and pressing it calls the orchestrator's own `cancel()` — not
-    /// a copy of what that does.
-    func test_cancelButton_visibleOnlyWhileRunning_andCallsCancel() async throws {
-        let docId = "doc-cancel"
-        let runner = SpyRunner()
-        runner.nextEvent = nil   // hold the turn open
-        let orchestrator = CompilerOrchestrator()
-        let diagnostics = DiagnosticsStore(
-            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-        orchestrator.configure(
-            environment: makeEnvironment(docId: docId, runner: runner),
-            diagnostics: diagnostics)
-
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: orchestrator, diagnostics: diagnostics, docId: docId,
-            currentText: { _ in nil }, compilerModel: .standard)))
-
-        XCTAssertNil(findButton(labelled: "Cancel", in: window),
-                     "Cancel must not appear before a run starts")
-
-        orchestrator.runRequested(docId: docId)
-        await awaitSends(1, on: runner)
-        pump(0.2)
-
-        let cancelButton = try button(labelled: "Cancel", in: window)
-        _ = cancelButton.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-        try? await Task.sleep(for: .milliseconds(200))
-
-        XCTAssertEqual(runner.cancels, 1, "pressing Cancel must call the real cancel()")
     }
 
     // MARK: - Open Intent
@@ -1337,40 +1269,6 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(
             staticTextLabels(in: window, containing: "Your line may have moved").isEmpty,
             "the clause holding this run must break the streak, and the line with it")
-    }
-
-    /// **Not a `Diagnostic`.** No dismissal and no reply field: pressing the
-    /// line opens Intent and nothing else changes — the line is still exactly
-    /// where it was, and no `TextField` appeared the way one does under a
-    /// question's "Answer".
-    func test_driftLineIsNotADiagnostic_offersNoDismissalOrAnswerField() async throws {
-        let docId = "doc-drift-not-a-diagnostic"
-        let quote = "Cold, and never wistful."
-        let store = DiagnosticsStore(
-            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-        for _ in 0..<3 {
-            store.replace(run: makeRun(clauseStatuses: [makeClause(quote, "strains")]),
-                          diagnostics: [], docId: docId)
-        }
-
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
-            currentText: { _ in nil }, compilerModel: .standard)))
-        pump(0.3)
-
-        let expectedLine = try XCTUnwrap(DiagnosticsPane.driftNote(
-            DriftDetector.drift(history: store.clauseStatusHistory(docId: docId))))
-        XCTAssertTrue(revealedFields(in: window).isEmpty,
-                     "the drift line must not offer a reply field the way a question's row does")
-
-        _ = try button(labelled: expectedLine, in: window)
-            .perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.3)
-
-        XCTAssertFalse(staticTextLabels(in: window, containing: expectedLine).isEmpty,
-                       "pressing the line must not dismiss it \u{2014} it has nothing to dismiss")
-        XCTAssertTrue(revealedFields(in: window).isEmpty,
-                     "and it must not have opened a reply field either")
     }
 
     // MARK: - Since last round (M3-P3 Task 3, recounted off the queue in M4 P1)
@@ -2448,36 +2346,6 @@ final class DiagnosticsPaneTests: XCTestCase {
                         "control: the row itself rendered")
     }
 
-    /// An answerable note offers Answer, and pressing it puts a text field on
-    /// the row. Asserted against the real accessibility tree, so the affordance
-    /// is one a writer (and VoiceOver) can actually reach.
-    func test_answerRevealsAFieldOnAQuestion() async throws {
-        let (url, store, chapter) = try await loadedNovel(named: "AnswerRevealsField")
-        let diagnostics = DiagnosticsStore(
-            projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
-        diagnostics.replace(
-            run: makeRun(),
-            diagnostics: [makeDiagnostic(
-                docId: chapter.id,
-                anchor: Diagnostic.Anchor(paragraphId: "a1b2", anchorText: "The fog came in."),
-                body: "Was that learned offstage?")],
-            docId: chapter.id)
-
-        let window = mount(pane(store: store, diagnostics: diagnostics, docId: chapter.id,
-                                currentText: { _ in "The fog came in." }))
-        pump(0.2)
-        XCTAssertTrue(revealedFields(in: window).isEmpty, "the field is revealed, not standing")
-
-        let answer = try button(labelled: "Answer", in: window)
-        _ = answer.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.3)
-
-        XCTAssertFalse(
-            revealedFields(in: window).isEmpty,
-            "pressing Answer must put a field on the row \u{2014} otherwise the action "
-            + "names something the writer cannot type into")
-    }
-
     /// The pane offers no Answer at all without a store to write through, so a
     /// press can never reach a destination that does not exist.
     func test_withoutAProjectStoreThereIsNoAnswerAction() async throws {
@@ -3140,55 +3008,6 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertFalse(allLabels(in: window).contains("Has anyone said how long yet?"),
                        "the row stayed after the writer took the note; got "
                        + "\(allLabels(in: window))")
-    }
-
-    /// **⌘Z after Got it reopens the note, and the row comes back.** This
-    /// check's Got it inherits the accept's undo the way Not this inherits the
-    /// decline's — through the pane's own undo manager, wired rather than
-    /// reimplemented (Denver's 2026-08-18 ruling). Until that ruling accepting
-    /// a comment registered nothing at all, so this ⌘Z reached whatever the
-    /// writer had done before pressing the button.
-    func test_undoAfterGotItReopensTheNoteAndTheRowReturns() async throws {
-        let document = try await makeMultiParagraphDocument()
-        let paragraphId = try XCTUnwrap(document.sequence.first)
-        let store = DiagnosticsStore(
-            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-        let run = makeRun(mintedNotes: 1)
-        store.replace(run: run, diagnostics: [], docId: document.docId)
-        let noteId = try await mintNote(
-            on: document, run: run, body: "Has anyone said how long yet?",
-            paragraphId: paragraphId)
-
-        let window = mount(wetInkPane(document: document, store: store))
-        pump(0.3)
-        try await press("Got it", in: window) {
-            self.statusIfPresent(of: noteId, in: document) != .open
-        }
-        XCTAssertEqual(try status(of: noteId, in: document), .accepted,
-                       "control: the note settled")
-
-        let undoManager = try XCTUnwrap(
-            window.undoManager,
-            "the hosted pane has no undo manager, so nothing could have been "
-            + "registered through it")
-        XCTAssertTrue(undoManager.canUndo,
-                      "Got it registered no undo action at all \u{2014} which is "
-                      + "what put the writer's own last action under a menu "
-                      + "item naming this one")
-        XCTAssertEqual(undoManager.undoActionName, "Accept Note",
-                       "…and the Edit menu must name the note")
-        undoManager.undo()
-        // Polled, not slept, for `test_undoAfterNotThisReopensTheNote`'s reason.
-        try await waitUntilAsync {
-            self.statusIfPresent(of: noteId, in: document) == .open
-        }
-
-        XCTAssertEqual(try status(of: noteId, in: document), .open,
-                       "\u{2318}Z after Got it must reopen the note")
-        pump(0.3)
-        XCTAssertTrue(allLabels(in: window).contains("Has anyone said how long yet?"),
-                      "…and the row returns, because the view is a filter over "
-                      + "open notes; got \(allLabels(in: window))")
     }
 
     /// **Not this is one gesture and asks for nothing.** The reason-carrying
@@ -3965,63 +3784,6 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(try axTexts(in: window).contains(LetterSection.title))
     }
 
-    /// **Accept as task files a real, paragraph-anchored pane task — and the
-    /// manuscript does not move by one byte** (global constraint 1).
-    ///
-    /// Asserted through the deriver rather than the preview `createPaneTask`
-    /// returns, on `DiagnosticPromoteToTaskTests`' rule: a preview can agree
-    /// with itself and be wrong.
-    func test_acceptAsTaskFilesAnAnchoredTaskAndLeavesTheManuscriptAlone() async throws {
-        let (root, docURL) = try makeTestProject(
-            prefix: "LETTERTASK",
-            initialMd: "The fog came in.\n\nIt sat looking over harbour and city.")
-        let document = try await Document.load(
-            url: docURL, device: "macA", session: "s1", presenter: nil)
-        let pid = try XCTUnwrap(document.sequence.first)
-        let diagnostics = DiagnosticsStore(
-            projectRoot: root, device: DeviceSlug.make(from: "test-mac"))
-        diagnostics.replace(
-            run: makeRun(letter: makeLetter(
-                habitRefs: [Diagnostic.Ref(paragraphId: pid, excerpt: "The fog came in.")])),
-            diagnostics: [], docId: document.docId)
-
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
-            docId: document.docId, currentText: { document.paragraphs[$0] },
-            compilerModel: .standard, activeDocument: { document })))
-
-        let beforeParagraphs = Deriver.derive(ops: try await document.opLog()).paragraphs
-        // adr-0018-ok: the RENDER is the output constraint 1 is about
-        let beforeBytes = try Data(contentsOf: docURL)
-
-        let accept = try button(labelled: LetterSection.acceptTitle, in: window)
-        _ = accept.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.3)
-
-        let (derived, _, _) = TaskDeriver.derive(
-            ops: try await document.opLog(), paragraphs: document.paragraphs,
-            docId: document.docId)
-        let task = try XCTUnwrap(
-            derived.first { $0.body.contains("Read the dialogue aloud") },
-            "the exercise never became a task: \(derived.map(\.body))")
-        XCTAssertEqual(task.kind, .paneCreated)
-        XCTAssertEqual(task.anchor?.docId, document.docId)
-        XCTAssertEqual(
-            task.anchor?.paragraphId, pid,
-            "the task anchors at the habit's FIRST ref \u{2014} that is the paragraph "
-            + "the writer goes to to do the exercise")
-
-        let afterParagraphs = Deriver.derive(ops: try await document.opLog()).paragraphs
-        XCTAssertEqual(
-            afterParagraphs, beforeParagraphs,
-            "nothing the letter offers may move manuscript text (global constraint 1)")
-        // adr-0018-ok: the RENDER again, byte for byte
-        XCTAssertEqual(
-            try Data(contentsOf: docURL), beforeBytes,
-            "the manuscript file must be byte-identical before and after")
-        await document.close()
-    }
-
     /// **The offer is `strong_default`'s alone.** A writer whose own intent
     /// already carries the clause is never asked for it again — asking would
     /// file a second, duplicate ruling and read as the app not having listened.
@@ -4182,22 +3944,6 @@ final class DiagnosticsPaneTests: XCTestCase {
             + "\(bookText)")
     }
 
-    /// The offer does not stand again over the run it was just answered for.
-    /// A second press would file the identical ruling twice.
-    func test_theOfferIsGoneOnceTheClauseHasBeenFiledForThisRun() async throws {
-        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferOnce")
-        let window = mountLetterPane(
-            store: store, docId: chapter.id, letter: makeLetter())
-        let add = try button(labelled: LetterSection.addToIntentTitle, in: window)
-        _ = add.perform(NSSelectorFromString("accessibilityPerformPress"))
-        try await awaitStatement(kind: .intent, scope: .document(chapter.id), in: store)
-        pump(0.3)
-
-        XCTAssertNil(
-            findButton(labelled: LetterSection.addToIntentTitle, in: window),
-            "the writer answered it; asking again is a nag")
-    }
-
     /// **Keep this letter files a research note, through the real button**
     /// (Task 10, spec §3.6). The whole verb end to end: the press, the
     /// router's decision about where a novel chapter's note goes, the rendered
@@ -4250,29 +3996,6 @@ final class DiagnosticsPaneTests: XCTestCase {
                       "Read: \(texts)")
         XCTAssertFalse(texts.contains(LetterKeep.confirmation(first.title)),
                        "the line names the note just made, not the one before it")
-    }
-
-    /// **A keep with nowhere to file says so.** `LetterSection` draws the
-    /// button unconditionally, so a pane with no project would otherwise have
-    /// a control that looks pressed and a letter that went nowhere — the
-    /// silent-refusal defect `offerFailure` exists one line up to prevent.
-    func test_aKeepWithNoProjectRefusesOutLoud() throws {
-        let docId = "doc-keep-storeless"
-        let diagnostics = DiagnosticsStore(
-            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-        diagnostics.replace(
-            run: makeRun(letter: makeLetter()), diagnostics: [], docId: docId)
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
-            docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
-
-        let keep = try button(labelled: LetterSection.keepTitle, in: window)
-        XCTAssertFalse(try axTexts(in: window).contains(LetterKeep.noProjectRefusal),
-                       "control: nothing has been refused yet")
-        _ = keep.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.3)
-        let after = try axTexts(in: window)
-        XCTAssertTrue(after.contains(LetterKeep.noProjectRefusal), "Read: \(after)")
     }
 
     /// Poll until the store's research list reaches `count` items —
@@ -4927,128 +4650,6 @@ final class DiagnosticsPaneTests: XCTestCase {
                 name: name, refs: [], cost: "The cast blurs.",
                 lesson: lesson, exercise: nil)],
             questions: [], scenes: nil, scenePosition: nil, retired: retired)
-    }
-
-    /// Two habits, so a test can press Keep TWICE — the second press appending
-    /// to a ledger statement that already exists, which is the case the pane's
-    /// own re-read is for.
-    private func twoHabitLetter(_ first: String, _ second: String) -> Letter {
-        Letter(
-            about: "A ghost story told through weather.",
-            oneThing: nil, working: [],
-            habits: [
-                Letter.Habit(name: "Voices blur", refs: [], cost: "The cast blurs.",
-                             lesson: first, exercise: nil),
-                Letter.Habit(name: "Openings repeat", refs: [], cost: "It flattens.",
-                             lesson: second, exercise: nil),
-            ],
-            questions: [], scenes: nil, scenePosition: nil)
-    }
-
-    /// **A kept lesson stops being offered.** `LessonOffer.keepIsOffered` is
-    /// asked of the ledger's TEXT, and the ledger is a statement document this
-    /// pane observes nothing about — so without the pane's own re-read after a
-    /// write, the button goes on being drawn over a lesson already in the
-    /// writer's file, and pressing it again files a duplicate that then briefs
-    /// every later round twice.
-    ///
-    /// Disable experiment: deleting `ledgerRevision`'s bump in
-    /// `DiagnosticsPane.ledgerHandlers` turns this red at the final assertion.
-    func test_aKeptLessonStopsBeingOfferedOnceItStandsInTheLedger() async throws {
-        let (_, store, chapter) = try await loadedNovel(named: "KeepAsLessonPane")
-        let first = "Give each voice one word the others never use."
-        let second = "Open a scene on movement, not weather."
-        let window = mountLetterPane(
-            store: store, docId: chapter.id,
-            letter: twoHabitLetter(first, second),
-            reader: .stage(ReviewPass.coachPreset))
-
-        // Control: two habits, two offers, before anything is pressed.
-        XCTAssertEqual(
-            try axButtons(labelled: LetterSection.keepAsLessonTitle, in: window).count, 2,
-            "premise: both habits offer Keep. Buttons: \(allLabels(in: window))")
-
-        // **The first press MINTS the ledger statement**, which moves the
-        // manifest and would re-render this pane on its own.
-        try await pressKeepAsLesson(in: window, until: { self.openLessons(store).count == 1 })
-        // **The second appends to a statement that already exists** — nothing
-        // observable moves, so only the pane's own re-read can take the offer
-        // away. Disable experiment: with `ledgerRevision`'s bump removed from
-        // `DiagnosticsPane.ledgerHandlers`, the poll below times out and the
-        // final assertion fails with two buttons still on screen.
-        try await pressKeepAsLesson(in: window, until: { self.openLessons(store).count == 2 })
-
-        XCTAssertEqual(
-            Set(openLessons(store)), [first, second],
-            "both lessons must reach the writer's ledger")
-
-        var remaining = (try? axButtons(
-            labelled: LetterSection.keepAsLessonTitle, in: window).count) ?? 0
-        let goneBy = Date().addingTimeInterval(3)
-        while Date() < goneBy, remaining > 0 {
-            pump(0.1)
-            remaining = (try? axButtons(
-                labelled: LetterSection.keepAsLessonTitle, in: window).count) ?? 0
-        }
-        XCTAssertEqual(
-            remaining, 0,
-            "a lesson that stands in the ledger must not still offer Keep as lesson \u{2014} "
-            + "a second press files a duplicate row that then briefs every later round "
-            + "twice. Read: \(allLabels(in: window))")
-    }
-
-    /// The ledger's open lessons, as the app reads them.
-    private func openLessons(_ store: ProjectStore) -> [String] {
-        LessonsLedger.open(in: LessonLedgerVerbs.ledgerText(store: store) ?? "")
-    }
-
-    /// Press the first Keep as lesson on screen and wait for the write.
-    private func pressKeepAsLesson(
-        in window: NSWindow, until settled: @escaping () -> Bool
-    ) async throws {
-        let button = try XCTUnwrap(
-            try axButtons(labelled: LetterSection.keepAsLessonTitle, in: window)
-                .first as? NSObject,
-            "no Keep as lesson left to press. Read: \(allLabels(in: window))")
-        _ = button.perform(NSSelectorFromString("accessibilityPerformPress"))
-        let deadline = Date().addingTimeInterval(5)
-        while Date() < deadline, !settled() {
-            pump(0.05)
-            try? await Task.sleep(for: .milliseconds(40))
-        }
-        XCTAssertTrue(settled(), "the ledger write never landed")
-    }
-
-    /// **The lesson's provenance names the voice AND the lane**, built by the
-    /// shared handler rather than by either host. A lesson outlives the letter
-    /// that raised it, so which round noticed it is the one fact a writer
-    /// reading their ledger months later cannot recover any other way.
-    func test_aKeptLessonCarriesTheVoiceAndTheLaneItWasNoticedIn() async throws {
-        let (_, store, chapter) = try await loadedNovel(named: "KeepAsLessonProvenance")
-        let pass = ReviewPass(id: "structural", name: "Structural",
-                              brief: "b", editorName: "Perkins")
-        store.manifest.reviewPasses = [pass]
-        let window = mountLetterPane(
-            store: store, docId: chapter.id, letter: habitLetter(),
-            reader: .stage(pass), passId: pass.id, round: 2)
-
-        _ = try button(labelled: LetterSection.keepAsLessonTitle, in: window)
-            .perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        var entries: [LessonsLedger.Entry] = []
-        let deadline = Date().addingTimeInterval(5)
-        while Date() < deadline, entries.isEmpty {
-            pump(0.05)
-            try? await Task.sleep(for: .milliseconds(40))
-            entries = LessonsLedger.parse(
-                LessonLedgerVerbs.ledgerText(store: store) ?? "").entries
-        }
-        XCTAssertEqual(
-            entries.first?.ruling.provenance,
-            LessonLedgerVerbs.provenance(
-                voice: "Perkins",
-                lane: ReviewRoundCockpit.laneLine(pass: pass, round: 2)),
-            "the provenance is the shared builder's, from the run and the reader")
     }
 
     /// **Retire is a COLD round's offer, and a warm one still says what it

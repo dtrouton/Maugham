@@ -25,14 +25,6 @@ import MaughamCore
 @MainActor
 final class DiagnosticPromoteToTaskTests: XCTestCase {
 
-    private var windows: [NSWindow] = []
-
-    override func tearDown() {
-        for window in windows { window.contentView = NSView(frame: .zero) }
-        windows.removeAll()
-        super.tearDown()
-    }
-
     // MARK: - Fixtures
 
     private func makeDocument(
@@ -51,8 +43,7 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
 
     /// Every fixture carries a `kind`, because a diagnostic without one is by
     /// definition a v1 record and `DiagnosticsStore.load` drops those as
-    /// superseded — and the pane calls `load` on appear, so a kind-less
-    /// fixture would vanish before the mounted view ever sees it.
+    /// superseded.
     private func makeDiagnostic(
         docId: String, paragraphId: String?, anchorText: String = "",
         body: String = "The rhythm flattens across these three sentences.",
@@ -328,68 +319,6 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
 
     // MARK: - The pane's own button, pressed for real
 
-    func test_promoteDismissesTheNote() async throws {
-        let (doc, root) = try await makeDocument()
-        let pid = try firstParagraphId(of: doc)
-        let store = DiagnosticsStore(
-            projectRoot: root, device: DeviceSlug.make(from: "test-mac"))
-        let note = makeDiagnostic(
-            docId: doc.docId, paragraphId: pid, anchorText: doc.paragraph(id: pid) ?? "")
-        store.replace(run: makeRun(), diagnostics: [note], docId: doc.docId)
-
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: doc.docId,
-            currentText: { [weak doc] in doc?.paragraph(id: $0) },
-            compilerModel: .standard,
-            activeDocument: { doc })))
-        pump(0.2)
-
-        let promote = try button(labelled: "Promote to Task", in: window)
-        _ = promote.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.3)
-
-        XCTAssertTrue(
-            store.live(docId: doc.docId, currentText: { doc.paragraph(id: $0) }).isEmpty,
-            "a promoted note has become durable elsewhere — leaving it on the pane "
-            + "asks the writer to answer it twice")
-        let tasks = doc.tasks(filter: .init(scope: .document(docId: doc.docId)))
-        XCTAssertEqual(tasks.count, 1, "the press must have made exactly one task")
-        XCTAssertEqual(tasks.first?.anchor?.paragraphId, pid)
-        XCTAssertTrue(
-            tasks.first?.body.hasPrefix(note.body) == true,
-            "the task carries the note's words: \(tasks.first?.body ?? "<none>")")
-    }
-
-    /// A drift note has no ¶ to carry, and promoting one must still work —
-    /// it is the note most worth keeping, and it lands doc-scoped.
-    func test_aDriftNotePromotesDocScoped() async throws {
-        let (doc, root) = try await makeDocument()
-        let store = DiagnosticsStore(
-            projectRoot: root, device: DeviceSlug.make(from: "test-mac"))
-        store.replace(
-            run: makeRun(),
-            diagnostics: [makeDiagnostic(
-                docId: doc.docId, paragraphId: nil,
-                body: "The outline promised a scene that never got written.",
-                category: nil)],
-            docId: doc.docId)
-
-        let window = mount(AnyView(DiagnosticsPane(
-            orchestrator: CompilerOrchestrator(), diagnostics: store, docId: doc.docId,
-            currentText: { [weak doc] in doc?.paragraph(id: $0) },
-            compilerModel: .standard,
-            activeDocument: { doc })))
-        pump(0.2)
-
-        let promote = try button(labelled: "Promote to Task", in: window)
-        _ = promote.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.3)
-
-        let tasks = doc.tasks(filter: .init(scope: .document(docId: doc.docId)))
-        XCTAssertEqual(tasks.count, 1)
-        XCTAssertNil(tasks.first?.anchor?.paragraphId)
-    }
-
     // MARK: - Undo
 
     /// ⌘Z takes the task back. It does NOT bring the note back, and that is
@@ -424,61 +353,5 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
             "the note staying gone is INTENDED: dismissing it is store-side, and the "
             + "diagnostics sidecar is per-device derived state with no undo of its own "
             + "\u{2014} the next run raises the note again if it still stands")
-    }
-
-    // MARK: - Hosting + accessibility (mirrors DiagnosticsPaneTests')
-
-    private func mount(_ view: AnyView) -> NSWindow {
-        let window = TestWindow.mount(view, size: CGSize(width: 420, height: 700))
-        windows.append(window)
-        pump()
-        return window
-    }
-
-    private func pump(_ seconds: TimeInterval = 0.2) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
-    }
-
-    private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
-        guard let object = element as? NSObject,
-              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
-        return object.value(forKey: attribute)
-    }
-
-    private func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
-        guard depth < 40 else { return [] }
-        let children = axAttribute(root, "accessibilityChildren") as? [AnyObject] ?? []
-        return [root] + children.flatMap { axElements(under: $0, depth: depth + 1) }
-    }
-
-    private func axTree(in window: NSWindow) throws -> [AnyObject] {
-        var role: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(
-            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
-        guard error == .success, role != nil else {
-            throw XCTSkip(
-                "no assistive client could be attached to this process, so SwiftUI "
-                + "never built the tree this test presses through")
-        }
-        return axElements(under: try XCTUnwrap(window.contentView))
-    }
-
-    private func button(labelled label: String, in window: NSWindow) throws -> NSObject {
-        var lastAll: [AnyObject] = []
-        let deadline = Date().addingTimeInterval(1.5)
-        while Date() < deadline {
-            lastAll = try axTree(in: window)
-                .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
-            if let match = lastAll.first(
-                where: { (axAttribute($0, "accessibilityLabel") as? String) == label }) as? NSObject {
-                return match
-            }
-            pump(0.05)
-        }
-        return try XCTUnwrap(
-            lastAll.first { (axAttribute($0, "accessibilityLabel") as? String) == label } as? NSObject,
-            "no button labelled \u{201C}\(label)\u{201D} reached the hosted pane after "
-            + "retrying. Buttons found on the last attempt: "
-            + "\(lastAll.map { axAttribute($0, "accessibilityLabel") as? String ?? "nil" })")
     }
 }

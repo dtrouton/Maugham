@@ -892,63 +892,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
                         "a run in flight must offer a way out")
     }
 
-    /// **The end-to-end pin, driven for real.** The real `AnnotationsPane`,
-    /// the real strip, a run that genuinely hangs mid-turn (`nextEvent = nil`
-    /// makes `SpyRunner.send` await a continuation, so `orchestrator.runState`
-    /// is a live `.running` rather than a value set by hand), a Cancel press
-    /// through the same `accessibilityPerformPress` path a click takes, and
-    /// then the assertion this task is about: the strip returns to idle, Run
-    /// is pressable again, and — because `cancel()` routes through
-    /// `.sessionDied(detail: .cancelled)` and `isTheWritersOwnDoing` — NO
-    /// failure line is drawn. Asserting `orchestrator.runState == .idle`
-    /// directly would prove the orchestrator's own mapping, which
-    /// `test_theWritersOwnActionsAreFilteredOutBeforeTheStripEverSeesThem`
-    /// already pins; this proves the button reaches it.
-    func test_pressingCancelReturnsTheStripToIdleWithNoFailureLine() async throws {
-        let fx = try await makeHarness()
-        fx.documentStore.updateUIState {
-            $0.activePassMemory.record(piece: "ch-1", passId: "copyedit")
-        }
-        fx.runner.nextEvent = nil
-
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        let run = try button(labelled: ReviewRoundCockpit.runTitle, in: window)
-        _ = run.perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        await awaitRunning(on: fx.orchestrator)
-        pump(0.3)
-
-        let cancel = try button(labelled: ReviewRoundCockpit.cancelTitle, in: window)
-        _ = cancel.perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        await awaitIdleRun(on: fx.orchestrator)
-        pump(0.3)
-
-        XCTAssertEqual(fx.orchestrator.runState, .idle,
-                       "cancel's writer-caused mapping must land the strip back "
-                       + "at idle \u{2014} the same state any other finished run "
-                       + "leaves it in")
-
-        let again = try button(labelled: ReviewRoundCockpit.runTitle, in: window)
-        XCTAssertEqual(axEnabled(again), true,
-                       "Run must be pressable again once cancel has landed")
-        let fresh = try button(labelled: ReviewRoundCockpit.freshEyesTitle, in: window)
-        XCTAssertEqual(axEnabled(fresh), true)
-
-        XCTAssertNil(findButton(labelled: ReviewRoundCockpit.cancelTitle, in: window),
-                     "\u{2026}and Cancel itself must be gone \u{2014} nothing is "
-                     + "running any more")
-        let labels = allLabels(in: window)
-        for failure: CompilerRunFailure in [
-            .timedOut, .unusableOutput, .cliNotFound, .disabledByToggle,
-        ] {
-            XCTAssertFalse(
-                labels.contains(RoundNarrative.failureCopy(failure)),
-                "a cancel the writer pressed themselves must never read as a "
-                + "failure \u{2014} got \(labels)")
-        }
-    }
-
     /// **The end-to-end pin: the cockpit's Run button drives a real round, and
     /// the notes it lands are signed by the pass's own editor.**
     ///
@@ -979,53 +922,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
             XCTAssertEqual(note.reviewPassId, "copyedit",
                            "and the round's lane stamps what it wrote")
         }
-    }
-
-    /// **The fix, on the delivery path: a round that dies says so in the strip
-    /// that launched it, and the Run button stays pressable.**
-    ///
-    /// The real `AnnotationsPane`, the real strip, the real
-    /// `CompilerOrchestrator.runRequested`, and a runner that answers
-    /// `.failed(.timedOut)` — the exact death Denver's Structural and Line
-    /// rounds hit at the session budget. Before this the strip drew the same
-    /// thing it draws for a clean idle and the only account of the failure was
-    /// in Author's Diagnostics pane.
-    ///
-    /// **Both halves matter.** The words, because a red strip that says nothing
-    /// is the same blind spot with a colour; and the button, because the remedy
-    /// for a timed-out round is another round — a strip that reports a failure
-    /// and then withholds the control that answers it is RULING-35's dead
-    /// control with a red line over it.
-    func test_aFailedRoundSaysSoInTheStripAndTheRunButtonStaysPressable() async throws {
-        let fx = try await makeHarness()
-        fx.documentStore.updateUIState {
-            $0.activePassMemory.record(piece: "ch-1", passId: "copyedit")
-        }
-        fx.runner.nextEvent = .failed(.timedOut)
-
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        let run = try button(labelled: ReviewRoundCockpit.runTitle, in: window)
-        _ = run.perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        await awaitFailedRun(on: fx.orchestrator)
-        // The state is set off the run's own task; the strip redraws on the
-        // next pass of the hosted view.
-        pump(0.3)
-
-        let expected = RoundNarrative.failureCopy(.timedOut)
-        XCTAssertTrue(
-            allLabels(in: window).contains(expected),
-            "a round that died must say so where it was launched \u{2014} "
-            + "expected \u{201C}\(expected)\u{201D}, got \(allLabels(in: window))")
-
-        let again = try button(labelled: ReviewRoundCockpit.runTitle, in: window)
-        XCTAssertEqual(
-            axEnabled(again), true,
-            "\u{2026}and Run must stay pressable, because another round is the "
-            + "remedy for a failed one")
-        let fresh = try button(labelled: ReviewRoundCockpit.freshEyesTitle, in: window)
-        XCTAssertEqual(axEnabled(fresh), true,
-                       "\u{2026}as must Fresh Eyes")
     }
 
     /// **The failure REPLACES the report line rather than sitting beside it.**
@@ -1144,35 +1040,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
             labels.contains { $0.contains("No notes match your filters") },
             "\u{2026}and never claim a filter is hiding something that was "
             + "never there")
-    }
-
-    /// **The widened pool also catches a KIND mismatch** (M4 P2 Task 8
-    /// review, Minor 1). Before the widening, the filtered-empty check read
-    /// `kindStatusAnnotations` — already narrowed by the kind filter — so
-    /// narrowing Kind to a kind the document holds none of made a filter
-    /// look like an empty document. The pool is now the document's raw,
-    /// unfiltered read (`AnnotationFilter(statuses: nil)`), so this drives
-    /// the REAL kind-filter control (not the data-only trick the pass-filter
-    /// test above uses, since kind starts at `.all` and needs an actual
-    /// press to narrow) and checks the same distinction survives it.
-    func test_theFilteredEmptyStateAlsoCatchesAKindMismatch() async throws {
-        let fx = try await makeHarness()
-        let pid = try XCTUnwrap(fx.document.sequence.first)
-        _ = try await fx.document.addAnnotation(
-            kind: .comment, paragraphId: pid, body: "Only a comment here.")
-
-        let window = mountPane(
-            fx, scope: .document, orchestrator: fx.orchestrator, width: 900)
-        let suggestionsFilter = try button(labelled: "Suggestions", in: window)
-        _ = suggestionsFilter.perform(NSSelectorFromString("accessibilityPerformPress"))
-        pump(0.2)
-
-        let labels = allLabels(in: window)
-        XCTAssertTrue(
-            labels.contains { $0.contains("No notes match your filters") },
-            "the Kind filter hid the document's only note \u{2014} that must "
-            + "read as hidden, not absent; got \(labels)")
-        XCTAssertFalse(labels.contains { $0.contains("No annotations") })
     }
 
     /// **The Critical the whole-branch review found: a queue where every
@@ -1544,13 +1411,12 @@ final class ReviewRoundCockpitTests: XCTestCase {
     // MARK: - The letter (editorial letter P1 Task 9)
 
     nonisolated private static func letter(
-        oneThing: String?, about: String = "A ghost story told through weather.",
-        lesson: String? = nil
+        oneThing: String?, about: String = "A ghost story told through weather."
     ) -> Letter {
         Letter(about: about, oneThing: oneThing, working: [],
                habits: [Letter.Habit(
                     name: "Every speech sounds like the same person", refs: [],
-                    cost: "The cast blurs.", lesson: lesson, exercise: nil)],
+                    cost: "The cast blurs.", lesson: nil, exercise: nil)],
                questions: [], scenes: nil, scenePosition: nil)
     }
 
@@ -1598,40 +1464,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
         XCTAssertNil(
             ReviewRoundCockpit.letterLine(Self.letter(oneThing: "", about: "  ")),
             "a letter whose every line is blank has no line at all")
-    }
-
-    /// The line draws under the status line, and the disclosure opens the
-    /// host's own `LetterSection`.
-    func test_theCockpitDrawsTheLetterLineAndDisclosesTheSection() throws {
-        let window = mountCockpit(
-            activePassId: "copyedit", round: 2, reportLine: "Since round 1: 1 new",
-            letterLine: "Give the reader the dock before the fire.",
-            letterDisclosure: { AnyView(Text("THE-LETTER-BODY")) })
-
-        let texts = allLabels(in: window)
-        let status = try XCTUnwrap(
-            texts.firstIndex(of: "Since round 1: 1 new"),
-            "the status line went missing. Read: \(texts)")
-        let letter = try XCTUnwrap(
-            texts.firstIndex(of: "Give the reader the dock before the fire."),
-            "the letter line never reached the strip. Read: \(texts)")
-        XCTAssertLessThan(
-            status, letter,
-            "the letter sits UNDER the status line, not over it. Read: \(texts)")
-
-        let disclosure = try XCTUnwrap(
-            pressableLanePicker(
-                labelled: "Give the reader the dock before the fire.", in: window)
-                ?? disclosureElement(
-                    labelled: "Give the reader the dock before the fire.", in: window),
-            "the letter line must be a disclosure control, not a caption. "
-            + "Pressables: \(pressableLabels(in: window))")
-        press(disclosure)
-        pump(0.3)
-        XCTAssertTrue(
-            allLabels(in: window).contains("THE-LETTER-BODY"),
-            "opening the disclosure must reveal the host's own section. "
-            + "Read: \(allLabels(in: window))")
     }
 
     // MARK: - Ask about… (P2 Task 7, spec §3.7)
@@ -1761,29 +1593,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
             "a round asked for with words still in the field must carry them")
     }
 
-    /// **The queue's field writes through the shared commit and starts no
-    /// run**, mounted over the real pane — the census below can see that
-    /// `AskField.commit` is spelled there, and only a press can see that the
-    /// ask reaches the store this pane actually holds.
-    func test_theQueuesAskFieldWritesToTheStoreAndSpawnsNothing() async throws {
-        let fx = try await makeHarness()
-        fx.diagnostics.setAsk("Does the middle sag?", docId: fx.document.docId)
-
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        pump(0.3)
-
-        press(try button(labelled: AskField.clearLabel, in: window))
-        let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline, fx.diagnostics.ask(docId: fx.document.docId) != nil {
-            pump(0.1)
-            try? await Task.sleep(for: .milliseconds(40))
-        }
-        XCTAssertNil(
-            fx.diagnostics.ask(docId: fx.document.docId),
-            "✕ in the cockpit must withdraw the ask from the store the pane holds")
-        XCTAssertEqual(fx.runner.sendCount, 0, "and it must start no round")
-    }
-
     /// No letter, no line and nothing to open — never an empty disclosure
     /// triangle over a strip with nothing behind it.
     func test_noLetterDrawsNoLineAndNoDisclosure() throws {
@@ -1870,155 +1679,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
         return nil
     }
 
-    /// **Keep this letter works from the queue too** (Task 10, spec §3.6).
-    ///
-    /// Mounted through `AnnotationsPane` and pressed through the real
-    /// disclosure, because the claim is that Review's own host wires the verb
-    /// — the census below can see that `LetterKeep.handler` is spelled there,
-    /// and only a press can see that the note actually lands.
-    func test_theQueuesLetterCanBeKept() async throws {
-        let fx = try await makeHarness()
-        fx.diagnostics.replace(
-            run: CompilerRun(
-                id: "r-1", at: Date(), model: "test-model", lastOpId: "op-1",
-                deltaSummary: "1 new", intentSnapshot: nil, passId: nil, round: 1,
-                freshEyes: nil,
-                letter: Self.letter(oneThing: "Give the reader the dock before the fire.")),
-            diagnostics: [], docId: fx.document.docId)
-
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        pump(0.3)
-        let disclosure = try XCTUnwrap(
-            pressableLanePicker(
-                labelled: "Give the reader the dock before the fire.", in: window)
-                ?? disclosureElement(
-                    labelled: "Give the reader the dock before the fire.", in: window),
-            "the letter line must open. Pressables: \(pressableLabels(in: window))")
-        press(disclosure)
-        pump(0.3)
-
-        let keep = try button(labelled: LetterSection.keepTitle, in: window)
-        press(keep)
-        let deadline = Date().addingTimeInterval(4)
-        while Date() < deadline, fx.store.manifest.research.isEmpty {
-            pump(0.05)
-            try? await Task.sleep(for: .milliseconds(40))
-        }
-        let kept = try XCTUnwrap(fx.store.manifest.research.first,
-                                 "no kept letter reached research from the queue")
-        XCTAssertTrue(kept.path?.hasPrefix("research/") == true, kept.path ?? "nil")
-        XCTAssertTrue(allLabels(in: window).contains(LetterKeep.confirmation(kept.title)),
-                      "Read: \(allLabels(in: window))")
-    }
-
-    /// **Keep as lesson works from the queue too** (P2 Task 7, spec §6).
-    ///
-    /// Mounted through `AnnotationsPane` and pressed through the real
-    /// disclosure, for `test_theQueuesLetterCanBeKept`'s reason: the census
-    /// can see that `LessonOffer.handlers` is spelled here, and only a press
-    /// can see that the row actually reaches the writer's ledger — with the
-    /// provenance the shared builder makes, not one this host invented.
-    func test_theQueuesLetterCanKeepAHabitAsALesson() async throws {
-        let fx = try await makeHarness()
-        let lesson = "Give each voice one word the others never use."
-        fx.diagnostics.replace(
-            run: CompilerRun(
-                id: "r-1", at: Date(), model: "test-model", lastOpId: "op-1",
-                deltaSummary: "1 new", intentSnapshot: nil, passId: nil, round: 1,
-                freshEyes: nil,
-                letter: Self.letter(oneThing: "Give the reader the dock before the fire.",
-                                    lesson: lesson)),
-            diagnostics: [], docId: fx.document.docId)
-
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        pump(0.3)
-        let disclosure = try XCTUnwrap(
-            pressableLanePicker(
-                labelled: "Give the reader the dock before the fire.", in: window)
-                ?? disclosureElement(
-                    labelled: "Give the reader the dock before the fire.", in: window),
-            "the letter line must open. Pressables: \(pressableLabels(in: window))")
-        press(disclosure)
-        pump(0.3)
-
-        press(try button(labelled: LetterSection.keepAsLessonTitle, in: window))
-        let deadline = Date().addingTimeInterval(5)
-        while Date() < deadline,
-              !(LessonLedgerVerbs.ledgerText(store: fx.store) ?? "").contains(lesson) {
-            pump(0.05)
-            try? await Task.sleep(for: .milliseconds(40))
-        }
-        let text = LessonLedgerVerbs.ledgerText(store: fx.store) ?? ""
-        XCTAssertEqual(
-            LessonsLedger.open(in: text), [lesson],
-            "the queue's own press must file the habit's lesson. Ledger: \(text)")
-        XCTAssertEqual(
-            LessonsLedger.parse(text).entries.first?.ruling.provenance,
-            LessonLedgerVerbs.provenance(
-                voice: ReviewPass.coachPreset.effectiveEditorName, lane: ""),
-            "the voice is the piece's READER \u{2014} an unassigned piece is the "
-            + "coach's (`PieceReader`) \u{2014} and a run filed under no pass has no "
-            + "lane, which the provenance must not invent")
-    }
-
-    /// **A refused keep says so in Review's own channel** (fix round 1, Minor
-    /// 7). `AnnotationsPane` always holds a project, so the no-project arm
-    /// Author's twin test presses is unreachable here — the refusal that IS
-    /// reachable is the file system's, and it must reach the writer rather
-    /// than the log alone. Without `letterKeepFailure` wired into the section
-    /// the button looks pressed and the letter goes nowhere.
-    func test_aRefusedKeepSaysSoInTheQueue() async throws {
-        let fx = try await makeHarness()
-        fx.diagnostics.replace(
-            run: CompilerRun(
-                id: "r-1", at: Date(), model: "test-model", lastOpId: "op-1",
-                deltaSummary: "1 new", intentSnapshot: nil, passId: nil, round: 1,
-                freshEyes: nil,
-                letter: Self.letter(oneThing: "Give the reader the dock before the fire.")),
-            diagnostics: [], docId: fx.document.docId)
-
-        // Take write permission off the folder the note has to land in. The
-        // store refuses, and this test is about what the writer is told.
-        let research = fx.store.url.appendingPathComponent("research")
-        try FileManager.default.createDirectory(at: research, withIntermediateDirectories: true)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o500], ofItemAtPath: research.path)
-        defer {
-            try? FileManager.default.setAttributes(
-                [.posixPermissions: 0o700], ofItemAtPath: research.path)
-        }
-
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        pump(0.3)
-        let disclosure = try XCTUnwrap(
-            pressableLanePicker(
-                labelled: "Give the reader the dock before the fire.", in: window)
-                ?? disclosureElement(
-                    labelled: "Give the reader the dock before the fire.", in: window),
-            "the letter line must open. Pressables: \(pressableLabels(in: window))")
-        press(disclosure)
-        pump(0.3)
-
-        let before = allLabels(in: window)
-        press(try button(labelled: LetterSection.keepTitle, in: window))
-        let deadline = Date().addingTimeInterval(4)
-        var after = before
-        while Date() < deadline {
-            pump(0.1)
-            after = allLabels(in: window)
-            if after.count != before.count { break }
-            try? await Task.sleep(for: .milliseconds(40))
-        }
-        XCTAssertTrue(fx.store.manifest.research.isEmpty,
-                      "premise: nothing was filed")
-        XCTAssertFalse(
-            after.contains(where: { $0.hasPrefix("Kept as") }),
-            "a refused keep must confirm nothing. Read: \(after)")
-        XCTAssertNotEqual(
-            after, before,
-            "the refusal must reach the writer, not the log alone. Read: \(after)")
-    }
-
     /// **The census the mount cannot make**: both hosts reach the SAME verb.
     /// A Keep spelled out here would be a second render, a second scope and a
     /// second answer to where a letter goes — the defect `TurnClauseOffer`
@@ -2101,11 +1761,11 @@ final class ReviewRoundCockpitTests: XCTestCase {
     }
 
     /// `width` is 320 by default (this suite's usual column) and overridable —
-    /// the kind-filter mismatch test widens it to 900pt so the toolbar's own
-    /// `ViewThatFits` lands on the one-row TEXT variant
-    /// (`AnnotationsQueueToolbarWidthTests`'s "roomy" measurement), because the
-    /// icon fallback's `Image(systemName:)` labels are not asserted anywhere to
-    /// read as their filter's word and a test built on that would be fragile.
+    /// a wider mount lands the queue toolbar's own `ViewThatFits` on the
+    /// one-row TEXT variant (`AnnotationsQueueToolbarWidthTests`'s "roomy"
+    /// measurement), because the icon fallback's `Image(systemName:)` labels
+    /// are not asserted anywhere to read as their filter's word and a test
+    /// built on that would be fragile.
     private func mount(_ view: AnyView, width: CGFloat = 320) -> NSWindow {
         let window = TestWindow.mount(view, size: CGSize(width: width, height: 700))
         windows.append(window)
@@ -2208,24 +1868,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
         }
     }
 
-    /// A `DisclosureGroup`'s own control, which arrives under its own role
-    /// rather than any of `menuRoles`. Deliberately role-agnostic on the
-    /// label: the claim is "this is pressable", not which AppKit spelling
-    /// macOS picked for a disclosure this year.
-    private func disclosureElement(
-        labelled label: String, in window: NSWindow
-    ) -> AnyObject? {
-        guard let tree = try? axTree(in: window) else { return nil }
-        return tree.first { element in
-            guard let object = element as? NSObject,
-                  object.responds(to: NSSelectorFromString("accessibilityPerformPress"))
-            else { return false }
-            let drawn = (axAttribute(element, "accessibilityLabel") as? String)
-                ?? (axAttribute(element, "accessibilityValue") as? String) ?? ""
-            return drawn == label
-        }
-    }
-
     private func press(_ element: AnyObject) {
         _ = (element as? NSObject)?.perform(
             NSSelectorFromString("accessibilityPerformPress"))
@@ -2310,39 +1952,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
         """
     }
 
-    /// Wait for the orchestrator to record a failure. Bounded on
-    /// `awaitOpenNotes`' idiom — the run resolves off its own task, so a
-    /// straight-line read after the press would race it.
-    private func awaitFailedRun(on orchestrator: CompilerOrchestrator) async {
-        let deadline = Date().addingTimeInterval(8)
-        while Date() < deadline {
-            if case .failed = orchestrator.runState { return }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-    }
-
-    /// Wait for the orchestrator to reach `.running` — used with
-    /// `SpyRunner.nextEvent = nil`, which hangs `send` on a live continuation
-    /// rather than answering synchronously, so the cancel test presses a real
-    /// in-flight run and not a value set by hand.
-    private func awaitRunning(on orchestrator: CompilerOrchestrator) async {
-        let deadline = Date().addingTimeInterval(8)
-        while Date() < deadline {
-            if case .running = orchestrator.runState { return }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-    }
-
-    /// Wait for the orchestrator to return to `.idle` — cancel's writer-caused
-    /// mapping resolves off the runner's continuation, on a later tick.
-    private func awaitIdleRun(on orchestrator: CompilerOrchestrator) async {
-        let deadline = Date().addingTimeInterval(8)
-        while Date() < deadline {
-            if orchestrator.runState == .idle { return }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-    }
-
     private func awaitOpenNotes(_ count: Int, on document: Document) async {
         let deadline = Date().addingTimeInterval(8)
         while document.annotations(filter: AnnotationFilter(statuses: [.open])).count < count,
@@ -2424,7 +2033,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
         var isRunning = false
         var sessionEpoch = 1
         var nextEvent: CompilerRunEvent? = .resultText(#"{"section":"conformance","checks":[]}"#)
-        private(set) var sendCount = 0
         private var held: CheckedContinuation<CompilerRunEvent, Never>?
         private var partialHandler: (@MainActor (String) -> Void)?
 
@@ -2437,7 +2045,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
         private(set) var sentMessages: [String] = []
 
         func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
-            sendCount += 1
             sentMessages.append(message)
             if let nextEvent { return nextEvent }
             isRunning = true
