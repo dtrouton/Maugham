@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import MaughamCore
 
 /// Whether this process is hosting an XCTest bundle rather than serving a
 /// writer — and, if so, the two process-level facts a headless gate rests on.
@@ -35,6 +36,64 @@ enum TestHost {
             || env["XCTestBundlePath"] != nil
     }
 
+    // MARK: - The socket this process may bind
+
+    /// The MCP socket path this process should bind, unlink and advertise.
+    ///
+    /// The variant's own path (tripwire 13's `BuildVariant.mcpSocketPath`) is
+    /// right for a writer's launch and **wrong for every test host**. The app
+    /// starts an `MCPServer` on it from the Welcome scene's `.task` on every
+    /// launch; `MCPServer.start()` unlinks the path before binding and
+    /// `stop()` unlinks it again, and `MaughamApp`'s `willTerminate` observer
+    /// unlinks it a third time. The Mac gate runs seven full copies of the app
+    /// at once, so a `./scripts/test.sh` run while the developer had the dev
+    /// app open **deleted the file that app was listening on**. Nothing went
+    /// red: the running app keeps its listening descriptor and serves whoever
+    /// is already connected, while every `claude -p` spawned afterwards finds
+    /// no socket at the advertised path and reports
+    /// `mcp_servers: [{maugham-dev, failed}]`, which surfaces to the writer as
+    /// a compiler check that "couldn't be read as notes". Diagnosed 2026-09-06
+    /// from Denver's smoke of the two-loops milestone.
+    ///
+    /// So a host binds a path of its own: under the temp root, carrying the
+    /// pid so the gate's seven workers cannot collide with each other either.
+    /// Nothing connects to it — no test in the suite uses the host's own
+    /// server (`MCPServerLifecycleTests`, `MCPColdStartTests` and
+    /// `MCPBinaryIntegrationTests` each bind an isolated `/tmp` path of their
+    /// own) — it exists so the scene's `.task` still exercises the real start
+    /// path rather than being branched around.
+    ///
+    /// Pure, and injectable, because the hosting arm cannot be turned off from
+    /// inside XCTest: the property below is what production reads.
+    static func mcpSocketPath(
+        production: String,
+        isHosting: Bool,
+        pid: Int32,
+        temporaryDirectory: URL
+    ) -> String {
+        guard isHosting else { return production }
+        // Kept short deliberately: `sockaddr_un.sun_path` is 104 bytes on
+        // Darwin and the real temp root already spends ~48 of them.
+        return temporaryDirectory
+            .appendingPathComponent("\(hostSocketPrefix)\(pid)\(hostSocketSuffix)")
+            .path
+    }
+
+    /// The two halves of a host socket's name, spelled once: the builder above
+    /// and the sweep below must agree, or the sweep silently reaps nothing.
+    static let hostSocketPrefix = "maugham-host-"
+    static let hostSocketSuffix = ".sock"
+
+    /// What this process should bind — the ONE spelling `MaughamApp` reads,
+    /// enforced by `TripwireGrepTests`' app-socket census.
+    static var mcpSocketPath: String {
+        mcpSocketPath(
+            production: BuildVariant.current.mcpSocketPath,
+            isHosting: isActive,
+            pid: ProcessInfo.processInfo.processIdentifier,
+            temporaryDirectory: FileManager.default.temporaryDirectory)
+    }
+
     /// Apply the test-host policy: `.accessory`, and the window sweep.
     /// Idempotent; a no-op outside a test host.
     @MainActor
@@ -42,6 +101,13 @@ enum TestHost {
         guard isActive else { return }
         NSApplication.shared.setActivationPolicy(.accessory)
         installWindowSweep()
+        // The per-process socket above is unlinked at `willTerminate`, which
+        // macOS does not always let run. Sweep yesterday's, so seven files a
+        // gate do not become the next 235-file directory. A day's floor cannot
+        // reach a sibling worker's live socket — a gate is ninety seconds.
+        StaleFileSweep.sweep(
+            in: FileManager.default.temporaryDirectory,
+            prefix: hostSocketPrefix, suffix: hostSocketSuffix)
     }
 
     /// The hidden-window configuration every test-host window ends up with.

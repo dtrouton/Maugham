@@ -2088,6 +2088,66 @@ final class TripwireGrepTests: XCTestCase {
             + "existing id population. Offenders:\n" + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - The app's own socket is the effective one (2026-09-06)
+
+    /// **`MaughamApp` names `TestHost.mcpSocketPath` and never the variant's
+    /// path directly.** The app binds a socket on every launch and unlinks it
+    /// twice — once before `bind`, once at `willTerminate` — and the gate runs
+    /// seven full copies of the app at a time. Reading
+    /// `BuildVariant.current.mcpSocketPath` in this file is therefore not a
+    /// style question: it is a gate that deletes the socket file the writer's
+    /// own open dev app is listening on, leaving every compiler run afterwards
+    /// with `mcp_servers: [{maugham-dev, failed}]` and no red anywhere.
+    ///
+    /// Scoped to this one file on purpose. `HelpClaudeDesktopSheet` and the
+    /// three `*Environment+Project` files legitimately name the variant's path
+    /// — they tell an OUTSIDE process (Claude Desktop, the bridge binary the
+    /// spawned `claude -p` runs) where the real app listens, which is the
+    /// production path whatever this process is.
+    static let appSocketOffender = "BuildVariant.current.mcpSocketPath"
+
+    func test_theAppBindsTheEffectiveSocketPathAndNotTheVariantsOwn() throws {
+        let offenders = try grepSwift(
+            in: sourceDir, files: ["MaughamApp.swift"],
+            patterns: [Self.appSocketOffender])
+        XCTAssertTrue(offenders.isEmpty,
+            "MaughamApp must reach its socket through `TestHost.mcpSocketPath`, which "
+            + "hands a test host a per-process path. Binding or unlinking the variant's "
+            + "own path from a gate deletes the open dev app's socket. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+
+        let text = try String(
+            contentsOf: sourceDir.appendingPathComponent("MaughamApp.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(text.contains("TestHost.mcpSocketPath"),
+            "the scan reads a file that still resolves a socket path at all")
+        XCTAssertTrue(text.contains("MCPServer("),
+            "…and still starts the server this census is about")
+    }
+
+    /// Self-check: the census fires on a planted read of the variant's path.
+    func test_theAppSocketCensusWouldFireOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-app-socket-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = tmp.appendingPathComponent("MaughamApp.swift")
+        try """
+        struct MaughamApp {
+            var mcpSocketPath: String { BuildVariant.current.mcpSocketPath }
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp, files: ["MaughamApp.swift"],
+            patterns: [Self.appSocketOffender])
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check: a planted variant-path read in MaughamApp should be caught. Got:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - ColdCall never bridges (translation pipeline spec §11)
 
     /// **`ColdCall` is sealed by construction and stays that way.** A sealed

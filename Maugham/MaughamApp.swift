@@ -12,8 +12,11 @@ struct MaughamApp: App {
     @State private var mcpServer: MCPServer?
     @State private var onboarding = OnboardingModel()
 
+    /// The socket this process binds — the variant's for a writer's launch,
+    /// a per-process temp path for a test host. See `TestHost.mcpSocketPath`
+    /// for why a gate must never touch the writer's own (2026-09-06).
     private var mcpSocketPath: String {
-        BuildVariant.current.mcpSocketPath
+        TestHost.mcpSocketPath
     }
 
     init() {
@@ -46,7 +49,10 @@ struct MaughamApp: App {
             // own unlink-before-bind clears it (and confuses a reconnecting
             // bridge). unlink() is a fast syscall and willTerminate is on the
             // main thread, so do it here, guaranteed, before we die.
-            unlink(BuildVariant.current.mcpSocketPath)
+            // The EFFECTIVE path, never the variant's: seven parallel test
+            // hosts running this observer against the production path is what
+            // deleted the open dev app's socket (TestHost.mcpSocketPath).
+            unlink(TestHost.mcpSocketPath)
             // If a verified update was staged and the user dismissed the toast,
             // apply it silently now (no relaunch). willTerminate runs on the main
             // thread, so assumeIsolated is safe.
