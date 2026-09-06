@@ -24,6 +24,8 @@ piece itself — it is the writer's own ledger of what they are working on,
 choices they have made deliberately, and lessons they have retired; cite
 a habit by its heading verbatim when it applies. Claude never writes to
 this ledger — it moves only through the writer's own verbs in Maugham.
+Call `read_first_reader` when asked to respond as the writer's reader —
+read her description and answer in her position, never as an editor.
 `get_help` without a topic lists Maugham's user documentation.
 
 ## A page the writer photographed

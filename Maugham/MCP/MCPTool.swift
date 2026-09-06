@@ -91,6 +91,7 @@ public enum MCPToolCatalog {
         AddCanvasScrapsTool.self,
         ReadEditionBriefTool.self,
         ReadLessonsTool.self,
+        ReadFirstReaderTool.self,
         ProposeEditionBriefTool.self,
         ProposeVisualLanguageTool.self
     ]

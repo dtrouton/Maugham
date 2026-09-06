@@ -190,11 +190,12 @@ final class CompilerAllowlistTests: XCTestCase {
         let planted = ["read_craft_intent", "write_craft_intent", "list_projects",
                        "write_edition_brief", "set_visual_language",
                        "propose_craft_intent", "propose_edition_brief", "propose_visual_language",
-                       "propose_statement"]
+                       "propose_statement", "read_lessons", "write_lessons",
+                       "read_first_reader", "write_first_reader"]
         XCTAssertEqual(
             Self.statementWriters(in: planted),
             ["write_craft_intent", "write_edition_brief", "set_visual_language",
-             "propose_craft_intent", "propose_statement"],
+             "propose_craft_intent", "propose_statement", "write_lessons", "write_first_reader"],
             "the predicate must catch a hypothetical statement writer \u{2014} and must "
             + "NOT catch the READERS beside it, nor the two proposal tools, which stage "
             + "a draft the writer adopts")
@@ -208,7 +209,8 @@ final class CompilerAllowlistTests: XCTestCase {
     /// verbs. A `propose_` tool is a write unless its subject is one of the
     /// two `ProposableStatement` cases — the proposal is staged, never written.
     static func statementWriters(in names: [String]) -> Set<String> {
-        let subjects = ["craft_intent", "visual_language", "edition_brief", "statement", "intent"]
+        let subjects = ["craft_intent", "visual_language", "edition_brief", "statement", "intent",
+                        "first_reader", "lessons"]
         let verbs = ["write_", "add_", "set_", "append_", "update_", "edit_", "delete_"]
         let proposable = ["propose_edition_brief", "propose_visual_language"]
         var found: Set<String> = []
