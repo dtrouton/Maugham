@@ -268,7 +268,8 @@ struct TranslationReviewPane: View {
             // crashing on the writer's sentence.
             QueryRulingSheet(
                 annotation: ann,
-                language: QueryRuling.language(of: ann) ?? ""
+                confirmation: QueryRuling.confirmation(
+                    language: QueryRuling.language(of: ann) ?? "")
             ) { answer in
                 answerAsRuling(ann, answer: answer)
                 rulingSheet = nil

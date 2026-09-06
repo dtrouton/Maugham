@@ -181,13 +181,20 @@ enum QueryRuling {
 /// card, and each opens this: the sentence the writer types is going to two
 /// places, and a second spelling of the sheet is how one of them would
 /// eventually stop saying so.
+///
+/// **Three hosts and two destinations since two loops P2 Task 5.** The queue
+/// also opens it over the first reader's own note, whose answer lands in her
+/// statement rather than an edition brief — so the sheet takes the SENTENCE
+/// that names both destinations rather than a language it would have to word
+/// itself. `RulingDestination.confirmation` is what builds it, and it is the
+/// same one decision the control and the commit are asked.
 @MainActor
 struct QueryRulingSheet: View {
     let annotation: Annotation
-    /// The edition the answer will be filed under — the annotation's own tag,
-    /// resolved by the host so the sheet never has to answer "and if it has
-    /// none?" (it is not opened for a note that has none).
-    let language: String
+    /// What this answer is about to become, in the destination's own words —
+    /// `RulingDestination.confirmation`, resolved by the host, so the sheet
+    /// never has to answer "and which kind of ruling is this?".
+    let confirmation: String
     let onCommit: (String) -> Void
     let onCancel: () -> Void
     @State private var answer: String = ""
@@ -203,8 +210,9 @@ struct QueryRulingSheet: View {
             TextEditor(text: $answer)
                 .frame(minHeight: 90)
                 .border(Color.gray.opacity(0.3))
-            // Both destinations, before the click — see `QueryRuling.confirmation`.
-            Text(QueryRuling.confirmation(language: language))
+            // Both destinations, before the click — see `QueryRuling.confirmation`
+            // and `FirstReaderRuling.confirmation`.
+            Text(confirmation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

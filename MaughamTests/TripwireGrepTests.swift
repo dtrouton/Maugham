@@ -906,6 +906,20 @@ final class TripwireGrepTests: XCTestCase {
     /// matching close, so the text examined is exactly the arguments however
     /// they are wrapped.
     private func lessonsRulingCallSites(in dir: URL) throws -> [String] {
+        try rulingCallSites(in: dir, naming: ".lessons")
+    }
+
+    /// The same scan aimed at the first reader's statement (two loops P2 Task
+    /// 5). Parameterised rather than copied: the balancing scan is the subtle
+    /// half, and a second copy of it would be free to drift into missing a
+    /// wrapped `kind:` label that the first one catches.
+    private func firstReaderRulingCallSites(in dir: URL) throws -> [String] {
+        try rulingCallSites(in: dir, naming: ".firstReader")
+    }
+
+    /// Every `RulingPerformer` verb call site under `dir` whose argument list
+    /// names `kindToken`, as `file:line`.
+    private func rulingCallSites(in dir: URL, naming kindToken: String) throws -> [String] {
         let fm = FileManager.default
         guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil)
         else { return [] }
@@ -933,7 +947,7 @@ final class TripwireGrepTests: XCTestCase {
                     guard let closeAt = Self.matchingParen(in: scalars, openAt: openAt)
                     else { continue }
                     let arguments = String(scalars[(openAt + 1)..<closeAt])
-                    guard arguments.contains(".lessons") else { continue }
+                    guard arguments.contains(kindToken) else { continue }
                     let number = scalars[..<lineStart].filter(\.isNewline).count + 1
                     sites.append("\(url.lastPathComponent):\(number)")
                 }
@@ -1054,6 +1068,117 @@ final class TripwireGrepTests: XCTestCase {
             try lessonsRulingCallSites(in: tmp), ["LedgerDeleter.swift:3"],
             "a revoke against the ledger deletes a lesson, and the census must "
             + "see it")
+    }
+
+    // MARK: - The first reader's statement is written from one file (two loops P2)
+
+    /// **Tripwire: the first reader's statement is written from ONE production
+    /// file** (two loops P2 Task 5).
+    ///
+    /// Her statement is the writer's own prose about a person, and it moves
+    /// only by the writer's hand — the rule every ruling destination keeps. The
+    /// queue answers her notes into it, and the surfaces that could each grow a
+    /// spelling of the same write are the ones the queue sits beside: Author's
+    /// Diagnostics pane, Review's cockpit, the First Reader pane itself. Each
+    /// would then be free to disagree about the scope or the provenance, and
+    /// the disagreement is silent — an instruction filed at document scope
+    /// simply never reaches her next briefing.
+    ///
+    /// A census rather than a ban: the write is meant to happen, in
+    /// `FirstReaderRuling`.
+    func test_theFirstReadersStatementIsWrittenFromOneFile() throws {
+        let sites = try firstReaderRulingCallSites(in: sourceDir)
+        XCTAssertEqual(
+            Set(sites.compactMap { $0.split(separator: ":").first.map(String.init) }),
+            ["FirstReaderRuling.swift"],
+            "a second production file spelling the write into the first reader's "
+            + "statement is a second answer to where her instructions live. Route "
+            + "it through FirstReaderRuling. Sites:\n" + sites.joined(separator: "\n"))
+        // **Non-vacuous**, for the lessons census's reason: a scanner matching
+        // nothing would pass for the wrong reason, and go on passing after the
+        // one real write was deleted.
+        XCTAssertFalse(
+            sites.isEmpty,
+            "the census found no write into her statement at all \u{2014} "
+            + "FirstReaderRuling must contain at least one")
+    }
+
+    /// CONTROL for the census above: a planted second writer is caught, and
+    /// neither an `.editionBrief` call beside it nor a comment naming the verb
+    /// is.
+    func test_theFirstReaderCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-firstreader-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        enum SecondReaderWriter {
+            static func file(_ store: ProjectStore) async throws {
+                // A comment naming RulingPerformer.rule( with .firstReader is not a call.
+                try await RulingPerformer.rule(
+                    "Keep the sisters formal.",
+                    provenance: "answering her note",
+                    kind: .firstReader, forScope: .project,
+                    store: store, world: nil)
+            }
+
+            static func edition(_ store: ProjectStore) async throws {
+                try await RulingPerformer.rule(
+                    "Usted throughout.", provenance: "answered a translator query",
+                    kind: .editionBrief("es"), forScope: .project,
+                    store: store, world: nil)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SecondReaderWriter.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let sites = try firstReaderRulingCallSites(in: tmp)
+        XCTAssertEqual(
+            sites.count, 1,
+            "Self-check: the planted write should be the one caught, and neither "
+            + "the edition-brief call nor the comment. Got:\n"
+            + sites.joined(separator: "\n"))
+        XCTAssertEqual(sites.first, "SecondReaderWriter.swift:4")
+    }
+
+    /// CONTROL, the sharp arm: a planted `revoke` and a planted `edit` carrying
+    /// `.firstReader` are caught too. They are the calls that would DELETE or
+    /// REWRITE an instruction the writer made, which is the sharpest way to
+    /// break the single-writer rule from outside — and a census anchored on
+    /// `rule(` alone would sail past both.
+    func test_theFirstReaderCensusCatchesARevokeAndAnEditToo() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-firstreader-revoke-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        enum InstructionMangler {
+            static func drop(_ id: String, _ store: ProjectStore) async throws {
+                try await RulingPerformer.revoke(
+                    rulingId: id,
+                    kind: .firstReader, forScope: .project,
+                    store: store, world: nil)
+            }
+
+            static func change(_ id: String, _ store: ProjectStore) async throws {
+                try await RulingPerformer.edit(
+                    rulingId: id, newText: "Something else",
+                    kind: .firstReader, forScope: .project,
+                    store: store, world: nil)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("InstructionMangler.swift"),
+                  atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            try firstReaderRulingCallSites(in: tmp),
+            ["InstructionMangler.swift:10", "InstructionMangler.swift:3"],
+            "a revoke or an edit against her statement rewrites an instruction "
+            + "the writer made, and the census must see both")
     }
 
     // MARK: - The process signals have two surfaces (editorial letter P3, constraint 29)

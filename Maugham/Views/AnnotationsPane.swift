@@ -511,12 +511,14 @@ struct AnnotationsPane: View {
             } onCancel: { querySheet = nil }
         }
         .sheet(item: $rulingSheet) { target in
-            // The tag is what opened the sheet, so it is there; the fallback
-            // draws a sheet that will refuse in `commit`'s own words rather
-            // than crashing on the writer's sentence.
+            // The destination is what opened the sheet, so it is there; the
+            // fallback draws a sheet that will refuse in `commit`'s own words
+            // rather than crashing on the writer's sentence.
             QueryRulingSheet(
                 annotation: target.annotation,
-                language: QueryRuling.language(of: target.annotation) ?? ""
+                confirmation: RulingDestination.offered(
+                    for: target.annotation, manifest: store.manifest)?
+                    .confirmation ?? ""
             ) { answer in
                 answerAsRuling(target.document, target.annotation, answer: answer)
                 rulingSheet = nil
@@ -1334,7 +1336,8 @@ struct AnnotationsPane: View {
             onRevert: { withDocument(rowDocument) { revert($0, ann) } },
             onReopen: { withDocument(rowDocument) { reopen($0, id: ann.id) } },
             onJumpToParagraph: { click(docId: docId, annotation: ann) },
-            ledgerText: ledgerText)
+            ledgerText: ledgerText,
+            manifest: store.manifest)
     }
 
     /// Belt behind the disabled verbs: a control that somehow fires with no
@@ -1612,19 +1615,37 @@ struct AnnotationsPane: View {
         }
     }
 
-    /// Answer a translator's question as doctrine — the ruling in the edition
-    /// brief and the reply on the thread, from one sentence (`QueryRuling`).
+    /// Answer a question as doctrine — the ruling and the reply on the thread,
+    /// from one sentence.
+    ///
+    /// **Routed by the same one decision the control was drawn from**
+    /// (`RulingDestination.offered`), rather than by a second `if` here: a
+    /// button that appeared for one reason and a commit that filed for another
+    /// is exactly the drift the shared destination exists to make impossible.
+    /// A press that reaches here over a note offered neither refuses in words
+    /// rather than guessing a destination — an answer filed under a statement
+    /// the note does not belong to is checked against the wrong reader from
+    /// then on, silently.
     ///
     /// The refusal is surfaced rather than logged: unlike a reply, this act can
     /// land half-done, and a writer who is not told would answer again and mint
-    /// a second ruling for a decision already in the brief.
+    /// a second ruling for a decision already filed.
     private func answerAsRuling(
         _ document: Document, _ ann: Annotation, answer: String
     ) {
         Task {
-            rulingNotice = await QueryRuling.commit(
-                answer, answering: ann, in: document, store: store,
-                undoManager: undoManager)
+            switch RulingDestination.offered(for: ann, manifest: store.manifest) {
+            case .editionBrief:
+                rulingNotice = await QueryRuling.commit(
+                    answer, answering: ann, in: document, store: store,
+                    undoManager: undoManager)
+            case .firstReader:
+                rulingNotice = await FirstReaderRuling.commit(
+                    answer, answering: ann, in: document, store: store,
+                    undoManager: undoManager)
+            case nil:
+                rulingNotice = RulingDestination.noDestinationRefusal
+            }
             noteChanged()
         }
     }
@@ -1989,6 +2010,23 @@ struct AnnotationRow: View {
     /// Denver's ruling B). Defaulted to nil, which is the ledger of a project
     /// whose writer has kept nothing: every offer stands.
     var ledgerText: String? = nil
+    /// **The project's own identity, for the one control that needs it** (two
+    /// loops P2 Task 5): whether this note is the first reader's is a question
+    /// about `ProjectManifest.firstReaderName`, and the row is where the
+    /// affordance is drawn.
+    ///
+    /// Defaulted to nil — a row rendered with no project identity still draws
+    /// the translator's *Answer as ruling…*, which turns on the note's own
+    /// language tag, and never hers, which needs a name to file under
+    /// (`RulingDestination.offered`).
+    var manifest: ProjectManifest? = nil
+
+    /// Where an *Answer as ruling…* press on this row would file — asked once,
+    /// so the control, its help and the commit cannot disagree about the
+    /// destination.
+    private var rulingDestination: RulingDestination? {
+        RulingDestination.offered(for: annotation, manifest: manifest)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -2302,22 +2340,28 @@ struct AnnotationRow: View {
         }
     }
 
-    /// **A translator's question can be answered into doctrine** (publish
-    /// department, Task 8) — offered on the two kinds a language tag ever
-    /// reaches, and only while the tag is there and the question open
-    /// (`QueryRuling.offersARuling`).
+    /// **A question can be answered into doctrine** — a translator's, into that
+    /// edition's brief (publish department, Task 8), or the first reader's own
+    /// note, into her statement (two loops P2 Task 5).
+    ///
+    /// **ONE control, whichever it is.** The two destinations are mutually
+    /// exclusive by construction — an edition query carries a `language` and
+    /// hers never does — so `RulingDestination.offered` answers at most one,
+    /// and the row cannot end up drawing two identical buttons that file in
+    /// different places. Only the help changes, because that is the only part
+    /// of the control that has to name where the sentence goes.
     ///
     /// Secondary rather than primary: Reply is still the ordinary answer, and
-    /// most notes in this queue are not a translator's. It degrades to its icon
-    /// under column pressure with the others — a tagged query carries one more
-    /// control than an untagged one, and the narrow column is exactly where
-    /// that has to cost a word rather than the pane's layout width.
+    /// most notes in this queue are neither. It degrades to its icon under
+    /// column pressure with the others — such a note carries one more control
+    /// than its neighbours, and the narrow column is exactly where that has to
+    /// cost a word rather than the pane's layout width.
     @ViewBuilder
     private func answerAsRulingButton(useIcons: Bool) -> some View {
-        if QueryRuling.offersARuling(annotation) {
+        if let destination = rulingDestination {
             secondary("Answer as ruling\u{2026}", symbol: "building.columns",
                       useIcons: useIcons,
-                      help: "Answer as ruling\u{2026} — a dated ruling in the edition brief, and your reply here",
+                      help: destination.help,
                       action: onAnswerAsRuling)
         }
     }

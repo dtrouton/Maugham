@@ -542,15 +542,22 @@ on ⌘⇧R the dedupe is the whole of it.
   revoke, edit and `restore`, each taking the writer's words as a `String` or a
   `Ruling` those verbs produced, and never a reading. Spec §3.4's membrane;
   `RulingPerformerTests.test_nothingDerivedCanWriteItself` is its census.
-  **Two destinations since the publish department's Task 6**: every verb takes
-  a `kind: Statement.Kind` before its scope, undefaulted for the reason `world`
-  is, so a ruling lands either in the piece's **intent** statement or in an
-  **edition brief** (`editions/<lang>.md`) — one performer, two addresses,
-  because both are the writer's own declared prose carrying a `## Rulings`
-  stratum. Visual language still has none: nothing mints one for a kind no
-  caller names. Every call site in the app passes `.intent` today; a default
-  would be how an edition's decision landed in the book's intent in silence,
-  and `RulingPerformerTests.test_everyVerbTakesTheDestinationKindExplicitly`
+  **More than one destination since the publish department's Task 6**: every
+  verb takes a `kind: Statement.Kind` before its scope, undefaulted for the
+  reason `world` is — count the kinds a caller actually names rather than
+  reading a number here. Today they are the piece's **intent** statement
+  (`RulingsStratum`, `DiagnosticsPane.commitAnswer`), an **edition brief**
+  (`editions/<lang>.md`, `QueryRuling`), the project's **lessons ledger**
+  (`lessons.md`, `LessonLedgerVerbs` — the one file allowed to name it) and,
+  since two loops P2 Task 5, the **first reader's statement**
+  (`first-reader.md`, `FirstReaderRuling` — likewise the one file allowed to
+  name it, `TripwireGrepTests.test_theFirstReadersStatementIsWrittenFromOneFile`).
+  One performer, several addresses, because each is the writer's own declared
+  prose carrying a `## Rulings` stratum. Visual language still has none:
+  nothing mints one for a kind no caller names. The parameter is undefaulted
+  because a default would be how an edition's decision landed in the book's
+  intent in silence, and
+  `RulingPerformerTests.test_everyVerbTakesTheDestinationKindExplicitly`
   is the census.
   **`restore` exists for ⌘Z alone**: the Intent pane's rows register the
   opposite verb on the window's `UndoManager`, and `rule` could not have served

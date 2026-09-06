@@ -556,7 +556,8 @@ struct TranslationRoundReportView: View {
                 onCancel: { self.sheet = nil })
         case .ruling(let annotation, let language):
             QueryRulingSheet(
-                annotation: annotation, language: language,
+                annotation: annotation,
+                confirmation: QueryRuling.confirmation(language: language),
                 onCommit: { text in
                     self.sheet = nil
                     run { await actions.answerAsRuling(round, annotation, text) }
