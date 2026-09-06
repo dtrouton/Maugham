@@ -4628,6 +4628,24 @@ struct PersonaModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // **The window's working mode, published to the scene** for the
+            // File menu's two compiler items (`FocusedRunButtons`, two loops
+            // P3): Author's ⌘R is a check and Review's a round, so the menu
+            // titles them apart (`RunMenuTitles`). It is a TITLE and nothing
+            // else — what those items post never moved, because the `RunKind`
+            // is minted from the persona at the receiver, and a second read of
+            // the persona on the posting side would be one decision made in two
+            // places that can disagree.
+            //
+            // It lives on THIS modifier because the persona is this modifier's
+            // whole subject — it already owns the binding and is the one place
+            // the window's mode is written. Task 1 first hung it off
+            // `CanvasPromotionModifier`, which publishes to the same scene and
+            // takes the same value: that works, and it couples the File menu's
+            // wording to canvas plumbing for no reason that survives being
+            // written down. `RunMenuTitlesTests` censuses the publish site so
+            // there stays exactly one.
+            .focusedSceneValue(\.persona, persona)
             .onKeyWindowCommand(.maughamSetPersona, window: window) { note in
                 guard let next = Self.persona(
                     fromPayload: note.userInfo?[MaughamEvent.personaKey] as? String)
@@ -5136,13 +5154,6 @@ struct CanvasPromotionModifier: ViewModifier {
                                && Self.isPromotable(persona: persona,
                                                     selection: model.selection,
                                                     nodeKind: selectedNodeKind))
-            // The window's working mode, for the File menu's two compiler items
-            // (`FocusedRunButtons`): Author's ⌘R is a check, Review's a round,
-            // and the menu says so. It rides here rather than on a modifier of
-            // its own because this one already takes the persona and already
-            // publishes to the same scene — `ProjectWindow.body` has no
-            // expression budget left (the Release type-check ceiling).
-            .focusedSceneValue(\.persona, persona)
             // Reading `model.scene` HERE is safe and in `body` is not: an action
             // closure runs on a change rather than inside a view update, so the
             // scene never becomes a dependency of this modifier's body.

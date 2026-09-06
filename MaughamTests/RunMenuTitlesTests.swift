@@ -104,12 +104,29 @@ final class RunMenuTitlesTests: XCTestCase {
                        "FocusedRunButtons must not disable either item.")
     }
 
-    /// The window publishes what the menu reads. Deleting this line leaves every
-    /// title correct in isolation and every menu item stuck on Author's words.
-    func test_theProjectWindowPublishesItsPersonaToTheScene() throws {
+    /// **The window publishes what the menu reads, from exactly one place.**
+    /// Deleting the line leaves every title correct in isolation and every menu
+    /// item stuck on Author's words; a SECOND publish is two scene values for
+    /// one fact, and which one wins is SwiftUI's business rather than ours.
+    ///
+    /// The home is `PersonaModifier`, whose whole subject is the persona — it
+    /// owns the binding and is the one place the window's mode is written.
+    /// (Task 1's fix round moved it off `CanvasPromotionModifier`, which
+    /// published to the same scene and coupled the File menu's wording to
+    /// canvas plumbing for no reason.)
+    func test_theWindowPublishesItsPersonaFromThePersonaModifierAlone() throws {
         let source = try String(contentsOf: repoFile("Maugham/Views/ProjectWindow.swift"), encoding: .utf8)
-        XCTAssertTrue(source.contains(".focusedSceneValue(\\.persona, persona)"),
-                      "ProjectWindow must publish its persona as a focused scene value.")
+        let publish = ".focusedSceneValue(\\.persona, persona)"
+        XCTAssertEqual(source.components(separatedBy: publish).count - 1, 1,
+                       "The persona must be published to the scene exactly once.")
+        let modifier = try XCTUnwrap(source.range(of: "struct PersonaModifier: ViewModifier {"))
+        let rest = source[modifier.upperBound...]
+        let end = try XCTUnwrap(rest.range(of: "\n}\n"))
+        let declaration = rest[..<end.lowerBound]
+        XCTAssertTrue(declaration.contains(".onKeyWindowCommand(.maughamSetPersona"),
+                      "The slice this scans must be PersonaModifier's own declaration.")
+        XCTAssertTrue(declaration.contains(publish),
+                      "PersonaModifier — which owns the persona binding — is where the publish belongs.")
     }
 
     // MARK: - Helpers
