@@ -1076,7 +1076,8 @@ final class AssistantColumnTests: XCTestCase {
     func test_theKeystrokeEndsAStudyEvenWhenItNamesThePaneAlreadyShowing() throws {
         XCTAssertTrue(
             Self.setDetailSegmentHandlerDismissesTheStudy(in: try Self.projectWindowSource()),
-            "the `.maughamSetDetailSegment` handler must call `assistant.dismiss()`: "
+            "the `.maughamSetDetailSegment` handler must reach an act that calls "
+            + "`assistant.dismiss()`: "
             + "it writes a segment that is often the one already selected, so "
             + "`.onChange` cannot see it, and ⌘⌥E over a studied reference does "
             + "nothing at all")
@@ -1098,17 +1099,47 @@ final class AssistantColumnTests: XCTestCase {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    /// Does the `.maughamSetDetailSegment` handler dismiss? Read as the body
+    /// Does the `.maughamSetDetailSegment` handler dismiss? Read in two hops
+    /// since the smoke fix of 2026-09-06: the handler body — the text
     /// between that handler's opening line and the next `.onKeyWindowCommand`,
-    /// so a `dismiss()` somewhere else in a 4,000-line file cannot answer for
-    /// it.
+    /// so a call somewhere else in a 4,000-line file cannot answer for it —
+    /// must reach `selectDetailSegment`, and THAT act must dismiss. The
+    /// keystroke still ends the study; the three lines simply have one spelling
+    /// now, shared with the Describe… hand-off, which needs the same act
+    /// and cannot use the post (a `.keyWindow` post is dropped while the
+    /// sheet's window still holds key).
     private static func setDetailSegmentHandlerDismissesTheStudy(in source: String) -> Bool {
         guard let start = source.range(of: ".onKeyWindowCommand(.maughamSetDetailSegment") else {
             return false
         }
         let rest = source[start.upperBound...]
         let end = rest.range(of: ".onKeyWindowCommand(")?.lowerBound ?? rest.endIndex
-        return rest[..<end].contains("assistant.dismiss()")
+        guard rest[..<end].contains("ProjectWindow.selectDetailSegment(") else { return false }
+        guard let act = declaration(named: "static func selectDetailSegment(", in: source)
+        else { return false }
+        return act.contains("assistant.dismiss()")
+    }
+
+    /// A brace-balanced read of one declaration — a per-suite copy, as
+    /// every census suite here keeps (grep `private static func
+    /// declaration(named`).
+    private static func declaration(named name: String, in source: String) -> String? {
+        guard let start = source.range(of: name) else { return nil }
+        var depth = 0
+        var index = start.lowerBound
+        var seenOpen = false
+        while index < source.endIndex {
+            let character = source[index]
+            if character == "{" { depth += 1; seenOpen = true }
+            if character == "}" {
+                depth -= 1
+                if seenOpen && depth == 0 {
+                    return String(source[start.lowerBound...index])
+                }
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 
     // MARK: - Fixtures

@@ -124,11 +124,17 @@ struct ProjectWindow: View {
     /// `MaughamEvent.postDetailSegment` is scoped `.keyWindow`, and a sheet's
     /// own window is the key one while it is up — this window would filter the
     /// command out, so the sheet posting for itself would be swallowed by the
-    /// very act of closing. The request is recorded instead and posted from
+    /// very act of closing. The request is recorded instead and acted on from
     /// the `.sheet`'s `onDismiss`, which is the framework's own "it is gone"
-    /// hook. Posting the shared event rather than writing `detailSegment`
-    /// directly keeps the receiver's other two acts — revealing the column and
-    /// ending a study — from having a second spelling here.
+    /// hook.
+    ///
+    /// **The hand-off WRITES the segment; it does not post it** (smoke,
+    /// 2026-09-06). `onDismiss` runs before the sheet's window has given key
+    /// status back, so a `.keyWindow`-scoped post is dropped there too and the
+    /// picker stayed on Diagnostics — the shape was reasoned rather than
+    /// measured. `ProjectWindow` owns all three pieces of the act, so it
+    /// performs it directly through `selectDetailSegment`, the one spelling
+    /// the key-window receiver calls as well.
     ///
     /// **Guarded twice, because one guard covered one door out of three**
     /// (fix round 1). `describeFirstReader`'s two awaits leave a window in
@@ -954,18 +960,11 @@ struct ProjectWindow: View {
                 .onKeyWindowCommand(.maughamSetDetailSegment, window: window) { note in
                     guard let raw = note.userInfo?[MaughamEvent.detailSegmentKey] as? String,
                           let seg = DetailSegment(rawValue: raw) else { return }
-                    showInspector = true     // ensure pane is visible
-                    // **The keystroke ends a study, even when it names the pane
-                    // already selected** — Denver's fix-round-1 ruling. A
-                    // studied reference stands IN PLACE OF the pane picker, so
-                    // ⌘⌥E is precisely what a writer presses to get the shelf
-                    // back; leaving it to `detailSegment`'s `.onChange` made it
-                    // inert, because the value it writes is the one already
-                    // there. The picker's own no-op snap is NOT a keystroke and
-                    // keeps the study — that half stays with `.onChange`
-                    // (`AssistantColumnModifier.paneChangeEndsTheStudy`).
-                    assistant.dismiss()
-                    detailSegment = seg
+                    ProjectWindow.selectDetailSegment(
+                        seg,
+                        showInspector: $showInspector,
+                        detailSegment: $detailSegment,
+                        assistant: assistant)
                 }
                 .onKeyWindowCommand(.maughamTidyAllFilenames, window: window) { _ in
                     showingTidyAllConfirmation = true
@@ -3883,9 +3882,33 @@ struct ProjectWindow: View {
         requested && dismissed == .projectSettings
     }
 
+    /// **The right column arriving at a pane** — the one spelling of the three
+    /// acts a pane selection performs, called by the `.keyWindow` receiver in
+    /// `SessionAndNavigationModifier` and by the Describe… hand-off below.
+    ///
+    /// **The keystroke ends a study, even when it names the pane already
+    /// selected** — Denver's fix-round-1 ruling. A studied reference stands IN
+    /// PLACE OF the pane picker, so ⌘⌥E is precisely what a writer presses to
+    /// get the shelf back; leaving it to `detailSegment`'s `.onChange` made it
+    /// inert, because the value it writes is the one already there. The
+    /// picker's own no-op snap is NOT a keystroke and keeps the study — that
+    /// half stays with `.onChange`
+    /// (`AssistantColumnModifier.paneChangeEndsTheStudy`).
+    static func selectDetailSegment(
+        _ seg: DetailSegment,
+        showInspector: Binding<Bool>,
+        detailSegment: Binding<DetailSegment>,
+        assistant: AssistantColumnModel
+    ) {
+        showInspector.wrappedValue = true     // ensure pane is visible
+        assistant.dismiss()
+        detailSegment.wrappedValue = seg
+    }
+
     /// Hand the writer to the first reader's statement, once Project Settings
     /// has actually closed — see `describeFirstReaderRequested` for why the
-    /// post cannot happen while the sheet is up.
+    /// act cannot happen while the sheet is up, and why it is a direct write
+    /// rather than a post.
     private func openFirstReaderIfRequested() {
         let dismissed = presentedSheet
         let opens = Self.opensFirstReader(
@@ -3893,7 +3916,11 @@ struct ProjectWindow: View {
         describeFirstReaderRequested = false
         presentedSheet = nil
         guard opens else { return }
-        MaughamEvent.postDetailSegment(.firstReader)
+        Self.selectDetailSegment(
+            .firstReader,
+            showInspector: $showInspector,
+            detailSegment: $detailSegment,
+            assistant: assistant)
     }
 
     private func handleShowLatestMCPNote() {

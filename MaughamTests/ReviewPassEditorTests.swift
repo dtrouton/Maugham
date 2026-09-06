@@ -441,11 +441,18 @@ final class ReviewPassEditorTests: XCTestCase {
                       "leaving the field commits. Got:\n\(section)")
     }
 
-    /// **Describe… does not post its own segment event.** The post is scoped
-    /// `.keyWindow`, and while a sheet is up the sheet's window is the key
-    /// one — the project window filters the command out, so a sheet posting
-    /// for itself would be swallowed by the act of closing. The presenter
-    /// records the request and posts it from the sheet's `onDismiss`.
+    /// **Describe… does not post a segment event at all — the presenter
+    /// WRITES the segment from the sheet's own dismissal hook.**
+    ///
+    /// `postDetailSegment` is scoped `.keyWindow`, so a sheet posting for
+    /// itself is swallowed by the act of closing — and `onDismiss` runs before
+    /// the sheet's window has handed key status back, so a post there is
+    /// dropped too and the picker stays on Diagnostics (Denver's smoke,
+    /// 2026-09-06; the original shape was reasoned rather than measured). The
+    /// presenter records the request and performs the act itself.
+    ///
+    /// PLANTED REVERT: re-adding `MaughamEvent.postDetailSegment(.firstReader)`
+    /// to the hand-off is the exact regression, and it is asserted absent.
     func test_theDescribeHandoffWaitsForTheSheetToClose() throws {
         let sheet = try Self.source(of: "Views/ProjectSettingsSheet.swift")
         XCTAssertFalse(sheet.contains("postDetailSegment("),
@@ -462,13 +469,46 @@ final class ReviewPassEditorTests: XCTestCase {
         let window = try Self.source(of: "Views/ProjectWindow.swift")
         XCTAssertTrue(
             window.contains("onDismiss: openFirstReaderIfRequested"),
-            "the presenter posts from the sheet's own dismissal hook")
-        let post = try XCTUnwrap(
+            "the presenter acts from the sheet's own dismissal hook")
+        let handoff = try XCTUnwrap(
             Self.declaration(named: "private func openFirstReaderIfRequested() {",
                              in: window))
-        XCTAssertTrue(post.contains("MaughamEvent.postDetailSegment(.firstReader)"),
-                      "\u{2026}through the ONE segment post, so the receiver's "
-                      + "other two acts keep their single spelling. Got:\n\(post)")
+        XCTAssertFalse(handoff.contains("postDetailSegment"),
+                       "a key-window post is dropped while the sheet's window "
+                       + "still holds key. Got:\n\(handoff)")
+        XCTAssertTrue(handoff.contains("Self.selectDetailSegment(")
+                      && handoff.contains(".firstReader"),
+                      "\u{2026}so the hand-off writes the segment through the "
+                      + "shared act. Got:\n\(handoff)")
+    }
+
+    /// **The act has ONE spelling.** Revealing the column, ending a study and
+    /// writing the segment are three steps, and the Describe… hand-off does
+    /// exactly what the `.keyWindow` receiver does — so both call
+    /// `selectDetailSegment` rather than keeping a copy each.
+    ///
+    /// Non-vacuity: the helper is read, and both callers are named.
+    func test_thePaneSelectionActHasOneSpelling() throws {
+        let window = try Self.source(of: "Views/ProjectWindow.swift")
+        let act = try XCTUnwrap(
+            Self.declaration(named: "static func selectDetailSegment(", in: window),
+            "the shared act must exist")
+        XCTAssertTrue(act.contains("showInspector.wrappedValue = true"), "Got:\n\(act)")
+        XCTAssertTrue(act.contains("assistant.dismiss()"), "Got:\n\(act)")
+        XCTAssertTrue(act.contains("detailSegment.wrappedValue = seg"), "Got:\n\(act)")
+
+        let callers = window.components(separatedBy: "selectDetailSegment(").count - 1
+        XCTAssertEqual(callers, 3,
+                       "the declaration plus its two callers — the key-window "
+                       + "receiver and the Describe\u{2026} hand-off")
+
+        let receiver = try XCTUnwrap(
+            Self.declaration(named: "onKeyWindowCommand(.maughamSetDetailSegment, window: window) { note in",
+                             in: window))
+        XCTAssertTrue(receiver.contains("ProjectWindow.selectDetailSegment("),
+                      "the receiver calls the shared act. Got:\n\(receiver)")
+        XCTAssertFalse(receiver.contains("assistant.dismiss()"),
+                       "\u{2026}and keeps no copy of it. Got:\n\(receiver)")
     }
 
     // MARK: - The name survives every way out of the sheet (fix round 1)
