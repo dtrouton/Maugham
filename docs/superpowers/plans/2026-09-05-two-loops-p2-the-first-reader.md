@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-05-two-loops-two-readers-design.md` §2 (reader response, one reader not an average), §3, §4.2–4.3, §4.8–4.10, §5.1, §5.3, §6. **P1 handoff (what is built, the rulings, the carries):** `docs/superpowers/notes/2026-09-05-two-loops-handoff.md` "P1 built". **ADR:** `docs/adr/0031-the-persona-is-an-input-to-the-run.md`.
 
+> **2026-09-06, as built:** `Statement.Kind.firstReader`'s raw value shipped as `first_reader` (snake, like its siblings — Ruling P2-11), not the `first-reader` this plan specifies below; the FILE is `first-reader.md` as written. Everything else here is the record of what was asked.
+
 **Branch:** `claude/two-loops-p2-2026-09-05` off local `main` (P1 merged and pushed, `bcd4ce15`).
 
 ## Global constraints

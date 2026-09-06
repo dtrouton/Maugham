@@ -89,3 +89,56 @@ Open Playlist → Author → a chapter with a stage set in Review → ⌘R → h
 ### Smoke (Denver, on the laptop) — PASSED 2026-09-05, all fourteen steps, both projects
 
 Open Playlist → Author → a chapter that has a stage set in Review → ⌘R → the Diagnostics header names *Le Guin reads this piece*, the report has no since-line, and Review's cockpit shows the SAME round number it showed before → Review → the cockpit shows the stage; Run round → *Reading the whole piece…* → round N+1, notes signed by the editor, since-line present → Author → ⌘R again → still Le Guin, still no round → board: clear the piece's pass → Review's cockpit says *Set a pass to run a round*, both buttons dead with a reason → ⌘R in Review over that piece → the capsule says *Set a pass to run a round.*, nothing runs → Project Settings → Vacate → Author ⌘R → *Claude reads this piece*, notes signed Claude → Restore. **Also open Playlist Test** (it holds the two `workshop`-stamped legacy sidecars): the chapters checked on 2026-09-03/04 should show their last check in Author, not the cold-start offer, and Review's cockpit should show no standing round for them.
+
+## P2 built — 2026-09-06 (appended by the implementing session; overnight autonomous run)
+
+**Branch `claude/two-loops-p2-2026-09-05`**, eight task commits (several with fix rounds, 3d685319..a66b9720) plus the whole-branch fix wave (fa8f242d — the review found no Critical; two Importants and the raw-value spelling, Rulings P2-10/11), merged to local `main` UNPUSHED. Plan: `docs/superpowers/plans/2026-09-05-two-loops-p2-the-first-reader.md`. Every task had a green `./scripts/test.sh`; Core tasks ran the package tests and the phone gate; the whole branch had `./scripts/test.sh full`, `./scripts/test.sh phone`, a Release build and a touched-file warning census (three warnings, all pre-existing on main — `DocumentStore.swift:821`, `StatementPane.swift:466/479` — for P3's sweep). ADR 0031 carries a dated *Amended* paragraph.
+
+### What landed, by file
+
+- **Core:** `Statement.Kind.firstReader` (raw `first-reader`, `StatementConvention.firstReaderPath = "first-reader.md"`, project scope only); `ProjectManifest.firstReaderName: String?` (tolerated-missing). Mac: `ProjectStore.setFirstReaderName(_:)` (trims; empty → nil).
+- **`Maugham/Models/AuthorReader.swift`:** `coach` / `firstReader(FirstReader { name; statement })` / `nobody`; the CHOICE is `UIState.authorReaderChoice: AuthorReaderChoice?` (nil = default rule: coach while held, else first reader if named, else nobody); the ONE resolution `ProjectManifest.authorReader(choice:statementText:)`; `DocumentStore.setAuthorReaderChoice`. `activePass`/`heldPass` deleted.
+- **`Maugham/Compiler/CompilerPrompt.swift`:** `readerSection(_:)` is the check's frame for all three arms — the coach's teacher frame moved here from `passSection` (byte-identical, pinned); the first reader gets her frame + the essay half of her statement + "Standing instructions from the writer:" from her `## Rulings` + `firstReaderInstruction` (names the four kinds in the schema's order; ends with the shelf rule). `checkMessage` has no `pass:`. `ActivePass.isCoach` GONE (census `test_isCoachIsGone`). Reader kinds: `dream_break|belief|drag|lost` (`DiagnosticIngest.readerKinds`; labels Dream break / Belief / Drag / Lost).
+- **`Maugham/Compiler/DraftStage.swift`:** `LetterDosage.reader` — answer, about, working, ≤1 question; `allowsOneThing/allowsHabits/allowsProcess/allowsExercise/allowsScenes` false; enforced at ingest.
+- **`Maugham/Compiler/CompilerOrchestrator.swift`:** `Environment.authorReader(docId)` / `roundEditor(docId)` replace `reader(docId, kind)`; the reader and her statement are read at the keystroke; a first reader is briefed with `stage: nil`, `signals: nil`, `lessons: nil` and dosed `.reader` whatever the stage or Reread; `CompilerRun.readerName` stamped on every check ("Claude" for nobody), nil for rounds; `StreamingRun.readerName`. Author's standing-run sites (signature, Keep, Add-to-intent provenance ×2) read `run.readerName ?? reader.editorName` — **P1's Ruling 10 carry is CLOSED**; the header and empty state read the live reader.
+- **`Maugham/Views/FirstReaderRuling.swift` (new):** "Answer as ruling…" in Review's queue on her open, unstamped, untagged `.comment`/`.query`/`.craftNote` notes files a dated ruling into `first-reader.md` via `RulingPerformer` (single-writer census + planted `rule`/`edit`/`revoke` offenders); `RulingDestination` is the one decision shared by row, sheet and commit; `QueryRulingSheet` generalised to a confirmation sentence; `AnnotationRow.manifest` undefaulted.
+- **`Maugham/Views/ProjectSettingsSheet.swift`:** **First reader** section beneath the coach's — name field committing on submit, focus loss, Done AND Escape (`.onDisappear`), through `nameNeedsCommitting(draft:stored:)` (trimmed both sides); **Describe…** / **Edit description…** (keyed on the statement's existence in the manifest) creates the statement, dismisses, and `ProjectWindow` posts `.firstReader` only when Project Settings itself was the dismissed sheet (`opensFirstReader(requested:dismissed:)`, `presentedSheet` mirror, flag cleared on every presentation).
+- **`Maugham/Views/DiagnosticsPane.swift`:** the header's reader line is a `Menu` — items from `readerMenuItems(manifest:)` (coach if held, first reader if named, Claude); "Define a first reader…" opens Project Settings; empty state "Press ⌘R and <reader> reads what you've written."
+- **`DetailSegment.firstReader`** — "First Reader", **⌘⌥Y** (every letter of "first reader" is taken; the keyspace test demands a key), after `.lessons` in Author's and Review's panes; hosted by `StatementPane` (title "First reader", rulings stratum titled **Instructions**). Three extra exhaustive `Statement.Kind` switches took the conservative arm (not proposable, no bible, not a promotion target).
+- **MCP:** `read_first_reader` (`Maugham/MCP/Tools/FirstReaderTools.swift`; `Result { exists, name, markdown, path }`; catalogue **60**); `CompilerAllowlistTests.statementWriters.subjects` gained `first_reader` AND `lessons` (a pre-existing census gap).
+- **Docs:** the four guides, both AREA.md, CLAUDE.md (Compiler + MCP cells, tripwire 34), ADR 0031 amended, roadmap, problem-map row, spec status, `docs/skills/maugham-bootstrap/SKILL.md`.
+
+### Rulings made on Denver's behalf (P2-1 … P2-11; rework any he disagrees with)
+
+1. `DetailSegment.firstReader` is bound to **⌘⌥Y** — the keyspace test demands a key and every letter of "first reader" is taken (⌘⌥S was also free; Y chosen as "Your reader", S neighbours the ⌘S reflex).
+2. `statementWriters.subjects` gained `"lessons"` as well as `"first_reader"`.
+3. The CHOICE is UI state (`UIState.authorReaderChoice`); the NAME is manifest identity.
+4. **`LetterDosage.reader` wins over the draft stage AND over Fresh Eyes/Reread** — a first reader is always the short reader form (§4.8's "always full on a cold read" is the coach's/editors' rule).
+5. Author's Diagnostics pane gained NO "Answer as ruling" verb; the offer lives in Review's queue only.
+6. `.reader` also drops `Letter.process`, and a first reader is briefed with no process section.
+7. A first reader is NOT briefed on the lessons ledger (`lessons: nil`).
+8. A `.nobody` check stamps `readerName: "Claude"` (non-nil) — the record says who signed; nil would mean "unknown" and fall to the live reader (Ruling 10's defect).
+9. Her ANCHORLESS findings (minted `.craftNote`) ARE offered "Answer as ruling…" — a whole-piece observation is exactly what a standing instruction answers.
+10. **A first reader's check judges no intent drift** — her briefing omits the `intent_drift` schema line and her run records no verdict, so the intent strip's mark is never hers (found by the whole-branch review: the one report section nobody had decided for her).
+11. **`Statement.Kind.firstReader`'s raw value is `first_reader`** (snake, like `visual_language`), fixed before first ship; the FILE stays `first-reader.md` (files are kebab).
+
+### Carries for P3
+
+- The `read_first_reader` description and `docs/skills/maugham-bootstrap/SKILL.md` tell Claude to respond "in her position"; the **editing-pass skill** (`docs/skills/editing-pass/SKILL.md`) still describes the coach as the reader of unassigned pieces — P3's sweep (already listed).
+- Three pre-existing warnings in branch files (above).
+- The whole-branch review's ridden minors: dispositions are briefed to her unfiltered (prior coach/editor notes reach her with their craft vocabulary); switching reader changes the briefing hash (`lessons` nil for her) so the next check re-embeds the declared world — tokens only.
+- Deferred minors ridden per the reviews: `readerMenuTitle(.firstReader)` answers "" when unnamed (unreachable); `try? createStatement` in Describe… is quiet on failure (consistent with the sheet); the two `roundEditor` reads per round press straddle `await prepareForRun` (P1's shape); the trim rule is spelled on write and on read (codebase precedent).
+- Denver's picker only offers readers the project HAS; a first reader per piece, personality dials and a Review-side unread badge remain out of scope (spec §8).
+
+### Smoke (Denver, on the laptop)
+
+1. Playlist → Project Settings → **First reader** → type "Tabitha" → press **Escape** (not Done) → reopen Settings → the name is still there. *(pins the on-disappear commit)*
+2. **Describe…** → the sheet closes and the right column lands on **First reader** (⌘⌥Y). Write three sentences and one `## Rulings` line ("always tell me where you got bored"). The rulings stratum is titled **Instructions**. *(pins the hand-off)*
+3. Author → the header's reader line is now a menu: Le Guin · Tabitha · Claude → choose Tabitha → header *Tabitha reads this piece*; empty state names her.
+4. ⌘R → her letter has answer/about/what she loved and at most one question — no habits, no one-thing, no scenes, no process line; notes signed Tabitha, unstamped (Review's queue shows them under every pass); a report may be labelled Drag or Lost.
+5. ⌘⇧R (Reread) with Tabitha → still the short form.
+6. Review → queue → **Answer as ruling…** on one of her notes (including one with no paragraph anchor) → the sheet's confirmation names her → `first-reader.md` gains a dated line under `## Rulings`.
+7. Author → choose Le Guin → ⌘R → the coach's letter, full form, signed "— Le Guin"; then choose Claude → ⌘R → signed "— Claude". Switch the picker back to Le Guin WITHOUT running: the standing letter still signs "— Claude" (the record remembers who read).
+8. Project Settings → Vacate the coach → the picker offers Tabitha · Claude and defaults to Tabitha → clear her name → the picker offers Claude and **Define a first reader…** (which opens Settings) → Restore.
+9. Claude Desktop: `read_first_reader` returns `exists`, `name`, the markdown and `first-reader.md`.
+10. Review → a chapter with a stage → Run round → unchanged from P1 (the editor's letter, since-line, numbered round).
