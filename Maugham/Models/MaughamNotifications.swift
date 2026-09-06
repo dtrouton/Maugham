@@ -47,13 +47,15 @@ extension Notification.Name {
     /// value) — or opens exactly one window if none is open yet. Harmless
     /// duplication at worst. OK.
     public static let maughamOpenProject = Notification.Name("maugham.openProject")
-    /// Scope: .keyWindow — "Check Writing" (⌘R). The compiler's one trigger:
+    /// Scope: .keyWindow — ⌘R ("Check Writing" in Author, "Run Round" in
+    /// Review; `RunMenuTitles`). The compiler's warm trigger:
     /// the key window asks its `CompilerOrchestrator` to check the active
     /// document. A command, not a data event — a background window running
     /// against its own document would spend a real API call on prose nobody is
     /// looking at.
     public static let maughamRunCompiler = Notification.Name("maugham.run.compiler")
-    /// Scope: .keyWindow — "Fresh Eyes" (⌘⇧R). The same trigger read cold: the
+    /// Scope: .keyWindow — ⌘⇧R ("Reread" in Author, "Fresh Eyes" in Review).
+    /// The same trigger read cold: the
     /// warm session is retired and the piece is read whole, rather than the
     /// delta since the last run's marker. Key-window-scoped for exactly the
     /// reason ⌘R is, and more so — a cold read is the most expensive thing the

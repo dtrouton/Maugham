@@ -130,8 +130,9 @@ order, not a workflow the app enforces.
 
 ## Rounds and Fresh Eyes
 
-Run a round **from Review** — the cockpit's Run button, or **⌘R** while
-you're standing in Review — on a piece with an active pass, and the run is a
+Run a round **from Review** — the cockpit's Run button, or **⌘R**, which the
+File menu titles *Run Round* while you're standing in Review — on a piece with
+an active pass, and the run is a
 numbered **round** in that pass's own count. A round needs a pass: on a piece
 with none set, Review says so and starts nothing. Your **⌘R in Author** is
 the other loop — a *check*, filed in no lane and given no round number —
@@ -148,7 +149,7 @@ passes and a pass you haven't touched in a while ages out of that memory —
 the next round in it starts back at round 1, with nothing to compare against.
 A check never ages a round out of that memory.
 
-**⌘⇧R** — *Fresh Eyes* — is a different kind of run: it ends the warm
+**⌘⇧R** — *Fresh Eyes* in Review, and *Reread* in Author — is a different kind of run: it ends the warm
 session and reads the whole piece cold, as if for the first time. It's still
 briefed on your intent, your rulings, your lessons ledger, and the bible, but
 not on anything a previous round found — that's the point of asking for fresh eyes. Its report

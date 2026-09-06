@@ -33,11 +33,15 @@ public enum KeyboardShortcuts {
             // particular is a primary canvas verb with a great deal of
             // documentation and had no entry on either surface.
             Entry(label: "Save Checkpoint As…",     shortcut: "⌘⇧S"),
-            Entry(label: "Check Writing",           shortcut: "⌘R"),
+            // Both keys carry two titles since two loops P1 (ADR 0031): the
+            // File menu reads the key window's persona (`RunMenuTitles`), and a
+            // cheatsheet has no window to read, so it names both. The keys and
+            // what they post never moved.
+            Entry(label: "Check Writing (Run Round in Review)", shortcut: "⌘R"),
             // Same reason as the two above: ⌘⇧R is outside the ⌘⌥ family
             // `DocSyncTests`' cheatsheet guard covers, so nothing would report
             // its absence (M3-P3 Task 6).
-            Entry(label: "Fresh Eyes",              shortcut: "⌘⇧R"),
+            Entry(label: "Reread (Fresh Eyes in Review)", shortcut: "⌘⇧R"),
             Entry(label: "Promote…",                shortcut: "⌘⇧↩"),
             Entry(label: "Project Settings…",       shortcut: "⌘⇧,"),
         ]),

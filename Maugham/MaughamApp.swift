@@ -146,25 +146,22 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 Divider()
-                // The compiler's one trigger (spec §3.1). Plain ⌘R, verified
+                // The compiler's two keys (spec §3.1). Plain ⌘R, verified
                 // unbound 2026-08-04: the two other "r" bindings carry ⌘⌥⇧
-                // (Toggle Review Mode) and ⌘⌥ (Research pane). Beside Save
-                // because it acknowledges in Save's register — a sub-second
-                // flash and nothing else.
-                Button("Check Writing") {
-                    MaughamEvent.postCompilerRun()
-                }
-                .keyboardShortcut("r", modifiers: .command)
-                // The same trigger read cold (M3-P3 §6): the warm session is
-                // retired and the piece is read whole. Beside Check Writing
-                // because it is the same act asked for differently, and on
-                // ⌘⇧R — verified unbound 2026-08-15, the only other "r"
-                // bindings being ⌘ (above), ⌘⌥⇧ (Toggle Review Mode) and ⌘⌥
-                // (reveal the tree's Research section).
-                Button("Fresh Eyes") {
-                    MaughamEvent.postCompilerFreshEyes()
-                }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
+                // (Toggle Review Mode) and ⌘⌥ (Research pane). ⌘⇧R for the
+                // cold read, verified unbound 2026-08-15 against the same
+                // three. Beside Save because a run acknowledges in Save's
+                // register — a sub-second flash and nothing else.
+                //
+                // **Two keys, four titles** (two loops P1, ADR 0031): the keys
+                // post the same two events they always did, and the receiver
+                // mints the `RunKind` from the key window's persona — so what
+                // moves here is the WORDING. Author's ⌘R is a check and its
+                // ⌘⇧R a *Reread*; Review's are a *Run Round* and *Fresh Eyes*.
+                // The cold read used to sit here as "the same act asked for
+                // differently", which two loops made false: it is one act under
+                // each loop's own verb, and the menu says which loop you are in.
+                FocusedRunButtons()
                 Divider()
                 FocusedRestoreButton()
                 Divider()
@@ -493,6 +490,19 @@ extension FocusedValues {
     }
 }
 
+/// The working mode of the focused project window, so a menu item can speak in
+/// that window's own vocabulary. Published by `CanvasPromotionModifier` beside
+/// the promotion flag; read only by `FocusedRunButtons`, which changes the two
+/// compiler items' TITLES and nothing else — what they post is the persona's
+/// business at the receiver, never the menu's.
+struct FocusedPersonaKey: FocusedValueKey { typealias Value = Persona }
+extension FocusedValues {
+    var persona: Persona? {
+        get { self[FocusedPersonaKey.self] }
+        set { self[FocusedPersonaKey.self] = newValue }
+    }
+}
+
 /// Whether the focused window's canvas has something to promote. Published by
 /// `CanvasPromotionModifier`; read only by the File-menu item, so a `Promote…`
 /// that could do nothing is disabled rather than silently no-op.
@@ -501,6 +511,25 @@ extension FocusedValues {
     var canvasPromotable: Bool? {
         get { self[FocusedCanvasPromotionKey.self] }
         set { self[FocusedCanvasPromotionKey.self] = newValue }
+    }
+}
+
+/// File → the compiler's two keys, titled in the focused window's persona
+/// (`RunMenuTitles`). Deliberately NOT `.disabled` on the focused value: a run
+/// with no project window in front is already a no-op at the receiver, and
+/// greying the item out would make the writer's own muscle memory look broken
+/// while a sheet or the Welcome window held focus.
+private struct FocusedRunButtons: View {
+    @FocusedValue(\.persona) private var persona
+    var body: some View {
+        Button(RunMenuTitles.check(for: persona)) {
+            MaughamEvent.postCompilerRun()
+        }
+        .keyboardShortcut("r", modifiers: .command)
+        Button(RunMenuTitles.cold(for: persona)) {
+            MaughamEvent.postCompilerFreshEyes()
+        }
+        .keyboardShortcut("r", modifiers: [.command, .shift])
     }
 }
 

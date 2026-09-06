@@ -5136,6 +5136,13 @@ struct CanvasPromotionModifier: ViewModifier {
                                && Self.isPromotable(persona: persona,
                                                     selection: model.selection,
                                                     nodeKind: selectedNodeKind))
+            // The window's working mode, for the File menu's two compiler items
+            // (`FocusedRunButtons`): Author's ⌘R is a check, Review's a round,
+            // and the menu says so. It rides here rather than on a modifier of
+            // its own because this one already takes the persona and already
+            // publishes to the same scene — `ProjectWindow.body` has no
+            // expression budget left (the Release type-check ceiling).
+            .focusedSceneValue(\.persona, persona)
             // Reading `model.scene` HERE is safe and in `body` is not: an action
             // closure runs on a change rather than inside a view update, so the
             // scene never becomes a dependency of this modifier's body.

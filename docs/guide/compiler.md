@@ -410,7 +410,8 @@ sentence to write about it — coming back after two weeks away earns one too.
 
 ## Reread
 
-**⌘⇧R** — *Fresh Eyes* — and the **Reread** button beside the header's gear
+**⌘⇧R** — the File menu calls it *Reread* while you're standing in Author —
+and the **Reread** button beside the header's gear
 ask for a different kind of read: they end the warm session and read the whole
 piece cold, briefed on your intent, your rulings, your lessons ledger, and the
 bible, but deliberately not on anything an earlier check found. Same reader,
@@ -420,7 +421,9 @@ still the short reader form.) A reread is still a check — it is filed
 in no lane, carries no round number, and the report reads exactly like any
 other check's.
 
-Rounds are Review's, not Author's. A numbered round in a named pass is what the
+Rounds are Review's, not Author's, and the File menu says which loop you are
+standing in: in Review the same two keys read *Run Round* and *Fresh Eyes*.
+A numbered round in a named pass is what the
 **Run** button in Review's round cockpit files, and what it reports — the
 distance travelled since the last round in that lane — is reported there. See
 [Review Passes](review-passes.md#rounds-and-fresh-eyes). Your ⌘R checks never

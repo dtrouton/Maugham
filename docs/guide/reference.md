@@ -12,8 +12,8 @@ The ones you'll use most:
 | `⌘O` | Open project |
 | `⌘S` | Save flash (autosave is automatic) |
 | `⌘⇧S` | Save Checkpoint As… — a named checkpoint you can find again |
-| `⌘R` | Check Writing — ask Claude for notes on what you've written since the last check |
-| `⌘⇧R` | Fresh Eyes — ends the warm session and rereads the whole piece cold |
+| `⌘R` | **Check Writing** in Author — notes on what you've written since the last check; **Run Round** in Review — a numbered round in the piece's pass |
+| `⌘⇧R` | **Reread** in Author, **Fresh Eyes** in Review — ends the warm session and reads the whole piece cold |
 | `⌘⇧↩` | Promote… — turn the canvas selection into a durable artifact |
 | `⌘Z` | Undo (text, annotation action, task, checkbox, or History Rewind) |
 | `⌘⇧Z` | Redo |
