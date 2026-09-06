@@ -134,7 +134,8 @@ struct ProjectWindow: View {
     /// (fix round 1). `describeFirstReader`'s two awaits leave a window in
     /// which the writer can Escape before the request is recorded, and the
     /// request then stands over a sheet that is already gone. Every
-    /// presentation clears it (`presentedSheet`'s `onChange`), and the
+    /// presentation clears it (`activeSheet`'s `onChange`, which also mirrors
+    /// what is up into `presentedSheet`), and the
     /// dismissal that acts on it must be Project Settings' own
     /// (`opensFirstReader`) — otherwise the next translator's-note or Claude
     /// Desktop sheet the writer closed would jump the right column to her
@@ -3453,8 +3454,11 @@ struct ProjectWindow: View {
     /// inputs rather than through a window's state, and a `switch` over the kind
     /// rather than a test for `.intent`: a fall-through is how a selected page
     /// card came to be told to select something (`RegionInspectorPane`), and here
-    /// it would send the writer to a Research pane that shows them nothing. Only
-    /// `.intent` is reachable today — it is the one kind a promotion produces.
+    /// it would send the writer to a Research pane that shows them nothing.
+    /// `.intent` is the only kind a PROMOTION produces, but it is no longer the
+    /// only reachable arm: `.lessons` (editorial letter P2) and `.firstReader`
+    /// (two loops P2) each have a pane, so a mark on one of those statements
+    /// opens it rather than falling through.
     static func statementPane(forMark itemId: String,
                               in store: ProjectStore) -> DetailSegment? {
         guard let statement = store.manifest.statements.first(where: { $0.id == itemId })

@@ -218,6 +218,40 @@ censuses guard the shape of. This is CLAUDE.md's tripwire 34.
   `CompilerPrompt.passSection` as the coach's frame on both kinds, read through
   `ActivePass.isCoach`.
 
+**Amended 2026-09-06 (P2 built).** Author's roster has its second arm. A
+project names **one first reader** — King's one reader, `firstReaderName` on the
+manifest with her prose in a `Statement.Kind.firstReader` (`first-reader.md`,
+project scope) — and which of the three reads is the writer's own choice
+(`UIState.authorReaderChoice`), picked from the Diagnostics header and resolved
+in the one place P1 built, `ProjectManifest.authorReader(choice:statementText:)`,
+with the default rule as the fallback whenever a choice's subject has gone.
+Five consequences of record:
+
+- **The coach's frame moved from `passSection` to `readerSection`, verbatim.**
+  A check is now framed by its `AuthorReader` and a round by its lane's editor;
+  `checkMessage` has no `pass:` parameter at all, and `ActivePass.isCoach` is
+  deleted (`TripwireGrepTests.test_isCoachIsGone`). `CompilerPromptTests
+  .test_aCoachCheckIsBriefedByteForByteAsThePassRouteBriefedHer` pins that the
+  swap changed not one word of what Le Guin is told.
+- **`ActivePass` is Review's alone.** It existed on the check side only so the
+  coach could arrive at the briefing dressed as a pass, which is a shape that
+  could describe the first reader as nothing but `nobody`.
+- **The check's record carries `readerName`** (nil for a round, whose byline is
+  its lane's), stamped at the keystroke. Author's standing-letter surfaces read
+  `run.readerName ?? reader.editorName`, so a letter keeps the name it was
+  written under; the header and the empty state stay on the live reader.
+- **Her letter is the reader's form and it outranks everything else.**
+  `LetterDosage.reader` — answer, about, working, at most one question — wins
+  over the draft stage and over a cold read both, enforced at ingest as well as
+  briefed, because a Reread is not a reason to hand back the craft letter she
+  exists not to write.
+- **She is briefed on neither process nor the lessons ledger** (`signals`,
+  `lessons` and `stage` all nil): both are observations about how the writer
+  works, and the one thing her instruction forbids is talking about the writing
+  instead of the reading. Answering one of her notes files a dated standing
+  instruction into her own statement, through `RulingPerformer` like every other
+  writer-owned write.
+
 ## References
 
 - `docs/superpowers/specs/2026-09-05-two-loops-two-readers-design.md` — §1 (the
@@ -235,7 +269,9 @@ censuses guard the shape of. This is CLAUDE.md's tripwire 34.
 - `Maugham/Compiler/RunKind.swift`, `Maugham/Models/AuthorReader.swift`,
   `Maugham/Models/RoundEditor.swift` — the three types
 - `Maugham/Compiler/CompilerOrchestrator.swift` — `runRequested(docId:kind:freshEyes:)`,
-  `Environment.reader(_:_:)`, `Acknowledgment.noEditor`
+  `Environment.authorReader(_:)` and `Environment.roundEditor(_:)` (P2 Task 4
+  split the one `Environment.reader(_:_:)` P1 shipped into two closures with two
+  answer types), `Acknowledgment.noEditor`
 - `MaughamTests/TripwireGrepTests.swift` — the three censuses cited in §7
 
 ## Constitutional accounting

@@ -17,7 +17,9 @@ Maugham never refuses it — see "A quiet nudge, not a gate" below.
 Each of the four starting passes carries a **named editor voice** — Structural is **Perkins**, Line is **Lish**, Copyedit is **Gould**, Proof is **Argus** — and a **brief**: doctrine for what that pass's rounds attend to, and what they deliberately leave alone (Perkins reads for shape and never touches a sentence; Argus reads the surface only, and advises its rounds be run as Fresh Eyes). A round's notes carry that pass's editor as their author, so a queue spanning several passes still tells you who's speaking. Renaming a pass in **Project Settings…** doesn't move its editor or its brief — both are tied to the pass's identity, not what you call it. A pass you add yourself starts with neither: its rounds are signed with the pass's own name instead of an editor's, and there's no brief behind them — nothing here yet lets you write one in, so a custom pass runs on general editorial judgment until that changes.
 
 The coach, **Le Guin**, is not on this ladder and never was: she reads your
-*checks*, at the desk, and a check is filed in no pass at all. See
+*checks*, at the desk, and a check is filed in no pass at all. Neither is the
+**first reader** you name yourself, who is the other person a check can be
+handed to. See
 [Checking Your Writing → Who reads a check](compiler.md#who-reads-a-check).
 Because she isn't a pass, her name is reserved: adding a pass called
 "Workshop" gets you a pass of your own with a distinct identity, not the
@@ -71,7 +73,11 @@ piece, and everything made with nothing chosen. **Any note Le Guin ever stamped 
 under every pass**, for the same reason: she isn't a pass, so no choice in
 that menu could bring one back once a piece is handed to Perkins or Lish. (A
 check stamps nothing today, so this covers letters she filed in earlier
-versions.) Left alone, the filter
+versions.) **A first reader's notes are unstamped for the same reason** — she
+is not a pass either, so everything she raises shows under every pass, and a
+note of hers carries **Answer as ruling…**, which files your answer as a
+standing instruction in her statement rather than in an edition brief. See
+[Checking Your Writing → Your own first reader](compiler.md#your-own-first-reader). Left alone, the filter
 follows the piece's own active pass — the one a board chip click just set —
 so clicking through from the board lands you already narrowed to the pass you
 came from. Narrow that filter — or Kind, Author, or Triage — down to nothing

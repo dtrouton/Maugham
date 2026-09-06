@@ -2,14 +2,15 @@
 
 Maugham can read what you have just written and check it two ways at once —
 as a continuity editor, against what you've declared and what the manuscript
-has already established, and as a first reader, reporting what happens in the
+has already established, and as a reader, reporting what happens in the
 reading itself. Press **⌘R** — *Check Writing* — and the piece's reader does
-the reading: **Le Guin**, the coach, whatever pass a piece sits in on the
-review board, unless you have vacated her seat — after which a check is read
-by nobody in particular and its notes are signed *Claude*. The report appears
+the reading. Who that is is yours to choose: **Le Guin**, the coach, who reads
+every piece whatever pass it sits in on the review board; **your own first
+reader**, one specific person you name and describe; or nobody in particular,
+after which a check's notes are signed *Claude*. The report appears
 in the **Diagnostics** pane (⌘⌥D), which leads the pane picker in the
-**Author** persona (⌘2); its header names who just read the piece, beside a
-**Reread** button and the gear. A capsule flashes **Checking…**, the same
+**Author** persona (⌘2); its header names who reads this piece — and is itself
+the picker — beside a **Reread** button and the gear. A capsule flashes **Checking…**, the same
 register as ⌘S's; press ⌘R again while one is already running and it flashes
 **Still checking…** instead of starting a second one.
 
@@ -26,9 +27,16 @@ is cheap, not one that reaches for you.
 
 ## Who reads a check
 
+**Three answers, and which one is yours to pick**: the coach, your own first
+reader, or nobody in particular. It is one answer for the whole project rather
+than one per chapter, and none of it touches the review board — a check is
+filed in no lane whatever pass a piece is parked in.
+
+### The coach
+
 Above the four review passes sits one more editor who is **not** a pass:
-**Le Guin**, the coach. She reads your checks — every one, on every piece,
-whatever pass that piece sits in on the review board. The four passes are
+**Le Guin**, the coach. She is the default reader of your checks — every one,
+on every piece, whatever pass that piece sits in on the review board. The four passes are
 stages of finishing; she is the reader for work that isn't there yet, and
 what she writes is a letter about the piece rather than a stack of line
 notes.
@@ -49,16 +57,80 @@ own declaration of what kind of writer you are today.
 ### Your own first reader
 
 The other person who can read your checks is one you name yourself: **one
-specific reader you write toward**. Name her in **Project Settings…**, in the
-**First reader** row beneath the coach's, then press **Describe…** to open her
-statement (⌘⌥Y) and write down who she is — what she reads, what she loves,
-what she will not sit through. The name travels with the book; the description
-is prose you edit like any other statement, and every check reads it fresh.
+specific reader you write toward**. Stephen King calls this the Ideal Reader —
+not an audience but a particular person whose eyebrow you can see going up
+while you write. Maugham's version is the same idea made explicit: you name
+her, you write down who she is, and every check is read in her voice.
+
+Name her in **Project Settings…**, in the **First reader** row beneath the
+coach's, then press **Describe…** to open her statement (⌘⌥Y) and write down
+who she is. The name travels with the book; the description is prose you edit
+like any other statement, and every check reads it fresh. Typing the name is
+enough on its own — she can read for you before you have described her, and
+the check says so rather than inventing a taste on your behalf.
+
+**What to write in the description.** Who she is and what she already knows
+about this story; what she reads, and what she loves in it; what she will not
+sit through. Ordinary prose in your own words — there is no form to fill in
+and nothing is parsed out of it. The more particular it is, the less she reads
+like a generic reader.
+
+**The rows beneath the essay are standing instructions.** Her statement has a
+`## Rulings` strip like any other, and the pane titles it **Instructions**,
+because that is what those lines are: things she is to read under every time,
+rather than decisions you made about a draft. Every check hands them to her
+under *Standing instructions from the writer*. Like every other ruling in
+Maugham they are made by pressing something rather than by typing a heading —
+here, by answering one of her notes (see below) — and each carries **Edit** and
+**Revoke** once it is there.
+
+**She reports what happened in her, and never a fix.** She is asked for four
+things and nothing else: where the dream broke, what she now believes to be
+true, where she got bored and would have skimmed, and where she lost track of
+what was happening or who was speaking. She quotes the words that did it. She
+is forbidden craft vocabulary — no *pacing*, no *structure*, no *voice*, no
+*arc* — and forbidden to propose a change: *"I started skimming around the
+dinner"* rather than *"the pacing sags"*. A report that arrives shaped like a
+fix is dropped rather than shown to you.
+
+**Her letter is the short reader form.** The answer to your ask, one sentence
+on what the piece seems to be about, what she loved and why, and at most one
+question. No *one thing* to fix, no habits, no exercise, no scene table, and
+no line about your own process — those are craft, and a reader who wrote them
+would have become an editor. It is short whatever the model does: the parts
+she does not get are dropped on the way in as well as left out of what she was
+asked for.
+
+**Reread with her reads the whole piece, and is still short.** ⌘⇧R and the
+**Reread** button do for her what they do for anyone — end the warm session and
+read the piece cold — but the letter that comes back is the reader's form all
+the same. A cold read is not a reason to write a craft letter.
+
+**She is not briefed on your ledger or your process.** What you have filed in
+[What I've Learned](right-pane.md#what-ive-learned-mode-g) never reaches her,
+and neither do the numbers Maugham counts off your edit history. Both are
+about how you write; she is here to tell you what reading it was like.
+
+**The books she loves are how she measures yours.** Whatever is pinned to this
+piece (see References, below) reaches her not as a standard but as her taste —
+the things she reads and loves — and she is asked to measure the piece against
+them by name. Pinning the writers you want her to have read is how you tune
+her.
 
 She is not a pass and not a persona Maugham supplies. She has no doctrine and
 no lane, so she never appears on the review board and never files a numbered
-round. What she gives back is a letter in her own voice, and the notes she
-raises are signed with her name.
+round. The notes she raises are signed with her name, carry no pass stamp, and
+therefore show under every pass in your queue.
+
+**Answering one of her notes can become a standing instruction.** In Review's
+queue (⌘⌥A), a note of hers you have not settled carries **Answer as ruling…**
+beside the ordinary reply. Type the answer, and it lands twice: as a dated line
+under **Instructions** in her statement, and as your reply on the note, which
+leaves the queue. Next time she reads, she reads under it — so *"I kept waiting
+for the sister to come back"* is answered once with *"she has read the first
+two books, so nothing about Marnie is new to her"*, rather than every check.
+Author's own Diagnostics pane offers no such button: dispositions live in the
+queue.
 
 ### Choosing between them
 
@@ -75,6 +147,9 @@ one chapter. It is a preference over the default rule rather than a
 replacement for it: if you pick a reader and later take away what they rest on
 — vacate the seat, clear the name — checks fall back to the rule rather than
 to a reader who is no longer there.
+
+Whoever it lands on is named before you press anything: a document you have
+never checked reads *"Press ⌘R and Nadia reads what you've written."*
 
 Rounds are the other loop, and they need an editor of their own: see
 [Review Passes](review-passes.md).
@@ -150,7 +225,7 @@ still never as a rewrite. A direct question gets a direct answer. **Each home
 has its own ask** — the one you type in Author is for the reader who checks;
 the one in Review is for the editor who runs the round. Asking something in
 one field never shows up in the other, even against the same chapter — a
-worry about the dinner scene you meant for the coach's next check isn't
+worry about the dinner scene you meant for your reader's next check isn't
 automatically a worry you meant for the pass editor's next round. **It never
 starts a check** — the keystroke is still the only trigger, and what your ask
 changes is what the next ⌘R or Run round is briefed with. Keep it to a
@@ -186,6 +261,11 @@ reader's words, off numbers Maugham counted rather than anything the reader
 guessed. A part with nothing in it draws nothing at all — no heading over an
 empty list, no answer unless you asked, and no process line unless there was
 something worth a sentence.
+
+**That is the craft letter.** A check read by your own first reader comes back
+in the reader's form instead — the answer, what the piece seems to be about,
+what she loved and why, and at most one question — and none of the rest, on a
+Reread as much as on an ordinary check. See "Your own first reader" above.
 
 Every reference is the words that paragraph says now, as a chip you click to
 jump there, with *and 2 more* when the note stands on several. You never see a
@@ -262,8 +342,10 @@ rather than newest first, each with **Got it** and **Not this** and a jump chip 
 words it's about. This is where a continuity question and a reader's report
 land: a continuity question ends as a question rather than a verdict —
 "Is the dock standing again by this scene?" rather than "Contradiction: the
-dock burned" — and a check can raise as many as it finds. A reader's report
-says where the dream broke or what a reader believes at this point,
+dock burned" — and a check can raise as many as it finds. A reader's report is one of four things — where the **dream broke**, what the
+reader now **believes** to be true, where the reading **dragged** and they
+would have skimmed, or where they were **lost** about what was happening or
+who was speaking — quoting the words that did it, and
 **capped at the sharpest three** — most checks raise none at all, and the
 cap belongs to the reader's report alone, not to continuity. Both mint as
 ordinary annotations the moment the run that
@@ -317,7 +399,9 @@ last five sessions a paragraph has been reworked, and how long you've been
 away. None of it reaches the footer, the tree or the editor — it shows up in
 exactly two places: the **Practice** section of the Statistics window (menu:
 **File → Show Project Statistics**), where every row is a jump to the chapter
-it's about, and the letter's own quiet line, *From Maugham's numbers*.
+it's about, and the letter's own quiet line, *From Maugham's numbers*. A check
+read by your own first reader gets neither — the numbers are about how you
+write, and she is reading what you wrote.
 
 Most weeks are quiet, and a quiet session says nothing at all: the frontier
 has to sit still for **3 sessions running**, or one paragraph has to be
@@ -330,7 +414,9 @@ sentence to write about it — coming back after two weeks away earns one too.
 ask for a different kind of read: they end the warm session and read the whole
 piece cold, briefed on your intent, your rulings, your lessons ledger, and the
 bible, but deliberately not on anything an earlier check found. Same reader,
-the whole piece, nothing carried over. A reread is still a check — it is filed
+the whole piece, nothing carried over. (Your own first reader is briefed on
+neither the ledger nor your process, cold or warm, and her Reread letter is
+still the short reader form.) A reread is still a check — it is filed
 in no lane, carries no round number, and the report reads exactly like any
 other check's.
 
@@ -380,6 +466,14 @@ ruling looks like and how to add one yourself, without a note to answer.
 Answers go into the *piece's* intent, never the project's. An explanation of
 what you were going for in this chapter belongs to this chapter; the project's
 statement stays something you write deliberately, in the Intent pane.
+
+**Answer as ruling…** is the other door, and it is your queue's rather than
+this pane's. It files into a statement other than an intent, and which one
+depends on who raised the note: a translator's language-tagged question files
+into that edition's brief, and a note from your own first reader files as a
+standing instruction in hers. Either way it lands in the same act as your
+reply. See "Your own first reader" above and [The Publish Department → The
+round report](publish-department.md#the-round-report).
 
 **Translator's note…** (⌘⌥C, or the button on the selection toolbar in Review
 Mode) writes a *directive* — a ruling anchored to the paragraph under the

@@ -29,8 +29,9 @@ unwritten).
 and the editorial letter (P1 Task 2) a sixth: four line-delimited note sections
 — conformance against the writer's derived clauses, continuity questions, a
 reader's report (`DiagnosticIngest.readerKinds`: `dream_break`/`belief`, plus
-`drag`/`lost` since two loops P2 gave the first reader the two kinds only she
-reports), and fact-candidates that land silently in the bible — plus
+`drag`/`lost`, which two loops P2 added to the schema for every run — only the
+first reader's own `firstReaderInstruction` names the four, so in practice
+they are hers), and fact-candidates that land silently in the bible — plus
 `intent_drift`, a verdict on the reading as a whole rather than a thing found
 in it, plus `letter`, an editorial letter about the manuscript as a whole
 (`Letter`, on `CompilerRun.letter`). **The letter is asked LAST**, so the
@@ -168,9 +169,17 @@ so Author's Reread and Review's Fresh Eyes are the same case here), a round is
 always `.full`, and the ask's answer is never dosed. **`LetterDosage.reader`
 (two loops P2 Task 3) is the one dose that is not a stage's**: the first
 reader's letter keeps `answer`, `about`, `working` and one question, and drops
-`one_thing`, every habit, the scene table and the `retired` list at ingest
-whatever the model wrote — `allowsOneThing`/`allowsHabits` are the two flags
-that say so, and `CompilerPrompt.firstReaderInstruction` is the briefing half.
+`one_thing`, every habit, the exercise that goes with one, the scene table, the
+`retired` list and the `process` line at ingest whatever the model wrote —
+`allowsOneThing`/`allowsHabits`/`allowsProcess` are the three flags that say so
+(the first two are the P2 Task 3 pair; `allowsProcess` came out of that task's
+review, ruling P2-6), and `CompilerPrompt.firstReaderInstruction` is the
+briefing half. The four kinds she reports are `DiagnosticIngest.readerKinds` —
+`dream_break`, `belief`, `drag`, `lost` — and the instruction names them in
+that order, pinned by
+`test_theReaderInstructionNamesTheFourKindsInTheSchemasOrder` so the two lists
+cannot drift; `CompilerNote.readerKindLabel` is the other half of the pair
+("Dream break"/"Belief"/"Drag"/"Lost").
 Which dose a run gets when a first reader reads a drafting piece is the
 orchestrator's answer, not this enum's. `stageSection` and the noteworthy-only
 `processSection` are per-run frame, sitting between the scene position and the
@@ -392,10 +401,23 @@ by `CompilerPromptTests
 cold read is "always the full letter" for the stage's rule and applying that to
 her would hand back the craft letter she exists not to write. She is briefed
 with `signals: nil` (no process line: Maugham's observation of the writer's
-month is not something a reader forbidden craft words can speak about) and
-`lessons: nil` (the craft ledger is not hers to read). The stage is still
-derived for her — it is cheap, and `Letter.stage` records it — it simply does
-not decide her dose.
+month is not something a reader forbidden craft words can speak about),
+`lessons: nil` (the craft ledger is not hers to read) and `stage: nil` (ruling
+P2-4, fix round 1 — `stageSection` states the CRAFT dose the stage earns,
+which contradicts `firstReaderInstruction`'s "the short reader form and nothing
+else" in the same message). The stage is still derived for her — it is cheap,
+and `Letter.stage` records it, so the RECORD stamps a stage she was never told
+about — it simply does not decide her dose and never reaches her.
+
+**Her statement is read at the keystroke and split in the section**
+(`readerSection`'s `.firstReader` arm): the essay half is her description, the
+`## Rulings` half is briefed under *Standing instructions from the writer:*,
+and the arm ends with `firstReaderInstruction`. A statement of nothing but
+rulings reads as the undescribed state (`undescribedFirstReader`), because a
+blank line where the description goes would read as prose the writer wrote and
+lost. What files those instructions is `Maugham/Views/FirstReaderRuling.swift`,
+the one production file naming `.firstReader` to `RulingPerformer`
+(`TripwireGrepTests.test_theFirstReadersStatementIsWrittenFromOneFile`).
 
 **The record remembers who read**: `CompilerRun.readerName`, stamped at the
 keystroke for a check and `nil` for a round, whose byline is its lane's. Every

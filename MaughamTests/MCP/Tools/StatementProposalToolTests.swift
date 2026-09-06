@@ -98,7 +98,7 @@ final class StatementProposalToolTests: XCTestCase {
         }
     }
 
-    func test_bothToolsAreInTheCatalogueAndTheCountIs58() {
+    func test_bothToolsAreInTheCatalogueAndTheCatalogueIsWholeAgainstMCPTool() {
         let methods = MCPToolCatalog.all.map { $0.method }
         XCTAssertTrue(methods.contains("propose_edition_brief"))
         XCTAssertTrue(methods.contains("propose_visual_language"))
