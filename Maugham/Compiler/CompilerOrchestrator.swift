@@ -859,6 +859,20 @@ final class CompilerOrchestrator {
         // The stage above still reads the signals: they are its input, and the
         // stamp on her letter is honest whether or not she was told.
         let briefedSignals = reader.isFirstReader ? nil : signals
+        // **And she is told no draft stage either** (ruling P2-4, fix round 1).
+        // `stageSection` states the CRAFT dose the stage earns — "write the
+        // full letter, every part your pass brief allows", "no exercise" —
+        // which contradicts `firstReaderInstruction`'s "the short reader form
+        // and nothing else" in the same message. The dose above already
+        // refuses hers to the stage; briefing it anyway would ask her for two
+        // different letters and let the model pick.
+        //
+        // **The RECORD still stamps it**: `Letter.stage` is a fact about the
+        // delta the run was read over, true whoever read it, and the pane
+        // draws it. This nils what the model is TOLD, not what the run knows —
+        // which is why it is a separate value from `stage` rather than a
+        // narrower derivation above.
+        let briefedStage = reader.isFirstReader ? nil : stage
 
         // **The lane and the round, minted HERE — at the keystroke, before a
         // single byte of the answer can arrive** (M3-P3 §6).
@@ -1133,7 +1147,7 @@ final class CompilerOrchestrator {
                     dispositions: dispositions,
                     ask: ask,
                     lessons: lessons,
-                    stage: stage,
+                    stage: briefedStage,
                     // The one thing the prompt needs the flag for: a cold read
                     // is always the full letter, so the stage section must not
                     // ask for the short one over a run ingest will let through

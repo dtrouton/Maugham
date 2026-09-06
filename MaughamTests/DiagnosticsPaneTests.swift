@@ -3752,9 +3752,13 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// contains `reader.editorName` too, so the assertion is over what is LEFT
     /// once every guarded spelling is removed.
     func test_everythingTheStandingLetterWritesIsSignedByTheRunsOwnReader() throws {
-        let section = try letterSectionSource()
-        XCTAssertTrue(section.contains("run.readerName ?? reader.editorName"),
-                      "the guarded spelling must be here at all: \(section)")
+        let section = try letterWiringSource()
+        XCTAssertEqual(
+            section.components(separatedBy: "run.readerName ?? reader.editorName").count - 1,
+            4,
+            "all four writing sites \u{2014} the signature, Keep's heading, a "
+            + "filed lesson's provenance and Add-to-intent's \u{2014} read the "
+            + "run's own byline: \(section)")
         let unguarded = section
             .replacingOccurrences(of: "run.readerName ?? reader.editorName", with: "")
         XCTAssertFalse(
@@ -4392,6 +4396,29 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// reads, too long and it starts asserting over the next function's body.
     /// Anchoring on the declaration that follows means a moved boundary fails
     /// loudly here instead of quietly narrowing what these censuses cover.
+    /// **The letter's whole WIRING region** — `letterSection` plus the two
+    /// builders it delegates to (`ledgerHandlers`, `turnClauseOffer`), bounded
+    /// at both ends by a named declaration on `letterSectionSource`'s rule.
+    ///
+    /// Wider than `letterSectionSource` deliberately, and not a replacement for
+    /// it: the censuses that ask what `letterSection` ITSELF hands over want
+    /// the narrow region, while the byline census is about a fact that must
+    /// hold at every site the letter writes from — and one of the four lives
+    /// inside `turnClauseOffer`, past the narrow region's end bound (fix round
+    /// 1: reverting that site would have stayed green).
+    private func letterWiringSource() throws -> String {
+        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        let start = try XCTUnwrap(
+            source.range(of: "private var letterSection: some View {"),
+            "`letterSection` opens the region; find it by name if it moved")
+        let end = try XCTUnwrap(
+            source.range(of: "static let turnClauseFailureKey",
+                         range: start.upperBound..<source.endIndex),
+            "`turnClauseFailureKey` is the declaration after the last builder; "
+            + "find it by name if it moved")
+        return String(source[start.upperBound..<end.lowerBound])
+    }
+
     private func letterSectionSource() throws -> String {
         let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
         let start = try XCTUnwrap(

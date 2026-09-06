@@ -338,8 +338,8 @@ enum CompilerPrompt {
     /// the ordinary answer (round 1 of a lane, a passless ⌘R, a fresh-eyes
     /// read) and because this function has exactly one production caller,
     /// `CompilerOrchestrator.beginRun`, which is where the lane rule is
-    /// decided — and which will reach it through `checkMessage`/`roundMessage`
-    /// above once Task 4 splits its send.
+    /// decided — and which reaches it through `checkMessage`/`roundMessage`
+    /// above rather than calling this directly (two loops P2 Task 4).
     ///
     /// **`kind` changes what is briefed and never the hashed unit** (two loops
     /// P1 Tasks 3 and 4). Four sections are scoped by it: the prose is the
@@ -760,11 +760,13 @@ enum CompilerPrompt {
     /// ⌘R and has no reader to be: a frame invented for it would be a register
     /// the writer never chose.
     ///
-    /// **The coach's arm is `passSection`'s coach branch, moved verbatim**, and
-    /// that is a contract rather than an accident:
-    /// `test_theCoachReadsTheSameHereAsSheDidThroughThePassSection` pins the
-    /// two against each other, so Task 4's deletion of the `isCoach` branch
-    /// cannot change one word of what Le Guin is told.
+    /// **The coach's arm is `passSection`'s deleted coach branch, moved
+    /// verbatim**, and that is a contract rather than an accident:
+    /// `CompilerPromptTests
+    /// .test_aCoachCheckIsBriefedByteForByteAsThePassRouteBriefedHer` spells
+    /// her frame and doctrine as a literal and pins the SLOT the section lands
+    /// in, so the swap could not change one word of what Le Guin is told and a
+    /// later edit to this arm cannot either.
     ///
     /// **Never folded into `briefingHashInput`** (global constraint 5), on
     /// `passSection`'s reason: the writer changes who reads their checks, and a

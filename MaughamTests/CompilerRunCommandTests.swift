@@ -3788,6 +3788,48 @@ final class CompilerRunCommandTests: XCTestCase {
                        + "got \(message)")
         XCTAssertFalse(message.contains("Filter words"),
                        "\u{2026}and read the writer's craft ledger; got \(message)")
+        XCTAssertFalse(message.contains("Draft stage:"),
+                       "\u{2026}and no craft dose: `stageSection` asks for the "
+                       + "full letter her own instruction forbids; got \(message)")
+    }
+
+    /// **…and the stage stays out of her briefing on a cold read too** (ruling
+    /// P2-4, fix round 1). Reread is where the two doses contradict each other
+    /// loudest: `stageSection`'s cold arm says "write the full letter, every
+    /// part your pass brief allows" while `firstReaderInstruction` says the
+    /// short reader form and nothing else. Her dose already refuses the
+    /// stage's; briefing it anyway would ask for two letters and let the model
+    /// pick.
+    ///
+    /// The control is the coach over the same fixture and the same flag: her
+    /// briefing carries the cold arm, so the absence above is the reader's
+    /// doing rather than the fresh-eyes path's.
+    ///
+    /// Disable experiment: pass `stage` rather than `briefedStage` and both
+    /// this and the sibling above fail, with the two controls still green.
+    func test_theFirstReaderIsToldNoDraftStageOnAColdReadEither() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: draftingReading(), firstReader: Self.tabitha())
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertFalse(try XCTUnwrap(runner.sends.first?.message).contains("Draft stage:"),
+                       "got \(runner.sends[0].message)")
+
+        let coachRunner = SpyRunner()
+        let coachHarness = try makeHarness(
+            runner: coachRunner, reading: draftingReading())
+        coachHarness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
+        awaitSends(1, on: coachRunner)
+        settle()
+        XCTAssertTrue(
+            try XCTUnwrap(coachRunner.sends.first?.message).contains(
+                try XCTUnwrap(CompilerPrompt.stageSection(.drafting, freshEyes: true))),
+            "control: a cold read really does state the stage for anybody else; "
+            + "got \(coachRunner.sends[0].message)")
     }
 
     /// **The control for both rulings, and for the frame.** The same reading,
@@ -3813,6 +3855,9 @@ final class CompilerRunCommandTests: XCTestCase {
                       + "got \(message)")
         XCTAssertTrue(message.contains("Filter words"),
                       "control: the ledger really is briefed; got \(message)")
+        XCTAssertTrue(message.contains("Draft stage:"),
+                      "control: the stage really is stated for anybody else; "
+                      + "got \(message)")
     }
 
     /// **A first reader's letter is dosed as HERS, and the dose outranks the
