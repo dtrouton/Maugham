@@ -63,7 +63,7 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone -destination 'platfor
 
 ## Releases
 
-See `docs/RELEASING.md` for the full recipe (cut-release.sh, signing/notarization, auto-update-in-place, phone pipeline, the capital-M bundle-id history). One-line summary: `./scripts/cut-release.sh 0.X.Y` then `git push --tags`; write release notes first. Version is tag-derived — don't bump `project.yml`.
+See `docs/RELEASING.md` for the full recipe (cut-release.sh, signing/notarization, auto-update-in-place, phone pipeline, the capital-M bundle-id history). One-line summary: `./scripts/cut-release.sh 0.X.Y` then `git push origin v0.X.Y` (the one tag by name — never `--tags`, which fires no workflow past three tags); write release notes first. Version is tag-derived — don't bump `project.yml`.
 
 ## Architectural tripwires
 

@@ -9,7 +9,10 @@ Stable releases are tag-triggered via GitHub Actions. The recipe:
    (needs network + `gh` auth), runs tests, then creates the `v0.X.Y` tag and
    prints the push command. Pass `--skip-tests` only if you know why; pass
    `--skip-pin-check` only for a genuinely offline cut.
-4. `git push --tags`. Workflow at `.github/workflows/release.yml` builds Release config,
+4. `git push origin v0.X.Y` — the ONE tag, by name, never `git push --tags`: GitHub creates no
+   push event when more than three tags land in one push, so a stale local tag riding along
+   means `release.yml` silently never starts (v0.36.0, 2026-09-06 — fixed by deleting and
+   re-pushing the tag alone). Workflow at `.github/workflows/release.yml` builds Release config,
    runs tests, packages the `.dmg`, and creates the GitHub Release with the notes file as body.
 5. ~10 minutes later, the stable app's next check picks it up. Menu title goes to
    "Install Update…"; clicking reveals the `.dmg` in Finder.
