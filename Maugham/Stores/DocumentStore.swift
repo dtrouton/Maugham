@@ -818,7 +818,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                 try? await doc.handleExternalDiskChange(diskMd: diskText)
             }
 
-        case .inbox(let kind, _):
+        case .inbox(_, _):
             // A capture (or a Mac-side status transition) landed in `.maugham/inbox/`.
             // Refresh is a direct call — deliberately NOT a notification (ADR 0021).
             Task { @MainActor in

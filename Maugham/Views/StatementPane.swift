@@ -463,7 +463,7 @@ struct StatementPane: View {
                     hostGeneration += 1
                 }
             } catch {
-                proposalNotice = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
+                proposalNotice = (error as CustomStringConvertible).description
             }
             reloadProposal()
         }
@@ -476,7 +476,7 @@ struct StatementPane: View {
             try StatementProposalGate.discard(proposal.kind, store: store)
             proposalNotice = StatementProposalCopy.discardedLine
         } catch {
-            proposalNotice = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
+            proposalNotice = (error as CustomStringConvertible).description
         }
         reloadProposal()
     }
