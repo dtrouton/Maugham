@@ -471,6 +471,79 @@ final class ReviewPassEditorTests: XCTestCase {
                       + "other two acts keep their single spelling. Got:\n\(post)")
     }
 
+    // MARK: - The name survives every way out of the sheet (fix round 1)
+
+    /// **The one control here that could discard the writer\u{2019}s words.**
+    ///
+    /// A SwiftUI Button click does not resign an `NSTextField`, so Done never
+    /// makes the field lose focus and the draft would go with the sheet. Every
+    /// other control in this sheet writes through immediately; this one has a
+    /// draft buffer because the verb saves `project.json`, which is exactly
+    /// what made the loss possible.
+    ///
+    /// Windowless (tripwire 33): the census reads the four commit paths, and
+    /// `nameNeedsCommitting` below pins what each of them decides.
+    func test_theTypedNameCommitsOnEveryWayOutOfTheSheet() throws {
+        let sheet = try Self.source(of: "Views/ProjectSettingsSheet.swift")
+        let section = try XCTUnwrap(
+            Self.declaration(named: "private func firstReaderSection() -> some View {",
+                             in: sheet))
+        XCTAssertTrue(section.contains(".onSubmit { commitFirstReaderName() }"),
+                      "Return commits. Got:\n\(section)")
+        XCTAssertTrue(section.contains("onChange(of: firstReaderNameFocused)"),
+                      "leaving the field commits. Got:\n\(section)")
+        XCTAssertTrue(section.contains(".onDisappear { commitFirstReaderName() }"),
+                      "Escape and every other teardown commits \u{2014} the "
+                      + "field never loses focus on the way out. Got:\n\(section)")
+
+        let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: sheet))
+        let done = try XCTUnwrap(
+            body.range(of: "Button(\"Done\") {"),
+            "the sheet must still carry its Done button")
+        let after = String(body[done.lowerBound...])
+        let commit = try XCTUnwrap(after.range(of: "commitFirstReaderName()"))
+        let dismissed = try XCTUnwrap(after.range(of: "dismiss()"))
+        XCTAssertTrue(commit.lowerBound < dismissed.lowerBound,
+                      "Done commits BEFORE it dismisses \u{2014} after teardown "
+                      + "there is no draft left to read")
+    }
+
+    /// **The guard compares trimmed, on both sides.** `setFirstReaderName`
+    /// trims what it stores, so a raw comparison re-saves `project.json` on
+    /// every focus loss over a field the writer has not touched — and with
+    /// four commit paths now calling it, that is four file writes for nothing.
+    func test_nameNeedsCommitting_comparesTrimmedAndTreatsBlankAsAbsent() {
+        XCTAssertFalse(ProjectSettingsSheet.nameNeedsCommitting(
+            draft: "  Ursula  ", stored: "Ursula"),
+            "the stored name IS the trimmed draft \u{2014} nothing to write")
+        XCTAssertFalse(ProjectSettingsSheet.nameNeedsCommitting(
+            draft: "Ursula", stored: "Ursula"))
+        XCTAssertFalse(ProjectSettingsSheet.nameNeedsCommitting(draft: "", stored: nil))
+        XCTAssertFalse(ProjectSettingsSheet.nameNeedsCommitting(draft: "   ", stored: nil),
+                       "a blank field and no first reader are one state")
+
+        XCTAssertTrue(ProjectSettingsSheet.nameNeedsCommitting(draft: "Ursula", stored: nil),
+                      "naming her for the first time writes")
+        XCTAssertTrue(ProjectSettingsSheet.nameNeedsCommitting(draft: "", stored: "Ursula"),
+                      "clearing the field takes the name away")
+        XCTAssertTrue(ProjectSettingsSheet.nameNeedsCommitting(
+            draft: "Ursula K.", stored: "Ursula"))
+    }
+
+    /// Describe\u{2026} shares that guard rather than writing unconditionally,
+    /// and does it in ONE Task with the mint, so the two manifest writes cannot
+    /// land in the other\u{2019}s order.
+    func test_describeSharesTheCommitGuardAndWritesInOneTask() throws {
+        let sheet = try Self.source(of: "Views/ProjectSettingsSheet.swift")
+        let describe = try XCTUnwrap(
+            Self.declaration(named: "private func describeFirstReader() {", in: sheet))
+        XCTAssertTrue(describe.contains("Self.nameNeedsCommitting("),
+                      "Describe\u{2026} asks the same guard. Got:\n\(describe)")
+        XCTAssertEqual(describe.components(separatedBy: "Task {").count - 1, 1,
+                       "one Task, so the name is stored before the statement is "
+                       + "minted. Got:\n\(describe)")
+    }
+
     // MARK: - Census helpers
 
     private static func source(of relativePath: String) throws -> String {

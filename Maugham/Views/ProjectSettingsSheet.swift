@@ -90,7 +90,17 @@ struct ProjectSettingsSheet: View {
 
             HStack {
                 Spacer()
-                Button("Done") { dismiss() }
+                // **Done commits the name first** (fix round 1). A SwiftUI
+                // Button click does not resign an `NSTextField`, so the field
+                // never loses focus before teardown and the draft would go
+                // with the sheet — the one control here that can discard the
+                // writer's words (constitution must #1). `.onDisappear` on the
+                // section catches Escape and every other teardown; both are
+                // guarded, so whichever runs second writes nothing.
+                Button("Done") {
+                    commitFirstReaderName()
+                    dismiss()
+                }
                     .keyboardShortcut(.defaultAction)
             }
             .padding(20)
@@ -254,6 +264,8 @@ struct ProjectSettingsSheet: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
+        // Escape, ⌘W, and any other teardown Done does not run through.
+        .onDisappear { commitFirstReaderName() }
     }
 
     /// **What the Describe button says and whether it can be pressed** — pure,
@@ -277,12 +289,29 @@ struct ProjectSettingsSheet: View {
         return (statementExists ? "Edit description\u{2026}" : "Describe\u{2026}", named)
     }
 
-    /// Commit the typed name, or clear it. `setFirstReaderName` trims and maps
-    /// a blank to nil itself, so an emptied field is "no first reader" rather
-    /// than a reader named "".
+    /// **Whether the typed name differs from what the manifest holds** — pure,
+    /// so the guard every commit path shares is assertable with no window.
+    ///
+    /// **Compared TRIMMED, on both sides.** `setFirstReaderName` trims what it
+    /// stores, so a draft of `" Ursula "` never equals the stored `"Ursula"`
+    /// and a raw comparison re-saves `project.json` on every focus loss over a
+    /// field the writer has not touched. Nil and blank are the same state for
+    /// the same reason: `setFirstReaderName` maps a blank to nil, so an
+    /// emptied field is "no first reader" rather than a reader named "".
+    static func nameNeedsCommitting(draft: String, stored: String?) -> Bool {
+        func normalized(_ value: String?) -> String {
+            (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return normalized(draft) != normalized(stored)
+    }
+
+    /// Commit the typed name, or clear it. Called from submit, focus loss,
+    /// Done and teardown — all four guarded alike, so the extra callers cost
+    /// no extra manifest writes.
     private func commitFirstReaderName() {
+        guard Self.nameNeedsCommitting(
+            draft: firstReaderDraft, stored: store.manifest.firstReaderName) else { return }
         let name = firstReaderDraft
-        guard name != (store.manifest.firstReaderName ?? "") else { return }
         Task { try? await store.setFirstReaderName(name) }
     }
 
@@ -294,7 +323,13 @@ struct ProjectSettingsSheet: View {
     private func describeFirstReader() {
         let name = firstReaderDraft
         Task { @MainActor in
-            try? await store.setFirstReaderName(name)
+            // The same guard every other commit path uses — one Task rather
+            // than two, so the name is stored before the statement is minted
+            // and neither write can land in the other's order.
+            if Self.nameNeedsCommitting(
+                draft: name, stored: store.manifest.firstReaderName) {
+                try? await store.setFirstReaderName(name)
+            }
             if store.statement(kind: .firstReader, scope: .project) == nil {
                 _ = try? await store.createStatement(kind: .firstReader, scope: .project)
             }

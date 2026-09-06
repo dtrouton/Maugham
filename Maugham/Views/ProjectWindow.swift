@@ -129,7 +129,22 @@ struct ProjectWindow: View {
     /// hook. Posting the shared event rather than writing `detailSegment`
     /// directly keeps the receiver's other two acts — revealing the column and
     /// ending a study — from having a second spelling here.
+    ///
+    /// **Guarded twice, because one guard covered one door out of three**
+    /// (fix round 1). `describeFirstReader`'s two awaits leave a window in
+    /// which the writer can Escape before the request is recorded, and the
+    /// request then stands over a sheet that is already gone. Every
+    /// presentation clears it (`presentedSheet`'s `onChange`), and the
+    /// dismissal that acts on it must be Project Settings' own
+    /// (`opensFirstReader`) — otherwise the next translator's-note or Claude
+    /// Desktop sheet the writer closed would jump the right column to her
+    /// statement.
     @State private var describeFirstReaderRequested = false
+    /// **Which sheet is up** — `onDismiss` is told nothing about what closed,
+    /// and the decision above turns on it. Mirrored from `activeSheet` rather
+    /// than read from it, because by the time `onDismiss` runs `activeSheet`
+    /// is already nil.
+    @State private var presentedSheet: ProjectActiveSheet?
     @State private var showInspector: Bool = true
     /// The right column's one width (shell-finish stage 1). Restored from
     /// `UIState` in `load()`; written back by the column's own drag handle and
@@ -347,6 +362,14 @@ struct ProjectWindow: View {
                 }
                 .animation(.easeInOut(duration: 0.2), value: mcpBanner.title)
                 .navigationTitle(store.manifest.title)
+                .onChange(of: activeSheet) { _, presented in
+                    // A presentation is the one moment every sheet has in
+                    // common, so it is where a stale hand-off dies.
+                    if presented != nil {
+                        describeFirstReaderRequested = false
+                        presentedSheet = presented
+                    }
+                }
                 .sheet(item: $activeSheet, onDismiss: openFirstReaderIfRequested) { sheet in
                     switch sheet {
                     case .projectSettings:
@@ -3834,22 +3857,38 @@ struct ProjectWindow: View {
     /// worse than no banner.
     /// **The one place this sheet is opened.** Three controls ask for it — the
     /// ⌘⇧, command, the Inspector's row and the Diagnostics header's *Define a
-    /// first reader…* — and each has to clear the pending hand-off, because a
-    /// Describe… press whose store writes were still in flight when the writer
-    /// escaped leaves the request standing over a sheet that is already gone.
-    /// Clearing on the way IN is what stops it firing at some later sheet's
-    /// dismissal.
+    /// first reader…*. One door so there is one thing to reason about; the
+    /// stale-request clear lives on the `activeSheet` change instead, because
+    /// this window presents two other sheets that never come through here.
     private func openProjectSettings() {
-        describeFirstReaderRequested = false
         activeSheet = .projectSettings
+    }
+
+    /// **Whether a dismissal hands the writer to the first reader's
+    /// statement** — pure, so the rule is assertable with no window
+    /// (tripwire 33).
+    ///
+    /// It takes the sheet that CLOSED, not just the standing request: the
+    /// request is set by one sheet's button, and a `.sheet(item:onDismiss:)`
+    /// fires the same callback for all three of this window's sheets. A guard
+    /// on the request alone sent a translator's-note dismissal to her
+    /// statement (fix round 1).
+    static func opensFirstReader(
+        requested: Bool, dismissed: ProjectActiveSheet?
+    ) -> Bool {
+        requested && dismissed == .projectSettings
     }
 
     /// Hand the writer to the first reader's statement, once Project Settings
     /// has actually closed — see `describeFirstReaderRequested` for why the
     /// post cannot happen while the sheet is up.
     private func openFirstReaderIfRequested() {
-        guard describeFirstReaderRequested else { return }
+        let dismissed = presentedSheet
+        let opens = Self.opensFirstReader(
+            requested: describeFirstReaderRequested, dismissed: dismissed)
         describeFirstReaderRequested = false
+        presentedSheet = nil
+        guard opens else { return }
         MaughamEvent.postDetailSegment(.firstReader)
     }
 

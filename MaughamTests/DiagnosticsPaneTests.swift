@@ -1219,15 +1219,62 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(
             window.contains("onOpenProjectSettings: openProjectSettings"),
             "the window opens the sheet the define item asks for")
-        // …through the one door, which is also what clears a Describe… request
-        // the writer escaped out from under.
-        let open = try XCTUnwrap(
-            Self.declaration(named: "private func openProjectSettings() {", in: window))
-        XCTAssertTrue(open.contains("describeFirstReaderRequested = false"),
-                      "opening the sheet clears any stale hand-off. Got:\n\(open)")
         XCTAssertEqual(
             window.components(separatedBy: "activeSheet = .projectSettings").count - 1, 1,
             "Project Settings is opened from exactly one place")
+    }
+
+    // MARK: - The Describe… hand-off (fix round 1)
+
+    /// **A dismissal hands the writer on only when Project Settings is what
+    /// closed.**
+    ///
+    /// The request is set by one sheet's button, and
+    /// `.sheet(item:onDismiss:)` fires the same callback for all three of this
+    /// window's sheets. The first fix guarded on the request alone: after the
+    /// race it was written for — Escape while `describeFirstReader`'s two
+    /// awaits are in flight — the next translator's-note or Claude Desktop
+    /// sheet the writer closed jumped the right column to her statement.
+    ///
+    /// PLANTED REVERT: `requested: true` with a foreign sheet is the exact
+    /// input the old guard answered true for, and it is asserted false here.
+    func test_opensFirstReader_onlyForProjectSettingsOwnDismissal() {
+        XCTAssertTrue(ProjectWindow.opensFirstReader(
+            requested: true, dismissed: .projectSettings))
+
+        XCTAssertFalse(ProjectWindow.opensFirstReader(
+            requested: true, dismissed: .claudeDesktop),
+            "a Claude Desktop dismissal is not her door")
+        XCTAssertFalse(ProjectWindow.opensFirstReader(
+            requested: true, dismissed: nil),
+            "\u{2026}nor is a dismissal with nothing recorded")
+
+        XCTAssertFalse(ProjectWindow.opensFirstReader(
+            requested: false, dismissed: .projectSettings),
+            "control: closing Project Settings without pressing Describe\u{2026} "
+            + "hands the writer nowhere")
+    }
+
+    /// **And a stale request dies at the next presentation**, which is the
+    /// other half: without it the flag survives with no sheet on screen and
+    /// the guard above only narrows which dismissal it fires at.
+    func test_everySheetPresentationClearsAStaleHandoff() throws {
+        let window = try Self.source(of: "Views/ProjectWindow.swift")
+        let change = try XCTUnwrap(
+            Self.declaration(named: "onChange(of: activeSheet) { _, presented in",
+                             in: window),
+            "the window must watch its own sheet presentations")
+        XCTAssertTrue(change.contains("describeFirstReaderRequested = false"),
+                      "a presentation clears the pending hand-off. Got:\n\(change)")
+        XCTAssertTrue(change.contains("presentedSheet = presented"),
+                      "\u{2026}and records what is up, since `onDismiss` is told "
+                      + "nothing. Got:\n\(change)")
+
+        let dismiss = try XCTUnwrap(
+            Self.declaration(named: "private func openFirstReaderIfRequested() {",
+                             in: window))
+        XCTAssertTrue(dismiss.contains("Self.opensFirstReader("),
+                      "the dismissal asks the one decision. Got:\n\(dismiss)")
     }
 
     /// **The reader line is never a door to Review** (two loops P1 Task 7).
