@@ -111,6 +111,13 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// the same `store.setPassState` the board's chip menu and the two
     /// Inspector arms already call.
     var onSetPassState: (String, String, PassState?) -> Void = { _, _, _ in }
+    /// **Open Project Settings** — the Diagnostics header's "Define a first
+    /// reader…" (two loops P2 Task 6). Threaded rather than presented here for
+    /// `onShowDesignProposal`'s reason: the sheet is the WINDOW's, and a
+    /// right-column pane presenting one would be a second place it is opened.
+    /// `InspectorView` already takes a closure of this exact shape from the
+    /// same host.
+    var onOpenProjectSettings: () -> Void = {}
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// **Whether a visual-language proposal is standing** (translation
@@ -162,6 +169,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         annotationScope: Binding<AnnotationScope> = .constant(.document),
         onSetActivePass: @escaping (String, String) -> Void = { _, _ in },
         onSetPassState: @escaping (String, String, PassState?) -> Void = { _, _, _ in },
+        onOpenProjectSettings: @escaping () -> Void = {},
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -194,6 +202,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self._annotationScope = annotationScope
         self.onSetActivePass = onSetActivePass
         self.onSetPassState = onSetPassState
+        self.onOpenProjectSettings = onOpenProjectSettings
         self.inspectorContent = inspectorContent
     }
 
@@ -622,7 +631,20 @@ struct DetailPaneToggle<Inspector: View>: View {
                 // loops P1 Task 2). This pane is Author's, and Author checks;
                 // the piece's lane on the review board is the round loop's
                 // fact and is deliberately not read here.
-                reader: store.manifest.authorReader)
+                //
+                // **The writer's CHOICE, not the default rule** (P2 Task 6):
+                // the same resolution the run makes
+                // (`CompilerEnvironment+Project`'s `authorReader` closure), so
+                // the header can never name a reader the check was not briefed
+                // on. `statementText` is a nil-returning stub because this
+                // header wants the NAME and never the essay — her description
+                // is read per run, at the keystroke, and a copy loaded for a
+                // label would be a second answer to what she knows.
+                reader: store.manifest.authorReader(
+                    choice: ds.uiState.authorReaderChoice,
+                    statementText: { _ in nil }),
+                onChooseReader: { [weak ds] in ds?.setAuthorReaderChoice($0) },
+                onOpenProjectSettings: onOpenProjectSettings)
         } else {
             ContentUnavailableView(
                 "Select a document",

@@ -211,7 +211,7 @@ enum FirstReaderRuling {
     /// the writer nothing they can act on.
     static let unnamedRefusal =
         "This project has no first reader named, so there is no statement to "
-        + "rule into. Name her in the First Reader pane, or reply to the note "
+        + "rule into. Name her in Project Settings, or reply to the note "
         + "instead."
 }
 

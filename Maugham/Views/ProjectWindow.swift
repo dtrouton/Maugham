@@ -118,6 +118,18 @@ struct ProjectWindow: View {
     /// behaves exactly as it did before there was a binding here.
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var activeSheet: ProjectActiveSheet?
+    /// **A Describe… press in Project Settings, waiting for the sheet to
+    /// close** (two loops P2 Task 6).
+    ///
+    /// `MaughamEvent.postDetailSegment` is scoped `.keyWindow`, and a sheet's
+    /// own window is the key one while it is up — this window would filter the
+    /// command out, so the sheet posting for itself would be swallowed by the
+    /// very act of closing. The request is recorded instead and posted from
+    /// the `.sheet`'s `onDismiss`, which is the framework's own "it is gone"
+    /// hook. Posting the shared event rather than writing `detailSegment`
+    /// directly keeps the receiver's other two acts — revealing the column and
+    /// ending a study — from having a second spelling here.
+    @State private var describeFirstReaderRequested = false
     @State private var showInspector: Bool = true
     /// The right column's one width (shell-finish stage 1). Restored from
     /// `UIState` in `load()`; written back by the column's own drag handle and
@@ -335,10 +347,12 @@ struct ProjectWindow: View {
                 }
                 .animation(.easeInOut(duration: 0.2), value: mcpBanner.title)
                 .navigationTitle(store.manifest.title)
-                .sheet(item: $activeSheet) { sheet in
+                .sheet(item: $activeSheet, onDismiss: openFirstReaderIfRequested) { sheet in
                     switch sheet {
                     case .projectSettings:
-                        ProjectSettingsSheet(store: store)
+                        ProjectSettingsSheet(
+                            store: store,
+                            onDescribeFirstReader: { describeFirstReaderRequested = true })
                     case .claudeDesktop:
                         HelpClaudeDesktopSheet()
                     case .translatorsNote(let target):
@@ -3103,7 +3117,11 @@ struct ProjectWindow: View {
             // `AnnotationsPane.swift` would have made it a fourth writer.
             onSetPassState: { pieceId, passId, state in
                 Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
-            }
+            },
+            // The Diagnostics header's "Define a first reader…" (two loops P2
+            // Task 6) — the same one-line hand-off `InspectorView`'s "Project
+            // Settings…" already gets from this file.
+            onOpenProjectSettings: { activeSheet = .projectSettings }
         ) {
             researchOrSubject(store: store)
         }
@@ -3814,6 +3832,15 @@ struct ProjectWindow: View {
     /// second note arriving while the writer is already looking at the first
     /// leaves the subject unchanged, and a banner whose button does nothing is
     /// worse than no banner.
+    /// Hand the writer to the first reader's statement, once Project Settings
+    /// has actually closed — see `describeFirstReaderRequested` for why the
+    /// post cannot happen while the sheet is up.
+    private func openFirstReaderIfRequested() {
+        guard describeFirstReaderRequested else { return }
+        describeFirstReaderRequested = false
+        MaughamEvent.postDetailSegment(.firstReader)
+    }
+
     private func handleShowLatestMCPNote() {
         guard let id = mcpBanner.latestId else { return }
         selectedSubject = .research(id)

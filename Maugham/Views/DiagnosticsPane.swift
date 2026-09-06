@@ -114,6 +114,18 @@ struct DiagnosticsPane: View {
     /// Named by the header's reader line and the empty state's promise — one
     /// input, two readers, so neither can name someone the other doesn't.
     var reader: AuthorReader = .nobody
+    /// **Pick who reads this project's checks** (two loops P2 Task 6) — the
+    /// header's own picker, writing `UIState.authorReaderChoice` through
+    /// `DocumentStore.setAuthorReaderChoice`. A closure rather than a store
+    /// write here, on `onSetActivePass`' rule: the choice has one writer, and
+    /// a pane reaching for a second would be a second spelling of the value
+    /// the RUN reads.
+    var onChooseReader: (AuthorReaderChoice) -> Void = { _ in }
+    /// **Where "Define a first reader…" sends the writer** — Project Settings,
+    /// which is the one place her name is typed. A closure for
+    /// `onChooseReader`'s reason and because the sheet belongs to the window,
+    /// not to this column.
+    var onOpenProjectSettings: () -> Void = {}
 
     @Environment(\.undoManager) private var undoManager
 
@@ -626,14 +638,13 @@ struct DiagnosticsPane: View {
                     .help(Self.rereadHelp)
                 gearMenu
             }
-            // **A label, and only a label** (two loops P1 Task 7). It used to
-            // be a button that switched the window to Review — the mode error
-            // this milestone removes: who reads a CHECK is the coach or
-            // nobody, and neither is chosen on the review board, which is the
-            // round loop's furniture. The picker that does belong here is P2's.
-            Text(readerLine)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            // **The picker P1 promised, and it travels nowhere** (two loops
+            // P2 Task 6). This line used to be a button that switched the
+            // window to Review — the mode error P1 removed, because who reads
+            // a CHECK is not chosen on the review board. What replaces the
+            // label is a menu over the READERS themselves: every item writes
+            // the choice and stays on this pane.
+            readerMenu
             // **Under the reader line, because it is addressed TO them**
             // (spec §3.7). The header already says who reads this piece; the
             // ask is what the writer wants them to look at, and it belongs in
@@ -716,6 +727,124 @@ struct DiagnosticsPane: View {
     }
 
     private var readerLine: String { Self.readerCopy(for: reader) }
+
+    /// **The picker, labelled by the line it replaces** (two loops P2 Task 6).
+    ///
+    /// The label is `readerLine` unchanged, so a writer who never opens the
+    /// menu reads exactly the sentence P1's label said. Items are the readers
+    /// this project actually has (`readerMenuItems`), radio-style on whoever
+    /// currently RESOLVES rather than on the stored choice — a choice whose
+    /// subject has gone falls back to the default rule, and a checkmark beside
+    /// a reader who is not reading would be the picker disagreeing with the
+    /// line above it.
+    ///
+    /// **Nothing here travels.** Every item writes `authorReaderChoice` and
+    /// leaves the writer on this pane; the one item that opens anything opens
+    /// Project Settings, which is where her name is typed — not Review, whose
+    /// board is the round loop's furniture.
+    ///
+    /// **No `fixedSize`, on the header sentence's own rule** — see the note on
+    /// `headerLine` above: an unbreakable minimum here is what grew all three
+    /// columns past the window (`DiagnosticsPaneColumnHeightTests`).
+    ///
+    /// A pane with no project draws the plain label it always did: there is
+    /// nothing to choose between when there is no manifest to read the coach's
+    /// seat or the first reader's name off.
+    @ViewBuilder
+    private var readerMenu: some View {
+        if let manifest = store?.manifest {
+            Menu {
+                ForEach(Self.readerMenuItems(manifest: manifest), id: \.self) { candidate in
+                    Button {
+                        onChooseReader(candidate)
+                    } label: {
+                        if candidate == Self.resolvedChoice(for: reader) {
+                            Label(Self.readerMenuTitle(candidate, manifest: manifest),
+                                  systemImage: "checkmark")
+                        } else {
+                            Text(Self.readerMenuTitle(candidate, manifest: manifest))
+                        }
+                    }
+                }
+                if !Self.hasFirstReader(manifest) {
+                    Divider()
+                    Button(Self.defineFirstReaderTitle) { onOpenProjectSettings() }
+                }
+            } label: {
+                Text(readerLine)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .help("Choose who reads this project\u{2019}s checks")
+        } else {
+            Text(readerLine)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// **The one item that opens something**, and it opens the place the name
+    /// is typed. `static let` for `headerCopy`'s reason.
+    static let defineFirstReaderTitle = "Define a first reader\u{2026}"
+
+    /// **Which readers this project has to offer** — pure, so the four cells
+    /// are assertable with nothing mounted (tripwire 33).
+    ///
+    /// A reader is offered only while their premise stands, which is the same
+    /// rule `ProjectManifest.authorReader(choice:statementText:)` resolves by:
+    /// the coach while her seat is held, the first reader while a name is set.
+    /// Offering one whose premise has gone would be a menu item that selects
+    /// somebody and then silently resolves to somebody else.
+    ///
+    /// `.nobody` is always last and always offered: it is the one choice with
+    /// no premise to lose, and "read by nobody in particular" must stay
+    /// reachable however the project is configured.
+    static func readerMenuItems(manifest: ProjectManifest) -> [AuthorReaderChoice] {
+        var items: [AuthorReaderChoice] = []
+        if manifest.effectiveCoach != nil { items.append(.coach) }
+        if hasFirstReader(manifest) { items.append(.firstReader) }
+        items.append(.nobody)
+        return items
+    }
+
+    /// What an item is CALLED. Names come from the same places the resolution
+    /// reads them, so the menu cannot name a reader the header does not.
+    static func readerMenuTitle(
+        _ choice: AuthorReaderChoice, manifest: ProjectManifest
+    ) -> String {
+        switch choice {
+        case .coach:
+            return (manifest.effectiveCoach ?? ReviewPass.coachPreset).effectiveEditorName
+        case .firstReader:
+            return firstReaderName(manifest) ?? ""
+        case .nobody:
+            return AuthorReader.nobody.editorName
+        }
+    }
+
+    /// Which item wears the checkmark: the arm the reader RESOLVED to, so the
+    /// mark and the line above it are one answer.
+    static func resolvedChoice(for reader: AuthorReader) -> AuthorReaderChoice {
+        switch reader {
+        case .coach: return .coach
+        case .firstReader: return .firstReader
+        case .nobody: return .nobody
+        }
+    }
+
+    /// Trimmed for `ProjectManifest.authorReader`'s reason: a hand-edited
+    /// `project.json` is a writer of this field too, and a name that is one
+    /// space is not a reader anybody can pick.
+    private static func firstReaderName(_ manifest: ProjectManifest) -> String? {
+        let name = (manifest.firstReaderName ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    private static func hasFirstReader(_ manifest: ProjectManifest) -> Bool {
+        firstReaderName(manifest) != nil
+    }
 
     /// The header's one line, per state. Static and exhaustive for
     /// `emptyState`'s reason: every sentence the pane can say is then assertable

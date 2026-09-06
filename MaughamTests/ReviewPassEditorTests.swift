@@ -351,6 +351,126 @@ final class ReviewPassEditorTests: XCTestCase {
         XCTAssertTrue(ReviewPassEditorLogic.isSavable(minted))
     }
 
+    // MARK: - The first reader's row (two loops P2 Task 6)
+
+    /// **Describe… before she is described, Edit description… after** — and
+    /// dead until she has a name, because the statement is about a person.
+    ///
+    /// Windowless (tripwire 33): the rule is a pure function, so all four
+    /// cells are assertable with nothing mounted.
+    func test_describeButton_titleFollowsTheStatementAndEnablementTheName() {
+        let unnamedFresh = ProjectSettingsSheet.describeButton(
+            name: "", statementExists: false)
+        XCTAssertEqual(unnamedFresh.title, "Describe\u{2026}")
+        XCTAssertFalse(unnamedFresh.enabled, "there is nobody to describe yet")
+
+        let namedFresh = ProjectSettingsSheet.describeButton(
+            name: "Ursula", statementExists: false)
+        XCTAssertEqual(namedFresh.title, "Describe\u{2026}")
+        XCTAssertTrue(namedFresh.enabled)
+
+        let namedDescribed = ProjectSettingsSheet.describeButton(
+            name: "Ursula", statementExists: true)
+        XCTAssertEqual(namedDescribed.title, "Edit description\u{2026}")
+        XCTAssertTrue(namedDescribed.enabled)
+
+        // The fourth cell, and the one a writer can actually reach: a
+        // statement left behind by a reader whose name has since been cleared.
+        // The button says what it would open and still refuses, because
+        // `setFirstReaderName` maps a blank to nil and there is no reader.
+        let unnamedDescribed = ProjectSettingsSheet.describeButton(
+            name: "  ", statementExists: true)
+        XCTAssertEqual(unnamedDescribed.title, "Edit description\u{2026}")
+        XCTAssertFalse(unnamedDescribed.enabled,
+                       "whitespace is not a name \u{2014} `setFirstReaderName` "
+                       + "stores nil for it")
+    }
+
+    /// **The row writes the NAME verb and nothing else**, and it sits directly
+    /// beneath the coach's seat: she is the other answer to the same question,
+    /// and a row for her below the pass list would read as a fifth stage
+    /// exactly as the coach's would.
+    func test_theFirstReaderRowWritesItsOwnVerbAndSitsUnderTheCoach() throws {
+        let sheet = try Self.source(of: "Views/ProjectSettingsSheet.swift")
+        let section = try XCTUnwrap(
+            Self.declaration(named: "private func firstReaderSection() -> some View {",
+                             in: sheet),
+            "the sheet must carry a readable first-reader section for this "
+            + "census to have a subject")
+        XCTAssertTrue(section.contains("store.statement(kind: .firstReader, scope: .project)"),
+                      "the button's title turns on the statement the MANIFEST "
+                      + "holds, never `FirstReader.statement`, which is nil for "
+                      + "blank prose. Got:\n\(section)")
+        XCTAssertFalse(section.contains("setReviewPasses("),
+                       "\u{2026}and never the pass-list verb \u{2014} she is "
+                       + "never in that array. Got:\n\(section)")
+
+        let commit = try XCTUnwrap(
+            Self.declaration(named: "private func commitFirstReaderName() {", in: sheet))
+        XCTAssertTrue(commit.contains("store.setFirstReaderName("),
+                      "the name commits through its own store verb. Got:\n\(commit)")
+
+        let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: sheet))
+        let coach = try XCTUnwrap(body.range(of: "coachSection()"))
+        let first = try XCTUnwrap(body.range(of: "firstReaderSection()"),
+                                  "the section must be mounted at all")
+        let ladder = try XCTUnwrap(body.range(of: "reviewPassesSection()"))
+        XCTAssertTrue(coach.lowerBound < first.lowerBound,
+                      "the coach's seat still leads \u{2014} the two readers "
+                      + "are one question, in the order the resolution asks it")
+        XCTAssertTrue(first.lowerBound < ladder.lowerBound,
+                      "\u{2026}and she sits ABOVE the ladder: below it her row "
+                      + "reads as a fifth stage")
+    }
+
+    /// **The name is not written per keystroke.** `setFirstReaderName` saves
+    /// `project.json`; a `TextField` bound straight through it is a file write
+    /// per character. The field is bound to a `@State` draft and committed on
+    /// submit and on focus loss.
+    func test_theFirstReaderNameCommitsOnSubmitAndFocusLossRatherThanPerKeystroke() throws {
+        let sheet = try Self.source(of: "Views/ProjectSettingsSheet.swift")
+        let section = try XCTUnwrap(
+            Self.declaration(named: "private func firstReaderSection() -> some View {",
+                             in: sheet))
+        XCTAssertTrue(section.contains("TextField(\"Name\", text: $firstReaderDraft)"),
+                      "the field is bound to the draft, not to the store. "
+                      + "Got:\n\(section)")
+        XCTAssertTrue(section.contains(".onSubmit { commitFirstReaderName() }"),
+                      "Return commits. Got:\n\(section)")
+        XCTAssertTrue(section.contains("onChange(of: firstReaderNameFocused)"),
+                      "leaving the field commits. Got:\n\(section)")
+    }
+
+    /// **Describe… does not post its own segment event.** The post is scoped
+    /// `.keyWindow`, and while a sheet is up the sheet's window is the key
+    /// one — the project window filters the command out, so a sheet posting
+    /// for itself would be swallowed by the act of closing. The presenter
+    /// records the request and posts it from the sheet's `onDismiss`.
+    func test_theDescribeHandoffWaitsForTheSheetToClose() throws {
+        let sheet = try Self.source(of: "Views/ProjectSettingsSheet.swift")
+        XCTAssertFalse(sheet.contains("postDetailSegment("),
+                       "the sheet must not post while it is the key window")
+        let describe = try XCTUnwrap(
+            Self.declaration(named: "private func describeFirstReader() {", in: sheet))
+        XCTAssertTrue(describe.contains("createStatement(kind: .firstReader, scope: .project)"),
+                      "the statement is minted if absent. Got:\n\(describe)")
+        XCTAssertTrue(describe.contains("onDescribeFirstReader()"),
+                      "\u{2026}and the request is handed to the presenter. "
+                      + "Got:\n\(describe)")
+        XCTAssertTrue(describe.contains("dismiss()"), "Got:\n\(describe)")
+
+        let window = try Self.source(of: "Views/ProjectWindow.swift")
+        XCTAssertTrue(
+            window.contains("onDismiss: openFirstReaderIfRequested"),
+            "the presenter posts from the sheet's own dismissal hook")
+        let post = try XCTUnwrap(
+            Self.declaration(named: "private func openFirstReaderIfRequested() {",
+                             in: window))
+        XCTAssertTrue(post.contains("MaughamEvent.postDetailSegment(.firstReader)"),
+                      "\u{2026}through the ONE segment post, so the receiver's "
+                      + "other two acts keep their single spelling. Got:\n\(post)")
+    }
+
     // MARK: - Census helpers
 
     private static func source(of relativePath: String) throws -> String {

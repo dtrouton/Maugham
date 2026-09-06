@@ -292,7 +292,7 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             annotation: Self.suggestion,
             isOwn: true,
             onAccept: {}, onReject: {}, onArchive: {}, onReply: {},
-            onJumpToParagraph: {})
+            onJumpToParagraph: {}, manifest: nil)
         for width in Self.columnWidths {
             let measured = Self.width(of: row, proposing: width)
             XCTAssertLessThanOrEqual(
@@ -321,7 +321,7 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
             annotation: Self.suggestion,
             isOwn: true,
             onAccept: {}, onReject: {}, onArchive: {}, onReply: {},
-            onJumpToParagraph: {})
+            onJumpToParagraph: {}, manifest: nil)
         let rowFloor = Self.width(of: row, proposing: 1)
         XCTAssertLessThanOrEqual(
             rowFloor + Self.headroom, columnFloor,
@@ -637,7 +637,7 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
         let row = AnnotationRow(
             annotation: Self.suggestion,
             onAccept: {}, onReject: {}, onArchive: {}, onReply: {},
-            onJumpToParagraph: {})
+            onJumpToParagraph: {}, manifest: nil)
         for width in Self.columnWidths {
             let size = Self.size(of: row, proposing: width)
             XCTAssertLessThanOrEqual(

@@ -6,9 +6,26 @@ struct ProjectSettingsSheet: View {
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(\.dismiss) private var dismiss
 
+    /// **Where a Describe… press hands the writer on** (two loops P2 Task 6).
+    ///
+    /// The sheet cannot post the `.firstReader` segment event itself: that
+    /// post is scoped `.keyWindow`, and while a sheet is up the
+    /// KEY window is the sheet's own — the project window behind it would
+    /// filter the command out (`MaughamEvent.shouldDeliver`'s `isWindowKey`),
+    /// so the act of closing this sheet is what would swallow it. The
+    /// presenter records the request and posts it from the `.sheet`'s
+    /// `onDismiss`, which is the framework's own "the sheet is gone" hook.
+    var onDescribeFirstReader: () -> Void = {}
+
     @State private var useDefaults: Bool = true
     @State private var draft: TypographySettings = .defaults
     @State private var reviewPasses: [ReviewPass] = []
+    /// The first reader's name as the writer is typing it. A draft rather
+    /// than a direct binding because `ProjectStore.setFirstReaderName` writes
+    /// `project.json` — a manifest write per keystroke is a file write per
+    /// keystroke.
+    @State private var firstReaderDraft: String = ""
+    @FocusState private var firstReaderNameFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -66,6 +83,7 @@ struct ProjectSettingsSheet: View {
 
                 screenplaySection()
                 coachSection()
+                firstReaderSection()
                 reviewPassesSection()
             }
             .formStyle(.grouped)
@@ -96,6 +114,7 @@ struct ProjectSettingsSheet: View {
             draft = userPreferences.typography
         }
         reviewPasses = store.manifest.effectiveReviewPasses
+        firstReaderDraft = store.manifest.firstReaderName ?? ""
     }
 
     private func applyDefaultsToggle(_ usingDefaults: Bool) async {
@@ -184,6 +203,103 @@ struct ProjectSettingsSheet: View {
             Text("The coach is not a pass \u{2014} she is never a column on the board and never something a piece is done with. Vacating loses nothing: her rounds stay in each piece\u{2019}s history, and restoring the seat brings her back where she left off.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - The first reader (two loops P2, spec §4)
+
+    /// **One specific person the writer writes toward, named here and
+    /// described in her own statement** — directly beneath the coach's seat,
+    /// because she is the other answer to the same question and neither of
+    /// them is a pass.
+    ///
+    /// **The name is metadata; the description is prose.** The two are
+    /// deliberately different kinds of thing and live in different places:
+    /// `ProjectManifest.firstReaderName` travels with the book and is what
+    /// every surface renders, while what she knows is markdown the writer
+    /// edits in a pane (`Statement.Kind.firstReader`). Clearing the name here
+    /// takes nothing away from that file.
+    ///
+    /// **A draft buffer, unlike the coach's row above.** The seat is one Bool
+    /// and writes straight through; this is a name being typed, and
+    /// `setFirstReaderName` saves the manifest — so it is committed on submit
+    /// and on focus loss, never per keystroke. There is no Save button, for
+    /// the coach row's own reason: a control whose state the writer has to
+    /// remember, over a single field, is worse than a field that keeps itself.
+    @ViewBuilder
+    private func firstReaderSection() -> some View {
+        let describe = Self.describeButton(
+            name: firstReaderDraft,
+            statementExists: store.statement(kind: .firstReader, scope: .project) != nil)
+        Section {
+            TextField("Name", text: $firstReaderDraft)
+                .focused($firstReaderNameFocused)
+                .onSubmit { commitFirstReaderName() }
+                .onChange(of: firstReaderNameFocused) { _, focused in
+                    if !focused { commitFirstReaderName() }
+                }
+
+            HStack {
+                Spacer()
+                Button(describe.title) { describeFirstReader() }
+                    .disabled(!describe.enabled)
+                    .help(describe.enabled
+                          ? "Open her statement and write down who she is"
+                          : "Name her first \u{2014} her statement is about a person")
+            }
+        } header: {
+            Text("First reader")
+        } footer: {
+            Text("One specific person you write toward, by name. Describe her: what she reads, what she loves, what she will not sit through.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// **What the Describe button says and whether it can be pressed** — pure,
+    /// so the rule is assertable with nothing mounted (tripwire 33).
+    ///
+    /// **`statementExists` is asked of the MANIFEST, not of `FirstReader`.**
+    /// `FirstReader.statement` is nil for a statement whose prose is blank,
+    /// which is the state a writer is in the moment after they press this
+    /// button — reading it here would offer them "Describe…" again over a file
+    /// they have already opened, and a second press would be a second look for
+    /// a statement that is already there.
+    ///
+    /// Disabled while the name is empty because the statement is about a
+    /// person: there is nobody to describe until she has been named, and a
+    /// live button here would mint `first-reader.md` for a reader who does not
+    /// exist.
+    static func describeButton(
+        name: String, statementExists: Bool
+    ) -> (title: String, enabled: Bool) {
+        let named = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return (statementExists ? "Edit description\u{2026}" : "Describe\u{2026}", named)
+    }
+
+    /// Commit the typed name, or clear it. `setFirstReaderName` trims and maps
+    /// a blank to nil itself, so an emptied field is "no first reader" rather
+    /// than a reader named "".
+    private func commitFirstReaderName() {
+        let name = firstReaderDraft
+        guard name != (store.manifest.firstReaderName ?? "") else { return }
+        Task { try? await store.setFirstReaderName(name) }
+    }
+
+    /// Save the name, make sure she HAS a statement, then hand the writer to
+    /// it. The name is committed first because the button is pressable
+    /// straight after typing one, with no submit and no focus change in
+    /// between — a Describe over an uncommitted name would open a statement
+    /// for a reader the manifest has never heard of.
+    private func describeFirstReader() {
+        let name = firstReaderDraft
+        Task { @MainActor in
+            try? await store.setFirstReaderName(name)
+            if store.statement(kind: .firstReader, scope: .project) == nil {
+                _ = try? await store.createStatement(kind: .firstReader, scope: .project)
+            }
+            onDescribeFirstReader()
+            dismiss()
         }
     }
 

@@ -136,11 +136,13 @@ final class DiagnosticsPaneTests: XCTestCase {
     private func pane(
         store: ProjectStore?, diagnostics: DiagnosticsStore, docId: String,
         world: DeclaredWorldStore? = nil,
+        reader: AuthorReader = .nobody,
         currentText: @escaping (String) -> String? = { _ in nil }
     ) -> AnyView {
         AnyView(DiagnosticsPane(
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
-            currentText: currentText, compilerModel: .standard, store: store, world: world))
+            currentText: currentText, compilerModel: .standard, store: store, world: world,
+            reader: reader))
     }
 
     // MARK: - Header state (pure — no mount)
@@ -1047,15 +1049,187 @@ final class DiagnosticsPaneTests: XCTestCase {
             "got: \(labels)")
     }
 
-    /// **The reader line is a label and nothing else** (two loops P1 Task 7).
+    // MARK: - The reader picker (two loops P2 Task 6)
+
+    /// **A reader is offered only while their premise stands** — the same rule
+    /// `ProjectManifest.authorReader(choice:statementText:)` resolves by. All
+    /// four cells, windowless (tripwire 33).
+    func test_readerMenuItems_offersOnlyTheReadersThisProjectHas() {
+        func manifest(vacated: Bool, name: String?) -> ProjectManifest {
+            var m = ProjectManifest(
+                type: .novel, title: "P", author: "A",
+                created: Date(), modified: Date(), structure: [], research: [])
+            m.coachVacated = vacated
+            m.firstReaderName = name
+            return m
+        }
+
+        XCTAssertEqual(
+            DiagnosticsPane.readerMenuItems(manifest: manifest(vacated: false, name: "Ursula")),
+            [.coach, .firstReader, .nobody])
+        XCTAssertEqual(
+            DiagnosticsPane.readerMenuItems(manifest: manifest(vacated: true, name: "Ursula")),
+            [.firstReader, .nobody])
+        XCTAssertEqual(
+            DiagnosticsPane.readerMenuItems(manifest: manifest(vacated: false, name: nil)),
+            [.coach, .nobody])
+        XCTAssertEqual(
+            DiagnosticsPane.readerMenuItems(manifest: manifest(vacated: true, name: nil)),
+            [.nobody],
+            "nobody is the one choice with no premise to lose")
+
+        // A name that is only whitespace is no name — a hand-edited
+        // `project.json` is a writer of this field too.
+        XCTAssertEqual(
+            DiagnosticsPane.readerMenuItems(manifest: manifest(vacated: true, name: "   ")),
+            [.nobody])
+    }
+
+    /// The items are named from the same places the resolution reads them, so
+    /// the menu cannot name a reader the line above it does not.
+    func test_readerMenuTitle_namesTheSameReadersTheResolutionDoes() {
+        var manifest = ProjectManifest(
+            type: .novel, title: "P", author: "A",
+            created: Date(), modified: Date(), structure: [], research: [])
+        manifest.firstReaderName = "  Ursula  "
+
+        XCTAssertEqual(
+            DiagnosticsPane.readerMenuTitle(.coach, manifest: manifest), "Le Guin")
+        XCTAssertEqual(
+            DiagnosticsPane.readerMenuTitle(.firstReader, manifest: manifest), "Ursula")
+        XCTAssertEqual(
+            DiagnosticsPane.readerMenuTitle(.nobody, manifest: manifest), "Claude")
+    }
+
+    /// The checkmark follows whoever RESOLVED, not the stored choice: a choice
+    /// whose subject has gone falls back to the default rule, and a mark beside
+    /// a reader who is not reading would contradict the line above it.
+    func test_resolvedChoice_marksTheArmTheReaderActuallyIs() {
+        XCTAssertEqual(
+            DiagnosticsPane.resolvedChoice(for: .coach(ReviewPass.coachPreset)), .coach)
+        XCTAssertEqual(
+            DiagnosticsPane.resolvedChoice(
+                for: .firstReader(FirstReader(name: "Ursula", statement: nil))),
+            .firstReader)
+        XCTAssertEqual(DiagnosticsPane.resolvedChoice(for: .nobody), .nobody)
+    }
+
+    /// **The mounted header draws a picker, labelled with the reader's own
+    /// line.** Asserted as what is DRAWN — the label plus a control role that
+    /// is not a plain static text — and never by opening the menu and waiting
+    /// for what falls out of it (tripwire 33).
+    func test_mountedHeader_theReaderLineIsAPickerWhenThereIsAProject() async throws {
+        let (_, store, _) = try await loadedNovel(named: "ReaderPickerDrawn")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+
+        let window = mount(pane(
+            store: store, diagnostics: diagnostics, docId: "doc-picker",
+            reader: .coach(ReviewPass.coachPreset)))
+        pump(0.2)
+
+        XCTAssertTrue(allLabels(in: window).contains("Le Guin reads this piece"),
+                      "the label is the line it replaces; got \(allLabels(in: window))")
+        XCTAssertTrue(
+            roles(labelled: "Le Guin reads this piece", in: window)
+                .contains { $0 != "AXStaticText" },
+            "the reader line must be a control the writer can open, not a "
+            + "label; roles: \(roles(labelled: "Le Guin reads this piece", in: window))")
+    }
+
+    /// **A pane with no project draws the plain label it always did.** There
+    /// is nothing to choose between with no manifest to read the seat or the
+    /// name off, and a menu over one item that changes nothing is a control
+    /// that lies about what it can do.
+    func test_mountedHeader_withNoProjectTheLineIsStillAPlainLabel() throws {
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
+            docId: "doc-no-project", currentText: { _ in nil }, compilerModel: .standard,
+            reader: .coach(ReviewPass.coachPreset))))
+        pump(0.2)
+
+        XCTAssertEqual(
+            roles(labelled: "Le Guin reads this piece", in: window)
+                .filter { $0 != "AXStaticText" },
+            [],
+            "with no store there is nothing to pick between")
+    }
+
+    /// **Source census: every item writes the choice, one item opens Project
+    /// Settings, and nothing in the menu travels to Review.**
+    ///
+    /// Windowless on purpose (tripwire 33): a SwiftUI `Menu` publishes no items
+    /// until it is opened, so pressing one is a press-then-wait by
+    /// construction. What could silently break is the WIRING — an item that
+    /// wrote nothing, or a "Define a first reader…" that opened the wrong
+    /// thing — and the four pure functions above pin everything else.
+    func test_theReaderMenusItemsWriteTheChoiceAndOpenNothingButSettings() throws {
+        let source = try Self.source(of: "Views/DiagnosticsPane.swift")
+        let menu = try XCTUnwrap(
+            Self.declaration(named: "private var readerMenu: some View {", in: source),
+            "the header must carry a readable reader menu for this census to "
+            + "have a subject")
+
+        XCTAssertTrue(menu.contains("onChooseReader(candidate)"),
+                      "each reader item writes the choice. Got:\n\(menu)")
+        XCTAssertTrue(menu.contains("DiagnosticsPane.defineFirstReaderTitle")
+                      || menu.contains("Self.defineFirstReaderTitle"),
+                      "the define item draws the shared title. Got:\n\(menu)")
+        XCTAssertTrue(menu.contains("onOpenProjectSettings()"),
+                      "\u{2026}and it opens Project Settings, which is where "
+                      + "her name is typed. Got:\n\(menu)")
+        XCTAssertFalse(menu.localizedCaseInsensitiveContains("persona"),
+                       "the picker never changes the window's mode \u{2014} P1 "
+                       + "removed the door to Review. Got:\n\(menu)")
+        XCTAssertFalse(menu.contains("postDetailSegment("),
+                       "\u{2026}and it opens no other pane either. Got:\n\(menu)")
+
+        // The define item stands only while she is unnamed: once she has a
+        // name her own row is in the list above, and a second door to Settings
+        // beneath it would be an offer to define somebody already defined.
+        XCTAssertTrue(menu.contains("if !Self.hasFirstReader(manifest) {"),
+                      "Got:\n\(menu)")
+    }
+
+    /// **The header is given the CHOSEN reader and both verbs.** The pane
+    /// defaults `reader` to `.nobody` and both closures to no-ops, so a
+    /// host that forgot to wire them would draw a picker that changes nothing
+    /// and a header naming a reader the run was not briefed on — neither of
+    /// which any assertion on values can see.
+    func test_theWindowGivesTheHeaderTheChosenReaderAndItsTwoVerbs() throws {
+        let toggle = try Self.source(of: "Views/DetailPaneToggle.swift")
+        let arm = try XCTUnwrap(
+            Self.declaration(named: "private var diagnosticsPane: some View {", in: toggle))
+
+        XCTAssertTrue(arm.contains("choice: ds.uiState.authorReaderChoice"),
+                      "the header reads the writer's CHOICE, not the default "
+                      + "rule \u{2014} the same resolution the run makes. "
+                      + "Got:\n\(arm)")
+        XCTAssertTrue(arm.contains("ds?.setAuthorReaderChoice("),
+                      "\u{2026}and the picker writes it through the one verb. "
+                      + "Got:\n\(arm)")
+        XCTAssertTrue(arm.contains("onOpenProjectSettings: onOpenProjectSettings"),
+                      "\u{2026}and the define item reaches the window's sheet. "
+                      + "Got:\n\(arm)")
+
+        let window = try Self.source(of: "Views/ProjectWindow.swift")
+        XCTAssertTrue(
+            window.contains("onOpenProjectSettings: { activeSheet = .projectSettings }"),
+            "the window opens the sheet the define item asks for")
+    }
+
+    /// **The reader line is never a door to Review** (two loops P1 Task 7).
     ///
     /// It used to be a button that switched the window to Review — the mode
-    /// error this milestone removes. Who reads a CHECK is the coach or nobody,
-    /// and neither of those is chosen on the review board, so travelling there
-    /// answered a question the writer had not asked. Asserted as an ABSENCE of
-    /// the button role rather than by pressing nothing: a plain `Text` publishes
-    /// its string with no `AXButton` above it, which is exactly what a reader
-    /// with VoiceOver hears the difference as.
+    /// error P1 removed. Who reads a CHECK is not chosen on the review board,
+    /// so travelling there answered a question the writer had not asked. P2
+    /// gave the line a picker over the READERS instead; this pane has no store,
+    /// so it still draws the plain label, and the `AXButton` that used to
+    /// travel is absent either way — which is exactly what a reader with
+    /// VoiceOver hears the difference as.
     func test_theReaderLineIsALabelAndNotADoorToReview() throws {
         let docId = "doc-reader-label"
         let diagnosticsStore = DiagnosticsStore(
@@ -4683,6 +4857,51 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// off the window with no flip or origin correction needed.
     private func axFrame(_ element: AnyObject) -> NSRect? {
         (axAttribute(element, "accessibilityFrame") as? NSValue)?.rectValue
+    }
+
+    /// Every accessibility ROLE carried by an element whose value or label is
+    /// `text` — what tells a plain `Text` from a control the writer can open.
+    private func roles(labelled text: String, in window: NSWindow) -> [String] {
+        guard let tree = try? axTree(in: window) else { return [] }
+        return tree
+            .filter {
+                (axAttribute($0, "accessibilityValue") as? String) == text
+                    || (axAttribute($0, "accessibilityLabel") as? String) == text
+            }
+            .compactMap { axAttribute($0, "accessibilityRole") as? String }
+    }
+
+    // MARK: - Source census helpers (two loops P2 Task 6)
+
+    private static func source(of relativePath: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // MaughamTests/
+            .deletingLastPathComponent()   // repo root
+        return try String(
+            contentsOf: root.appendingPathComponent("Maugham/\(relativePath)"),
+            encoding: .utf8)
+    }
+
+    /// The text from `name` to the end of its brace-balanced body. A per-suite
+    /// copy, as every census suite in `MaughamTests` declares — see
+    /// `ReviewPassEditorTests`' own note on why.
+    private static func declaration(named name: String, in source: String) -> String? {
+        guard let start = source.range(of: name) else { return nil }
+        var depth = 0
+        var index = start.lowerBound
+        var seenOpen = false
+        while index < source.endIndex {
+            let character = source[index]
+            if character == "{" { depth += 1; seenOpen = true }
+            if character == "}" {
+                depth -= 1
+                if seenOpen && depth == 0 {
+                    return String(source[start.lowerBound...index])
+                }
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 
     private func staticTextLabels(in window: NSWindow, containing substring: String) -> [String] {

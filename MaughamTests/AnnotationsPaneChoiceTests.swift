@@ -191,7 +191,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             annotation: annotation,
             onAccept: {}, onReject: {}, onArchive: {}, onReply: {},
             onJumpToParagraph: {},
-            ledgerText: ledgerText)
+            ledgerText: ledgerText, manifest: nil)
         let window = TestWindow.mount(AnyView(row),
                                       size: CGSize(width: 620, height: 300))
         windows.append(window)
@@ -877,7 +877,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             let row = AnnotationRow(
                 annotation: annotation,
                 onAccept: {}, onReject: {}, onArchive: {}, onReply: {},
-                onJumpToParagraph: {})
+                onJumpToParagraph: {}, manifest: nil)
             for width in widths {
                 let controller = NSHostingController(rootView: AnyView(row))
                 _ = controller.view

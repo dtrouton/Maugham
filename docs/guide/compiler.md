@@ -46,6 +46,36 @@ piece's history, and restoring the seat brings her back where she left off.
 There is no beginner mode and no experience setting — the seat is simply your
 own declaration of what kind of writer you are today.
 
+### Your own first reader
+
+The other person who can read your checks is one you name yourself: **one
+specific reader you write toward**. Name her in **Project Settings…**, in the
+**First reader** row beneath the coach's, then press **Describe…** to open her
+statement (⌘⌥Y) and write down who she is — what she reads, what she loves,
+what she will not sit through. The name travels with the book; the description
+is prose you edit like any other statement, and every check reads it fresh.
+
+She is not a pass and not a persona Maugham supplies. She has no doctrine and
+no lane, so she never appears on the review board and never files a numbered
+round. What she gives back is a letter in her own voice, and the notes she
+raises are signed with her name.
+
+### Choosing between them
+
+The line under the Diagnostics header — *"Le Guin reads this piece"* — is a
+**picker**. Open it and you can hand your checks to the coach, to your own
+first reader, or to nobody in particular. Only readers this project actually
+has are offered: the coach while her seat is held, your first reader once she
+is named. *Claude* — nobody in particular — is always there. If you have not
+named a first reader yet, the menu ends with **Define a first reader…**, which
+takes you to Project Settings.
+
+The choice is remembered on this Mac and applies to the whole project, not to
+one chapter. It is a preference over the default rule rather than a
+replacement for it: if you pick a reader and later take away what they rest on
+— vacate the seat, clear the name — checks fall back to the rule rather than
+to a reader who is no longer there.
+
 Rounds are the other loop, and they need an editor of their own: see
 [Review Passes](review-passes.md).
 

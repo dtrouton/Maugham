@@ -2015,11 +2015,14 @@ struct AnnotationRow: View {
     /// about `ProjectManifest.firstReaderName`, and the row is where the
     /// affordance is drawn.
     ///
-    /// Defaulted to nil — a row rendered with no project identity still draws
-    /// the translator's *Answer as ruling…*, which turns on the note's own
-    /// language tag, and never hers, which needs a name to file under
-    /// (`RulingDestination.offered`).
-    var manifest: ProjectManifest? = nil
+    /// **Undefaulted, deliberately** (P2 Task 6, Task 5's review): a row built
+    /// with no project identity draws the translator's *Answer as ruling…* —
+    /// which turns on the note's own language tag — and never hers, which
+    /// needs a name to file under (`RulingDestination.offered`). A default of
+    /// nil would let a second host withdraw her offer by simply not mentioning
+    /// her, with nothing red anywhere. `nil` stays a valid ANSWER; it just has
+    /// to be given.
+    let manifest: ProjectManifest?
 
     /// Where an *Answer as ruling…* press on this row would file — asked once,
     /// so the control, its help and the commit cannot disagree about the
