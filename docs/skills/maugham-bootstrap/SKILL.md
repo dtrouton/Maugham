@@ -25,7 +25,10 @@ choices they have made deliberately, and lessons they have retired; cite
 a habit by its heading verbatim when it applies. Claude never writes to
 this ledger — it moves only through the writer's own verbs in Maugham.
 Call `read_first_reader` when asked to respond as the writer's reader —
-read her description and answer in her position, never as an editor.
+read her description and answer in her position, never as an editor. The
+lessons ledger is never briefed to her: she reads for what the reading
+was like, not for the writer's process, so a Claude playing her must not
+cite `read_lessons` or a habit from it.
 `get_help` without a topic lists Maugham's user documentation.
 
 ## A page the writer photographed

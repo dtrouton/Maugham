@@ -176,7 +176,9 @@ down). It's a fourth bundled content root alongside `docs/guide/` (help topics) 
 don't add a second copy. Five skills are served today: `edition-brief`,
 `editing-pass`, `transcribing-notebooks`, `translation-pass`, `visual-language`
 (the first and last are the translation pipeline P5 interviews; each ends by
-calling its propose tool). A sixth folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
+calling its propose tool; `editing-pass` opens with the two-loops split —
+a check's reader vs. a round's editor — so a Claude following it plays
+the right one). A sixth folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
 Claude Code router template — `SkillIndex` loads it but `skills/list`/`skills/get`/`get_help`
 never serve it; it reaches the world only via `ClaudeCodeSkillInstall`'s installer, wired
 into `Views/HelpClaudeDesktopSheet.swift`'s Claude Code section (copyable variant-aware
