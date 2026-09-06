@@ -51,7 +51,10 @@ exempt because a Le Guin feed-forward is a directive by nature. Neither scrub
 moves `droppedDangling` either.
 **The letter's scene table has a position, and the run decides it** (spec
 §3.4, P1 Task 3). `ScenePosition.derive` reads three things the writer owns —
-the project's type, their intent statement and the active pass's brief — and
+the project's type, their intent statement and the reading verb's own brief (a
+round's stage doctrine; for a check, `AuthorReader.brief`, which only the coach
+answers — a first reader's statement is who she is rather than an instruction
+about form, so it is never read as one) — and
 answers `none` (no table at all), `weak` (rows, charge always null, no conflict
 field, a blank `changes` read as an observation) or one of the two strong
 forms; `CompilerPrompt.scenePositionSection` states it in one sentence per run,
@@ -290,12 +293,21 @@ themselves and nothing censuses them.
 loops P1 Task 2, spec §2; ADR 0031 §2–§3, and CLAUDE.md's tripwire 34).
 `PieceReader`, the single resolution these replaced, is deleted. Author's ⌘R is a **check**; Review's Run is a
 **round**; `RunKind` says which, minted from the persona at the keystroke, and
-`Environment.reader(docId, kind)` is the one closure both go through
-(`CompilerEnvironment+Project.swift`, whose switch is exhaustive so a third
-loop is a compile error rather than a default).
+since two loops P2 Task 4 the two loops have **two closures with two answer
+types** rather than one taking the kind: `Environment.authorReader(docId)` →
+`AuthorReader` and `Environment.roundEditor(docId)` → `ActivePass?`
+(`CompilerEnvironment+Project.swift`). A verb asking the other loop's question
+does not type-check, which is what a `switch kind` over one answer type could
+never say — and it is what let the first reader out of the pass-shaped seam
+that could only describe her as nobody.
 
-A **check** is `ProjectManifest.authorReader` → `AuthorReader`: the coach while
-her seat is held, else nobody. It is per PROJECT and takes no piece, and it
+A **check** is `ProjectManifest.authorReader(choice:statementText:)` →
+`AuthorReader`: the roster's choice where its subject is still there, else the
+default rule — the coach while her seat is held, else a named first reader,
+else nobody. The choice is `UIState.authorReaderChoice`; the first reader's
+description is read from her statement **at the keystroke**, per run, cached
+nowhere, because it is prose the writer edits in a pane between one ⌘R and the
+next. It is per PROJECT and takes no piece, and it
 reads no `ActivePassMemory` at all — what lane a chapter is parked in on the
 review board is the round loop's fact. So an unassigned piece is Le Guin's to
 READ, and a piece parked in Gould's lane is *also* hers to read in Author. A
@@ -323,9 +335,12 @@ in her lane.
 Two censuses keep the two inputs apart, each with a planted offender:
 `TripwireGrepTests.test_theCheckReaderNeverReadsTheBoardsMemory` (no
 `activePassMemory` in `AuthorReader.swift`, and exactly one read in the
-wiring's `.round` arm — asserted structurally, since a read that moved arms
-would keep the count) and `test_theRoundEditorNeverReachesForTheCoachsSeat`
-(no `effectiveCoach` in `RoundEditor.swift` or the wiring).
+wiring's `roundEditor` closure — asserted structurally, since a read that
+moved closures would keep the count) and
+`test_theRoundEditorNeverReachesForTheCoachsSeat` (neither `effectiveCoach` nor
+`firstReaderName` in `RoundEditor.swift` or the wiring, and the `roundEditor`
+closure does not name `authorReader` either — reaching the roster's resolution
+is the same fallback wearing one more hop).
 
 **The delta marker is the CHECK's, and a round neither reads it nor moves it**
 (two loops P1 Task 4, spec §4.5). `beginRun` builds a round's delta
@@ -356,21 +371,40 @@ Maugham's observation of the WRITER's drafting process, and spec §4.9's round
 list omits it because an editor reads the manuscript rather than the working
 month that produced it.
 
-`ActivePass.isCoach` is the one thing that differs downstream, and it is read
-by `CompilerPrompt.passSection` — a coach is framed as a teacher ("You are Le
-Guin, this writer's workshop teacher.") where a stage is framed as an editor.
-**Two loops P2 Task 3 built its replacement beside it**: `CompilerPrompt.
-readerSection` frames a CHECK by its `AuthorReader` — the coach (that same
-teacher frame, moved verbatim and pinned equal to `passSection`'s by
-`test_theCoachReadsTheSameHereAsSheDidThroughThePassSection`), the writer's
-first reader, or nobody — and a round never carries it. Task 4 passes the real
-reader, drops `pass:` from `checkMessage` and deletes the `isCoach` branch;
-until then `readerSection` is reached with `.nobody` from production and every
-check briefing is byte-identical to what it was.
-Only a CHECK can carry it: a round's `ActivePass` is always a stage's, built
-`isCoach: false`. Nothing counts the readers of that flag, so treat it as the
-rule it is rather than a fact: a second branch on it is a second place the seat
-stops behaving like a pass.
+**A check's role frame is `CompilerPrompt.readerSection`'s, and a round's is
+`passSection`'s** (two loops P2 Tasks 3–4). `readerSection` frames a CHECK by
+its `AuthorReader` — the coach ("You are Le Guin, this writer's workshop
+teacher."), the writer's own first reader, or nobody, whose section is nil.
+`checkMessage` has **no `pass:` parameter at all**, so a lane cannot reach a
+check even by a caller's mistake, and `passSection` has one frame again: every
+`ActivePass` that reaches it is a rung of the ladder. `ActivePass.isCoach` is
+**deleted** — the flag existed only so the coach could arrive at the briefing
+dressed as a pass while one closure answered both loops — and
+`TripwireGrepTests.test_isCoachIsGone` fails if it comes back anywhere under
+`Maugham/`, with a planted offender for the control. A coach's check briefing
+is byte-identical to what the pass route sent her, pinned at the message level
+by `CompilerPromptTests
+.test_aCoachCheckIsBriefedByteForByteAsThePassRouteBriefedHer`.
+
+**The first reader is dosed, and briefed, as herself** (rulings P2-4/6/7).
+`beginRun`'s dose is `reader.isFirstReader ? .reader : (stage?.dosage(freshEyes:)
+?? .full)` — hers **outranks the draft stage and Fresh Eyes both**, because a
+cold read is "always the full letter" for the stage's rule and applying that to
+her would hand back the craft letter she exists not to write. She is briefed
+with `signals: nil` (no process line: Maugham's observation of the writer's
+month is not something a reader forbidden craft words can speak about) and
+`lessons: nil` (the craft ledger is not hers to read). The stage is still
+derived for her — it is cheap, and `Letter.stage` records it — it simply does
+not decide her dose.
+
+**The record remembers who read**: `CompilerRun.readerName`, stamped at the
+keystroke for a check and `nil` for a round, whose byline is its lane's. Every
+Author surface drawing a STANDING run's letter reads `run.readerName ??
+reader.editorName` — the signature, Keep's note heading, a filed lesson's
+provenance, Add-to-intent's ruling — so a letter keeps the name it was written
+under after the writer changes the roster (P1's Ruling 10). The pane's HEADER
+line and its empty state stay on the LIVE reader, because they promise who
+*will* read.
 
 **The dispositions section is the warm path's duplicate guard, and its two
 halves are asymmetric on purpose** (`CompilerPrompt.dispositionsSection`,

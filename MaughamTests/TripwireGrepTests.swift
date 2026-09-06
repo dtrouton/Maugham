@@ -567,23 +567,31 @@ final class TripwireGrepTests: XCTestCase {
             + "and never by the check's own resolution. Offenders:\n"
             + offenders.joined(separator: "\n"))
 
-        // …and that one read is inside the `.round` arm. The count above
-        // cannot tell a read that moved arms from one that did not.
-        let wiring = try String(
-            contentsOf: sourceDir
-                .appendingPathComponent("Compiler/CompilerEnvironment+Project.swift"),
-            encoding: .utf8)
-        let check = try XCTUnwrap(wiring.range(of: "case .check:"),
-                                  "find the reader closure's switch by name if "
-                                  + "it moved")
-        let round = try XCTUnwrap(wiring.range(of: "case .round:",
+        // …and that one read is inside the `roundEditor` closure. The count
+        // above cannot tell a read that moved closures from one that did not.
+        // Located by the two closure names, which is what the split left where
+        // a `switch kind` used to be (two loops P2 Task 4).
+        let wiring = try productionWiring()
+        let check = try XCTUnwrap(wiring.range(of: "authorReader: {"),
+                                  "find the check's closure by name if it moved")
+        let round = try XCTUnwrap(wiring.range(of: "roundEditor: {",
                                                range: check.upperBound..<wiring.endIndex))
         XCTAssertFalse(
             wiring[check.upperBound..<round.lowerBound].contains("activePassMemory"),
-            "the check arm must not reach for the board's memory")
+            "the check's closure must not reach for the board's memory")
         XCTAssertTrue(
             wiring[round.lowerBound...].contains("activePassMemory"),
-            "control: the round arm is where it really is read")
+            "control: the round's closure is where it really is read")
+    }
+
+    /// The production wiring's own text, for the structural halves of the two
+    /// censuses below — both ask WHERE a value is read, which a count cannot
+    /// answer.
+    private func productionWiring() throws -> String {
+        try String(
+            contentsOf: sourceDir
+                .appendingPathComponent("Compiler/CompilerEnvironment+Project.swift"),
+            encoding: .utf8)
     }
 
     /// **Tripwire: the ROUND's editor is never the coach.**
@@ -595,16 +603,91 @@ final class TripwireGrepTests: XCTestCase {
     /// neither it nor the round arm of the production wiring may name the
     /// seat.
     func test_theRoundEditorNeverReachesForTheCoachsSeat() throws {
+        // **Both readers of the roster, not just the seat** (two loops P2 Task
+        // 4). The check loop's answer is now the coach OR the writer's own
+        // first reader, and a round that fell back to either is the same
+        // defect: a lane is a pass the writer selected, and there is no
+        // substitute for one.
         let offenders = try grepSwift(
             in: sourceDir,
             files: Self.roundEditorFiles,
-            patterns: ["effectiveCoach"],
+            patterns: ["effectiveCoach", "firstReaderName"],
             excludeLine: { self.commentLine($0) })
         XCTAssertEqual(
             offenders, [],
-            "a round is a stage's or it is refused \u{2014} the seat is not a "
-            + "fallback, and naming it here is how it becomes one. Offenders:\n"
+            "a round is a stage's or it is refused \u{2014} neither the seat "
+            + "nor the writer's first reader is a fallback, and naming one "
+            + "here is how it becomes one. Offenders:\n"
             + offenders.joined(separator: "\n"))
+
+        // …and the structural half, on the memory census's rule: the whole
+        // roster is resolved inside `authorReader`, so the `roundEditor`
+        // closure may not name `authorReader` either — reaching the resolution
+        // is the same fallback wearing one more hop.
+        let wiring = try productionWiring()
+        let round = try XCTUnwrap(wiring.range(of: "roundEditor: {"),
+                                  "find the round's closure by name if it moved")
+        XCTAssertFalse(
+            wiring[round.lowerBound...]
+                .split(separator: "\n")
+                .filter { !commentLine(String($0)) }
+                .joined(separator: "\n")
+                .contains("authorReader"),
+            "the round's closure must not reach the check's resolution")
+    }
+
+    // MARK: - The coach is a case, not a flag (two loops P2 Task 4)
+
+    /// **Tripwire: `isCoach` is gone, and it does not come back.**
+    ///
+    /// `CompilerOrchestrator.ActivePass` carried the flag while ONE
+    /// `Environment` closure answered both loops: the coach had to arrive at
+    /// the briefing dressed as a pass, because a pass was the only thing the
+    /// seam could describe. She is an `AuthorReader.coach` now — a case, with a
+    /// section of her own — and `ActivePass` is Review's alone, every value of
+    /// it a rung of the ladder.
+    ///
+    /// A flag reintroduced anywhere under `Maugham/` is that seam coming back,
+    /// and it comes back silently: the type still compiles, the briefing still
+    /// assembles, and a check is once more briefed as the thing it is not.
+    ///
+    /// Comments are excluded on the two reader censuses' rule — a doc comment
+    /// explaining why the flag is gone is the opposite of the defect, and both
+    /// `ActivePass` and `passSection` say so at length.
+    func test_isCoachIsGone() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            patterns: ["isCoach"],
+            excludeLine: { self.commentLine($0) })
+        XCTAssertEqual(
+            offenders, [],
+            "the coach is a case rather than a flag \u{2014} an ActivePass is "
+            + "Review's alone. Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: it is not passing because the pattern
+    /// matches nothing. A planted flag is caught; a comment naming it is not.
+    func test_theIsCoachCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-iscoach-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct ActivePass {
+            // A comment naming isCoach is not the flag.
+            let isCoach: Bool
+        }
+        """.write(to: tmp.appendingPathComponent("ActivePass.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp, patterns: ["isCoach"], excludeLine: { self.commentLine($0) })
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check: the planted flag should be the one caught, and not the "
+            + "comment. Got:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders[0].hasPrefix("ActivePass.swift:"), offenders[0])
     }
 
     /// CONTROL for the two censuses above: they are not passing because the

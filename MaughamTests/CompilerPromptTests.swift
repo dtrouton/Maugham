@@ -453,12 +453,12 @@ final class CompilerPromptTests: XCTestCase {
     func test_theTwoEntryPointsAreRunMessageV2WithTheirKindFixed() {
         let (check, checkHash) = CompilerPrompt.checkMessage(
             delta: Self.mixedDelta, world: nil, essay: "Essay text.", bibleFacts: [],
-            paletteListing: [], pinnedListing: [], pass: lane("copyedit"),
+            paletteListing: [], pinnedListing: [], reader: coachReader(),
             stage: .revising, previousBriefingHash: nil)
         let (checkTwin, checkTwinHash) = CompilerPrompt.runMessageV2(
             delta: Self.mixedDelta, kind: .check, world: nil, essay: "Essay text.",
             bibleFacts: [], paletteListing: [], pinnedListing: [],
-            pass: lane("copyedit"), stage: .revising, previousBriefingHash: nil)
+            reader: coachReader(), stage: .revising, previousBriefingHash: nil)
         XCTAssertEqual(check, checkTwin)
         XCTAssertEqual(checkHash, checkTwinHash)
 
@@ -707,28 +707,26 @@ final class CompilerPromptTests: XCTestCase {
                       "the pass's own brief must travel verbatim; got \(section)")
     }
 
-    /// **The coach is a teacher, not an editor** (spec §4.1, §4.4). She is a
-    /// pass in every respect the run cares about — a lane, a round, a byline —
-    /// and the ONE thing that is not a stage's is the register she reads in.
-    /// `isCoach` is the only thing the section branches on, and this line is
-    /// the only place in the app that branch is visible.
-    func test_theCoachIsFramedAsATeacherRatherThanAnEditor() {
-        let coach = ReviewPass.coachPreset
-        guard let section = CompilerPrompt.passSection(
-            CompilerOrchestrator.ActivePass(
-                id: coach.id, name: coach.name,
-                editorName: coach.effectiveEditorName,
-                brief: coach.effectiveBrief, isCoach: true))
-        else { return XCTFail("the coach must produce a section") }
-        XCTAssertEqual(
-            section.split(separator: "\n").first.map(String.init),
-            "You are Le Guin, this writer's workshop teacher.",
-            "the coach's role frame is the whole of what isCoach buys; got \(section)")
-        XCTAssertFalse(section.contains("this manuscript's"),
-                       "a stage's frame reached the coach; got \(section)")
-        let brief = try? XCTUnwrap(coach.brief)
-        XCTAssertTrue(section.contains(brief ?? "\u{0}"),
-                      "her doctrine must travel verbatim under the frame")
+    /// **`passSection` has one frame, and every pass that reaches it is a rung
+    /// of the ladder** (two loops P2 Task 4). The coach used to arrive here
+    /// wearing `ActivePass.isCoach`; she is `readerSection`'s now, and this
+    /// function cannot be reached by a check at all — `checkMessage` has no
+    /// `pass:` to give.
+    func test_everyPassThroughThePassSectionIsFramedAsAnEditor() throws {
+        for preset in ReviewPass.presets {
+            let section = try XCTUnwrap(CompilerPrompt.passSection(
+                CompilerOrchestrator.ActivePass(
+                    id: preset.id, name: preset.name,
+                    editorName: preset.effectiveEditorName,
+                    brief: preset.effectiveBrief)))
+            XCTAssertEqual(
+                section.split(separator: "\n").first.map(String.init),
+                "You are \(preset.effectiveEditorName), this manuscript's "
+                + "\(preset.name) editor.",
+                "got \(section)")
+            XCTAssertFalse(section.contains("teacher"),
+                           "no lane is anybody's teacher; got \(section)")
+        }
     }
 
     /// The control for the branch above: a stage keeps the editor framing it
@@ -903,58 +901,65 @@ final class CompilerPromptTests: XCTestCase {
                       "her instructions survive the missing description; got \(section)")
     }
 
-    /// **The coach reads exactly what she read through `passSection`.** Task 4
-    /// deletes the `isCoach` branch and this section takes its place, so the
-    /// two are pinned against each other here: the swap must not change one
-    /// word of what Le Guin is told.
-    func test_theCoachReadsTheSameHereAsSheDidThroughThePassSection() throws {
+    /// **A coach check is briefed byte for byte as the pass route briefed her**
+    /// (two loops P2 Task 4 — the equality Task 3 pinned at the section level,
+    /// asserted here at the message level now that `passSection`'s coach branch
+    /// is gone).
+    ///
+    /// Two claims, and both are needed. Her section is the old branch's exact
+    /// output — the teacher frame and her doctrine under it, joined by one
+    /// newline, spelled here as a literal so no refactor of either function can
+    /// move it. And the message puts it in the same SLOT: the reader section
+    /// and the pass section were appended to the same place, immediately above
+    /// the scene sentence, so a check under the coach is a check under nobody
+    /// with exactly that block inserted there.
+    func test_aCoachCheckIsBriefedByteForByteAsThePassRouteBriefedHer() throws {
         let coach = ReviewPass.coachPreset
-        let throughThePass = try XCTUnwrap(CompilerPrompt.passSection(
-            CompilerOrchestrator.ActivePass(
-                id: coach.id, name: coach.name,
-                editorName: coach.effectiveEditorName,
-                brief: coach.effectiveBrief, isCoach: true)))
-        let throughTheReader = try XCTUnwrap(CompilerPrompt.readerSection(coachReader()))
-        XCTAssertEqual(throughTheReader, throughThePass)
+        let section = try XCTUnwrap(CompilerPrompt.readerSection(coachReader()))
         XCTAssertEqual(
-            throughTheReader.split(separator: "\n").first.map(String.init),
-            "You are Le Guin, this writer's workshop teacher.")
-        XCTAssertFalse(throughTheReader.lowercased().contains("first reader"),
-                       "the coach is not the writer's first reader; got \(throughTheReader)")
+            section,
+            "You are Le Guin, this writer's workshop teacher.\n"
+            + (coach.effectiveBrief ?? ""),
+            "the coach's frame and doctrine are what `passSection`'s deleted "
+            + "branch emitted, to the byte")
+        XCTAssertFalse(section.lowercased().contains("first reader"),
+                       "the coach is not the writer's first reader; got \(section)")
+
+        let delta = makeDelta(new: [.init(paragraphId: "a1b2", text: "The fog came.")])
+        let underCoach = CompilerPrompt.checkMessage(
+            delta: delta, world: nil, essay: nil, bibleFacts: [], paletteListing: [],
+            pinnedListing: [], reader: coachReader(), previousBriefingHash: nil).message
+        let underNobody = CompilerPrompt.checkMessage(
+            delta: delta, world: nil, essay: nil, bibleFacts: [], paletteListing: [],
+            pinnedListing: [], reader: .nobody, previousBriefingHash: nil).message
+        let scenes = try XCTUnwrap(CompilerPrompt.scenePositionSection(.none))
+        XCTAssertEqual(underNobody.components(separatedBy: scenes).count, 2,
+                       "the slot below is located by the scene sentence, so it "
+                       + "must appear exactly once")
+        XCTAssertEqual(
+            underCoach,
+            underNobody.replacingOccurrences(of: scenes, with: section + "\n\n" + scenes),
+            "her frame must land where the pass section landed, and nothing "
+            + "else about the message may move")
     }
 
     /// A custom coach seat with no doctrine of its own still gets the honest
     /// fallback — `passSection`'s rule, kept by the arm that replaces it.
     ///
-    /// **Pinned equal to `passSection` as well**, because this is the arm where
-    /// the two could genuinely diverge: `readerSection` resolves the brief
-    /// through `ReviewPass.effectiveBrief` and `passSection` reads an
-    /// `ActivePass`'s already-resolved field, so a seat matching no preset —
-    /// nil brief on one side, an emptied string on the other — is the case that
-    /// would show it. The with-brief pin above cannot.
+    /// **A brief the writer emptied is a brief they do not have**, which is the
+    /// rule `passSection` kept and this arm inherited: `ReviewPass.effectiveBrief`
+    /// lets a stored `"   "` win over a preset's doctrine, and a blank line
+    /// under the role frame is not what "no doctrine" should read as.
+    ///
+    /// Both ways a seat reaches the fallback, because they are two different
+    /// stored states: an emptied brief and one never written.
     func test_aCoachWithNoBriefGetsTheAltitudeFallback() throws {
-        let seat = ReviewPass(id: "vibes", name: "Vibes", brief: "   ", editorName: "Marta")
-        let section = try XCTUnwrap(CompilerPrompt.readerSection(.coach(seat)))
-        XCTAssertTrue(section.contains("You are Marta, this writer's vibes teacher."),
-                      "got \(section)")
-        XCTAssertTrue(section.contains(CompilerPrompt.brieflessPassFallback), section)
-        XCTAssertEqual(
-            section,
-            CompilerPrompt.passSection(CompilerOrchestrator.ActivePass(
-                id: seat.id, name: seat.name, editorName: seat.effectiveEditorName,
-                brief: seat.effectiveBrief, isCoach: true)),
-            "the two spellings of a briefless coach must agree before Task 4 "
-            + "deletes one of them")
-
-        // And the same seat with no brief field at all, which is the other way
-        // a coach reaches the fallback.
+        let expected = "You are Marta, this writer's vibes teacher.\n"
+            + CompilerPrompt.brieflessPassFallback
+        let emptied = ReviewPass(id: "vibes", name: "Vibes", brief: "   ", editorName: "Marta")
+        XCTAssertEqual(CompilerPrompt.readerSection(.coach(emptied)), expected)
         let unwritten = ReviewPass(id: "vibes", name: "Vibes", editorName: "Marta")
-        XCTAssertEqual(
-            CompilerPrompt.readerSection(.coach(unwritten)),
-            CompilerPrompt.passSection(CompilerOrchestrator.ActivePass(
-                id: unwritten.id, name: unwritten.name,
-                editorName: unwritten.effectiveEditorName,
-                brief: unwritten.effectiveBrief, isCoach: true)))
+        XCTAssertEqual(CompilerPrompt.readerSection(.coach(unwritten)), expected)
     }
 
     /// Nobody is M2's all-altitudes ⌘R: no reader, no frame, no section.
@@ -1007,20 +1012,17 @@ final class CompilerPromptTests: XCTestCase {
                       "control: the same reader briefs a check; got \(check)")
     }
 
-    /// **The sequencing control** (Task 3's brief): `beginRun` is untouched
-    /// this commit and therefore passes no reader at all, so every existing
-    /// check briefing has to be byte-identical to what it was. `.nobody`
-    /// produces no section, and the message assembled with it is the same
-    /// string as the message assembled without the parameter — including under
-    /// a pass, which is the shape production sends today.
+    /// **The passless control**: `.nobody` produces no section at all, so an
+    /// unread check is the message an M2 ⌘R has always assembled — the same
+    /// string as one built without naming a reader.
     func test_control_aCheckUnderNobodyIsByteIdenticalToOneWithNoReaderAtAll() {
         let delta = makeDelta(new: [.init(paragraphId: "a1b2", text: "The fog came.")])
         let (withoutTheParameter, _) = CompilerPrompt.checkMessage(
             delta: delta, world: nil, essay: nil, bibleFacts: [], paletteListing: [],
-            pinnedListing: [], pass: lane("copyedit"), previousBriefingHash: nil)
+            pinnedListing: [], previousBriefingHash: nil)
         let (underNobody, _) = CompilerPrompt.checkMessage(
             delta: delta, world: nil, essay: nil, bibleFacts: [], paletteListing: [],
-            pinnedListing: [], pass: lane("copyedit"), reader: .nobody,
+            pinnedListing: [], reader: .nobody,
             previousBriefingHash: nil)
         XCTAssertEqual(underNobody, withoutTheParameter)
         XCTAssertFalse(underNobody.lowercased().contains("first reader"),

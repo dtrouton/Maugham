@@ -301,6 +301,18 @@ final class CompilerRunCommandTests: XCTestCase {
         /// vacated the seat, which is M2's passless lane — no frame at all,
         /// notes signed "Claude".
         coachHeld: Bool = true,
+        /// **The writer's own first reader, if they have named one** — what
+        /// `ProjectManifest.authorReader` resolves her to, and so who reads a
+        /// `.check` when she outranks the default. `nil`, the default, is a
+        /// project with no first reader named, which is every test written
+        /// before the roster existed.
+        ///
+        /// The roster's precedence is mirrored rather than re-decided here: an
+        /// explicit reader wins, else the held seat, else nobody — which is
+        /// what `authorReader(choice:statementText:)` answers when the writer
+        /// has CHOSEN her. A harness that answered two readers at once could
+        /// not fail a run briefed on the wrong one.
+        firstReader: FirstReader? = nil,
         /// The project's type, as `Environment.projectType` answers it — what
         /// the letter's scene position is derived from (spec §3.4). `nil` — the
         /// default, and every test written before the position existed — reads
@@ -345,17 +357,19 @@ final class CompilerRunCommandTests: XCTestCase {
                     }
                 },
                 lessons: { lessons },
-                // **Production's own switch, mirrored** (two loops P1 Task
-                // 2): a check is the seat's or nobody's and never reads the
-                // stage; a round is the stage's and never the coach's. A
-                // harness that answered one value for both verbs could not
-                // fail the defect this task removed.
-                reader: { id, kind in
+                // **Production's own split, mirrored** (two loops P1 Task 2,
+                // P2 Task 4): a check is the roster's choice and never reads
+                // the stage; a round is the stage's and never the coach's.
+                // Two closures with two answer types, so a harness cannot
+                // brief one loop with the other's reader even by accident.
+                authorReader: { id in
+                    guard id == self.docId else { return .nobody }
+                    if let firstReader { return .firstReader(firstReader) }
+                    return coachHeld ? .coach(ReviewPass.coachPreset) : .nobody
+                },
+                roundEditor: { id in
                     guard id == self.docId else { return nil }
-                    switch kind {
-                    case .check: return coachHeld ? Self.coachFrame : nil
-                    case .round: return Self.lane(pass.value)
-                    }
+                    return Self.lane(pass.value)
                 },
                 projectType: { _ in projectType },
                 cachedWorld: { _ in cachedWorld },
@@ -409,8 +423,9 @@ final class CompilerRunCommandTests: XCTestCase {
     /// is what production does. Spelled once here so a test naming "copyedit"
     /// gets Gould without restating the resolution.
     ///
-    /// `isCoach` is left at its `false` default: a round's reader is a stage,
-    /// always (`RoundEditor`).
+    /// Every value it can make is a rung of the ladder: since two loops P2
+    /// Task 4 an `ActivePass` is Review's alone, and the coach reaches a check
+    /// as an `AuthorReader` instead.
     static func lane(_ passId: String?) -> CompilerOrchestrator.ActivePass? {
         guard let passId else { return nil }
         let pass = ReviewPass.presets.first { $0.id == passId }
@@ -420,11 +435,6 @@ final class CompilerRunCommandTests: XCTestCase {
             brief: pass.effectiveBrief)
     }
 
-    /// The seat, as a CHECK resolves it — `AuthorReader.coach`'s own answer,
-    /// asked of the production resolution rather than hand-built, so a harness
-    /// check and a real one are briefed by the same Le Guin.
-    static let coachFrame: CompilerOrchestrator.ActivePass? =
-        AuthorReader.coach(ReviewPass.coachPreset).activePass
 
     private final class Box<T> {
         var value: T
@@ -3693,6 +3703,275 @@ final class CompilerRunCommandTests: XCTestCase {
                        "\u{2026}and the lane the chip named stamps what it wrote")
     }
 
+    // MARK: - The first reader reads the check (two loops P2 Task 4)
+
+    /// The writer's own first reader, as the harness resolves her: a name and
+    /// a description, which is what `ProjectManifest.authorReader` answers when
+    /// the roster's choice is hers.
+    private static func tabitha(
+        statement: String? = "She reads on the train and puts books down."
+    ) -> FirstReader {
+        FirstReader(name: "Tabitha", statement: statement)
+    }
+
+    /// A reading whose process signals cross a threshold — four sessions on one
+    /// paragraph with nothing added past the end of the document, which is
+    /// `ProcessSignals.frontierStallSessions` and more. Mirrors
+    /// `CompilerPromptTests.stalledSignals`, so a check over it really does
+    /// carry the process section and its ABSENCE is a decision rather than a
+    /// quiet week.
+    private func stalledReading() -> CompilerOrchestrator.DocumentReading {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        func op(_ id: String, session: String, minutes: Double,
+                _ changes: [Op.ParagraphChange]) -> Op {
+            Op(opId: id, docId: docId, at: base.addingTimeInterval(minutes * 60),
+               device: "macA", session: session, kind: .typingBurst,
+               changes: changes, sequence: nil)
+        }
+        return CompilerOrchestrator.DocumentReading(
+            ops: [
+                op("op01", session: "s1", minutes: 0,
+                   [.init(paragraphId: "a1b2", prior: nil, next: "The fog came.")]),
+                op("op02", session: "s2", minutes: 1,
+                   [.init(paragraphId: "a1b2", prior: "The fog came.", next: "Fog.")]),
+                op("op03", session: "s3", minutes: 2,
+                   [.init(paragraphId: "a1b2", prior: "Fog.", next: "The fog.")]),
+                op("op04", session: "s4", minutes: 3,
+                   [.init(paragraphId: "a1b2", prior: "The fog.", next: "Fog again.")]),
+            ],
+            paragraphs: ["a1b2": "Fog again."],
+            sequence: ["a1b2"])
+    }
+
+    /// A ledger with one live lesson in it, as `Environment.lessons` answers it.
+    private static let aLedgerWithOneLesson = """
+        What I have learned so far.
+
+        ## Rulings
+
+        - Filter words \u{2014} ruled 1 Sep 2026, Denver
+        """
+
+    /// **A check under the first reader is briefed as HER, and on nothing that
+    /// belongs to the craft loop** (two loops P2 Task 4, rulings P2-6 and
+    /// P2-7).
+    ///
+    /// Four claims in one message, because they are one decision seen four
+    /// ways: her section is there, there is no pass frame anywhere (a check has
+    /// no `pass:` to give since this task), no process numbers, and no ledger.
+    /// The last two are the rulings — the writer's working month and their
+    /// craft vocabulary are both things a reader forbidden craft words cannot
+    /// speak about, so she is never handed either.
+    ///
+    /// Disable experiment: pass `signals` and `lessons` through unchanged for
+    /// her and the third and fourth assertions fail; nothing else in the suite
+    /// notices.
+    func test_aCheckUnderTheFirstReaderCarriesHerFrameAndNoCraftContext() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: stalledReading(),
+            lessons: Self.aLedgerWithOneLesson, firstReader: Self.tabitha())
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = try XCTUnwrap(runner.sends.first?.message)
+        XCTAssertTrue(
+            message.contains(try XCTUnwrap(
+                CompilerPrompt.readerSection(.firstReader(Self.tabitha())))),
+            "her whole section must reach the run; got \(message)")
+        XCTAssertFalse(message.contains("this manuscript's"),
+                       "a pass frame reached a check; got \(message)")
+        XCTAssertFalse(message.contains(CompilerPrompt.processSectionOpening),
+                       "a first reader was told how the writer's month went; "
+                       + "got \(message)")
+        XCTAssertFalse(message.contains("Filter words"),
+                       "\u{2026}and read the writer's craft ledger; got \(message)")
+    }
+
+    /// **The control for both rulings, and for the frame.** The same reading,
+    /// the same ledger, the coach instead — she gets her teacher frame, the
+    /// numbers and the ledger, so each absence above is the reader's arm doing
+    /// it rather than a quiet fixture.
+    func test_control_aCheckUnderTheCoachKeepsTheProcessNumbersAndTheLedger() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: stalledReading(),
+            lessons: Self.aLedgerWithOneLesson)
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = try XCTUnwrap(runner.sends.first?.message)
+        XCTAssertTrue(
+            message.contains("You are Le Guin, this writer's workshop teacher."),
+            "the coach is framed as a teacher through readerSection; got \(message)")
+        XCTAssertTrue(message.contains(CompilerPrompt.processSectionOpening),
+                      "control: the reading really does cross a threshold; "
+                      + "got \(message)")
+        XCTAssertTrue(message.contains("Filter words"),
+                      "control: the ledger really is briefed; got \(message)")
+    }
+
+    /// **A first reader's letter is dosed as HERS, and the dose outranks the
+    /// draft stage** (ruling P2-4). The fixture's delta derives `.drafting`,
+    /// whose own dose is `.short` — which still allows the one thing — so a
+    /// letter that lost it can only have been dosed `.reader`.
+    ///
+    /// Falsification: drop the `isFirstReader` arm from `beginRun`'s dose and
+    /// the one thing survives.
+    func test_theFirstReadersLetterIsDosedAsHersOverADraftingDelta() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: draftingReading(), firstReader: Self.tabitha())
+        runner.nextEvent = .resultText(Self.aLetterWithAnOneThing)
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.letter?.oneThing,
+                     "a reader does not hand down the one thing to fix")
+    }
+
+    /// **…and it outranks Fresh Eyes too**, which is the sharper half: a cold
+    /// read is "always the full letter" for the stage's rule, and applying that
+    /// to her would hand back the craft letter she exists not to write.
+    ///
+    /// The coach over the identical fixture is the control — cold, she gets
+    /// `.full` and keeps the one thing.
+    func test_theFirstReadersLetterIsDosedAsHersEvenOnAColdRead() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: draftingReading(), firstReader: Self.tabitha())
+        runner.nextEvent = .resultText(Self.aLetterWithAnOneThing)
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.letter?.oneThing,
+                     "Fresh Eyes must not turn a reader into an editor")
+
+        let coachRunner = SpyRunner()
+        let coachHarness = try makeHarness(
+            runner: coachRunner, reading: draftingReading())
+        coachRunner.nextEvent = .resultText(Self.aLetterWithAnOneThing)
+        coachHarness.orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
+        awaitSends(1, on: coachRunner)
+        settle()
+        XCTAssertEqual(
+            coachHarness.diagnostics.lastRun(docId: docId)?.letter?.oneThing,
+            "Let the fog do less of the work.",
+            "control: a cold read really is the full letter for anybody else")
+    }
+
+    /// A letter whose only content is the one thing — the field
+    /// `LetterDosage.allowsOneThing` gates, and the discriminator between the
+    /// reader's form and every other dose.
+    private static let aLetterWithAnOneThing = """
+        {"section":"conformance","checks":[]}
+        {"section":"continuity","questions":[]}
+        {"section":"reader","reports":[]}
+        {"section":"facts","candidates":[]}
+        {"section":"intent_drift","verdict":"holds"}
+        {"section":"letter","about":"A woman waits out a fog.",\
+        "one_thing":"Let the fog do less of the work.",\
+        "working":[],"habits":[],"questions":[],"scenes":null}
+        """
+
+    /// **The record remembers who read, and the notes are signed by her**
+    /// (two loops P2 Task 4, closing P1's Ruling 10). On a live document, so
+    /// the mint's own context is what is asserted rather than a harness's
+    /// echo: a check under the first reader is signed "Tabitha", filed in no
+    /// lane and numbered not at all, and the run record carries her name.
+    func test_aCheckUnderTheFirstReaderIsSignedByHerAndTheRecordRemembers() async throws {
+        let runner = SpyRunner()
+        let fx = try await makeLiveDocumentHarness(runner: runner)
+        let pid = try XCTUnwrap(fx.document.sequence.first)
+        try await fx.store.setFirstReaderName("Tabitha")
+        fx.documentStore.setAuthorReaderChoice(.firstReader)
+        runner.nextEvent = .resultText(questionAndReport(about: pid))
+
+        fx.orchestrator.runRequested(docId: "ch-1", kind: .check)
+        await awaitSends(1, on: runner)
+        await awaitOpenNotes(2, on: fx.document)
+
+        let notes = fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
+        XCTAssertEqual(notes.count, 2, "got \(notes.map(\.body))")
+        for note in notes {
+            XCTAssertEqual(note.author?.displayName, "Tabitha",
+                           "the writer's own reader signs what her check writes")
+            XCTAssertNil(note.reviewPassId, "a check stamps no lane, whoever read it")
+            XCTAssertNil(note.compilerRound, "\u{2026}and no round number")
+        }
+
+        let run = try XCTUnwrap(fx.diagnostics.lastRun(docId: "ch-1"))
+        XCTAssertEqual(run.readerName, "Tabitha",
+                       "the record must remember who read, or a standing letter "
+                       + "is re-signed by whoever reads tomorrow")
+        XCTAssertNil(run.passId)
+        XCTAssertNil(run.round)
+    }
+
+    /// **A round's record remembers no reader name** — its byline is its
+    /// lane's, resolved from `passId` wherever the round is drawn, and a second
+    /// copy is a second answer a rename could put out of step.
+    func test_aRoundsRecordRemembersNoReaderName() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "copyedit")
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(1, on: runner)
+        settle()
+
+        let round = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertNil(round.readerName,
+                     "a round's byline is its lane's, and stamping one here is "
+                     + "a second answer to who read it")
+        XCTAssertEqual(round.passId, "copyedit", "control: the lane really is stamped")
+
+        // Control: the other verb over the same harness does stamp one.
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(2, on: runner)
+        settle()
+        XCTAssertEqual(harness.diagnostics.lastRun(docId: docId)?.readerName, "Le Guin",
+                       "control: a check remembers its reader")
+    }
+
+    /// **The preview and the finished run are signed by the same person.**
+    /// `record` is one spelling and takes the name undefaulted, so the compiler
+    /// forces both call sites to pass something — it cannot force them to pass
+    /// the SAME thing, which is what this pins. Written as
+    /// `test_thePreviewAndTheFinishAgreeAboutTheDraftStage`'s twin.
+    func test_thePreviewAndTheFinishedRunAgreeOnWhoRead() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // the turn stays open
+        let harness = try makeHarness(
+            runner: runner, reading: draftingReading(), firstReader: Self.tabitha())
+        streamingRun(runner: runner, harness: harness)
+
+        runner.stream("""
+            {"section":"letter","about":"A woman waits out a fog.","working":[],\
+            "habits":[],"questions":[],"scenes":null}
+            """ + "\n")
+
+        let previewed = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(previewed.readerName, "Tabitha",
+                       "the preview carries the run's own reader")
+
+        runner.release(.resultText(Self.aLetterAndNothingElse))
+        settle()
+
+        let finished = try XCTUnwrap(harness.diagnostics.lastRun(docId: docId))
+        XCTAssertEqual(finished.readerName, previewed.readerName,
+                       "\u{2026}and the answer that supersedes it is signed the "
+                       + "same way")
+    }
+
     // MARK: - The round stamps: production wiring
 
     /// The compiler's read of a ROUND's editor is `validatedActivePass` off
@@ -3708,7 +3987,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let environment = makeProductionEnvironment(
             store: store, documentStore: documentStore, root: root)
 
-        let lane = try XCTUnwrap(environment.reader("ch-1", .round))
+        let lane = try XCTUnwrap(environment.roundEditor("ch-1"))
         XCTAssertEqual(lane.id, "line")
         // **Resolved WHOLE, and through `ReviewPass`'s own fallbacks** (M4 P1
         // Task 3): the lane, the editor who signs its notes and the brief its
@@ -3720,11 +3999,10 @@ final class CompilerRunCommandTests: XCTestCase {
                        "the Line pass's editor \u{2014} `effectiveEditorName`, "
                        + "never the raw stored field")
         XCTAssertNotNil(lane.brief, "…and its doctrine, for the briefing")
-        XCTAssertFalse(lane.isCoach, "a round's reader is a stage, always")
         // **The piece next door can run no round at all** (two loops P1 Task
         // 2). Under `PieceReader` it fell to the coach and filed rounds in her
         // lane; now `nil` here is what `runRequested` refuses on.
-        XCTAssertNil(environment.reader("ch-2", .round),
+        XCTAssertNil(environment.roundEditor("ch-2"),
                      "a piece the writer never opened a pass on has no round "
                      + "editor, and no round")
     }
@@ -3743,15 +4021,13 @@ final class CompilerRunCommandTests: XCTestCase {
             store: store, documentStore: documentStore, root: root)
 
         for piece in ["ch-1", "ch-2"] {
-            let frame = try XCTUnwrap(environment.reader(piece, .check),
-                                      "a held seat reads every check")
-            XCTAssertEqual(frame.id, "workshop", "got \(frame.id) for \(piece)")
-            XCTAssertEqual(frame.editorName, "Le Guin")
-            XCTAssertTrue(frame.isCoach,
-                          "\u{2026}and is framed as a teacher, which is the one "
-                          + "thing the flag is read for")
+            XCTAssertEqual(environment.authorReader(piece),
+                           .coach(ReviewPass.coachPreset),
+                           "a held seat reads every check \u{2014} got "
+                           + "\(environment.authorReader(piece)) for \(piece)")
+            XCTAssertEqual(environment.authorReader(piece).editorName, "Le Guin")
         }
-        XCTAssertEqual(environment.reader("ch-1", .round)?.id, "line",
+        XCTAssertEqual(environment.roundEditor("ch-1")?.id, "line",
                        "control: the stage really is recorded, and the ROUND "
                        + "verb is the one that sees it")
     }
@@ -3772,9 +4048,9 @@ final class CompilerRunCommandTests: XCTestCase {
         let environment = makeProductionEnvironment(
             store: store, documentStore: documentStore, root: root)
 
-        XCTAssertNil(environment.reader("ch-1", .round),
+        XCTAssertNil(environment.roundEditor("ch-1"),
                      "a retired id names no lane, so there is no round to run")
-        XCTAssertEqual(environment.reader("ch-1", .check)?.editorName, "Le Guin",
+        XCTAssertEqual(environment.authorReader("ch-1").editorName, "Le Guin",
                        "\u{2026}and the piece is still read \u{2014} by the seat, "
                        + "on the other verb")
     }
@@ -3792,14 +4068,16 @@ final class CompilerRunCommandTests: XCTestCase {
         }
         let environment = makeProductionEnvironment(
             store: store, documentStore: documentStore, root: root)
-        XCTAssertEqual(environment.reader("ch-1", .check)?.id, "workshop",
+        XCTAssertEqual(environment.authorReader("ch-1"),
+                       .coach(ReviewPass.coachPreset),
                        "control: the seat starts held")
 
         try await store.setCoachVacated(true)
 
-        XCTAssertNil(environment.reader("ch-1", .check),
-                     "a vacated seat leaves a check in the nil lane")
-        XCTAssertEqual(environment.reader("ch-1", .round)?.id, "line",
+        XCTAssertEqual(environment.authorReader("ch-1"), .nobody,
+                       "a vacated seat with no first reader named leaves a "
+                       + "check in the passless lane")
+        XCTAssertEqual(environment.roundEditor("ch-1")?.id, "line",
                        "and the stage still reads the round \u{2014} vacating "
                        + "the seat is not a change to the other loop")
     }
@@ -3816,16 +4094,16 @@ final class CompilerRunCommandTests: XCTestCase {
         }
         let environment = makeProductionEnvironment(
             store: store!, documentStore: documentStore!, root: root)
-        XCTAssertEqual(environment.reader("ch-1", .round)?.id, "line")
-        XCTAssertEqual(environment.reader("ch-1", .check)?.id, "workshop")
+        XCTAssertEqual(environment.roundEditor("ch-1")?.id, "line")
+        XCTAssertEqual(environment.authorReader("ch-1"), .coach(ReviewPass.coachPreset))
 
         store = nil
         documentStore = nil
 
-        XCTAssertNil(environment.reader("ch-1", .round))
-        XCTAssertNil(environment.reader("ch-1", .check),
-                     "both arms hold the stores weakly, or a window closed "
-                     + "mid-run crashes on one verb and not the other")
+        XCTAssertNil(environment.roundEditor("ch-1"))
+        XCTAssertEqual(environment.authorReader("ch-1"), .nobody,
+                       "both closures hold the stores weakly, or a window closed "
+                       + "mid-run crashes on one verb and not the other")
     }
 
     // MARK: - Since last round (M3-P3 Task 3)
@@ -4574,7 +4852,9 @@ final class CompilerRunCommandTests: XCTestCase {
 
     // MARK: - The mint: one finding, one home (M4 P1 Task 3)
 
-    /// The reader's report **as the mint writes it**: its two-valued kind
+    /// The reader's report **as the mint writes it**: its four-valued kind
+    /// (`DiagnosticIngest.readerKinds` \u{2014} dream_break, belief, and, since
+    /// two loops P2 gave the first reader two of her own, drag and lost)
     /// travels in the body now that no pane draws a label above the row
     /// (M4 P1 review, Important 3).
     private static let mintedReaderBody =

@@ -183,33 +183,21 @@ final class CompilerOrchestrator {
         /// 4**: the briefing is the next task's, and resolving it in a second
         /// place then would be the drift this type exists to prevent.
         let brief: String?
-        /// Whether this pass is the **coach's seat** rather than a rung of the
-        /// ladder (editorial letter P1, spec §4.1). Resolved once, in
-        /// `AuthorReader` — the CHECK's reader, and the only verb that can
-        /// carry it, since a round's frame is always a stage's (two loops P1
-        /// Task 2) — and read by `CompilerPrompt.passSection`, which
-        /// frames a coach as a teacher and a stage as an editor. She is a pass
-        /// in every other respect the run cares about — a name, an editor, a
-        /// brief — so a second branch on this flag would be a second place the
-        /// seat stops behaving like a pass. No census guards that; the claim
-        /// here is about what SHOULD branch, not a counted fact.
-        ///
-        /// **What she is NOT is a lane** (two loops P1 Task 2). She held one
-        /// under `PieceReader`, and numbered rounds and pass-stamped notes
-        /// came with it; now `beginRun` stamps a lane for a round alone, so a
-        /// check she reads files nowhere however completely she frames it.
-        ///
-        /// Defaulted in the initializer so every construction site that
-        /// predates the seat still compiles and still means "a stage".
-        let isCoach: Bool
 
-        init(id: String, name: String, editorName: String, brief: String?,
-             isCoach: Bool = false) {
+        /// **There is no `isCoach` here any more** (two loops P2 Task 4). The
+        /// seat was carried on this type while one closure answered both
+        /// loops and the coach had to arrive dressed as a pass; a CHECK is now
+        /// read by an `AuthorReader`, whose `.coach` arm is a case rather than
+        /// a flag, and `CompilerPrompt.readerSection` frames her as a teacher
+        /// where `passSection` frames a stage as an editor. So this type is
+        /// Review's alone: every value of it is a rung of the ladder, and
+        /// `TripwireGrepTests.test_isCoachIsGone` fails if the flag comes back
+        /// anywhere under `Maugham/`.
+        init(id: String, name: String, editorName: String, brief: String?) {
             self.id = id
             self.name = name
             self.editorName = editorName
             self.brief = brief
-            self.isCoach = isCoach
         }
     }
 
@@ -295,41 +283,52 @@ final class CompilerOrchestrator {
         /// would be an argument this closure could only ignore, and a seam
         /// suggesting a per-piece ledger that cannot exist.
         ///
-        /// Defaulted to nothing, on `activePass`/`projectType`'s rule, so
+        /// Defaulted to nothing, on `roundEditor`/`projectType`'s rule, so
         /// every `Environment` built before the ledger existed still compiles
         /// and still runs.
         var lessons: @MainActor () -> String? = { nil }
-        /// **Who reads this piece, for THIS verb** — asked once per run at the
-        /// keystroke (two loops P1 Task 2).
+        /// **Who reads a CHECK** — asked once per run at the keystroke (two
+        /// loops P2 Task 4).
         ///
-        /// **The kind is a parameter because the two loops have two
-        /// resolutions**, and that is the whole of this milestone's first
-        /// half. A `.check` is `AuthorReader` — the coach while her seat is
-        /// held, else nobody — and never reads the review board's memory. A
-        /// `.round` is `RoundEditor` — the stage the writer put this piece in,
-        /// validated against the ladder — and is never the coach. Answering
-        /// one question for both verbs is what filed an Author ⌘R as a
-        /// numbered round in a lane the writer was not standing in.
+        /// **Two closures rather than one taking the kind**, and that is the
+        /// whole of this milestone's shape. The two loops have two resolutions
+        /// with two ANSWER TYPES: a check is read by an `AuthorReader` — the
+        /// coach, the writer's own first reader, or nobody — and a round by a
+        /// stage's `ActivePass`. While one closure answered both, the first
+        /// reader had to be squeezed through a pass-shaped seam that could
+        /// only describe her as nobody; now a verb asking the other loop's
+        /// question does not type-check.
         ///
-        /// Already validated against the project's live pass list by whoever
-        /// answers: a lane is a pass that exists, and a run filed against a
-        /// retired id would be a round nothing can ever compare.
+        /// Never nil: an unread piece is `.nobody`, which is M2's
+        /// all-altitudes ⌘R — no frame in the briefing, no lane, notes signed
+        /// "Claude".
         ///
-        /// `nil` means two different things by kind, and both are handled at
-        /// the one call site. For a `.check` it is the passless lane — an
-        /// ordinary M2 ⌘R, which mints no round number at all rather than
-        /// round 1 of nothing. For a `.round` it is a REFUSAL:
-        /// `runRequested` flashes `.noEditor` and starts nothing.
+        /// **It reads no review-board memory.** What lane a chapter is parked
+        /// in is a fact about the ROUND loop, and a check that read it signed
+        /// Author's notes with an editor the writer never chose
+        /// (`AuthorReader`'s own doc, and `TripwireGrepTests`' census).
         ///
-        /// Defaulted so that every `Environment` built before rounds existed
-        /// still compiles: the answer it gives is the passless lane, which is
-        /// exactly what those runs were.
+        /// Defaulted so that every `Environment` built before the roster
+        /// existed still compiles: the answer it gives is the passless lane,
+        /// which is exactly what those runs were.
+        var authorReader: @MainActor (String) -> AuthorReader = { _ in .nobody }
+        /// **Who reads a ROUND** — the stage the writer put this piece in,
+        /// asked once per run at the keystroke (two loops P1 Task 2).
+        ///
+        /// Already validated against the project's live pass list: a lane is a
+        /// pass that exists, and a run filed against a retired id would be a
+        /// round nothing can ever compare.
+        ///
+        /// `nil` is a REFUSAL rather than a fallback — `runRequested` flashes
+        /// `.noEditor` and starts nothing. The coach is not a substitute: she
+        /// reads checks, and filing her a round is how an unassigned piece
+        /// came to have a lane at all.
         ///
         /// **It answers with the whole pass, not its id** (M4 P1 Task 3): the
         /// lane, the editor's name and the brief are resolved together here and
         /// nowhere else, so the round's filing, the notes' authorship and the
         /// briefing cannot describe different passes.
-        var reader: @MainActor (String, RunKind) -> ActivePass? = { _, _ in nil }
+        var roundEditor: @MainActor (String) -> ActivePass? = { _ in nil }
         /// **The project's own type**, for the letter's scene position (spec
         /// §3.4, editorial letter P1 Task 3). A screenplay moves by scenes in
         /// the strong sense by its form; everything else reads as prose until
@@ -512,19 +511,20 @@ final class CompilerOrchestrator {
         let lastOpId: String?
         let deltaSummary: String
         let intentSnapshot: String?
-        /// **Who read this run** — the frame, minted at the keystroke
+        /// **Who read this CHECK, by name** — minted at the keystroke
         /// (`beginRun`) and carried so the preview cannot describe a different
-        /// reader from the answer that supersedes it. It travels WHOLE (M4
-        /// P1) — the editor's name and the brief are resolved with it and
-        /// never re-asked, because the writer can move the piece to another
-        /// pass, or vacate the seat, while the run is in flight.
-        let activePass: ActivePass?
-        /// **The LANE, which is not the reader's id** (two loops P1 Task 2).
-        /// A check has a reader — the coach signs what it writes — and no
-        /// lane at all, so this is `nil` for every check and the frame beside
-        /// it is not. Stored rather than derived from `activePass`, because a
-        /// derivation here would be a second place the decision is made, and
-        /// the two would part company the first time either changed.
+        /// reader from the answer that supersedes it. The writer can vacate
+        /// the seat, or name a first reader, while the run is in flight, and
+        /// the run was read by whoever held it when they pressed.
+        ///
+        /// `nil` for a round, whose byline is its lane's — the same rule
+        /// `CompilerRun.readerName` states, because this is the value that
+        /// becomes it.
+        let readerName: String?
+        /// **The LANE, which is not the reader's name** (two loops P1 Task 2).
+        /// A check has a reader — who signs what it writes — and no lane at
+        /// all, so this is `nil` for every check and the name beside it is
+        /// not.
         let passId: String?
         let round: Int?
         /// **The letter's scene position, derived at the keystroke and
@@ -676,7 +676,7 @@ final class CompilerOrchestrator {
         // window is exactly as they left it. It sits below the `isRunning`
         // guard on purpose — a press arriving mid-run is still "still
         // checking", whatever the piece's lane says.
-        if kind == .round, environment.reader(docId, .round) == nil {
+        if kind == .round, environment.roundEditor(docId) == nil {
             environment.onRunAcknowledged(.noEditor)
             return
         }
@@ -763,6 +763,25 @@ final class CompilerOrchestrator {
             return
         }
 
+        // **Who reads this run, asked at the keystroke and for THIS verb**
+        // (two loops P2 Task 4). Two closures, because the two loops have two
+        // answers of two different types: a check is the roster's choice — the
+        // coach, the writer's own first reader, or nobody — and a round is the
+        // stage's lane. Each verb asks its own and never the other's, which is
+        // what the two types make impossible to get wrong.
+        //
+        // **Asked here, above the dose**, because a first reader's dose is
+        // hers rather than the draft stage's. Everything else it decides — the
+        // brief the scene position reads, the byline, the sections she is not
+        // given — is read further down, at the site that needs it.
+        //
+        // A round that reached here has an editor: `runRequested` refused the
+        // press without one. `.nobody` on the round arm is the honest reading
+        // of "a round is read by no `AuthorReader` at all"; asking the roster
+        // for one would be the fusion this milestone split apart.
+        let reader: AuthorReader = kind == .check ? environment.authorReader(docId) : .nobody
+        let roundPass: ActivePass? = kind == .round ? environment.roundEditor(docId) : nil
+
         // **Maugham's own observation of the writer's process, at the
         // keystroke** (spec §5). Computed off `reading` and nothing else —
         // `ProcessSignals` takes the ops, the sequence and a `now`, which is
@@ -811,7 +830,35 @@ final class CompilerOrchestrator {
         // the flag is an argument rather than something `parseLetter` re-reads.
         // No stage — a round — is `.full` for that rule's own reason: the dose
         // is a stage's to shorten, and nothing else may.
-        let dosage = stage?.dosage(freshEyes: freshEyes) ?? .full
+        //
+        // **A first reader's dose is hers, and it OUTRANKS both the stage and
+        // Fresh Eyes** (two loops P2, ruling P2-4). The stage shortens the
+        // letter an editor writes; the reader's form is a different letter
+        // altogether — answer, about, working, one question — and a drafting
+        // delta cannot make it shorter, nor a cold read make it longer. Fresh
+        // Eyes is the sharp case: it is "always the full letter" for the
+        // stage's rule, and applying that to her would hand back the craft
+        // letter she exists not to write.
+        //
+        // The stage is still derived above for her: it is two pure values over
+        // ops already in hand, and `Letter.stage` records it, so a first
+        // reader's letter still says which half of the draft it was written
+        // over even though nothing about the dose turns on it.
+        let dosage: LetterDosage = reader.isFirstReader
+            ? .reader
+            : (stage?.dosage(freshEyes: freshEyes) ?? .full)
+        // **A first reader is briefed on no process line** (ruling P2-6).
+        // `ProcessSignals` is Maugham's observation of the WRITER — sessions
+        // since the frontier moved, a paragraph rewritten seven times — and a
+        // reader who reported it would be talking about the writing rather
+        // than about the reading, which is the one thing her whole section
+        // forbids. `LetterDosage.allowsProcess` refuses the line at ingest;
+        // this is the same rule at the other end, so she is never asked for
+        // something that would then be thrown away.
+        //
+        // The stage above still reads the signals: they are its input, and the
+        // stamp on her letter is honest whether or not she was told.
+        let briefedSignals = reader.isFirstReader ? nil : signals
 
         // **The lane and the round, minted HERE — at the keystroke, before a
         // single byte of the answer can arrive** (M3-P3 §6).
@@ -835,23 +882,29 @@ final class CompilerOrchestrator {
         // a round, and numbering it would leave a gap in the lane the writer
         // never saw a report for.
         //
-        // **The frame is resolved WHOLE, and this is the one site** (M4 P1
-        // Task 3). The reader's editor signs the notes this run mints and
-        // their brief is what it is briefed on; asking for either again later
-        // would read a project the writer may have moved on since.
-        //
-        // **Asked for THIS verb** (two loops P1 Task 2): a check is the
-        // coach's or nobody's, a round is the stage's. A round with no editor
-        // never reaches here at all — `runRequested` refused the press — so
-        // `nil` at this point is always a check with a vacated seat.
-        let activePass = environment.reader(docId, kind)
-        // **A CHECK is filed in no lane, whoever read it.** The coach is a
-        // reader and not a lane: her frame briefs the run and signs its notes,
-        // and stamping her id here would enter an Author ⌘R into a numbered
-        // lane the writer was never standing in — the exact defect the two
-        // resolutions split apart. Only a round has a lane, and by the guard
-        // above a round always has one.
-        let passId = kind == .round ? activePass?.id : nil
+        // **A CHECK is filed in no lane, whoever read it.** A reader is not a
+        // lane: their frame briefs the run and signs its notes, and stamping
+        // an id here would enter an Author ⌘R into a numbered lane the writer
+        // was never standing in — the exact defect the two resolutions split
+        // apart. Only a round has a lane, and by the guard above a round
+        // always has one. Spelled off `roundPass`, which is `nil` for a check
+        // by construction, so the rule is stated by the type as well as by
+        // this line.
+        let passId = roundPass?.id
+        // **Who signs what this run mints** — the check's reader by name, or
+        // the round's stage. Never nil: an unread check signs "Claude"
+        // (`AuthorReader.nobody`), and a round without an editor was refused
+        // at the press.
+        let editorName = kind == .check
+            ? reader.editorName
+            : (roundPass?.editorName ?? AuthorReader.nobody.editorName)
+        // **What the RECORD remembers about who read** (two loops P2 Task 4,
+        // P1's Ruling 10). A check's byline is stamped here so a standing
+        // letter keeps the name it was written under after the writer changes
+        // who reads their checks. A round stamps none: its byline is its
+        // lane's, resolved from `passId` wherever the round is drawn, and a
+        // second copy is a second answer a rename could put out of step.
+        let readerName = kind == .check ? reader.editorName : nil
         // A passless run mints no number at all rather than round 1 of
         // nothing (decision 1: the passless lane is a lane, and an ordinary M2
         // run is what it holds). Every check is now such a run.
@@ -938,7 +991,13 @@ final class CompilerOrchestrator {
         // both are declarations the writer has made rather than per-run
         // context, so both diff in as one unit and a round that changed
         // neither is told so in one line.
-        let lessons = environment.lessons()
+        // **A first reader is briefed on no ledger** (ruling P2-7). The
+        // lessons ledger is the writer's own craft vocabulary — habits named,
+        // choices settled — and handing it to a reader who is forbidden craft
+        // words would be handing her the register her whole section refuses.
+        // Not read at all rather than read and dropped: there is no reason to
+        // touch the file for a run that may not know what is in it.
+        let lessons = reader.isFirstReader ? nil : environment.lessons()
         let briefing = environment.intent(docId)
         // The essay half alone (spec §3.2). **This is the atomic switch**: the
         // strata below the essay reach the run as the derived clauses resolved
@@ -960,10 +1019,18 @@ final class CompilerOrchestrator {
         // section keeps the half — the strata below it reach the run as
         // derived clauses, and briefing them as prose too would declare the
         // same thing twice.
+        //
+        // **The brief is this verb's reader's** (two loops P2 Task 4): a
+        // round's stage doctrine, or — for a check — the coach's, since she is
+        // the one reader who has doctrine at all. A first reader answers `nil`
+        // here on purpose (`AuthorReader.brief`): her description is who she
+        // is, not an instruction about form, and reading it as a pass brief
+        // would let a sentence about what she loves flip the whole book into
+        // scene form.
         let scenePosition = ScenePosition.derive(
             projectType: environment.projectType(docId),
             statement: briefing?.statementText,
-            passBrief: activePass?.brief)
+            passBrief: kind == .check ? reader.brief : roundPass?.brief)
         // Empty is a real answer (nothing pinned, no palette cards); the prompt
         // omits an empty section by design, so this is a smaller prompt rather
         // than a broken one. Read here, at the keystroke's own moment, so the
@@ -1055,7 +1122,13 @@ final class CompilerOrchestrator {
                     delta: delta,
                     world: world, essay: essay, bibleFacts: bibleFacts,
                     paletteListing: paletteListing, pinnedListing: pinnedListing,
-                    pass: activePass,
+                    // **A check's frame is its reader's, and nothing else's**
+                    // (two loops P2 Task 4). `checkMessage` has no `pass:` to
+                    // give any more: the coach reached the briefing dressed as
+                    // a pass while one closure answered both loops, and the
+                    // door that could still take one is a door a lane could
+                    // still come through.
+                    reader: reader,
                     scenePosition: scenePosition,
                     dispositions: dispositions,
                     ask: ask,
@@ -1066,14 +1139,14 @@ final class CompilerOrchestrator {
                     // ask for the short one over a run ingest will let through
                     // whole.
                     freshEyes: freshEyes,
-                    signals: signals,
+                    signals: briefedSignals,
                     previousBriefingHash: previousHash)
             case .round:
                 (message, briefingHash) = CompilerPrompt.roundMessage(
                     delta: delta,
                     world: world, essay: essay, bibleFacts: bibleFacts,
                     paletteListing: paletteListing, pinnedListing: pinnedListing,
-                    pass: activePass,
+                    pass: roundPass,
                     scenePosition: scenePosition,
                     previousRound: previousRound,
                     dispositions: dispositions,
@@ -1089,7 +1162,7 @@ final class CompilerOrchestrator {
             self.streaming = StreamingRun(
                 generation: generation, docId: docId, runId: runId, model: model,
                 lastOpId: lastOpId, deltaSummary: deltaSummary,
-                intentSnapshot: briefing?.statementText, activePass: activePass,
+                intentSnapshot: briefing?.statementText, readerName: readerName,
                 passId: passId, round: round,
                 scenePosition: scenePosition, stage: stage, dosage: dosage,
                 ask: ask, freshEyes: freshEyes, kind: kind)
@@ -1101,7 +1174,8 @@ final class CompilerOrchestrator {
             await self.finish(event, docId: docId, runId: runId, lastOpId: lastOpId,
                               deltaSummary: deltaSummary,
                               intentSnapshot: briefing?.statementText,
-                              activePass: activePass, passId: passId, round: round,
+                              editorName: editorName, readerName: readerName,
+                              passId: passId, round: round,
                               scenePosition: scenePosition, stage: stage,
                               dosage: dosage, ask: ask,
                               freshEyes: freshEyes, kind: kind,
@@ -1176,6 +1250,11 @@ final class CompilerOrchestrator {
                              // which loop the report belonged to as the check
                              // ended.
                              kind: run.kind,
+                             // The name the run was read under, stamped on the
+                             // preview exactly as `finish` stamps it on the
+                             // answer — a letter that changed hands as the
+                             // check ended would be two readers' letter.
+                             readerName: run.readerName,
                              outcome: run.outcome,
                              // The position the run was briefed on, stamped on
                              // the preview's letter exactly as `finish` stamps
@@ -1254,7 +1333,7 @@ final class CompilerOrchestrator {
     private static func record(
         id: String, model: String, lastOpId: String?, deltaSummary: String,
         intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
-        kind: RunKind,
+        kind: RunKind, readerName: String?,
         outcome: DiagnosticIngest.SectionedOutcome, scenePosition: ScenePosition,
         stage: DraftStage?, ask: String?, mintedNotes: Int?, openInOtherLanes: Int?
     ) -> CompilerRun {
@@ -1362,6 +1441,13 @@ final class CompilerOrchestrator {
             // existed, and `CompilerRun.effectiveKind` is the one place that
             // legacy is read.
             kind: kind,
+            // **Who read it** (two loops P2 Task 4, P1's Ruling 10). Minted at
+            // the keystroke with the lane and carried for the lane's own
+            // reason — the writer can change who reads their checks while one
+            // runs — and stamped in the one `record` spelling so the preview
+            // and the answer are signed by the same person. `nil` for a round,
+            // whose byline is its lane's.
+            readerName: readerName,
             // **The sixth section, P1.** Read straight off the outcome, the
             // same way `intentDriftVerdict` is — the preview and the finished
             // answer describe the same turn's letter, and `nil` where no
@@ -1527,7 +1613,8 @@ final class CompilerOrchestrator {
     /// mint is synchronous with the turn's own resumption and needs no guard.
     private func finish(
         _ event: CompilerRunEvent, docId: String, runId: String, lastOpId: String?,
-        deltaSummary: String, intentSnapshot: String?, activePass: ActivePass?,
+        deltaSummary: String, intentSnapshot: String?,
+        editorName: String, readerName: String?,
         passId: String?, round: Int?,
         scenePosition: ScenePosition, stage: DraftStage?, dosage: LetterDosage,
         ask: String?, freshEyes: Bool, kind: RunKind, briefingHash: String?,
@@ -1606,20 +1693,16 @@ final class CompilerOrchestrator {
                     CompilerMintContext(
                         docId: docId, runId: runId, passId: passId, round: round,
                         freshEyes: freshEyes,
-                        // A passless run signs "Claude" — M2's identity, and
-                        // the label `AnnotationAuthorPresentation` already
-                        // gives an author-less note. **The fallback is read
-                        // off the resolution rather than off the constant**
-                        // (editorial letter P1 Task 5): `AuthorReader.nobody`
-                        // IS the case this `??` covers — a check with the seat
-                        // vacated, the only way a run reaches here with no
-                        // frame at all — and naming it keeps
-                        // `passlessEditorName` to the one production use
-                        // `TripwireGrepTests`' census pins. A held seat never
-                        // reaches the fallback — the coach is an `ActivePass`
-                        // with an editor of her own — and neither does a
-                        // round, which was refused without one.
-                        editorName: activePass?.editorName ?? AuthorReader.nobody.editorName))
+                        // **Resolved at the keystroke, carried here** (two
+                        // loops P2 Task 4). A check signs with its reader's
+                        // name — the coach's, the first reader's, or "Claude"
+                        // for nobody, which `AuthorReader.nobody.editorName`
+                        // answers so that `passlessEditorName` keeps the one
+                        // production use `TripwireGrepTests`' census pins — and
+                        // a round with its stage's. Asked once, above, rather
+                        // than re-derived here: the writer can change who reads
+                        // their checks while one is in flight.
+                        editorName: editorName))
             }
             // The one suspension in this method, and the writes below are what
             // make it worth guarding. See the doc comment.
@@ -1635,7 +1718,7 @@ final class CompilerOrchestrator {
                 passId: passId, round: round, freshEyes: freshEyes,
                 // Minted at the keystroke beside them, and carried for their
                 // reason: the writer can switch personas while the check runs.
-                kind: kind,
+                kind: kind, readerName: readerName,
                 outcome: outcome, scenePosition: scenePosition, stage: stage, ask: ask,
                 mintedNotes: mint.minted,
                 openInOtherLanes: mint.openInOtherLanes)

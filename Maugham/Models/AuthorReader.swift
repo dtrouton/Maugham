@@ -42,33 +42,39 @@ enum AuthorReader: Equatable {
     /// all-altitudes ⌘R.
     case nobody
 
-    /// What the check is briefed as — `nil` for `nobody`, which is the whole
-    /// of the passless case.
+    /// **Whether this is the writer's own first reader** — the one arm three
+    /// separate decisions turn on, so it is asked once here rather than
+    /// pattern-matched at each (two loops P2 Task 4). Her letter is dosed
+    /// `.reader` whatever the draft stage says (ruling P2-4), she is briefed
+    /// on no process line (P2-6) and on no lessons ledger (P2-7).
     ///
-    /// **`isCoach` is unconditionally true here**, because the only arm that
-    /// produces one is the coach's. It is what `CompilerPrompt.passSection`
-    /// reads to frame her as a teacher rather than an editor, and a check is
-    /// the one verb that can ever carry it: a round's `ActivePass` is always
-    /// a stage's.
+    /// **There is no `activePass` here any more.** It existed to squeeze a
+    /// reader through a pass-shaped seam while one `Environment` closure
+    /// answered both loops, and it could only ever describe the first reader
+    /// as nobody. `CompilerPrompt.readerSection` briefs each arm in its own
+    /// words now, and `Environment.authorReader` answers this type whole.
+    var isFirstReader: Bool {
+        if case .firstReader = self { return true }
+        return false
+    }
+
+    /// **The doctrine this reader was given, for the one thing outside the
+    /// briefing that reads it**: `ScenePosition.derive`, which looks in a pass
+    /// brief for a piece opted into scene form.
     ///
-    /// **`effectiveEditorName`/`effectiveBrief`, never the raw fields** (M4 P1
-    /// Task 1's rule): a customized manifest can store a preset-id pass that
-    /// predates both, and reading `pass.editorName` here would sign a check's
-    /// notes with nothing at all.
+    /// **`effectiveBrief`, never the raw field** (M4 P1 Task 1's rule): a
+    /// customized manifest can store a preset-id pass that predates it.
     ///
-    /// **The first reader answers `nil` here, and that is a placeholder rather
-    /// than an answer.** She is not a pass and cannot be squeezed through the
-    /// pass-shaped seam — Task 3 briefs her in her own words and Task 4
-    /// deletes this property along with its last caller. Until then it keeps
-    /// the existing wiring compiling, and a check under her is briefed as the
-    /// passless run would be, which is the closest wrong answer available.
-    var activePass: CompilerOrchestrator.ActivePass? {
+    /// **The first reader answers `nil`, and that is an answer rather than a
+    /// gap.** Her statement is who she is — what she reads, what she loves —
+    /// and it is not an instruction about form; read as a pass brief, one
+    /// sentence of the writer's prose about her could flip a whole book into
+    /// scene form, and the derivation would be judging the book by a
+    /// description of a person. `nobody` answers `nil` for the plainer reason
+    /// that there is nobody to have doctrine.
+    var brief: String? {
         guard case .coach(let pass) = self else { return nil }
-        return CompilerOrchestrator.ActivePass(
-            id: pass.id, name: pass.name,
-            editorName: pass.effectiveEditorName,
-            brief: pass.effectiveBrief,
-            isCoach: true)
+        return pass.effectiveBrief
     }
 
     /// The byline: who signs this piece's check notes, and whose name the

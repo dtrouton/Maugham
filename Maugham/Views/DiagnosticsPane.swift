@@ -969,7 +969,15 @@ struct DiagnosticsPane: View {
                 // An index means nothing outside one letter (final review).
                 runId: run.id,
                 signature: LetterSection.signature(
-                    voice: reader.editorName, round: run.round,
+                    // **The name the RUN was read under, not the live one**
+                    // (two loops P2 Task 4, P1's Ruling 10). The writer changes
+                    // who reads their checks — vacates the seat, names a first
+                    // reader — and a standing letter signed by whoever reads
+                    // today is yesterday's letter in a stranger's hand. `nil`
+                    // is a record written before the stamp existed, which falls
+                    // back to the live reader: the same answer those records
+                    // always got.
+                    voice: run.readerName ?? reader.editorName, round: run.round,
                     // The stage this run derived, off the SAME letter
                     // `shortLetterPart` reads (fix round 1, minor 2) \u{2014}
                     // `run.letter?.draftStage` would be a second path to one
@@ -1007,7 +1015,9 @@ struct DiagnosticsPane: View {
                 // cannot file two different letters.
                 onKeep: LetterKeep.handler(
                     letter: letter, run: run, docId: docId, store: store,
-                    editorName: reader.editorName,
+                    // The kept note's heading says whose letter it was, so it
+                    // reads the run's own byline for the signature's reason.
+                    editorName: run.readerName ?? reader.editorName,
                     onKept: { keptLetter = $0 },
                     onFailure: { answerFailures[Self.keepFailureKey] = $0 }),
                 offerFailure: answerFailures[Self.turnClauseFailureKey],
@@ -1044,7 +1054,9 @@ struct DiagnosticsPane: View {
         _ = ledgerRevision
         return LessonOffer.handlers(
             letter: letter, run: run, store: store, world: world,
-            voice: reader.editorName,
+            // The provenance of a filed lesson is whoever wrote the letter it
+            // came out of — the run's own byline, not today's reader.
+            voice: run.readerName ?? reader.editorName,
             onFiled: { ledgerRevision += 1 },
             onFailure: { ledgerFailure = $0 })
     }
@@ -1058,7 +1070,11 @@ struct DiagnosticsPane: View {
     ) -> (() -> Void)? {
         TurnClauseOffer.handler(
             letter: letter, run: run, docId: docId, store: store, world: world,
-            voice: reader.editorName, filedRunId: turnClauseFiledForRun,
+            // "from <voice>'s letter" — the run's own byline, on the
+            // signature's rule: a dated ruling must name who actually raised
+            // it.
+            voice: run.readerName ?? reader.editorName,
+            filedRunId: turnClauseFiledForRun,
             onFiled: { turnClauseFiledForRun = $0 },
             onFailure: { answerFailures[Self.turnClauseFailureKey] = $0 })
     }

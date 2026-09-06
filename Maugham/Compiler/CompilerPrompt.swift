@@ -237,12 +237,15 @@ enum CompilerPrompt {
     /// round has nowhere to put it here, so a check briefed on another loop's
     /// conversation is a compile error rather than a silent section. The gates
     /// inside `runMessageV2` say the same thing a second time, for the callers
-    /// that pass a kind directly — its tests, and `beginRun` until Task 4
-    /// splits its one send into these two doors.
+    /// that pass a kind directly — its tests.
+    ///
+    /// **And it has no `pass:` either** (two loops P2 Task 4). A check's frame
+    /// is `readerSection`'s alone: the coach reached the briefing dressed as a
+    /// pass while one `Environment` closure answered both loops, and a door
+    /// that could still take a lane is a door a lane could still come through.
     static func checkMessage(
         delta: CompilerDelta, world: DerivedWorld?, essay: String?,
         bibleFacts: [BibleFact], paletteListing: [String], pinnedListing: [String],
-        pass: CompilerOrchestrator.ActivePass? = nil,
         reader: AuthorReader = .nobody,
         scenePosition: ScenePosition = .none,
         dispositions: [CompilerAnnotationDisposition] = [],
@@ -256,7 +259,7 @@ enum CompilerPrompt {
         runMessageV2(
             delta: delta, kind: .check, world: world, essay: essay,
             bibleFacts: bibleFacts, paletteListing: paletteListing,
-            pinnedListing: pinnedListing, pass: pass, reader: reader,
+            pinnedListing: pinnedListing, reader: reader,
             scenePosition: scenePosition,
             dispositions: dispositions, ask: ask, lessons: lessons,
             stage: stage, freshEyes: freshEyes, signals: signals,
@@ -421,11 +424,10 @@ enum CompilerPrompt {
         // `RunKind.of(persona:)`'s rule — a third loop is then a compile error
         // here instead of silently inheriting the check's frame.
         //
-        // **Defaulted to `.nobody`, whose section is nil** (Task 3's
-        // sequencing), so every existing call — `beginRun` included, until
-        // Task 4 passes the real reader — assembles a byte-identical message.
-        // `passSection` keeps the coach's `isCoach` branch for that one
-        // commit; Task 4 deletes it and this is what replaces it.
+        // **Defaulted to `.nobody`, whose section is nil**, so a caller with no
+        // reader to name assembles the message a passless ⌘R has always got.
+        // Task 4 made this the whole of a check's frame: `checkMessage` has no
+        // `pass:` any more, and `passSection` below has no coach branch.
         switch kind {
         case .check:
             if let readerSection = readerSection(reader) {
@@ -674,18 +676,15 @@ enum CompilerPrompt {
         let brief = pass.brief
             .map(cleaned)
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-        // **The coach is a teacher, not an editor** (spec §4.1, §4.4). She is
-        // a pass in every respect this file cares about — a name, an editor,
-        // a brief — and `isCoach` is the ONE thing that differs, resolved once
-        // in `AuthorReader` — a CHECK's reader, and the only verb that can
-        // carry the flag — and read only here. Her own name is the noun in the
-        // frame (lowercased, because it is a common noun in this sentence
-        // where a stage's is a proper one), so a writer who renames the seat
-        // renames what she teaches rather than leaving a second spelling of
-        // "workshop" in this file.
-        let frame = pass.isCoach
-            ? "You are \(pass.editorName), this writer's \(pass.name.lowercased()) teacher."
-            : "You are \(pass.editorName), this manuscript's \(pass.name) editor."
+        // **Every pass that reaches here is a rung of the ladder** (two loops
+        // P2 Task 4). The coach used to arrive through this function wearing
+        // `ActivePass.isCoach`, because one `Environment` closure answered both
+        // loops and she had to be dressed as a pass to be briefed at all. Her
+        // teacher frame moved to `readerSection` verbatim in Task 3, and
+        // `CompilerPromptTests` pins the two spellings against each other — so
+        // this function has one frame again, and a check cannot reach it at
+        // all: `checkMessage` has no `pass:` to give.
+        let frame = "You are \(pass.editorName), this manuscript's \(pass.name) editor."
         return """
             \(frame)
             \(brief ?? brieflessPassFallback)

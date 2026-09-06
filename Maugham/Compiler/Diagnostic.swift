@@ -247,6 +247,27 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// disagree about what an old sidecar was.
     var kind: RunKind?
 
+    /// **Who read this run** — the check's reader by name, stamped at the
+    /// keystroke (two loops P2 Task 4).
+    ///
+    /// The byline is a fact about the run and not about the project as it
+    /// stands. The writer changes who reads their checks — vacates the seat,
+    /// names a first reader, picks nobody — and every surface that draws a
+    /// standing run's letter used to read the LIVE reader, so yesterday's
+    /// letter was re-signed by whoever reads today (P1's Ruling 10). With this
+    /// on the record the letter keeps the name it was written under, and Keep
+    /// files a note that says who wrote it.
+    ///
+    /// **`nil` for a round, and that is not a missing value.** A round is
+    /// filed in a lane and its byline is `passId`'s pass, resolved through
+    /// `ReviewPass.effectiveEditorName` wherever the round is drawn; a name
+    /// stamped here as well would be a second answer that a rename could put
+    /// out of step with the first. `nil` is also a record written before this
+    /// field existed, which reads as "ask the live reader" — exactly what
+    /// those surfaces did before, and the right answer for a record whose
+    /// reader was never captured.
+    var readerName: String?
+
     /// **What a run's kind is, including for records that never carried one.**
     ///
     /// The legacy rule, in one place: before this field existed, a run with a
@@ -282,7 +303,8 @@ struct CompilerRun: Codable, Equatable, Sendable {
          truncatedReader: Int? = nil, passId: String? = nil, round: Int? = nil,
          freshEyes: Bool? = nil, intentDriftVerdict: String? = nil,
          mintedNotes: Int? = nil, openInOtherLanes: Int? = nil,
-         kind: RunKind? = nil, letter: Letter? = nil) {
+         kind: RunKind? = nil, readerName: String? = nil,
+         letter: Letter? = nil) {
         self.id = id
         self.at = at
         self.model = model
@@ -299,6 +321,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
         self.mintedNotes = mintedNotes
         self.openInOtherLanes = openInOtherLanes
         self.kind = kind
+        self.readerName = readerName
         self.letter = letter
     }
 
@@ -335,6 +358,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
         mintedNotes = try c.decodeIfPresent(Int.self, forKey: .mintedNotes)
         openInOtherLanes = try c.decodeIfPresent(Int.self, forKey: .openInOtherLanes)
         kind = try c.decodeIfPresent(RunKind.self, forKey: .kind)
+        readerName = try c.decodeIfPresent(String.self, forKey: .readerName)
         letter = try c.decodeIfPresent(Letter.self, forKey: .letter)
     }
 }

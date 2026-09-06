@@ -72,29 +72,43 @@ final class AuthorReaderTests: XCTestCase {
 
     // MARK: - What each arm answers
 
-    /// The coach travels to the run as an `ActivePass` like any pass: her id,
-    /// her effective fields, and `isCoach` — which is what
-    /// `CompilerPrompt.passSection` reads to frame her as a teacher.
-    func test_theCoachsActivePassCarriesHerEffectiveFieldsAndIsCoach() throws {
-        let pass = try XCTUnwrap(manifest().authorReader.activePass,
-                                 "the coach must produce an ActivePass")
-        XCTAssertEqual(pass.id, "workshop")
-        XCTAssertEqual(pass.name, "Workshop")
-        XCTAssertEqual(pass.editorName, "Le Guin")
-        XCTAssertEqual(pass.brief, ReviewPass.coachPreset.effectiveBrief,
+    /// **The coach is the one arm with doctrine**, and it travels through
+    /// `effectiveBrief` — the M4 P1 rule, because a customized manifest can
+    /// store a preset-id seat that predates the field. `ScenePosition.derive`
+    /// is what reads it: a pass brief is where a piece opts into scene form.
+    ///
+    /// **There is no `activePass` any more** (two loops P2 Task 4). She reaches
+    /// the briefing as an `AuthorReader.coach` through
+    /// `CompilerPrompt.readerSection`, not dressed as a pass.
+    func test_theCoachIsTheOneArmWithABriefAndItResolvesEffectively() {
+        XCTAssertEqual(manifest().authorReader.brief,
+                       ReviewPass.coachPreset.effectiveBrief,
                        "her doctrine must travel through effectiveBrief")
-        XCTAssertTrue(pass.isCoach,
-                      "nothing downstream can phrase her as a teacher without this")
+        XCTAssertFalse(manifest().authorReader.isFirstReader,
+                       "control: the coach is not the writer's first reader")
+    }
+
+    /// **A first reader has no brief, and that is an answer.** Her statement is
+    /// who she is, not an instruction about form — read as a pass brief, a
+    /// sentence of the writer's prose about her could flip a whole book into
+    /// scene form.
+    func test_aFirstReaderHasNoBriefAndIsTheArmTheDoseTurnsOn() {
+        let reader = AuthorReader.firstReader(
+            FirstReader(name: "Tabitha", statement: "She reads on the train."))
+        XCTAssertNil(reader.brief,
+                     "her description is not doctrine and must not be read as a "
+                     + "pass brief")
+        XCTAssertTrue(reader.isFirstReader)
     }
 
     /// **The nobody arm, and the one surviving use of the passless name.**
-    /// No `ActivePass` at all is what the orchestrator reads as the M2 lane:
-    /// no round number, no stamp, notes signed "Claude".
-    func test_nobodyHasNoActivePassAndSignsWithThePasslessName() {
+    /// No reader at all is what the orchestrator reads as the M2 lane: no round
+    /// number, no stamp, notes signed "Claude".
+    func test_nobodyHasNoBriefAndSignsWithThePasslessName() {
         let reader = manifest(coachVacated: true).authorReader
-        XCTAssertNil(reader.activePass,
-                     "nobody must be the nil frame \u{2014} an ActivePass here "
-                     + "would brief a reader that does not exist")
+        XCTAssertNil(reader.brief,
+                     "there is nobody here to have doctrine")
+        XCTAssertFalse(reader.isFirstReader)
         XCTAssertEqual(reader.editorName, CompilerOrchestrator.passlessEditorName)
         XCTAssertEqual(reader.editorName, "Claude",
                        "control: the constant really is M2's identity")

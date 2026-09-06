@@ -78,7 +78,8 @@ final class DiagnosticsPaneTests: XCTestCase {
                          mintedNotes: Int? = nil,
                          openInOtherLanes: Int? = nil,
                          letter: Letter? = nil,
-                         kind: RunKind? = nil) -> CompilerRun {
+                         kind: RunKind? = nil,
+                         readerName: String? = nil) -> CompilerRun {
         let wholeSecond = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         return CompilerRun(id: ULID.generate(), at: wholeSecond, model: model,
                            lastOpId: lastOpId, deltaSummary: "1 new, 0 revised \u{00b6}",
@@ -86,7 +87,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                            clauseStatuses: clauseStatuses, truncatedReader: truncatedReader,
                            passId: passId, round: round, freshEyes: freshEyes,
                            mintedNotes: mintedNotes, openInOtherLanes: openInOtherLanes,
-                           kind: kind, letter: letter)
+                           kind: kind, readerName: readerName, letter: letter)
     }
 
     private func makeClause(
@@ -1085,12 +1086,12 @@ final class DiagnosticsPaneTests: XCTestCase {
     ///
     /// Three appends, three claims. `readings` says the press named THIS
     /// document. `acknowledgments` says `freshEyes: true`, because the
-    /// orchestrator answers a cold press with its own case. And `readerAsks`
-    /// being empty says the press was a `.check`: a `.round` asks the reader
-    /// for an editor synchronously, one line above the acknowledgment, and is
-    /// refused when there is none — so a Reread that had been wired to the
-    /// round loop would leave a `.round` in this array and no acknowledgment
-    /// at all.
+    /// orchestrator answers a cold press with its own case. And
+    /// `roundEditorAsks` being empty says the press was a `.check`: a `.round`
+    /// asks `roundEditor` for a lane synchronously, one line above the
+    /// acknowledgment, and is refused when there is none — so a Reread that had
+    /// been wired to the round loop would leave this document's id in that
+    /// array and no acknowledgment at all.
     func test_theRereadButtonAsksForAColdCheckOfThisDocument() throws {
         let docId = "doc-reread-call"
         let runner = SpyRunner()
@@ -1102,8 +1103,8 @@ final class DiagnosticsPaneTests: XCTestCase {
             recorder.readings.append(id)
             return readingOfRecord(id)
         }
-        environment.reader = { _, kind in
-            recorder.readerAsks.append(kind)
+        environment.roundEditor = { id in
+            recorder.roundEditorAsks.append(id)
             return nil
         }
         environment.onRunAcknowledged = { recorder.acknowledgments.append($0) }
@@ -1126,9 +1127,9 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(recorder.acknowledgments, [.freshEyes],
                        "a cold press is answered with its own case \u{2014} an ordinary "
                        + ".started here means freshEyes never reached the orchestrator")
-        XCTAssertTrue(recorder.readerAsks.isEmpty,
-                      "Author's Reread is a check; a round would have asked for an "
-                      + "editor here and been refused \u{2014} got \(recorder.readerAsks)")
+        XCTAssertTrue(recorder.roundEditorAsks.isEmpty,
+                      "Author's Reread is a check; a round would have asked for a "
+                      + "lane here and been refused \u{2014} got \(recorder.roundEditorAsks)")
 
         runner.release(.failed(.timedOut))
     }
@@ -1138,7 +1139,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     @MainActor
     private final class RunRequests {
         var readings: [String] = []
-        var readerAsks: [RunKind] = []
+        var roundEditorAsks: [String] = []
         var acknowledgments: [CompilerOrchestrator.Acknowledgment] = []
     }
 
@@ -3703,6 +3704,81 @@ final class DiagnosticsPaneTests: XCTestCase {
             "Read: \(texts)")
     }
 
+    /// **A standing letter keeps the name it was written under** (two loops P2
+    /// Task 4, closing P1's Ruling 10).
+    ///
+    /// The live reader here is `.nobody` — the writer vacated the seat, or
+    /// chose nobody, after the check ran — and the standing run remembers Le
+    /// Guin. Before the record carried a byline, this letter was re-signed
+    /// "Claude" the moment the roster changed: yesterday's letter in a
+    /// stranger's hand.
+    ///
+    /// Disable experiment: read `reader.editorName` at the signature and this
+    /// fails on the first assertion, with the control below still green.
+    func test_aStandingLetterIsSignedByTheReaderWhoWroteIt() throws {
+        let docId = "doc-standing-byline"
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.replace(
+            run: makeRun(round: 3, letter: makeLetter(), readerName: "Le Guin"),
+            diagnostics: [], docId: docId)
+        let window = mount(AnyView(DiagnosticsPane(
+            orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
+            docId: docId, currentText: { _ in nil }, compilerModel: .standard,
+            reader: .nobody)))
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains(LetterSection.signature(voice: "Le Guin", round: 3)),
+            "the run's own byline signs its letter. Read: \(texts)")
+        XCTAssertFalse(
+            texts.contains(LetterSection.signature(
+                voice: AuthorReader.nobody.editorName, round: 3)),
+            "\u{2026}and today's reader does not. Read: \(texts)")
+    }
+
+    /// **…and so does everything else the standing letter writes** — Keep's
+    /// note heading, a filed lesson's provenance, and the Add-to-intent
+    /// ruling's.
+    ///
+    /// A census rather than four mounted presses. Each of these verbs writes to
+    /// disk and would need a press and a poll to observe, which is tripwire 33's
+    /// shape and which this file already spends its one representative on
+    /// (`test_keepThisLetterFilesAResearchNoteAndSaysWhatItCalledIt`). What the
+    /// census sees that a press could not is the whole SET: a fifth verb added
+    /// to this section reading today's reader instead of the run's is caught
+    /// here, and by nothing else.
+    ///
+    /// The bare spelling is what is banned. `run.readerName ?? reader.editorName`
+    /// contains `reader.editorName` too, so the assertion is over what is LEFT
+    /// once every guarded spelling is removed.
+    func test_everythingTheStandingLetterWritesIsSignedByTheRunsOwnReader() throws {
+        let section = try letterSectionSource()
+        XCTAssertTrue(section.contains("run.readerName ?? reader.editorName"),
+                      "the guarded spelling must be here at all: \(section)")
+        let unguarded = section
+            .replacingOccurrences(of: "run.readerName ?? reader.editorName", with: "")
+        XCTAssertFalse(
+            unguarded.contains("reader.editorName"),
+            "the standing letter's byline is the RUN's, everywhere it is written "
+            + "\u{2014} an unguarded read re-signs yesterday's letter with "
+            + "today's reader. Left over:\n\(unguarded)")
+    }
+
+    /// CONTROL for the census above: the HEADER line is deliberately NOT
+    /// guarded. "Le Guin reads this piece" and the empty state's "Press ⌘R
+    /// and … reads what you've written." are promises about the NEXT run, so
+    /// they must move the moment the writer changes the roster — which is the
+    /// opposite of the rule for a letter that has already been written.
+    func test_control_theHeaderLineStaysOnTheLiveReader() throws {
+        let source = try readSource("Maugham/Views/DiagnosticsPane.swift")
+        XCTAssertTrue(
+            source.contains(#"static func readerCopy(for reader: AuthorReader) -> String {"#),
+            "find the header's copy by name if it moved")
+        XCTAssertTrue(
+            source.contains(#""\(reader.editorName) reads this piece""#),
+            "the header names who WILL read, so it reads the live reader")
+    }
+
     /// **The letter's jumps are the pane's own event**, not a second post.
     ///
     /// A census because the section takes the jump as a closure and the
@@ -4333,13 +4409,18 @@ final class DiagnosticsPaneTests: XCTestCase {
         store: ProjectStore?, docId: String, letter: Letter,
         reader: AuthorReader = .nobody,
         freshEyes: Bool? = nil,
-        passId: String? = nil, round: Int? = nil
+        passId: String? = nil, round: Int? = nil,
+        /// **Who the standing RUN was read by**, as `CompilerRun.readerName`
+        /// records it — which is not who reads the piece today. `nil`, the
+        /// default, is a record written before the stamp existed, and falls
+        /// back to the live `reader`.
+        readerName: String? = nil
     ) -> NSWindow {
         let diagnostics = DiagnosticsStore(
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
         diagnostics.replace(
             run: makeRun(passId: passId, round: round, freshEyes: freshEyes,
-                         letter: letter),
+                         letter: letter, readerName: readerName),
             diagnostics: [], docId: docId)
         return mount(AnyView(DiagnosticsPane(
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
