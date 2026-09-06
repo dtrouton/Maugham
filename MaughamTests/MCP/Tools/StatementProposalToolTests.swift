@@ -98,11 +98,19 @@ final class StatementProposalToolTests: XCTestCase {
         }
     }
 
-    func test_bothToolsAreInTheCatalogueAndTheCatalogueIsWholeAgainstMCPTool() {
+    /// Both tools are in the catalogue, by name.
+    ///
+    /// **No count assertion, deliberately.** A literal total here is a
+    /// maintenance trap that says nothing about these two tools: every
+    /// milestone that adds a tool has to come and edit it, and a reviewer
+    /// reading the name trusts it to be a structural check. The catalogue is
+    /// already guarded where guarding it means something — `DocSyncTests`
+    /// counts it dynamically against the docs, and `MCPProtocolHandlersTests`
+    /// pins the whole list by name.
+    func test_bothToolsAreInTheCatalogue() {
         let methods = MCPToolCatalog.all.map { $0.method }
         XCTAssertTrue(methods.contains("propose_edition_brief"))
         XCTAssertTrue(methods.contains("propose_visual_language"))
-        XCTAssertEqual(MCPToolCatalog.all.count, 60)
     }
 
     func test_neitherToolIsInTheCompilerAllowlist() {

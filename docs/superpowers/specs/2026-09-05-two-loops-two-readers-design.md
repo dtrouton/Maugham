@@ -186,7 +186,10 @@ writes toward, not a demographic. Two pieces of state, both writer-owned:
 
 - `ProjectManifest.firstReaderName: String?` — nil means undefined. The
   byline, the picker label and the briefing's role frame read it.
-- `Statement.Kind.firstReader` (raw `first-reader`, file
+- `Statement.Kind.firstReader` (raw `first_reader` — **amended 2026-09-06**,
+  whole-branch review ruling P2-11: the spec said `first-reader`, but every
+  sibling raw is snake (`visual_language`, `edition_brief:`, `lessons`) and
+  the string goes on disk at first ship; the FILE stays kebab, file
   `first-reader.md`, **project scope only**, hosted by `StatementPane` like
   every statement). The essay is the writer's own description: who this
   reader is, what they read last, what they love, what they will not sit

@@ -10,10 +10,13 @@ import MaughamCore
 /// testable without a subprocess.
 enum CompilerPrompt {
 
-    /// The output contract: six line-delimited JSON objects, one per
-    /// section, in fixed order (conformance, continuity, reader, facts,
-    /// intent_drift, letter). `DiagnosticIngestTests` reference this SAME
-    /// constant, so prompt and parser cannot drift apart in a rewording.
+    /// The output contract as everybody but a first reader is sent it: six
+    /// line-delimited JSON objects, one per section, in fixed order
+    /// (conformance, continuity, reader, facts, intent_drift, letter).
+    /// `DiagnosticIngestTests` reference this SAME constant, so prompt and
+    /// parser cannot drift apart in a rewording. Hers is the same string
+    /// minus its fifth section — see `sectionSchema(judgesIntentDrift:)`,
+    /// which builds both.
     ///
     /// **`letter` (editorial letter P1 Task 2) is last, and that is a
     /// streaming decision.** The first five are what a check found in the
@@ -39,57 +42,116 @@ enum CompilerPrompt {
     /// each entry's `refs` array; prose never carries a bare paragraph id
     /// (`test_theSchemaForbidsIdsInProse`) — the enforcement with teeth is
     /// Task 2's ingest-side scrub, this is the instruction half.
-    static let sectionSchemaDescription: String = """
-        Respond with six lines, each one JSON object, in this exact order \
-        — conformance, then continuity, then reader, then facts, then \
-        intent_drift, then letter. Nothing else: no prose before, between, \
-        or after them, and no line skipped — a section with nothing to \
-        report still gets its line, with an empty array, and intent_drift \
-        always carries a verdict:
-        {"section":"conformance","checks":[{"clause_quote":<string>,"status":\
-        "holds"|"strains"|"silent","refs":[<paragraph id>...],"what_pulls":\
-        <string or null>}]}
-        {"section":"continuity","questions":[{"cites":<string>,"refs":\
-        [<paragraph id>...],"question":<string>}]}
-        {"section":"reader","reports":[{"kind":"dream_break"|"belief"|"drag"\
-        |"lost","refs":[<paragraph id>...],"report":<string>}]}
-        {"section":"facts","candidates":[{"subject":<string>,"fact":<string>,\
-        "refs":[<paragraph id>...]}]}
-        {"section":"intent_drift","verdict":"holds"|"drifted","note":<one \
-        sentence, only when drifted>}
-        {"section":"letter","answer":<string or null>,"about":<string>,\
-        "one_thing":<string or null>,\
-        "working":[{"refs":[<paragraph id>...],"what":<string>,"why":\
-        <string>}],"habits":[{"name":<string>,"refs":[<paragraph id>...],\
-        "cost":<string>,"lesson":<string or null>,"exercise":<string or \
-        null>}],"questions":[{"refs":[<paragraph id>...],"habit":\
-        <habit name or null>,"question":<string>}],"scenes":[{"refs":\
-        [<paragraph id>...],"wants":<string>,"changes":<string>,"turn":\
-        <string>,"charge":"+"|"-"|null}] or null,"retired":[<lesson \
-        heading>...],"process":<string or null>}
-        The fifth line answers one question about this reading as a whole: \
-        has the draft drifted from the declared intent? Weigh the prose in \
-        this run's delta against the intent declared above — holds when \
-        the writing is still going where the writer said it was going, \
-        drifted when it has moved away from what they declared. Judge the \
-        draft, never the writer's decision to change their mind; if there \
-        is no declared intent to measure against, the answer is holds. \
-        Every reference to a paragraph travels in that entry's refs array, \
-        copied exactly as the paragraph id appears above. Prose — \
-        what_pulls, question, report, cites, fact, and every prose field of \
-        the letter — never contains a paragraph id: refer to the prose \
-        itself by a short quotation, the way an editor would. clause_quote and cites are the writer's own \
-        words, quoted, not summarized. what_pulls names what pulls \
-        against the clause and stops there — never a fix. Every \
-        continuity entry ends as a question, never a verdict. The reader \
-        section holds at most 3 entries — the sharpest three, not every \
-        dream-break you noticed.
-        \(formOnItsOwnTermsInstruction)
-        \(readerBarInstruction)
-        \(crossSectionDedupInstruction)
-        \(driftStabilizerInstruction)
-        \(letterInstruction)
-        """
+    static let sectionSchemaDescription: String = sectionSchema(judgesIntentDrift: true)
+
+    /// **The output contract as this run's reader is sent it** — the whole of
+    /// it, or the whole of it minus its fifth section (two loops P2, ruling
+    /// P2-10).
+    ///
+    /// `intent_drift` is the one section that judges the WRITER'S DECLARED
+    /// INTENT rather than something found in the prose, and its verdict marks
+    /// the intent strip until a later reading holds. That is a craft judgement
+    /// in the register `firstReaderInstruction` forbids a first reader by
+    /// name, so she is not asked for it at all — the same argument that keeps
+    /// the draft stage, the process numbers and the lessons ledger out of her
+    /// briefing, made HERE because this is the one place the schema is
+    /// assembled and a second string is a second thing to keep in step.
+    ///
+    /// **Conformance, continuity and facts stay, whoever reads.** Spec §2 puts
+    /// them in the substrate — asked under whichever reader or editor holds
+    /// the seat — and each is a finding in the prose carrying its own `refs`,
+    /// not a verdict about the writer.
+    ///
+    /// The other end is `LetterDosage.judgesIntentDrift`, which drops a verdict
+    /// a model volunteers anyway (global constraint 24: stated in the briefing
+    /// AND enforced at ingest, so the absence is true whatever was written).
+    static func sectionSchema(judgesIntentDrift: Bool) -> String {
+        let count = judgesIntentDrift ? "six" : "five"
+        let order = judgesIntentDrift
+            ? "conformance, then continuity, then reader, then facts, then "
+                + "intent_drift, then letter"
+            : "conformance, then continuity, then reader, then facts, then letter"
+        let verdictClause = judgesIntentDrift
+            ? ", and intent_drift always carries a verdict"
+            : ""
+        let header = """
+            Respond with \(count) lines, each one JSON object, in this exact \
+            order — \(order). Nothing else: no prose before, between, \
+            or after them, and no line skipped — a section with nothing to \
+            report still gets its line, with an empty array\(verdictClause):
+            """
+        let driftObject = """
+            {"section":"intent_drift","verdict":"holds"|"drifted","note":<one \
+            sentence, only when drifted>}
+            """
+        // The three sentences that explain the verdict, and they leave with it:
+        // told to a reader who is not asked for the section, they are an
+        // instruction about a line she must not write.
+        let driftGuidance = """
+            The fifth line answers one question about this reading as a whole: \
+            has the draft drifted from the declared intent? Weigh the prose in \
+            this run's delta against the intent declared above — holds when \
+            the writing is still going where the writer said it was going, \
+            drifted when it has moved away from what they declared. Judge the \
+            draft, never the writer's decision to change their mind; if there \
+            is no declared intent to measure against, the answer is holds.
+            """ + " "  // the space before the sentence that follows it
+        let tail = """
+            \(judgesIntentDrift ? driftGuidance : "")Every reference to a \
+            paragraph travels in that entry's refs array, \
+            copied exactly as the paragraph id appears above. Prose — \
+            what_pulls, question, report, cites, fact, and every prose field of \
+            the letter — never contains a paragraph id: refer to the prose \
+            itself by a short quotation, the way an editor would. clause_quote and cites are the writer's own \
+            words, quoted, not summarized. what_pulls names what pulls \
+            against the clause and stops there — never a fix. Every \
+            continuity entry ends as a question, never a verdict. The reader \
+            section holds at most 3 entries — the sharpest three, not every \
+            dream-break you noticed.
+            """
+        var blocks: [String] = [
+            header,
+            """
+            {"section":"conformance","checks":[{"clause_quote":<string>,"status":\
+            "holds"|"strains"|"silent","refs":[<paragraph id>...],"what_pulls":\
+            <string or null>}]}
+            """,
+            """
+            {"section":"continuity","questions":[{"cites":<string>,"refs":\
+            [<paragraph id>...],"question":<string>}]}
+            """,
+            """
+            {"section":"reader","reports":[{"kind":"dream_break"|"belief"|"drag"\
+            |"lost","refs":[<paragraph id>...],"report":<string>}]}
+            """,
+            """
+            {"section":"facts","candidates":[{"subject":<string>,"fact":<string>,\
+            "refs":[<paragraph id>...]}]}
+            """,
+        ]
+        if judgesIntentDrift { blocks.append(driftObject) }
+        blocks.append("""
+            {"section":"letter","answer":<string or null>,"about":<string>,\
+            "one_thing":<string or null>,\
+            "working":[{"refs":[<paragraph id>...],"what":<string>,"why":\
+            <string>}],"habits":[{"name":<string>,"refs":[<paragraph id>...],\
+            "cost":<string>,"lesson":<string or null>,"exercise":<string or \
+            null>}],"questions":[{"refs":[<paragraph id>...],"habit":\
+            <habit name or null>,"question":<string>}],"scenes":[{"refs":\
+            [<paragraph id>...],"wants":<string>,"changes":<string>,"turn":\
+            <string>,"charge":"+"|"-"|null}] or null,"retired":[<lesson \
+            heading>...],"process":<string or null>}
+            """)
+        blocks.append(tail)
+        blocks.append(formOnItsOwnTermsInstruction)
+        blocks.append(readerBarInstruction)
+        blocks.append(crossSectionDedupInstruction)
+        // Leaves with the section it stabilises: it is an instruction about how
+        // to answer a line a first reader is never asked for.
+        if judgesIntentDrift { blocks.append(driftStabilizerInstruction) }
+        blocks.append(letterInstruction)
+        return blocks.joined(separator: "\n")
+    }
 
     /// **A form is judged by its own rules** (spec §5.2's second half).
     ///
@@ -526,7 +588,19 @@ enum CompilerPrompt {
         case .round: sections.append(wholePieceSection(delta))
         }
 
-        sections.append(sectionSchemaDescription)
+        // **The output contract, and who is asked for its fifth section**
+        // (two loops P2, ruling P2-10). A first reader judges nothing about
+        // the writer's intent — no drift, and the stage, the process numbers
+        // and the lessons ledger are already gone for the same reason — so the
+        // `intent_drift` line leaves her schema entirely rather than being
+        // asked for and thrown away.
+        //
+        // Read off the reader rather than switched on the kind: a round's
+        // reader is `.nobody` by default and a round is briefed by its lane's
+        // editor, so the one expression is true for both loops and there is no
+        // second place to remember the rule. The ingest end is
+        // `LetterDosage.judgesIntentDrift`.
+        sections.append(sectionSchema(judgesIntentDrift: !reader.isFirstReader))
 
         return (sections.joined(separator: "\n\n"), hash)
     }
@@ -772,6 +846,14 @@ enum CompilerPrompt {
     /// `passSection`'s reason: the writer changes who reads their checks, and a
     /// hash that moved with them would re-embed the whole declared world on the
     /// next run.
+    ///
+    /// **A first reader judges nothing about the writer's intent** — no drift
+    /// verdict, no draft stage, no process line, no lessons ledger. Four gates
+    /// in three files, and one argument: each is a judgement about the writer
+    /// or their declarations rather than a report of a reading, which is the
+    /// register `firstReaderInstruction` forbids her by name. The substrate
+    /// sections stay — conformance, continuity and facts are asked under
+    /// whichever reader or editor holds the seat (spec §2).
     static func readerSection(_ reader: AuthorReader) -> String? {
         switch reader {
         case .nobody:

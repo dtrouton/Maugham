@@ -294,7 +294,10 @@ extension DiagnosticIngest {
     /// `dosage` is LAST and defaulted (P3 Task 3) so every caller that has
     /// no stage to speak of — the whole v2 contract before P3, and every test
     /// that is not about the dosage — keeps reading as the full letter it
-    /// always was. It reaches only `parseLetter`; no other section is dosed.
+    /// always was. It reaches `parseLetter`, and — since two loops P2's ruling
+    /// P2-10 — the `intent_drift` arm, which is the one section besides the
+    /// letter that the reader's dose drops (`LetterDosage.judgesIntentDrift`).
+    /// No other section is dosed.
     static func parseSection(
         line: String, runId: String, docId: String,
         liveParagraphText: (String) -> String?,
@@ -314,7 +317,21 @@ extension DiagnosticIngest {
         case SectionField.facts:
             return parseFacts(object, docId: docId, live: liveParagraphText)
         case SectionField.intentDrift:
-            return parseIntentDrift(object)
+            // **A first reader's verdict is read and dropped** (ruling P2-10).
+            // She is not asked for the section at all
+            // (`CompilerPrompt.sectionSchema(judgesIntentDrift:)`); this is the
+            // other end of the same rule, so a verdict a model volunteers
+            // anyway never reaches `CompilerRun.intentDriftVerdict` and cannot
+            // mark the writer's intent strip.
+            //
+            // An empty section rather than `nil`: the line WAS a section this
+            // build understood, and `nil` means "not a section at all" — which
+            // the streaming path reads as a line that closed nothing.
+            return dosage.judgesIntentDrift
+                ? parseIntentDrift(object)
+                : PartialSection(
+                    accepted: [], facts: [], conformance: [], droppedDangling: 0,
+                    truncatedReader: 0, intentDriftVerdict: nil, letter: nil)
         case SectionField.letter:
             return parseLetter(
                 object, runId: runId, docId: docId, live: liveParagraphText, dosage: dosage)

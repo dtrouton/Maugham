@@ -409,6 +409,18 @@ else" in the same message). The stage is still derived for her — it is cheap,
 and `Letter.stage` records it, so the RECORD stamps a stage she was never told
 about — it simply does not decide her dose and never reaches her.
 
+**And she judges nothing about the writer's intent** (ruling P2-10). The
+`intent_drift` section is a verdict on the writer's DECLARED INTENT rather than
+a finding in the prose, and it marks the intent strip until a later reading
+holds — the same craft register the three gates above keep away from her. So
+`CompilerPrompt.sectionSchema(judgesIntentDrift:)` omits the line, the
+stabiliser instruction and the paragraph explaining the verdict from her schema
+(routed at the one place the schema is assembled, off `reader.isFirstReader`),
+and `LetterDosage.judgesIntentDrift` drops a verdict a model volunteers anyway,
+so her run records none and the strip's mark is untouched by her check. The
+substrate sections stay — conformance, continuity and facts are asked under
+whichever reader or editor holds the seat (spec §2).
+
 **Her statement is read at the keystroke and split in the section**
 (`readerSection`'s `.firstReader` arm): the essay half is her description, the
 `## Rulings` half is briefed under *Standing instructions from the writer:*,

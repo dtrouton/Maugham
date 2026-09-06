@@ -3913,6 +3913,95 @@ final class CompilerRunCommandTests: XCTestCase {
             "control: a cold read really is the full letter for anybody else")
     }
 
+    /// **A first reader judges no intent drift, and is not asked to**
+    /// (ruling P2-10). The verdict is a judgement about the writer's stated
+    /// intent — it marks the intent strip until a later round holds — which
+    /// is the craft register `firstReaderInstruction` forbids her by name. So
+    /// the schema she is sent has no fifth section in it at all.
+    ///
+    /// The coach over the same fixture is the control: the section is not
+    /// gone from the contract, it is gone from HERS.
+    ///
+    /// Disable experiment: append `sectionSchemaDescription` unconditionally
+    /// at the one place the schema is assembled and the first assertion fails.
+    func test_theFirstReadersBriefingAsksForNoDriftVerdict() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: draftingReading(), firstReader: Self.tabitha())
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = try XCTUnwrap(runner.sends.first?.message)
+        XCTAssertFalse(message.contains("intent_drift"),
+                       "a first reader was asked to judge the writer's intent; "
+                       + "got \(message)")
+
+        let coachRunner = SpyRunner()
+        let coachHarness = try makeHarness(
+            runner: coachRunner, reading: draftingReading())
+        coachHarness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: coachRunner)
+        settle()
+        XCTAssertTrue(
+            try XCTUnwrap(coachRunner.sends.first?.message).contains("intent_drift"),
+            "control: the section is still asked for by everybody else")
+    }
+
+    /// **…and her run records no verdict even if the model writes one**, so
+    /// the intent strip's mark cannot be raised or cleared by a reading that
+    /// was never a judgement of the writer's intent (ruling P2-10).
+    ///
+    /// Both ends, for `LetterDosage`'s own reason (global constraint 24): the
+    /// briefing above is what she is asked, this is what is true whatever she
+    /// answered. Shaped after
+    /// `test_theMarkFollowsTheStandingRoundsVerdict` — the mark is asked of
+    /// `IntentDrift.mayTrailDraft`, the decision the window really makes —
+    /// with the coach over the identical answer as the control.
+    ///
+    /// Disable experiment: read `parseIntentDrift` unconditionally in
+    /// `DiagnosticIngest.parseSection` and both of her assertions fail.
+    func test_theFirstReadersCheckRecordsNoDriftVerdictAndLeavesTheMarkAlone() throws {
+        let intent = "Cold, and never wistful."
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(Self.fiveSections(verdict: "drifted"))
+        let harness = try makeHarness(
+            runner: runner, reading: draftingReading(), statementText: intent,
+            firstReader: Self.tabitha())
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertNotNil(harness.diagnostics.lastRun(docId: docId),
+                        "control: the run must have finished and filed a record")
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict,
+                     "a reader's verdict reached the record")
+        XCTAssertFalse(
+            IntentDrift.mayTrailDraft(
+                lastRun: harness.diagnostics.lastRun(docId: docId),
+                currentStatementText: intent),
+            "a first reader's reading marked the writer's intent")
+
+        let coachRunner = SpyRunner()
+        coachRunner.nextEvent = .resultText(Self.fiveSections(verdict: "drifted"))
+        let coachHarness = try makeHarness(
+            runner: coachRunner, reading: draftingReading(), statementText: intent)
+        coachHarness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: coachRunner)
+        settle()
+        XCTAssertEqual(
+            coachHarness.diagnostics.lastRun(docId: docId)?.intentDriftVerdict,
+            "drifted",
+            "control: the same answer read by the coach still records a verdict")
+        XCTAssertTrue(
+            IntentDrift.mayTrailDraft(
+                lastRun: coachHarness.diagnostics.lastRun(docId: docId),
+                currentStatementText: intent),
+            "control: \u{2026}and still marks the strip")
+    }
+
     /// A letter whose only content is the one thing — the field
     /// `LetterDosage.allowsOneThing` gates, and the discriminator between the
     /// reader's form and every other dose.

@@ -237,24 +237,32 @@ final class StatementTests: XCTestCase {
     // MARK: - The first reader kind (two loops P2, Task 1)
 
     /// The first reader is a FIFTH kind, and her wire string is
-    /// `"first-reader"` — hyphenated, matching her file (`first-reader.md`)
-    /// rather than the visual language's underscored `"visual_language"`.
+    /// `"first_reader"` — underscored, like `"visual_language"` and every
+    /// other raw here. Her FILE is kebab (`first-reader.md`), like
+    /// `visual-language.md`; the two conventions are separate and this pins
+    /// the wire one.
     /// Pinned here for the reason the other four are: this string lands in every
     /// writer's `project.maugham.json`, so changing it is a data migration
     /// rather than a rename.
     func test_firstReaderEncodesAndRoundTrips() throws {
         let kind = Statement.Kind.firstReader
         let encoded = String(decoding: try JSONEncoder().encode(kind), as: UTF8.self)
-        XCTAssertEqual(encoded, #""first-reader""#)
+        XCTAssertEqual(encoded, #""first_reader""#)
         XCTAssertEqual(try JSONDecoder().decode(Statement.Kind.self, from: Data(encoded.utf8)), kind)
     }
 
     /// CONTROL for the assertion above: the decoder matches the raw EXACTLY, so
-    /// a near-miss — an underscored spelling, a camelCased one, a newer build's
-    /// suffixed variant — is `.unknown` and is preserved verbatim rather than
-    /// fuzzily folded into `.firstReader`.
+    /// a near-miss — a camelCased spelling, a newer build's suffixed variant —
+    /// is `.unknown` and is preserved verbatim rather than fuzzily folded into
+    /// `.firstReader`.
+    ///
+    /// **`"first-reader"` is in this list on purpose.** It is the kebab
+    /// spelling the branch briefly carried before ruling P2-11 made the raw
+    /// snake like its siblings; nothing had shipped, so there is nothing to
+    /// migrate — but a build that meets one must preserve it losslessly rather
+    /// than silently reading it as hers.
     func test_aNearMissOfTheFirstReaderRawIsPreservedAsUnknown() throws {
-        for raw in ["first_reader", "firstReader", "first-readers", "First-Reader"] {
+        for raw in ["first-reader", "firstReader", "first-readers", "First-Reader"] {
             let decoded = try JSONDecoder().decode(
                 Statement.Kind.self, from: Data(#""\#(raw)""#.utf8))
             XCTAssertEqual(decoded, .unknown(raw), "\(raw) must not decode as .firstReader")

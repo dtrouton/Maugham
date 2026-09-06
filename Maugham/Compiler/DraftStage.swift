@@ -104,4 +104,20 @@ enum LetterDosage: Equatable, Sendable {
     /// Task 4 also stops briefing her on the numbers at all (`signals: nil`);
     /// this end is what makes the drop true whatever the model wrote.
     var allowsProcess: Bool { self != .reader }
+    /// **And the drift verdict is not hers to give** (two loops P2, ruling
+    /// P2-10) — the one flag here that is not about the letter at all.
+    ///
+    /// `intent_drift` judges the writer's DECLARED INTENT rather than
+    /// anything found in the prose, and its verdict marks the intent strip
+    /// until a later reading holds: a craft judgement in the register
+    /// `CompilerPrompt.firstReaderInstruction` forbids her by name. The
+    /// briefing end is `CompilerPrompt.sectionSchema(judgesIntentDrift:)`,
+    /// which does not ask her for the section; this end is what makes the
+    /// absence true whatever the model wrote (global constraint 24).
+    ///
+    /// It lives on the dosage because the dosage is the only thing that
+    /// reaches ingest knowing WHO read — `.reader` is set for a first reader
+    /// and for nobody else — and a second value carrying the same one bit
+    /// would be a second thing to keep in step.
+    var judgesIntentDrift: Bool { self != .reader }
 }

@@ -95,8 +95,19 @@ struct ProjectSettingsSheet: View {
                 // never loses focus before teardown and the draft would go
                 // with the sheet — the one control here that can discard the
                 // writer's words (constitution must #1). `.onDisappear` on the
-                // section catches Escape and every other teardown; both are
-                // guarded, so whichever runs second writes nothing.
+                // section catches Escape and every other teardown.
+                //
+                // **On Done both run, and both write** (whole-branch review of
+                // two loops P2, finding M3). The guard they share reads
+                // `store.manifest.firstReaderName`, and the first commit's
+                // write is a detached `Task` that has not landed by the time
+                // `dismiss()` tears the sheet down — so the second sees the
+                // same stale value and saves the same string again. It is
+                // idempotent and nothing is lost; it costs one extra manifest
+                // save on a control the writer presses once. Not fixed by
+                // mirroring the committed name in `@State`, which would be a
+                // second source of truth for a value the manifest already
+                // holds, for a duplicate write of an identical string.
                 Button("Done") {
                     commitFirstReaderName()
                     dismiss()
@@ -306,8 +317,13 @@ struct ProjectSettingsSheet: View {
     }
 
     /// Commit the typed name, or clear it. Called from submit, focus loss,
-    /// Done and teardown — all four guarded alike, so the extra callers cost
-    /// no extra manifest writes.
+    /// Done and teardown — all four guarded alike.
+    ///
+    /// **The guard is against the MANIFEST, so it is not synchronous** (M3).
+    /// The write below is a detached `Task`; two calls in one turn — Done, then
+    /// `.onDisappear` — both read the pre-write value and both save. The same
+    /// string either way, so this is a redundant file write rather than a lost
+    /// or reordered one, and it is why the four callers are safe to have.
     private func commitFirstReaderName() {
         guard Self.nameNeedsCommitting(
             draft: firstReaderDraft, stored: store.manifest.firstReaderName) else { return }

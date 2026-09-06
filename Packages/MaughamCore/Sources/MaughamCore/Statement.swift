@@ -57,7 +57,17 @@ public struct Statement: Codable, Equatable, Identifiable, Sendable {
         private static let visualLanguageRaw = "visual_language"
         private static let editionBriefPrefix = "edition_brief:"
         private static let lessonsRaw = "lessons"
-        private static let firstReaderRaw = "first-reader"
+        /// **Snake, like every sibling** — `visual_language`, `edition_brief:`,
+        /// `lessons` — while her FILE stays kebab (`first-reader.md`), like
+        /// `visual-language.md`. The two conventions are different and neither
+        /// is wrong: the raw is a wire string in `project.maugham.json`, the
+        /// path is a filename the writer sees. Corrected before first ship
+        /// (whole-branch review of two loops P2, ruling P2-11) precisely
+        /// because this string lands in every writer's manifest and there is no
+        /// migration after that (tripwire 11); the kebab spelling it briefly
+        /// had now decodes `.unknown("first-reader")` and re-encodes verbatim,
+        /// like any other string this build does not know.
+        private static let firstReaderRaw = "first_reader"
 
         /// The stable on-disk string. Known cases emit their canonical value;
         /// an `.unknown` emits the preserved original raw.

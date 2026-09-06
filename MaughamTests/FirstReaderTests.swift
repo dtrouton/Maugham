@@ -128,7 +128,7 @@ final class FirstReaderTests: XCTestCase {
             guard case .statementHasNoStorage(let kind, _) = error else {
                 return XCTFail("expected .statementHasNoStorage, got \(error)")
             }
-            XCTAssertEqual(kind, "first-reader")
+            XCTAssertEqual(kind, "first_reader")
         }
 
         XCTAssertTrue(store.manifest.statements.isEmpty,
