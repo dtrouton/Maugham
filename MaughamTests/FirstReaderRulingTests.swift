@@ -154,22 +154,16 @@ final class FirstReaderRulingTests: XCTestCase {
             FirstReaderRuling.offersARuling(tagged, manifest: h.store.manifest))
     }
 
-    /// Both kinds her reports reach the queue as: a reader's report mints as
-    /// `.comment` and her letter's one question as `.query`. Nothing else does,
-    /// whatever it is signed with — a suggested change in her name is a rewrite
-    /// nobody asked her for, and answering it as doctrine would file an
-    /// instruction about it.
-    func test_onlyCommentsAndQueriesEverOfferIt() async throws {
+    /// The three kinds her findings reach the queue as: a reader's report
+    /// mints as `.comment`, her letter's one question as `.query`, and an
+    /// anchorless finding as `.craftNote`. A suggested change is the one kind
+    /// that is not — it is a rewrite nobody asked her for, and answering it as
+    /// a standing instruction would file doctrine about it.
+    func test_onlyHerThreeFindingKindsEverOfferIt() async throws {
         let h = try await makeHarness(prefix: "FRR-Kinds")
 
-        for kind in [AnnotationKind.comment, .query] {
-            let note = try await addHerNote(h, kind: kind)
-            XCTAssertTrue(
-                FirstReaderRuling.offersARuling(note, manifest: h.store.manifest),
-                "\(kind) in her name was not offered a ruling")
-        }
-        for kind in [AnnotationKind.craftNote, .suggestedChange] {
-            let impostor = Annotation(
+        for kind in [AnnotationKind.comment, .query, .craftNote] {
+            let note = Annotation(
                 id: "a-\(kind)", kind: kind, paragraphId: h.pid,
                 body: "b", suggestedText: nil, priorText: nil,
                 createdAt: Date(), createdBySession: nil,
@@ -177,33 +171,92 @@ final class FirstReaderRulingTests: XCTestCase {
                 isStale: false,
                 author: AnnotationAuthor(
                     sourceKind: .claude, displayName: Self.readerName))
-            XCTAssertFalse(
-                FirstReaderRuling.offersARuling(impostor, manifest: h.store.manifest),
-                "\(kind) was offered a ruling")
+            XCTAssertTrue(
+                FirstReaderRuling.offersARuling(note, manifest: h.store.manifest),
+                "\(kind) in her name was not offered a ruling")
         }
+        let impostor = Annotation(
+            id: "a-suggestion", kind: .suggestedChange, paragraphId: h.pid,
+            body: "b", suggestedText: "c", priorText: nil,
+            createdAt: Date(), createdBySession: nil,
+            status: .open, userResponse: nil, resolvedAt: nil,
+            isStale: false,
+            author: AnnotationAuthor(
+                sourceKind: .claude, displayName: Self.readerName))
+        XCTAssertFalse(
+            FirstReaderRuling.offersARuling(impostor, manifest: h.store.manifest),
+            "a suggested change was offered a ruling")
     }
 
-    /// **The known gap, pinned rather than left invisible.** An anchorless
+    /// **Her ANCHORLESS note is offered one too, and it may be the sharpest of
+    /// the three** (Controller Ruling, two loops P2 Task 5). An anchorless
     /// finding falls back to `.craftNote` whatever section raised it
-    /// (`CompilerNote.init(diagnostic:)`), so an observation of hers about the
-    /// piece as a whole draws no offer. The task's kind list is
-    /// `.comment`/`.query` and the predicate honours it; this test is what
-    /// turns red — deliberately — when someone widens it, so the decision is
-    /// made rather than drifted into.
-    func test_anAnchorlessNoteOfHersIsNotOfferedOneYet() async throws {
+    /// (`CompilerNote.init(diagnostic:)`), and an observation about the piece
+    /// as a whole — "I kept waiting for the sister to come back" — is exactly
+    /// what a standing instruction answers. Left out, her most rulable remark
+    /// would have had no door but Reply.
+    func test_herAnchorlessNoteIsOfferedARulingToo() async throws {
         let h = try await makeHarness(prefix: "FRR-Anchorless")
         let id = try await h.doc.addAnnotation(
             kind: .craftNote, paragraphId: nil,
-            body: "The middle of the book sags.",
+            body: "I kept waiting for the sister to come back.",
             author: AnnotationAuthor(
                 sourceKind: .claude, displayName: Self.readerName))
         let note = try XCTUnwrap(annotation(h, id), "the craft note did not project")
 
+        XCTAssertNil(note.paragraphId, "the note is not anchorless")
+        XCTAssertTrue(
+            FirstReaderRuling.offersARuling(note, manifest: h.store.manifest))
+        XCTAssertEqual(
+            RulingDestination.offered(for: note, manifest: h.store.manifest),
+            .firstReader(name: Self.readerName))
+    }
+
+    /// **The widening costs the exclusivity nothing**, which is what makes it
+    /// safe: `QueryRuling` offers over `.craftNote` as well, but only a
+    /// LANGUAGE-TAGGED one. The same kind, tagged, is an edition question and
+    /// never hers — even in her name.
+    func test_aTaggedCraftNoteIsStillTheEditionsAndNeverHers() async throws {
+        let h = try await makeHarness(prefix: "FRR-TaggedCraftNote")
+        let id = try await h.doc.addAnnotation(
+            kind: .craftNote, paragraphId: nil, body: "Register throughout?",
+            toolArgs: #"{"language":"fr"}"#,
+            author: AnnotationAuthor(
+                sourceKind: .claude, displayName: Self.readerName))
+        let tagged = try XCTUnwrap(annotation(h, id))
+
+        XCTAssertEqual(tagged.language, "fr", "the tag did not project")
         XCTAssertFalse(
-            FirstReaderRuling.offersARuling(note, manifest: h.store.manifest),
-            "an anchorless note of hers is now offered a ruling \u{2014} if that "
-            + "is the decision, this test says so and the doc comment on "
-            + "offersARuling moves with it")
+            FirstReaderRuling.offersARuling(tagged, manifest: h.store.manifest))
+        XCTAssertEqual(
+            RulingDestination.offered(for: tagged, manifest: h.store.manifest),
+            .editionBrief(language: "fr"))
+    }
+
+    /// The whole act over an anchorless note of hers, end to end: the
+    /// instruction in her statement, the reply on the thread. An offer that
+    /// drew a control the commit could not honour would be worse than no offer.
+    func test_anAnchorlessNoteOfHersCommitsLikeAnyOther() async throws {
+        let h = try await makeHarness(prefix: "FRR-AnchorlessCommit")
+        let id = try await h.doc.addAnnotation(
+            kind: .craftNote, paragraphId: nil,
+            body: "I kept waiting for the sister to come back.",
+            author: AnnotationAuthor(
+                sourceKind: .claude, displayName: Self.readerName))
+        let note = try XCTUnwrap(annotation(h, id))
+
+        let refusal = await FirstReaderRuling.commit(
+            "She has read the first two books \u{2014} nothing about Marnie is "
+            + "new to her.", answering: note,
+            in: h.doc, store: h.store, undoManager: nil)
+
+        XCTAssertNil(refusal, "the answer was refused: \(refusal ?? "")")
+        let text = try await statementText(h)
+        XCTAssertTrue(text.contains("nothing about Marnie is new to her."),
+                      "the writer's words are not in her statement:\n\(text)")
+        let settled = try XCTUnwrap(annotation(h, note.id))
+        XCTAssertEqual(settled.status, .accepted,
+                       "the note is still open after being answered")
     }
 
     /// A project that has named nobody offers nothing — there is no statement

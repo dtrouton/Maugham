@@ -86,22 +86,27 @@ enum FirstReaderRuling {
     ///   trimmed, because the manifest's side is trimmed on the way in and a
     ///   name that fails to match itself would silently withdraw the offer.
     ///
-    /// **Kind is asked as well**, on `QueryRuling.language(of:)`'s reasoning: a
-    /// reader's report mints as `.comment` and her letter's one question as
-    /// `.query`, and a predicate that trusted authorship alone would start
-    /// offering the affordance over a suggested change the day anything minted
-    /// one in her name — an answer filed as doctrine about a rewrite nobody
-    /// asked her for.
+    /// **Kind is asked as well**, on `QueryRuling.language(of:)`'s reasoning:
+    /// everything she raises is one of three kinds, and a predicate that
+    /// trusted authorship alone would start offering the affordance over a
+    /// suggested change the day anything minted one in her name — an answer
+    /// filed as a standing instruction about a rewrite nobody asked her for.
     ///
-    /// **`.craftNote` is deliberately OUT, and it is a live question rather
-    /// than a settled one.** An ANCHORLESS finding falls back to a craft note
-    /// whatever section raised it (`CompilerNote.init(diagnostic:)`), so an
-    /// observation of hers about the piece as a whole — arguably the most
-    /// rulable thing she says — draws no offer today. The task's kind list is
-    /// `.comment`/`.query` and this honours it rather than widening a spec'd
-    /// enumeration on its own; adding the case here and its arm to
-    /// `FirstReaderRulingTests.test_anAnchorlessNoteOfHersIsNotOfferedOneYet`
-    /// is the whole change if the answer is that it should be in.
+    /// The three: a reader's report mints as `.comment` and her letter's one
+    /// question as `.query`, while an ANCHORLESS finding falls back to
+    /// `.craftNote` whatever section raised it
+    /// (`CompilerNote.init(diagnostic:)`). **The anchorless one is in, and it
+    /// may be the sharpest of the three** (Controller Ruling, two loops P2
+    /// Task 5): *"I kept waiting for the sister to come back"* is an
+    /// observation about the piece as a whole, and what answers it is exactly a
+    /// standing instruction — *"she has read the first two books, so nothing
+    /// about Marnie is new to her"*. Excluding it would have left her most
+    /// rulable remark with no door but Reply.
+    ///
+    /// **A `.craftNote` costs the exclusivity nothing**, which is the reason it
+    /// can be here at all: `QueryRuling` also offers over that kind, but only a
+    /// LANGUAGE-TAGGED one, and the guard above has already refused anything
+    /// carrying a tag. The two offers part on `language`, never on kind.
     static func offersARuling(_ annotation: Annotation, manifest: ProjectManifest) -> Bool {
         guard annotation.status == .open,
               annotation.reviewPassId == nil,
@@ -109,11 +114,11 @@ enum FirstReaderRuling {
               let name = readerName(in: manifest)
         else { return false }
         switch annotation.kind {
-        case .comment, .query:
+        case .comment, .query, .craftNote:
             let author = (annotation.author?.displayName ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return !author.isEmpty && author == name
-        case .craftNote, .suggestedChange:
+        case .suggestedChange:
             return false
         }
     }
