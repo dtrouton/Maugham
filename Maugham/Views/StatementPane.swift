@@ -431,6 +431,28 @@ struct StatementPane: View {
         }
     }
 
+    /// The text a failed Adopt/Discard shows the writer: an error's own
+    /// `CustomStringConvertible.description` where it has one (every
+    /// `StatementProposalGate.Failure` case does), else `localizedDescription`
+    /// — the fallback an un-wrapped throw from `store.createStatement`,
+    /// `RulingPerformer.rule` or `proposals.discard` needs whenever its
+    /// concrete error type doesn't conform to `CustomStringConvertible` on
+    /// its own.
+    ///
+    /// **Cast through `Any`, not straight off the `any Error` the catch hands
+    /// us.** `(error as? CustomStringConvertible)` off `any Error` is
+    /// statically resolved by the compiler as always succeeding — a real
+    /// warning, but a false one: at runtime it returns nil for exactly the
+    /// non-conforming cases above, so the code was live, not dead. Going
+    /// through `Any` first keeps the same runtime behavior and drops the
+    /// (wrong) warning instead of the (needed) fallback.
+    static func userFacingMessage(_ error: any Error) -> String {
+        if let described = (error as Any) as? CustomStringConvertible {
+            return described.description
+        }
+        return error.localizedDescription
+    }
+
     /// The writer's Adopt. `StatementProposalGate` does the writing; this owns
     /// the busy flag, the sentence, and the one case the host cannot see for
     /// itself.
@@ -463,7 +485,7 @@ struct StatementPane: View {
                     hostGeneration += 1
                 }
             } catch {
-                proposalNotice = (error as CustomStringConvertible).description
+                proposalNotice = Self.userFacingMessage(error)
             }
             reloadProposal()
         }
@@ -476,7 +498,7 @@ struct StatementPane: View {
             try StatementProposalGate.discard(proposal.kind, store: store)
             proposalNotice = StatementProposalCopy.discardedLine
         } catch {
-            proposalNotice = (error as CustomStringConvertible).description
+            proposalNotice = Self.userFacingMessage(error)
         }
         reloadProposal()
     }
