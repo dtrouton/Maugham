@@ -169,7 +169,7 @@ Open Playlist → Author → a chapter that has a stage set in Review → ⌘R �
 3. **Tag.** The milestone is whole once P2 and P3 are smoked. No paired release is needed: `firstReaderName` and `Statement.Kind.firstReader` are additive and tolerated-missing, and the phone decodes them through shared Core. Suggested `v0.36.0`, Mac-only, after the smoke.
 4. Ridden minors from the reviews, if any of them bother him: dispositions are briefed to the first reader unfiltered, so prior coach and editor notes reach her carrying their craft vocabulary; switching reader re-embeds the declared world, because the briefing hash includes `lessons` and hers is nil; `LetterDosage` carries `judgesIntentDrift`, a reader fact living on a letter-dosage type (documented — a rename to a "reading's dose" type would be the honest shape); `try? createStatement` in Describe… is quiet on failure.
 
-### Consolidated smoke (P2 + P3, one pass)
+### Consolidated smoke (P2 + P3, one pass) — PASSED 2026-09-06 (after the Describe… hand-off fix caace2d0; one environmental find recorded in memory: a test gate run while the dev app is open unlinks its MCP socket, so checks fail "couldn't be read as notes" until the app is relaunched — fix owed: the test host must not bind the production socket path)
 
 Build the dev app from local `main`.
 
