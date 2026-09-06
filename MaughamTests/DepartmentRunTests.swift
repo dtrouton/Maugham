@@ -1917,6 +1917,10 @@ final class DepartmentRunTests: XCTestCase {
         /// without spawning anything and the round ends there — enough for the
         /// cases that ask only whether the click got through.
         let pipeline: TranslationPipeline
+        /// **Where this fixture's bridge configs go.** Inside the fixture's own
+        /// project, never `ClaudeCLISession.sessionConfigDirectory` — see
+        /// `test_theFixtureWritesItsBridgeConfigInsideItsOwnProject`.
+        let configDirectory: URL
     }
 
     /// **`makeProject`'s project, with a real translator loop wired to a spy
@@ -1964,6 +1968,21 @@ final class DepartmentRunTests: XCTestCase {
             })
         let runner = TranslatorSpyRunner()
         environment.makeRunner = { _, _ in runner }
+        // **The bridge config goes in this fixture's own project, not in the
+        // machine's shared `maugham-compiler` temp directory.** `production`
+        // writes there, `TranslatorOrchestrator.ensureRunner` calls it on the
+        // first run of a pair, and nothing removes the file unless the
+        // orchestrator is shut down — which no test here does. That is how 235
+        // orphaned `compiler-mcp-<UUID>.json` files reached Denver's temp root
+        // by 2026-09-06. The spy runner never reads the file; only its
+        // location matters.
+        let configDirectory = h.projectURL.appendingPathComponent(
+            ".maugham/test-bridge-configs", isDirectory: true)
+        environment.writeMCPConfig = {
+            try ClaudeCLISession.writeMCPConfig(
+                bridgeBinary: ClaudeCLISession.bridgeBinary,
+                socketPath: nil, to: configDirectory)
+        }
         translator.configure(environment: environment)
 
         pipeline.configure(environment: .production(
@@ -1975,7 +1994,38 @@ final class DepartmentRunTests: XCTestCase {
 
         return TranslatorFixture(projectURL: h.projectURL, projectStore: h.projectStore,
                                  documentStore: h.documentStore, translator: translator,
-                                 runner: runner, runLog: runLog, pipeline: pipeline)
+                                 runner: runner, runLog: runLog, pipeline: pipeline,
+                                 configDirectory: configDirectory)
+    }
+
+    /// **The fixture's runs write their bridge config inside their own
+    /// project.** `TranslatorOrchestrator.Environment.production` writes it
+    /// into `ClaudeCLISession.sessionConfigDirectory` — one shared directory
+    /// under the machine's temp root — and `ensureRunner` calls that on the
+    /// first run of every (document, language) pair. Only `retireSession()`
+    /// deletes the file, and it is reached from `shutdown()`/`detach()` alone,
+    /// neither of which any test here calls: `deinit` is nonisolated by design
+    /// and cannot reap. So every translator run this suite drove left a
+    /// `compiler-mcp-<UUID>.json` behind for the life of the machine, 235 of
+    /// them by 2026-09-06, in clusters whose timestamps matched gates rather
+    /// than the writer's own use.
+    ///
+    /// Pinned on the LOCATION rather than on the shared directory's contents:
+    /// seven gate workers share that directory, so a before/after count of it
+    /// would be a test whose answer another worker decides.
+    func test_theFixtureWritesItsBridgeConfigInsideItsOwnProject() async throws {
+        let fixture = try await makeTranslatorFixture(seedLanguage: "es")
+
+        XCTAssertTrue(
+            fixture.configDirectory.path.hasPrefix(fixture.projectURL.path),
+            "the config belongs to this fixture's project, which goes away with it; "
+            + "got \(fixture.configDirectory.path)")
+        XCTAssertFalse(
+            fixture.configDirectory.path.hasPrefix(
+                ClaudeCLISession.sessionConfigDirectory.path),
+            "nothing this suite writes may land in the machine's shared compiler "
+            + "temp directory — no test here shuts an orchestrator down, so nothing "
+            + "would ever remove it")
     }
 
     /// The real host over a `TranslatorFixture`'s project.

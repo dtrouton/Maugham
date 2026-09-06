@@ -710,6 +710,35 @@ session and leaves the orchestrator usable, because a writer who turns Claude
 off and on again must still have a working ⌘R; `detach()` additionally drops
 the environment and the store references.
 
+**The same contract owns a FILE, and that half leaked for months
+(2026-09-06).** Every session is spawned against a per-session
+`--mcp-config` written by `ClaudeCLISession.writeMCPConfig` into one shared
+directory under the machine's temp root (`sessionConfigDirectory`), and
+`retireSession()` — reached from `shutdown()`/`detach()` and from a model or
+pair change, and nowhere else — is what removes it. So the same nonisolated
+`deinit` that cannot reap a child cannot reap its config either: an
+orchestrator merely released leaves a `compiler-mcp-<UUID>.json` behind for the
+life of the machine. 235 of them had accumulated in Denver's temp root, in
+clusters whose timestamps matched test gates rather than the writer's own use.
+
+The origin was a TEST, and it is worth knowing which shape: `DepartmentRunTests`'
+translator fixture builds the real `TranslatorOrchestrator.Environment.production`
+and substitutes only `makeRunner`, so `writeMCPConfig` was still production's —
+writing into the shared directory — while no test in the suite ever shuts the
+orchestrator down. **A fixture over a `production` environment inherits every
+closure it does not replace, including the ones that touch machine-global
+state.** It now writes inside its own project
+(`test_theFixtureWritesItsBridgeConfigInsideItsOwnProject` pins the location,
+not the shared directory's contents — seven gate workers share that directory
+and a count of it is a test another worker decides).
+
+Beside that, `writeMCPConfig` sweeps its own directory of `compiler-mcp-*.json`
+older than a day (`StaleFileSweep`), for the orphans no fix at a call site can
+reach: a crashed `claude`, an app macOS killed. **The day's floor is the
+load-bearing decision rather than the deletion** — a warm session lives as long
+as the writer keeps typing, so anything shorter deletes the config a running
+process was spawned against.
+
 **Generations, not booleans.** Every teardown bumps `ClaudeCLISession`'s
 `generation`, and a callback from a retired process carries the generation it
 was installed with. Without it, a kill-and-respawn lets the dead process's EOF

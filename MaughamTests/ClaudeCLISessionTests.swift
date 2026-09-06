@@ -594,6 +594,51 @@ final class ClaudeCLISessionTests: XCTestCase {
             "the default socket wants no env override")
     }
 
+    /// **Writing a config sweeps yesterday's out of the same directory.**
+    ///
+    /// Every session's config is removed by the orchestrator that made it, on
+    /// `shutdown()`/`detach()` — and that is the only path. A `claude` that
+    /// crashed, an orchestrator released without a shutdown, an app macOS
+    /// killed: each leaves a file nothing will ever reclaim. Denver's temp root
+    /// held 235 of them by 2026-09-06.
+    ///
+    /// A day's floor is the load-bearing half. A warm compiler session lives as
+    /// long as the writer keeps typing, and seven gate workers share this
+    /// directory, so a sweep short enough to reach a live peer's config would
+    /// delete the file a running `claude -p` was spawned against — a worse
+    /// defect than the leak.
+    func test_writingAConfigSweepsYesterdaysOutOfTheSameDirectory() throws {
+        let bridge = URL(fileURLWithPath: "/Applications/Maugham.app/Contents/MacOS/maugham-mcp")
+        let fm = FileManager.default
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let stale = tempDir.appendingPathComponent("compiler-mcp-\(UUID().uuidString).json")
+        try Data("{}".utf8).write(to: stale, options: .atomic)
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-48 * 3600)],
+                             ofItemAtPath: stale.path)
+
+        let live = tempDir.appendingPathComponent("compiler-mcp-\(UUID().uuidString).json")
+        try Data("{}".utf8).write(to: live, options: .atomic)
+
+        let foreign = tempDir.appendingPathComponent("not-ours.json")
+        try Data("{}".utf8).write(to: foreign, options: .atomic)
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-500 * 3600)],
+                             ofItemAtPath: foreign.path)
+
+        let written = try ClaudeCLISession.writeMCPConfig(
+            bridgeBinary: bridge, socketPath: "/tmp/some.sock", to: tempDir)
+
+        XCTAssertFalse(fm.fileExists(atPath: stale.path),
+            "a config orphaned a day ago is the only thing that can be here")
+        XCTAssertTrue(fm.fileExists(atPath: live.path),
+            "a config written an instant ago belongs to a session that is running")
+        XCTAssertTrue(fm.fileExists(atPath: foreign.path),
+            "the sweep is bounded by name — another tool's temp file is not ours "
+            + "however old it is")
+        XCTAssertTrue(fm.fileExists(atPath: written.path),
+            "…and the config just written is obviously kept")
+    }
+
     /// Locating the CLI must not run on the main actor. The fallback shells out
     /// to a login shell that sources the writer's profile — on a real machine
     /// that is hundreds of milliseconds to seconds of frozen window, and it

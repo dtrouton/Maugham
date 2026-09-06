@@ -604,10 +604,27 @@ final class ClaudeCLISession: CompilerRunner {
         let data = try JSONSerialization.data(
             withJSONObject: root, options: [.sortedKeys])
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("compiler-mcp-\(UUID().uuidString).json")
+        // **Reap yesterday's orphans while we are here.** Every config is
+        // deleted by the orchestrator that made it, on `shutdown()`/`detach()`
+        // — and that is the only path, because `deinit` is nonisolated by
+        // design and cannot reap. A crashed `claude`, an orchestrator released
+        // without a shutdown, an app macOS killed: each leaves a file nothing
+        // will ever reclaim, and 235 had accumulated by 2026-09-06. A day's
+        // floor is the load-bearing half: a warm session lives as long as the
+        // writer keeps typing and seven gate workers share this directory, so
+        // anything shorter would delete the config a running process was
+        // spawned against.
+        StaleFileSweep.sweep(in: dir, prefix: configPrefix, suffix: configSuffix)
+        let url = dir.appendingPathComponent("\(configPrefix)\(UUID().uuidString)\(configSuffix)")
         try data.write(to: url, options: .atomic)
         return url
     }
+
+    /// The two halves of a session config's name, spelled once: the builder
+    /// above and the sweep beside it must agree, or the sweep reaps nothing
+    /// and says nothing about it.
+    static let configPrefix = "compiler-mcp-"
+    static let configSuffix = ".json"
 
     // MARK: - Reading the stream
 
