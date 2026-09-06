@@ -478,7 +478,7 @@ struct ProjectWindow: View {
             }
         }
         .onKeyWindowCommand(.maughamShowProjectSettings, window: window) { _ in
-            activeSheet = .projectSettings
+            openProjectSettings()
         }
         // **Translator's note** (⌘⌥C): the sheet opens on the paragraph
         // under the caret of the ACTIVE manuscript document; with no
@@ -3121,7 +3121,7 @@ struct ProjectWindow: View {
             // The Diagnostics header's "Define a first reader…" (two loops P2
             // Task 6) — the same one-line hand-off `InspectorView`'s "Project
             // Settings…" already gets from this file.
-            onOpenProjectSettings: { activeSheet = .projectSettings }
+            onOpenProjectSettings: openProjectSettings
         ) {
             researchOrSubject(store: store)
         }
@@ -3177,7 +3177,7 @@ struct ProjectWindow: View {
                     store: store,
                     selectedItemId: activeItemID,
                     metrics: metrics,
-                    onOpenProjectSettings: { activeSheet = .projectSettings })
+                    onOpenProjectSettings: openProjectSettings)
             }
         }
     }
@@ -3832,6 +3832,18 @@ struct ProjectWindow: View {
     /// second note arriving while the writer is already looking at the first
     /// leaves the subject unchanged, and a banner whose button does nothing is
     /// worse than no banner.
+    /// **The one place this sheet is opened.** Three controls ask for it — the
+    /// ⌘⇧, command, the Inspector's row and the Diagnostics header's *Define a
+    /// first reader…* — and each has to clear the pending hand-off, because a
+    /// Describe… press whose store writes were still in flight when the writer
+    /// escaped leaves the request standing over a sheet that is already gone.
+    /// Clearing on the way IN is what stops it firing at some later sheet's
+    /// dismissal.
+    private func openProjectSettings() {
+        describeFirstReaderRequested = false
+        activeSheet = .projectSettings
+    }
+
     /// Hand the writer to the first reader's statement, once Project Settings
     /// has actually closed — see `describeFirstReaderRequested` for why the
     /// post cannot happen while the sheet is up.

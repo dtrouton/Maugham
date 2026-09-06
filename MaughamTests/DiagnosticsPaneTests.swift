@@ -1217,8 +1217,17 @@ final class DiagnosticsPaneTests: XCTestCase {
 
         let window = try Self.source(of: "Views/ProjectWindow.swift")
         XCTAssertTrue(
-            window.contains("onOpenProjectSettings: { activeSheet = .projectSettings }"),
+            window.contains("onOpenProjectSettings: openProjectSettings"),
             "the window opens the sheet the define item asks for")
+        // …through the one door, which is also what clears a Describe… request
+        // the writer escaped out from under.
+        let open = try XCTUnwrap(
+            Self.declaration(named: "private func openProjectSettings() {", in: window))
+        XCTAssertTrue(open.contains("describeFirstReaderRequested = false"),
+                      "opening the sheet clears any stale hand-off. Got:\n\(open)")
+        XCTAssertEqual(
+            window.components(separatedBy: "activeSheet = .projectSettings").count - 1, 1,
+            "Project Settings is opened from exactly one place")
     }
 
     /// **The reader line is never a door to Review** (two loops P1 Task 7).
