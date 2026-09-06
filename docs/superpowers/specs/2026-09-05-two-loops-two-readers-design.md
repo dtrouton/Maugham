@@ -1,6 +1,6 @@
 # Two loops, two readers — the check and the round part ways
 
-**Date:** 2026-09-05 · **Status:** approved 2026-09-05; P1 built 2026-09-05 (branch `claude/two-loops-p1-2026-09-05`, [ADR 0031](../../adr/0031-the-persona-is-an-input-to-the-run.md)); P2 built 2026-09-06 (branch `claude/two-loops-p2-2026-09-05`); P3 unwritten
+**Date:** 2026-09-05 · **Status:** approved 2026-09-05; P1 built 2026-09-05 (branch `claude/two-loops-p1-2026-09-05`, [ADR 0031](../../adr/0031-the-persona-is-an-input-to-the-run.md)); P2 built 2026-09-06 (branch `claude/two-loops-p2-2026-09-05`); P3 built 2026-09-06 (branch `claude/two-loops-p3-2026-09-06`); **milestone COMPLETE**. Open carries: a Review surface for a round's conformance strains (they are recorded in the round slot and drawn nowhere — Denver rules between a Conformance part in the cockpit's letter disclosure, which the recommendation favours, and minting them into the queue); `retireSession()` on a kind change, one line in `CompilerOrchestrator.ensureRunner` if a round after a long check ever reads tired; and §8's exclusions, unchanged
 **Session:** "compiler / author / review split"
 
 *Brainstormed with Denver 2026-09-05, out of a code reading of the seam between

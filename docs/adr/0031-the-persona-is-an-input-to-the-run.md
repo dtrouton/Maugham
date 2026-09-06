@@ -208,7 +208,8 @@ censuses guard the shape of. This is CLAUDE.md's tripwire 34.
 - **Two triggers keep their menu titles for now.** The File menu still reads
   *Check Writing* and *Fresh Eyes* in both personas; the per-persona rename is
   P3's. Author's ⌘⇧R already runs the check verb cold, and the Diagnostics
-  header's **Reread** button is that verb under its own name.
+  header's **Reread** button is that verb under its own name. **Done 2026-09-06
+  (P3 Task 1)** — see the P3 amendment below.
 - **A round's conformance strains are recorded and drawn nowhere.** They land in
   the round slot; Author's report is the check's and narrates no rounds, and
   Review has no conformance surface yet. That is a named carry, not an oversight.
@@ -251,6 +252,21 @@ Five consequences of record:
   instead of the reading. Answering one of her notes files a dated standing
   instruction into her own statement, through `RulingPerformer` like every other
   writer-owned write.
+
+**Amended 2026-09-06 (P3 built).** The File menu now names the persona's own
+verb, and that is the last of this ADR's mode-error patches gone: `RunMenuTitles`
+(`Maugham/Models/RunMenuTitles.swift`) titles ⌘R *Check Writing* in Author, Plan
+and Publish against *Run Round* in Review, and ⌘⇧R *Reread* against *Fresh Eyes*,
+read off a `FocusedValues.persona` each window publishes from `PersonaModifier.body`
+— the modifier that owns the persona binding — and consumed by `FocusedRunButtons`
+in the File menu. Both switches are exhaustive over `Persona?` with no `default`,
+so a fifth persona has to be titled where somebody decides what its ⌘R is called
+rather than silently inheriting Author's words, and `nil` is Author's wording by
+`Persona.default` rather than as a fallback. Nothing about the trigger moved: the
+two items post the same two events, exactly once each, and the kind is still
+minted at the receiver from the persona, so this is the menu's vocabulary and
+never a second decision about which verb runs. `RunMenuTitlesTests` censuses the
+publish site, the one-post-per-event rule and the coverage of every persona.
 
 ## References
 

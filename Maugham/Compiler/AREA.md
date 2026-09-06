@@ -22,8 +22,8 @@ workflow half: notes, fates, the answer flow and the pane's organization —
 `docs/superpowers/specs/2026-08-17-one-loop-two-tempos-design.md`, which routes
 findings by nature and personifies each pass as a named editor — and
 `docs/superpowers/specs/2026-09-05-two-loops-two-readers-design.md`, which
-parts the check from the round (P1 built; P2's first reader and P3's polish
-unwritten).
+parts the check from the round (all three plans built, 2026-09-05/06: P1's two
+verbs, P2's first reader, P3's per-persona menu titles and skills).
 
 **The run speaks the v2 contract** (spec §5), M3-P3 added a fifth line to it
 and the editorial letter (P1 Task 2) a sixth: four line-delimited note sections
