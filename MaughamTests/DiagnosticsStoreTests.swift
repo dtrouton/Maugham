@@ -373,6 +373,38 @@ final class DiagnosticsStoreTests: XCTestCase {
         XCTAssertEqual(reopened.lastRun(docId: docId)?.truncatedReader, 2)
     }
 
+    /// **Who read a check survives the relaunch**, so a standing letter keeps
+    /// the name it was written under across a restart as well as across a
+    /// change to the roster (two loops P2 Task 4, P1's Ruling 10).
+    ///
+    /// The absent case is the same field's other half: a sidecar written
+    /// before the stamp existed decodes as nil, which every reader takes as
+    /// "ask the live reader" — the answer those records always got.
+    func test_roundTrip_carriesWhoReadTheCheck() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docWhoRead"
+
+        var run = makeRun()
+        run.readerName = "Tabitha"
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: run, diagnostics: [], docId: docId)
+
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: docId)
+        XCTAssertEqual(reopened.lastRun(docId: docId)?.readerName, "Tabitha")
+
+        // Control: a record that never carried one decodes as nil rather than
+        // throwing, which would read to the writer as a document never checked.
+        let plain = "docWhoReadAbsent"
+        DiagnosticsStore(projectRoot: project, device: device)
+            .replace(run: makeRun(), diagnostics: [], docId: plain)
+        let second = DiagnosticsStore(projectRoot: project, device: device)
+        second.load(docId: plain)
+        XCTAssertNotNil(second.lastRun(docId: plain), "the record must still load")
+        XCTAssertNil(second.lastRun(docId: plain)?.readerName)
+    }
+
     /// A sidecar written before the letter field existed decodes as nil
     /// rather than failing — same tolerated-missing discipline as every other
     /// optional field on `CompilerRun` (global constraint 2).

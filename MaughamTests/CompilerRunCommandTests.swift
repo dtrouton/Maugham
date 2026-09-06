@@ -3942,6 +3942,35 @@ final class CompilerRunCommandTests: XCTestCase {
                        "control: a check remembers its reader")
     }
 
+    /// **CONTROL: a round sends exactly what it sent before this task.** Its
+    /// frame is its lane's, through `passSection`, and it carries no reader
+    /// section at all — the reader is the CHECK's question, and a round that
+    /// picked one up would be the fusion this milestone split apart.
+    ///
+    /// Byte-level rather than by keyword: the whole `passSection` string must
+    /// be in the message, and every arm of `readerSection` must be absent, so a
+    /// frame that changed one word fails here.
+    func test_control_aRoundsSentMessageIsItsLanesAndCarriesNoReaderSection() throws {
+        let runner = SpyRunner()
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "copyedit")
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(1, on: runner)
+        settle()
+
+        let message = try XCTUnwrap(runner.sends.first?.message)
+        let lane = try XCTUnwrap(Self.lane("copyedit"))
+        XCTAssertTrue(message.contains(try XCTUnwrap(CompilerPrompt.passSection(lane))),
+                      "a round is framed by its lane's editor; got \(message)")
+        XCTAssertFalse(
+            message.contains(try XCTUnwrap(
+                CompilerPrompt.readerSection(.coach(ReviewPass.coachPreset)))),
+            "the seat reached a round; got \(message)")
+        XCTAssertFalse(message.contains(CompilerPrompt.firstReaderInstruction),
+                       "a first reader's instruction reached a round; got \(message)")
+    }
+
     /// **The preview and the finished run are signed by the same person.**
     /// `record` is one spelling and takes the name undefaulted, so the compiler
     /// forces both call sites to pass something — it cannot force them to pass
