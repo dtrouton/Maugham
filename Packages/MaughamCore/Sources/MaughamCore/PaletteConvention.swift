@@ -35,10 +35,10 @@ public enum PaletteLookup {
     /// `.asset`/`.document` children of the role-first palette group. Empty when
     /// no palette group exists. The single source of the "which research items
     /// are palette cards" filter, shared by the Mac
-    /// (`ProjectStore.paletteCardItems`), the phone Read tab
-    /// (`PaletteLoading.paletteCards`), and phone capture aim
-    /// (`PaletteAimPicker.cardTitles`) so the predicate can't drift across the
-    /// three surfaces (tripwire 19).
+    /// (`ProjectStore.paletteCardItems`) and the phone Read tab
+    /// (`PaletteLoading.paletteCards`), so the predicate can't drift across the
+    /// two surfaces (tripwire 19). A third caller — the phone's capture aim
+    /// picker — went with the palette aim in signed op log P1.
     public static func paletteCards(in research: [ResearchItem]) -> [ResearchItem] {
         guard let group = paletteGroup(in: research) else { return [] }
         return (group.children ?? []).filter { $0.type == .asset && $0.kind == .document }

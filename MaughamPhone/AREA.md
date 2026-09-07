@@ -31,15 +31,18 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
 
 - **`Storage/`** — the substrate. `DownloadCoordinator` (actor: per-URL state +
   dedup + 50 MB cold-launch budget + `observe` AsyncStream), `CoordinatedFileIO`
-  (`UbiquitousDownloader` conformer: download/poll + NSFileCoordinator read/write/
-  appendLine) over the `UbiquitousFileSystem` seam, `ProjectsRoot` (bookmark
+  (`UbiquitousDownloader` conformer: download/poll + NSFileCoordinator read/
+  write/ensureDirectory — **no append primitive**, since every JSONL append the
+  phone makes is chained through MaughamCore's `JSONLAppendStore`) over the
+  `UbiquitousFileSystem` seam, `ProjectsRoot` (bookmark
   lifecycle), `ProjectsBrowser` (id→manifest), `RecentsTracker`,
   `ColdLaunchDownloader`. The device id is NOT here: it is MaughamCore's
   `DeviceIdentity.current.deviceId`, the same one the Mac reads (signed op log
   P1) — never a `phone:<uuid>` of the phone's own.
 - **`Capture/`** — `InboxCaptureWriter` (text/photo/voice → `.maugham/inbox/`) +
-  the capture UI + project pill/picker + `PaletteAimPicker` (optional palette
-  aim row, see below). The writer takes a `DeviceIdentity`, not a device id
+  the capture UI + project pill/picker. **There is no capture aim** — the
+  palette-aim row and its picker went in signed op log P1 (see below). The
+  writer takes a `DeviceIdentity`, not a device id
   string — the id, the manifest's filename slug and the key that signs a
   capture's seal are one name, injectable for tests. **Manifest rows go
   through `JSONLAppendStore` with a `ChainPolicy`** (`docId:
@@ -68,7 +71,12 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   (`groupByChapter`/`allAnnotations`/`AnnotationsMode`+visibility filters, all
   table-tested), `AnnotationStatusChip`, and `ResolvedEntryDecision` (the
   race-vs-review decision — see tripwire below). `AnnotationWriter` (lifecycle
-  ops) + `AnnotationsBanner` unchanged. **`store.projects` holds ALL statuses**
+  ops) + `AnnotationsBanner`. **The writer takes a `DeviceIdentity`, not a
+  device id string, and appends through `JSONLAppendStore` with a `ChainPolicy`**
+  (`docId:` the annotation's own document, the project as `projectURL`) — the
+  same store and the same chain as the inbox manifest, sealed after every op
+  because a lifecycle decision is rare. An unsigned phone writes chained ops and
+  no seals, which is a state and not a failure. **`store.projects` holds ALL statuses**
   (mode-filtering is a pure view-layer step); the leaf/middle **re-slice from the
   store by id** so mid-stack counts stay fresh after a resolve.
   **Resolved-note review is read-only:** `AnnotationDetailView` gates on the
@@ -103,7 +111,7 @@ seams and the views are build-verified:
 
 The phone can now feed and read the Mac's sensory-palette wall (`docs/superpowers/specs/2026-07-10-palette-phone-and-role-identity-design.md`), built entirely on the already-decoded manifest plus one new eviction-safe image seam — no new download infrastructure.
 
-- **Capture aim row (`Capture/PaletteAimPicker.swift`).** An optional target on any capture: a palette subject (an existing card's title, or free text naming a new one) plus an optional sense chip (`sight`/`sound`/`smell`/`touch`/`taste`, plain strings — the phone carries them raw, the Mac maps to `PaletteCard.Sense` at promote time). **Aiming is never required** — the default is exactly today's plain inbox capture. `PaletteAimPicker.cardTitles(in:)` reads card titles straight off `manifest.research` via `PaletteLookup.paletteGroup` — **no file I/O**, since titles are already in the decoded tree. The aim threads through `InboxCaptureWriter` into `InboxEntry.paletteSubject`/`sense`.
+- **Capture aim row — REMOVED (signed op log P1, 2026-09-07).** `PaletteAimPicker` and the aim row on `CaptureView` are gone, and `InboxCaptureWriter`'s `paletteSubject:`/`sense:` parameters with them: a capture lands in the inbox plain, and the Mac aims it at a palette card when the writer promotes it. `InboxEntry.paletteSubject`/`sense` remain on the wire — decoded and tolerated, so rows already on disk keep their aim and the Mac's `InboxPane`/`PalettePickerSheet` still read it — but nothing writes them. `TripwirePhoneGrepTest.test_noPaletteAimWriterOnThePhone` keeps a writer from coming back.
 - **Read-tab Palette section (`Read/PaletteCardView.swift`, `Read/PaletteLoading.swift`).** `BinderView` gains a `Section("Palette")` (only shown when non-empty) listing the palette group's cards plus a project-scope Craft Intent row (per-piece intent display is deferred — the drill's per-piece context isn't uniform across project types yet). `PaletteLoading` is the pure logic half: `paletteCards(in:)` mirrors the Mac's `ProjectStore.paletteCardItems()`; `excludingPalette(_:research:statements:)` strips palette-group descendants — and the legacy craft-intent note *when that note is what the Craft Intent row shows* — out of the ordinary Research section so they don't show twice (the bug this task fixed — palette cards used to flatten into Research); `groupedNotes(_:)` is the phone-local twin of the Mac's `PaletteCardReadView.groupedNotes` (moved there from `PalettePane` when shell-finish stage 3a Task 6 deleted that view) — same grouping rule (one bucket per `PaletteCard.Sense.allCases` member, non-empty only, untagged last), reimplemented rather than shared because the logic sits in each platform's app target (`Maugham`/`MaughamPhone`), not MaughamCore, and those two targets never compile into the same test binary (macOS+AppKit vs iOS Simulator destinations) — tripwire 19 discipline: shared shape, separately-owned code. **Correction (2026-07-13): this is not actually parity-tested.** What exists is `PaletteCardReadViewTests.test_groupedNotes_ordersTaggedBySenseThenUntagged` (MaughamTests) and `PaletteLoadingTests.test_groupedNotes_*` (MaughamPhoneTests), each hand-typing its own input/expected-output pairs and asserting independently — both surfaces are tested against the same *intended* ordering, but no test proves the two implementations agree, so a drift in one side's rule would not fail the other side's suite. A genuine parity test would need `groupedNotes` promoted into MaughamCore as a real Tier-1 choke-point (a `PaletteLookup`-shaped fix, not a test-only one) — that's a production-code change, filed as a known gap rather than done here. Card detail renders swatches, sense-grouped notes, freeform body, and images. Row icons stay generic (`ReadIcons.paletteRowSymbol`) because a card's `kind` lives inside the file, not the manifest — a per-row kind icon would force a per-row parse (tripwire 4); kind-specific icons only appear in card detail, where the file is already parsed.
 - **`PhoneImageLoader` (`Read/PhoneImageLoader.swift`).** The phone's first image-rendering path — the Read tab rendered zero images before this. `PhoneImageLoader.load(_:downloads:io:)` is `downloads.ensureDownloaded(url)` then `io.coordinatedRead(at:)` then `UIImage(data:)`: the same two-step iOS tripwire-6 sequence every phone read follows, just with a decode step on the end. Eviction-tolerant by contract — a thrown error or nil image means the caller shows a placeholder, never an error screen, because a card's text must render even when an image can't.
 - **Strictly read-only.** No card editing on the phone: cards are plain files, not op-logged, and concurrent phone/Mac writes through iCloud would be conflict-twin territory (tripwire 17's cousin). Phone card editing is a future op-logging bet.

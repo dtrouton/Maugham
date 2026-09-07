@@ -490,6 +490,80 @@ final class TripwirePhoneGrepTest: XCTestCase {
         XCTAssertTrue(offenders.contains(where: { $0.contains("let fallback") }))
     }
 
+    // MARK: - The palette aim has no writer on the phone (signed op log P1)
+
+    /// The phone's capture aim picker was the ONE thing that ever stamped
+    /// `InboxEntry.paletteSubject`/`sense`, and it is gone: a capture lands in
+    /// the inbox plain, and the Mac aims it at a palette card when the writer
+    /// promotes it. The two fields survive on the wire because rows already on
+    /// disk carry them — decoded, tolerated, written by nobody.
+    ///
+    /// A census rather than a comment, because the removal is invisible: a
+    /// re-added `paletteSubject:` argument or a new `PaletteAim` value would
+    /// compile, pass every test, and quietly give the phone a second opinion
+    /// about which card a note belongs to.
+    func test_noPaletteAimWriterOnThePhone() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+        let offenders = try Self.paletteAimOffenders(in: sourceDir)
+        XCTAssertTrue(offenders.isEmpty,
+                      "A phone production file writes a palette aim. The aim "
+                      + "picker was removed in signed op log P1; a capture is "
+                      + "aimed on the Mac at promote time. Offenders:\n"
+                      + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the census FIRES on a planted writer and a planted
+    /// `PaletteAim` value, and lets prose that merely NAMES them through.
+    func test_paletteAimCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-aim-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // Prose may say paletteSubject: and PaletteAim — allowed.
+        /// The aim picker wrote paletteSubject: and held a PaletteAim.
+        let plain = try await writer.writeText(text)
+        let aimed = try await writer.writeText(text, paletteSubject: aim.subject)
+        var aim: PaletteAim?
+        """.write(to: tmp.appendingPathComponent("BadAim.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try Self.paletteAimOffenders(in: tmp)
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check: the two planted uses should be caught and neither "
+            + "comment. Caught:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let aimed") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("var aim") }))
+    }
+
+    /// SHARED by the palette-aim census and its self-check.
+    private static func paletteAimOffenders(in dir: URL) throws -> [String] {
+        let patterns = ["paletteSubject:", "PaletteAim"]
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (index, line) in text.split(separator: "\n",
+                                            omittingEmptySubsequences: false).enumerated() {
+                let lineStr = String(line)
+                let trimmed = lineStr.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { continue }
+                for pattern in patterns where lineStr.contains(pattern) {
+                    offenders.append("\(url.lastPathComponent):\(index + 1): " + trimmed)
+                    break
+                }
+            }
+        }
+        return offenders
+    }
+
     /// SHARED by the census and its self-check — one place to widen the shape.
     /// Prose may name a host name or a retired id spelling; code may not use
     /// one.

@@ -91,9 +91,7 @@ struct InboxCaptureWriter {
         inlineText: String? = nil,
         transcript: String? = nil,
         transcriptionState: InboxEntry.TranscriptionState = .none,
-        title: String? = nil,
-        paletteSubject: String? = nil,
-        sense: String? = nil
+        title: String? = nil
     ) -> InboxEntry {
         let createdAt = now()
         let writtenAt = max(createdAt, createdAt.addingTimeInterval(0.001))
@@ -109,9 +107,14 @@ struct InboxCaptureWriter {
             transcriptionState: transcriptionState,
             title: title,
             status: .new,
-            resolvedAt: nil,
-            paletteSubject: paletteSubject,
-            sense: sense
+            resolvedAt: nil
+            // No palette aim. It went with the phone's aim picker (signed op
+            // log P1), and the two fields are not named here at all — both
+            // default to nil, so a capture this writer lands carries none, and
+            // `TripwirePhoneGrepTest.test_noPaletteAimWriterOnThePhone` can say
+            // there is NO writer on the phone rather than one that happens to
+            // pass nil. The fields stay on `InboxEntry` for rows already on
+            // disk, which the Mac's Inbox pane still reads.
         )
     }
 
@@ -121,11 +124,9 @@ struct InboxCaptureWriter {
     @discardableResult
     func writeText(
         _ text: String,
-        title: String? = nil,
-        paletteSubject: String? = nil,
-        sense: String? = nil
+        title: String? = nil
     ) async throws -> InboxEntry {
-        let entry = buildEntry(kind: .text, inlineText: text, title: title, paletteSubject: paletteSubject, sense: sense)
+        let entry = buildEntry(kind: .text, inlineText: text, title: title)
         try await appendManifest(entry)
         return entry
     }
@@ -137,11 +138,9 @@ struct InboxCaptureWriter {
     func writeImage(
         _ data: Data,
         ext: String,
-        title: String? = nil,
-        paletteSubject: String? = nil,
-        sense: String? = nil
+        title: String? = nil
     ) async throws -> InboxEntry {
-        let entry = buildEntry(kind: .image, title: title, paletteSubject: paletteSubject, sense: sense)
+        let entry = buildEntry(kind: .image, title: title)
         let assetName = "\(entry.id).\(ext)"
         try io.ensureDirectory(at: imagesDir)
         let assetURL = imagesDir.appendingPathComponent(assetName)
@@ -168,17 +167,13 @@ struct InboxCaptureWriter {
     func writeAudio(
         from tempURL: URL,
         transcriptDraft: String?,
-        title: String? = nil,
-        paletteSubject: String? = nil,
-        sense: String? = nil
+        title: String? = nil
     ) async throws -> InboxEntry {
         let entry = buildEntry(
             kind: .audio,
             transcript: transcriptDraft,
             transcriptionState: transcriptDraft == nil ? .none : .onDeviceDraft,
-            title: title,
-            paletteSubject: paletteSubject,
-            sense: sense
+            title: title
         )
         let assetName = "\(entry.id).m4a"
         try io.ensureDirectory(at: audioDir)

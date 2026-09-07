@@ -38,7 +38,6 @@ struct AnnotationDetailView: View {
     /// from a resolved row in All mode). Drives the read-only review branch and
     /// keeps `rederive()` from mistaking a pure review for the cross-device race.
     let openedResolved: Bool
-    var io: CoordinatedFileIO = .live
     /// Called after THIS view resolves the annotation (accept/reject/archive), so
     /// the list can reload and drop the now-resolved item from the open set —
     /// the visible "handled" signal. Default no-op for previews/tests.
@@ -82,7 +81,6 @@ struct AnnotationDetailView: View {
         projectURL: URL,
         docId: String,
         recents: RecentsTracker,
-        io: CoordinatedFileIO = .live,
         onResolved: @escaping () -> Void = {}
     ) {
         self.annotation = annotation
@@ -90,7 +88,6 @@ struct AnnotationDetailView: View {
         self.projectURL = projectURL
         self.docId = docId
         self.recents = recents
-        self.io = io
         self.onResolved = onResolved
         _current = State(initialValue: annotation)
         self.openedResolved = (annotation.status != .open)
@@ -402,8 +399,6 @@ struct AnnotationDetailView: View {
         AnnotationWriter(
             projectRoot: projectURL,
             docId: docId,
-            deviceId: DeviceIdentity.current.deviceId,
-            io: io,
             appVersion: appVersion,
             osVersion: "iOS " + UIDevice.current.systemVersion
         )

@@ -12,8 +12,6 @@ import MaughamCore
 /// still RUNS in the simulator with library-only.
 struct PhotoCaptureSheet: View {
     let writer: InboxCaptureWriter
-    /// The current palette aim (nil = plain inbox), threaded into the write.
-    var aim: PaletteAim?
     let onCommit: () -> Void
 
     @State private var libraryItem: PhotosPickerItem?
@@ -115,7 +113,7 @@ struct PhotoCaptureSheet: View {
     private func save(data: Data, ext: String) async {
         isSaving = true
         do {
-            try await writer.writeImage(data, ext: ext, paletteSubject: aim?.subject, sense: aim?.sense)
+            try await writer.writeImage(data, ext: ext)
             onCommit()
             dismiss()
         } catch {

@@ -16,20 +16,34 @@ import MaughamCore
 ///
 /// Per-device partitioning (ADR 0012): the phone only ever appends to its OWN
 /// stream `.maugham/ops/<docId>.<deviceSlug>.jsonl` (where `docId` is already the
-/// full `doc-<hex>` or `scene-<hex>` form per ADR 0008); the Mac globs siblings and merges by `opId`. Each op is encoded with `JSONLAppendStore<Op>.dateEncoding`
-/// (ISO8601-with-fractional-seconds) so the Mac decodes the bytes losslessly, and
-/// appended through `CoordinatedFileIO` — the same `NSFileCoordinator` cooperation
-/// the inbox writer uses (`InboxCaptureWriter`).
+/// full `doc-<hex>` or `scene-<hex>` form per ADR 0008); the Mac globs siblings
+/// and merges by `opId`.
+///
+/// Every op goes through `JSONLAppendStore<Op>` with a `ChainPolicy` — the same
+/// store the Mac writes with, and the same one the phone's `InboxCaptureWriter`
+/// uses for its manifest. So the store, not this writer, owns the encoding (the
+/// bytes the phone writes are by construction the bytes the Mac reads), the op
+/// links to the head this phone verified, a run of lines the phone did not write
+/// is set aside before anything is appended after them, and a seal signs each op
+/// on the spot. A lifecycle op is rare — an accept, a reject, an archive — so one
+/// enclave signature each is a cost nobody feels, and no decision ever sits in
+/// the tail merely chained. A phone with no key writes chained lines and no
+/// seals, and reports nothing wrong: being unsigned is a state, not a failure
+/// (spec §4.1).
+///
+/// `@MainActor` because `JSONLAppendStore` is, and every caller
+/// (`AnnotationDetailView`) already is.
+@MainActor
 struct AnnotationWriter {
     let projectRoot: URL
     /// The annotation's document id — the full `doc-<hex>` or `scene-<hex>` form
     /// per ADR 0008 (same string the creation op carries in `op.docId`). The op-log file is `<docId>.<slug>.jsonl`.
     let docId: String
-    /// This install's own id — the prefix of its key fingerprint
-    /// (`DeviceIdentity.current.deviceId`, MaughamCore), the same string the
-    /// Mac writes. Also drives the device slug.
-    let deviceId: String
-    var io: CoordinatedFileIO = .live
+    /// This phone, as the chain names it: the key that signs an op's seal, and
+    /// the id every op's `device` field and the stream's own filename are
+    /// derived from. Injectable so a test can hold a signing key on a
+    /// simulator, which has no enclave of its own.
+    var identity: DeviceIdentity = .current
     /// e.g. `CFBundleShortVersionString` — forensic only; the deriver ignores it.
     var appVersion: String
     /// e.g. "iOS 17.4" — forensic only.
@@ -47,6 +61,12 @@ struct AnnotationWriter {
     /// loudly; the throws-test flips it off to exercise the thrown error without
     /// aborting the test process.
     var assertOnMalformed: Bool = true
+
+    /// The op's `device`, and the slug its stream is named for. Derived from
+    /// the identity rather than passed beside it: two spellings of this phone's
+    /// name is one rename away from an op filed under a device whose key never
+    /// signed it.
+    var deviceId: String { identity.deviceId }
 
     /// Thrown when an op can't be built faithfully. Surfaced to the caller (F.5's
     /// action handler) so the user sees an alert rather than a phantom accept.
@@ -96,7 +116,7 @@ struct AnnotationWriter {
     private var opLogURL: URL {
         OpLogStore.opLogFileURL(
             forDocId: docId,
-            deviceSlug: DeviceSlug.make(from: deviceId),
+            deviceSlug: identity.slug,
             in: projectRoot
         )
     }
@@ -303,23 +323,22 @@ struct AnnotationWriter {
             for: annotation, acceptOp: acceptOp, currentParagraph: currentParagraph))
     }
 
-    /// Encode + coordinated-append one op to this device's op-log stream.
-    /// `coordinatedAppendLine` creates intermediate dirs + the file on first use,
-    /// so this is the single coordination site for the whole append (no separate
-    /// `ensureDirectory` pass — that would run a redundant second coordination).
+    /// Append one op as a chained JSONL line to this device's op-log stream,
+    /// then seal it. The store creates intermediate directories and the file
+    /// itself on first use, and it — not this writer — owns the encoding, so
+    /// the bytes the phone writes are by construction the bytes the Mac reads.
+    ///
+    /// The seal is per op, for the reason the type comment gives: the phone's
+    /// ops are rare lifecycle decisions, not a keystroke stream.
     private func append(_ op: Op) async throws -> Op {
-        let line = try encode(op)
-        try io.coordinatedAppendLine(line, to: opLogURL)
+        let store = JSONLAppendStore<Op>(
+            fileURL: opLogURL,
+            chain: ChainPolicy(
+                identity: identity, state: .shared,
+                docId: docId, projectURL: projectRoot))
+        try await store.append(op)
+        try await store.appendSeal()
         return op
-    }
-
-    /// Encode with the Mac reader's exact date strategy so the bytes decode
-    /// losslessly through `JSONLAppendStore<Op>` on the Mac.
-    private func encode(_ op: Op) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
-        encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(op)
     }
 }
 

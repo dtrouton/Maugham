@@ -117,22 +117,12 @@ final class InboxCaptureWriterTests: XCTestCase {
         XCTAssertEqual(writtenAt.timeIntervalSince(fixed), 0.001, accuracy: 0.0001)
     }
 
-    func test_writeText_withPaletteAim_roundTripsThroughMacReader() async throws {
-        let written = try await makeWriter().writeText(
-            "damp plaster and old smoke",
-            title: "A note",
-            paletteSubject: "The Flat",
-            sense: "smell")
-
-        let entries = try await loadEntries()
-        let e = try XCTUnwrap(entries.first)
-        XCTAssertEqual(e.id, written.id)
-        XCTAssertEqual(e.paletteSubject, "The Flat")
-        XCTAssertEqual(e.sense, "smell")
-    }
-
-    func test_writeText_withoutPaletteAim_roundTripsWithNils() async throws {
-        let written = try await makeWriter().writeText("no aim here")
+    /// The phone's aim picker is gone (signed op log P1, task 8), so the writer
+    /// has no way to stamp a palette aim and never does. The two fields survive
+    /// on `InboxEntry` for rows already on disk — this pins that a NEW row
+    /// carries neither.
+    func test_theWriterNeverStampsAPaletteAim() async throws {
+        let written = try await makeWriter().writeText("no aim here", title: "A note")
 
         let entries = try await loadEntries()
         let e = try XCTUnwrap(entries.first)

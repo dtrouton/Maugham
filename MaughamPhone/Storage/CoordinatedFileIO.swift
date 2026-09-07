@@ -44,6 +44,11 @@ struct CoordinatedFileIO: UbiquitousDownloader, Sendable {
     // registers no `NSFilePresenter` in v1, so these are plain coordinate-read /
     // coordinate-write calls (no presenter argument).
     //
+    // There is no append primitive here. Every JSONL append the phone makes —
+    // the inbox manifest, the annotation op log — is CHAINED, and the chained
+    // append is `JSONLAppendStore`'s (MaughamCore), shared with the Mac. A
+    // second, unchained appender would be a way to write a line no seal covers.
+    //
     // These methods are eviction-AGNOSTIC: they assume the file is already local.
     // Faulting an evicted iCloud file in is `DownloadCoordinator`'s job — callers
     // `ensureDownloaded` first, *then* `coordinatedRead`.
@@ -91,50 +96,6 @@ struct CoordinatedFileIO: UbiquitousDownloader, Sendable {
         coordinator.coordinate(writingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
             do {
                 try body(coordinatedURL)
-            } catch {
-                accessorError = error
-            }
-        }
-
-        if let coordinationError { throw coordinationError }
-        if let accessorError { throw accessorError }
-    }
-
-    /// Coordinated append of a single record line to a JSONL file, creating the
-    /// file + intermediate directories if absent. A trailing "\n" is added unless
-    /// `line` already ends in one. This is the inbox / op-log append primitive the
-    /// phone writers use.
-    ///
-    /// The whole append happens inside one write coordination so concurrent
-    /// appenders (and the Mac's coordinated writes) serialize rather than tearing
-    /// each other's records.
-    func coordinatedAppendLine(_ line: Data, to url: URL) throws {
-        let coordinator = NSFileCoordinator()
-        var coordinationError: NSError?
-        var accessorError: Swift.Error?
-
-        coordinator.coordinate(writingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
-            do {
-                let fm = FileManager.default
-                // Ensure parent dir exists (first capture for a fresh project).
-                let parent = coordinatedURL.deletingLastPathComponent()
-                if !fm.fileExists(atPath: parent.path) {
-                    try fm.createDirectory(at: parent, withIntermediateDirectories: true)
-                }
-                // Create the file if absent so FileHandle(forWritingTo:) can open it.
-                if !fm.fileExists(atPath: coordinatedURL.path) {
-                    fm.createFile(atPath: coordinatedURL.path, contents: nil)
-                }
-
-                let handle = try FileHandle(forWritingTo: coordinatedURL)
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                try handle.write(contentsOf: line)
-                // Newline-terminate so each record is its own line; don't double up
-                // if the caller already supplied the terminator.
-                if line.last != UInt8(ascii: "\n") {
-                    try handle.write(contentsOf: Data([UInt8(ascii: "\n")]))
-                }
             } catch {
                 accessorError = error
             }

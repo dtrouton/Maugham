@@ -1,5 +1,5 @@
 import XCTest
-import MaughamCore
+@testable import MaughamCore
 @testable import MaughamPhone
 
 /// Integration coverage for the phone annotation-review round-trip (spec §7.2):
@@ -20,6 +20,11 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
     }
 
     private let docId = "doc-0f677d7e"
+
+    /// A software signing identity: the simulator may hold an enclave key, but
+    /// the seal half must be assertable either way, and the phone's own writes
+    /// must be reproducible. Minted per test.
+    private lazy var identity: DeviceIdentity = .softwareForTesting()
 
     /// A creation op as the Mac would have written it: a `claude_comment` whose
     /// change carries the paragraph anchor + prior snapshot.
@@ -50,7 +55,7 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
         XCTAssertEqual(annotation.status, .open)
 
         let writer = AnnotationWriter(
-            projectRoot: tmp, docId: docId, deviceId: "phone:TEST",
+            projectRoot: tmp, docId: docId, identity: identity,
             appVersion: "0.1.0", osVersion: "iOS 17.4")
         try await writer.reject(annotation, reason: "Works as-is.")
 
@@ -65,7 +70,61 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
         // The phone's reject op landed in its OWN per-device file.
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: opsDir.appendingPathComponent(
-                "\(docId).\(DeviceSlug.make(from: "phone:TEST").raw).jsonl").path))
+                "\(docId).\(identity.slug.raw).jsonl").path))
+    }
+
+    /// Signed op log P1, task 8: the Mac's own reader, over the phone's own
+    /// file. The phone's ops are chained and sealed by a key the Mac does not
+    /// hold, so the READ classifies them `unsignedHistory` — a foreign seal is
+    /// history, not a refusal, and P1 has no registry to make it anything else
+    /// — and applies them anyway. That "applied anyway" is the whole load-
+    /// bearing claim: a phone accept that the Mac's read set aside would be a
+    /// decision the writer made and never saw again.
+    @MainActor
+    func test_theMacReadAppliesThePhonesSealedOpsAsUnsignedHistory() async throws {
+        let opsDir = tmp.appendingPathComponent(".maugham/ops")
+        try FileManager.default.createDirectory(at: opsDir, withIntermediateDirectories: true)
+        let macStore = JSONLAppendStore<Op>(
+            fileURL: opsDir.appendingPathComponent("\(docId).mac.jsonl"))
+        try await macStore.append(macComment())
+
+        let opsBefore = try await OpLogStore(projectURL: tmp).load(docId: docId)
+        let annotation = try XCTUnwrap(AnnotationLoading.openAnnotations(ops: opsBefore).first)
+        let writer = AnnotationWriter(
+            projectRoot: tmp, docId: docId, identity: identity,
+            appVersion: "0.1.0", osVersion: "iOS 17.4")
+        let rejected = try await writer.reject(annotation, reason: "Works as-is.")
+
+        // The phone's file, as bytes: a chained op and a seal that holds
+        // together under the key that wrote it.
+        let phoneURL = opsDir.appendingPathComponent("\(docId).\(identity.slug.raw).jsonl")
+        let lines = try Data(contentsOf: phoneURL)
+            .split(separator: 0x0A, omittingEmptySubsequences: false)
+            .filter { !$0.isEmpty }.map { Data($0) }
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertEqual(OpLogChain.prev(ofLine: lines[0]) ?? nil, OpLogChain.genesis)
+        let seal = try XCTUnwrap(OpLogChain.Seal.parse(lines[1]))
+        XCTAssertTrue(seal.verifies())
+        XCTAssertEqual(seal.head, OpLogChain.lineHash(lines[0]))
+
+        // The Mac's read, over both files. `DeviceIdentity.current` is not the
+        // key that sealed the phone's file, so the phone's two lines are
+        // history — and both the op and the seal line are counted, because the
+        // account is over LINES.
+        let read = try await OpLogStore(projectURL: tmp).loadDiagnosed(docId: docId)
+        XCTAssertTrue(read.ops.contains { $0.opId == rejected.opId },
+                      "the phone's reject must be applied, not set aside")
+        XCTAssertEqual(read.provenance.quarantinedLines, 0)
+        let phoneFile = try XCTUnwrap(
+            read.provenance.files.first { $0.name == phoneURL.lastPathComponent })
+        XCTAssertEqual(phoneFile.unsignedHistory, 2,
+                       "the op line and the seal that settled it")
+        XCTAssertEqual(phoneFile.quarantined, 0)
+
+        // And it derives to the same place the merged read did before.
+        let paragraphs = Deriver.derive(ops: read.ops).paragraphs
+        let derived = AnnotationDeriver.derive(ops: read.ops, paragraphs: paragraphs)
+        XCTAssertEqual(derived.first { $0.id == annotation.id }?.status, .rejected)
     }
 
     /// Task 8 (annotation-undo-suggestion-grain, schema v2): `claudeAcceptRevert`
