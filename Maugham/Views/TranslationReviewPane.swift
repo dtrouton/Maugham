@@ -693,7 +693,7 @@ struct TranslationReviewPane: View {
     /// delete-and-recreate spirit applies.
     private func purgeOrphans(_ ids: [String]) {
         guard let language = control.translationLanguage else { return }
-        let deviceSlug = DeviceSlug.make(from: MacDeviceID.current)
+        let deviceSlug = DeviceIdentity.current.slug
         do {
             try TranslationReviewPaneLogic.purgeOrphans(
                 ids, docId: document.docId, language: language,

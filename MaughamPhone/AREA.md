@@ -33,8 +33,10 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   dedup + 50 MB cold-launch budget + `observe` AsyncStream), `CoordinatedFileIO`
   (`UbiquitousDownloader` conformer: download/poll + NSFileCoordinator read/write/
   appendLine) over the `UbiquitousFileSystem` seam, `ProjectsRoot` (bookmark
-  lifecycle), `ProjectsBrowser` (id→manifest), `RecentsTracker`, `PhoneDeviceID`,
-  `ColdLaunchDownloader`.
+  lifecycle), `ProjectsBrowser` (id→manifest), `RecentsTracker`,
+  `ColdLaunchDownloader`. The device id is NOT here: it is MaughamCore's
+  `DeviceIdentity.current.deviceId`, the same one the Mac reads (signed op log
+  P1) — never a `phone:<uuid>` of the phone's own.
 - **`Capture/`** — `InboxCaptureWriter` (text/photo/voice → `.maugham/inbox/`) +
   the capture UI + project pill/picker + `PaletteAimPicker` (optional palette
   aim row, see below).

@@ -300,7 +300,7 @@ public final class ProjectStore {
     /// ops live in a separate log anyway, so we mint our own per-instance.
     /// `@ObservationIgnored` because these are computed-once internal
     /// identifiers, never observed by SwiftUI.
-    @ObservationIgnored internal var projectOpDevice: String = MacDeviceID.current
+    @ObservationIgnored internal var projectOpDevice: String = DeviceIdentity.current.deviceId
     @ObservationIgnored internal var projectOpSession: String = UUID().uuidString
 
     /// Handle to the async op-log append triggered by the last project-task

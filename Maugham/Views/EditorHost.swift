@@ -164,10 +164,12 @@ struct EditorHost: View {
     /// instances. Computed once via a lazy static.
     private static let sessionId: String = UUID().uuidString
 
-    /// Device id — best-effort stable across launches. `hostName` is fine
-    /// for single-user / single-Mac use; multi-device sync via iCloud will
-    /// rely on the same value per machine.
-    private static let deviceId: String = MacDeviceID.current
+    /// Device id — the prefix of this device's key fingerprint, stable across
+    /// launches because the key itself is persisted (`DeviceIdentity`). Read
+    /// through a lazy static so the per-keystroke path never touches the disk,
+    /// and never from the host name: two Macs can share a name, and then they
+    /// share a per-device op-log file.
+    private static let deviceId: String = DeviceIdentity.current.deviceId
 
     var body: some View {
         // Snapshot the environment undo manager before the EditorSurface init

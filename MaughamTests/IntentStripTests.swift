@@ -333,7 +333,7 @@ final class IntentStripTests: XCTestCase {
 
         let document = try await Document.load(
             url: url.appendingPathComponent(statement.path),
-            device: MacDeviceID.current, session: "strip-test", presenter: nil)
+            device: DeviceIdentity.current.deviceId, session: "strip-test", presenter: nil)
         store.noteStatementDocumentOpened(document, id: statement.id)
         defer {
             store.forgetStatementDocument(id: statement.id)
@@ -523,7 +523,7 @@ final class IntentStripTests: XCTestCase {
             kind: .intent, scope: .document(chapter.id))
         let document = try await Document.load(
             url: url.appendingPathComponent(statement.path),
-            device: MacDeviceID.current, session: "strip-test", presenter: nil)
+            device: DeviceIdentity.current.deviceId, session: "strip-test", presenter: nil)
         store.noteStatementDocumentOpened(document, id: statement.id)
         defer {
             store.forgetStatementDocument(id: statement.id)

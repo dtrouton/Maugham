@@ -66,7 +66,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
 
         let summaries = Box<[TranslatorOrchestrator.RunSummary]>([])
         let bible = BibleStore(
-            projectRoot: root, device: DeviceSlug.make(from: MacDeviceID.current))
+            projectRoot: root, device: DeviceIdentity.current.slug)
         let environment = TranslatorOrchestrator.Environment.production(
             store: projectStore,
             documentStore: documentStore,
@@ -450,7 +450,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
                 sourceHash: TranslationHash.hash(harness.doc.paragraphs[ids[0]] ?? ""),
                 verbatim: false),
             forDocId: harness.doc.docId,
-            deviceSlug: DeviceSlug.make(from: MacDeviceID.current),
+            deviceSlug: DeviceIdentity.current.slug,
             in: harness.projectURL)
         try await TranslationStore.append(
             TranslationRecord(
@@ -458,7 +458,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
                 sourceHash: TranslationHash.hash("something else entirely"),
                 verbatim: false),
             forDocId: harness.doc.docId,
-            deviceSlug: DeviceSlug.make(from: MacDeviceID.current),
+            deviceSlug: DeviceIdentity.current.slug,
             in: harness.projectURL)
 
         _ = try await harness.environment.translatorIdentity("es")
@@ -495,7 +495,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
                     sourceHash: TranslationHash.hash(harness.doc.paragraphs[id] ?? ""),
                     at: twoDaysAgo),
                 forDocId: harness.doc.docId,
-                deviceSlug: DeviceSlug.make(from: MacDeviceID.current),
+                deviceSlug: DeviceIdentity.current.slug,
                 in: harness.projectURL)
         }
         _ = try await harness.environment.translatorIdentity("es")
@@ -848,7 +848,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
             entries: [.init(paragraphId: id, text: text, verbatim: nil, delete: nil)],
             language: language, documentId: harness.doc.docId,
             state: (harness.doc.sequence, harness.doc.paragraphs, harness.projectURL),
-            deviceSlug: DeviceSlug.make(from: MacDeviceID.current))
+            deviceSlug: DeviceIdentity.current.slug)
     }
 
     /// The `.fix` work-list is built FROM the notes: one `.fresh` item per

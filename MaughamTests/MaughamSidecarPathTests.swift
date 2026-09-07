@@ -103,7 +103,7 @@ final class MaughamSidecarPathTests: XCTestCase {
         // unsuffixed path here would have passed while the real file routed to
         // `.unknownSidecar`.
         let written = PublicationStore.fileURL(
-            deviceSlug: DeviceSlug.make(from: MacDeviceID.current), in: projectURL)
+            deviceSlug: DeviceIdentity.current.slug, in: projectURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: written.path))
         XCTAssertEqual(
             MaughamSidecarPath.classify(url: written, projectURL: projectURL),

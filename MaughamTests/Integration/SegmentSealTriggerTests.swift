@@ -106,7 +106,7 @@ final class SegmentSealTriggerTests: XCTestCase {
     }
 
     func test_documentStoreOpen_runsSealMaintenance() async throws {
-        let doc = try await makeDoc(device: MacDeviceID.current)
+        let doc = try await makeDoc(device: DeviceIdentity.current.deviceId)
         for i in 0..<30 {
             doc.setParagraph(id: doc.sequence[0],
                              text: "grown \(i) " + String(repeating: "z", count: 300))

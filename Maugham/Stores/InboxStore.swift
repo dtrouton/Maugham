@@ -42,8 +42,9 @@ final class InboxStore {
 
     private let projectURL: URL
     private let inboxDir: URL
-    /// This Mac's own device identifier — matches the op-log `device` (hostName)
-    /// so a single machine's inbox + op-log writes carry a consistent identity.
+    /// This Mac's own device identifier — the same string the op-log `device`
+    /// carries, so a single machine's inbox + op-log writes carry a consistent
+    /// identity.
     private let deviceId: String
 
     init(projectURL: URL, deviceId: String = InboxStore.currentDeviceId) {
@@ -52,8 +53,10 @@ final class InboxStore {
         self.deviceId = deviceId
     }
 
-    /// Mirrors `EditorHost.deviceId`: hostName, best-effort stable per machine.
-    nonisolated static var currentDeviceId: String { MacDeviceID.current }
+    /// Mirrors `EditorHost.deviceId`: this device's key fingerprint, read once
+    /// per process from `DeviceIdentity.current` (memoized, so nothing here
+    /// touches the disk per call).
+    nonisolated static var currentDeviceId: String { DeviceIdentity.current.deviceId }
 
     private var ownManifestURL: URL {
         InboxManifest.inboxManifestURL(forDeviceSlug: DeviceSlug.make(from: deviceId),

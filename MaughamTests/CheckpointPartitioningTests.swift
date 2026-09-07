@@ -174,7 +174,7 @@ final class CheckpointPartitioningTests: XCTestCase {
             "the shared path is what iCloud resolves by whole-file replace — nothing may write it")
         XCTAssertEqual(PublicationStore.fileURLs(in: root).map(\.lastPathComponent),
                        [PublicationStore.fileURL(
-                           deviceSlug: DeviceSlug.make(from: MacDeviceID.current),
+                           deviceSlug: DeviceIdentity.current.slug,
                            in: root).lastPathComponent])
 
         // `publicationID` is a random `pub-<uuid>`, so chronology has to come

@@ -6750,4 +6750,118 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: the allow-listed file must be skipped whole. Caught:\n"
             + allowed.joined(separator: "\n"))
     }
+
+    // MARK: - The device string is the key (signed op log, spec §4.8)
+
+    /// The three production roots the device-identity censuses scan. The
+    /// shared substrate is in the list because a hand-built id there would
+    /// reach BOTH surfaces at once.
+    private var deviceIdentityRoots: [URL] {
+        [sourceDir,
+         repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true),
+         repoRoot.appendingPathComponent("Packages/MaughamCore/Sources", isDirectory: true)]
+    }
+
+    /// Prose may name a host name or a legacy id spelling; code may not use
+    /// one. SHARED by the two censuses below and their planted-offender
+    /// self-checks — one place to widen the shape.
+    static func deviceIdentityExcludeLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+    }
+
+    /// `ProcessInfo.processInfo.hostName` was the Mac's device id until the
+    /// signed op log; every other spelling of a host name is the same mistake.
+    static let hostnameIdentityPatterns = [".hostName"]
+
+    /// The two hand-built id spellings this milestone retired: the phone's
+    /// `"phone:<uuid>"` convention and the Mac's empty-hostname fallback.
+    static let handBuiltDeviceIdPatterns = ["\"phone:", "\"unknown-host\""]
+
+    /// A device's identity is its KEY's fingerprint, never its host name.
+    /// Two Macs named alike — the shipped default twice over, or a machine
+    /// restored from another's backup — answered the same `hostName`, so their
+    /// per-device op-log files collided; tripwire 17 is the record of what a
+    /// collision on that file costs (a silently dropped conflict twin the
+    /// loader never opens). `DeviceIdentity.current.deviceId` (MaughamCore) is
+    /// the one answer on both surfaces, and it is derived from key material
+    /// that cannot repeat across machines.
+    func test_noHostnameIdentity() throws {
+        var offenders: [String] = []
+        for root in deviceIdentityRoots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: Self.hostnameIdentityPatterns,
+                excludeLine: Self.deviceIdentityExcludeLine)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file derives an identity from the host name. The "
+            + "device id is `DeviceIdentity.current.deviceId` — the prefix of "
+            + "this device's key fingerprint — because two Macs can share a "
+            + "name and then share a per-device op-log file, which is how a "
+            + "writer's lines go missing (tripwire 17). Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// No production file hand-builds a device id. The phone minted
+    /// `"phone:<uuid>"` into `UserDefaults` and the Mac fell back to
+    /// `"unknown-host"`; both are gone, and a second source of device strings
+    /// is a second answer to which file this device appends to.
+    func test_noHandBuiltDeviceIdOutsideDeviceIdentity() throws {
+        var offenders: [String] = []
+        for root in deviceIdentityRoots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: Self.handBuiltDeviceIdPatterns,
+                excludeLine: Self.deviceIdentityExcludeLine)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file hand-builds a device id. `DeviceIdentity` is "
+            + "the only place a device string is decided, on the Mac and the "
+            + "phone alike; a literal here is a device that partitions its "
+            + "writes somewhere else. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the two censuses above: the SAME patterns and the SAME
+    /// exclusion, over a planted file, catch the host-name read and both
+    /// hand-built id spellings, and let the comments that merely NAME them
+    /// through.
+    func test_theDeviceIdentityCensusesFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-deviceid-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may say ProcessInfo.processInfo.hostName — allowed.
+        /// And may name the old "phone:<uuid>" and "unknown-host" spellings.
+        let sanctioned = DeviceIdentity.current.deviceId
+        let host = ProcessInfo.processInfo.hostName
+        let minted = "phone:\\(UUID().uuidString)"
+        let fallback = name.isEmpty ? "unknown-host" : name
+        """.write(to: tmp.appendingPathComponent("BadDeviceIdentity.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let hostOffenders = try grepSwift(
+            in: tmp,
+            patterns: Self.hostnameIdentityPatterns,
+            excludeLine: Self.deviceIdentityExcludeLine)
+        XCTAssertEqual(hostOffenders.count, 1,
+            "Self-check: the planted host-name READ should be the only catch, "
+            + "not the comment naming it. Caught:\n"
+            + hostOffenders.joined(separator: "\n"))
+        XCTAssertTrue(hostOffenders.first?.contains("let host") == true)
+
+        let idOffenders = try grepSwift(
+            in: tmp,
+            patterns: Self.handBuiltDeviceIdPatterns,
+            excludeLine: Self.deviceIdentityExcludeLine)
+        XCTAssertEqual(idOffenders.count, 2,
+            "Self-check: both planted id literals should be caught, and neither "
+            + "comment. Caught:\n" + idOffenders.joined(separator: "\n"))
+        XCTAssertTrue(idOffenders.contains(where: { $0.contains("let minted") }))
+        XCTAssertTrue(idOffenders.contains(where: { $0.contains("let fallback") }))
+    }
 }

@@ -402,7 +402,7 @@ struct AnnotationDetailView: View {
         AnnotationWriter(
             projectRoot: projectURL,
             docId: docId,
-            deviceId: PhoneDeviceID.current(),
+            deviceId: DeviceIdentity.current.deviceId,
             io: io,
             appVersion: appVersion,
             osVersion: "iOS " + UIDevice.current.systemVersion

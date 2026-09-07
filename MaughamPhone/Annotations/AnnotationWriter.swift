@@ -25,7 +25,9 @@ struct AnnotationWriter {
     /// The annotation's document id — the full `doc-<hex>` or `scene-<hex>` form
     /// per ADR 0008 (same string the creation op carries in `op.docId`). The op-log file is `<docId>.<slug>.jsonl`.
     let docId: String
-    /// `phone:<uuid>` (`PhoneDeviceID.current()`) — also drives the device slug.
+    /// This install's own id — the prefix of its key fingerprint
+    /// (`DeviceIdentity.current.deviceId`, MaughamCore), the same string the
+    /// Mac writes. Also drives the device slug.
     let deviceId: String
     var io: CoordinatedFileIO = .live
     /// e.g. `CFBundleShortVersionString` — forensic only; the deriver ignores it.

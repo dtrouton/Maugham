@@ -77,7 +77,7 @@ final class TranslationStatusToolTests: XCTestCase {
             text: text, sourceHash: TranslationHash.hash(source), verbatim: verbatim)
         try await TranslationStore.append(
             record, forDocId: doc.docId,
-            deviceSlug: DeviceSlug.make(from: MacDeviceID.current),
+            deviceSlug: DeviceIdentity.current.slug,
             in: h.projectURL)
     }
 

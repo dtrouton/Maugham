@@ -177,7 +177,7 @@ public final class DocumentStore {
         // close — revisit if open-time cost shows up in the fixture). Uses the
         // just-wired presenter so the seal's coordinated read/delete don't
         // bounce back as our own external-change callbacks.
-        let sealSlug = DeviceSlug.make(from: MacDeviceID.current)
+        let sealSlug = DeviceIdentity.current.slug
         let opsDirNames = ((try? FileManager.default.contentsOfDirectory(
             at: url.appendingPathComponent(".maugham/ops"),
             includingPropertiesForKeys: nil)) ?? []).map(\.lastPathComponent)

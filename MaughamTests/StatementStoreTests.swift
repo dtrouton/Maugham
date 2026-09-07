@@ -322,7 +322,7 @@ final class StatementStoreTests: XCTestCase {
         await store.lockStatementOpen(minted.id)
         let pane = try await Document.load(
             url: url.appendingPathComponent(minted.path),
-            device: MacDeviceID.current, session: "pane-test", presenter: nil)
+            device: DeviceIdentity.current.deviceId, session: "pane-test", presenter: nil)
         store.noteStatementDocumentOpened(pane, id: minted.id)
         store.unlockStatementOpen(minted.id)
 

@@ -437,4 +437,82 @@ final class TripwirePhoneGrepTest: XCTestCase {
         XCTAssertTrue(offenders.contains { $0.contains("\"audio\"") },
             "Self-check: the planted \"audio\" literal should be caught.")
     }
+
+    // MARK: - The device string is the key (signed op log, spec §4.8)
+
+    /// Twin of the Mac's `test_noHandBuiltDeviceIdOutsideDeviceIdentity`.
+    /// The phone used to mint `"phone:<uuid>"` into `UserDefaults` and call
+    /// that its device id; it now reads `DeviceIdentity.current.deviceId`
+    /// (MaughamCore) like the Mac, so one install has one identity derived
+    /// from its own key material. A literal here is a device that partitions
+    /// its writes somewhere else — the failure tripwire 17 exists for.
+    ///
+    /// The Mac census scans MaughamPhone/ too; this twin is what makes the
+    /// phone suite fail on its own, without waiting for a Mac gate.
+    func test_noHandBuiltDeviceIdOutsideDeviceIdentity() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+        let offenders = try Self.handBuiltDeviceIdOffenders(in: sourceDir)
+        XCTAssertTrue(offenders.isEmpty,
+                      "A phone production file hand-builds a device id or reads "
+                      + "the host name. `DeviceIdentity.current.deviceId` is the "
+                      + "one answer on both surfaces:\n"
+                      + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the twin FIRES on planted offenders — the two retired
+    /// id spellings and a host-name read — and lets the comments that merely
+    /// NAME them through.
+    func test_handBuiltDeviceIdTripwireFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-deviceid-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may say ProcessInfo.processInfo.hostName — allowed.
+        /// And may name the old "phone:<uuid>" and "unknown-host" spellings.
+        let sanctioned = DeviceIdentity.current.deviceId
+        let host = ProcessInfo.processInfo.hostName
+        let minted = "phone:\\(UUID().uuidString)"
+        let fallback = name.isEmpty ? "unknown-host" : name
+        """.write(to: tmp.appendingPathComponent("BadDeviceIdentity.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try Self.handBuiltDeviceIdOffenders(in: tmp)
+        XCTAssertEqual(offenders.count, 3,
+            "Self-check: the three planted uses should be caught and neither "
+            + "comment. Caught:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let host") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let minted") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let fallback") }))
+    }
+
+    /// SHARED by the census and its self-check — one place to widen the shape.
+    /// Prose may name a host name or a retired id spelling; code may not use
+    /// one.
+    private static func handBuiltDeviceIdOffenders(in dir: URL) throws -> [String] {
+        let patterns = [".hostName", "\"phone:", "\"unknown-host\""]
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (index, line) in text.split(separator: "\n",
+                                            omittingEmptySubsequences: false).enumerated() {
+                let lineStr = String(line)
+                let trimmed = lineStr.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { continue }
+                for pattern in patterns where lineStr.contains(pattern) {
+                    offenders.append("\(url.lastPathComponent):\(index + 1): " + trimmed)
+                    break
+                }
+            }
+        }
+        return offenders
+    }
 }

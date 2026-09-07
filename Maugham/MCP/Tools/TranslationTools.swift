@@ -127,7 +127,7 @@ public enum WriteTranslationTool: MCPTool {
             language: params.language,
             documentId: params.document_id,
             state: state,
-            deviceSlug: DeviceSlug.make(from: MacDeviceID.current))
+            deviceSlug: DeviceIdentity.current.slug)
 
         // 7. Notify any live window on this project so an in-progress
         // translation-review posture re-derives its read-only surface (a

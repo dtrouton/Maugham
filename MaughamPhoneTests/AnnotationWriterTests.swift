@@ -70,7 +70,9 @@ final class AnnotationWriterTests: XCTestCase {
         XCTAssertEqual(decoded.provenance?.userResponse, reason)
         XCTAssertEqual(decoded.provenance?.appVersion, appVersion)
         XCTAssertEqual(decoded.provenance?.osVersion, osVersion)
-        XCTAssertTrue(decoded.device.hasPrefix("phone:"))
+        XCTAssertEqual(decoded.device, deviceId,
+            "the op carries the writer's own device id verbatim; the phone:<uuid> "
+            + "prefix convention is gone — the id is a key fingerprint now")
         // session and provenance.sessionId are the SAME minted value.
         XCTAssertEqual(decoded.session, decoded.provenance?.sessionId)
         XCTAssertNil(decoded.sequence, "lifecycle ops don't set sequence")

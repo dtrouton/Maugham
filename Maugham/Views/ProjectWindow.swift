@@ -11,8 +11,9 @@ private let _projectWindowLog = Logger(
 
 /// Stable-per-launch session ID shared by all checkpoint captures in this process.
 private let _checkpointSessionId: String = UUID().uuidString
-/// Best-effort stable per-machine device ID for checkpoint attribution.
-private let _checkpointDeviceId: String = MacDeviceID.current
+/// This device's own id for checkpoint attribution — the prefix of its key
+/// fingerprint (`DeviceIdentity`), read once per process.
+private let _checkpointDeviceId: String = DeviceIdentity.current.deviceId
 
 enum ProjectActiveSheet: Identifiable, Hashable {
     case projectSettings
@@ -4024,7 +4025,7 @@ struct ProjectWindow: View {
             // is the ledger a run slices and then feeds; a compiler configured
             // against stores that did not exist yet would be a run with no
             // clauses and facts that go nowhere, all of it silent.
-            let device = DeviceSlug.make(from: MacDeviceID.current)
+            let device = DeviceIdentity.current.slug
             let bibleStore = BibleStore(projectRoot: url, device: device)
             let worldStore = DeclaredWorldStore(projectRoot: url, device: device)
             self.bible = bibleStore
@@ -4038,7 +4039,7 @@ struct ProjectWindow: View {
                     onRunAcknowledged: { showCompilerFlash($0) }),
                 diagnostics: DiagnosticsStore(
                     projectRoot: url,
-                    device: DeviceSlug.make(from: MacDeviceID.current)))
+                    device: DeviceIdentity.current.slug))
             // The translator's loop, wired beside the compiler's and for its
             // reason. Its run verb is the department desk's Run button (P4 Task
             // 3), and what a finished round has to say goes to the window's own
