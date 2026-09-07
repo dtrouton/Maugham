@@ -1,5 +1,5 @@
 import XCTest
-import MaughamCore
+@testable import MaughamCore
 @testable import MaughamPhone
 
 /// Proves phone-write / Mac-read compatibility: every assertion reads the
@@ -8,10 +8,15 @@ import MaughamCore
 /// than silently producing rows the Mac can't decode.
 @MainActor
 final class InboxCaptureWriterTests: XCTestCase {
-    private let deviceId = "phone:TESTDEVICE"
+    /// A signing identity: the simulator has no enclave, so a capture written
+    /// under `DeviceIdentity.current` would be chained and never sealed. The
+    /// software signer is what lets the seal half be asserted at all.
+    private var identity: DeviceIdentity!
+    private var deviceId: String { identity.deviceId }
     private var root: URL!
 
     override func setUpWithError() throws {
+        identity = .softwareForTesting()
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("inbox-capture-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -30,8 +35,19 @@ final class InboxCaptureWriterTests: XCTestCase {
         try await JSONLAppendStore<InboxEntry>(fileURL: manifestURL).load()
     }
 
-    private func makeWriter(now: @escaping () -> Date = { Date() }) -> InboxCaptureWriter {
-        InboxCaptureWriter(projectRoot: root, deviceId: deviceId, now: now)
+    /// The manifest's raw lines, seals and all — what the Mac's reader is
+    /// handed before it classifies anything.
+    private func manifestLines() throws -> [Data] {
+        let bytes = try Data(contentsOf: manifestURL)
+        return bytes.split(separator: 0x0A, omittingEmptySubsequences: false)
+            .filter { !$0.isEmpty }.map { Data($0) }
+    }
+
+    private func makeWriter(
+        now: @escaping () -> Date = { Date() }, identity: DeviceIdentity? = nil
+    ) -> InboxCaptureWriter {
+        InboxCaptureWriter(
+            projectRoot: root, identity: identity ?? self.identity, now: now)
     }
 
     func test_writeText_roundTripsThroughMacReader() async throws {
@@ -123,6 +139,71 @@ final class InboxCaptureWriterTests: XCTestCase {
         XCTAssertEqual(e.id, written.id)
         XCTAssertNil(e.paletteSubject)
         XCTAssertNil(e.sense)
+    }
+
+    // MARK: - The chain (task 7)
+
+    /// Every row links to the head the phone verified, and a seal signs each
+    /// capture on the spot — so the second row's `prev` is the FIRST ROW'S
+    /// SEAL, which is the head by then. The Mac reads all of it unchanged.
+    func test_everyCaptureIsChainedAndSealedOnTheSpot() async throws {
+        let writer = makeWriter()
+        let first = try await writer.writeText("one")
+        let second = try await writer.writeText("two")
+
+        let lines = try manifestLines()
+        XCTAssertEqual(lines.count, 4, "a row and a seal for each of the two captures")
+
+        XCTAssertEqual(OpLogChain.prev(ofLine: lines[0]) ?? nil, OpLogChain.genesis,
+                       "the first line of a fresh file chains to the genesis sentinel")
+        let firstSeal = try XCTUnwrap(OpLogChain.Seal.parse(lines[1]))
+        XCTAssertTrue(firstSeal.verifies())
+        XCTAssertEqual(firstSeal.key, identity.fingerprint)
+        XCTAssertEqual(firstSeal.head, OpLogChain.lineHash(lines[0]))
+
+        XCTAssertEqual(OpLogChain.prev(ofLine: lines[2]) ?? nil,
+                       OpLogChain.lineHash(lines[1]),
+                       "the second row chains onto the head — the seal that preceded it")
+        let secondSeal = try XCTUnwrap(OpLogChain.Seal.parse(lines[3]))
+        XCTAssertTrue(secondSeal.verifies())
+        XCTAssertEqual(secondSeal.head, OpLogChain.lineHash(lines[2]))
+
+        let entries = try await loadEntries()
+        XCTAssertEqual(entries.map(\.id), [first.id, second.id],
+                       "the Mac reader sees two captures and no seals")
+    }
+
+    /// Without a seal in between, the plain statement of the chain: the second
+    /// row's `prev` is the first row's hash. A phone with no key is a state,
+    /// not a failure — the rows are written and nothing throws.
+    func test_aPhoneWithNoKeyChainsItsRowsAndSealsNothing() async throws {
+        let unsigned = DeviceIdentity.unsignedForTesting(token: Data(repeating: 3, count: 32))
+        let writer = makeWriter(identity: unsigned)
+        _ = try await writer.writeText("one")
+        _ = try await writer.writeText("two")
+
+        let url = root.appendingPathComponent(
+            ".maugham/inbox/inbox.\(unsigned.slug.raw).jsonl")
+        let lines = try Data(contentsOf: url)
+            .split(separator: 0x0A, omittingEmptySubsequences: false)
+            .filter { !$0.isEmpty }.map { Data($0) }
+        XCTAssertEqual(lines.count, 2, "two rows, no seals")
+        XCTAssertEqual(OpLogChain.prev(ofLine: lines[1]) ?? nil,
+                       OpLogChain.lineHash(lines[0]))
+        let entries = try await JSONLAppendStore<InboxEntry>(fileURL: url).load()
+        XCTAssertEqual(entries.count, 2)
+    }
+
+    /// The row's `device_id` and the manifest's own filename come from ONE
+    /// name — the identity's. Two spellings could file a capture under a
+    /// device whose key never signed it.
+    func test_theRowsDeviceIdIsTheIdentityThatSignedIt() async throws {
+        let written = try await makeWriter().writeText("one")
+        XCTAssertEqual(written.deviceId, identity.deviceId)
+        XCTAssertEqual(manifestURL.lastPathComponent,
+                       "inbox.\(identity.slug.raw).jsonl")
+        let seal = try XCTUnwrap(OpLogChain.Seal.parse(try manifestLines()[1]))
+        XCTAssertEqual(seal.key, identity.fingerprint)
     }
 
     func test_multipleCaptures_appendToSamePerDeviceFile() async throws {

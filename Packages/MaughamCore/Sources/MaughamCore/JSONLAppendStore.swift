@@ -1,5 +1,14 @@
 // Maugham/OpLog/JSONLAppendStore.swift
 import Foundation
+import os
+
+/// Diagnostic channel for the one thing a verified READ can fail at without the
+/// read itself failing: the forensic record of what it set aside. The record is
+/// how the writer LEARNS that something wrote into their history; it is never
+/// how the read proceeds. Mirrors `OpLogStore`'s stance on the same write.
+private let appendStoreLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.core",
+    category: "JSONLAppendStore")
 
 /// NSFileCoordinator-coordinated append-only JSONL store. Generic over
 /// any Codable element; ISO8601-with-fractional-seconds Date coding is
@@ -64,6 +73,101 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// throws; absent is still empty.
     public func loadDiagnosedStrict() async throws -> (elements: [Element], diagnostics: ParseDiagnostics) {
         parseDiagnosed(bytes: try readBytesStrict())
+    }
+
+    /// The strict read a CHAINED store owes its reader: unreadable-yet-present
+    /// throws, seal lines never reach the element decoder, every line is
+    /// classified against this device's own word before any of it is applied,
+    /// and whatever the walk held back is recorded where the writer can find
+    /// it. With no chain policy it is exactly `loadDiagnosedStrict`.
+    ///
+    /// This is the READ half of the chain, and it is deliberately generic: the
+    /// op log's tail, the inbox's manifest and (Task 8) the annotation stream
+    /// are the same three steps over different elements — verify the bytes, set
+    /// aside what broke, hand the KEPT bytes to the parser. One implementation,
+    /// so a second stream cannot grow a second opinion about what a broken
+    /// chain means.
+    ///
+    /// It writes NOTHING to this device's memory. Adopting a head is the op
+    /// log's own decision (`OpLogStore.classifyTail`'s adopt rule), made where
+    /// the provenance that justifies it is in hand.
+    public func loadVerifiedStrict() async throws -> (elements: [Element], diagnostics: ParseDiagnostics) {
+        let bytes = try readBytesStrict()
+        guard let chain else { return parseDiagnosed(bytes: bytes) }
+        let read = Self.verifiedParse(
+            bytes: bytes,
+            trusted: { $0 == chain.identity.fingerprint },
+            rememberedHead: chain.state.head(for: OpLogDeviceState.fileKey(fileURL)),
+            dedupKey: dedupKey, sortedBy: sortedBy)
+        do {
+            try Self.setAside(
+                read.verification, from: fileURL,
+                docId: chain.docId, in: chain.projectURL)
+        } catch {
+            appendStoreLog.error("""
+                Could not record set-aside lines from \
+                \(self.fileURL.lastPathComponent, privacy: .public): \
+                \(String(describing: error), privacy: .public).
+                """)
+        }
+        return (read.elements, read.diagnostics)
+    }
+
+    /// Verify, keep, parse — the pure middle of every chained read, callable on
+    /// bytes that arrived any way at all (a coordinated read, a decompressed
+    /// segment, a synchronous load). Nonisolated so the synchronous op-log
+    /// reader can call it without an actor hop.
+    nonisolated static func verifiedParse(
+        bytes: Data,
+        trusted: (String) -> Bool,
+        rememberedHead: String?,
+        dedupKey: ((Element) -> String)? = nil,
+        sortedBy: ((Element, Element) -> Bool)? = nil
+    ) -> (elements: [Element], diagnostics: ParseDiagnostics,
+          verification: OpLogChain.Verification) {
+        let verification = OpLogChain.verify(
+            bytes: bytes, trusted: trusted, rememberedHead: rememberedHead)
+        let parsed = parse(
+            bytes: applied(verification, whole: bytes),
+            dedupKey: dedupKey, sortedBy: sortedBy)
+        return (parsed.elements, parsed.diagnostics, verification)
+    }
+
+    /// The bytes a verification KEPT — the whole input when it quarantined
+    /// nothing, and otherwise the applied lines rebuilt in file order.
+    ///
+    /// One spelling for the reader (which hands them to the parser) and the
+    /// chained writer (which writes them back over the file), because the two
+    /// disagreeing about what "kept" means would leave a load applying lines a
+    /// rewrite had already deleted.
+    nonisolated static func applied(
+        _ verification: OpLogChain.Verification, whole: Data
+    ) -> Data {
+        guard !verification.quarantined.isEmpty else { return whole }
+        var out = Data()
+        for line in verification.lines where line.state != .quarantined {
+            out.append(line.bytes)
+            out.append(0x0A)
+        }
+        return out
+    }
+
+    /// Record the lines a walk held back, in the writer's own words for why.
+    /// Answers nil — writing nothing — when the walk held nothing back.
+    ///
+    /// Every caller that sets lines aside goes through here: the chained
+    /// append, the verified read, and the op log's own load. The REASON is
+    /// derived from the break rather than passed in, so no caller can file the
+    /// same event under different words.
+    @discardableResult
+    nonisolated static func setAside(
+        _ verification: OpLogChain.Verification,
+        from fileURL: URL, docId: String, in projectURL: URL
+    ) throws -> QuarantineRecord? {
+        guard !verification.quarantined.isEmpty else { return nil }
+        return try OpLogQuarantine.setAsideLines(
+            verification.quarantined, from: fileURL, docId: docId,
+            reason: quarantineReason(verification.breakReason), in: projectURL)
     }
 
     /// The strict twin of `readBytes`: absent is still empty, unreadable throws.
@@ -173,16 +277,11 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
                     rememberedHead: chain.state.head(for: fileKey))
 
                 if !verification.quarantined.isEmpty {
-                    try OpLogQuarantine.setAsideLines(
-                        verification.quarantined, from: wu, docId: chain.docId,
-                        reason: Self.quarantineReason(verification.breakReason),
-                        in: chain.projectURL)
-                    var kept = Data()
-                    for line in verification.lines where line.state != .quarantined {
-                        kept.append(line.bytes)
-                        kept.append(0x0A)
-                    }
-                    try kept.write(to: wu, options: .atomic)
+                    try Self.setAside(
+                        verification, from: wu,
+                        docId: chain.docId, in: chain.projectURL)
+                    try Self.applied(verification, whole: existing)
+                        .write(to: wu, options: .atomic)
                 }
 
                 let prev = verification.head ?? OpLogChain.genesis

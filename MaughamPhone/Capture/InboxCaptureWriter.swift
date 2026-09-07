@@ -4,32 +4,52 @@ import MaughamCore
 /// Phone-side writer that lands a capture in a project's `.maugham/inbox/`,
 /// producing bytes byte-for-byte compatible with the Mac's `InboxStore` reader.
 ///
-/// The Mac reads the manifest via `JSONLAppendStore<InboxEntry>`, so we encode
-/// each row with the SAME date strategy (`JSONLAppendStore.dateEncoding`,
-/// ISO8601-with-fractional-seconds) and the SAME snake_case `CodingKeys` the
-/// model already defines. The manifest is the per-device stream
+/// The Mac reads the manifest via `JSONLAppendStore<InboxEntry>` and the phone
+/// now WRITES it through the same store, so the date strategy
+/// (ISO8601-with-fractional-seconds), the snake_case `CodingKeys` and the
+/// chaining are one implementation rather than two that agree today. The
+/// manifest is the per-device stream
 /// `inbox/inbox.<deviceSlug>.jsonl` (ADR 0012 partitioning — the phone only ever
 /// appends to its own file; the Mac globs siblings and merges last-wins).
 ///
-/// Unlike the Mac (which has an `NSFilePresenter`), the phone registers no
-/// presenter, so every write funnels through `CoordinatedFileIO`'s plain
-/// coordinate-write primitives — the same `NSFileCoordinator` cooperation that
-/// lets the two sides share files through iCloud Drive.
+/// The ASSET writes are the phone's own: no presenter, so they funnel through
+/// `CoordinatedFileIO`'s plain coordinate-write primitives — the same
+/// `NSFileCoordinator` cooperation that lets the two sides share files through
+/// iCloud Drive. The MANIFEST goes through `JSONLAppendStore` instead, because
+/// a manifest row is chained history (spec §4): it links to the head this
+/// phone verified, a run of lines the phone did not write is set aside before
+/// anything is appended after them, and a seal signs each capture on the spot.
+/// One store, one chain, both surfaces — the Mac's `InboxStore` writes the same
+/// bytes into its own stream (tripwire 19).
+///
+/// `@MainActor` because `JSONLAppendStore` is, and the writer is driven from
+/// SwiftUI, where every caller already is.
+@MainActor
 struct InboxCaptureWriter {
     let projectRoot: URL
-    let deviceId: String
+    /// This phone, as the chain names it: the key that signs a capture's seal,
+    /// and the id every row and the manifest's own filename are derived from.
+    /// Injectable so a test can hold a signing key on a simulator, which has no
+    /// enclave of its own.
+    let identity: DeviceIdentity
     var io: CoordinatedFileIO = .live
     /// Injectable clock so tests can pin `createdAt`/`writtenAt` deterministically.
     var now: () -> Date = { Date() }
 
+    /// The row's `device_id`, and the slug its manifest is named for. Derived
+    /// from the identity rather than passed beside it: two spellings of this
+    /// phone's name is one rename away from a row filed under a device whose
+    /// key never signed it.
+    var deviceId: String { identity.deviceId }
+
     init(
         projectRoot: URL,
-        deviceId: String,
+        identity: DeviceIdentity = .current,
         io: CoordinatedFileIO = .live,
         now: @escaping () -> Date = { Date() }
     ) {
         self.projectRoot = projectRoot
-        self.deviceId = deviceId
+        self.identity = identity
         self.io = io
         self.now = now
     }
@@ -42,8 +62,7 @@ struct InboxCaptureWriter {
 
     /// This device's own manifest stream. Matches the Mac's `ownManifestURL`.
     private var manifestURL: URL {
-        InboxManifest.inboxManifestURL(forDeviceSlug: DeviceSlug.make(from: deviceId),
-                                       in: projectRoot)
+        InboxManifest.inboxManifestURL(forDeviceSlug: identity.slug, in: projectRoot)
     }
 
     /// Resolves via `InboxConvention` (MaughamCore) — the single source of
@@ -107,7 +126,7 @@ struct InboxCaptureWriter {
         sense: String? = nil
     ) async throws -> InboxEntry {
         let entry = buildEntry(kind: .text, inlineText: text, title: title, paletteSubject: paletteSubject, sense: sense)
-        try appendManifest(entry)
+        try await appendManifest(entry)
         return entry
     }
 
@@ -133,7 +152,7 @@ struct InboxCaptureWriter {
         // (id, timestamps) is fixed from buildEntry.
         var withAsset = entry
         withAsset.sourceFilename = assetName
-        try appendManifest(withAsset)
+        try await appendManifest(withAsset)
         return withAsset
     }
 
@@ -173,25 +192,28 @@ struct InboxCaptureWriter {
         }
         var withAsset = entry
         withAsset.sourceFilename = assetName
-        try appendManifest(withAsset)
+        try await appendManifest(withAsset)
         return withAsset
     }
 
-    // MARK: - Encoding / append
+    // MARK: - Append
 
-    /// Append one entry as a JSONL row to this device's manifest, coordinated.
-    /// `coordinatedAppendLine` creates intermediate dirs + the file on first use.
-    private func appendManifest(_ entry: InboxEntry) throws {
-        let line = try encode(entry)
-        try io.coordinatedAppendLine(line, to: manifestURL)
-    }
-
-    /// Encode a row with the Mac reader's exact date strategy so the bytes decode
-    /// losslessly through `JSONLAppendStore<InboxEntry>` on the Mac.
-    private func encode(_ entry: InboxEntry) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = JSONLAppendStore<InboxEntry>.dateEncoding
-        encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(entry)
+    /// Append one entry as a chained JSONL row to this device's manifest, then
+    /// seal it. The store creates intermediate directories and the file itself
+    /// on first use, and it — not this writer — owns the encoding, so the bytes
+    /// the phone writes are by construction the bytes the Mac reads.
+    ///
+    /// The seal is per capture. Captures are rare, so one signature each is a
+    /// cost nobody feels, and no capture ever sits in the tail merely chained.
+    /// A phone with no key writes no seal, appends its row anyway, and reports
+    /// nothing wrong — being unsigned is a state, not a failure (spec §4.1).
+    private func appendManifest(_ entry: InboxEntry) async throws {
+        let store = JSONLAppendStore<InboxEntry>(
+            fileURL: manifestURL,
+            chain: ChainPolicy(
+                identity: identity, state: .shared,
+                docId: InboxManifest.chainDocId, projectURL: projectRoot))
+        try await store.append(entry)
+        try await store.appendSeal()
     }
 }

@@ -39,7 +39,7 @@ struct CaptureView: View {
     /// resolved — the action buttons are disabled in that case.
     private var writer: InboxCaptureWriter? {
         guard let url = selectedProject?.url else { return nil }
-        return InboxCaptureWriter(projectRoot: url, deviceId: DeviceIdentity.current.deviceId)
+        return InboxCaptureWriter(projectRoot: url)
     }
 
     var body: some View {

@@ -257,6 +257,34 @@ Path/filename matching (`research/palette`, `craft-intent.md`) was fragile: rena
 - **Lazy healing, no migration.** A lookup that falls back to path identity stamps the role on that item and saves the manifest (`ProjectStore.healRole`/`stampRole`, fire-and-forget `Task`, idempotent) — the item is role-identified from then on, so renaming the palette group through any Research affordance no longer detaches it. Mac-only: the phone never writes the manifest, so it consumes `PaletteLookup` read-only with no healing. **The craft-intent doc's lazy heal is gone**: it lived inside `craftIntentItem(forPieceId:)`, which M1A Task 8 deleted, and nothing on the Mac performs that lookup any more. What survives is the EAGER load-time heal (`healPaletteRolesEagerly`), and it survives for adoption alone — see the adoption section above.
 - **Live title everywhere.** `ProjectStore.paletteGroupDisplayTitle` reads the group's actual (possibly renamed) title with no side effect, so the wall header/sidebar always show what the writer renamed it to, not the frozen default.
 
+## The inbox manifest is chained history (signed op log P1, task 7)
+
+Every manifest stream — this Mac's own and every sibling device's — is read and
+written through a `JSONLAppendStore<InboxEntry>` carrying a `ChainPolicy`
+(`InboxStore.chainPolicy()`). Three consequences, and none of them is optional:
+
+- **`refresh` reads verified.** `loadVerifiedStrict()` replaces `loadStrict()`:
+  seal lines never reach the entry decoder, and a run of lines this device
+  cannot vouch for is set aside — under `InboxManifest.chainDocId`, the literal
+  `"inbox"`, because a manifest is a project's captures and has no docId of its
+  own — before the rest is parsed. It is the SAME implementation the op log's
+  tails use (`JSONLAppendStore.verifiedParse` / `.setAside`), not a copy: two
+  opinions about what a broken chain means is how one stream ends up trusting
+  what the other quarantines. The pane's `unreadableManifests` list is
+  untouched; a broken chain is not an unreadable file.
+- **Every append is sealed on the spot.** `appendThrowing` appends and then
+  calls `appendSeal()`. Captures are rare — a photograph, a voice note, a
+  status flip — so a signature each costs nothing and no capture sits in the
+  tail merely chained. A Mac with no key writes no seal and reports nothing
+  wrong (spec §4.1).
+- **`identity` is injectable.** `InboxStore(projectURL:deviceId:identity:)`
+  defaults to `DeviceIdentity.current`; a test passes a software signer,
+  because CI's runner has no enclave. `deviceId` still names the row and the
+  manifest file; the identity is what the chain is verified against.
+
+The phone writes the same bytes into its own stream through the same store —
+see `MaughamPhone/AREA.md`'s `Capture/` bullet (tripwire 19).
+
 ## Promote-into-card seam (2026-07-11)
 
 `InboxStore.promoteToPaletteCard(_:projectStore:cardId:)` is the palette sibling of `promoteToResearch` — same `.new`→`.promoted` status handling, same non-destructive copy-then-delete-original contract for assets, but it appends INTO an existing card rather than minting a research item: `.text`/`.audio` become a `PaletteCard.SensoryNote` (tagged when `InboxEntry.sense` maps to a known `PaletteCard.Sense`, untagged — never thrown — otherwise), `.image` copies into the card's `<slug>_assets/` well via `ProjectStore.addImage(toPaletteCard:fileURL:)`. The manifest only flips to `.promoted` after every mutating step succeeds, so a failure (e.g. an audio capture with no transcript yet) leaves the entry `.new` for retry rather than half-promoted. `Views/PalettePickerSheet.swift` drives the UI: card list pre-sorts a `paletteSubject` case-insensitive title match to the top and offers a "New Card…" row when the subject matches nothing (`InboxPane`'s direct "Promote to Palette: “card title”" menu item skips the sheet entirely when the subject already matches exactly one card). MCP `promote_inbox_entry` (`Maugham/MCP/Tools/InboxTools.swift`) exposes the same seam via `palette_card_id`/`palette_subject`, mutually exclusive with `target_document_id`.

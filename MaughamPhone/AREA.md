@@ -39,7 +39,16 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   P1) — never a `phone:<uuid>` of the phone's own.
 - **`Capture/`** — `InboxCaptureWriter` (text/photo/voice → `.maugham/inbox/`) +
   the capture UI + project pill/picker + `PaletteAimPicker` (optional palette
-  aim row, see below).
+  aim row, see below). The writer takes a `DeviceIdentity`, not a device id
+  string — the id, the manifest's filename slug and the key that signs a
+  capture's seal are one name, injectable for tests. **Manifest rows go
+  through `JSONLAppendStore` with a `ChainPolicy`** (`docId:
+  InboxManifest.chainDocId`, the project as `projectURL`), so a row is chained
+  onto the head this phone verified and sealed on the spot — one signature per
+  capture, because captures are rare; an unsigned phone writes the row and no
+  seal, which is a state and not a failure. The store owns the encoding, so the
+  phone cannot drift from the Mac's reader. Only the ASSET writes still use
+  `CoordinatedFileIO`.
 - **`Read/`** — `DocumentReaderView` (download-gated), `MarkdownBlocks` (block split
   so paragraphs/headings survive), `FountainStyler`/`FountainSemanticRenderer`,
   `BinderRouting`, `PaletteCardView`/`PaletteLoading` (read-only palette section,

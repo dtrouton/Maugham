@@ -327,12 +327,12 @@ public final class OpLogStore {
         // it does see it would file under the load's name. A check reports; the
         // load records.
         let recordsWhatItSetsAside = identity != nil && state != nil
-        if recordsWhatItSetsAside, !classified.quarantined.isEmpty,
+        if recordsWhatItSetsAside, let verification = classified.verification,
            let docId = docId(fromOpLogFilename: url.lastPathComponent) {
             do {
-                try OpLogQuarantine.setAsideLines(
-                    classified.quarantined, from: url, docId: docId,
-                    reason: classified.quarantineReason, in: projectRoot(of: url))
+                try JSONLAppendStore<Op>.setAside(
+                    verification, from: url, docId: docId,
+                    in: projectRoot(of: url))
             } catch {
                 // Mirrors `Document+Load.swift`'s stance on a forensic write
                 // that fails: the record is how the writer LEARNS, never how
@@ -366,10 +366,12 @@ public final class OpLogStore {
         let ops: [Op]
         let diagnostics: ParseDiagnostics
         let provenance: FileProvenance
-        /// Lines that were NOT applied, in file order.
-        let quarantined: [Data]
-        /// The writer's own words for why, in `JSONLAppendStore`'s vocabulary.
-        let quarantineReason: String
+        /// The walk this classification came out of, when there was one —
+        /// what it kept, what it held back, and why. Nil only where a segment
+        /// failed before any line could be walked. The reader that can WRITE
+        /// hands it to `JSONLAppendStore.setAside`, which owns both the record
+        /// and the words for it.
+        let verification: OpLogChain.Verification?
         /// Non-nil when this device may now adopt the file's head as its own
         /// (the crash window: a remembered head no line in the file hashes to,
         /// in a file that holds together and whose every seal is ours).
@@ -393,13 +395,12 @@ public final class OpLogStore {
         url: URL, bytes: Data, identity: DeviceIdentity?, state: OpLogDeviceState?
     ) -> FileClassification {
         let remembered = state?.head(for: OpLogDeviceState.fileKey(url))
-        let verification = OpLogChain.verify(
+        let read = JSONLAppendStore<Op>.verifiedParse(
             bytes: bytes,
             trusted: { key in identity.map { key == $0.fingerprint } ?? false },
-            rememberedHead: remembered)
-        let parsed = JSONLAppendStore<Op>.parse(
-            bytes: applied(verification, whole: bytes),
+            rememberedHead: remembered,
             dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+        let verification = read.verification
 
         // The adopt rule (spec §4.2's crash window). Three conditions, and all
         // three are about this file holding together as OUR history: the walk
@@ -417,13 +418,12 @@ public final class OpLogStore {
         }
 
         return FileClassification(
-            ops: parsed.elements,
-            diagnostics: parsed.diagnostics,
+            ops: read.elements,
+            diagnostics: read.diagnostics,
             provenance: provenance(
                 name: url.lastPathComponent, lines: verification.lines,
                 isSealedSegment: false, segmentVerified: nil),
-            quarantined: verification.quarantined,
-            quarantineReason: JSONLAppendStore<Op>.quarantineReason(verification.breakReason),
+            verification: verification,
             adoptedHead: adopted,
             verifiedSegmentDigest: nil)
     }
@@ -450,7 +450,7 @@ public final class OpLogStore {
                 provenance: FileProvenance(
                     name: url.lastPathComponent,
                     isSealedSegment: true, segmentVerified: false),
-                quarantined: [], quarantineReason: "",
+                verification: nil,
                 adoptedHead: nil, verifiedSegmentDigest: nil)
         }
 
@@ -487,26 +487,23 @@ public final class OpLogStore {
                 provenance: FileProvenance(
                     name: url.lastPathComponent, verified: lines,
                     isSealedSegment: true, segmentVerified: true),
-                quarantined: [], quarantineReason: "",
+                verification: nil,
                 adoptedHead: nil, verifiedSegmentDigest: toRemember)
         }
 
-        let verification = OpLogChain.verify(
-            bytes: jsonl, trusted: { _ in false }, rememberedHead: nil)
-        let parsed = JSONLAppendStore<Op>.parse(
-            bytes: applied(verification, whole: jsonl),
+        let read = JSONLAppendStore<Op>.verifiedParse(
+            bytes: jsonl, trusted: { _ in false }, rememberedHead: nil,
             dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
         if decoded.isVerified {
-            skipped.append(contentsOf: parsed.diagnostics.skipped)
+            skipped.append(contentsOf: read.diagnostics.skipped)
         }
         return FileClassification(
-            ops: parsed.elements,
+            ops: read.elements,
             diagnostics: ParseDiagnostics(skipped: skipped),
             provenance: provenance(
-                name: url.lastPathComponent, lines: verification.lines,
+                name: url.lastPathComponent, lines: read.verification.lines,
                 isSealedSegment: true, segmentVerified: false),
-            quarantined: verification.quarantined,
-            quarantineReason: JSONLAppendStore<Op>.quarantineReason(verification.breakReason),
+            verification: read.verification,
             adoptedHead: nil, verifiedSegmentDigest: nil)
     }
 
@@ -529,27 +526,6 @@ public final class OpLogStore {
             }
             return inLine ? count + 1 : count
         }
-    }
-
-    /// The bytes a verification says may be applied, as JSONL. Quarantined
-    /// lines are always a suffix, so this is a truncation — but it is written
-    /// as a filter because that is the rule, not the current shape of the walk.
-    ///
-    /// The ordinary file has nothing quarantined, and rebuilding its bytes
-    /// line by line to say so would copy the whole history on every load. So
-    /// the whole bytes are handed back untouched in that case, which is the
-    /// same JSONL by construction: the walk skips only blank lines, and the
-    /// parser skips them too.
-    private nonisolated static func applied(
-        _ verification: OpLogChain.Verification, whole: Data
-    ) -> Data {
-        guard !verification.quarantined.isEmpty else { return whole }
-        var out = Data()
-        for line in verification.lines where line.state != .quarantined {
-            out.append(line.bytes)
-            out.append(0x0A)
-        }
-        return out
     }
 
     /// The counts, taken off the LINES themselves rather than off the walk's
