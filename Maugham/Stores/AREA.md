@@ -37,11 +37,14 @@ The persistence and coordination layer: project structure, documents, recents, s
 
 Everything derived lives under `.maugham/` in the project folder. Each subdirectory has one owner:
 
+**One thing deliberately does NOT live here: this device's own key material.** `DeviceState.directory` is `~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/` — `device-key.blob`, `device-token` and `op-log-state.json` (signed op log P1, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md)). It is outside the project because it must never sync: an enclave-wrapped key blob is useless on another machine, a copied device token would make two machines answer the same device id and collide on one per-device op-log file (tripwire 17), and the remembered chain heads are this device's private account of what IT wrote — the fact that catches a correctly-chained line somebody else appended. Under XCTest the path gains an `xctest-worker-<pid>` leaf, the `TestWorkspace.root` idiom verbatim, so seven parallel workers never share a key or a head.
+
 | Path | Owner | Purpose |
 |---|---|---|
 | `.maugham/ops/` | `OpLogStore` (in OpLog area) | Per-doc JSONL op logs |
 | `.maugham/checkpoints.<deviceSlug>.jsonl` | `CheckpointStore` (OpLog area) | Project-scope checkpoints from ⌘S, partitioned per device (FM-1). A FILE, never a directory — and never the unsuffixed `checkpoints.jsonl`, which stays a merge source and is never written |
 | `.maugham/conflicts/` | `DocumentStore` | Conflict backup copies |
+| `.maugham/conflicts/quarantined-ops/` | `OpLogQuarantine` (in OpLog area) | Op-log history set aside, in two kinds. A `.file` record is a whole op-log file that could not be read, MOVED here and offered back by the pane's Retry. A `.lines` record (signed op log P1) is a COPY of a run of lines this device did not write — the file itself stays where it is — content-deduped, and it never returns (`ReturnOutcome.setAsideByProvenance`). Both carry a `<name>.quarantine.json` sidecar |
 | `.maugham/sessions/` | `SessionLog` | Per-session activity records |
 | `.maugham/ui-state/` | `ProjectStore` (UI extension) | Window position, last-opened doc, cursor restore |
 | `.maugham/scratch/` | Various | Transient writes; safe to nuke |

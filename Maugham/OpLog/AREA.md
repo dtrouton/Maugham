@@ -11,7 +11,11 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 ## Layout
 
 - `OpLogStore.swift` and `CheckpointStore.swift` — wrappers over `JSONLAppendStore<T>` that keep hot-path (op log, every typing burst) and cold-path (checkpoints, ⌘S) concurrency profiles explicit; `JSONLAppendStore` is the shared persistence primitive. **Both partition per device** — a writer appends only to its own `<stem>.<deviceSlug>.jsonl` and readers glob-merge every sibling, the legacy unsuffixed file included (ADR 0012; `PartitionedJSONLFile` in MaughamCore holds the checkpoint/publication template, `OpLogStore` its own). Checkpoints were left out of ADR 0012's scope and were fixed by FM-1; `formal/OpLogSync.tla`'s `_cpshared`/`_cppartitioned` pair is the proof that partitioning is the fix rather than a tidy-up.
-- `JSONLAppendStore.swift` — generic append + read + tail for any JSONL-typed store. Extend here if you need new shared persistence semantics.
+- `JSONLAppendStore.swift` — generic append + read + tail for any JSONL-typed store. Extend here if you need new shared persistence semantics. **It is chained when it holds a `ChainPolicy` and plain when it does not** (signed op log P1): the op log and the inbox pass one; publications and checkpoints do not, and keep the append they have always had. Project-scope TASK ops are not an exception — they are `Op`s appended through `OpLogStore` into `__project__.jsonl`, so they are chained like any other op.
+- `DeviceIdentity.swift` / `DeviceState.swift` (MaughamCore) — this device's enclave key, persisted by the app as a plain blob under Application Support, and the id/fingerprint/slug derived from it. `DeviceIdentity+Testing.swift` holds the test-only software signer, and is the one allow-list entry of `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`.
+- `OpLogChain.swift` (MaughamCore) — the wire format (`prev` as the first key; the seal line) and the pure verifier that classifies every line. No I/O, no clock, no policy about who is trusted: the `trusted` closure and the remembered head are parameters. `Hex` lives here too, shared with the segment container and the fingerprint.
+- `OpLogDeviceState.swift` (MaughamCore) — what this device remembers: the chain head it last wrote into each file, and the digests of segments it has already verified. Also `ChainPolicy`, the value a chained `JSONLAppendStore` carries.
+- `OpLogProvenance.swift` (MaughamCore) — `FileProvenance` per file and `OpLogProvenance` over a document, the load's own account of what its history is made of. What `HistoryPane`'s unsigned-history sentence reads.
 - `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`.
 - `EchoState.swift` — typed snapshot of "bytes we just wrote to disk." The `init` is `private`; the only construction paths are the three named factories (`initialLoad`, `afterWrite`, `afterIngest`), which is a compile-checked invariant. The echo guard in `Document.handleExternalDiskChange` reads `lastDiskEcho.bytes` to suppress presenter callbacks that arrive in response to our own writes. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `SweepReason.swift` — typed pending orphan-annotation sweep carrying the *observed* removed-paragraph-id set. Replaces an earlier bool flag. Sweep archives only annotations on `reason.removed` — never "anything missing from sequence." See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md). **The sweep also REPORTS (RULING-32):** each successful archive bumps `Document._sweptSinceLastReport`, and `flushBurstNow` spends that running total on one quiet sentence at the burst boundary — the writing pause. Batched across every sweep the burst contained, silent during it, never a prompt.
@@ -121,6 +125,144 @@ it is now enforced:
   `CrossDeviceIntegrationTests` (case 1 = determinism; case 4 = the deferred skew
   scenario, `XCTSkip`-marked).
 
+## Chained and sealed (signed op log P1, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md))
+
+Every line this device writes to an op log or an inbox manifest is chained to
+the one before it, and every span it wrote is sealed by a key that never leaves
+the enclave. The point is provenance, never a lock: a load classifies each line
+and applies what it can account for, and **verification never refuses to open a
+book**.
+
+**The wire format.** An op line is the existing `.sortedKeys` JSON object with
+`"prev":"<64 hex>"` inserted textually as the FIRST key —
+`OpLogChain.chainedLine(elementJSON:prev:)`, and never a field on `Op` or
+`InboxEntry`, so an op re-appended elsewhere cannot carry a stale prev and every
+existing decoder ignores the key. The line hash is SHA-256 over the line's bytes
+**without** the trailing newline. `OpLogChain.genesis` (the hash of no bytes) is
+the `prev` of the first line written into an empty file, accepted only where
+nothing precedes it; a first line with no `prev` at all is **legacy**, and legacy
+is a prefix and never a suffix. A **seal line** is a line of its own kind,
+`{"seal":{"at","head","key","pub","sig"}}` with sorted keys, carrying a signature
+over the chain head plus the public key that verifies it — self-contained, so P2
+adds a trust decision without a format change. **`OpLogChain` is the ONLY place a
+seal line is recognised**: `isSealLine` is its private prefix constant's one
+door, and `JSONLAppendStore.parse` (the one parser every reader shares) is its
+one caller. A second recogniser somewhere else is a second opinion about what a
+seal is.
+
+**The new units live in MaughamCore** — see the Layout list above for the whole
+set. `DeviceIdentity.swift` is this
+device's key and its name; `OpLogChain.swift` is the format and the pure verifier
+(plus `Hex`, shared with the segment container and the fingerprint so they cannot
+disagree about what a digest looks like); `OpLogDeviceState.swift` is what this
+device remembers, and carries `ChainPolicy`, the value a `JSONLAppendStore` holds when it
+is chained and holds nil when it is not (publications and **checkpoints** keep
+the plain append they have always had; project-scope task ops are NOT an
+exception — they are `Op`s appended through `OpLogStore`, so they are chained
+like any other op).
+
+**Identity is the key's fingerprint, not the host name.** `DeviceIdentity.load`
+mints a `SecureEnclave.P256.Signing.PrivateKey` and persists its
+`dataRepresentation` as a plain file under
+`~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/`
+— no keychain item, no entitlement, and the blob is useless off this machine.
+`deviceId` is the 16-hex prefix of the fingerprint, `slug` is
+`DeviceSlug.make(from: deviceId)` (tripwire 24 unchanged — only what `make` is
+handed changed), and `MacDeviceID`/`PhoneDeviceID` are deleted. **Unsigned is a
+state, not a failure**: with no enclave the device persists 32 random bytes,
+takes its fingerprint from those, writes chained lines that nothing seals, and
+reports nothing wrong. This Mac's pre-milestone files (hostname slug) and the
+phone's (`phone:<uuid>`) are another device's files from here on: read as
+unsigned history, never appended to, never sealed.
+
+**The remembered head is the fact only this device has.** The chain catches a
+line naming the wrong `prev`; it does not catch one naming the RIGHT one, which
+is what an agent that reads the file and hashes its last line writes.
+`OpLogDeviceState` keys the head it last wrote on
+`<SHA-256 of the project root path>/<filename>` in `op-log-state.json`, beside
+the key material. Two orderings are load-bearing. The head is **remembered
+before the line is written** — a crash between the two leaves a head no line
+hashes to, which is the adopt case, where the other order would leave the
+device's own last op quarantined as a stranger's. And the whole append (read the
+tail, verify, set aside, rewrite the kept prefix, chain, remember, write) is
+**inside ONE coordinated write** — never a nested coordination, which would
+deadlock on the write already held. **The adopt rule**: a remembered head absent
+from the file is adopted only when the walk never broke AND every seal in the
+file is ours. Adopting a broken or foreign-sealed file's head would bless exactly
+what the remembered head exists to catch. Keying on the project PATH means a
+moved project forgets and adopts, which is the safe direction.
+
+**Quarantine is a `.lines` record that never returns.** A quarantined line is
+never applied and never deleted: `OpLogQuarantine.setAsideLines` copies the bytes
+to `.maugham/conflicts/quarantined-ops/<file>.<hash>.<stamp>.lines` with a
+`kind: .lines` record beside it, **content-deduped** so the same foreign line
+found on ten consecutive opens is one record rather than ten. Nothing moves — the
+file itself is fine and the caller has already rewritten it without those lines.
+`attemptReturn` answers `.setAsideByProvenance` and touches nothing, so this is
+the ONE new refusal in the tree; the sweep that offers `.file` records back
+filters `.lines` out. The reason is DERIVED from the break
+(`JSONLAppendStore.quarantineReason`), so no caller can file the same event under
+different words: *written by something that is not Maugham* for a line after the
+remembered head or an unchained line after the chain began, *the history's chain
+is broken* for everything else.
+
+**Every reader classifies before it applies** (signed op log P1). `OpLogStore.classify`
+is the one rule, and both readers call it: `loadFileDiagnosed` (coordinated,
+behind `loadDiagnosed`/`loadDiagnosedPartial`) and `loadSyncMerged`. Quarantined
+lines are omitted from the ops by both; only the coordinated reader writes
+anything — the `OpLogQuarantine.setAsideLines` record, an adopted head, a
+remembered segment digest, each best-effort so a forensic write can never cost
+the writer their manuscript. `loadDiagnosed` answers a third member,
+`OpLogProvenance`, counting every line of every file as legacy / verified /
+unsealed / unsigned-history / quarantined. **A record is the load path's alone**:
+a caller taking the nil `identity`/`state` defaults (`ProjectIntegrity.check`)
+classifies with no key and no remembered head, so its reading of a file is
+strictly weaker than the load's — it cannot see an `afterRememberedHead` break at
+all — and it therefore writes nothing. A check reports; the load records. **Seal lines never reach an element
+decoder**: the filter is in `JSONLAppendStore.parse`, the one parser every
+reader shares, so a seal is never reported as a torn line.
+
+**What the Mac does with all of it** (signed op log P1, Task 6). **Sealing is
+one verb, `OpLogStore.sealChain(docId:)`, and its cadence is a set of call
+sites — count them, don't read a number here.** On the Mac they are: every
+`OpLogStore.chainSealInterval` (100) appends, from `OpLogStore.append` itself;
+after every burst that actually appended (`Document.flushBurstNow` — a burst IS
+"typing followed by idle"); at `Document.close()`; and over every doc this Mac
+has written at project open (`DocumentStore`). The inbox and the phone do not
+use this verb at all — they call `JSONLAppendStore.appendSeal()` directly after
+**every** append (`InboxStore.appendThrowing`, `InboxCaptureWriter`,
+`AnnotationWriter`), because a capture or a lifecycle decision is rare and one
+signature each costs nothing. Every one of them is best-effort and
+LOGGED rather than swallowed — `sealChain` already answers false without
+throwing on a device with no key and on a file with nothing new, so a throw is
+a real failure and never a reason to lose the burst that has already landed.
+**At close and at open the chain seal runs BEFORE `sealTailIfNeeded`**, so a
+rotated `.mzseg` ends on a seal line and its whole span is verified inside the
+container; the other order rotates an unsealed span away where nothing can ever
+sign it. That ordering is load-bearing only for ops that arrive OUTSIDE the
+burst path — an annotation, a task op, a checkpoint breadcrumb — because a burst
+seals itself; `SegmentSealTriggerTests.test_close_sealsTheChainBeforeRotatingTheTail`
+therefore ends its tail on a breadcrumb, and a version of it that ended on a
+burst passed under BOTH orders. **`Document.provenance`** is the load's own
+account of what the history is made of, stamped by both doors (the strict load
+and the read-only recovery load) and posted by neither: a notice from a
+windowless load is dropped by the liveness guard, exactly the pending stamp's
+reasoning. `EditorHost` reads the stamp and folds it into the ONE
+`.maughamQuarantineRecordsChanged` post it already makes
+(`EditorHost.quarantineRecordsChanged(setAsideAtLoad:outcomes:)`), whose sweep
+now takes `.file` records only — a `.lines` record is not a file waiting to come
+back. `HistoryPane` says the two things a writer can act on knowing and no
+others: `unsignedHistoryNotice` (legacy history, foreign-signed history, or ONE
+sentence carrying both — the coalescing rule) and `setAsideLinesNotice`, neither
+with a Retry, because neither is something the writer can undo. **`unsealed`
+lines are never mentioned**: the live tail is always partly unsealed, so naming
+it would be a permanent notice about nothing. The device identity and chain
+memory a load hands its `OpLogStore` come from `Document.makeLoadOpStore`, the
+one construction, with `Document.deviceIdentityForTesting`/`deviceStateForTesting`
+as its test seam — a machine with no Secure Enclave (CI's runner) is genuinely
+unsigned, so a seal assertion has to inject a signer or it is asserting the
+runner rather than the code.
+
 ## Sealed segments (ADR 0016, M2)
 
 When a device's own live tail `<docId>.<slug>.jsonl` exceeds
@@ -174,57 +316,6 @@ settled-segment branch COUNTS lines rather than splitting them, because
 answer a question that is a number. The tail in that fixture is also eight times
 the size a real one reaches — `segmentSealThreshold` rotates it at 512 KB — so a
 real load walks a small fraction of it.
-
-**Every reader classifies before it applies** (signed op log P1). `OpLogStore.classify`
-is the one rule, and both readers call it: `loadFileDiagnosed` (coordinated,
-behind `loadDiagnosed`/`loadDiagnosedPartial`) and `loadSyncMerged`. Quarantined
-lines are omitted from the ops by both; only the coordinated reader writes
-anything — the `OpLogQuarantine.setAsideLines` record, an adopted head, a
-remembered segment digest, each best-effort so a forensic write can never cost
-the writer their manuscript. `loadDiagnosed` answers a third member,
-`OpLogProvenance`, counting every line of every file as legacy / verified /
-unsealed / unsigned-history / quarantined. **A record is the load path's alone**:
-a caller taking the nil `identity`/`state` defaults (`ProjectIntegrity.check`)
-classifies with no key and no remembered head, so its reading of a file is
-strictly weaker than the load's — it cannot see an `afterRememberedHead` break at
-all — and it therefore writes nothing. A check reports; the load records. **Seal lines never reach an element
-decoder**: the filter is in `JSONLAppendStore.parse`, the one parser every
-reader shares, so a seal is never reported as a torn line.
-
-**What the Mac does with all of it** (signed op log P1, Task 6). **Sealing has
-three triggers and they are one verb**, `OpLogStore.sealChain(docId:)`: after
-every burst that actually appended (`Document.flushBurstNow` — a burst IS
-"typing followed by idle"), at `Document.close()`, and over every doc this Mac
-has written at project open (`DocumentStore`). All three are best-effort and
-LOGGED rather than swallowed — `sealChain` already answers false without
-throwing on a device with no key and on a file with nothing new, so a throw is
-a real failure and never a reason to lose the burst that has already landed.
-**At close and at open the chain seal runs BEFORE `sealTailIfNeeded`**, so a
-rotated `.mzseg` ends on a seal line and its whole span is verified inside the
-container; the other order rotates an unsealed span away where nothing can ever
-sign it. That ordering is load-bearing only for ops that arrive OUTSIDE the
-burst path — an annotation, a task op, a checkpoint breadcrumb — because a burst
-seals itself; `SegmentSealTriggerTests.test_close_sealsTheChainBeforeRotatingTheTail`
-therefore ends its tail on a breadcrumb, and a version of it that ended on a
-burst passed under BOTH orders. **`Document.provenance`** is the load's own
-account of what the history is made of, stamped by both doors (the strict load
-and the read-only recovery load) and posted by neither: a notice from a
-windowless load is dropped by the liveness guard, exactly the pending stamp's
-reasoning. `EditorHost` reads the stamp and folds it into the ONE
-`.maughamQuarantineRecordsChanged` post it already makes
-(`EditorHost.quarantineRecordsChanged(setAsideAtLoad:outcomes:)`), whose sweep
-now takes `.file` records only — a `.lines` record is not a file waiting to come
-back. `HistoryPane` says the two things a writer can act on knowing and no
-others: `unsignedHistoryNotice` (legacy history, foreign-signed history, or ONE
-sentence carrying both — the coalescing rule) and `setAsideLinesNotice`, neither
-with a Retry, because neither is something the writer can undo. **`unsealed`
-lines are never mentioned**: the live tail is always partly unsealed, so naming
-it would be a permanent notice about nothing. The device identity and chain
-memory a load hands its `OpLogStore` come from `Document.makeLoadOpStore`, the
-one construction, with `Document.deviceIdentityForTesting`/`deviceStateForTesting`
-as its test seam — a machine with no Secure Enclave (CI's runner) is genuinely
-unsigned, so a seal assertion has to inject a signer or it is asserting the
-runner rather than the code.
 
 ## External-edit discard + forensic snapshots (ADR 0019, hardened 2026-07-01)
 
@@ -292,6 +383,12 @@ Failure modes:
 4. **Don't change paragraph-ID minting in `Bootstrap`** without thinking about existing on-disk op logs. New IDs in existing docs would orphan all prior op records.
 
 5. **Don't bypass `PendingBuffer`** to write directly to the op log on every keystroke. The debounce is load-bearing for I/O cost; bypassing it will hit disk hundreds of times per second.
+
+6. **No identity from the host name, and no hand-built device id.** `DeviceIdentity.current.deviceId` is the one answer on both surfaces; two Macs can share a name and then share a per-device op-log file, which is how a writer's lines go missing (tripwire 17). `TripwireGrepTests.test_noHostnameIdentity` and `test_noHandBuiltDeviceIdOutsideDeviceIdentity` (plus the phone's twin) are the census, each with a planted-offender self-check.
+
+7. **No software private key in production.** The device key is the enclave's — `SecureEnclave.P256.Signing.PrivateKey` — because a software key copies off the machine with the file that holds it, and a signature made with one proves nothing about which device wrote the op. `DeviceIdentity+Testing.swift` is the sole allow-list entry of `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`; a test that needs a *verified* line injects that signer.
+
+8. **A seal line is recognised in `OpLogChain` only.** `isSealLine` is the one door onto the `{"seal":` prefix, and `JSONLAppendStore.parse` — the one parser every reader shares (tails, decompressed segments, the inbox) — is its one caller. A second recogniser is a second opinion about what a seal is, and the failure is silent: a reader that hands a seal to an element decoder reports a healthy file as damaged.
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 
 ## Behavioural claims

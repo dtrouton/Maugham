@@ -27,8 +27,10 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     private let sortedBy: ((Element, Element) -> Bool)?
     /// Non-nil for the op log and the inbox: every append chains onto the file's
     /// verified head, and anything this device did not write is set aside first.
-    /// Nil for every other store (publications, tasks, checkpoints), which keeps
-    /// the plain append it has always had.
+    /// Nil for every other store — publications, checkpoints — which keeps the
+    /// plain append it has always had. NOT tasks: a project-scope task op is an
+    /// `Op` appended through `OpLogStore` into `__project__.jsonl`, so it is
+    /// chained like any other op.
     public let chain: ChainPolicy?
 
     public init(

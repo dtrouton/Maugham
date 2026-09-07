@@ -122,6 +122,17 @@ three mechanisms above without truncating history. If a future need genuinely
 requires truncation (e.g. regulatory deletion), that is a new ADR with the
 checkpoint/rewind/integrity interactions specced up front.
 
+### Amended 2026-09-07 by ADR 0032
+
+A sealed segment now carries a signature over the digest this ADR gave it,
+written **beside** it as `<name>.mzseg.sig` rather than inside — the MZS1
+container is immutable bytes whose checksum is part of its own header, so
+nothing about it or its readers changed. A verified digest is remembered in the
+device's own state and never re-verified. Sealing is also ordered after the
+chain seal at close and at project open, so a rotated segment ends on a seal
+line and its whole span is verified inside the container. See
+[ADR 0032](0032-the-signed-op-log.md).
+
 ## Enforcement / verification
 
 - `OpLogStorePartitioningParityTests`' invariant extends to segments:

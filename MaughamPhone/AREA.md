@@ -38,7 +38,15 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   lifecycle), `ProjectsBrowser` (id→manifest), `RecentsTracker`,
   `ColdLaunchDownloader`. The device id is NOT here: it is MaughamCore's
   `DeviceIdentity.current.deviceId`, the same one the Mac reads (signed op log
-  P1) — never a `phone:<uuid>` of the phone's own.
+  P1) — never a `phone:<uuid>` of the phone's own, and `PhoneDeviceID` is
+  deleted. The key that id is derived from is an enclave key whose
+  `dataRepresentation` blob the app persists itself, under
+  `~/Library/Application Support/<supportFolderName>/device/` — outside every
+  project folder, because it must never sync (`DeviceState.directory`; no
+  keychain item, no entitlement). **The Apple Silicon simulator exposes the
+  host's enclave**, so `PhoneDeviceIdentityTests` mints and reloads a real key
+  there rather than skipping; its skip is a MEASUREMENT of
+  `SecureEnclave.isAvailable`, and if it ever fires the simulator has changed.
 - **`Capture/`** — `InboxCaptureWriter` (text/photo/voice → `.maugham/inbox/`) +
   the capture UI + project pill/picker. **There is no capture aim** — the
   palette-aim row and its picker went in signed op log P1 (see below). The

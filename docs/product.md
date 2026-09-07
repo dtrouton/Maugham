@@ -32,7 +32,7 @@ Organized by what a writer is doing, not by feature list:
 
 **Publishing.** Claude co-authors a per-project LaTeX template tuned to the writer's typographic taste, and the app compiles it to a bespoke PDF with a bundled TeX engine (tectonic) — no TeX installation required — or to a standard EPUB. A project can also compile a translated edition once Claude has filled in the translation layer for that language; a coverage gate blocks a compile that would ship stale or missing paragraphs unless the writer explicitly allows a partial preview. Output lands in the project's `Exports/` folder.
 
-**Keeping the words safe.** Autosave (750ms), labeled checkpoints, unified undo across every kind of change, per-document History Rewind (scrub back through every edit ever made), trash-not-delete for binder operations, integrity-checked backups to any local or cloud-synced folder, and self-healing for a corrupted project manifest. The words are plain text on disk at all times.
+**Keeping the words safe.** Autosave (750ms), labeled checkpoints, unified undo across every kind of change, per-document History Rewind (scrub back through every edit ever made), trash-not-delete for binder operations, integrity-checked backups to any local or cloud-synced folder, and self-healing for a corrupted project manifest. Each change Maugham writes is linked to the one before it and signed by a key held in the Mac's secure hardware, so a change appended to a manuscript's history by something that isn't Maugham is set aside in the backup folder rather than applied — and a document still always opens. The words are plain text on disk at all times.
 
 ## How it's structured
 

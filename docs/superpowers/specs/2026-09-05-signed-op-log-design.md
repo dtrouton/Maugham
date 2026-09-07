@@ -1,6 +1,6 @@
 # The signed op log — provenance for every op, people as keys, devices as certificates
 
-**Date:** 2026-09-05 · **Status:** approved in discussion; **§7 spike run 2026-09-07** (`docs/superpowers/notes/2026-09-07-signed-op-log-spike.md`) — four corrections folded in below and marked *(spike)*; **P2 ships labels only — ruled 2026-09-07** (§3, §8); the synced person key is a later milestone of its own; plans unwritten
+**Date:** 2026-09-05 · **Status:** approved in discussion; **§7 spike run 2026-09-07** (`docs/superpowers/notes/2026-09-07-signed-op-log-spike.md`) — four corrections folded in below and marked *(spike)*; **P2 ships labels only — ruled 2026-09-07** (§3, §8); the synced person key is a later milestone of its own; **P1 built 2026-09-07** (branch `claude/signed-op-log-p1-2026-09-07`, [ADR 0032](../../adr/0032-the-signed-op-log.md)) — verified/quarantined only, no registry, so *pending* (§4.4) does not yet exist; P2 and P3 unwritten
 **Session:** "compiler / author / review split" (second brainstorm of the session)
 
 *Brainstormed with Denver 2026-09-05, from his question "protecting the oplog
