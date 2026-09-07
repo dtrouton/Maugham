@@ -127,6 +127,11 @@ struct HistoryPane: View {
     /// return actually succeeded, so this list is only ever the genuine
     /// article: history the writer cannot currently see.
     @State private var heldQuarantineRecords: [QuarantineRecord] = []
+    /// How many CHANGES were set aside because something that is not Maugham
+    /// wrote them into one of this doc's op-log files (signed op log P1). A
+    /// count rather than the records, because the notice is pure over the
+    /// count and reading the archives is `reload()`'s job, not `body`'s.
+    @State private var setAsideLineCount: Int = 0
     @State private var isRetryingQuarantine: Bool = false
     /// The report from the most recently completed Retry, kept only long
     /// enough for the writer to view or dismiss it — cleared when the sheet
@@ -140,6 +145,13 @@ struct HistoryPane: View {
     /// Hosting window for the ADR 0021 project scope + closed-window liveness
     /// guard on `.maughamCheckpointAdded`.
     @State private var window: NSWindow?
+
+    /// What the OPEN document's load found out about its own history (signed
+    /// op log P1). Nil when this doc is not open — the counts are a property of
+    /// a load, and this pane must not perform one of its own to invent them.
+    private var documentProvenance: OpLogProvenance? {
+        documentStore?.document(forDocId: activeDocId)?.provenance
+    }
 
     private var entries: [HistoryEntry] {
         HistoryEntry.merge(ops: ops, checkpoints: checkpoints)
@@ -229,9 +241,90 @@ struct HistoryPane: View {
     /// than the internal term ("quarantine") — CLAUDE.md's writer-facing
     /// copy rule. The row's "Retry" control sits beside this text in body;
     /// read together they form the quoted UX copy the spec names.
+    ///
+    /// `heldCount` is the count of `.file` records ONLY — a whole per-device
+    /// op-log file that could not be read, which is the thing "Retry" can
+    /// bring back. A `.lines` record has no file waiting to return and speaks
+    /// through `setAsideLinesNotice` instead.
     static func quarantineNotice(heldCount: Int) -> String? {
         guard heldCount > 0 else { return nil }
         return "Part of this document’s history is set aside (couldn’t be read when it was)."
+    }
+
+    /// What this document's history is made of that this Mac cannot vouch for
+    /// (signed op log P1) — nil when there is nothing to say.
+    ///
+    /// Two causes, and they are different facts. **Legacy**: lines written
+    /// before this milestone existed, which no key can ever sign retroactively;
+    /// every manuscript that predates the signed op log answers yes forever, so
+    /// the sentence states it rather than warning about it. **Foreign**: lines
+    /// under a seal from a key this device does not trust — in P1 that is every
+    /// other device, the writer's own phone included. `unsealed` lines are the
+    /// ordinary state between seals and are deliberately NEVER mentioned: the
+    /// live tail is always partly unsealed, so naming it would be a permanent
+    /// notice about nothing.
+    ///
+    /// When BOTH are true this is ONE sentence carrying both — the coalescing
+    /// rule (`Maugham/OpLog/AREA.md`, "The Document's one writer-facing
+    /// channel"): the notice slot holds one sentence, and two stacked notices
+    /// about the same subject read as two problems.
+    static func unsignedHistoryNotice(provenance: OpLogProvenance?) -> String? {
+        guard let provenance else { return nil }
+        let legacy = provenance.hasLegacyHistory
+        let foreignCount = provenance.unsignedHistoryLines
+        guard legacy || foreignCount > 0 else { return nil }
+        let foreignClause = foreignCount == 1
+            ? "1 change from another device is applied as unsigned history"
+            : "\(foreignCount) changes from another device are applied as unsigned history"
+        if legacy && foreignCount > 0 {
+            return "Part of this document’s history was written before this book "
+                 + "was signed, and \(foreignClause)."
+        }
+        if legacy {
+            return "Part of this document’s history was written before this book was signed."
+        }
+        return "\(foreignClause)."
+    }
+
+    /// What was NOT applied: lines in one of this document's op-log files that
+    /// something other than Maugham wrote. They are kept as forensics and there
+    /// is nothing to bring back, so this notice carries no Retry — unlike
+    /// `quarantineNotice`, whose subject is a whole file that may yet read.
+    ///
+    /// Pure over the count, so the copy pins without a window and without disk.
+    /// The count itself comes from `setAsideLineCount`, which is the half that
+    /// has to read files.
+    static func setAsideLinesNotice(lineCount: Int) -> String? {
+        guard lineCount > 0 else { return nil }
+        let subject = lineCount == 1
+            ? "1 change was written"
+            : "\(lineCount) changes were written"
+        return "\(subject) to this document by something that is not Maugham; "
+             + "kept in backup, not applied."
+    }
+
+    /// How many CHANGES were set aside — the non-empty lines across every
+    /// `.lines` record's data file, not the number of records. One record can
+    /// hold a run of lines, and the writer's question is how much of their
+    /// history this is, so the answer has to open the files.
+    ///
+    /// Separate from the notice on purpose: a notice that read disk would do
+    /// file I/O on every `body` evaluation. `reload()` calls this once.
+    /// `.file` records are skipped — their data file is a whole op log, whose
+    /// line count is a different quantity entirely.
+    static func setAsideLineCount(
+        records: [QuarantineRecord], in projectURL: URL
+    ) -> Int {
+        records
+            .filter { $0.kind == .lines }
+            .reduce(0) { total, record in
+                let url = OpLogQuarantine.quarantinedFileURL(
+                    for: record, in: projectURL)
+                guard let bytes = try? Data(contentsOf: url) else { return total }  // adr-0018-ok: a set-aside `.lines` archive — forensics this pane counts, never manuscript truth
+                return total + bytes
+                    .split(separator: 0x0A, omittingEmptySubsequences: true)
+                    .count
+            }
     }
 
     /// The notice shown after a Retry completes. Zero orphans is
@@ -294,6 +387,29 @@ struct HistoryPane: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
+            // Signed op log P1's two statements of fact. Orange and caption
+            // like the notices above, but with NO control beside them: neither
+            // is something the writer can act on. Unsigned history is history —
+            // it stays unsigned. Set-aside lines are kept in the backup and are
+            // never applied. Saying so is the whole job.
+            if let notice = Self.unsignedHistoryNotice(provenance: documentProvenance) {
+                Label(notice, systemImage: "signature")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
+            if let notice = Self.setAsideLinesNotice(lineCount: setAsideLineCount) {
+                Label(notice, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
             if let report = recoveredReport, !report.orphans.isEmpty {
@@ -451,10 +567,18 @@ struct HistoryPane: View {
         } else {
             ops = []
         }
-        heldQuarantineRecords = activeDocId == BinderSubject.noDocumentSubject
+        // Split by KIND, because the two kinds are two different offers. A
+        // `.file` record is a whole per-device log that could not be read —
+        // Retry may bring it back. A `.lines` record is a run of lines
+        // something other than Maugham wrote, kept as forensics with nothing
+        // to return, so it stays out of the Retry list and out of
+        // `quarantineNotice`'s count (signed op log P1).
+        let held = activeDocId == BinderSubject.noDocumentSubject
             ? []
             : OpLogQuarantine.records(forDocId: activeDocId, in: projectURL)
                 .filter { $0.status == .held }
+        heldQuarantineRecords = held.filter { $0.kind == .file }
+        setAsideLineCount = Self.setAsideLineCount(records: held, in: projectURL)
     }
 
     /// Runs `attemptReturn` for every held record, reloads, and surfaces
@@ -501,6 +625,9 @@ struct HistoryPane: View {
                     // Lines this device did not write, kept as forensics. There
                     // is no file to bring back, so this is neither a report nor
                     // a failure — nothing is offered to the writer about it.
+                    // Unreachable from here since `reload()` keeps `.lines`
+                    // records out of `heldQuarantineRecords` entirely; the arm
+                    // is the belt, and the switch has to be exhaustive anyway.
                     historyQuarantineLog.notice("retryQuarantine: \(record.originalName, privacy: .public) holds lines set aside by provenance — nothing to return")
                 }
             }

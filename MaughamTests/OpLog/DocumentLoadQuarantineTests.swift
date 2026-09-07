@@ -234,6 +234,190 @@ final class DocumentLoadQuarantineTests: XCTestCase {
         await doc.close()
     }
 
+    // MARK: - Signed op log P1: a correctly-chained line this Mac did not write
+
+    /// The milestone's own scenario, end to end, through the real doors.
+    ///
+    /// The agent here is the STRONGEST one P1 defends against: not a torn line
+    /// and not a clumsy edit, but something that read the file, computed the
+    /// next `prev` correctly, and appended a well-formed `typing_burst` for a
+    /// paragraph of its own. The chain alone cannot refuse it — it chains. What
+    /// refuses it is the head this Mac REMEMBERS: the last line it wrote is in
+    /// the file, so everything after that line arrived from somewhere else.
+    ///
+    /// What must be true afterwards, and each is a different failure if it is
+    /// not: the paragraph is not in the document (it was never applied), the
+    /// `.md` never carries its words (a derived render of ops that exclude it),
+    /// the bytes are kept (`.lines` record, in the writer's own words), the
+    /// document can SAY what happened (`provenance.quarantinedLines`), and the
+    /// next real burst rewrites the tail without it and chains on — one record
+    /// still, because the same bytes are already on file.
+    func test_load_correctlyChainedForeignLine_isNeverApplied_andIsKept() async throws {
+        let (project, docURL) = try makeTestProject(
+            prefix: "DOCFOREIGN", initialMd: "Hello.\n")
+
+        // Type through the real path, so the tail is this Mac's own chained
+        // history rather than a fixture: bootstrap line, burst, close seal.
+        let doc1 = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        let docId = doc1.docId
+        doc1.setParagraph(id: doc1.sequence[0], text: "Hello, and then some.")
+        try await doc1.flushBurstNow()
+        let realSequence = doc1.sequence
+        await doc1.close()
+
+        let opLogURL = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: DeviceSlug.make(from: "m"), in: project)
+        let before = try Data(contentsOf: opLogURL)
+            .split(separator: 0x0A, omittingEmptySubsequences: true)
+        XCTAssertGreaterThanOrEqual(before.count, 2,
+                                    "precondition: at least two chained lines")
+
+        // The stranger's line: a new paragraph, chained onto the real head.
+        let foreignText = "A sentence this Mac never wrote."
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        enc.outputFormatting = [.sortedKeys]
+        let foreignOp = Op(
+            opId: ULID.generate(), docId: docId, at: Date(),
+            device: "m", session: "s", kind: .typingBurst,
+            changes: [.init(paragraphId: "ab2c", prior: nil, next: foreignText)],
+            // The strongest form: an explicit sequence PLACING the paragraph,
+            // so nothing downstream can drop it as an orphan. With the
+            // classification removed this line is applied and its words are in
+            // the writer's draft — which is what the first two assertions
+            // below are for.
+            sequence: realSequence + ["ab2c"])
+        let head = OpLogChain.lineHash(Data(before.last!))
+        let foreignLine = OpLogChain.chainedLine(
+            elementJSON: try enc.encode(foreignOp), prev: head)
+        let handle = try FileHandle(forWritingTo: opLogURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: foreignLine + Data([0x0A]))
+        try handle.close()
+
+        // The load.
+        let doc2 = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+
+        XCTAssertFalse(doc2.sequence.contains("ab2c"),
+                       "a line this Mac did not write is never APPLIED")
+        XCTAssertFalse(doc2.displayText.contains(foreignText),
+                       "and its words never reach the writer's draft")
+        XCTAssertTrue(doc2.displayText.contains("Hello, and then some."),
+                      "the writer's own history still loads whole")
+
+        let provenance = try XCTUnwrap(
+            doc2.provenance, "the load stamps what it found on the Document")
+        XCTAssertEqual(provenance.quarantinedLines, 1,
+                       "one line refused — the surfaces read this, not the files")
+
+        let records = OpLogQuarantine.records(forDocId: docId, in: project)
+            .filter { $0.kind == .lines }
+        XCTAssertEqual(records.count, 1, "the bytes are kept, once")
+        XCTAssertEqual(records[0].reason, "written by something that is not Maugham",
+                       "the record says why in the writer's own words")
+        let keptURL = OpLogQuarantine.quarantinedFileURL(
+            for: records[0], in: project)
+        XCTAssertTrue(
+            (try String(contentsOf: keptURL, encoding: .utf8)).contains(foreignText),
+            "the archive holds the refused line verbatim")
+
+        // The next real burst: the tail is rewritten without the stranger's
+        // line, and this Mac's new line chains onto its own head again.
+        doc2.setParagraph(id: doc2.sequence[0], text: "Hello, and then more.")
+        try await doc2.flushBurstNow()
+        try await doc2.performAutosave()
+
+        let tail = try String(contentsOf: opLogURL, encoding: .utf8)
+        XCTAssertFalse(tail.contains(foreignText),
+                       "the append rewrote the tail without the refused line")
+        XCTAssertTrue(tail.contains("Hello, and then more."),
+                      "and carried on chaining this Mac's own history")
+        XCTAssertEqual(
+            OpLogQuarantine.records(forDocId: docId, in: project)
+                .filter { $0.kind == .lines }.count, 1,
+            "still one record — the same bytes are already on file")
+
+        let onDisk = try String(contentsOf: docURL, encoding: .utf8)
+        XCTAssertFalse(onDisk.contains(foreignText),
+                       "the .md is derived from the ops that were applied")
+        await doc2.close()
+    }
+
+    /// The other half of the same rule, and the reason it is safe to ship: a
+    /// project written before any of this existed — an unsuffixed file whose
+    /// lines carry no `prev` — loads WHOLE, with nothing set aside and nothing
+    /// to apologise for. `hasLegacyHistory` is how the writer is told, and it
+    /// stays true forever: the past cannot be signed retroactively.
+    ///
+    /// And the first burst after it chains onto the last legacy line's hash,
+    /// so the history is continuous across the milestone rather than restarted.
+    func test_load_legacyProject_loadsWhole_andTheFirstBurstChainsOntoIt() async throws {
+        let (project, docURL) = try makeTestProject(
+            prefix: "DOCLEGACY", initialMd: "Legacy.\n")
+
+        // A pre-milestone log: the unsuffixed filename, unchained lines.
+        let docId = try resolveDocId(for: docURL)
+        let legacyURL = project
+            .appendingPathComponent(".maugham/ops/\(docId).jsonl")
+        try FileManager.default.createDirectory(
+            at: legacyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        enc.outputFormatting = [.sortedKeys]
+        let legacyOps = [
+            Op(opId: "01AAAAAAAAAAAAAAAAAAAAAAAA", docId: docId,
+               at: Date(timeIntervalSince1970: 100), device: "old", session: "s",
+               kind: .typingBurst,
+               changes: [.init(paragraphId: "aa2c", prior: nil, next: "Legacy.")],
+               sequence: ["aa2c"]),
+            Op(opId: "01BAAAAAAAAAAAAAAAAAAAAAAA", docId: docId,
+               at: Date(timeIntervalSince1970: 200), device: "old", session: "s",
+               kind: .typingBurst,
+               changes: [.init(paragraphId: "aa2c", prior: "Legacy.", next: "Legacy history.")]),
+        ]
+        var body = Data()
+        for op in legacyOps { body.append(try enc.encode(op)); body.append(0x0A) }
+        try body.write(to: legacyURL)
+
+        let doc = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        XCTAssertTrue(doc.displayText.contains("Legacy history."),
+                      "a pre-milestone history loads whole")
+
+        let provenance = try XCTUnwrap(doc.provenance)
+        XCTAssertTrue(provenance.hasLegacyHistory,
+                      "the writer is told their history predates the signature")
+        XCTAssertEqual(provenance.quarantinedLines, 0, "nothing is refused")
+        XCTAssertFalse(provenance.hasUnsignedForeignHistory,
+                       "legacy is legacy — never reported as another device's")
+        XCTAssertEqual(
+            OpLogQuarantine.records(forDocId: docId, in: project)
+                .filter { $0.kind == .lines }.count, 0)
+
+        // The first burst goes into THIS device's own file, whose chain starts
+        // at genesis; the legacy file is frozen (ADR 0012) and is never
+        // appended to or rewritten.
+        doc.setParagraph(id: doc.sequence[0], text: "Legacy history, continued.")
+        try await doc.flushBurstNow()
+        await doc.close()
+
+        XCTAssertEqual(
+            try Data(contentsOf: legacyURL), body,
+            "the legacy file is frozen — never rewritten, never sealed")
+        let reloaded = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        XCTAssertTrue(reloaded.displayText.contains("Legacy history, continued."))
+        XCTAssertEqual(try XCTUnwrap(reloaded.provenance).quarantinedLines, 0,
+                       "the chained continuation is not mistaken for a stranger")
+        await reloaded.close()
+    }
+
     /// The delivery wiring census: EditorHost must consume the stamp and must
     /// carry BOTH triggers — after the load completes AND when the window
     /// resolves — because either can happen first (the BinderRow.claimFocus

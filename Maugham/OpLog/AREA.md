@@ -191,6 +191,41 @@ all — and it therefore writes nothing. A check reports; the load records. **Se
 decoder**: the filter is in `JSONLAppendStore.parse`, the one parser every
 reader shares, so a seal is never reported as a torn line.
 
+**What the Mac does with all of it** (signed op log P1, Task 6). **Sealing has
+three triggers and they are one verb**, `OpLogStore.sealChain(docId:)`: after
+every burst that actually appended (`Document.flushBurstNow` — a burst IS
+"typing followed by idle"), at `Document.close()`, and over every doc this Mac
+has written at project open (`DocumentStore`). All three are best-effort and
+LOGGED rather than swallowed — `sealChain` already answers false without
+throwing on a device with no key and on a file with nothing new, so a throw is
+a real failure and never a reason to lose the burst that has already landed.
+**At close and at open the chain seal runs BEFORE `sealTailIfNeeded`**, so a
+rotated `.mzseg` ends on a seal line and its whole span is verified inside the
+container; the other order rotates an unsealed span away where nothing can ever
+sign it. That ordering is load-bearing only for ops that arrive OUTSIDE the
+burst path — an annotation, a task op, a checkpoint breadcrumb — because a burst
+seals itself; `SegmentSealTriggerTests.test_close_sealsTheChainBeforeRotatingTheTail`
+therefore ends its tail on a breadcrumb, and a version of it that ended on a
+burst passed under BOTH orders. **`Document.provenance`** is the load's own
+account of what the history is made of, stamped by both doors (the strict load
+and the read-only recovery load) and posted by neither: a notice from a
+windowless load is dropped by the liveness guard, exactly the pending stamp's
+reasoning. `EditorHost` reads the stamp and folds it into the ONE
+`.maughamQuarantineRecordsChanged` post it already makes
+(`EditorHost.quarantineRecordsChanged(setAsideAtLoad:outcomes:)`), whose sweep
+now takes `.file` records only — a `.lines` record is not a file waiting to come
+back. `HistoryPane` says the two things a writer can act on knowing and no
+others: `unsignedHistoryNotice` (legacy history, foreign-signed history, or ONE
+sentence carrying both — the coalescing rule) and `setAsideLinesNotice`, neither
+with a Retry, because neither is something the writer can undo. **`unsealed`
+lines are never mentioned**: the live tail is always partly unsealed, so naming
+it would be a permanent notice about nothing. The device identity and chain
+memory a load hands its `OpLogStore` come from `Document.makeLoadOpStore`, the
+one construction, with `Document.deviceIdentityForTesting`/`deviceStateForTesting`
+as its test seam — a machine with no Secure Enclave (CI's runner) is genuinely
+unsigned, so a seal assertion has to inject a signer or it is asserting the
+runner rather than the code.
+
 ## External-edit discard + forensic snapshots (ADR 0019, hardened 2026-07-01)
 
 External `.md` edits are never honored — they're discarded and the op-log truth

@@ -17,7 +17,43 @@ final class SegmentSealTriggerTests: XCTestCase {
 
     override func tearDown() async throws {
         Document.segmentSealThresholdForTesting = nil
+        // Process-wide, so a leak would silently change what every later
+        // test's load can vouch for.
+        Document.deviceIdentityForTesting = nil
+        Document.deviceStateForTesting = nil
         try? FileManager.default.removeItem(at: projectURL)
+    }
+
+    /// Give this test a device that can SIGN, and a chain memory of its own.
+    ///
+    /// The machine running the suite may have no key at all — CI's VM has no
+    /// Secure Enclave, so `DeviceIdentity.current` there is the unsigned token
+    /// twin and `sealChain` correctly writes nothing. Injecting the software
+    /// signer is what makes a seal assertion decidable rather than
+    /// machine-dependent; the fresh state keeps one test's remembered heads
+    /// out of another's.
+    /// Answers the device STRING that identity implies, because in production
+    /// the two are the same fact: `EditorHost.deviceId` is
+    /// `DeviceIdentity.current.deviceId`, so the file an op is appended to
+    /// (named from `op.device`) and the file `sealChain` seals (named from
+    /// `identity.slug`) are one file. A test that took the fixture's own
+    /// "test-mac" would seal a file nothing wrote to and prove nothing.
+    @discardableResult
+    private func useASigningIdentity() -> String {
+        let identity = DeviceIdentity.softwareForTesting()
+        Document.deviceIdentityForTesting = identity
+        Document.deviceStateForTesting = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("op-log-state.json"))
+        return identity.deviceId
+    }
+
+    private func tailLines(docId: String, device: String = "test-mac") throws -> [Data] {
+        let url = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: DeviceSlug.make(from: device),
+            in: projectURL)
+        return try Data(contentsOf: url)
+            .split(separator: UInt8(0x0A), omittingEmptySubsequences: true)
+            .map { Data($0) }
     }
 
     private func makeDoc(device: String = "test-mac") async throws -> Document {
@@ -58,6 +94,119 @@ final class SegmentSealTriggerTests: XCTestCase {
         let reloaded = try await makeDoc()
         XCTAssertTrue(reloaded.displayText.contains("Alpha grown 29"))
         await reloaded.close()
+    }
+
+    // MARK: - Signed op log P1: the chain seal on burst and on close
+
+    /// A burst is "typing followed by idle" (spec §4.3's third trigger), so it
+    /// seals what it just wrote. Without this the whole live tail stays merely
+    /// chained — tamper-evident, but signed by nobody — until the writer quits.
+    func test_burstSealsTheRunItJustWrote() async throws {
+        let device = useASigningIdentity()
+        let doc = try await makeDoc(device: device)
+        doc.setParagraph(id: doc.sequence[0], text: "Alpha, sealed.")
+        try await doc.flushBurstNow()
+
+        let lines = try tailLines(docId: doc.docId, device: device)
+        XCTAssertTrue(OpLogChain.isSealLine(try XCTUnwrap(lines.last)),
+                      "the burst's own seal is the tail's last line")
+        let seal = try XCTUnwrap(OpLogChain.Seal.parse(try XCTUnwrap(lines.last)))
+        XCTAssertTrue(seal.verifies(), "and it holds together under its own key")
+        XCTAssertEqual(
+            seal.key, try XCTUnwrap(Document.deviceIdentityForTesting).fingerprint,
+            "signed by THIS device, which is the whole claim a seal makes")
+        await doc.close()
+    }
+
+    /// The seal is maintenance, and maintenance may never cost the writer the
+    /// burst that has already landed: a chain seal that cannot be written
+    /// leaves the ops exactly where they are. A device with no key is the
+    /// ordinary case of that (spec §4.1), not an error.
+    func test_burstWithNoKeyStillWritesTheOps_andSealsNothing() async throws {
+        let identity = DeviceIdentity.unsignedForTesting(
+            token: Data(repeating: 7, count: 32))
+        Document.deviceIdentityForTesting = identity
+        Document.deviceStateForTesting = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("op-log-state.json"))
+        let doc = try await makeDoc(device: identity.deviceId)
+        doc.setParagraph(id: doc.sequence[0], text: "Alpha, unsigned.")
+        try await doc.flushBurstNow()
+
+        let lines = try tailLines(docId: doc.docId, device: identity.deviceId)
+        XCTAssertFalse(lines.contains(where: OpLogChain.isSealLine),
+                       "a device with no key signs nothing — a state, not a failure")
+        await doc.close()
+        let reloaded = try await makeDoc(device: identity.deviceId)
+        XCTAssertTrue(reloaded.displayText.contains("Alpha, unsigned."),
+                      "and the words are safe regardless")
+        await reloaded.close()
+    }
+
+    /// Order is the whole point: `sealChain` runs BEFORE `sealTailIfNeeded`, so
+    /// a rotated segment ENDS on a seal line and its whole span is verified
+    /// inside the container. The other order rotates the unsealed tail away and
+    /// leaves that span unsigned forever — there is no going back to it.
+    func test_close_sealsTheChainBeforeRotatingTheTail() async throws {
+        let device = useASigningIdentity()
+        let doc = try await makeDoc(device: device)
+        for i in 0..<30 {
+            doc.setParagraph(id: doc.sequence[0],
+                             text: "Alpha grown \(i) " + String(repeating: "y", count: 300))
+            try await doc.flushBurstNow()
+        }
+        // The last thing in the tail must be UNSEALED, or this test cannot
+        // tell the two orders apart: a burst seals itself, so a tail whose
+        // last event was a burst already ends on a seal whichever order close
+        // runs in. A checkpoint breadcrumb is a real, ordinary op that arrives
+        // outside the burst path — the shape annotation and task ops share —
+        // and it is exactly the span close's own `sealChain` exists to cover.
+        try await doc.appendMirrored(Op(
+            opId: ULID.generate(), docId: doc.docId, at: Date(),
+            device: device, session: "s1", kind: .checkpoint, changes: []))
+        let lastBeforeClose = try XCTUnwrap(tailLines(docId: doc.docId, device: device).last)
+        XCTAssertFalse(OpLogChain.isSealLine(lastBeforeClose),
+                       "precondition: the tail ends unsealed going into close()")
+
+        Document.segmentSealThresholdForTesting = 1   // force the rotation
+        await doc.close()
+
+        let segments = segmentURLs(docId: doc.docId)
+        XCTAssertEqual(segments.count, 1, "the oversized tail rotated")
+        let decoded = OpLogSegment.decodeVerifying(try Data(contentsOf: segments[0]))
+        XCTAssertTrue(decoded.isVerified, "precondition: the container checks out")
+        let segmentLines = try XCTUnwrap(decoded.jsonl)
+            .split(separator: UInt8(0x0A), omittingEmptySubsequences: true)
+            .map { Data($0) }
+        XCTAssertTrue(
+            OpLogChain.isSealLine(try XCTUnwrap(segmentLines.last)),
+            "the segment ends on a seal line — the chain was sealed first")
+
+        let sigURL = OpLogStore.segmentSignatureURL(for: segments[0])
+        let signature = try XCTUnwrap(
+            SegmentSignature.read(at: sigURL),
+            "and the segment is signed beside itself")
+        XCTAssertTrue(signature.verifies())
+        XCTAssertEqual(
+            signature.key,
+            try XCTUnwrap(Document.deviceIdentityForTesting).fingerprint)
+    }
+
+    /// The same order, from the OTHER caller. Project-open maintenance runs the
+    /// pair for every doc this Mac has written, and a second spelling of the
+    /// order is a second place it can be got wrong.
+    func test_documentStoreOpenMaintenanceSealsTheChainBeforeRotating() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Maugham/Stores/DocumentStore.swift"),
+            encoding: .utf8)
+        let chain = try XCTUnwrap(source.range(of: "sealStore.sealChain(docId:"))
+        let rotate = try XCTUnwrap(source.range(of: "sealStore.sealTailIfNeeded("))
+        XCTAssertTrue(
+            chain.lowerBound < rotate.lowerBound,
+            "open-time maintenance seals the chain before rotating the tail — "
+            + "the other order strands an unsealed span inside an immutable segment")
     }
 
     func test_close_underThreshold_doesNotSeal() async throws {
