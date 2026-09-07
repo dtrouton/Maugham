@@ -174,6 +174,56 @@ public enum OpLogChain {
         return .some(text)
     }
 
+    // MARK: - Signing a digest
+
+    /// The three fields a signature over a 32-byte digest carries. One shape,
+    /// used by the seal INSIDE a file and by the signature BESIDE a sealed
+    /// segment, so the base64/X9.63 dance is written once and the two can never
+    /// disagree about what a signature is.
+    struct Credentials {
+        let key: String
+        let pub: String
+        let sig: String
+    }
+
+    /// Sign `digestHex`'s 32 bytes with `identity`.
+    ///
+    /// Throws `DeviceIdentityError.unsigned` when this device has no key — the
+    /// condition is first-class (spec §4.1), never a trap.
+    static func credentials(
+        signing digestHex: String, identity: DeviceIdentity
+    ) throws -> Credentials {
+        guard let publicKey = identity.publicKey else { throw DeviceIdentityError.unsigned }
+        guard let digestBytes = hexDecode(digestHex) else {
+            preconditionFailure("a signed digest is hex — got \(digestHex)")
+        }
+        return Credentials(
+            key: DeviceIdentity.fingerprint(of: publicKey),
+            pub: publicKey.x963Representation.base64EncodedString(),
+            sig: try identity.sign(digestBytes).base64EncodedString())
+    }
+
+    /// Do these credentials hold together over `digestHex`? Three questions,
+    /// and all three must answer yes: the carried public key parses, its
+    /// fingerprint IS the `key` named (otherwise the signature claims another
+    /// device's word), and the signature is over these digest bytes.
+    ///
+    /// Whether that key is TRUSTED is a separate question, and not one this
+    /// function is allowed to have an opinion about.
+    static func credentialsVerify(
+        _ credentials: Credentials, over digestHex: String
+    ) -> Bool {
+        guard let publicKeyBytes = Data(base64Encoded: credentials.pub),
+              let publicKey = try? P256.Signing.PublicKey(x963Representation: publicKeyBytes)
+        else { return false }
+        guard DeviceIdentity.fingerprint(of: publicKey) == credentials.key else { return false }
+        guard let signatureBytes = Data(base64Encoded: credentials.sig),
+              let signature = try? P256.Signing.ECDSASignature(rawRepresentation: signatureBytes)
+        else { return false }
+        guard let digestBytes = hexDecode(digestHex) else { return false }
+        return publicKey.isValidSignature(signature, for: digestBytes)
+    }
+
     // MARK: - The seal
 
     /// One device's signature over the chain head at a moment: what it signed,
@@ -209,16 +259,10 @@ public enum OpLogChain {
         /// the condition is first-class (spec §4.1): such a device writes
         /// chained lines that nothing seals, and the caller decides about it.
         public static func line(head: String, identity: DeviceIdentity, at: Date) throws -> Data {
-            guard let publicKey = identity.publicKey else { throw DeviceIdentityError.unsigned }
-            guard let headBytes = OpLogChain.hexDecode(head) else {
-                preconditionFailure("a chain head is a hex digest — got \(head)")
-            }
+            let credentials = try OpLogChain.credentials(signing: head, identity: identity)
             let seal = Seal(
-                at: at,
-                head: head,
-                key: DeviceIdentity.fingerprint(of: publicKey),
-                pub: publicKey.x963Representation.base64EncodedString(),
-                sig: try identity.sign(headBytes).base64EncodedString())
+                at: at, head: head,
+                key: credentials.key, pub: credentials.pub, sig: credentials.sig)
 
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
@@ -241,15 +285,8 @@ public enum OpLogChain {
         /// Whether that key is TRUSTED is a separate question, and not one this
         /// type is allowed to have an opinion about.
         public func verifies() -> Bool {
-            guard let publicKeyBytes = Data(base64Encoded: pub),
-                  let publicKey = try? P256.Signing.PublicKey(x963Representation: publicKeyBytes)
-            else { return false }
-            guard DeviceIdentity.fingerprint(of: publicKey) == key else { return false }
-            guard let signatureBytes = Data(base64Encoded: sig),
-                  let signature = try? P256.Signing.ECDSASignature(rawRepresentation: signatureBytes)
-            else { return false }
-            guard let headBytes = OpLogChain.hexDecode(head) else { return false }
-            return publicKey.isValidSignature(signature, for: headBytes)
+            OpLogChain.credentialsVerify(
+                .init(key: key, pub: pub, sig: sig), over: head)
         }
     }
 
@@ -323,6 +360,15 @@ public enum OpLogChain {
         public let breakReason: BreakReason?
     }
 
+    /// Test-only counting seam: called once at the top of every `verify`.
+    ///
+    /// The verify CACHE is invisible from outside — a remembered segment and a
+    /// walked one answer the same ops, which is the whole point — so the only
+    /// way to pin "this segment was not walked" is to watch the verifier
+    /// itself. `nonisolated(unsafe)` because it is a test's own variable set
+    /// and cleared on one thread; production never assigns it.
+    nonisolated(unsafe) static var verifyObserverForTesting: (@Sendable () -> Void)?
+
     // MARK: - The walk
 
     /// Classify every line of `bytes`.
@@ -350,6 +396,7 @@ public enum OpLogChain {
         trusted: (String) -> Bool,
         rememberedHead: String?
     ) -> Verification {
+        verifyObserverForTesting?()
         var lines: [Line] = []
         var head: String?
         var sawChainOrSeal = false

@@ -38,6 +38,16 @@ final class DocumentLoadQuarantineTests: XCTestCase {
 
         // Append a torn final line: a real op JSON with its tail chopped and no
         // trailing newline — exactly a crash mid-append.
+        //
+        // "Exactly" now has to include the chain (signed op log P1). A crash
+        // mid-`append` leaves a line that is already CHAINED — `prev` is the
+        // first key the format writes, so a truncated line still names its
+        // head — and leaves the head that line would have hashed to already
+        // REMEMBERED, because `chainedAppend` remembers before it writes,
+        // which is what makes this crash recoverable. A torn line that skipped
+        // either step is a line this device did not write, and the reader sets
+        // it aside instead: a different event, with a `.lines` record under
+        // `quarantined-ops/` rather than this one.
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
         enc.outputFormatting = [.sortedKeys]
@@ -45,8 +55,15 @@ final class DocumentLoadQuarantineTests: XCTestCase {
             opId: ULID.generate(), docId: docId, at: Date(),
             device: "m", session: "s", kind: .typingBurst,
             changes: [.init(paragraphId: ParagraphID.mint(), prior: nil, next: "torn")])
-        let full = try enc.encode(tornOp)
+        let head = OpLogChain.lineHash(Data(
+            try Data(contentsOf: opLogURL)
+                .split(separator: 0x0A, omittingEmptySubsequences: true).last!))
+        let full = OpLogChain.chainedLine(
+            elementJSON: try enc.encode(tornOp), prev: head)
         let torn = full.prefix(full.count - 10)
+        OpLogDeviceState.shared.remember(
+            head: OpLogChain.lineHash(full),
+            for: OpLogDeviceState.fileKey(opLogURL))
         let handle = try FileHandle(forWritingTo: opLogURL)
         try handle.seekToEnd()
         try handle.write(contentsOf: Data(torn))

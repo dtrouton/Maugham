@@ -140,6 +140,33 @@ MCP) never seal and that is accepted: they carry only rare, tiny lifecycle ops
 and cannot realistically reach the threshold. Tests: `OpLogSegmentTests`,
 `OpLogStoreSegmentTests`, `SegmentSealTriggerTests`, `SegmentIntegrityTests`.
 
+**Each segment is signed beside itself** (signed op log P1): minting one also
+writes `<name>.mzseg.sig`, a `SegmentSignature` over the 32 digest bytes the
+container already carries — one P256 signature per segment rather than one per
+line, so verification is a single check however long the history is. The name
+comes from `OpLogStore.segmentSignatureURL(for:)` and nothing else; the `.sig`
+suffix is what keeps `opLogFileURLs` (which matches `.jsonl` and `.mzseg`
+endings) from ever listing it as history. Writing it is **best-effort** — a
+device with no key signs nothing, a failed write is logged — because the seal is
+maintenance and a segment with no signature is unsigned history, which is
+honest. On the read side `OpLogDeviceState.isVerified(segmentDigest:)` is the
+cache: a digest this device has already settled skips the chain walk entirely,
+a trusted sidecar settles it and is remembered, and anything else (a foreign
+signature, no signature, a pre-milestone segment) is walked keylessly, where a
+break still quarantines.
+
+**Every reader classifies before it applies** (signed op log P1). `OpLogStore.classify`
+is the one rule, and both readers call it: `loadFileDiagnosed` (coordinated,
+behind `loadDiagnosed`/`loadDiagnosedPartial`) and `loadSyncMerged`. Quarantined
+lines are omitted from the ops by both; only the coordinated reader writes
+anything — the `OpLogQuarantine.setAsideLines` record, an adopted head, a
+remembered segment digest, each best-effort so a forensic write can never cost
+the writer their manuscript. `loadDiagnosed` answers a third member,
+`OpLogProvenance`, counting every line of every file as legacy / verified /
+unsealed / unsigned-history / quarantined. **Seal lines never reach an element
+decoder**: the filter is in `JSONLAppendStore.parse`, the one parser every
+reader shares, so a seal is never reported as a torn line.
+
 ## External-edit discard + forensic snapshots (ADR 0019, hardened 2026-07-01)
 
 External `.md` edits are never honored — they're discarded and the op-log truth

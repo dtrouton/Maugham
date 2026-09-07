@@ -108,7 +108,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
         let store = OpLogStore(projectURL: projectURL)
         try await store.append(op("01B", next: "second"))
 
-        let (ops, diagnostics) = try await store.loadDiagnosed(docId: docId)
+        let (ops, diagnostics, _) = try await store.loadDiagnosed(docId: docId)
         XCTAssertFalse(diagnostics.skipped.isEmpty,
                        "checksum failure must surface in ParseDiagnostics")
         XCTAssertTrue(ops.contains { $0.opId == "01A" },

@@ -283,6 +283,13 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
             defer { offset += lineLen + 1 }  // +1 for the consumed newline
             if lineBytes.isEmpty { continue }  // blank line: not corruption
             let data = Data(lineBytes)
+            // A seal is a line of its own kind, not an element — it belongs to
+            // the chain, and `OpLogChain` is the only thing that reads one. It
+            // is filtered HERE, in the one parser every reader shares (tails,
+            // decompressed segments, the inbox), so no reader can be written
+            // that hands a seal to an element decoder and then reports the
+            // file as damaged because it would not decode.
+            if OpLogChain.isSealLine(data) { continue }
             guard let element = try? dec.decode(Element.self, from: data) else {
                 let raw = String(data: data, encoding: .utf8) ?? "<non-utf8>"
                 skipped.append(.init(byteOffset: offset, raw: raw))

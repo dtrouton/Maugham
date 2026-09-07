@@ -61,7 +61,27 @@ public enum OpLogSegment {
     public struct DecodeResult: Sendable {
         public let jsonl: Data?
         public let failure: SegmentError?
+        /// The digest the container CARRIES, as 64 hex characters — nil only
+        /// when the header itself could not be read.
+        ///
+        /// It is here so the verify cache costs nothing extra: the segment
+        /// already commits to its own content, and that commitment is the
+        /// natural key for "these exact bytes, already read once". Note it is
+        /// the STORED digest, not a recomputed one — it only means what it says
+        /// when `isVerified`, which is the only condition under which any
+        /// caller may key a cache or a signature on it.
+        public let digest: String?
         public var isVerified: Bool { failure == nil }
+
+        init(jsonl: Data?, failure: SegmentError?, digest: String? = nil) {
+            self.jsonl = jsonl
+            self.failure = failure
+            self.digest = digest
+        }
+    }
+
+    static func hex(_ bytes: Data) -> String {
+        bytes.map { String(format: "%02x", $0) }.joined()
     }
 
     /// Encode raw JSONL bytes into a sealed container.
@@ -109,6 +129,7 @@ public enum OpLogSegment {
             UInt64(littleEndian: $0.load(as: UInt64.self))
         }
         let storedDigest = bytes.subdata(in: 16..<48)
+        let digestHex = hex(storedDigest)
         let payload = bytes.subdata(in: 48..<bytes.count)
 
         let jsonl: Data
@@ -121,7 +142,8 @@ public enum OpLogSegment {
             guard expected == 0 else {
                 return DecodeResult(
                     jsonl: Data(),
-                    failure: .lengthMismatch(expected: expected, actual: 0))
+                    failure: .lengthMismatch(expected: expected, actual: 0),
+                    digest: digestHex)
             }
             jsonl = Data()
         } else {
@@ -131,11 +153,13 @@ public enum OpLogSegment {
             // actual-vs-expected check below ever runs.
             guard expected <= maxExpectedByteCount else {
                 return DecodeResult(
-                    jsonl: nil, failure: .expectedByteCountTooLarge(expected))
+                    jsonl: nil, failure: .expectedByteCountTooLarge(expected),
+                    digest: digestHex)
             }
             guard let d = try? (payload as NSData).decompressed(
                 using: algorithm.nsAlgorithm) as Data else {
-                return DecodeResult(jsonl: nil, failure: .decompressionFailed)
+                return DecodeResult(jsonl: nil, failure: .decompressionFailed,
+                                    digest: digestHex)
             }
             jsonl = d
         }
@@ -143,11 +167,13 @@ public enum OpLogSegment {
             return DecodeResult(
                 jsonl: jsonl,
                 failure: .lengthMismatch(expected: expected,
-                                         actual: UInt64(jsonl.count)))
+                                         actual: UInt64(jsonl.count)),
+                digest: digestHex)
         }
         guard Data(SHA256.hash(data: jsonl)) == storedDigest else {
-            return DecodeResult(jsonl: jsonl, failure: .checksumMismatch)
+            return DecodeResult(jsonl: jsonl, failure: .checksumMismatch,
+                                digest: digestHex)
         }
-        return DecodeResult(jsonl: jsonl, failure: nil)
+        return DecodeResult(jsonl: jsonl, failure: nil, digest: digestHex)
     }
 }
