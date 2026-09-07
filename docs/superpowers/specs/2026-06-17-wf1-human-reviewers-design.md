@@ -3,6 +3,8 @@
 **Status:** Spec for implementation · **Date:** 2026-06-17
 **Parent:** [`2026-06-17-collaboration-overview-design.md`](2026-06-17-collaboration-overview-design.md) (rationale lives there; this is the *what to build*)
 
+> **2026-09-05:** Component A (identity and role from iCloud resource keys) is **subsumed** by [`2026-09-05-signed-op-log-design.md`](2026-09-05-signed-op-log-design.md): a person is a key admitted by the author, a device is a certificate that person signs, and the role lives on the admission record; the iCloud share keys become the request's default only. Component B's membrane, deferred here as cooperative, gains its enforced half there (§4.9). Every other component stands.
+
 ## Goal
 
 A human collaborator opens a project the author has shared via iCloud Drive, is recognized **by name** as a reviewer, and can leave **comments, suggested changes, and queries** against the manuscript — annotating exactly as Claude does today — in a crafted review surface. The author disposes of those annotations in the existing `AnnotationsPane`. The manuscript text stays the author's; the reviewer never mutates it.
