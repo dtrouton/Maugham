@@ -1,6 +1,6 @@
 # The signed op log — provenance for every op, people as keys, devices as certificates
 
-**Date:** 2026-09-05 · **Status:** approved in discussion, plans unwritten; a spike gates P1
+**Date:** 2026-09-05 · **Status:** approved in discussion; **§7 spike run 2026-09-07** (`docs/superpowers/notes/2026-09-07-signed-op-log-spike.md`) — four corrections folded in below and marked *(spike)*; one decision open for Denver (§8, P2); plans unwritten
 **Session:** "compiler / author / review split" (second brainstorm of the session)
 
 *Brainstormed with Denver 2026-09-05, from his question "protecting the oplog
@@ -100,7 +100,15 @@ identity that cannot collide; §4.8 uses it.
 | key | where | made when | signs |
 |---|---|---|---|
 | **person key** | software P256, Keychain item marked synchronizable; iCloud Keychain carries it to every device on the same Apple ID | first launch on the first device; re-used everywhere it arrives | device certificates; admission records the person makes as author |
-| **device key** | Secure Enclave P256 (CryptoKit `SecureEnclave.P256.Signing`); a Keychain software key on an Intel Mac without T2, recorded as such | first launch on each device | every append batch the device writes; segment seals; self-revocation |
+| **device key** | Secure Enclave P256 (CryptoKit `SecureEnclave.P256.Signing`); its opaque `dataRepresentation` persisted by the app under Application Support and **never stored as a keychain item** *(spike: that is what needs no entitlement; a keychain-resident enclave key does)* | first launch on each device | every seal line the device writes (§4.3); segment seals; self-revocation |
+
+*(spike)* **There is no software fallback.** The deployment target is macOS 26,
+which runs only on Apple Silicon and T2 Intel Macs — every Mac that can run
+Maugham has a Secure Enclave, and every iPhone does. The spike measured the
+login-keychain fallback's ACL as porous (any process running as the user reads
+the key silently), so a software device key would be provenance without
+secrecy; it is not built. A Mac reporting `SecureEnclave.isAvailable == false`
+mints no device key and writes **unsigned history**, loudly (§4.4).
 
 A device certificate is `{devicePublicKey, personPublicKey, name, madeAt}`
 signed by the person key. It is made on the device, silently, the first time
@@ -108,10 +116,29 @@ the app runs with both keys present. Its security is the Apple ID's, which is
 already the folder's and the share's trust root; this adds nothing a
 compromised Apple ID could not already reach.
 
-**Fallback without iCloud Keychain**: each device mints its own person key
-and looks like a separate person. The admission sheet's *this is also Sam*
-merges two person keys under one label (§4.5). Person keys are the normal
-path; labels are the fallback; both are the author's act.
+**Without a person key** — iCloud Keychain off, or a build without the
+entitlement (§7) — each device mints its own person key and looks like a
+separate person. The admission sheet's *this is also Sam* merges two person
+keys under one label (§4.5). Both paths are the author's act; which one is the
+*normal* path is §8's open decision.
+
+*(spike)* **A synced person key needs a Developer ID provisioning profile.**
+A synchronizable keychain item lives in the data-protection keychain, which
+on macOS is gated on a restricted entitlement that only an embedded profile
+can authorize; every build Maugham ships today gets `-34018`, and a dev
+build that merely claims the entitlement is `SIGKILL`ed at exec. The profile
+does not exist; creating it means a keychain group shared with the phone, a
+regenerated phone profile, a profile-install and **launch-and-quit** step in
+CI (the kill is invisible to `codesign --verify` and to notarization), a dev-
+variant rule (recommended: non-synchronizable in Debug, synchronizable in
+Release, one attribute behind `BuildVariant`), and an **18-year expiry after
+which a shipped Maugham stops launching**, recorded in `docs/RELEASING.md`.
+If the person key ships, the app never asks "is iCloud Keychain on"; it asks
+"did a key arrive" and handles three outcomes — not entitled (mint locally,
+silently), a key already present (certify against it), no key yet
+(indistinguishable from lag: mint locally at once so writing never blocks,
+mark it *not yet shared*, watch `com.apple.security.keychainchanged`, adopt
+and merge an older key when it lands, never delete on a timer).
 
 ### 4.2 The registry
 
@@ -140,24 +167,38 @@ folder's and the backup's.
 
 ### 4.3 What is signed, and at what grain
 
-- **Every append batch.** `PendingBuffer`'s flush is already the append unit.
-  Each batch's lines carry a `sig` field on the LAST line covering the
-  batch's ops in order plus the previous line's hash — a **hash chain** on the
-  tail, so truncation and torn appends are detected without a key, and a
-  batch is one signature rather than one per op. (Verification of a 50k-op
-  log is then hundreds of verifies, not tens of thousands; the spike measures
-  it.)
+- **Every line is chained; every span is sealed.** *(spike: the append unit
+  is ONE op per line — `OpLogStore.append` writes a single op and
+  `PendingBuffer` never touches `.maugham/ops/` — so there is no batch to sign,
+  and per-op verification costs 3.9 s over 50k ops against a 100 ms budget.)*
+  So the signature is decoupled from the append. Each line carries `prev`, the
+  hash of the line before it — the **hash chain**, 0.6 µs per line, which
+  catches truncation and torn appends with no key. A **seal line** is a line
+  of its own carrying a signature over the chain head, written when the chain
+  has advanced by `K` lines (100), at session close, and at the end of a burst
+  followed by idle; a 50k-op tail is then ~500 verifies at 78 µs, under budget
+  before any cache. **Before every append the writer checks the file's last
+  line hashes to its own remembered chain head**; a mismatch means something
+  else wrote, and those lines are quarantined rather than chained onto (the
+  writer never seals what it did not write). Lines after the last seal are
+  *chained, not yet sealed*; the next seal covers them.
 - **Every sealed segment.** At seal, one signature over the segment's
-  existing SHA-256 (ADR 0016), stored beside the digest. A verified segment is
-  cached as verified by content hash; it is never re-verified per load.
+  existing SHA-256 (ADR 0016), stored beside the digest — 11 ms to verify a
+  36 MB segment *(spike)*. A verified segment is cached as verified by content
+  hash in the device's own state and never re-verified; this cache is **P1
+  work** *(spike)*, so a warm open pays nothing for sealed history and only
+  the unsealed tail (≤ 512 KB, ~700 ops) verifies.
 - **Every inbox manifest row** — the same batch signature on
   `inbox.<slug>.jsonl`, because a reviewer's capture is a proposal and its
   authorship is the whole point (§4.10).
 - **Registry records** (§4.2).
 
-The op JSON is otherwise byte-identical; `sig` and `prev` are two additive
-keys on a line (tripwire 11: legacy lines carry neither and load as
-*unsigned* — see §4.4 — never as broken).
+The op JSON is otherwise byte-identical; `prev` is one additive key on an
+op line and a seal line is a line of its own kind (tripwire 11: legacy lines
+carry neither and load as *unsigned* — see §4.4 — never as broken).
+*(spike, load-bearing but unrelated)*: ~1.1 s of a 50k-op cold open's 1.9 s
+is `JSONLAppendStore`'s custom ISO 8601 date strategy; the built-in
+`.iso8601` halves it. That headroom belongs to the performance pass, not here.
 
 ### 4.4 Verification: three states, and what each does
 
@@ -178,7 +219,9 @@ The first signed batch's `prev` hashes the last legacy line, so the chain
 starts where the history does.
 
 **On the writer's own Mac, the case this milestone exists for**: an agent
-with a shell appends an insert op. It has no device key, so no signature;
+with a shell appends an insert op. It has no device key — the key never leaves
+the enclave, and under the deployment target every Mac has one *(spike)* — so
+it cannot seal, and its lines break the writer's chain head;
 the batch is quarantined on the next load and History says *3 changes were
 written to chapter 4 by something that is not Maugham; kept in backup, not
 applied.* The `.md` is re-materialised without them, the same fate an outside
@@ -329,7 +372,23 @@ Nothing goes in the tree, the footer or a badge. Constitution must #2.
   slug-from-key rule, and the three verification states; ADR 0012 and 0016
   gain a one-line pointer each.
 
-## 7. The spike (gates P1)
+## 7. The spike — run 2026-09-07
+
+Answered in `docs/superpowers/notes/2026-09-07-signed-op-log-spike.md` (digest)
+and its two full reports beside it. In one line each: **(1)** keychain sync is
+refused by every build shipped today and needs a Developer ID provisioning
+profile (§4.1); **(2)** the enclave works from an entitlement-less binary when
+the app persists the key blob itself, and the software fallback keeps no
+secret from a shell, which the deployment target makes moot (§4.1); **(3)**
+the append grain is one op, per-op verification is 39× over budget, so seal
+lines and the segment verify cache are P1's (§4.3); **(4)** registry
+propagation needs a second Apple ID and a procedure is written; one record per
+file is safe under tripwire 17; **(5)** the Apple Silicon simulator has a
+working enclave, so P1's device-key path is testable in CI. Still owed, and
+only Denver can run them: the two-device keychain test, the shared-folder
+test (which also closes WF1's participant-side debt), the on-device iOS run.
+
+The five items as asked:
 
 1. **Keychain sync on the non-sandboxed Mac.** `Maugham.entitlements` is
    empty. A synchronizable Keychain item needs a keychain-access-group
@@ -348,23 +407,35 @@ Nothing goes in the tree, the footer or a badge. Constitution must #2.
 5. **iOS**: the same items on the phone through the document-picker access
    the phone already uses (tripwire 18's three rules).
 
-Record the answers in `docs/superpowers/notes/` before P1 is planned.
+Recorded. P1 can be planned; P2 waits on §8's decision.
 
 ## 8. Sequencing — three plans (rule 11; each built before the next is written)
 
-- **P1 — integrity and the device.** The tail hash chain and batch
-  signatures with the device's enclave key; segment signatures at seal; the
-  verify-on-load shape with **verified / quarantined** only (no registry yet:
-  own-device batches verify, foreign devices' batches are applied as *unsigned
-  history* with the History line, so nothing regresses); `DeviceSlug` from
-  the key fingerprint and `MacDeviceID` deleted; inbox rows signed; the
-  palette aim removed. Closes audit item 10.
-- **P2 — people and admission.** The person key and iCloud Keychain sync;
-  device certificates; the registry with signed records and the cache; the
-  three states in full (pending arrives here); the admission sheet, labels
-  and the `<label> (<own name>)` convention; silent device admission with
-  audit lines; revocation; the claim and adoption; People & Devices in
-  Project Settings; the History lines.
+- **P1 — integrity and the device.** The tail hash chain, the chain-head
+  check before append, and seal lines with the device's enclave key (blob
+  persisted by the app, no keychain item, no entitlement); segment signatures
+  at seal and the **content-hash verify cache** *(spike)*; the verify-on-load
+  shape with **verified / quarantined** only (no registry yet: own-device
+  spans verify, foreign devices' lines are applied as *unsigned history* with
+  the History line, so nothing regresses); `DeviceSlug` from the key
+  fingerprint and `MacDeviceID` deleted; inbox rows sealed; the palette aim
+  removed. Closes audit item 10. Testable on the Mac and in the iOS simulator.
+- **P2 — people and admission.** Device certificates; the registry with
+  signed records and the cache; the three states in full (pending arrives
+  here); the admission sheet, labels and the `<label> (<own name>)`
+  convention; revocation; the claim and adoption; People & Devices in
+  Project Settings; the History lines. **Open decision (Denver):** whether P2
+  ships the **synced person key** — silent admission of a person's further
+  devices, the restore that needs no claim — at the cost of the provisioning
+  pipeline in §4.1 *(spike)* and a launch dependency with an expiry date; or
+  ships **labels only** — every device is its own person, *this is also
+  Denver* once per extra device, the claim on every restore — with the record
+  shape carrying `personFingerprint` so the synced key can be added later
+  without a format change. The recommendation is labels only for P2 and the
+  pipeline as its own later milestone: for an author with a Mac and a phone
+  the friction is two admissions ever, and a kill-at-exec that neither
+  `codesign` nor notarization can see is a new class of release risk to take
+  on for that.
 - **P3 — roles and the collaborator.** `author`/`reviewer` on the person
   record; the per-op-kind role check; the reviewer's inbox capture with
   attribution; the phone reading its role and taking its posture; WF1's
@@ -374,6 +445,8 @@ Record the answers in `docs/superpowers/notes/` before P1 is planned.
 ## 9. Out of scope
 
 - Encryption of anything.
+- A software device key. None is needed under the deployment target, and
+  the spike showed it would keep no secret.
 - The baton and co-authoring (WF2) — the record shape anticipates it.
 - Any server, and any attestation that needs one (App Attest, DeviceCheck).
 - Admission from the phone.
