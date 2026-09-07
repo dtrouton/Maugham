@@ -92,9 +92,7 @@ public struct DeviceIdentity: Sendable {
         hex(SHA256.hash(data: token))
     }
 
-    private static func hex(_ digest: SHA256Digest) -> String {
-        digest.map { String(format: "%02x", $0) }.joined()
-    }
+    private static func hex(_ digest: SHA256Digest) -> String { Hex.encode(digest) }
 
     // MARK: - Construction
 

@@ -134,7 +134,7 @@ public final class OpLogDeviceState: @unchecked Sendable {
     }
 
     private nonisolated static func hex(_ digest: SHA256Digest) -> String {
-        digest.map { String(format: "%02x", $0) }.joined()
+        Hex.encode(digest)
     }
 
     // MARK: - Persistence

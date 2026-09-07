@@ -149,11 +149,31 @@ suffix is what keeps `opLogFileURLs` (which matches `.jsonl` and `.mzseg`
 endings) from ever listing it as history. Writing it is **best-effort** — a
 device with no key signs nothing, a failed write is logged — because the seal is
 maintenance and a segment with no signature is unsigned history, which is
-honest. On the read side `OpLogDeviceState.isVerified(segmentDigest:)` is the
-cache: a digest this device has already settled skips the chain walk entirely,
-a trusted sidecar settles it and is remembered, and anything else (a foreign
-signature, no signature, a pre-milestone segment) is walked keylessly, where a
-break still quarantines.
+honest. On the read side a segment reaches
+exactly one of **three** outcomes, in this order. **Cached** —
+`OpLogDeviceState.isVerified(segmentDigest:)` already holds this digest: the
+chain walk is skipped entirely, every line counts `verified`, and nothing is
+read but the container itself. **Trusted sidecar** — the `.sig` beside it names
+this digest under a key equal to `identity.fingerprint` and verifies: the walk
+is skipped the same way and the digest is remembered (`markVerified`), so the
+next load takes the first outcome. **Keyless walk** — a foreign signature, no
+signature at all, or a segment minted before this milestone: every line is
+walked with `trusted: { _ in false }` and no remembered head, counted by the
+state the walk gives it, and a break still quarantines. Only a container that
+itself verified may be keyed on, since the stored digest is the one a tamperer
+would leave alone.
+
+**Where the time goes.** The load is `JSONDecoder`, and the chain is a rounding
+error on it — measured on 50,000 chained lines (42 MB) in release, the walk over
+the live tail costs 55-80 ms and seven signature checks about 3 ms, against 5.8
+seconds of parsing. Two things keep it there and must not be undone: `Hex`
+(`OpLogChain.swift`) is table-driven, because the obvious `String(format: "%02x")`
+spelling cost 107 ms of a 109 ms `lineHash` total on that fixture; and the
+settled-segment branch COUNTS lines rather than splitting them, because
+`split(separator:)` over a five-megabyte segment allocates a slice per line to
+answer a question that is a number. The tail in that fixture is also eight times
+the size a real one reaches — `segmentSealThreshold` rotates it at 512 KB — so a
+real load walks a small fraction of it.
 
 **Every reader classifies before it applies** (signed op log P1). `OpLogStore.classify`
 is the one rule, and both readers call it: `loadFileDiagnosed` (coordinated,
@@ -163,7 +183,11 @@ anything — the `OpLogQuarantine.setAsideLines` record, an adopted head, a
 remembered segment digest, each best-effort so a forensic write can never cost
 the writer their manuscript. `loadDiagnosed` answers a third member,
 `OpLogProvenance`, counting every line of every file as legacy / verified /
-unsealed / unsigned-history / quarantined. **Seal lines never reach an element
+unsealed / unsigned-history / quarantined. **A record is the load path's alone**:
+a caller taking the nil `identity`/`state` defaults (`ProjectIntegrity.check`)
+classifies with no key and no remembered head, so its reading of a file is
+strictly weaker than the load's — it cannot see an `afterRememberedHead` break at
+all — and it therefore writes nothing. A check reports; the load records. **Seal lines never reach an element
 decoder**: the filter is in `JSONLAppendStore.parse`, the one parser every
 reader shares, so a seal is never reported as a torn line.
 

@@ -80,9 +80,7 @@ public enum OpLogSegment {
         }
     }
 
-    static func hex(_ bytes: Data) -> String {
-        bytes.map { String(format: "%02x", $0) }.joined()
-    }
+    static func hex(_ bytes: Data) -> String { Hex.encode(bytes) }
 
     /// Encode raw JSONL bytes into a sealed container.
     public static func encode(

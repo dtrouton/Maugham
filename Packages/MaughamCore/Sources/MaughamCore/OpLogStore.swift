@@ -319,7 +319,15 @@ public final class OpLogStore {
         if let head = classified.adoptedHead {
             state?.remember(head: head, for: OpLogDeviceState.fileKey(url))
         }
-        if !classified.quarantined.isEmpty,
+        // A forensic record is the LOAD path's to write, and only its. A caller
+        // taking the nil defaults — `ProjectIntegrity.check`, and anything else
+        // that inspects a project without opening it — classifies with no key
+        // and no remembered head, so its picture is strictly WEAKER than the
+        // load's: it cannot see an `afterRememberedHead` break at all, and what
+        // it does see it would file under the load's name. A check reports; the
+        // load records.
+        let recordsWhatItSetsAside = identity != nil && state != nil
+        if recordsWhatItSetsAside, !classified.quarantined.isEmpty,
            let docId = docId(fromOpLogFilename: url.lastPathComponent) {
             do {
                 try OpLogQuarantine.setAsideLines(
@@ -390,7 +398,7 @@ public final class OpLogStore {
             trusted: { key in identity.map { key == $0.fingerprint } ?? false },
             rememberedHead: remembered)
         let parsed = JSONLAppendStore<Op>.parse(
-            bytes: applied(verification),
+            bytes: applied(verification, whole: bytes),
             dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
 
         // The adopt rule (spec §4.2's crash window). Three conditions, and all
@@ -472,7 +480,7 @@ public final class OpLogStore {
             // itself verified (otherwise the container record covers it) — and
             // a settled segment always verified.
             skipped.append(contentsOf: parsedAll.diagnostics.skipped)
-            let lines = jsonl.split(separator: 0x0A, omittingEmptySubsequences: true).count
+            let lines = nonEmptyLineCount(jsonl)
             return FileClassification(
                 ops: parsedAll.elements,
                 diagnostics: ParseDiagnostics(skipped: skipped),
@@ -486,7 +494,7 @@ public final class OpLogStore {
         let verification = OpLogChain.verify(
             bytes: jsonl, trusted: { _ in false }, rememberedHead: nil)
         let parsed = JSONLAppendStore<Op>.parse(
-            bytes: applied(verification),
+            bytes: applied(verification, whole: jsonl),
             dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
         if decoded.isVerified {
             skipped.append(contentsOf: parsed.diagnostics.skipped)
@@ -502,10 +510,40 @@ public final class OpLogStore {
             adoptedHead: nil, verifiedSegmentDigest: nil)
     }
 
+    /// How many non-blank lines these bytes hold — counted, never SPLIT.
+    ///
+    /// The settled-segment branch needs this number and nothing else from the
+    /// bytes, and `split(separator:)` over a five-megabyte segment allocates one
+    /// `Data` slice per line to answer it. On the 50,000-line fixture that was
+    /// the single largest cost the chain added to a load, for a count.
+    private nonisolated static func nonEmptyLineCount(_ bytes: Data) -> Int {
+        bytes.withUnsafeBytes { raw -> Int in
+            var count = 0
+            var inLine = false
+            for byte in raw {
+                if byte == 0x0A {
+                    if inLine { count += 1; inLine = false }
+                } else {
+                    inLine = true
+                }
+            }
+            return inLine ? count + 1 : count
+        }
+    }
+
     /// The bytes a verification says may be applied, as JSONL. Quarantined
     /// lines are always a suffix, so this is a truncation — but it is written
     /// as a filter because that is the rule, not the current shape of the walk.
-    private nonisolated static func applied(_ verification: OpLogChain.Verification) -> Data {
+    ///
+    /// The ordinary file has nothing quarantined, and rebuilding its bytes
+    /// line by line to say so would copy the whole history on every load. So
+    /// the whole bytes are handed back untouched in that case, which is the
+    /// same JSONL by construction: the walk skips only blank lines, and the
+    /// parser skips them too.
+    private nonisolated static func applied(
+        _ verification: OpLogChain.Verification, whole: Data
+    ) -> Data {
+        guard !verification.quarantined.isEmpty else { return whole }
         var out = Data()
         for line in verification.lines where line.state != .quarantined {
             out.append(line.bytes)
