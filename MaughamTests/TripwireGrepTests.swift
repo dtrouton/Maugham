@@ -6646,4 +6646,108 @@ final class TripwireGrepTests: XCTestCase {
         }) ?? lines.endIndex
         return Array(lines[start..<end])
     }
+
+    // MARK: - No software private key in production (signed op log, spec §4.1)
+
+    /// A device key must not be a SOFTWARE key. A software P256 (or
+    /// Curve25519) private key lives in process memory and copies off the
+    /// machine with whatever file holds it, so a signature made with one
+    /// proves nothing about which device wrote the op — which is the entire
+    /// job of the signature. The only production signer is the enclave's,
+    /// `SecureEnclave.P256.Signing.PrivateKey`, whose `dataRepresentation` is
+    /// useless on any other machine; that is why the app can persist it as a
+    /// plain file and needs no keychain item and no entitlement.
+    ///
+    /// The test-only software signer lives in one file of its own,
+    /// `DeviceIdentity+Testing.swift` (an `internal` extension reachable only
+    /// through `@testable import MaughamCore`), and that file is this census's
+    /// ONE allow-list entry, by name.
+    ///
+    /// SHARED between the production check and its planted-offender self-check
+    /// — one place to widen the shape.
+    static func isSoftwarePrivateKeyLine(_ line: String) -> Bool {
+        if line.contains("Curve25519") { return true }
+        // The enclave spelling contains the software one as a substring, so the
+        // qualifier is what separates the sanctioned key from the forbidden one.
+        return line.contains("P256.Signing.PrivateKey(")
+            && !line.contains("SecureEnclave.P256.Signing.PrivateKey(")
+    }
+
+    /// Prose may name a software key; code may not construct one.
+    static func softwarePrivateKeyExcludeLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+    }
+
+    func test_noSoftwarePrivateKeyInProduction() throws {
+        let roots = [
+            sourceDir,
+            repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true),
+            repoRoot.appendingPathComponent("Packages/MaughamCore/Sources", isDirectory: true),
+        ]
+        var offenders: [String] = []
+        for root in roots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: [],
+                allowed: ["DeviceIdentity+Testing.swift"],
+                excludeLine: Self.softwarePrivateKeyExcludeLine,
+                extraOffender: Self.isSoftwarePrivateKeyLine)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file constructs a software signing key. The device key "
+            + "is the enclave's — `SecureEnclave.P256.Signing.PrivateKey` — because "
+            + "a software key copies off the machine with the file that holds it, "
+            + "and a signature that proves nothing about the device is not a "
+            + "signature. Test signers belong in DeviceIdentity+Testing.swift. "
+            + "Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: the SAME predicate, over a planted file,
+    /// catches the bare software key and the Curve25519 key, and lets the
+    /// sanctioned enclave construction and a comment naming the software key
+    /// through.
+    func test_theSoftwarePrivateKeyCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-softkey-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name P256.Signing.PrivateKey() and Curve25519 — allowed.
+        let sanctioned = try SecureEnclave.P256.Signing.PrivateKey()
+        let reloaded = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob)
+        let forbidden = P256.Signing.PrivateKey()
+        let alsoForbidden = Curve25519.Signing.PrivateKey()
+        """.write(to: tmp.appendingPathComponent("BadDeviceKey.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: [],
+            excludeLine: Self.softwarePrivateKeyExcludeLine,
+            extraOffender: Self.isSoftwarePrivateKeyLine)
+
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check: the two planted software keys should be the ones caught, "
+            + "and neither the enclave constructions nor the comment. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let forbidden") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let alsoForbidden") }))
+
+        // And the allow-list entry is honoured by name.
+        try fm.moveItem(at: tmp.appendingPathComponent("BadDeviceKey.swift"),
+                        to: tmp.appendingPathComponent("DeviceIdentity+Testing.swift"))
+        let allowed = try grepSwift(
+            in: tmp,
+            patterns: [],
+            allowed: ["DeviceIdentity+Testing.swift"],
+            excludeLine: Self.softwarePrivateKeyExcludeLine,
+            extraOffender: Self.isSoftwarePrivateKeyLine)
+        XCTAssertTrue(allowed.isEmpty,
+            "Self-check: the allow-listed file must be skipped whole. Caught:\n"
+            + allowed.joined(separator: "\n"))
+    }
 }
