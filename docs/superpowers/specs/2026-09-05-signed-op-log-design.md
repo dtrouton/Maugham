@@ -1,6 +1,6 @@
 # The signed op log — provenance for every op, people as keys, devices as certificates
 
-**Date:** 2026-09-05 · **Status:** approved in discussion; **§7 spike run 2026-09-07** (`docs/superpowers/notes/2026-09-07-signed-op-log-spike.md`) — four corrections folded in below and marked *(spike)*; one decision open for Denver (§8, P2); plans unwritten
+**Date:** 2026-09-05 · **Status:** approved in discussion; **§7 spike run 2026-09-07** (`docs/superpowers/notes/2026-09-07-signed-op-log-spike.md`) — four corrections folded in below and marked *(spike)*; **P2 ships labels only — ruled 2026-09-07** (§3, §8); the synced person key is a later milestone of its own; plans unwritten
 **Session:** "compiler / author / review split" (second brainstorm of the session)
 
 *Brainstormed with Denver 2026-09-05, from his question "protecting the oplog
@@ -70,10 +70,19 @@ identity that cannot collide; §4.8 uses it.
 - **Sign, do not encrypt.** Reading is the folder's business.
 - **One key per device, roles per project.** The registry holds the roles, so
   the same phone is author in one book and reviewer in another with one key.
-- **A person is a key** (synced through iCloud Keychain), **a device is a
-  certificate** that person signs. Admission is of persons; a person's further
-  devices are admitted silently, each with an audit line. Denver: *"yes audit
-  is fine."*
+- **A person is a key, a device is a certificate** that person signs — the
+  model; and **(ruled 2026-09-07) P2 ships labels only**: every device is its
+  own person, the author's admission record is what groups devices under a
+  name, and the synced person key is deferred to a milestone of its own. The
+  deciding facts: a key synced through the Apple ID would let a compromised
+  Apple ID *sign as the author* where today it can only write files that land
+  in quarantine visibly; the provisioning-profile pipeline adds a launch
+  dependency with an expiry that neither `codesign` nor notarization can
+  check; and the dev variant cannot carry the entitlement, so the maintainer
+  would never exercise the sync path. Silent admission of a person's further
+  devices with an audit line (Denver: *"yes audit is fine"*) stands as the
+  behaviour whenever a person key exists; under labels only it is one sheet
+  per extra device, answered with *this is also Sam*.
 - **Labels are the author's.** The name in every byline is the name the
   author gave the person at admission; the person's own display name is the
   default the sheet proposes, and where the two differ the audit line and the
@@ -99,7 +108,7 @@ identity that cannot collide; §4.8 uses it.
 
 | key | where | made when | signs |
 |---|---|---|---|
-| **person key** | software P256, Keychain item marked synchronizable; iCloud Keychain carries it to every device on the same Apple ID | first launch on the first device; re-used everywhere it arrives | device certificates; admission records the person makes as author |
+| **person key** — *deferred; not in P2* | software P256, Keychain item marked synchronizable; iCloud Keychain carries it to every device on the same Apple ID | first launch on the first device; re-used everywhere it arrives | device certificates; admission records the person makes as author |
 | **device key** | Secure Enclave P256 (CryptoKit `SecureEnclave.P256.Signing`); its opaque `dataRepresentation` persisted by the app under Application Support and **never stored as a keychain item** *(spike: that is what needs no entitlement; a keychain-resident enclave key does)* | first launch on each device | every seal line the device writes (§4.3); segment seals; self-revocation |
 
 *(spike)* **There is no software fallback.** The deployment target is macOS 26,
@@ -116,11 +125,13 @@ the app runs with both keys present. Its security is the Apple ID's, which is
 already the folder's and the share's trust root; this adds nothing a
 compromised Apple ID could not already reach.
 
-**Without a person key** — iCloud Keychain off, or a build without the
-entitlement (§7) — each device mints its own person key and looks like a
-separate person. The admission sheet's *this is also Sam* merges two person
-keys under one label (§4.5). Both paths are the author's act; which one is the
-*normal* path is §8's open decision.
+**Without a person key — which is P2's shape (ruled 2026-09-07)** — each
+device mints its own per-device person key and looks like a separate person.
+The admission sheet's *this is also Sam* merges two under one label (§4.5),
+and the grouping is then a fact the **author's** key signed rather than one
+Sam's key proved. The record shape carries `personFingerprint` from P2 on, so
+a synced person key can be added later without a format change; devices
+admitted before it exist stay label-grouped forever (tripwire 11).
 
 *(spike)* **A synced person key needs a Developer ID provisioning profile.**
 A synchronizable keychain item lives in the data-protection keychain, which
@@ -424,18 +435,17 @@ Recorded. P1 can be planned; P2 waits on §8's decision.
   signed records and the cache; the three states in full (pending arrives
   here); the admission sheet, labels and the `<label> (<own name>)`
   convention; revocation; the claim and adoption; People & Devices in
-  Project Settings; the History lines. **Open decision (Denver):** whether P2
-  ships the **synced person key** — silent admission of a person's further
-  devices, the restore that needs no claim — at the cost of the provisioning
-  pipeline in §4.1 *(spike)* and a launch dependency with an expiry date; or
-  ships **labels only** — every device is its own person, *this is also
-  Denver* once per extra device, the claim on every restore — with the record
-  shape carrying `personFingerprint` so the synced key can be added later
-  without a format change. The recommendation is labels only for P2 and the
-  pipeline as its own later milestone: for an author with a Mac and a phone
-  the friction is two admissions ever, and a kill-at-exec that neither
-  `codesign` nor notarization can see is a new class of release risk to take
-  on for that.
+  Project Settings; the History lines. **Labels only (ruled 2026-09-07):**
+  every device is its own person, *this is also Denver* once per extra
+  device, the claim on every restore, `personFingerprint` in the record shape.
+  No keychain item, no entitlement, no provisioning profile anywhere in P2.
+- **Later, its own milestone, only if one of three conditions arrives** — a
+  real collaborator base making device churn a nuisance, an App Store build
+  bringing the profile machinery anyway, or WF2 wanting a person that proves
+  itself: the **synced person key** (§4.1's deferred row and its three-outcome
+  arrival logic), the provisioning pipeline from the spike's fourteen-item
+  list, the launch-and-quit CI step, and the expiry recorded in
+  `docs/RELEASING.md`.
 - **P3 — roles and the collaborator.** `author`/`reviewer` on the person
   record; the per-op-kind role check; the reviewer's inbox capture with
   attribution; the phone reading its role and taking its posture; WF1's
