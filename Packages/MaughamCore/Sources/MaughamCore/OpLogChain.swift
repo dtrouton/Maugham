@@ -39,6 +39,16 @@ public enum OpLogChain {
         return hex(SHA256.hash(data: body))
     }
 
+    /// The `prev` of the first line a device writes into an empty file: the
+    /// hash of no bytes at all.
+    ///
+    /// A file has to start somewhere, and saying so explicitly is what lets a
+    /// seal cover the first line. Without it the first line carries no `prev`,
+    /// which is indistinguishable from a line written before this milestone —
+    /// so it would read as legacy forever and no seal would ever settle it,
+    /// even though the seal commits to it cryptographically.
+    public nonisolated static let genesis: String = lineHash(Data())
+
     private nonisolated static func hex<Bytes: Sequence>(_ bytes: Bytes) -> String
     where Bytes.Element == UInt8 {
         bytes.map { String(format: "%02x", $0) }.joined()
@@ -71,9 +81,11 @@ public enum OpLogChain {
     // MARK: - Building a line
 
     /// The element's own JSON with `"prev":"<prev>",` inserted after the leading
-    /// `{`. A nil `prev` answers the element unchanged — that is the first line
-    /// of a file, which has nothing to chain onto. No trailing newline: the
-    /// caller writes the separator.
+    /// `{`. No trailing newline: the caller writes the separator.
+    ///
+    /// A nil `prev` answers the element unchanged — an UNCHAINED line, which is
+    /// the shape every pre-P1 file is made of. A device writing into an empty
+    /// file passes `genesis`, not nil.
     public nonisolated static func chainedLine(elementJSON: Data, prev: String?) -> Data {
         precondition(elementJSON.first == UInt8(ascii: "{"),
                      "a chained line is built from a JSON object")
@@ -326,9 +338,10 @@ public enum OpLogChain {
     ///    agent computing `prev` correctly is caught by. When NO line hashes to
     ///    it (the crash window, or a file this device has not seen), the walk
     ///    proceeds as if it were nil and the caller decides whether to adopt.
-    /// 4. An op line with `prev` must name the running head; one without is
-    ///    `.legacy` only while nothing chained or sealed has been seen yet in
-    ///    these bytes — legacy is a prefix, never a suffix.
+    /// 4. An op line with `prev` must name the running head — or, when nothing
+    ///    has been seen yet, `genesis`. One WITHOUT a `prev` is `.legacy`, and
+    ///    only while nothing chained or sealed has been seen yet in these bytes:
+    ///    legacy is a prefix, never a suffix.
     /// 5. A seal must name the running head and hold together, and it settles
     ///    every `.unsealed` line since the last seal: `.verified` when
     ///    `trusted(seal.key)`, `.unsignedHistory` when not.
@@ -366,7 +379,11 @@ public enum OpLogChain {
                 // An unreadable line has no prev, the same as a legacy one.
                 let declared = prev(ofLine: line) ?? nil
                 if let declared {
-                    guard declared == head else {
+                    // Nothing seen yet? The only prev that can be right is the
+                    // sentinel. A `genesis` anywhere else is a wrong prev like
+                    // any other, and breaks.
+                    let expected = head ?? genesis
+                    guard declared == expected else {
                         breakReason = .prevMismatch(lineIndex: index)
                         lines.append(Line(bytes: line, kind: kind, state: .quarantined))
                         continue
@@ -388,6 +405,9 @@ public enum OpLogChain {
                     lines.append(Line(bytes: line, kind: kind, state: .quarantined))
                     continue
                 }
+                // Deliberately NOT `head ?? genesis`: a seal must follow at
+                // least one line, so a seal as the first line of a file has
+                // nothing to seal and names a head that was never reached.
                 guard seal.head == head else {
                     breakReason = .sealHeadMismatch(lineIndex: index)
                     lines.append(Line(bytes: line, kind: kind, state: .quarantined))

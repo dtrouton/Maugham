@@ -42,9 +42,11 @@ final class OpLogChainTests: XCTestCase {
             head = OpLogChain.lineHash(line)
         }
 
-        /// A chained line: `prev` is whatever the running head is.
+        /// A chained line, exactly as the writer will build one: `prev` is the
+        /// running head, or the genesis sentinel when this is the first line.
         mutating func chained(_ elementJSON: Data) {
-            let line = OpLogChain.chainedLine(elementJSON: elementJSON, prev: head)
+            let line = OpLogChain.chainedLine(
+                elementJSON: elementJSON, prev: head ?? OpLogChain.genesis)
             lines.append(line)
             head = OpLogChain.lineHash(line)
         }
@@ -243,26 +245,69 @@ final class OpLogChainTests: XCTestCase {
         XCTAssertEqual(v.head, b.head)
     }
 
-    /// The one wrinkle in the format, pinned rather than papered over: the
-    /// FIRST line of a file this device chained from empty has no `prev` —
-    /// Task 4 builds it with `prev = verification.head`, which is nil there —
-    /// so it reads as legacy, and the span rule (`.unsealed` lines since the
-    /// last seal) does not promote it when the seal arrives. The seal DOES
-    /// commit to it cryptographically: line 1's prev is line 0's hash, and the
-    /// seal signs the head that follows from both. Carried to the handoff.
-    func test_aFreshFilesFirstLineReadsAsLegacyAndNoSealPromotesIt() throws {
+    /// A fresh file starts at the sentinel, so its first line is chained like
+    /// any other and the seal that follows covers it. Nothing reads as legacy.
+    func test_aFreshFilesChainStartsAtGenesisAndTheSealCoversItsFirstLine() throws {
         let identity = DeviceIdentity.softwareForTesting()
         var b = Builder()
         b.chained(element(0))
         b.chained(element(1))
         try b.seal(identity, at: at)
 
+        XCTAssertEqual(OpLogChain.prev(ofLine: b.lines[0]), .some(.some(OpLogChain.genesis)))
+        XCTAssertEqual(OpLogChain.genesis, OpLogChain.lineHash(Data()),
+                       "the sentinel is the hash of no bytes at all")
+
         let v = OpLogChain.verify(
             bytes: joined(b.lines), trusted: trusting(identity), rememberedHead: nil)
 
-        XCTAssertEqual(states(v), [.legacy, .verified, .verified])
+        XCTAssertEqual(states(v), [.verified, .verified, .verified])
+        XCTAssertEqual(v.legacyCount, 0)
+        XCTAssertEqual(v.verifiedCount, 3)
+        XCTAssertNil(v.breakReason)
+    }
+
+    /// The shape a pre-P1 file is made of stays legal: a first line with NO
+    /// prev is still legacy, and still carries the file to a head.
+    func test_aFirstLineWithNoPrevAtAllIsStillLegacy() {
+        var b = Builder()
+        b.legacy(element(0))
+        b.chained(element(1))
+
+        let v = OpLogChain.verify(bytes: joined(b.lines), trusted: { _ in true }, rememberedHead: nil)
+
+        XCTAssertEqual(states(v), [.legacy, .unsealed])
         XCTAssertEqual(v.legacyCount, 1)
         XCTAssertNil(v.breakReason)
+    }
+
+    /// The sentinel means "nothing came before me". A line claiming it after a
+    /// line HAS come before is a wrong prev, and breaks like any other.
+    func test_genesisAfterALineThatCameBeforeIsAWrongPrev() {
+        var b = Builder()
+        b.legacy(element(0))
+        b.lines.append(OpLogChain.chainedLine(elementJSON: element(1), prev: OpLogChain.genesis))
+
+        let v = OpLogChain.verify(bytes: joined(b.lines), trusted: { _ in true }, rememberedHead: nil)
+
+        XCTAssertEqual(v.breakReason, .prevMismatch(lineIndex: 1))
+        XCTAssertEqual(states(v), [.legacy, .quarantined])
+    }
+
+    /// A seal must follow at least one line: it names the head it seals, and
+    /// before the first line there is no head, not the sentinel.
+    func test_aSealAsTheVeryFirstLineIsQuarantined() throws {
+        let identity = DeviceIdentity.softwareForTesting()
+        let seal = try OpLogChain.Seal.line(head: OpLogChain.genesis, identity: identity, at: at)
+        let follower = OpLogChain.chainedLine(
+            elementJSON: element(0), prev: OpLogChain.lineHash(seal))
+
+        let v = OpLogChain.verify(
+            bytes: joined([seal, follower]), trusted: trusting(identity), rememberedHead: nil)
+
+        XCTAssertEqual(v.breakReason, .sealHeadMismatch(lineIndex: 0))
+        XCTAssertEqual(states(v), [.quarantined, .quarantined])
+        XCTAssertNil(v.head)
     }
 
     func test_anEmptyObjectTakesAPrevWithoutAStrayComma() {
@@ -486,9 +531,9 @@ final class OpLogChainTests: XCTestCase {
             XCTAssertNil(whole.breakReason, "trial \(trial): a generated chain must verify whole")
             XCTAssertTrue(whole.quarantined.isEmpty, "trial \(trial)")
             XCTAssertEqual(whole.head, b.head, "trial \(trial)")
-            XCTAssertEqual(whole.legacyCount, 1,
-                           "trial \(trial): only the first line of a fresh file has no prev")
-            XCTAssertFalse(states(whole).dropFirst().contains(.legacy), "trial \(trial)")
+            XCTAssertEqual(whole.legacyCount, 0,
+                           "trial \(trial): a fresh file chains from the sentinel, so nothing is legacy")
+            XCTAssertFalse(states(whole).contains(.legacy), "trial \(trial)")
 
             guard lines.count >= 2 else { continue }
             let lineIndex = Int(rng.next() % UInt64(lines.count - 1))
