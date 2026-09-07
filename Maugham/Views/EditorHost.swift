@@ -944,7 +944,12 @@ struct EditorHost: View {
             switch outcome {
             case .returned(let report), .supersededBySync(let report):
                 reports.append(report)
-            case .stillUnreadable, .corrupt:
+            case .stillUnreadable, .corrupt, .setAsideByProvenance:
+                // `.setAsideByProvenance` joins the silent arm for a stronger
+                // reason than the other two: a `.lines` record is not a file
+                // waiting to come back, so there is no report to aggregate and
+                // never will be. Task 6 keeps such records out of the sweep's
+                // input entirely; this arm is the belt.
                 break
             }
         }
@@ -968,7 +973,7 @@ struct EditorHost: View {
         outcomes.contains {
             switch $0 {
             case .returned, .supersededBySync: return true
-            case .stillUnreadable, .corrupt: return false
+            case .stillUnreadable, .corrupt, .setAsideByProvenance: return false
             }
         }
     }

@@ -497,6 +497,11 @@ struct HistoryPane: View {
                 case .stillUnreadable(let reason), .corrupt(let reason):
                     failureReasons.append(reason)
                     historyQuarantineLog.error("retryQuarantine: \(record.originalName, privacy: .public) still held — \(reason, privacy: .public)")
+                case .setAsideByProvenance:
+                    // Lines this device did not write, kept as forensics. There
+                    // is no file to bring back, so this is neither a report nor
+                    // a failure — nothing is offered to the writer about it.
+                    historyQuarantineLog.notice("retryQuarantine: \(record.originalName, privacy: .public) holds lines set aside by provenance — nothing to return")
                 }
             }
             await reload()

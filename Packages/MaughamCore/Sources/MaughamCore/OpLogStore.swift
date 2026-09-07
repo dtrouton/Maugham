@@ -22,10 +22,29 @@ public final class OpLogStore {
     public let projectURL: URL
     public let presenter: NSFilePresenter?
 
-    public init(projectURL: URL, presenter: NSFilePresenter? = nil) {
+    /// This device, as every line it writes will name it. Defaulted, so every
+    /// existing caller still compiles and gets the real identity.
+    public let identity: DeviceIdentity
+    /// What this device remembers about the files it has written.
+    public let deviceState: OpLogDeviceState
+
+    public init(
+        projectURL: URL,
+        presenter: NSFilePresenter? = nil,
+        identity: DeviceIdentity = .current,
+        state: OpLogDeviceState = .shared
+    ) {
         self.projectURL = projectURL
         self.presenter = presenter
+        self.identity = identity
+        self.deviceState = state
     }
+
+    /// Lines this device has appended to each file since that file's last seal.
+    /// In memory and per store instance on purpose: it is a cadence, not a
+    /// fact — losing it costs at most one late seal, and the seal itself is
+    /// idempotent (nothing unsealed, nothing written).
+    private var linesSinceSeal: [URL: Int] = [:]
 
     /// Test-only failure-injection seam. When non-nil, `append` throws this
     /// error instead of writing — letting tests exercise the disk-error
@@ -214,10 +233,42 @@ public final class OpLogStore {
     }
 
     /// Append to the writer's own per-device file, keyed by `op.device`.
+    ///
+    /// The write is chained (spec §3): it verifies the file's tail against this
+    /// device's remembered head first, sets aside anything it did not write,
+    /// and links the new line to what it kept. Every `chainSealInterval` lines
+    /// it also asks for a seal, which is what turns a run of chained lines into
+    /// history this device has signed.
     public func append(_ op: Op) async throws {
         if let injected = appendFailureForTesting { throw injected }
-        try await store(forDocId: op.docId, deviceSlug: DeviceSlug.make(from: op.device))
-            .append(op)
+        let slug = DeviceSlug.make(from: op.device)
+        let url = Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: projectURL)
+        try await store(forDocId: op.docId, deviceSlug: slug).append(op)
+
+        let count = (linesSinceSeal[url] ?? 0) + 1
+        linesSinceSeal[url] = count
+        guard count >= Self.chainSealInterval else { return }
+        if try await sealChain(docId: op.docId) { linesSinceSeal[url] = 0 }
+    }
+
+    /// How many chained lines this device writes into a file before it seals
+    /// them. A seal is one signature over the whole run, so the interval trades
+    /// signing cost against how much of the tail is merely chained (tamper-
+    /// EVIDENT) rather than sealed (tamper-evident and signed).
+    ///
+    /// `nonisolated` for `segmentSealThreshold`'s reason: an immutable
+    /// `Sendable` `Int` that touches no actor state.
+    public nonisolated static let chainSealInterval = 100
+
+    /// Seal this device's own live tail for `docId`: one signature over the
+    /// chain head, committing to every line since the last seal.
+    ///
+    /// Answers whether a seal was written. False is the ordinary answer on a
+    /// device with no key and on a file with nothing new — neither is an error,
+    /// and neither throws.
+    @discardableResult
+    public func sealChain(docId: String) async throws -> Bool {
+        try await store(forDocId: docId, deviceSlug: identity.slug).appendSeal()
     }
 
     private func store(forDocId docId: String, deviceSlug: DeviceSlug) -> JSONLAppendStore<Op> {
@@ -225,7 +276,10 @@ public final class OpLogStore {
             fileURL: Self.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL),
             presenter: presenter,
             dedupKey: { $0.opId },
-            sortedBy: { $0.opId < $1.opId })
+            sortedBy: { $0.opId < $1.opId },
+            chain: ChainPolicy(
+                identity: identity, state: deviceState,
+                docId: docId, projectURL: projectURL))
     }
 
     // MARK: - Seal (tail → immutable segment)
