@@ -589,4 +589,75 @@ final class TripwirePhoneGrepTest: XCTestCase {
         }
         return offenders
     }
+
+    // MARK: - A seal line is recognised in OpLogChain only (tripwire 37, phone twin)
+
+    /// The Mac's `TripwireGrepTests.isSealKeyLine`, spelled here because the two
+    /// targets share no test code. Both spellings a Swift source can carry the
+    /// seal's one top-level key in: escaped inside a string literal
+    /// (`{\"seal\":`) and bare (`"seal":`).
+    private func isSealKeyLine(_ line: String) -> Bool {
+        line.contains(#"\"seal\":"#) || line.contains(#""seal":"#)
+    }
+
+    /// The phone reads seal lines through the SAME `JSONLAppendStore.parse` the
+    /// Mac does — `OpLogChain.isSealLine` is its one recogniser, and it lives in
+    /// MaughamCore. A phone-local recogniser would be tripwire 19's failure
+    /// (the phone reimplementing what the Mac implements) arriving as tripwire
+    /// 37's: a reader that hands a seal to an element decoder reports a healthy
+    /// manifest as damaged, and nothing goes red.
+    func test_noSealLineRecogniserOnThePhone() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+
+        let offenders = try grepSwiftDir(
+            in: sourceDir,
+            patterns: [],
+            excludeLine: { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+            },
+            extraOffender: isSealKeyLine)
+
+        XCTAssertTrue(offenders.isEmpty,
+            "A phone source spells the seal line's wire key. The one recogniser "
+            + "is MaughamCore's `OpLogChain.isSealLine`, reached through the "
+            + "shared `JSONLAppendStore.parse` (tripwires 19 and 37). "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: the same predicate catches both planted spellings and lets a
+    /// comment naming the key through.
+    func test_phoneSealLineCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-seal-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try #"""
+        // A comment may name the {"seal": prefix — allowed.
+        let escaped = data.starts(with: Data("{\"seal\":".utf8))
+        let raw = line.hasPrefix(#"{"seal":"#)
+        let innocent = OpLogChain.isSealLine(data)
+        """#.write(to: tmp.appendingPathComponent("SecondSealReader.swift"),
+                   atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwiftDir(
+            in: tmp,
+            patterns: [],
+            excludeLine: { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+            },
+            extraOffender: isSealKeyLine)
+
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check: both planted spellings should be caught, and neither "
+            + "the comment nor the sanctioned call. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let escaped") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let raw") }))
+    }
 }

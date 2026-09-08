@@ -6864,4 +6864,91 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(idOffenders.contains(where: { $0.contains("let minted") }))
         XCTAssertTrue(idOffenders.contains(where: { $0.contains("let fallback") }))
     }
+
+    // MARK: - A seal line is recognised in OpLogChain only (tripwire 37)
+
+    /// The seal line's one top-level key, in both spellings a Swift source can
+    /// carry it: escaped inside a string literal (`{\"seal\":`, which is how
+    /// `OpLogChain.sealPrefix` is written) and bare (`"seal":`, a raw string or
+    /// a JSON fixture). SHARED by the census and its planted-offender
+    /// self-check — one place to widen the shape.
+    static func isSealKeyLine(_ line: String) -> Bool {
+        line.contains(#"\"seal\":"#) || line.contains(#""seal":"#)
+    }
+
+    /// Prose may name the seal's wire key; code may not recognise one.
+    static func sealKeyExcludeLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+    }
+
+    /// Tripwire 37, as a census rather than a warning. `OpLogChain.isSealLine`
+    /// is the one door onto the `{"seal":` prefix and `JSONLAppendStore.parse`
+    /// is its one caller, so a SECOND recogniser anywhere is a second opinion
+    /// about what a seal is — and it fails in the worst direction, silently: a
+    /// reader that hands a seal line to an element decoder reports a healthy
+    /// file as damaged. The claim was true when the milestone landed, which is
+    /// exactly when a census is cheap.
+    func test_sealLinesAreRecognisedInOpLogChainOnly() throws {
+        var offenders: [String] = []
+        for root in deviceIdentityRoots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: [],
+                allowed: ["OpLogChain.swift"],
+                excludeLine: Self.sealKeyExcludeLine,
+                extraOffender: Self.isSealKeyLine)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file outside OpLogChain.swift spells the seal line's "
+            + "wire key. `OpLogChain.isSealLine` is the ONE recogniser and "
+            + "`JSONLAppendStore.parse` its one caller — every reader (live "
+            + "tails, decompressed segments, the inbox) goes through that "
+            + "parser, so a seal can never reach an element decoder and be "
+            + "reported as damage. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: the SAME predicate, over a planted file,
+    /// catches both spellings and lets a comment naming the key through — and
+    /// the allow-list entry is honoured by name.
+    func test_theSealLineCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-seal-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try #"""
+        // A comment may name the {"seal": prefix — allowed.
+        let escaped = data.starts(with: Data("{\"seal\":".utf8))
+        let raw = line.hasPrefix(#"{"seal":"#)
+        let innocent = OpLogChain.isSealLine(data)
+        """#.write(to: tmp.appendingPathComponent("SecondSealReader.swift"),
+                   atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: [],
+            excludeLine: Self.sealKeyExcludeLine,
+            extraOffender: Self.isSealKeyLine)
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check: both planted spellings should be caught, and neither "
+            + "the comment nor the sanctioned call. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let escaped") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let raw") }))
+
+        try fm.moveItem(at: tmp.appendingPathComponent("SecondSealReader.swift"),
+                        to: tmp.appendingPathComponent("OpLogChain.swift"))
+        let allowed = try grepSwift(
+            in: tmp,
+            patterns: [],
+            allowed: ["OpLogChain.swift"],
+            excludeLine: Self.sealKeyExcludeLine,
+            extraOffender: Self.isSealKeyLine)
+        XCTAssertTrue(allowed.isEmpty,
+            "Self-check: the allow-listed file must be skipped whole. Caught:\n"
+            + allowed.joined(separator: "\n"))
+    }
 }

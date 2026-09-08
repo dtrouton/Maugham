@@ -125,6 +125,12 @@ public final class OpLogStore {
     /// In memory and per store instance on purpose: it is a cadence, not a
     /// fact — losing it costs at most one late seal, and the seal itself is
     /// idempotent (nothing unsealed, nothing written).
+    ///
+    /// Keyed on the file APPENDED to, which is the same file `sealChain` seals
+    /// because `append` only ever counts a line it CHAINED, and it only chains
+    /// this device's own. Before that rule (the whole-branch review's C1) a
+    /// foreign-device append could push this counter over the interval and
+    /// spend the seal on a file the run of lines was never in.
     private var linesSinceSeal: [URL: Int] = [:]
 
     /// Test-only failure-injection seam. When non-nil, `append` throws this
@@ -553,17 +559,42 @@ public final class OpLogStore {
 
     /// Append to the writer's own per-device file, keyed by `op.device`.
     ///
-    /// The write is chained (spec §3): it verifies the file's tail against this
-    /// device's remembered head first, sets aside anything it did not write,
-    /// and links the new line to what it kept. Every `chainSealInterval` lines
-    /// it also asks for a seal, which is what turns a run of chained lines into
-    /// history this device has signed.
+    /// The write is chained (spec §3) **only when the op is this device's own**:
+    /// it verifies the file's tail against this device's remembered head first,
+    /// sets aside anything it did not write, and links the new line to what it
+    /// kept. Every `chainSealInterval` lines it also asks for a seal, which is
+    /// what turns a run of chained lines into history this device has signed.
+    ///
+    /// **A foreign `op.device` takes the plain, unchained append.** An op
+    /// self-describes the device that made it, and the write target is derived
+    /// from that string — so an op carrying a SENTINEL (`TaskDeriver`'s
+    /// `rebalance`, the one production instance) lands in a file every Mac
+    /// derives the same name for. That file is the single exception to ADR
+    /// 0012's one-writer-per-file premise, and the chained append's rewrite step
+    /// is licensed by exactly that premise: chaining it would have each Mac set
+    /// aside and TRUNCATE the other's ops, and tell the writer their own second
+    /// machine is "something that is not Maugham". A device chains only its own
+    /// file; anything else is appended to, never rewritten.
     public func append(_ op: Op) async throws {
         if let injected = appendFailureForTesting { throw injected }
         let slug = DeviceSlug.make(from: op.device)
-        let url = Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: projectURL)
-        try await store(forDocId: op.docId, deviceSlug: slug).append(op)
+        let isOwnDevice = op.device == identity.deviceId
+        try await store(
+            forDocId: op.docId, deviceSlug: slug, chained: isOwnDevice
+        ).append(op)
 
+        guard isOwnDevice else {
+            opLogLoadLog.notice("""
+                A sentinel-device op was written unchained to \
+                \(Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: self.projectURL)
+                    .lastPathComponent, privacy: .public): \
+                its device (\(op.device, privacy: .public)) is not this one, so \
+                the file has more than one writer and must not be rewritten.
+                """)
+            return
+        }
+
+        let url = Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: projectURL)
         let count = (linesSinceSeal[url] ?? 0) + 1
         linesSinceSeal[url] = count
         guard count >= Self.chainSealInterval else { return }
@@ -590,15 +621,22 @@ public final class OpLogStore {
         try await store(forDocId: docId, deviceSlug: identity.slug).appendSeal()
     }
 
-    private func store(forDocId docId: String, deviceSlug: DeviceSlug) -> JSONLAppendStore<Op> {
+    /// The append store for one (docId, slug) file. `chained` is the ONE place
+    /// the policy is attached, and `append` is the one place that decides it —
+    /// a device chains only its own file.
+    private func store(
+        forDocId docId: String, deviceSlug: DeviceSlug, chained: Bool = true
+    ) -> JSONLAppendStore<Op> {
         JSONLAppendStore<Op>(
             fileURL: Self.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL),
             presenter: presenter,
             dedupKey: { $0.opId },
             sortedBy: { $0.opId < $1.opId },
-            chain: ChainPolicy(
-                identity: identity, state: deviceState,
-                docId: docId, projectURL: projectURL))
+            chain: chained
+                ? ChainPolicy(
+                    identity: identity, state: deviceState,
+                    docId: docId, projectURL: projectURL)
+                : nil)
     }
 
     // MARK: - Seal (tail → immutable segment)
