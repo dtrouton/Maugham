@@ -73,7 +73,7 @@ final class ReadTranslationToolTests: XCTestCase {
             text: text, sourceHash: hash, verbatim: false)
         try await TranslationStore.append(
             record, forDocId: h.doc.docId,
-            deviceSlug: DeviceIdentity.current.slug,
+            deviceSlug: DeviceIdentity.author.slug,
             in: h.projectURL)
     }
 

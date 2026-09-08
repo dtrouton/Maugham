@@ -46,7 +46,7 @@ struct AnnotationWriter: Sendable {
     /// the id every op's `device` field and the stream's own filename are
     /// derived from. Injectable so a test can hold a signing key on a
     /// simulator, which has no enclave of its own.
-    var identity: DeviceIdentity = .current
+    var identity: DeviceIdentity = .author
     /// e.g. `CFBundleShortVersionString` — forensic only; the deriver ignores it.
     var appVersion: String
     /// e.g. "iOS 17.4" — forensic only.

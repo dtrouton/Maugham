@@ -471,12 +471,12 @@ public final class Document {
 
     /// Test-only override for the device identity and chain memory every
     /// `Document.load` hands its `OpLogStore`. Production leaves both nil and
-    /// gets `DeviceIdentity.current` / `OpLogDeviceState.shared`.
+    /// gets `DeviceIdentity.author` / `OpLogDeviceState.shared`.
     ///
     /// Why a seam at all (`segmentSealThresholdForTesting`'s shape): a test
     /// that asserts a SEAL was written needs an identity that can sign, and
     /// the machine running the suite may have none — CI's VM has no Secure
-    /// Enclave, so `DeviceIdentity.current` there is the unsigned token twin
+    /// Enclave, so `DeviceIdentity.author` there is the unsigned token twin
     /// and `sealChain` correctly writes nothing. Injecting
     /// `DeviceIdentity.softwareForTesting()` makes the seal assertable without
     /// making the production path conditional on anything.
@@ -497,7 +497,7 @@ public final class Document {
         OpLogStore(
             projectURL: projectURL,
             presenter: presenter,
-            identity: deviceIdentityForTesting ?? .current,
+            identity: deviceIdentityForTesting ?? .author,
             state: deviceStateForTesting ?? .shared)
     }
 

@@ -177,13 +177,13 @@ public final class DocumentStore {
         // close — revisit if open-time cost shows up in the fixture). Uses the
         // just-wired presenter so the seal's coordinated read/delete don't
         // bounce back as our own external-change callbacks.
-        let sealSlug = DeviceIdentity.current.slug
+        let sealSlug = DeviceIdentity.author.slug
         let opsDirNames = ((try? FileManager.default.contentsOfDirectory(
             at: url.appendingPathComponent(".maugham/ops"),
             includingPropertiesForKeys: nil)) ?? []).map(\.lastPathComponent)
         let sealStore = OpLogStore(
             projectURL: url, presenter: store.presenter,
-            identity: Document.deviceIdentityForTesting ?? .current,
+            identity: Document.deviceIdentityForTesting ?? .author,
             state: Document.deviceStateForTesting ?? .shared)
         for docId in OpLogStore.docIds(inOpsDirectoryFilenames: opsDirNames).sorted() {
             // The chain seal FIRST, then the rotation — `Document.close()`'s

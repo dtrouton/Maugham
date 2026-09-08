@@ -82,7 +82,7 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
             entries: [.init(paragraphId: id, text: text, verbatim: nil, delete: nil)],
             language: "es", documentId: harness.doc.docId,
             state: (harness.doc.sequence, harness.doc.paragraphs, harness.projectURL),
-            deviceSlug: DeviceIdentity.current.slug)
+            deviceSlug: DeviceIdentity.author.slug)
     }
 
     // MARK: - The reader's gather
@@ -109,7 +109,7 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
             TranslationRecord(paragraphId: harness.doc.sequence[1], language: "es",
                               text: "Cerró la puerta.", sourceHash: "not-the-current-hash"),
             forDocId: harness.doc.docId,
-            deviceSlug: DeviceIdentity.current.slug,
+            deviceSlug: DeviceIdentity.author.slug,
             in: harness.projectURL)
         let gathered = await harness.environment.briefReader(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered)
@@ -129,7 +129,7 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
             entries: [.init(paragraphId: id, text: nil, verbatim: true, delete: nil)],
             language: "es", documentId: harness.doc.docId,
             state: (harness.doc.sequence, harness.doc.paragraphs, harness.projectURL),
-            deviceSlug: DeviceIdentity.current.slug)
+            deviceSlug: DeviceIdentity.author.slug)
         let gathered = await harness.environment.briefReader(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered)
         XCTAssertEqual(inputs.paragraphs[2].translation, harness.doc.paragraphs[id],

@@ -1115,7 +1115,7 @@ final class CompileOrchestratorTests: XCTestCase {
         // and snapshot have landed. (A directory squatting on this path now
         // refuses pre-flight instead — pinned below.)
         let catalogURL = PublicationStore.fileURL(
-            deviceSlug: DeviceIdentity.current.slug, in: tmp)
+            deviceSlug: DeviceIdentity.author.slug, in: tmp)
         try FileManager.default.createDirectory(
             at: catalogURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: catalogURL)  // an empty catalog loads as []
@@ -1162,7 +1162,7 @@ final class CompileOrchestratorTests: XCTestCase {
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
         // A directory squatting on the catalog path: unreadable-yet-present.
         let catalogURL = PublicationStore.fileURL(
-            deviceSlug: DeviceIdentity.current.slug, in: tmp)
+            deviceSlug: DeviceIdentity.author.slug, in: tmp)
         try FileManager.default.createDirectory(
             at: catalogURL, withIntermediateDirectories: true)
 

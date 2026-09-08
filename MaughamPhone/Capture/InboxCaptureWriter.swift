@@ -49,7 +49,7 @@ struct InboxCaptureWriter: Sendable {
 
     init(
         projectRoot: URL,
-        identity: DeviceIdentity = .current,
+        identity: DeviceIdentity = .author,
         io: CoordinatedFileIO = .live,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {

@@ -37,9 +37,11 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   `UbiquitousFileSystem` seam, `ProjectsRoot` (bookmark
   lifecycle), `ProjectsBrowser` (id→manifest), `RecentsTracker`,
   `ColdLaunchDownloader`. The device id is NOT here: it is MaughamCore's
-  `DeviceIdentity.current.deviceId`, the same one the Mac reads (signed op log
-  P1) — never a `phone:<uuid>` of the phone's own, and `PhoneDeviceID` is
-  deleted. The key that id is derived from is an enclave key whose
+  `DeviceIdentity.author.deviceId`, the same one the Mac's writer reads (signed
+  op log P1) — never a `phone:<uuid>` of the phone's own, and `PhoneDeviceID` is
+  deleted. The phone is the `author` and mints that ONE key: it reaches for no
+  other `DeviceActor` and never for `LocalIdentities.current`, which would mint
+  all four (`TripwirePhoneGrepTest.test_thePhoneReachesForNoIdentityButTheAuthors`). The key that id is derived from is an enclave key whose
   `dataRepresentation` blob the app persists itself, under
   `~/Library/Application Support/<supportFolderName>/device/` — outside every
   project folder, because it must never sync (`DeviceState.directory`; no

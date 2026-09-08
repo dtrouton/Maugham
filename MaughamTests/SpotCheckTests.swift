@@ -74,7 +74,7 @@ final class SpotCheckTests: XCTestCase {
             entries: [.init(paragraphId: id, text: text, verbatim: nil, delete: nil)],
             language: "es", documentId: harness.doc.docId,
             state: (harness.doc.sequence, harness.doc.paragraphs, harness.projectURL),
-            deviceSlug: DeviceIdentity.current.slug)
+            deviceSlug: DeviceIdentity.author.slug)
     }
 
     private func entries(_ texts: [(String, String)]) -> [TranslationBadgeLayout.Entry] {

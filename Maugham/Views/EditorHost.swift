@@ -169,7 +169,7 @@ struct EditorHost: View {
     /// through a lazy static so the per-keystroke path never touches the disk,
     /// and never from the host name: two Macs can share a name, and then they
     /// share a per-device op-log file.
-    private static let deviceId: String = DeviceIdentity.current.deviceId
+    private static let deviceId: String = DeviceIdentity.author.deviceId
 
     var body: some View {
         // Snapshot the environment undo manager before the EditorSurface init

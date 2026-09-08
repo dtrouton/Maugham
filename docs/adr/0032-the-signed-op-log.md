@@ -91,7 +91,10 @@ or a profile can revoke. Its protection is the enclave, not the filesystem.
 **Unsigned is a first-class state, not a failure.** Where there is no enclave —
 a VM, CI's runner — the device persists 32 random bytes instead, takes its
 fingerprint from their SHA-256, writes chained lines that nothing seals, and
-reports nothing wrong. `deviceId` is the 16-hex prefix of the fingerprint,
+reports nothing wrong. `deviceId` is `<actor>-<16-hex prefix of the
+fingerprint>` (P1b: a device holds one key per `DeviceActor` — `author`,
+`assistant`, `translator`, `maugham` — each its own blob under the same
+`device/` folder, and `LocalIdentities` is all four in one value),
 `fingerprint` the full 64, and `slug` is `DeviceSlug.make(from: deviceId)` —
 `DeviceSlug` keeps its private init and its filename-only life (tripwire 24);
 only what `make` is handed changed. `MacDeviceID` and `PhoneDeviceID` are

@@ -27,14 +27,14 @@ final class SegmentSealTriggerTests: XCTestCase {
     /// Give this test a device that can SIGN, and a chain memory of its own.
     ///
     /// The machine running the suite may have no key at all — CI's VM has no
-    /// Secure Enclave, so `DeviceIdentity.current` there is the unsigned token
+    /// Secure Enclave, so `DeviceIdentity.author` there is the unsigned token
     /// twin and `sealChain` correctly writes nothing. Injecting the software
     /// signer is what makes a seal assertion decidable rather than
     /// machine-dependent; the fresh state keeps one test's remembered heads
     /// out of another's.
     /// Answers the device STRING that identity implies, because in production
     /// the two are the same fact: `EditorHost.deviceId` is
-    /// `DeviceIdentity.current.deviceId`, so the file an op is appended to
+    /// `DeviceIdentity.author.deviceId`, so the file an op is appended to
     /// (named from `op.device`) and the file `sealChain` seals (named from
     /// `identity.slug`) are one file. A test that took the fixture's own
     /// "test-mac" would seal a file nothing wrote to and prove nothing.
@@ -255,7 +255,7 @@ final class SegmentSealTriggerTests: XCTestCase {
     }
 
     func test_documentStoreOpen_runsSealMaintenance() async throws {
-        let doc = try await makeDoc(device: DeviceIdentity.current.deviceId)
+        let doc = try await makeDoc(device: DeviceIdentity.author.deviceId)
         for i in 0..<30 {
             doc.setParagraph(id: doc.sequence[0],
                              text: "grown \(i) " + String(repeating: "z", count: 300))

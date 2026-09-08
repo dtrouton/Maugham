@@ -6783,7 +6783,7 @@ final class TripwireGrepTests: XCTestCase {
     /// restored from another's backup — answered the same `hostName`, so their
     /// per-device op-log files collided; tripwire 17 is the record of what a
     /// collision on that file costs (a silently dropped conflict twin the
-    /// loader never opens). `DeviceIdentity.current.deviceId` (MaughamCore) is
+    /// loader never opens). `DeviceIdentity.author.deviceId` (MaughamCore) is
     /// the one answer on both surfaces, and it is derived from key material
     /// that cannot repeat across machines.
     func test_noHostnameIdentity() throws {
@@ -6796,7 +6796,7 @@ final class TripwireGrepTests: XCTestCase {
         }
         XCTAssertTrue(offenders.isEmpty,
             "A production file derives an identity from the host name. The "
-            + "device id is `DeviceIdentity.current.deviceId` — the prefix of "
+            + "device id is `DeviceIdentity.author.deviceId` — the prefix of "
             + "this device's key fingerprint — because two Macs can share a "
             + "name and then share a per-device op-log file, which is how a "
             + "writer's lines go missing (tripwire 17). Offenders:\n"
@@ -6837,7 +6837,7 @@ final class TripwireGrepTests: XCTestCase {
         try """
         // A comment may say ProcessInfo.processInfo.hostName — allowed.
         /// And may name the old "phone:<uuid>" and "unknown-host" spellings.
-        let sanctioned = DeviceIdentity.current.deviceId
+        let sanctioned = DeviceIdentity.author.deviceId
         let host = ProcessInfo.processInfo.hostName
         let minted = "phone:\\(UUID().uuidString)"
         let fallback = name.isEmpty ? "unknown-host" : name

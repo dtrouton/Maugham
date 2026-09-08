@@ -606,7 +606,7 @@ extension ProjectStore {
         }
         let document = try await Document.load(
             url: url.appendingPathComponent(statement.path),
-            device: DeviceIdentity.current.deviceId,
+            device: DeviceIdentity.author.deviceId,
             session: session,
             presenter: documentStore?.presenter)
         // Closed on the refusing path too: a `Document` left open on this path

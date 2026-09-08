@@ -360,7 +360,7 @@ struct StatementEditorHost: View {
     /// session id exists so multi-instance edits can be merged, not to tie a
     /// statement to the manuscript beside it).
     private static let sessionId: String = UUID().uuidString
-    private static let deviceId: String = DeviceIdentity.current.deviceId
+    private static let deviceId: String = DeviceIdentity.author.deviceId
 
     /// The registered statement for this scope, or nil. Absence is valid and
     /// mints nothing — `ProjectStore.statement(kind:scope:)` is a pure lookup.

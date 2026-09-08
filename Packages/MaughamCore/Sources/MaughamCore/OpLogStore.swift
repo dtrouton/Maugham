@@ -112,7 +112,7 @@ public final class OpLogStore {
     public init(
         projectURL: URL,
         presenter: NSFilePresenter? = nil,
-        identity: DeviceIdentity = .current,
+        identity: DeviceIdentity = .author,
         state: OpLogDeviceState = .shared
     ) {
         self.projectURL = projectURL
@@ -915,7 +915,7 @@ public final class OpLogStore {
     /// see a closed manuscript through.
     public nonisolated static func loadSyncMerged(
         forDocId docId: String, in projectURL: URL,
-        identity: DeviceIdentity? = .current,
+        identity: DeviceIdentity? = .author,
         state: OpLogDeviceState? = .shared
     ) throws -> [Op] {
         var ops: [Op] = []

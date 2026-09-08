@@ -281,7 +281,8 @@ written through a `JSONLAppendStore<InboxEntry>` carrying a `ChainPolicy`
   tail merely chained. A Mac with no key writes no seal and reports nothing
   wrong (spec §4.1).
 - **`identity` is injectable.** `InboxStore(projectURL:deviceId:identity:)`
-  defaults to `DeviceIdentity.current`; a test passes a software signer,
+  defaults to `DeviceIdentity.author` (a capture is the writer's own act);
+  a test passes a software signer,
   because CI's runner has no enclave. `deviceId` still names the row and the
   manifest file; the identity is what the chain is verified against.
 

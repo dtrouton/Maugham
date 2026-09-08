@@ -107,7 +107,7 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
         XCTAssertTrue(seal.verifies())
         XCTAssertEqual(seal.head, OpLogChain.lineHash(lines[0]))
 
-        // The Mac's read, over both files. `DeviceIdentity.current` is not the
+        // The Mac's read, over both files. `DeviceIdentity.author` is not the
         // key that sealed the phone's file, so the phone's two lines are
         // history — and both the op and the seal line are counted, because the
         // account is over LINES.

@@ -549,7 +549,7 @@ extension TranslatorOrchestrator.Environment {
                     language: context.language,
                     documentId: context.docId,
                     state: state,
-                    deviceSlug: DeviceIdentity.current.slug)
+                    deviceSlug: DeviceIdentity.author.slug)
                 written = report.entries.count
             } catch {
                 return .init(rejection: sentence(for: error))

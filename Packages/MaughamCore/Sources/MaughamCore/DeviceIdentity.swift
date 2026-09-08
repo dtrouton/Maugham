@@ -15,8 +15,12 @@ public enum DeviceIdentityError: Error, Equatable {
     case unsigned
 }
 
-/// This device, as the op log will name it: an id, a key fingerprint, and
-/// (where an enclave exists) the ability to sign.
+/// One of this device's writers, as the op log will name it: an actor, an id,
+/// a key fingerprint, and (where an enclave exists) the ability to sign.
+///
+/// A device holds one of these per `DeviceActor` — four keys under one
+/// `device/` folder, each minted on first ask. `LocalIdentities` is all four
+/// in one value.
 ///
 /// **The app persists the key itself.** `SecureEnclave.P256.Signing.PrivateKey`
 /// hands back a `dataRepresentation` — an enclave-wrapped blob that is useless
@@ -38,8 +42,15 @@ public enum DeviceIdentityError: Error, Equatable {
 /// generic parameter, and no way for a caller to tell which one it holds beyond
 /// asking `canSign`.
 public struct DeviceIdentity: Sendable {
-    /// 16 hex characters — the fingerprint's own prefix, so an id and a
-    /// fingerprint can never disagree about which device they name.
+    /// Which of this device's four writers this identity is (`DeviceActor`).
+    /// A device holds one key per actor, so the role is proved by the
+    /// signature rather than asserted by a field beside it.
+    public let actor: DeviceActor
+
+    /// `<actor>-<16 hex>` — the actor's name and the fingerprint's own prefix,
+    /// so an id, a fingerprint and a role can never disagree about who wrote
+    /// an op. The author's id carries its prefix too, so a per-device file
+    /// reads as itself.
     public let deviceId: String
 
     /// 64 hex characters: SHA-256 of the public key (or of the token, unsigned).
@@ -56,12 +67,14 @@ public struct DeviceIdentity: Sendable {
     public var canSign: Bool { publicKey != nil }
 
     private init(
+        actor: DeviceActor,
         fingerprint: String,
         publicKey: P256.Signing.PublicKey?,
         signer: @escaping @Sendable (Data) throws -> Data
     ) {
+        self.actor = actor
         self.fingerprint = fingerprint
-        self.deviceId = String(fingerprint.prefix(16))
+        self.deviceId = "\(actor.rawValue)-\(fingerprint.prefix(16))"
         self.publicKey = publicKey
         self.signer = signer
     }
@@ -97,17 +110,20 @@ public struct DeviceIdentity: Sendable {
     // MARK: - Construction
 
     static func signed(
+        actor: DeviceActor,
         publicKey: P256.Signing.PublicKey,
         signer: @escaping @Sendable (Data) throws -> Data
     ) -> DeviceIdentity {
         DeviceIdentity(
+            actor: actor,
             fingerprint: fingerprint(of: publicKey),
             publicKey: publicKey,
             signer: signer)
     }
 
-    static func unsigned(token: Data) -> DeviceIdentity {
+    static func unsigned(actor: DeviceActor, token: Data) -> DeviceIdentity {
         DeviceIdentity(
+            actor: actor,
             fingerprint: fingerprint(ofToken: token),
             publicKey: nil,
             signer: { _ in throw DeviceIdentityError.unsigned })
@@ -115,8 +131,17 @@ public struct DeviceIdentity: Sendable {
 
     // MARK: - Loading
 
-    static let blobFilename = "device-key.blob"
-    static let tokenFilename = "device-token"
+    /// The author keeps the names P1 shipped; the other three suffix theirs,
+    /// so one `device/` folder holds four keys that cannot be confused and a
+    /// device that has only ever been the author looks exactly as it did.
+    static func blobFilename(for actor: DeviceActor) -> String {
+        actor == .author ? "device-key.blob" : "device-key.\(actor.rawValue).blob"
+    }
+
+    static func tokenFilename(for actor: DeviceActor) -> String {
+        actor == .author ? "device-token" : "device-token.\(actor.rawValue)"
+    }
+
     private static let tokenByteCount = 32
 
     /// Read this device's identity out of `directory`, minting it on first run.
@@ -132,51 +157,93 @@ public struct DeviceIdentity: Sendable {
     /// re-minting costs nothing extra — and falling to the token instead would
     /// cost the machine its ability to sign anything, permanently, for the rest
     /// of its life, over one restore.
-    public static func load(from directory: URL) throws -> DeviceIdentity {
+    public static func load(from directory: URL, actor: DeviceActor) throws -> DeviceIdentity {
         try DeviceState.ensureDirectory(directory)
         let fm = FileManager.default
-        let blobURL = directory.appendingPathComponent(blobFilename)
+        let blobURL = directory.appendingPathComponent(blobFilename(for: actor))
 
         if fm.fileExists(atPath: blobURL.path) {
-            if let identity = enclaveIdentity(fromBlobAt: blobURL) { return identity }
+            if let identity = enclaveIdentity(actor: actor, fromBlobAt: blobURL) { return identity }
             setAside(blobURL)
         }
         if SecureEnclave.isAvailable,
-           let identity = mintEnclaveIdentity(writingTo: blobURL) {
+           let identity = mintEnclaveIdentity(actor: actor, writingTo: blobURL) {
             return identity
         }
 
-        return try tokenIdentity(in: directory)
+        return try tokenIdentity(actor: actor, in: directory)
     }
 
-    /// The process-wide identity. Falls back to an in-memory token if even that
-    /// cannot be written — the writer keeps typing; only the id stops being
-    /// stable across launches, and the log says so.
-    public static let current: DeviceIdentity = {
-        do {
-            return try load(from: DeviceState.directory)
-        } catch {
-            deviceLog.error("""
-                Could not persist a device identity at \
-                \(DeviceState.directory.path, privacy: .public): \
-                \(String(describing: error), privacy: .public). \
-                Using an in-memory token — this launch's device id is not stable.
-                """)
-            return unsigned(token: randomToken())
+    /// The process-wide identity for one actor, minted on first ask and
+    /// remembered for the life of the process.
+    ///
+    /// **Lazy per actor, never eager.** Four `static let`s would mint four
+    /// enclave keys the first time anything read any of them — and the phone is
+    /// the `author` and nothing else (constraint 7), so three of those four
+    /// would be work the writer waits for, for nothing. The cache is
+    /// lock-guarded rather than four stored properties for exactly that reason.
+    ///
+    /// Falls back to an in-memory token if even that cannot be written — the
+    /// writer keeps typing; only the id stops being stable across launches, and
+    /// the log says so.
+    public static func identity(for actor: DeviceActor) -> DeviceIdentity {
+        identityCache.identity(for: actor) { actor in
+            do {
+                return try load(from: DeviceState.directory, actor: actor)
+            } catch {
+                deviceLog.error("""
+                    Could not persist a device identity for \
+                    \(actor.rawValue, privacy: .public) at \
+                    \(DeviceState.directory.path, privacy: .public): \
+                    \(String(describing: error), privacy: .public). \
+                    Using an in-memory token — this launch's device id is not stable.
+                    """)
+                return unsigned(actor: actor, token: randomToken())
+            }
         }
-    }()
+    }
+
+    /// The writer's own identity — this device's default, and the phone's only
+    /// one. `OpLogDeviceState` takes its fingerprint as the DEVICE's.
+    public static var author: DeviceIdentity { identity(for: .author) }
+
+    private static let identityCache = IdentityCache()
+
+    /// Memoization for `identity(for:)`. A class behind a lock rather than a
+    /// `static var` dictionary, so it is `Sendable` under Swift 6 without
+    /// making the mutable state global.
+    private final class IdentityCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var identities: [DeviceActor: DeviceIdentity] = [:]
+
+        func identity(
+            for actor: DeviceActor,
+            mint: (DeviceActor) -> DeviceIdentity
+        ) -> DeviceIdentity {
+            lock.lock()
+            defer { lock.unlock() }
+            if let held = identities[actor] { return held }
+            let minted = mint(actor)
+            identities[actor] = minted
+            return minted
+        }
+    }
 
     // MARK: - The enclave path
 
-    private static func enclaveIdentity(fromBlobAt url: URL) -> DeviceIdentity? {
+    private static func enclaveIdentity(
+        actor: DeviceActor, fromBlobAt url: URL
+    ) -> DeviceIdentity? {
         let blob = try? Data(contentsOf: url)  // adr-0018-ok: this device's own key blob
         guard let blob,
               let key = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob)
         else { return nil }
-        return identity(for: key)
+        return identity(actor: actor, for: key)
     }
 
-    private static func mintEnclaveIdentity(writingTo url: URL) -> DeviceIdentity? {
+    private static func mintEnclaveIdentity(
+        actor: DeviceActor, writingTo url: URL
+    ) -> DeviceIdentity? {
         // No access-control flags (the spike's A1 shape): the blob is already
         // useless off this device's enclave, and a biometric/passcode gate would
         // put a prompt between the writer and their own autosave.
@@ -186,13 +253,15 @@ public struct DeviceIdentity: Sendable {
         } catch {
             return nil
         }
-        return identity(for: key)
+        return identity(actor: actor, for: key)
     }
 
     /// The enclave key is captured by the signing closure and never stored on
     /// the struct — that is what lets one type stand for both signers.
-    private static func identity(for key: SecureEnclave.P256.Signing.PrivateKey) -> DeviceIdentity {
-        signed(publicKey: key.publicKey) { digest in
+    private static func identity(
+        actor: DeviceActor, for key: SecureEnclave.P256.Signing.PrivateKey
+    ) -> DeviceIdentity {
+        signed(actor: actor, publicKey: key.publicKey) { digest in
             try key.signature(for: digest).rawRepresentation
         }
     }
@@ -211,15 +280,17 @@ public struct DeviceIdentity: Sendable {
 
     // MARK: - The token path
 
-    private static func tokenIdentity(in directory: URL) throws -> DeviceIdentity {
-        let url = directory.appendingPathComponent(tokenFilename)
+    private static func tokenIdentity(
+        actor: DeviceActor, in directory: URL
+    ) throws -> DeviceIdentity {
+        let url = directory.appendingPathComponent(tokenFilename(for: actor))
         let stored = try? Data(contentsOf: url)  // adr-0018-ok: this device's own random token
         if let stored, stored.count == tokenByteCount {
-            return unsigned(token: stored)
+            return unsigned(actor: actor, token: stored)
         }
         let token = randomToken()
         try token.write(to: url, options: .atomic)
-        return unsigned(token: token)
+        return unsigned(actor: actor, token: token)
     }
 
     private static func randomToken() -> Data {

@@ -36,13 +36,15 @@ final class PhoneDeviceIdentityTests: XCTestCase {
     /// that mints but cannot sign, or signs unverifiably, is worse than no key
     /// at all, so all three are asserted together.
     func test_theSimulatorMintsAKeyThatSignsAndVerifies() throws {
-        let identity = try DeviceIdentity.load(from: directory)
+        let identity = try DeviceIdentity.load(from: directory, actor: .author)
 
         XCTAssertTrue(identity.canSign,
                       "an enclave is available, so this device must hold a signing key")
         let publicKey = try XCTUnwrap(identity.publicKey)
         XCTAssertEqual(identity.fingerprint, DeviceIdentity.fingerprint(of: publicKey))
-        XCTAssertEqual(identity.deviceId, String(identity.fingerprint.prefix(16)))
+        XCTAssertEqual(identity.actor, .author,
+                       "the phone is the writer on its own device and nothing else")
+        XCTAssertEqual(identity.deviceId, "author-\(identity.fingerprint.prefix(16))")
 
         let digest = Data(SHA256.hash(data: Data("the words are safe".utf8)))
         let signature = try P256.Signing.ECDSASignature(
@@ -54,17 +56,22 @@ final class PhoneDeviceIdentityTests: XCTestCase {
     /// blob back off disk and answers the same device. If it did not, every
     /// launch would be a new device and the op log would fill with strangers.
     func test_aSecondLoadReusesThePersistedBlob() throws {
-        let first = try DeviceIdentity.load(from: directory)
-        let blob = directory.appendingPathComponent(DeviceIdentity.blobFilename)
+        let first = try DeviceIdentity.load(from: directory, actor: .author)
+        let blob = directory.appendingPathComponent(DeviceIdentity.blobFilename(for: .author))
         XCTAssertTrue(FileManager.default.fileExists(atPath: blob.path),
                       "the enclave-wrapped blob is written beside the state")
 
-        let second = try DeviceIdentity.load(from: directory)
+        let second = try DeviceIdentity.load(from: directory, actor: .author)
         XCTAssertTrue(second.canSign)
         XCTAssertEqual(second.fingerprint, first.fingerprint)
         XCTAssertEqual(second.deviceId, first.deviceId)
         XCTAssertEqual(second.publicKey?.x963Representation,
                        first.publicKey?.x963Representation,
                        "the same key, not a fresh one that happens to work")
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertEqual(names, [DeviceIdentity.blobFilename(for: .author)],
+                       "the phone mints ONE key on first launch — the author's. "
+                       + "Found: \(names)")
     }
 }

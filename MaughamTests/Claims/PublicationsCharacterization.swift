@@ -215,7 +215,7 @@ final class PublicationsCharacterization: XCTestCase {
         // pre-flight load, before anything mutates — a better failure, pinned
         // separately in CompileOrchestratorTests.)
         let catalogURL = PublicationStore.fileURL(
-            deviceSlug: DeviceIdentity.current.slug, in: tmp)
+            deviceSlug: DeviceIdentity.author.slug, in: tmp)
         try FileManager.default.createDirectory(
             at: catalogURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: catalogURL)  // an empty catalog loads as []

@@ -125,7 +125,7 @@ final class StatementOpenGateTests: XCTestCase {
         // runloop's; `StatementEditorHost.load` does exactly this pair.
         let paneDocument = try await Document.load(
             url: fixture.projectURL.appendingPathComponent(statement.path),
-            device: DeviceIdentity.current.deviceId, session: "pane-test",
+            device: DeviceIdentity.author.deviceId, session: "pane-test",
             presenter: fixture.documentStore.presenter)
         fixture.store.noteStatementDocumentOpened(paneDocument, id: statement.id)
         fixture.store.unlockStatementOpen(statement.id)

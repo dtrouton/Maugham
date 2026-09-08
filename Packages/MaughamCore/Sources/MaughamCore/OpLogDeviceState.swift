@@ -84,7 +84,7 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// own synced ops, held back under "written by something that is not
     /// Maugham". No migration (tripwire 11) — a state file predating this field
     /// reads as a mismatch, which is the adopt case.
-    public init(fileURL: URL, identity: String = DeviceIdentity.current.fingerprint) {
+    public init(fileURL: URL, identity: String = DeviceIdentity.author.fingerprint) {
         self.fileURL = fileURL
         self.identity = identity
         let bytes = try? Data(contentsOf: fileURL)  // adr-0018-ok: this device's own chain-head memory — derived bookkeeping, never manuscript text
@@ -105,7 +105,7 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// The process-wide memory, beside this device's key material.
     public static let shared = OpLogDeviceState(
         fileURL: DeviceState.directory.appendingPathComponent("op-log-state.json"),
-        identity: DeviceIdentity.current.fingerprint)
+        identity: DeviceIdentity.author.fingerprint)
 
     // MARK: - Heads
 

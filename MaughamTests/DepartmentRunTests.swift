@@ -1945,7 +1945,7 @@ final class DepartmentRunTests: XCTestCase {
         let suite = "DepartmentMintSheet-\(UUID().uuidString)"
         let preferences = UserPreferences(defaults: UserDefaults(suiteName: suite)!)
         let bible = BibleStore(projectRoot: h.projectURL,
-                               device: DeviceIdentity.current.slug)
+                               device: DeviceIdentity.author.slug)
         // The window's own wiring: `ProjectWindow` hands `onRunEnded` to a
         // `TranslationRunLog` it owns, and the desk reads the log. Recording
         // into a log here is what makes the end-to-end test able to watch a

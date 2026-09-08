@@ -442,7 +442,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
 
     /// Twin of the Mac's `test_noHandBuiltDeviceIdOutsideDeviceIdentity`.
     /// The phone used to mint `"phone:<uuid>"` into `UserDefaults` and call
-    /// that its device id; it now reads `DeviceIdentity.current.deviceId`
+    /// that its device id; it now reads `DeviceIdentity.author.deviceId`
     /// (MaughamCore) like the Mac, so one install has one identity derived
     /// from its own key material. A literal here is a device that partitions
     /// its writes somewhere else — the failure tripwire 17 exists for.
@@ -456,7 +456,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
         let offenders = try Self.handBuiltDeviceIdOffenders(in: sourceDir)
         XCTAssertTrue(offenders.isEmpty,
                       "A phone production file hand-builds a device id or reads "
-                      + "the host name. `DeviceIdentity.current.deviceId` is the "
+                      + "the host name. `DeviceIdentity.author.deviceId` is the "
                       + "one answer on both surfaces:\n"
                       + offenders.joined(separator: "\n"))
     }
@@ -474,7 +474,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
         try """
         // A comment may say ProcessInfo.processInfo.hostName — allowed.
         /// And may name the old "phone:<uuid>" and "unknown-host" spellings.
-        let sanctioned = DeviceIdentity.current.deviceId
+        let sanctioned = DeviceIdentity.author.deviceId
         let host = ProcessInfo.processInfo.hostName
         let minted = "phone:\\(UUID().uuidString)"
         let fallback = name.isEmpty ? "unknown-host" : name
@@ -588,6 +588,89 @@ final class TripwirePhoneGrepTest: XCTestCase {
             }
         }
         return offenders
+    }
+
+    // MARK: - The phone is the author and mints one key (P1b constraint 7)
+
+    /// The patterns that would have the phone mint a key it never uses.
+    ///
+    /// `LocalIdentities.current` reads all four actors, and reading one MINTS
+    /// it: touching that value on first launch would put three enclave
+    /// operations between the writer and their first capture, for three keys
+    /// the phone has no writer for. The other three actors, named directly, are
+    /// the same mistake spelled longhand — the phone's captures and its
+    /// accept/reject are the writer's own acts, so its one identity is
+    /// `DeviceIdentity.author`.
+    static let nonAuthorIdentityPatterns = [
+        "LocalIdentities.current",
+        "identity(for: .assistant)", "identity(for: .translator)",
+        "identity(for: .maugham)",
+        "actor: .assistant", "actor: .translator", "actor: .maugham",
+    ]
+
+    private static func nonAuthorIdentityOffenders(in dir: URL) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (index, line) in text.split(separator: "\n",
+                                            omittingEmptySubsequences: false).enumerated() {
+                let lineStr = String(line)
+                let trimmed = lineStr.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { continue }
+                for pattern in Self.nonAuthorIdentityPatterns where lineStr.contains(pattern) {
+                    offenders.append("\(url.lastPathComponent):\(index + 1): " + trimmed)
+                    break
+                }
+            }
+        }
+        return offenders
+    }
+
+    func test_thePhoneReachesForNoIdentityButTheAuthors() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+        let offenders = try Self.nonAuthorIdentityOffenders(in: sourceDir)
+        XCTAssertTrue(offenders.isEmpty,
+                      "A phone source reaches for an actor the phone is not. The "
+                      + "phone is the `author` on its own device and mints that "
+                      + "one key; reading another actor mints an enclave key "
+                      + "nothing will ever sign with:\n"
+                      + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: the census fires on every planted spelling and lets the
+    /// author's own — and a comment naming the others — through.
+    func test_theNonAuthorIdentityCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-actors-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        /// A comment may name LocalIdentities.current and actor: .translator.
+        let mine = DeviceIdentity.author
+        let alsoMine = DeviceIdentity.identity(for: .author)
+        let loaded = try DeviceIdentity.load(from: dir, actor: .author)
+        let four = LocalIdentities.current
+        let helper = DeviceIdentity.identity(for: .assistant)
+        let pipeline = try DeviceIdentity.load(from: dir, actor: .translator)
+        """.write(to: tmp.appendingPathComponent("BadPhoneIdentity.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try Self.nonAuthorIdentityOffenders(in: tmp)
+        XCTAssertEqual(offenders.count, 3,
+            "Self-check: the three planted non-author reads should be caught, and "
+            + "neither the author's own lines nor the comment. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let four") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let helper") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let pipeline") }))
     }
 
     // MARK: - A seal line is recognised in OpLogChain only (tripwire 37, phone twin)

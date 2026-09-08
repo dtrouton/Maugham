@@ -452,7 +452,7 @@ Failure modes:
 
 5. **Don't bypass `PendingBuffer`** to write directly to the op log on every keystroke. The debounce is load-bearing for I/O cost; bypassing it will hit disk hundreds of times per second.
 
-6. **No identity from the host name, and no hand-built device id.** `DeviceIdentity.current.deviceId` is the one answer on both surfaces; two Macs can share a name and then share a per-device op-log file, which is how a writer's lines go missing (tripwire 17). `TripwireGrepTests.test_noHostnameIdentity` and `test_noHandBuiltDeviceIdOutsideDeviceIdentity` (plus the phone's twin) are the census, each with a planted-offender self-check.
+6. **No identity from the host name, and no hand-built device id.** `DeviceIdentity.author.deviceId` (and, for the other three actors, `LocalIdentities.current[<actor>].deviceId`) is the one answer on both surfaces; two Macs can share a name and then share a per-device op-log file, which is how a writer's lines go missing (tripwire 17). `TripwireGrepTests.test_noHostnameIdentity` and `test_noHandBuiltDeviceIdOutsideDeviceIdentity` (plus the phone's twin) are the census, each with a planted-offender self-check.
 
 7. **No software private key in production.** The device key is the enclave's — `SecureEnclave.P256.Signing.PrivateKey` — because a software key copies off the machine with the file that holds it, and a signature made with one proves nothing about which device wrote the op. `DeviceIdentity+Testing.swift` is the sole allow-list entry of `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`; a test that needs a *verified* line injects that signer.
 
