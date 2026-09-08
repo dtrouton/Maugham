@@ -582,18 +582,18 @@ public final class OpLogStore {
     /// kept. Every `chainSealInterval` lines it also asks for a seal, which is
     /// what turns a run of chained lines into history this device has signed.
     ///
-    /// **A foreign `op.device` takes the plain, unchained append.** An op
-    /// self-describes the device that made it, and the write target is derived
-    /// from that string — so an op carrying a SENTINEL rather than a device id
-    /// lands in a file every Mac derives the same name for. There are several
-    /// on the Mac (`TaskDeriver.rebalanceSentinel`, and the `Document.load`
-    /// callers that pass `"wiki-rename"`, `"find-replace"` and `"mcp"`); count
-    /// the call sites, never this sentence. That file is the single exception to ADR
+    /// **A device string this device holds no key for takes the plain,
+    /// unchained append.** An op self-describes the device that made it, and
+    /// the write target is derived from that string. In the ordinary case that
+    /// is another Mac's ops arriving through sync; it was also, until P1b's Mac
+    /// rewiring, every op carrying a SENTINEL, which lands in a file every Mac
+    /// derives the same name for. Such a file is the single exception to ADR
     /// 0012's one-writer-per-file premise, and the chained append's rewrite step
     /// is licensed by exactly that premise: chaining it would have each Mac set
     /// aside and TRUNCATE the other's ops, and tell the writer their own second
     /// machine is "something that is not Maugham". A device chains only its own
-    /// file; anything else is appended to, never rewritten.
+    /// files; anything else is appended to, never rewritten. Whether any
+    /// sentinel still reaches here is a grep, never this sentence.
     public func append(_ op: Op) async throws {
         if let injected = appendFailureForTesting { throw injected }
         let slug = DeviceSlug.make(from: op.device)

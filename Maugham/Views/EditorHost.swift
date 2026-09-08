@@ -164,12 +164,10 @@ struct EditorHost: View {
     /// instances. Computed once via a lazy static.
     private static let sessionId: String = UUID().uuidString
 
-    /// Device id — the prefix of this device's key fingerprint, stable across
-    /// launches because the key itself is persisted (`DeviceIdentity`). Read
-    /// through a lazy static so the per-keystroke path never touches the disk,
-    /// and never from the host name: two Macs can share a name, and then they
-    /// share a per-device op-log file.
-    private static let deviceId: String = DeviceIdentity.author.deviceId
+    // The device id this host used to pass is gone (signed op log P1b): both
+    // loads below name `.author`, and `Document.load` derives the id from that
+    // actor's key. A private copy of the writer's id sitting here is exactly
+    // what the actor argument exists to make unnecessary.
 
     var body: some View {
         // Snapshot the environment undo manager before the EditorSurface init
@@ -458,7 +456,7 @@ struct EditorHost: View {
         do {
             let doc = try await Document.load(
                 url: store.url.appendingPathComponent(path),
-                device: Self.deviceId, session: Self.sessionId,
+                actor: .author, session: Self.sessionId,
                 presenter: documentStore.presenter,
                 recovery: .readOnlyPartial)
             guard loads.isCurrent(generation) else {
@@ -1029,7 +1027,7 @@ struct EditorHost: View {
         do {
             let doc = try await Document.load(
                 url: store.url.appendingPathComponent(path),
-                device: Self.deviceId,
+                actor: .author,
                 session: Self.sessionId,
                 presenter: documentStore.presenter)
             // Superseded while we were in file I/O — the writer clicked on, or

@@ -145,8 +145,9 @@ public enum ListTasksTool: MCPTool {
             return []
         }
         let docURL = projectEntry.url.appendingPathComponent(path)
+        // Anything arriving through MCP is the assistant's (constraint 6).
         let doc = try await Document.load(
-            url: docURL, device: "mcp",
+            url: docURL, actor: .assistant,
             session: "mcp-\(UUID().uuidString.prefix(8))",
             presenter: nil)
         let result = doc.tasks(filter: filter)

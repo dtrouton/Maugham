@@ -461,9 +461,12 @@ extension ProjectStore {
                     continue
                 }
                 do {
+                    // Propagating a rename through the writer's own links is
+                    // an automation of their hand, not an act of its own —
+                    // `.author`, like search-and-replace (constraint 6).
                     resolved = try await Document.load(
                         url: docURL,
-                        device: "wiki-rename",
+                        actor: .author,
                         session: "wiki-rename-\(UUID().uuidString.prefix(8))",
                         presenter: documentStore?.presenter)
                 } catch {

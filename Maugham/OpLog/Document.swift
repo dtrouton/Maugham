@@ -469,22 +469,28 @@ public final class Document {
     /// maintenance. Production reads `OpLogStore.segmentSealThreshold`.
     internal static var segmentSealThresholdForTesting: Int? = nil
 
-    /// Test-only override for the device identity and chain memory every
-    /// `Document.load` hands its `OpLogStore`. Production leaves both nil and
-    /// gets `DeviceIdentity.author` / `OpLogDeviceState.shared`.
+    /// Test-only override for this device's four writers and the chain memory
+    /// every `Document.load` hands its `OpLogStore`. Production leaves both nil
+    /// and gets `LocalIdentities.current` / `OpLogDeviceState.shared`.
     ///
     /// Why a seam at all (`segmentSealThresholdForTesting`'s shape): a test
-    /// that asserts a SEAL was written needs an identity that can sign, and
-    /// the machine running the suite may have none — CI's VM has no Secure
-    /// Enclave, so `DeviceIdentity.author` there is the unsigned token twin
-    /// and `sealChain` correctly writes nothing. Injecting
-    /// `DeviceIdentity.softwareForTesting()` makes the seal assertable without
+    /// that asserts a SEAL was written needs identities that can sign, and the
+    /// machine running the suite may have none — CI's VM has no Secure Enclave,
+    /// so every actor there is the unsigned token twin and `sealChain`
+    /// correctly writes nothing. Injecting
+    /// `LocalIdentities.softwareForTesting()` makes the seal assertable without
     /// making the production path conditional on anything.
+    ///
+    /// **All four, not one** (P1b): a `Document.load` now names an ACTOR and
+    /// derives its device string from this value, so a seam holding only the
+    /// author would have an assistant load sign as the machine's real assistant
+    /// key while its store trusted the fixture's. One value, four writers, no
+    /// way for the two to disagree.
     ///
     /// A test that sets these MUST clear them in `tearDown`: they are
     /// process-wide, and a leaked signer would silently change what every
     /// later test's load can vouch for.
-    internal static var deviceIdentityForTesting: DeviceIdentity? = nil
+    internal static var localIdentitiesForTesting: LocalIdentities? = nil
     internal static var deviceStateForTesting: OpLogDeviceState? = nil
 
     /// The ONE construction of an `OpLogStore` on a load path, so the two
@@ -501,17 +507,12 @@ public final class Document {
             state: deviceStateForTesting ?? .shared)
     }
 
-    /// This device's four writers, with `deviceIdentityForTesting` standing in
-    /// for the AUTHOR when a suite has injected one. The other three are the
-    /// device's own: a test that swaps the writer's key is saying something
-    /// about the writer, never about the assistant.
+    /// This device's four writers — the injected quartet when a suite has one,
+    /// this machine's own otherwise. The ONE place a load path asks who this
+    /// device is, so the store that signs an op and the actor lookup that named
+    /// its device string can never come from two different answers.
     internal static var loadIdentities: LocalIdentities {
-        guard let injected = deviceIdentityForTesting else { return .current }
-        return LocalIdentities(
-            author: injected,
-            assistant: .identity(for: .assistant),
-            translator: .identity(for: .translator),
-            maugham: .identity(for: .maugham))
+        localIdentitiesForTesting ?? .current
     }
 
     /// Test-only artificial delay injected inside the detached task-op disk

@@ -221,17 +221,18 @@ assistant's own file is this device's own word and a narrower set would file the
 writer's own MCP history as another device's unsigned history. `DeviceSlug.make` is deterministic, so every op
 carrying a SENTINEL rather than a device id lands in a file every Mac derives the
 same name for — the single exception to ADR 0012's one-writer premise, which is
-precisely what licenses the chained append's truncating rewrite. **There is more
-than one sentinel and the list is a grep, not a sentence**: today they are
-`TaskDeriver.rebalanceSentinel` plus the `Document.load` callers passing
-`"wiki-rename"` (`ProjectStore+Structure`), `"find-replace"`
-(`ProjectStore+Search`) and `"mcp"` (`TaskReadTools`, `AnnotationToolHelpers`).
-Their streams are append-only and unsigned, which is what they were before this
-milestone. P1b answered the handoff's open decision — Claude's writes are the
-`assistant`, the pipeline's the `translator`, the rebalance Maugham's own — and
-`append` already signs whichever of the four an op names; giving those callers an
-actor instead of a sentinel is P1b Task 3's, and until then the sentinel files
-stay exactly as they are. The rule also keeps `linesSinceSeal` honest: the
+precisely what licenses the chained append's truncating rewrite. **P1b Task 3
+emptied that exception on this surface**: `Document.load` now names a
+`DeviceActor` and derives the id from that actor's key, so `"wiki-rename"`
+(`ProjectStore+Structure`), `"find-replace"` (`ProjectStore+Search`) and `"mcp"`
+(`TaskReadTools`, `AnnotationToolHelpers`) are gone as device strings, and the
+task rebalance signs as `maugham` with `TaskDeriver.rebalanceSentinel` surviving
+only as the SESSION marker every reader of a rebalance now matches on. The
+unchained arm remains, and it is not dead: another Mac's ops arrive through sync
+carrying an id this device holds no key for, and that is exactly the case it
+describes. **If a sentinel returns, the list is a grep and never a sentence** —
+`TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` is what keeps
+one out of a `Document.load`. The rule also keeps `linesSinceSeal` honest: the
 counter only ever sees a line this device chained, so the file it counts and the
 file its seal closes are the same file.
 
@@ -339,12 +340,17 @@ nobody. Both panes count through `OpLogQuarantine.setAsideLineCount`, one
 implementation, because one record can hold a run of lines and the writer's
 question is how many CHANGES. **`unsealed`
 lines are never mentioned**: the live tail is always partly unsealed, so naming
-it would be a permanent notice about nothing. The device identity and chain
+it would be a permanent notice about nothing. The device identities and chain
 memory a load hands its `OpLogStore` come from `Document.makeLoadOpStore`, the
-one construction, with `Document.deviceIdentityForTesting`/`deviceStateForTesting`
-as its test seam — a machine with no Secure Enclave (CI's runner) is genuinely
-unsigned, so a seal assertion has to inject a signer or it is asserting the
-runner rather than the code.
+one construction, with `Document.localIdentitiesForTesting` (all FOUR writers,
+since a load's `actor:` argument derives its device string from the same value)
+and `Document.deviceStateForTesting` as its test seam — a machine with no Secure
+Enclave (CI's runner) is genuinely unsigned, so a seal assertion has to inject a
+signer or it is asserting the runner rather than the code. **`Bootstrap.run`
+takes that store rather than building one** (P1b Task 3): the bootstrap op is a
+document's first line, and a store of `Bootstrap`'s own would sign it with
+`LocalIdentities.current` while the load chained everything after it with
+something else, leaving the opening op unchained and legacy forever.
 
 ## Sealed segments (ADR 0016, M2)
 

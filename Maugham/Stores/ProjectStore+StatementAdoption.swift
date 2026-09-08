@@ -234,7 +234,7 @@ extension ProjectStore {
         // all; `Document.load` is also the contract surface `Bootstrap.run` must
         // be reached through, and the only way to construct a `Document`.
         let doc = try await Document.load(
-            url: fileURL, device: projectOpDevice, session: projectOpSession,
+            url: fileURL, actor: .author, session: projectOpSession,
             presenter: documentStore?.presenter)
         await doc.close()
 

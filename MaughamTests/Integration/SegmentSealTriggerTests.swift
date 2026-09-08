@@ -19,32 +19,38 @@ final class SegmentSealTriggerTests: XCTestCase {
         Document.segmentSealThresholdForTesting = nil
         // Process-wide, so a leak would silently change what every later
         // test's load can vouch for.
-        Document.deviceIdentityForTesting = nil
+        Document.localIdentitiesForTesting = nil
         Document.deviceStateForTesting = nil
         try? FileManager.default.removeItem(at: projectURL)
     }
 
-    /// Give this test a device that can SIGN, and a chain memory of its own.
+    /// Give this test a device whose four writers can all SIGN, and a chain
+    /// memory of its own.
     ///
     /// The machine running the suite may have no key at all — CI's VM has no
-    /// Secure Enclave, so `DeviceIdentity.author` there is the unsigned token
-    /// twin and `sealChain` correctly writes nothing. Injecting the software
-    /// signer is what makes a seal assertion decidable rather than
-    /// machine-dependent; the fresh state keeps one test's remembered heads
-    /// out of another's.
-    /// Answers the device STRING that identity implies, because in production
-    /// the two are the same fact: `EditorHost.deviceId` is
-    /// `DeviceIdentity.author.deviceId`, so the file an op is appended to
-    /// (named from `op.device`) and the file `sealChain` seals (named from
-    /// `identity.slug`) are one file. A test that took the fixture's own
-    /// "test-mac" would seal a file nothing wrote to and prove nothing.
+    /// Secure Enclave, so every actor there is the unsigned token twin and
+    /// `sealChain` correctly writes nothing. Injecting the software signers is
+    /// what makes a seal assertion decidable rather than machine-dependent; the
+    /// fresh state keeps one test's remembered heads out of another's.
+    ///
+    /// Answers the AUTHOR's device string, because in production the two are
+    /// the same fact: `Document.load(actor: .author, …)` derives its device id
+    /// from exactly this value, so the file an op is appended to (named from
+    /// `op.device`) and the file `sealChain` seals (named from `identity.slug`)
+    /// are one file. A test that took the fixture's own "test-mac" would seal a
+    /// file nothing wrote to and prove nothing.
     @discardableResult
     private func useASigningIdentity() -> String {
-        let identity = DeviceIdentity.softwareForTesting()
-        Document.deviceIdentityForTesting = identity
+        let identities = LocalIdentities.softwareForTesting()
+        Document.localIdentitiesForTesting = identities
         Document.deviceStateForTesting = OpLogDeviceState(
             fileURL: projectURL.appendingPathComponent("op-log-state.json"))
-        return identity.deviceId
+        return identities.author.deviceId
+    }
+
+    /// The injected author, for the assertions that name its fingerprint.
+    private func injectedAuthor() throws -> DeviceIdentity {
+        try XCTUnwrap(Document.localIdentitiesForTesting).author
     }
 
     private func tailLines(docId: String, device: String = "test-mac") throws -> [Data] {
@@ -113,7 +119,7 @@ final class SegmentSealTriggerTests: XCTestCase {
         let seal = try XCTUnwrap(OpLogChain.Seal.parse(try XCTUnwrap(lines.last)))
         XCTAssertTrue(seal.verifies(), "and it holds together under its own key")
         XCTAssertEqual(
-            seal.key, try XCTUnwrap(Document.deviceIdentityForTesting).fingerprint,
+            seal.key, try injectedAuthor().fingerprint,
             "signed by THIS device, which is the whole claim a seal makes")
         await doc.close()
     }
@@ -125,7 +131,7 @@ final class SegmentSealTriggerTests: XCTestCase {
     func test_burstWithNoKeyStillWritesTheOps_andSealsNothing() async throws {
         let identity = DeviceIdentity.unsignedForTesting(
             token: Data(repeating: 7, count: 32))
-        Document.deviceIdentityForTesting = identity
+        Document.localIdentitiesForTesting = .forTesting(author: identity)
         Document.deviceStateForTesting = OpLogDeviceState(
             fileURL: projectURL.appendingPathComponent("op-log-state.json"))
         let doc = try await makeDoc(device: identity.deviceId)
@@ -188,7 +194,7 @@ final class SegmentSealTriggerTests: XCTestCase {
         XCTAssertTrue(signature.verifies())
         XCTAssertEqual(
             signature.key,
-            try XCTUnwrap(Document.deviceIdentityForTesting).fingerprint)
+            try injectedAuthor().fingerprint)
     }
 
     /// The same order, from the OTHER caller. Project-open maintenance runs the

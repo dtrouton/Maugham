@@ -64,8 +64,13 @@ extension Document {
         _isRebuildingTasks = true
         defer { _isRebuildingTasks = false }
 
+        // The rebalance ops this derive emits are the APP's, not the writer's,
+        // and the id comes off the store that will sign them — never
+        // `LocalIdentities.current`, which a suite's injected quartet does not
+        // answer for (P1b).
         let (tasks, rebalanceOps, mintedAnchors) = TaskDeriver.derive(
-            ops: _opLogMirror, paragraphs: paragraphs, docId: docId)
+            ops: _opLogMirror, paragraphs: paragraphs, docId: docId,
+            maughamDeviceId: opStore.identities.maugham.deviceId)
         _tasksCache = tasks
         _tasksCacheValid = true
 
@@ -681,19 +686,19 @@ extension Document {
                 // The actual new-op set by id-difference, not positional
                 // suffix — exact even if the merge reordered ops around the
                 // tip. The rebalance exemption is KIND-shaped, not
-                // origin-shaped: a changes-free `.taskPriorityChange` stamped
-                // with the rebalance sentinel is safe because a text restore
-                // CANNOT clobber it (priority-only payload, no paragraph
-                // changes) — not because it's known to be local (a peer's
-                // synced-in rebalance is indistinguishable, and equally
-                // unclobberable). Anything else — including a rebalance-
+                // origin-shaped: a changes-free `.taskPriorityChange` whose
+                // SESSION is the rebalance sentinel is safe because a text
+                // restore CANNOT clobber it (priority-only payload, no
+                // paragraph changes) — not because it's known to be local
+                // (a peer's synced-in rebalance is indistinguishable, and
+                // equally unclobberable). Anything else — including a rebalance-
                 // flavored op that somehow carries changes — declines loudly.
                 let appended = doc._opLogMirror
                     .filter { !preOpIds.contains($0.opId) }
                 guard appended.allSatisfy({
                     ($0.device == doc.device && $0.session == doc.session)
                         || ($0.kind == .taskPriorityChange
-                            && $0.device == TaskDeriver.rebalanceSentinel
+                            && $0.session == TaskDeriver.rebalanceSentinel
                             && $0.changes.isEmpty)
                 }) else {
                     documentLog.error("archiveTask compound undo: \(id, privacy: .public) — foreign op advanced doc past capture, ignoring")

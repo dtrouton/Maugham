@@ -185,9 +185,12 @@ extension ProjectStore {
             doc = openDoc
             isTransient = false
         } else {
+            // Search-and-replace is an automation of the writer's hand, so it
+            // signs as the writer (constraint 6): the ops it lands are the
+            // writer's own edits, made in one sweep instead of one at a time.
             doc = try await Document.load(
                 url: docURL,
-                device: "find-replace",
+                actor: .author,
                 session: "find-replace-\(UUID().uuidString.prefix(8))",
                 presenter: documentStore?.presenter)
             isTransient = true

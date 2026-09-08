@@ -87,7 +87,7 @@ final class InboxStore {
         JSONLAppendStore<InboxEntry>(fileURL: url, chain: chainPolicy())
     }
 
-    /// Mirrors `EditorHost.deviceId`: this device's key fingerprint, read once
+    /// Mirrors `ProjectStore.projectOpDevice`: this device's key fingerprint, read once
     /// per process from `DeviceIdentity.author` (memoized, so nothing here
     /// touches the disk per call).
     nonisolated static var currentDeviceId: String { DeviceIdentity.author.deviceId }
