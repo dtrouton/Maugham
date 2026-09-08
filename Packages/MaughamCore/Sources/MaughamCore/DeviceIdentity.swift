@@ -188,19 +188,54 @@ public struct DeviceIdentity: Sendable {
     /// the log says so.
     public static func identity(for actor: DeviceActor) -> DeviceIdentity {
         identityCache.identity(for: actor) { actor in
-            do {
-                return try load(from: DeviceState.directory, actor: actor)
-            } catch {
-                deviceLog.error("""
-                    Could not persist a device identity for \
-                    \(actor.rawValue, privacy: .public) at \
-                    \(DeviceState.directory.path, privacy: .public): \
-                    \(String(describing: error), privacy: .public). \
-                    Using an in-memory token — this launch's device id is not stable.
-                    """)
-                return unsigned(actor: actor, token: randomToken())
-            }
+            identity(for: actor, in: DeviceState.directory)
         }
+    }
+
+    /// `identity(for:)` over a directory of the caller's choosing, and its
+    /// whole body — the process path is this plus the memo. Unmemoized, so a
+    /// test directory never poisons the cache the app reads.
+    static func identity(for actor: DeviceActor, in directory: URL) -> DeviceIdentity {
+        do {
+            return try load(from: directory, actor: actor)
+        } catch {
+            deviceLog.error("""
+                Could not persist a device identity for \
+                \(actor.rawValue, privacy: .public) at \
+                \(directory.path, privacy: .public): \
+                \(String(describing: error), privacy: .public). \
+                Using an in-memory token — this launch's device id is not stable.
+                """)
+            return unsigned(actor: actor, token: randomToken())
+        }
+    }
+
+    /// Does this device already hold a key for `actor` — WITHOUT minting one?
+    ///
+    /// The question every read path asks, and the reason it cannot be answered
+    /// by calling `identity(for:)`: that call mints. What counts as holding a
+    /// key is either persisted file (the enclave blob or the unsigned token),
+    /// or an identity this process has already resolved — which covers the one
+    /// case with nothing on disk, the in-memory token above.
+    public static func hasPersistedIdentity(for actor: DeviceActor) -> Bool {
+        if identityCache.holds(actor) { return true }
+        guard hasPersistedIdentity(for: actor, in: DeviceState.directory) else {
+            return false
+        }
+        identityCache.markExisting(actor)
+        return true
+    }
+
+    /// The disk half, over a given directory. A key file is never removed in
+    /// production (a blob that will not load is set aside and immediately
+    /// re-minted), so the process may remember a `true` and never re-stat —
+    /// which is what keeps this off the cost of every append.
+    static func hasPersistedIdentity(for actor: DeviceActor, in directory: URL) -> Bool {
+        let fm = FileManager.default
+        return fm.fileExists(
+            atPath: directory.appendingPathComponent(blobFilename(for: actor)).path)
+            || fm.fileExists(
+                atPath: directory.appendingPathComponent(tokenFilename(for: actor)).path)
     }
 
     /// The writer's own identity — this device's default, and the phone's only
@@ -216,6 +251,11 @@ public struct DeviceIdentity: Sendable {
         private let lock = NSLock()
         private var identities: [DeviceActor: DeviceIdentity] = [:]
 
+        /// Actors known to have a key, whether or not this process resolved
+        /// one. Positive only: existence never goes away, and a `false` is
+        /// re-checked because an actor can be named at any time.
+        private var existing: Set<DeviceActor> = []
+
         func identity(
             for actor: DeviceActor,
             mint: (DeviceActor) -> DeviceIdentity
@@ -225,7 +265,18 @@ public struct DeviceIdentity: Sendable {
             if let held = identities[actor] { return held }
             let minted = mint(actor)
             identities[actor] = minted
+            existing.insert(actor)
             return minted
+        }
+
+        func holds(_ actor: DeviceActor) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            return existing.contains(actor)
+        }
+
+        func markExisting(_ actor: DeviceActor) {
+            lock.lock(); defer { lock.unlock() }
+            existing.insert(actor)
         }
     }
 

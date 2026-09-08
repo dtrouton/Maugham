@@ -422,6 +422,60 @@ final class LocalIdentitiesTests: XCTestCase {
         XCTAssertNil(local.identity(forDeviceId: ""))
     }
 
+    // MARK: - Lazy: a key exists once a writer has named its actor (C1)
+
+    /// The rule the whole-branch review's C1 bought, in one test: a device
+    /// folder nobody has written into trusts NOTHING, and every actor's key
+    /// comes into being at the moment a writer names it — never because
+    /// something asked the value a question.
+    ///
+    /// This is the phone's whole protection. Its writers name `.author`; it
+    /// constructs `OpLogStore`s all day, each defaulting to `.current`, and
+    /// none of that may put a key in its container for an actor it will never
+    /// sign with.
+    func test_aFreshDeviceFolderTrustsNothingUntilAWriterNamesAnActor() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lazy-identities-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let local = LocalIdentities.device(in: tmp)
+
+        // Asking every enumerating question mints nothing.
+        XCTAssertTrue(local.fingerprints.isEmpty,
+            "A device that has never written trusts no key, because it holds none.")
+        XCTAssertTrue(local.all.isEmpty)
+        XCTAssertTrue(local.existingActors.isEmpty)
+        XCTAssertNil(local.identity(forDeviceId: "author-0123456789abcdef"))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: tmp.path), [],
+            "Enumerating wrote no key material.")
+
+        // Naming one actor mints exactly that one.
+        let author = local.author
+        XCTAssertEqual(local.existingActors, [.author])
+        XCTAssertEqual(local.fingerprints, [author.fingerprint])
+        XCTAssertEqual(local.identity(forDeviceId: author.deviceId)?.fingerprint,
+                       author.fingerprint)
+        for absent in [DeviceActor.assistant, .translator, .maugham] {
+            XCTAssertFalse(
+                DeviceIdentity.hasPersistedIdentity(for: absent, in: tmp),
+                "\(absent.rawValue) was never named, so it has no key.")
+        }
+
+        // And naming a second one leaves the first alone.
+        let maugham = local.maugham
+        XCTAssertEqual(local.existingActors, [.author, .maugham])
+        XCTAssertEqual(local.fingerprints, [author.fingerprint, maugham.fingerprint])
+        XCTAssertNotEqual(author.fingerprint, maugham.fingerprint)
+    }
+
+    /// A value built from four given identities is not lazy and never was: the
+    /// caller has already decided who this device is, so all four enumerate.
+    func test_aGivenQuartetEnumeratesAllFour() {
+        let local = LocalIdentities.softwareForTesting()
+        XCTAssertEqual(local.existingActors, DeviceActor.allCases)
+    }
+
     /// The four software identities are four distinct keys, so a test that
     /// signs as the translator and verifies as the author fails.
     func test_theTestingMintGivesFourDistinctKeys() {

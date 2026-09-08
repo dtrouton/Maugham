@@ -187,4 +187,46 @@ final class ActorSigningTests: XCTestCase {
             "the author's single line is below the interval and is not sealed "
             + "by another actor's cadence")
     }
+
+    // MARK: - (d) naming an actor is what mints it (the C1 rule, on a real store)
+
+    /// The rebalance case, over a device folder nobody has written into.
+    ///
+    /// A store built on `LocalIdentities.current`'s own shape trusts NOTHING at
+    /// construction — that is what keeps the phone to one key. The Maugham
+    /// rebalance is the case that shows the other half is intact: the app names
+    /// the actor to build the op's device string (`Document+Tasks` reads
+    /// `opStore.identities.maugham.deviceId`), which mints the key, and the
+    /// append that follows finds it and CHAINS the line rather than writing it
+    /// unchained as another device's.
+    ///
+    /// Chaining, not sealing, is what is asserted: a runner with no Secure
+    /// Enclave holds the unsigned token twin, which chains exactly the same and
+    /// signs nothing, and this test is about the lookup rather than the key.
+    func test_namingAnActorMintsItAndTheAppendThatFollowsIsChained() async throws {
+        let keyDir = projectURL.appendingPathComponent("device-keys")
+        try FileManager.default.createDirectory(at: keyDir, withIntermediateDirectories: true)
+        let lazyLocal = LocalIdentities.device(in: keyDir)
+        let store = OpLogStore(projectURL: projectURL, identities: lazyLocal, state: state)
+
+        XCTAssertTrue(store.identities.fingerprints.isEmpty,
+            "constructing a store mints nothing — the phone's whole protection")
+
+        // The writer's act: the app names the actor it is about to write as.
+        let maugham = store.identities.maugham
+        try await store.append(op("op-0001", by: maugham))
+
+        XCTAssertEqual(store.identities.fingerprints, [maugham.fingerprint],
+            "naming Maugham minted Maugham's key and nobody else's")
+        let written = try lines(of: fileURL(of: maugham))
+        XCTAssertEqual(written.count, 1)
+        let envelope = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: written[0]) as? [String: Any])
+        XCTAssertNotNil(envelope["prev"],
+            "the op named a local actor, so the line is chained rather than "
+            + "appended plain as another device's would be")
+        XCTAssertFalse(
+            DeviceIdentity.hasPersistedIdentity(for: .author, in: keyDir),
+            "and the three actors nothing named still have no key")
+    }
 }
