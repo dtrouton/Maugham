@@ -22,6 +22,7 @@ public enum DeviceState {
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil else {
             return base
         }
+        if sweepFlag.claim() { sweepDeadWorkerLeaves(in: base) }
         return base.appendingPathComponent(
             "xctest-worker-\(ProcessInfo.processInfo.processIdentifier)")
     }
@@ -29,5 +30,53 @@ public enum DeviceState {
     /// Create `url` and every parent it needs. Idempotent.
     public static func ensureDirectory(_ url: URL) throws {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    // MARK: - Housekeeping for the per-process leaves
+
+    /// Once per process, on the first `directory` access under XCTest. The
+    /// base is the same on every call by construction.
+    private static let sweepFlag = SweepFlag()
+
+    private final class SweepFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var swept = false
+        func claim() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            if swept { return false }
+            swept = true
+            return true
+        }
+    }
+
+    /// Remove the `xctest-worker-<pid>` leaves whose process is gone.
+    ///
+    /// Seven workers a gate, dozens of gates a day, each leaving a key blob and
+    /// a state file under Application Support forever (the whole-branch review's
+    /// M2). The isolation is right and stays — what was missing is anyone
+    /// clearing up after it.
+    ///
+    /// Only ever a `xctest-worker-<pid>` LEAF, never the bare production path
+    /// beside them, and never a leaf whose pid is still alive: another worker of
+    /// this same gate is running out of one.
+    ///
+    /// `isAlive` is injected so the decision is testable without spawning a
+    /// process. Production asks the kernel: `kill(pid, 0)` fails with `ESRCH`
+    /// exactly when no such process exists (`EPERM` means it exists and is
+    /// somebody else's, which is still alive).
+    static func sweepDeadWorkerLeaves(
+        in base: URL,
+        isAlive: (Int32) -> Bool = { pid in kill(pid, 0) == 0 || errno != ESRCH }
+    ) {
+        let prefix = "xctest-worker-"
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: base.path) else { return }
+        for name in names {
+            guard name.hasPrefix(prefix),
+                  let pid = Int32(name.dropFirst(prefix.count)),
+                  !isAlive(pid)
+            else { continue }
+            try? fm.removeItem(at: base.appendingPathComponent(name))
+        }
     }
 }

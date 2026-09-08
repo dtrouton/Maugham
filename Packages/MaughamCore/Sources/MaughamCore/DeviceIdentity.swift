@@ -121,11 +121,17 @@ public struct DeviceIdentity: Sendable {
 
     /// Read this device's identity out of `directory`, minting it on first run.
     ///
-    /// The order is: an existing blob (reload it); no blob and an enclave (mint
-    /// one, persist it); anything else (the token). A blob that will not load
-    /// on THIS enclave — a restored Mac, a cloned disk — is renamed aside
-    /// rather than deleted: a new key would be a new device anyway (spec §4.8),
-    /// and the old file is history worth keeping.
+    /// The order is: an existing blob (reload it); an enclave (mint one,
+    /// persist it); anything else (the token). A blob that will not load on
+    /// THIS enclave — a restored Mac, a cloned disk — is renamed aside rather
+    /// than deleted: a new key would be a new device anyway (spec §4.8), and
+    /// the old file is history worth keeping.
+    ///
+    /// **A set-aside blob is followed by a fresh MINT, not by the token** (the
+    /// whole-branch review's M1). Both paths give this Mac a new device id, so
+    /// re-minting costs nothing extra — and falling to the token instead would
+    /// cost the machine its ability to sign anything, permanently, for the rest
+    /// of its life, over one restore.
     public static func load(from directory: URL) throws -> DeviceIdentity {
         try DeviceState.ensureDirectory(directory)
         let fm = FileManager.default
@@ -134,8 +140,10 @@ public struct DeviceIdentity: Sendable {
         if fm.fileExists(atPath: blobURL.path) {
             if let identity = enclaveIdentity(fromBlobAt: blobURL) { return identity }
             setAside(blobURL)
-        } else if SecureEnclave.isAvailable {
-            if let identity = mintEnclaveIdentity(writingTo: blobURL) { return identity }
+        }
+        if SecureEnclave.isAvailable,
+           let identity = mintEnclaveIdentity(writingTo: blobURL) {
+            return identity
         }
 
         return try tokenIdentity(in: directory)

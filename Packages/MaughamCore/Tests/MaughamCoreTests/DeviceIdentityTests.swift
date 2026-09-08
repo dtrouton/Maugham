@@ -147,21 +147,37 @@ final class DeviceIdentityTests: XCTestCase {
     }
 
     /// A blob that will not load on THIS enclave (a restored Mac) is renamed
-    /// aside — never deleted — and the token path is taken.
-    func test_anUnloadableBlobIsSetAsideAndTheTokenPathIsTaken() throws {
+    /// aside — never deleted — and then a NEW key is minted where there is an
+    /// enclave to mint one in (the review's M1: both paths give this Mac a new
+    /// device id, so falling to the token would cost it signing for good, for
+    /// nothing). Where there is no enclave, the token path is still the answer.
+    func test_anUnloadableBlobIsSetAsideAndSigningSurvivesWhereItCan() throws {
         let dir = try makeDirectory()
         let blob = dir.appendingPathComponent("device-key.blob")
         try Data("not a key".utf8).write(to: blob)
 
         let identity = try DeviceIdentity.load(from: dir)
 
-        XCTAssertFalse(identity.canSign, "An unloadable blob falls to the unsigned token.")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: blob.path),
-            "The unloadable blob must be renamed aside, not left in place.")
+        XCTAssertNotEqual(
+            try? Data(contentsOf: blob), Data("not a key".utf8),
+            "The unloadable blob must be moved out of the way, not read again.")
         let names = try entries(of: dir)
-        XCTAssertTrue(names.contains("device-token"), "Found: \(names)")
         XCTAssertTrue(names.contains(where: { $0.hasPrefix("device-key.blob.unloadable-") }),
             "The old blob is history, not rubbish. Found: \(names)")
+
+        // Decided by MEASUREMENT, never by platform guess (constraint 2).
+        if SecureEnclave.isAvailable {
+            XCTAssertTrue(identity.canSign,
+                "A restored Mac keeps signing: a new key is minted, not skipped.")
+            XCTAssertTrue(names.contains("device-key.blob"),
+                "and the fresh key is persisted under the ordinary name. "
+                + "Found: \(names)")
+        } else {
+            XCTAssertFalse(identity.canSign)
+            XCTAssertFalse(names.contains("device-key.blob"),
+                "no enclave, no key file. Found: \(names)")
+            XCTAssertTrue(names.contains("device-token"), "Found: \(names)")
+        }
     }
 
     // MARK: - (f) The slug
@@ -234,5 +250,68 @@ final class DeviceIdentityTests: XCTestCase {
     func test_currentAnswersAStableIdentity() throws {
         XCTAssertEqual(DeviceIdentity.current.deviceId, DeviceIdentity.current.deviceId)
         XCTAssertEqual(DeviceIdentity.current.fingerprint.count, 64)
+    }
+}
+
+/// The per-process test leaf is swept (the whole-branch review's M2).
+///
+/// `DeviceState.directory` mints an `xctest-worker-<pid>` leaf under XCTest, and
+/// nothing ever removed one: seven workers a gate, dozens of gates a day, a key
+/// blob and a state file each, under Application Support forever. The isolation
+/// is right and stays; the housekeeping was missing.
+final class DeviceStateSweepTests: XCTestCase {
+
+    private var base: URL!
+
+    override func setUpWithError() throws {
+        base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("device-sweep-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: base)
+    }
+
+    private func makeLeaf(_ name: String) throws -> URL {
+        let url = base.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try Data("blob".utf8).write(to: url.appendingPathComponent("device-key.blob"))
+        return url
+    }
+
+    private func exists(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+
+    func test_aDeadWorkersLeafIsRemovedAndALiveOnesIsKept() throws {
+        let dead = try makeLeaf("xctest-worker-424242")
+        let alive = try makeLeaf(
+            "xctest-worker-\(ProcessInfo.processInfo.processIdentifier)")
+
+        DeviceState.sweepDeadWorkerLeaves(in: base)
+
+        XCTAssertFalse(exists(dead), "a leaf whose process is gone is rubbish")
+        XCTAssertTrue(exists(alive),
+            "and this process's own leaf is in use — as is any other worker's "
+            + "in the same gate")
+    }
+
+    /// Never the bare production path, and never anything else that happens to
+    /// live beside the leaves.
+    func test_theSweepTouchesNothingButAWorkerLeaf() throws {
+        let blob = base.appendingPathComponent("device-key.blob")
+        try Data("the real one".utf8).write(to: blob)
+        let state = base.appendingPathComponent("op-log-state.json")
+        try Data("{}".utf8).write(to: state)
+        let stranger = try makeLeaf("some-other-directory")
+        let malformed = try makeLeaf("xctest-worker-not-a-number")
+
+        DeviceState.sweepDeadWorkerLeaves(in: base, isAlive: { _ in false })
+
+        XCTAssertTrue(exists(blob))
+        XCTAssertTrue(exists(state))
+        XCTAssertTrue(exists(stranger))
+        XCTAssertTrue(exists(malformed), "a leaf with no readable pid is left alone")
     }
 }
