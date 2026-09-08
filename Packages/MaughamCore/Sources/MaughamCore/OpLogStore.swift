@@ -603,7 +603,8 @@ public final class OpLogStore {
 
         guard let signer else {
             opLogLoadLog.notice("""
-                A sentinel-device op was written unchained to \
+                An op naming a device that is not this device's was written \
+                unchained to \
                 \(Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: self.projectURL)
                     .lastPathComponent, privacy: .public): \
                 its device (\(op.device, privacy: .public)) is not this one, so \
@@ -645,23 +646,61 @@ public final class OpLogStore {
     /// project stream (a recorded Denver decision), so the project's task log is
     /// signed history like every other tail while its tail keeps growing —
     /// which is what `ProjectStore._projectOpLogStore` exists to make possible.
-    /// **One seal per local actor that has written here** (P1b). A device is
+    /// **One seal per local actor THIS STORE has written to since that file's
+    /// last seal** (P1b, narrowed by the whole-branch review's I1). A device is
     /// four writers with four files, and a seal signs a run of lines in ONE of
     /// them; sealing only the author's would leave everything the assistant,
     /// the translator and Maugham itself wrote chained but never signed.
     ///
-    /// An actor with no file here, or a file with nothing unsealed, costs
-    /// nothing: `appendSeal` returns before it asks for a signature, so the
-    /// three actors that were not involved spend no enclave operation.
+    /// The decision is the in-memory `linesSinceSeal` counter and nothing else,
+    /// because "has this file anything unsealed?" is not a cheap question to
+    /// ask the file. `appendSeal` opens an `NSFileCoordinator` writing
+    /// coordination, reads the whole file and runs a full `OpLogChain.verify`
+    /// over it BEFORE it can discover there is nothing to sign — so a fan-out
+    /// over four actors at every burst boundary is three extra coordinated
+    /// acquisitions, three extra whole-file reads and three extra verifies on
+    /// the writer's own keystroke path, on a document Claude has annotated. The
+    /// counter already knows the answer for free.
+    ///
+    /// What the counter cannot know is another actor's file this store never
+    /// touched — a crash-window leftover, or a tail an MCP call in a different
+    /// store grew. Those are sealed by their own writer's cadence, by that
+    /// writer's own close, and by the open-time sweep, which is why this can be
+    /// the narrow verb. The sweep's own store has no counters at all and asks
+    /// for `sealChain(docId:actor:)` instead.
     @discardableResult
     public func sealChain(docId: String) async throws -> Bool {
         var sealed = false
         for actor in identities.all {
             let url = Self.opLogFileURL(
                 forDocId: docId, deviceSlug: actor.slug, in: projectURL)
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            guard (linesSinceSeal[url] ?? 0) > 0 else { continue }
             if try await sealChain(docId: docId, by: actor) { sealed = true }
+            linesSinceSeal[url] = 0
         }
+        return sealed
+    }
+
+    /// Seal one named actor's tail for `docId`, whatever this store may or may
+    /// not have written to it.
+    ///
+    /// The counter-free door, for a store that has no counters to consult: the
+    /// project-open sweep builds a fresh `OpLogStore` for maintenance and asks
+    /// for the AUTHOR's tail alone (P1's shape), because a crash-window
+    /// leftover of the writer's is the case it exists for and the other three
+    /// actors' leftovers are sealed on their own next write. Naming the actor
+    /// mints its key if this device has never used it, so the caller should
+    /// name one it means.
+    ///
+    /// Answers false — never throws — when the actor has no file here.
+    @discardableResult
+    public func sealChain(docId: String, actor: DeviceActor) async throws -> Bool {
+        let identity = identities[actor]
+        let url = Self.opLogFileURL(
+            forDocId: docId, deviceSlug: identity.slug, in: projectURL)
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        let sealed = try await sealChain(docId: docId, by: identity)
+        if sealed { linesSinceSeal[url] = 0 }
         return sealed
     }
 
@@ -715,11 +754,23 @@ public final class OpLogStore {
     /// `.mzseg` segment, iff the tail exceeds `threshold` bytes. Returns the
     /// segment URL, or nil when nothing was sealed (missing/small/torn tail).
     ///
-    /// Scope rules (enforced by tests T13/T14): only ever the caller's OWN
-    /// per-device tail — sealing is a rewrite of a single-writer file, the
-    /// exact case ADR 0012 makes conflict-twin-free. NEVER the legacy
-    /// unsuffixed `<docId>.jsonl` (no unambiguous owner; frozen since ADR
-    /// 0012), never another device's file, never `__project__`.
+    /// Scope rules (enforced by tests T13/T14): only ever a tail belonging to
+    /// one of THIS device's own actors — sealing is a rewrite of a
+    /// single-writer file, the exact case ADR 0012 makes conflict-twin-free.
+    /// NEVER the legacy unsuffixed `<docId>.jsonl` (no unambiguous owner;
+    /// frozen since ADR 0012), never another device's file, never
+    /// `__project__`.
+    ///
+    /// **Its two callers, and why each is inside that rule** (the whole-branch
+    /// review's I3). `Document.close()` rotates the tail of the actor that
+    /// Document was LOADED as, and no other: an MCP call is a Document loaded
+    /// as the assistant, and a close that swept all four would delete the file
+    /// the writer's own open Document is appending to. The project-open sweep
+    /// in `DocumentStore.open` is the one place every local actor rotates, and
+    /// it is safe there for two reasons that do not hold at close — all four
+    /// slugs name this device's own actors, and the sweep is awaited before the
+    /// first `Document.load`, so no live appender exists to race the
+    /// read→delete gap the note below reasons about.
     ///
     /// Crash safety is by construction, not by care: dying between the
     /// segment write and the tail delete leaves the same ops in both files —

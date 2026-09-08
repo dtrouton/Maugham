@@ -1189,7 +1189,12 @@ public final class Document {
             // nothing new, and a genuine failure is LOGGED and dropped —
             // sealing is maintenance, and it must never cost the writer the
             // burst that has already landed. Enclave signing is ~4.5 ms once
-            // per burst, which is the accepted price.
+            // per burst, which is the accepted price — and it stays ONE
+            // signature because `sealChain` decides from its own
+            // `linesSinceSeal` counters (the whole-branch review's I1). A
+            // burst wrote into the writer's file, so the writer's file is what
+            // is read, verified and signed; the assistant's and the
+            // translator's are not opened at all.
             do {
                 _ = try await opStore.sealChain(docId: docId)
             } catch {
@@ -1346,24 +1351,28 @@ public final class Document {
         // never another device's file, never the legacy unsuffixed file
         // (sealTailIfNeeded's scope rules).
         //
-        // EVERY local actor, not the one that loaded this doc (P1b). A device
-        // is four writers with four per-doc files, and naming one slug here
-        // left the assistant's, the translator's and Maugham's own tails to
-        // grow without bound — the growth ADR 0016 exists to bound, bounded for
-        // the writer's file alone. Each rotation carries the key of the actor
-        // whose slug names it (`sealTailIfNeeded`'s sidecar rule), so nothing
-        // signs for anybody else. AFTER `sealChain` above, for its reason: a
-        // segment must end on a seal line.
-        for identity in opStore.identities.all {
+        // THIS Document's own actor and no other (P1b, narrowed by the
+        // whole-branch review's I3). Rotation DELETES the tail it turns into a
+        // segment, and every MCP annotation or task call is a Document loaded
+        // as the assistant — so a close that swept all four would delete the
+        // file the writer's own open Document is appending to, from a call the
+        // writer never made. The other three actors' oversized tails are the
+        // project-open sweep's job (`DocumentStore.open`), which runs before
+        // any Document exists and therefore races none of them. The rotation
+        // carries the key of the actor whose slug names it
+        // (`sealTailIfNeeded`'s sidecar rule), so nothing signs for anybody
+        // else. AFTER `sealChain` above, for its reason: a segment must end on
+        // a seal line.
+        if let mine = opStore.identities.identity(forDeviceId: device) {
             do {
                 _ = try await opStore.sealTailIfNeeded(
                     docId: docId,
-                    deviceSlug: identity.slug,
+                    deviceSlug: mine.slug,
                     threshold: Self.segmentSealThresholdForTesting
                         ?? OpLogStore.segmentSealThreshold)
             } catch {
                 documentLog.error(
-                    "op-log seal failed for \(self.docId, privacy: .public) / \(identity.deviceId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    "op-log seal failed for \(self.docId, privacy: .public) / \(mine.deviceId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
 

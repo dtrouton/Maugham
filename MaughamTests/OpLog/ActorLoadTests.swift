@@ -137,9 +137,23 @@ final class ActorLoadTests: XCTestCase {
                     in: projectURL).path),
             "no sentinel file: 'mcp' names no key and must not be a device any more")
 
-        // The open-time sweep is production's seal trigger, and it seals every
-        // local actor's file — including the one only Claude has written to.
-        let documentStore = try await DocumentStore.open(url: projectURL)
+        // And the seal is the ASSISTANT's own Document closing — the branch's
+        // seal fan-out was narrowed by the whole-branch review's I1, so the
+        // project-open sweep now seals the author's tail alone and every other
+        // actor's is sealed by its own writer. The tool fires that close in a
+        // detached Task (`AnnotationToolHelpers.withAnnotationDocument`), which
+        // is deliberately unordered against its caller, so this drives the same
+        // production sequence awaited: a Document loaded as the assistant,
+        // writing as the assistant, closed.
+        let assisting = try await Document.load(
+            url: docURL, actor: .assistant, session: "mcp-seal", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        try await assisting.appendMirrored(Op(
+            opId: ULID.generate(), docId: Self.docId, at: Date(),
+            device: identities.assistant.deviceId, session: "mcp-seal",
+            kind: .checkpoint, changes: []))
+        await assisting.close()
+
         let seal = try XCTUnwrap(
             OpLogChain.Seal.parse(try XCTUnwrap(lines(of: identities.assistant).last)),
             "the assistant's tail ends on a seal")
@@ -158,7 +172,6 @@ final class ActorLoadTests: XCTestCase {
         XCTAssertNil(HistoryPane.unsignedHistoryNotice(provenance: provenance),
                      "and the writer is told nothing, because nothing is wrong")
         await reopened.close()
-        await documentStore.close()
     }
 
     // MARK: - Maugham signs its own maintenance

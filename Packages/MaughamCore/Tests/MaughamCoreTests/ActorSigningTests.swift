@@ -31,6 +31,7 @@ final class ActorSigningTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        OpLogChain.verifyObserverForTesting = nil
         try? FileManager.default.removeItem(at: projectURL)
     }
 
@@ -186,6 +187,104 @@ final class ActorSigningTests: XCTestCase {
         XCTAssertTrue(try seals(of: identities.author).isEmpty,
             "the author's single line is below the interval and is not sealed "
             + "by another actor's cadence")
+    }
+
+    // MARK: - (c2) the seal reads only what this store wrote (I1)
+
+    /// The burst boundary calls `sealChain(docId:)` on the writer's keystroke
+    /// path, and `appendSeal` cannot discover that a file has nothing unsealed
+    /// without opening a writing coordination, reading the whole file and
+    /// verifying its chain. So on a document Claude has annotated and the
+    /// rebalance has touched, a fan-out over four actors was three extra
+    /// coordinated acquisitions, three extra whole-file reads and three extra
+    /// verifies per burst — while the store's own `linesSinceSeal` counters
+    /// already knew the answer for nothing.
+    ///
+    /// One burst by the author, therefore exactly one verify.
+    func test_aSealAfterOneActorsBurstReadsOneFile() async throws {
+        let store = makeStore()
+        // Four files, all of them sealed, so the only difference between them
+        // afterwards is which one this store writes into next.
+        for actor in identities.all {
+            try await store.append(op("op-a-\(actor.actor.rawValue)", by: actor))
+        }
+        _ = try await store.sealChain(docId: docId)
+        for actor in identities.all {
+            XCTAssertEqual(try seals(of: actor).count, 1, "precondition: all four sealed")
+        }
+
+        try await store.append(op("op-burst", by: identities.author))
+
+        nonisolated(unsafe) var verifies = 0
+        OpLogChain.verifyObserverForTesting = { verifies += 1 }
+        let sealed = try await store.sealChain(docId: docId)
+        OpLogChain.verifyObserverForTesting = nil
+
+        XCTAssertTrue(sealed, "the author's run is sealed")
+        XCTAssertEqual(verifies, 1,
+            "a burst reads and verifies the file the burst wrote into, and no "
+            + "other — the three actors this store has not written to since "
+            + "their last seal are not opened at all")
+        XCTAssertEqual(try seals(of: identities.author).count, 2)
+        for actor in [identities.assistant, identities.translator, identities.maugham] {
+            XCTAssertEqual(try seals(of: actor).count, 1,
+                           "\(actor.deviceId) was not sealed again")
+        }
+    }
+
+    /// And a seal with nothing written since the last one reads nothing at all.
+    func test_aSealWithNothingWrittenSinceTheLastOneOpensNoFile() async throws {
+        let store = makeStore()
+        try await store.append(op("op-0001", by: identities.author))
+        _ = try await store.sealChain(docId: docId)
+
+        nonisolated(unsafe) var verifies = 0
+        OpLogChain.verifyObserverForTesting = { verifies += 1 }
+        let again = try await store.sealChain(docId: docId)
+        OpLogChain.verifyObserverForTesting = nil
+
+        XCTAssertFalse(again)
+        XCTAssertEqual(verifies, 0,
+            "the counter says there is nothing to seal, so nothing is read to "
+            + "find that out")
+    }
+
+    /// The counter-free door the project-open sweep uses. A fresh store has no
+    /// counters, so it names the actor it means — the author, whose
+    /// crash-window leftover the sweep exists for — and touches no other file.
+    func test_theNamedActorSealIsForAStoreWithNoCounters() async throws {
+        let writer = makeStore()
+        try await writer.append(op("op-0001", by: identities.author))
+        try await writer.append(op("op-0002", by: identities.assistant))
+
+        // A second store over the same project: this is the sweep's position,
+        // with everything unsealed and nothing remembered.
+        let sweep = makeStore()
+        let counterDriven = try await sweep.sealChain(docId: docId)
+        XCTAssertFalse(counterDriven,
+            "a counter-driven seal from a store that wrote nothing seals nothing")
+
+        nonisolated(unsafe) var verifies = 0
+        OpLogChain.verifyObserverForTesting = { verifies += 1 }
+        let sealed = try await sweep.sealChain(docId: docId, actor: .author)
+        OpLogChain.verifyObserverForTesting = nil
+
+        XCTAssertTrue(sealed)
+        XCTAssertEqual(verifies, 1, "the author's file, and only the author's")
+        XCTAssertEqual(try seals(of: identities.author).map(\.key),
+                       [identities.author.fingerprint])
+        XCTAssertTrue(try seals(of: identities.assistant).isEmpty,
+            "the assistant's run is left to its own writer's cadence and close")
+    }
+
+    /// An actor with no file here is not an error and is not a mint of work:
+    /// the sweep asks about every doc it finds, and most docs the assistant
+    /// never touched.
+    func test_theNamedActorSealAnswersFalseWhenThatActorHasNoFile() async throws {
+        let store = makeStore()
+        try await store.append(op("op-0001", by: identities.author))
+        let sealed = try await store.sealChain(docId: docId, actor: .translator)
+        XCTAssertFalse(sealed)
     }
 
     // MARK: - (d) naming an actor is what mints it (the C1 rule, on a real store)

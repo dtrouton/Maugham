@@ -172,11 +172,17 @@ public final class DocumentStore {
         // Project-open seal maintenance (ADR 0016 / growth spec §5.2): rotate
         // any of THIS Mac's oversized per-doc tails (e.g. grown while another
         // app instance crashed before close, or a crash-window leftover).
-        // Idempotent; only our own device slug; awaited inline so it cannot
-        // race the first Document.load (spec §9.2 default: seal on open AND
-        // close — revisit if open-time cost shows up in the fixture). Uses the
-        // just-wired presenter so the seal's coordinated read/delete don't
-        // bounce back as our own external-change callbacks.
+        // Idempotent; only slugs naming one of this device's own four actors;
+        // awaited inline so it cannot race the first Document.load (spec §9.2
+        // default: seal on open AND close — revisit if open-time cost shows up
+        // in the fixture). Uses the just-wired presenter so the seal's
+        // coordinated read/delete don't bounce back as our own external-change
+        // callbacks.
+        //
+        // This is the ONE place every local actor rotates, and it is the one
+        // place that is safe (the whole-branch review's I3): it runs before the
+        // first `Document.load`, so no live appender exists to have its tail
+        // deleted underneath it.
         let opsDirNames = ((try? FileManager.default.contentsOfDirectory(
             at: url.appendingPathComponent(".maugham/ops"),
             includingPropertiesForKeys: nil)) ?? []).map(\.lastPathComponent)
@@ -190,8 +196,17 @@ public final class DocumentStore {
             // a seal line so its whole span is verified inside the container.
             // Best-effort, per doc, so one doc's failure never stops the
             // sweep.
+            //
+            // The AUTHOR's tail alone (the whole-branch review's I1). This
+            // store is fresh, so it has no `linesSinceSeal` counters to decide
+            // from, and `appendSeal` cannot discover that a file has nothing
+            // unsealed without a coordinated read and a full chain verify of
+            // it — four per document, on a sixty-chapter novel, before the
+            // writer sees a window. The crash-window leftover this exists for
+            // is the writer's own; another actor's is sealed on that actor's
+            // next write, by its own cadence and its own close.
             do {
-                _ = try await sealStore.sealChain(docId: docId)
+                _ = try await sealStore.sealChain(docId: docId, actor: .author)
             } catch {
                 documentStoreLog.error(
                     "open-time chain seal failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -199,7 +214,9 @@ public final class DocumentStore {
             // Every local actor's tail, not the author's alone (P1b): the
             // assistant, the translator and Maugham each write a per-doc file
             // of their own here, and a sweep naming one slug leaves the other
-            // three to grow unbounded.
+            // three to grow unbounded. Rotation is decided on a `fileExists`
+            // and an `attributesOfItem` — nothing here reads a file that is
+            // under the threshold.
             for identity in sealStore.identities.all {
                 do {
                     _ = try await sealStore.sealTailIfNeeded(

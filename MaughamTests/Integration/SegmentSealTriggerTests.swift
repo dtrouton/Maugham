@@ -231,7 +231,15 @@ final class SegmentSealTriggerTests: XCTestCase {
     /// The sidecar is the second half of the claim: the segment carries the
     /// key of the actor whose slug names it, so an assistant's segment is
     /// signed by the assistant and never by the writer's hand.
-    func test_close_rotatesEveryLocalActorsOversizedTail() async throws {
+    ///
+    /// **Narrowed by the whole-branch review's I3: a Document rotates the tail
+    /// of the actor it was LOADED as, and no other.** Rotation deletes the tail
+    /// it turns into a segment, and every MCP annotation and task call is a
+    /// Document loaded as the assistant — so a close that swept all four would
+    /// delete the file the writer's own open Document is appending to. The
+    /// other three actors are the project-open sweep's job, which runs before
+    /// any Document exists (`test_openMaintenanceRotatesEveryLocalActorsOversizedTail`).
+    func test_close_rotatesOnlyTheActorThisDocumentWasLoadedAs() async throws {
         let device = useASigningIdentity()
         let identities = try XCTUnwrap(Document.localIdentitiesForTesting)
         let doc = try await makeDoc(device: device)
@@ -246,24 +254,69 @@ final class SegmentSealTriggerTests: XCTestCase {
             device: identities.assistant.deviceId, session: "s1",
             kind: .checkpoint, changes: []))
 
-        Document.segmentSealThresholdForTesting = 1   // force both rotations
+        Document.segmentSealThresholdForTesting = 1   // both tails are oversized
         await doc.close()
 
-        for identity in [identities.author, identities.assistant] {
-            let segments = segmentURLs(docId: doc.docId)
-                .filter { $0.lastPathComponent.contains(identity.slug.raw) }
-            XCTAssertEqual(
-                segments.count, 1,
-                "\(identity.deviceId)'s oversized tail must rotate at close")
-            let signature = try XCTUnwrap(
-                SegmentSignature.read(
-                    at: OpLogStore.segmentSignatureURL(for: segments[0])),
-                "\(identity.deviceId)'s segment is signed beside itself")
-            XCTAssertTrue(signature.verifies())
-            XCTAssertEqual(
-                signature.key, identity.fingerprint,
-                "signed by the actor whose slug the segment is named for")
-        }
+        let mine = segmentURLs(docId: doc.docId)
+            .filter { $0.lastPathComponent.contains(identities.author.slug.raw) }
+        XCTAssertEqual(mine.count, 1,
+                       "this Document was loaded as the author, so the author's "
+                       + "oversized tail rotates at close")
+        let signature = try XCTUnwrap(
+            SegmentSignature.read(at: OpLogStore.segmentSignatureURL(for: mine[0])),
+            "the segment is signed beside itself")
+        XCTAssertTrue(signature.verifies())
+        XCTAssertEqual(signature.key, identities.author.fingerprint,
+                       "signed by the actor whose slug the segment is named for")
+
+        XCTAssertTrue(
+            segmentURLs(docId: doc.docId)
+                .filter { $0.lastPathComponent.contains(identities.assistant.slug.raw) }
+                .isEmpty,
+            "the assistant's tail is oversized too, and is NOT this Document's "
+            + "to rotate — the sweep at project open is what rotates it")
+    }
+
+    /// The direction the rule exists for. An MCP call is a Document loaded as
+    /// the ASSISTANT, and its close must not delete the writer's own live tail
+    /// out from under the editor.
+    func test_anAssistantLoadedDocumentsCloseNeverRotatesTheAuthorsTail() async throws {
+        useASigningIdentity()
+        let identities = try XCTUnwrap(Document.localIdentitiesForTesting)
+
+        // The writer's tail, grown and left in place.
+        let writing = try await makeDoc(device: identities.author.deviceId)
+        writing.setParagraph(id: writing.sequence[0], text: "Alpha, by the writer.")
+        try await writing.flushBurstNow()
+        let docId = writing.docId
+        await writing.close()
+        let authorTail = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: identities.author.slug, in: projectURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: authorTail.path),
+                      "precondition: the author has a tail on disk")
+
+        // Claude's call: same document, loaded as the assistant.
+        let assisting = try await makeDoc(device: identities.assistant.deviceId)
+        try await assisting.appendMirrored(Op(
+            opId: ULID.generate(), docId: docId, at: Date(),
+            device: identities.assistant.deviceId, session: "s2",
+            kind: .checkpoint, changes: []))
+        Document.segmentSealThresholdForTesting = 1
+        await assisting.close()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: authorTail.path),
+            "an MCP call must not rotate — and so DELETE — the writer's own tail")
+        XCTAssertTrue(
+            segmentURLs(docId: docId)
+                .filter { $0.lastPathComponent.contains(identities.author.slug.raw) }
+                .isEmpty,
+            "nor turn it into a segment")
+        XCTAssertEqual(
+            segmentURLs(docId: docId)
+                .filter { $0.lastPathComponent.contains(identities.assistant.slug.raw) }
+                .count,
+            1,
+            "its own tail is its own to rotate")
     }
 
     /// The same rule from the other caller. Project-open maintenance sweeps
@@ -295,6 +348,53 @@ final class SegmentSealTriggerTests: XCTestCase {
                 1,
                 "open-time maintenance must rotate \(identity.deviceId)'s tail too")
         }
+    }
+
+    /// What the sweep COSTS, now that it is the one place all four actors
+    /// rotate (the whole-branch review's I1).
+    ///
+    /// Every seal attempt opens a writing coordination, reads the whole file
+    /// and runs a full chain verify before it can discover there is nothing to
+    /// sign — so a sweep that sealed all four per document was 4N coordinated
+    /// reads before the writer saw a window, and on a sixty-chapter novel that
+    /// is 240 of them. It seals the author's alone; rotation decides on a
+    /// `fileExists` and an `attributesOfItem` and reads nothing under the
+    /// threshold.
+    func test_openMaintenanceReadsOnlyTheAuthorsFile() async throws {
+        useASigningIdentity()
+        let identities = try XCTUnwrap(Document.localIdentitiesForTesting)
+        let doc = try await makeDoc(device: identities.author.deviceId)
+        let docId = doc.docId
+        doc.setParagraph(id: doc.sequence[0], text: "Alpha, by the writer.")
+        try await doc.flushBurstNow()
+        for actor in [identities.assistant, identities.translator, identities.maugham] {
+            try await doc.appendMirrored(Op(
+                opId: ULID.generate(), docId: docId, at: Date(),
+                device: actor.deviceId, session: "s1",
+                kind: .checkpoint, changes: []))
+        }
+        await doc.close()
+
+        let files = OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL)
+        for actor in identities.all {
+            XCTAssertTrue(
+                files.contains { $0.lastPathComponent.contains(actor.slug.raw) },
+                "precondition: \(actor.deviceId) has a file here")
+        }
+
+        // No test threshold, so nothing is over it and no rotation may read.
+        nonisolated(unsafe) var verifies = 0
+        OpLogChain.verifyObserverForTesting = { verifies += 1 }
+        let store = try await DocumentStore.open(url: projectURL)
+        OpLogChain.verifyObserverForTesting = nil
+        await store.close()
+
+        XCTAssertEqual(verifies, 1,
+            "one document, one coordinated read: the author's tail, whose "
+            + "crash-window leftover the sweep exists for. The assistant's, the "
+            + "translator's and Maugham's are sealed by their own next write.")
+        XCTAssertTrue(segmentURLs(docId: docId).isEmpty,
+                      "nothing was over the threshold, so nothing rotated")
     }
 
     func test_close_underThreshold_doesNotSeal() async throws {
