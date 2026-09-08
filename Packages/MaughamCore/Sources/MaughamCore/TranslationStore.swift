@@ -82,15 +82,22 @@ public enum TranslationStore {
     /// write one record at a time keep it.
     @MainActor
     public static func append(_ record: TranslationRecord, forDocId docId: String,
-                              deviceSlug: DeviceSlug, in projectURL: URL) async throws {
-        try appendBatch([record], forDocId: docId, language: record.language,
-                        deviceSlug: deviceSlug, in: projectURL)
+                              identity: DeviceIdentity, identities: LocalIdentities,
+                              state: OpLogDeviceState = .shared,
+                              in projectURL: URL) async throws {
+        try await appendBatch([record], forDocId: docId, language: record.language,
+                              identity: identity, identities: identities,
+                              state: state, in: projectURL)
     }
 
     /// Appends every record in `records` to one device's file in a SINGLE
     /// coordinated write — the whole batch is serialized to one `Data` first,
     /// so a failure (bad directory, coordination error) writes nothing rather
-    /// than a partial file. `language` is explicit rather than read off the
+    /// than a partial file. The SEAL that follows is a second write and
+    /// deliberately so: a batch that lands and is not sealed is a run of
+    /// unsealed lines, which is a state the walk already reads, whereas a seal
+    /// inside the same write would have to be signed before the lines it
+    /// commits to exist. `language` is explicit rather than read off the
     /// records so an empty batch and the file it would target are unambiguous;
     /// callers building a batch for one write_translation call already know it
     /// (task 2 makes that call atomic on top of this).
@@ -108,10 +115,24 @@ public enum TranslationStore {
     /// merge — so the write proceeds. This device's own file is checked
     /// directly as well, so a directory listing that fails (permissions, an
     /// evicted iCloud folder) can never turn a real purge into a silent drop.
+    /// **Who wrote it is the key it is signed with** (P1b): `identity` is the
+    /// actor whose file this is and whose key signs the seal — the
+    /// `translator` for the pipeline and `write_translation`, the `author` for
+    /// the Translation Review pane's own edits — and it is where the filename's
+    /// slug comes from, so a hand-built device string cannot reach this
+    /// directory. `identities` is the whole device (all four actors) and is
+    /// what the chain TRUSTS on read: a translator-signed file read on the
+    /// author's next load must classify as this device's own word, not as
+    /// another device's unsigned history.
+    @MainActor
     public static func appendBatch(_ records: [TranslationRecord], forDocId docId: String,
-                                   language: String, deviceSlug: DeviceSlug, in projectURL: URL) throws {
+                                   language: String, identity: DeviceIdentity,
+                                   identities: LocalIdentities,
+                                   state: OpLogDeviceState = .shared,
+                                   in projectURL: URL) async throws {
         guard !records.isEmpty else { return }
-        let url = fileURL(forDocId: docId, language: language, deviceSlug: deviceSlug, in: projectURL)
+        let url = fileURL(forDocId: docId, language: language,
+                          deviceSlug: identity.slug, in: projectURL)
         if records.allSatisfy({ $0.text == nil }),
            !FileManager.default.fileExists(atPath: url.path),
            !languages(forDocId: docId, in: projectURL).contains(language) {
@@ -119,38 +140,68 @@ public enum TranslationStore {
         }
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = JSONLAppendStore<TranslationRecord>.dateEncoding
-        enc.outputFormatting = [.sortedKeys]
-        var data = Data()
-        for r in records {
-            data.append(try enc.encode(r))
-            data.append(0x0A)
+        // One chained line per record inside ONE coordinated write, then one
+        // seal over the batch — the op log's own shape, from the op log's own
+        // store, so a translation line and a manuscript line are readable by
+        // exactly the same walk.
+        let store = JSONLAppendStore<TranslationRecord>(
+            fileURL: url,
+            chain: ChainPolicy(
+                identity: identity, state: state,
+                docId: docId, projectURL: projectURL,
+                trustedFingerprints: identities.fingerprints))
+        try await store.appendBatch(records)
+        // Best-effort, like every other seal site in the codebase (the
+        // whole-branch review's I2). The records above are durably written; a
+        // seal that cannot be made leaves a run of unsealed lines, which is a
+        // state the walk already reads and says so in the doc comment eleven
+        // lines up. Reporting it as a FAILED WRITE would hand
+        // `TranslationWritePipeline.perform` an error that `WriteTranslationTool`
+        // returns to Claude and `TranslatorEnvironment` turns into a round
+        // rejection — whose likely answer is a retry, minting fresh opIds for
+        // the same paragraphs. A duplicated batch, and a translator told its
+        // work was lost when it was not. Sealing is maintenance, not truth.
+        do { try await store.appendSeal() }
+        catch {
+            translationLog.error("""
+                Could not seal the translation batch for \
+                \(docId, privacy: .public)/\(language, privacy: .public): \
+                \(String(describing: error), privacy: .public). \
+                The records are written; the run is unsealed until the next one.
+                """)
         }
-        let coord = NSFileCoordinator()
-        var coordErr: NSError?
-        var writeErr: Error?
-        coord.coordinate(writingItemAt: url, options: [], error: &coordErr) { wu in
-            do {
-                if FileManager.default.fileExists(atPath: wu.path) {
-                    let h = try FileHandle(forWritingTo: wu)
-                    try h.seekToEnd()
-                    try h.write(contentsOf: data)
-                    try h.close()
-                } else {
-                    try data.write(to: wu, options: .atomic)
-                }
-            } catch { writeErr = error }
-        }
-        if let coordErr { throw coordErr }
-        if let writeErr { throw writeErr }
     }
 
     /// opId-ascending, canonical-content tiebreak, first-wins dedup by opId —
     /// same total-order discipline as OpLogStore.mergeSortedDedup.
+    ///
+    /// **Every file is walked before any of it is applied** (P1b). `trusted` is
+    /// all four of this device's actors, so the translator's own file reads as
+    /// this device's word; a file another device wrote carries a seal under a
+    /// key that is not ours and reads as unsigned history, which is history and
+    /// not damage. Lines the walk held back are recorded through the same
+    /// forensic path the op log uses, under the manuscript's own `docId` — the
+    /// language is in the filename, so a `.lines` record files under the
+    /// document History already shows.
+    ///
+    /// **A read that can write one thing.** Lines the walk held back are filed
+    /// through `JSONLAppendStore.setAside`, so this synchronous, thirty-caller
+    /// read is not obviously read-only. It is bounded: the quarantine dedupes
+    /// by content hash, so a record cannot multiply, and the directory scan it
+    /// costs happens only once something has been quarantined.
+    ///
+    /// This is `JSONLAppendStore.loadVerifiedStrict`'s body, spelled
+    /// synchronously over the same nonisolated helpers, because `loadMerged` is
+    /// read from thirty synchronous call sites (the publish AST, the coverage
+    /// gate, the editor's translated surface) and because its per-file
+    /// leniency — warn and skip one unreadable device file rather than fail the
+    /// whole read — is the opposite of the strict reader's contract.
     public static func loadMerged(forDocId docId: String, language: String,
-                                  in projectURL: URL) -> [TranslationRecord] {
+                                  in projectURL: URL,
+                                  identities: LocalIdentities = .current,
+                                  state: OpLogDeviceState = .shared) -> [TranslationRecord] {
         var all: [TranslationRecord] = []
+        let trusted = identities.fingerprints
         for url in fileURLs(forDocId: docId, language: language, in: projectURL) {
             // The URL came from the directory listing, so it exists; a read
             // failure here means the device file is present but unreadable
@@ -161,8 +212,33 @@ public enum TranslationStore {
                     "skipping unreadable translation file: \(url.lastPathComponent, privacy: .public)")
                 continue
             }
-            all.append(contentsOf:
-                JSONLAppendStore<TranslationRecord>.parse(bytes: bytes, dedupKey: nil, sortedBy: nil).elements)
+            let fileKey = OpLogDeviceState.fileKey(url)
+            let walked = OpLogChain.verify(
+                bytes: bytes,
+                trusted: { trusted.contains($0) },
+                rememberedHead: state.head(for: fileKey))
+            // The same absent-head decision the chained WRITE makes. If the two
+            // disagreed, a load that held a tail back would be followed by an
+            // append that chained onto it.
+            let (verification, _) = OpLogChain.resolveAbsentHead(
+                walked,
+                rememberedHead: state.head(for: fileKey),
+                previousHead: state.previousHead(for: fileKey))
+            do {
+                try JSONLAppendStore<TranslationRecord>.setAside(
+                    verification, from: url, docId: docId, in: projectURL)
+            } catch {
+                // The record is how the writer LEARNS that something wrote into
+                // their translations; it is never how the read proceeds.
+                translationLog.error("""
+                    Could not record set-aside lines from \
+                    \(url.lastPathComponent, privacy: .public): \
+                    \(String(describing: error), privacy: .public).
+                    """)
+            }
+            all.append(contentsOf: JSONLAppendStore<TranslationRecord>.parse(
+                bytes: JSONLAppendStore<TranslationRecord>.applied(verification, whole: bytes),
+                dedupKey: nil, sortedBy: nil).elements)
         }
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]

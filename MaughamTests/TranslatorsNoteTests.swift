@@ -118,7 +118,7 @@ final class TranslatorsNoteTests: XCTestCase {
         try await TranslationStore.append(
             TranslationRecord(paragraphId: h.doc.sequence[0], language: "es", text: "…",
                               sourceHash: TranslationHash.hash("x")),
-            forDocId: h.doc.docId, deviceSlug: DeviceSlug.make(from: "t"), in: h.projectURL)
+            forDocId: h.doc.docId, identity: LocalIdentities.current.translator, identities: .current, in: h.projectURL)
         _ = try await h.projectStore.readerRole(for: "de")
         _ = try await h.projectStore.createStatement(kind: .editionBrief("fr"), scope: .project)
 
@@ -140,7 +140,7 @@ final class TranslatorsNoteTests: XCTestCase {
         try await TranslationStore.append(
             TranslationRecord(paragraphId: h.doc.sequence[0], language: "fr", text: "…",
                               sourceHash: TranslationHash.hash("x")),
-            forDocId: h.doc.docId, deviceSlug: DeviceSlug.make(from: "t"), in: h.projectURL)
+            forDocId: h.doc.docId, identity: LocalIdentities.current.translator, identities: .current, in: h.projectURL)
 
         var manifest = h.projectStore.manifest
         manifest.statements.append(

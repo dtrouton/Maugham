@@ -442,7 +442,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
 
     /// Twin of the Mac's `test_noHandBuiltDeviceIdOutsideDeviceIdentity`.
     /// The phone used to mint `"phone:<uuid>"` into `UserDefaults` and call
-    /// that its device id; it now reads `DeviceIdentity.current.deviceId`
+    /// that its device id; it now reads `DeviceIdentity.author.deviceId`
     /// (MaughamCore) like the Mac, so one install has one identity derived
     /// from its own key material. A literal here is a device that partitions
     /// its writes somewhere else — the failure tripwire 17 exists for.
@@ -456,7 +456,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
         let offenders = try Self.handBuiltDeviceIdOffenders(in: sourceDir)
         XCTAssertTrue(offenders.isEmpty,
                       "A phone production file hand-builds a device id or reads "
-                      + "the host name. `DeviceIdentity.current.deviceId` is the "
+                      + "the host name. `DeviceIdentity.author.deviceId` is the "
                       + "one answer on both surfaces:\n"
                       + offenders.joined(separator: "\n"))
     }
@@ -474,7 +474,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
         try """
         // A comment may say ProcessInfo.processInfo.hostName — allowed.
         /// And may name the old "phone:<uuid>" and "unknown-host" spellings.
-        let sanctioned = DeviceIdentity.current.deviceId
+        let sanctioned = DeviceIdentity.author.deviceId
         let host = ProcessInfo.processInfo.hostName
         let minted = "phone:\\(UUID().uuidString)"
         let fallback = name.isEmpty ? "unknown-host" : name
@@ -589,6 +589,23 @@ final class TripwirePhoneGrepTest: XCTestCase {
         }
         return offenders
     }
+
+    // MARK: - The phone is the author and mints one key (P1b constraint 7)
+
+    /// **Not a census.** This branch first guarded constraint 7 here, with a
+    /// grep over phone sources for `LocalIdentities.current`, `identity(for:
+    /// .assistant)` and the other spellings that reach an actor the phone is
+    /// not. The whole-branch review's C1 showed why that could not work:
+    /// `OpLogStore`'s `identities:` parameter has a DEFAULT, three phone sites
+    /// take it, and the default minted all four keys — no spelling anywhere,
+    /// the census green, three enclave keys in the container.
+    ///
+    /// A grep proves a spelling absent; it cannot prove a behaviour absent. The
+    /// guard is now `PhoneOneKeyTests` in `PhoneDeviceIdentityTests.swift`,
+    /// which runs the real read path and then asks the phone's own device
+    /// folder what is in it. And the spellings this list held are no longer the
+    /// hazard they named: `LocalIdentities` is lazy, so naming the value mints
+    /// nothing at all.
 
     // MARK: - A seal line is recognised in OpLogChain only (tripwire 37, phone twin)
 

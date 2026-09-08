@@ -118,7 +118,7 @@ public enum WriteTranslationTool: MCPTool {
         // 2-6. Validation, record building and the single append all belong to
         // the pipeline, which the coming ingest path shares (census:
         // TripwireGrepTests). The tool's job is the wire form on either side.
-        let warnings = try TranslationWritePipeline.perform(
+        let warnings = try await TranslationWritePipeline.perform(
             entries: params.entries.map {
                 TranslationWritePipeline.Entry(
                     paragraphId: $0.paragraph_id, text: $0.text,
@@ -127,7 +127,10 @@ public enum WriteTranslationTool: MCPTool {
             language: params.language,
             documentId: params.document_id,
             state: state,
-            deviceSlug: DeviceIdentity.current.slug)
+            // A translation is the translator's, whoever asked for it: this is
+            // `write_translation` arriving through MCP, and the assistant's key
+            // would say the wrong thing about what wrote these words.
+            actor: .translator)
 
         // 7. Notify any live window on this project so an in-progress
         // translation-review posture re-derives its read-only surface (a

@@ -259,7 +259,7 @@ final class DocumentLoadQuarantineTests: XCTestCase {
         // THIS device's own id, not a fixture string: a device chains only ops
         // carrying its own id (the whole-branch review's C1), so a `device: "m"`
         // document writes an UNCHAINED file and there is no chain here to test.
-        let device = DeviceIdentity.current.deviceId
+        let device = DeviceIdentity.author.deviceId
 
         // Type through the real path, so the tail is this Mac's own chained
         // history rather than a fixture: bootstrap line, burst, close seal.

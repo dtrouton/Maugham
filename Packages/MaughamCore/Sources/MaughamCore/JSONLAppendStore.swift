@@ -99,7 +99,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         let fileKey = OpLogDeviceState.fileKey(fileURL)
         let walked = OpLogChain.verify(
             bytes: bytes,
-            trusted: { $0 == chain.identity.fingerprint },
+            trusted: { chain.trustedFingerprints.contains($0) },
             rememberedHead: chain.state.head(for: fileKey))
         // The same absent-head decision the op log's own reader and this
         // store's chained WRITE make — one rule for every chained stream, so
@@ -215,14 +215,41 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     }
 
     public func append(_ element: Element) async throws {
+        try await appendBatch([element])
+    }
+
+    /// Every element in `elements` in ONE write — chained, when there is a
+    /// policy, as N lines each naming the one before it, so a batch is a run of
+    /// the chain rather than a gap in it.
+    ///
+    /// The batch is the unit a caller means: `write_translation` files a
+    /// paragraph set, the Translation Review pane purges a set of orphans, and
+    /// either one either lands whole or does not land. Writing them one
+    /// `append` at a time would coordinate N times, re-verify the tail N times,
+    /// and leave a partial run behind the first failure — the very thing
+    /// `TranslationStore.appendBatch` was extracted to prevent.
+    ///
+    /// An empty batch writes nothing and is not an error: a caller that built
+    /// no records has nothing to say, and minting a file for it is exactly the
+    /// phantom `TranslationStore`'s tombstone rule refuses.
+    public func appendBatch(_ elements: [Element]) async throws {
+        guard !elements.isEmpty else { return }
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true)
+        var encoded: [Data] = []
+        encoded.reserveCapacity(elements.count)
+        for element in elements { encoded.append(Data(try encode(element).utf8)) }
         if let chain {
-            try chainedAppend(elementJSON: Data(try encode(element).utf8), chain: chain)
+            try chainedAppend(elementJSONs: encoded, chain: chain)
             return
         }
-        try plainAppend(Data((try encode(element) + "\n").utf8))
+        var out = Data()
+        for line in encoded {
+            out.append(line)
+            out.append(0x0A)
+        }
+        try plainAppend(out)
     }
 
     /// Appends one seal line over this file's current head, signed by the
@@ -244,7 +271,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true)
-        return try chainedAppend(elementJSON: nil, chain: chain, sealAt: date)
+        return try chainedAppend(elementJSONs: [], chain: chain, sealAt: date)
     }
 
     // MARK: - The chained write
@@ -256,8 +283,10 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// 1. **Read the tail** off the coordinated URL itself — never a nested
     ///    coordination, which would deadlock on the write we already hold.
     /// 2. **Verify** against this device's remembered head. `trusted` is this
-    ///    device's own fingerprint and nothing else: P1 has no registry, and a
-    ///    seal from anyone else is history rather than this device's word.
+    ///    device's own fingerprints and nothing else — all four of its actors
+    ///    since P1b, one for a store built with a single identity: P1 has no
+    ///    registry, and a seal from anyone else is history rather than this
+    ///    device's word.
     /// 3. **Set aside** whatever the verifier quarantined, then rewrite the
     ///    kept bytes. Quarantined lines are always a suffix (the walk stops at
     ///    the first break and quarantines everything after it), so "kept" is a
@@ -275,7 +304,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     ///    last op, quarantined as a stranger's.
     @discardableResult
     private func chainedAppend(
-        elementJSON: Data?, chain: ChainPolicy, sealAt: Date? = nil
+        elementJSONs: [Data], chain: ChainPolicy, sealAt: Date? = nil
     ) throws -> Bool {
         let fileKey = OpLogDeviceState.fileKey(fileURL)
         let coord = NSFileCoordinator(filePresenter: presenter)
@@ -288,7 +317,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
                 let existing = (try? Data(contentsOf: wu)) ?? Data()  // adr-0018-ok: append-store (op-log / inbox JSONL) bytes — the log IS the source of truth (ADR 0018)
                 let walked = OpLogChain.verify(
                     bytes: existing,
-                    trusted: { $0 == chain.identity.fingerprint },
+                    trusted: { chain.trustedFingerprints.contains($0) },
                     rememberedHead: chain.state.head(for: fileKey))
                 // The same decision the READ makes about a remembered head that
                 // is nowhere in the file, from the same function. If the two
@@ -308,22 +337,36 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
                         .write(to: wu, options: .atomic)
                 }
 
-                let prev = verification.head ?? OpLogChain.genesis
-                let line: Data
-                if let elementJSON {
-                    line = OpLogChain.chainedLine(elementJSON: elementJSON, prev: prev)
-                } else {
+                // Each line chains onto the one before it, so the running
+                // head advances WITHIN the batch — N lines are N links, not N
+                // siblings of one head, which would leave every line after the
+                // first breaking the chain on the next read.
+                var prev = verification.head ?? OpLogChain.genesis
+                var out = Data()
+                if elementJSONs.isEmpty {
                     guard let sealAt, verification.head != nil,
                           verification.lines.contains(where: { $0.state == .unsealed })
                     else { return }
-                    line = try OpLogChain.Seal.line(
+                    let line = try OpLogChain.Seal.line(
                         head: prev, identity: chain.identity, at: sealAt)
+                    prev = OpLogChain.lineHash(line)
+                    out.append(line)
+                    out.append(0x0A)
+                } else {
+                    for elementJSON in elementJSONs {
+                        let line = OpLogChain.chainedLine(elementJSON: elementJSON, prev: prev)
+                        prev = OpLogChain.lineHash(line)
+                        out.append(line)
+                        out.append(0x0A)
+                    }
                 }
 
-                chain.state.remember(head: OpLogChain.lineHash(line), for: fileKey)
+                // Persist-before-write, over the head the WHOLE batch leaves:
+                // a crash mid-write leaves a remembered head no line hashes to,
+                // which is the adopt case, never a line this device wrote
+                // sitting after the head it remembers.
+                chain.state.remember(head: prev, for: fileKey)
 
-                var out = line
-                out.append(0x0A)
                 if FileManager.default.fileExists(atPath: wu.path) {
                     let h = try FileHandle(forWritingTo: wu)
                     try h.seekToEnd()

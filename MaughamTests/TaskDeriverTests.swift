@@ -45,7 +45,7 @@ final class TaskDeriverTests: XCTestCase {
 
     func test_derive_emptyOpsAndParagraphs_returnsEmpty() {
         let (tasks, rebal, mints) = TaskDeriver.derive(
-            ops: [], paragraphs: [:], docId: "doc_test")
+            ops: [], paragraphs: [:], docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertTrue(tasks.isEmpty)
         XCTAssertTrue(rebal.isEmpty)
         XCTAssertTrue(mints.isEmpty)
@@ -58,7 +58,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, mints) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pid: "- [ ] foo"],
-            docId: "doc_test")
+            docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 1)
         XCTAssertEqual(tasks[0].kind, .inlineMarkdown)
         XCTAssertEqual(tasks[0].status, .open)
@@ -76,7 +76,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, _) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pid: "- [x] done thing"],
-            docId: "doc_test")
+            docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 1)
         XCTAssertEqual(tasks[0].status, .done)
         XCTAssertEqual(tasks[0].body, "done thing")
@@ -89,7 +89,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, mints) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pid: "- [X] shout"],
-            docId: "doc_test")
+            docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 1,
             "uppercase `- [X]` must derive as a task, matching detection")
         XCTAssertEqual(tasks[0].kind, .inlineMarkdown)
@@ -119,7 +119,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, _) = TaskDeriver.derive(
             ops: [createOp],
             paragraphs: [:],
-            docId: "doc_test")
+            docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 1)
         XCTAssertEqual(tasks[0].kind, .paneCreated)
         XCTAssertEqual(tasks[0].id, "op_create_1")
@@ -144,7 +144,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, mints) = TaskDeriver.derive(
             ops: [prioOp],
             paragraphs: [pid: "- [ ] foo <!--t-aaaaaa-->"],
-            docId: docId)
+            docId: docId, maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 1)
         XCTAssertEqual(tasks[0].id, synthId)
         XCTAssertEqual(tasks[0].priority, 42.5)
@@ -175,7 +175,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, _) = TaskDeriver.derive(
             ops: [parentCreate, parentOp],
             paragraphs: [pid: "- [ ] child thing <!--t-bbbbbb-->"],
-            docId: docId)
+            docId: docId, maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 2)
         // Parent then child interleave
         XCTAssertEqual(tasks[0].id, "op_parent")
@@ -202,7 +202,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, _) = TaskDeriver.derive(
             ops: [createOp, archiveOp],
             paragraphs: [:],
-            docId: "doc_test")
+            docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 1)
         XCTAssertEqual(tasks[0].status, .archived)
     }
@@ -229,7 +229,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, _) = TaskDeriver.derive(
             ops: openOp + [createA, archOp],
             paragraphs: [p1: "- [ ] open one", p2: "- [x] done one"],
-            docId: "doc_test")
+            docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 3)
 
         let openOnly = tasks.filter { $0.status == .open }
@@ -252,7 +252,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasksA, _, _) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pidA: "- [ ] from doc a"],
-            docId: "doc_a")
+            docId: "doc_a", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasksA.count, 1)
         XCTAssertEqual(tasksA[0].anchor?.docId, "doc_a")
 
@@ -260,7 +260,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasksB, _, _) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pidB: "- [ ] from doc b"],
-            docId: "doc_b")
+            docId: "doc_b", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasksB.count, 1)
         XCTAssertEqual(tasksB[0].anchor?.docId, "doc_b")
     }
@@ -281,7 +281,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, _) = TaskDeriver.derive(
             ops: [createOp],
             paragraphs: [:],
-            docId: "__project__")
+            docId: "__project__", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 1)
         XCTAssertEqual(tasks[0].kind, .paneCreated)
         XCTAssertEqual(tasks[0].body, "project task")
@@ -310,7 +310,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, rebal, _) = TaskDeriver.derive(
             ops: [create1, create2],
             paragraphs: [:],
-            docId: "doc_test")
+            docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 2)
         XCTAssertGreaterThan(rebal.count, 0,
             "Rebalance ops should be emitted when sibling delta < 1e-9")
@@ -321,6 +321,42 @@ final class TaskDeriverTests: XCTestCase {
         for op in rebal {
             XCTAssertEqual(op.kind, .taskPriorityChange)
         }
+    }
+
+    /// The read-only projections (`ProjectStore+Tasks`' three) discard the
+    /// rebalance ops, and the id they used to default to was disk I/O — and,
+    /// before the lazy `LocalIdentities`, an enclave mint — on the main actor
+    /// for a value bound to `_` (the whole-branch review's M2). `nil` says so:
+    /// no ops are built, and the tasks a reader gets are byte-for-byte the ones
+    /// an appending caller would get.
+    func test_aNilMaughamDeviceIdBuildsNoOpsAndRebalancesAnyway() {
+        let create1 = makeOp(
+            opId: "op_p1", kind: .taskCreate,
+            provenance: Op.Provenance(
+                taskId: "op_p1", taskBody: "task one",
+                taskPriority: 1.0, taskKind: "pane_created"))
+        let create2 = makeOp(
+            opId: "op_p2", kind: .taskCreate,
+            provenance: Op.Provenance(
+                taskId: "op_p2", taskBody: "task two",
+                taskPriority: 1.0 + 1e-12, taskKind: "pane_created"))
+
+        let writing = TaskDeriver.derive(
+            ops: [create1, create2], paragraphs: [:],
+            docId: "doc_test", maughamDeviceId: "maugham-test")
+        let reading = TaskDeriver.derive(
+            ops: [create1, create2], paragraphs: [:],
+            docId: "doc_test", maughamDeviceId: nil)
+
+        XCTAssertGreaterThan(writing.rebalanceOps.count, 0,
+                             "precondition: this input does need rebalancing")
+        XCTAssertTrue(reading.rebalanceOps.isEmpty,
+            "a caller with no device to sign as builds no ops to sign")
+        XCTAssertEqual(reading.tasks.map(\.id), writing.tasks.map(\.id))
+        XCTAssertEqual(reading.tasks.map(\.priority), writing.tasks.map(\.priority),
+            "the rebalanced priorities are applied either way, so what a "
+            + "read-only projection shows is what an appending one would show")
+        XCTAssertEqual(reading.tasks.map(\.priority), [1.0, 2.0])
     }
 
     // MARK: - 12. Unknown parent → parent-less
@@ -339,7 +375,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, _) = TaskDeriver.derive(
             ops: [parentOp],
             paragraphs: [pid: "- [ ] orphan child <!--t-cccccc-->"],
-            docId: docId)
+            docId: docId, maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 1)
         XCTAssertNil(tasks[0].parentTaskId,
             "Child referencing unknown parent renders as parent-less")
@@ -352,7 +388,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, _) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pid: "Some scene description [[todo: revise dialog]] more text"],
-            docId: "doc_test")
+            docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 1)
         XCTAssertEqual(tasks[0].kind, .fountainBoneyard)
         XCTAssertEqual(tasks[0].status, .open)
@@ -366,7 +402,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, _) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pid: "Action line [[done: fixed it]] continuing"],
-            docId: "doc_test")
+            docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 1)
         XCTAssertEqual(tasks[0].kind, .fountainBoneyard)
         XCTAssertEqual(tasks[0].status, .done)
@@ -390,7 +426,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, _) = TaskDeriver.derive(
             ops: [prioOp],
             paragraphs: [pid: "- [ ] zzz\n- [ ] foo <!--t-ddddde-->\n- [ ] bar"],
-            docId: docId)
+            docId: docId, maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 3)
         let fooTask = tasks.first(where: { $0.body == "foo" })
         XCTAssertNotNil(fooTask)
@@ -405,7 +441,7 @@ final class TaskDeriverTests: XCTestCase {
         let (tasks, _, _) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pid: "- [ ] foo <!--t-aaaaaa-->\n- [ ] foo <!--t-bbbbbb-->"],
-            docId: "doc_test")
+            docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 2,
             "two anchored duplicates must be distinct tasks")
         XCTAssertEqual(Set(tasks.map(\.id)),
@@ -418,7 +454,7 @@ final class TaskDeriverTests: XCTestCase {
         let paraId = "mpqr"  // 4-char paragraph id (Tripwire #8)
         let paragraphs = [paraId: "- [ ] foo"]
         let result = TaskDeriver.derive(
-            ops: [], paragraphs: paragraphs, docId: "doc-x")
+            ops: [], paragraphs: paragraphs, docId: "doc-x", maughamDeviceId: "maugham-test")
         XCTAssertEqual(result.tasks.count, 1)
         XCTAssertEqual(result.mintedAnchors.count, 1)
         let minted = result.mintedAnchors[0]
@@ -434,7 +470,7 @@ final class TaskDeriverTests: XCTestCase {
         let paraId = "nptq"
         let paragraphs = [paraId: "- [ ] foo <!--t-9k2x6a-->"]
         let result = TaskDeriver.derive(
-            ops: [], paragraphs: paragraphs, docId: "doc-x")
+            ops: [], paragraphs: paragraphs, docId: "doc-x", maughamDeviceId: "maugham-test")
         XCTAssertEqual(result.tasks.count, 1)
         XCTAssertEqual(result.tasks[0].id, "inline:doc-x:9k2x6a")
         XCTAssertTrue(result.mintedAnchors.isEmpty,
@@ -450,7 +486,7 @@ final class TaskDeriverTests: XCTestCase {
         - [ ] foo <!--t-bbbbbb-->
         """]
         let result = TaskDeriver.derive(
-            ops: [], paragraphs: paragraphs, docId: "doc-x")
+            ops: [], paragraphs: paragraphs, docId: "doc-x", maughamDeviceId: "maugham-test")
         XCTAssertEqual(result.tasks.count, 2,
             "two anchored duplicates must be distinct tasks")
         XCTAssertEqual(Set(result.tasks.map(\.id)),
@@ -463,7 +499,7 @@ final class TaskDeriverTests: XCTestCase {
         let pid = "qrst"
         let paragraphs = [pid: "- [ ] alpha\n- [ ] beta"]
         let result = TaskDeriver.derive(
-            ops: [], paragraphs: paragraphs, docId: "doc-x")
+            ops: [], paragraphs: paragraphs, docId: "doc-x", maughamDeviceId: "maugham-test")
         XCTAssertEqual(result.mintedAnchors.count, 2)
         let alpha = result.mintedAnchors.first(where: { $0.body == "alpha" })
         let beta = result.mintedAnchors.first(where: { $0.body == "beta" })
@@ -479,7 +515,7 @@ final class TaskDeriverTests: XCTestCase {
         let pid = "rstv"
         let paragraphs = [pid: "Anna walked [[todo: tighten]] across the room."]
         let result = TaskDeriver.derive(
-            ops: [], paragraphs: paragraphs, docId: "doc-x")
+            ops: [], paragraphs: paragraphs, docId: "doc-x", maughamDeviceId: "maugham-test")
         XCTAssertEqual(result.mintedAnchors.count, 1)
         let mint = result.mintedAnchors[0]
         XCTAssertEqual(mint.kind, .fountainBoneyard)
@@ -503,7 +539,7 @@ final class TaskDeriverTests: XCTestCase {
         - [ ] fresh
         """]
         let result = TaskDeriver.derive(
-            ops: [], paragraphs: paragraphs, docId: "doc-x")
+            ops: [], paragraphs: paragraphs, docId: "doc-x", maughamDeviceId: "maugham-test")
         XCTAssertEqual(result.tasks.count, 2)
         XCTAssertEqual(result.mintedAnchors.count, 1)
         XCTAssertEqual(result.mintedAnchors[0].body, "fresh")

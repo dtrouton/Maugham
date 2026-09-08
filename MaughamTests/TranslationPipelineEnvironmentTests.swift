@@ -76,20 +76,20 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
         init(_ v: T) { value = v }
     }
 
-    private func seed(_ harness: Harness, paragraph index: Int, text: String) throws {
+    private func seed(_ harness: Harness, paragraph index: Int, text: String) async throws {
         let id = harness.doc.sequence[index]
-        _ = try TranslationWritePipeline.perform(
+        _ = try await TranslationWritePipeline.perform(
             entries: [.init(paragraphId: id, text: text, verbatim: nil, delete: nil)],
             language: "es", documentId: harness.doc.docId,
             state: (harness.doc.sequence, harness.doc.paragraphs, harness.projectURL),
-            deviceSlug: DeviceIdentity.current.slug)
+            actor: .translator)
     }
 
     // MARK: - The reader's gather
 
     func test_theReaderIsBriefedWithFreshTranslationsOnlyAndNeverTheSource() async throws {
         let harness = try await makeHarness()
-        try seed(harness, paragraph: 0, text: "Llegó la niebla.")
+        try await seed(harness, paragraph: 0, text: "Llegó la niebla.")
         let gathered = await harness.environment.briefReader(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered)
         XCTAssertEqual(inputs.readerName, "Ocampo", "the preset, read without minting")
@@ -109,7 +109,7 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
             TranslationRecord(paragraphId: harness.doc.sequence[1], language: "es",
                               text: "Cerró la puerta.", sourceHash: "not-the-current-hash"),
             forDocId: harness.doc.docId,
-            deviceSlug: DeviceIdentity.current.slug,
+            identity: LocalIdentities.current.translator, identities: .current,
             in: harness.projectURL)
         let gathered = await harness.environment.briefReader(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered)
@@ -125,11 +125,11 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
     func test_aVerbatimParagraphReachesTheReaderAsTheEditionsOwnText() async throws {
         let harness = try await makeHarness()
         let id = harness.doc.sequence[2]
-        _ = try TranslationWritePipeline.perform(
+        _ = try await TranslationWritePipeline.perform(
             entries: [.init(paragraphId: id, text: nil, verbatim: true, delete: nil)],
             language: "es", documentId: harness.doc.docId,
             state: (harness.doc.sequence, harness.doc.paragraphs, harness.projectURL),
-            deviceSlug: DeviceIdentity.current.slug)
+            actor: .translator)
         let gathered = await harness.environment.briefReader(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered)
         XCTAssertEqual(inputs.paragraphs[2].translation, harness.doc.paragraphs[id],
@@ -141,7 +141,7 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
 
     func test_theCollatorIsBriefedWithPairsDirectivesAndTheGlossary() async throws {
         let harness = try await makeHarness()
-        try seed(harness, paragraph: 0, text: "Llegó la niebla.")
+        try await seed(harness, paragraph: 0, text: "Llegó la niebla.")
         let id = harness.doc.sequence[0]
         // The one door (`TranslatorEnvironmentTests` seeds a directive the
         // same way): a translator's note ruled into this edition's brief.

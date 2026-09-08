@@ -174,7 +174,7 @@ final class TaskUndoTests: XCTestCase {
             undoing: .taskStatusChange, prior: priorOpen,
             docId: "doc_test", device: "d", session: "s", sessionId: "s")!
         let (tasks, _, _) = TaskDeriver.derive(
-            ops: [create, toDone, inverse], paragraphs: [:], docId: "doc_test")
+            ops: [create, toDone, inverse], paragraphs: [:], docId: "doc_test", maughamDeviceId: "maugham-test")
         XCTAssertEqual(tasks.count, 1)
         XCTAssertEqual(tasks.first?.id, "t1")
         XCTAssertEqual(tasks.first?.status, .open)

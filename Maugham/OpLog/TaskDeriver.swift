@@ -9,10 +9,18 @@ import MaughamCore
 /// `docs/superpowers/specs/2026-05-25-task-anchors-and-lifecycle.md` §2.3.
 public enum TaskDeriver {
 
-    /// Device + session sentinel stamped on rebalance ops. These are locally
+    /// Session sentinel stamped on rebalance ops. These are locally
     /// self-emitted during derivation (not a writer edit and not a cross-device
     /// merge), so callers reasoning about op provenance — e.g. the inline-archive
     /// undo's foreign-op guard — treat this device as local, not foreign.
+    ///
+    /// **Session only, since P1b.** It was the DEVICE string too, and a device
+    /// string that names no key is a line `OpLogStore.append` can neither chain
+    /// nor seal — the app's own maintenance was the one thing in the log
+    /// nothing could vouch for. The rebalance now signs as `DeviceActor.maugham`
+    /// (`maughamDeviceId` below), the app acting on nobody's instruction, and
+    /// every reader that used to recognise a rebalance by `device` recognises it
+    /// by `session`.
     public static let rebalanceSentinel = "rebalance"
 
     // MARK: - MintedAnchor side-channel
@@ -70,10 +78,29 @@ public enum TaskDeriver {
     ///   side-channel of rebalance ops, and a side-channel of
     ///   freshly-minted task anchors that the caller should persist back
     ///   into paragraph text.
+    /// - Parameter maughamDeviceId: the device string the emitted rebalance ops
+    ///   carry — `DeviceActor.maugham`'s id, because the priority rebalance is
+    ///   the app acting on its own behalf. Passed in rather than read inside, so
+    ///   this projection stays pure over its arguments; the one production
+    ///   caller that actually appends the ops (`Document.rebuildTasksCache`)
+    ///   passes the id off the very `OpLogStore` that will sign them, so a
+    ///   suite's injected identities and the file the op lands in cannot
+    ///   disagree.
+    ///
+    ///   **`nil` means "emit no rebalance ops"** — for a caller that discards
+    ///   them, which is every read-only projection in `ProjectStore+Tasks`. The
+    ///   rebalanced PRIORITIES are still applied, so the task list a reader gets
+    ///   is unchanged; only the ops nobody was going to write are not built.
+    ///   There is no default, and that is the point (the whole-branch review's
+    ///   M2): the default was `DeviceIdentity.identity(for: .maugham).deviceId`,
+    ///   which is disk I/O and — before the lazy `LocalIdentities` — an enclave
+    ///   mint, on the main actor, at three call sites that bound the result to
+    ///   `_`.
     public static func derive(
         ops: [Op],
         paragraphs: [String: String],
-        docId: String
+        docId: String,
+        maughamDeviceId: String?
     ) -> (tasks: [WriterTask], rebalanceOps: [Op], mintedAnchors: [MintedAnchor]) {
 
         // 0. Apply rewind semantics: if there is a `.checkpointRestore` with
@@ -390,7 +417,8 @@ public enum TaskDeriver {
         }
 
         // 5. Rebalance precision-drift check.
-        let (balanced, rebalanceOps) = rebalanceIfNeeded(all, docId: docId)
+        let (balanced, rebalanceOps) = rebalanceIfNeeded(
+            all, docId: docId, maughamDeviceId: maughamDeviceId)
 
         // 6. Sort parent-then-child interleave.
         let sorted = sortParentInterleaved(balanced)
@@ -455,7 +483,7 @@ public enum TaskDeriver {
     /// rewrite the whole group with evenly-spaced integer priorities (1.0,
     /// 2.0, …) and emit one `.taskPriorityChange` per rewritten task.
     private static func rebalanceIfNeeded(
-        _ tasks: [WriterTask], docId: String
+        _ tasks: [WriterTask], docId: String, maughamDeviceId: String?
     ) -> (rebalanced: [WriterTask], ops: [Op]) {
 
         // Group by parentTaskId. We use the optional directly as key via a
@@ -484,11 +512,16 @@ public enum TaskDeriver {
                 let newPrio = Double(idx + 1)
                 if newPrio != t.priority {
                     newPriorities[t.id] = newPrio
+                    // No device to sign as means no op to sign: the caller is
+                    // a read-only projection that discards them (M2). The new
+                    // priority above is still applied, so what it reads is what
+                    // an appending caller would read.
+                    guard let maughamDeviceId else { continue }
                     newOps.append(Op(
                         opId: "rebalance_\(t.id)",
                         docId: docId,
                         at: Date(),
-                        device: rebalanceSentinel,
+                        device: maughamDeviceId,
                         session: rebalanceSentinel,
                         kind: .taskPriorityChange,
                         changes: [],

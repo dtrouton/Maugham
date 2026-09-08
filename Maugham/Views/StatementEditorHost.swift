@@ -360,7 +360,6 @@ struct StatementEditorHost: View {
     /// session id exists so multi-instance edits can be merged, not to tie a
     /// statement to the manuscript beside it).
     private static let sessionId: String = UUID().uuidString
-    private static let deviceId: String = DeviceIdentity.current.deviceId
 
     /// The registered statement for this scope, or nil. Absence is valid and
     /// mints nothing — `ProjectStore.statement(kind:scope:)` is a pure lookup.
@@ -848,7 +847,7 @@ struct StatementEditorHost: View {
         do {
             let document = try await Document.load(
                 url: store.url.appendingPathComponent(statement.path),
-                device: Self.deviceId,
+                actor: .author,
                 session: Self.sessionId,
                 presenter: documentStore.presenter)
             guard arrival == .load,

@@ -72,7 +72,74 @@ extension Document {
         return initial
     }
 
+    /// **The production door: say WHICH of this device's four writers is
+    /// acting, and the id follows from the key** (signed op log P1b).
+    ///
+    /// A device is not one writer. The person types; Claude answers through
+    /// MCP; the translation pipeline files a round; the app rebalances task
+    /// priorities on nobody's instruction. Each has its own key, so the actor
+    /// decides which file the ops land in, which key chains and seals them, and
+    /// what a later reader can vouch for. Before this, three of the four wrote
+    /// under hand-built sentinels (`"mcp"`, `"wiki-rename"`, `"find-replace"`)
+    /// that named no key at all, and `OpLogStore.append` took the plain
+    /// unchained path for every line of it.
+    ///
+    /// The `device: String` overloads below survive as `internal`: the test
+    /// suites that predate the actors keep naming a device directly, and
+    /// `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` is what
+    /// keeps production out of that door.
     public static func load(
+        url: URL,
+        actor: DeviceActor,
+        session: String,
+        presenter: NSFilePresenter?
+    ) async throws -> Document {
+        try await load(
+            url: url, device: deviceId(for: actor), session: session,
+            presenter: presenter,
+            burstIdle: .seconds(30), burstMax: .seconds(90))
+    }
+
+    /// The actor's recovery-mode door. Reached only after the strict load has
+    /// refused — the ladder's rungs offer this, nothing opens with it by
+    /// default.
+    public static func load(
+        url: URL,
+        actor: DeviceActor,
+        session: String,
+        presenter: NSFilePresenter?,
+        recovery: DocumentRecoveryMode
+    ) async throws -> Document {
+        try await load(
+            url: url, device: deviceId(for: actor), session: session,
+            presenter: presenter, recovery: recovery)
+    }
+
+    /// The actor's burst-threshold door, for tests that mean an actor and also
+    /// cannot wait 30 seconds for the default idle threshold.
+    internal static func load(
+        url: URL,
+        actor: DeviceActor,
+        session: String,
+        presenter: NSFilePresenter?,
+        burstIdle: Duration,
+        burstMax: Duration
+    ) async throws -> Document {
+        try await load(
+            url: url, device: deviceId(for: actor), session: session,
+            presenter: presenter, burstIdle: burstIdle, burstMax: burstMax)
+    }
+
+    /// The device string an actor writes under, read from the SAME
+    /// `LocalIdentities` the load's `OpLogStore` is built with
+    /// (`Document.loadIdentities`). Taking `LocalIdentities.current` here
+    /// instead would have a suite's injected quartet sign ops the store filed
+    /// under the machine's real key.
+    private static func deviceId(for actor: DeviceActor) -> String {
+        loadIdentities[actor].deviceId
+    }
+
+    internal static func load(
         url: URL,
         device: String,
         session: String,
@@ -86,7 +153,7 @@ extension Document {
     /// The recovery-mode load (spec §4). Reached only after the strict load
     /// above has refused — the ladder's rungs offer this, nothing opens with it
     /// by default.
-    public static func load(
+    internal static func load(
         url: URL,
         device: String,
         session: String,
@@ -249,14 +316,19 @@ extension Document {
         // own empty-parsed guard, so this is belt-and-braces.
         let needsBootstrap = !logExists && !parsed.isEmpty
 
+        // Built BEFORE the bootstrap, and handed to it: the bootstrap op is
+        // the first line of this document's history and must be chained by the
+        // same store that will chain everything after it. A store of
+        // `Bootstrap`'s own carries `LocalIdentities.current`, so under an
+        // injected quartet the doc's opening op reads back as legacy forever.
+        let opStore = Document.makeLoadOpStore(
+            projectURL: projectURL, presenter: presenter)
+
         if needsBootstrap {
             _ = try await Bootstrap.run(
                 projectURL: projectURL, docId: docId,
-                mdURL: url, device: device, session: session)
+                mdURL: url, device: device, session: session, opStore: opStore)
         }
-
-        let opStore = Document.makeLoadOpStore(
-            projectURL: projectURL, presenter: presenter)
         let pending = PendingBuffer(projectURL: projectURL, docId: docId, device: device)
         // RULING-54: a pending file that exists but can't be read or decoded
         // holds un-bursted keystrokes from a crashed session. Not a refusal —

@@ -61,9 +61,13 @@ func withAnnotationDocument<T>(
             "document_id not found in project manifest: \(documentId)")
     }
     let docURL = projectURL.appendingPathComponent(path)
+    // Anything arriving through MCP is the assistant's (constraint 6): the
+    // annotation ops `body` appends land in the assistant's own file, chained
+    // and sealed under the assistant's key rather than unsigned under a
+    // sentinel no key answers to.
     let doc = try await Document.load(
         url: docURL,
-        device: "mcp",
+        actor: .assistant,
         session: "mcp-\(UUID().uuidString.prefix(8))",
         presenter: nil)
     let result = try await body(doc)

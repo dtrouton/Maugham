@@ -81,7 +81,7 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
                 paragraphId: id, language: language, text: source,
                 sourceHash: TranslationHash.hash(source), verbatim: true)
             try await TranslationStore.append(
-                rec, forDocId: fx.docId, deviceSlug: slug, in: fx.store.url)
+                rec, forDocId: fx.docId, identity: LocalIdentities.current.translator, identities: .current, in: fx.store.url)
         }
     }
 
@@ -239,7 +239,7 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
             paragraphId: id, language: "es", text: translated,
             sourceHash: TranslationHash.hash(source), verbatim: false)
         try await TranslationStore.append(
-            rec, forDocId: fx.docId, deviceSlug: DeviceSlug.make(from: "test-mac"),
+            rec, forDocId: fx.docId, identity: LocalIdentities.current.translator, identities: .current,
             in: fx.store.url)
 
         let ast = try ProjectASTBuilder.build(
@@ -288,7 +288,7 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
                 paragraphId: id, language: "sr", text: text,
                 sourceHash: TranslationHash.hash(source), verbatim: false)
             try await TranslationStore.append(
-                rec, forDocId: fx.docId, deviceSlug: slug, in: fx.store.url)
+                rec, forDocId: fx.docId, identity: LocalIdentities.current.translator, identities: .current, in: fx.store.url)
         }
 
         let ast = try ProjectASTBuilder.build(

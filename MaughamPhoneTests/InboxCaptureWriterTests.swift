@@ -9,7 +9,7 @@ import XCTest
 @MainActor
 final class InboxCaptureWriterTests: XCTestCase {
     /// A signing identity: the simulator has no enclave, so a capture written
-    /// under `DeviceIdentity.current` would be chained and never sealed. The
+    /// under `DeviceIdentity.author` would be chained and never sealed. The
     /// software signer is what lets the seal half be asserted at all.
     private var identity: DeviceIdentity!
     private var deviceId: String { identity.deviceId }

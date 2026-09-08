@@ -8,9 +8,23 @@ public enum Bootstrap {
         public let paragraphIds: [String]
     }
 
+    /// - Parameter opStore: the store the CALLER will go on using for this
+    ///   document. Passing it is what makes the bootstrap op chain: a store of
+    ///   this function's own carries `LocalIdentities.current` and the shared
+    ///   chain memory, so where the caller holds anything else — a suite's
+    ///   injected quartet — the very first op in the log is signed by a key the
+    ///   load does not recognise and reads back as legacy history forever.
+    ///
+    ///   **Required** (the whole-branch review's M1). It was optional, with a
+    ///   store of this function's own behind the nil — which is the defect
+    ///   above, preserved for the test call sites that had no store to hand.
+    ///   There is one production caller and it threads its store; a test that
+    ///   wants the machine's own identities says `OpLogStore(projectURL:)` and
+    ///   says it out loud.
     public static func run(
         projectURL: URL, docId: String, mdURL: URL,
-        device: String, session: String
+        device: String, session: String,
+        opStore: OpLogStore
     ) async throws -> Result {
         let original = (try? String(contentsOf: mdURL, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned import read — mints ids for a new/imported plain file; not read as truth for an existing doc (ADR 0018)
         // A Fountain manuscript's two-space "held blank" (Task 13 dialogue pause)
@@ -50,7 +64,7 @@ public enum Bootstrap {
             try await emitBootstrap(
                 projectURL: projectURL, docId: docId, device: device,
                 session: session, changes: changes, sequence: sequence,
-                paragraphMap: paragraphMap)
+                paragraphMap: paragraphMap, opStore: opStore)
             return Result(bootstrapped: true, paragraphIds: sequence)
         }
 
@@ -96,7 +110,7 @@ public enum Bootstrap {
         try await emitBootstrap(
             projectURL: projectURL, docId: docId, device: device,
             session: session, changes: changes, sequence: sequence,
-            paragraphMap: paragraphMap)
+            paragraphMap: paragraphMap, opStore: opStore)
         return Result(bootstrapped: true, paragraphIds: sequence)
     }
 
@@ -107,13 +121,12 @@ public enum Bootstrap {
     private static func emitBootstrap(
         projectURL: URL, docId: String, device: String, session: String,
         changes: [Op.ParagraphChange], sequence: [String],
-        paragraphMap: [String: String]
+        paragraphMap: [String: String], opStore: OpLogStore
     ) async throws {
         let op = Op(
             opId: ULID.generate(), docId: docId, at: Date(),
             device: device, session: session, kind: .bootstrap,
             changes: changes, sequence: sequence, provenance: nil)
-        let opStore = OpLogStore(projectURL: projectURL)
         try await opStore.append(op)
 
         let wordCount = paragraphMap.values

@@ -37,7 +37,7 @@ The persistence and coordination layer: project structure, documents, recents, s
 
 Everything derived lives under `.maugham/` in the project folder. Each subdirectory has one owner:
 
-**One thing deliberately does NOT live here: this device's own key material.** `DeviceState.directory` is `~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/` — `device-key.blob`, `device-token` and `op-log-state.json` (signed op log P1, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md)). It is outside the project because it must never sync: an enclave-wrapped key blob is useless on another machine, a copied device token would make two machines answer the same device id and collide on one per-device op-log file (tripwire 17), and the remembered chain heads are this device's private account of what IT wrote — the fact that catches a correctly-chained line somebody else appended. Under XCTest the path gains an `xctest-worker-<pid>` leaf, the `TestWorkspace.root` idiom verbatim, so seven parallel workers never share a key or a head.
+**One thing deliberately does NOT live here: this device's own key material.** `DeviceState.directory` is `~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/` — one key blob **per `DeviceActor`** (signed op log P1b, 2026-09-08): `device-key.blob`/`device-token` for the `author` and `device-key.<actor>.blob`/`device-token.<actor>` for the `assistant`, the `translator` and `maugham`, beside ONE `op-log-state.json` for the device, whose `identity` is the author's fingerprint because a device that re-keys re-keys all four (signed op log P1, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md)). It is outside the project because it must never sync: an enclave-wrapped key blob is useless on another machine, a copied device token would make two machines answer the same device id and collide on one per-device op-log file (tripwire 17), and the remembered chain heads are this device's private account of what IT wrote — the fact that catches a correctly-chained line somebody else appended. Under XCTest the path gains an `xctest-worker-<pid>` leaf, the `TestWorkspace.root` idiom verbatim, so seven parallel workers never share a key or a head.
 
 | Path | Owner | Purpose |
 |---|---|---|
@@ -281,7 +281,8 @@ written through a `JSONLAppendStore<InboxEntry>` carrying a `ChainPolicy`
   tail merely chained. A Mac with no key writes no seal and reports nothing
   wrong (spec §4.1).
 - **`identity` is injectable.** `InboxStore(projectURL:deviceId:identity:)`
-  defaults to `DeviceIdentity.current`; a test passes a software signer,
+  defaults to `DeviceIdentity.author` (a capture is the writer's own act);
+  a test passes a software signer,
   because CI's runner has no enclave. `deviceId` still names the row and the
   manifest file; the identity is what the chain is verified against.
 

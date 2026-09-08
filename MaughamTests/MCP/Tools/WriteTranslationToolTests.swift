@@ -592,8 +592,13 @@ final class WriteTranslationToolTests: XCTestCase {
         let files = TranslationStore.fileURLs(
             forDocId: h.doc.docId, language: "es", in: h.projectURL)
         XCTAssertEqual(files.count, 1, "one device file for the batch")
-        let lines = try String(contentsOf: files[0], encoding: .utf8)
-            .split(separator: "\n", omittingEmptySubsequences: true)
+        // Record lines only: since P1b the batch is chained and one seal line
+        // follows it, and a seal is the chain's own line rather than an entry.
+        let lines = try Data(contentsOf: files[0])
+            .split(separator: 0x0A, omittingEmptySubsequences: false)
+            .filter { !$0.isEmpty }
+            .map { Data($0) }
+            .filter { !OpLogChain.isSealLine($0) }
         XCTAssertEqual(lines.count, 3, "one JSONL line per entry, mixed forms included")
 
         await h.documentStore.close()

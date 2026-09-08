@@ -19,32 +19,38 @@ final class SegmentSealTriggerTests: XCTestCase {
         Document.segmentSealThresholdForTesting = nil
         // Process-wide, so a leak would silently change what every later
         // test's load can vouch for.
-        Document.deviceIdentityForTesting = nil
+        Document.localIdentitiesForTesting = nil
         Document.deviceStateForTesting = nil
         try? FileManager.default.removeItem(at: projectURL)
     }
 
-    /// Give this test a device that can SIGN, and a chain memory of its own.
+    /// Give this test a device whose four writers can all SIGN, and a chain
+    /// memory of its own.
     ///
     /// The machine running the suite may have no key at all — CI's VM has no
-    /// Secure Enclave, so `DeviceIdentity.current` there is the unsigned token
-    /// twin and `sealChain` correctly writes nothing. Injecting the software
-    /// signer is what makes a seal assertion decidable rather than
-    /// machine-dependent; the fresh state keeps one test's remembered heads
-    /// out of another's.
-    /// Answers the device STRING that identity implies, because in production
-    /// the two are the same fact: `EditorHost.deviceId` is
-    /// `DeviceIdentity.current.deviceId`, so the file an op is appended to
-    /// (named from `op.device`) and the file `sealChain` seals (named from
-    /// `identity.slug`) are one file. A test that took the fixture's own
-    /// "test-mac" would seal a file nothing wrote to and prove nothing.
+    /// Secure Enclave, so every actor there is the unsigned token twin and
+    /// `sealChain` correctly writes nothing. Injecting the software signers is
+    /// what makes a seal assertion decidable rather than machine-dependent; the
+    /// fresh state keeps one test's remembered heads out of another's.
+    ///
+    /// Answers the AUTHOR's device string, because in production the two are
+    /// the same fact: `Document.load(actor: .author, …)` derives its device id
+    /// from exactly this value, so the file an op is appended to (named from
+    /// `op.device`) and the file `sealChain` seals (named from `identity.slug`)
+    /// are one file. A test that took the fixture's own "test-mac" would seal a
+    /// file nothing wrote to and prove nothing.
     @discardableResult
     private func useASigningIdentity() -> String {
-        let identity = DeviceIdentity.softwareForTesting()
-        Document.deviceIdentityForTesting = identity
+        let identities = LocalIdentities.softwareForTesting()
+        Document.localIdentitiesForTesting = identities
         Document.deviceStateForTesting = OpLogDeviceState(
             fileURL: projectURL.appendingPathComponent("op-log-state.json"))
-        return identity.deviceId
+        return identities.author.deviceId
+    }
+
+    /// The injected author, for the assertions that name its fingerprint.
+    private func injectedAuthor() throws -> DeviceIdentity {
+        try XCTUnwrap(Document.localIdentitiesForTesting).author
     }
 
     private func tailLines(docId: String, device: String = "test-mac") throws -> [Data] {
@@ -72,8 +78,13 @@ final class SegmentSealTriggerTests: XCTestCase {
             .filter { $0.pathExtension == "mzseg" }
     }
 
+    /// The device string is the AUTHOR's own, because that is what production
+    /// hands `Document.load(actor: .author, …)` — and since P1b close rotates
+    /// the tails of this device's own actors and nobody else's, a doc loaded
+    /// under a made-up device string would grow a tail no local slug names.
     func test_close_sealsOversizedTail() async throws {
-        let doc = try await makeDoc()
+        let device = DeviceIdentity.author.deviceId
+        let doc = try await makeDoc(device: device)
         // Grow the tail past the test threshold with real bursts.
         for i in 0..<30 {
             doc.setParagraph(id: doc.sequence[0],
@@ -91,7 +102,7 @@ final class SegmentSealTriggerTests: XCTestCase {
 
         // Full reload round-trip through the production path.
         Document.segmentSealThresholdForTesting = nil
-        let reloaded = try await makeDoc()
+        let reloaded = try await makeDoc(device: device)
         XCTAssertTrue(reloaded.displayText.contains("Alpha grown 29"))
         await reloaded.close()
     }
@@ -113,7 +124,7 @@ final class SegmentSealTriggerTests: XCTestCase {
         let seal = try XCTUnwrap(OpLogChain.Seal.parse(try XCTUnwrap(lines.last)))
         XCTAssertTrue(seal.verifies(), "and it holds together under its own key")
         XCTAssertEqual(
-            seal.key, try XCTUnwrap(Document.deviceIdentityForTesting).fingerprint,
+            seal.key, try injectedAuthor().fingerprint,
             "signed by THIS device, which is the whole claim a seal makes")
         await doc.close()
     }
@@ -125,7 +136,7 @@ final class SegmentSealTriggerTests: XCTestCase {
     func test_burstWithNoKeyStillWritesTheOps_andSealsNothing() async throws {
         let identity = DeviceIdentity.unsignedForTesting(
             token: Data(repeating: 7, count: 32))
-        Document.deviceIdentityForTesting = identity
+        Document.localIdentitiesForTesting = .forTesting(author: identity)
         Document.deviceStateForTesting = OpLogDeviceState(
             fileURL: projectURL.appendingPathComponent("op-log-state.json"))
         let doc = try await makeDoc(device: identity.deviceId)
@@ -188,7 +199,7 @@ final class SegmentSealTriggerTests: XCTestCase {
         XCTAssertTrue(signature.verifies())
         XCTAssertEqual(
             signature.key,
-            try XCTUnwrap(Document.deviceIdentityForTesting).fingerprint)
+            try injectedAuthor().fingerprint)
     }
 
     /// The same order, from the OTHER caller. Project-open maintenance runs the
@@ -207,6 +218,183 @@ final class SegmentSealTriggerTests: XCTestCase {
             chain.lowerBound < rotate.lowerBound,
             "open-time maintenance seals the chain before rotating the tail — "
             + "the other order strands an unsealed span inside an immutable segment")
+    }
+
+    // MARK: - Signed op log P1b: every local actor's tail rotates
+
+    /// A device is four writers, and each of them has a per-doc file of its
+    /// own. Rotation used to name ONE slug — the author's — so an assistant
+    /// file grown past the threshold by a long MCP session chained and sealed
+    /// but never became a segment, and the growth ADR 0016 exists to bound was
+    /// bounded for the writer's file alone.
+    ///
+    /// The sidecar is the second half of the claim: the segment carries the
+    /// key of the actor whose slug names it, so an assistant's segment is
+    /// signed by the assistant and never by the writer's hand.
+    ///
+    /// **Narrowed by the whole-branch review's I3: a Document rotates the tail
+    /// of the actor it was LOADED as, and no other.** Rotation deletes the tail
+    /// it turns into a segment, and every MCP annotation and task call is a
+    /// Document loaded as the assistant — so a close that swept all four would
+    /// delete the file the writer's own open Document is appending to. The
+    /// other three actors are the project-open sweep's job, which runs before
+    /// any Document exists (`test_openMaintenanceRotatesEveryLocalActorsOversizedTail`).
+    func test_close_rotatesOnlyTheActorThisDocumentWasLoadedAs() async throws {
+        let device = useASigningIdentity()
+        let identities = try XCTUnwrap(Document.localIdentitiesForTesting)
+        let doc = try await makeDoc(device: device)
+        doc.setParagraph(id: doc.sequence[0], text: "Alpha, by the writer.")
+        try await doc.flushBurstNow()
+
+        // An op through MCP: same document, the assistant's own key and its
+        // own file. `append` routes by `op.device`, so this lands in
+        // `<doc>.assistant-…jsonl` and is chained under the assistant.
+        try await doc.appendMirrored(Op(
+            opId: ULID.generate(), docId: doc.docId, at: Date(),
+            device: identities.assistant.deviceId, session: "s1",
+            kind: .checkpoint, changes: []))
+
+        Document.segmentSealThresholdForTesting = 1   // both tails are oversized
+        await doc.close()
+
+        let mine = segmentURLs(docId: doc.docId)
+            .filter { $0.lastPathComponent.contains(identities.author.slug.raw) }
+        XCTAssertEqual(mine.count, 1,
+                       "this Document was loaded as the author, so the author's "
+                       + "oversized tail rotates at close")
+        let signature = try XCTUnwrap(
+            SegmentSignature.read(at: OpLogStore.segmentSignatureURL(for: mine[0])),
+            "the segment is signed beside itself")
+        XCTAssertTrue(signature.verifies())
+        XCTAssertEqual(signature.key, identities.author.fingerprint,
+                       "signed by the actor whose slug the segment is named for")
+
+        XCTAssertTrue(
+            segmentURLs(docId: doc.docId)
+                .filter { $0.lastPathComponent.contains(identities.assistant.slug.raw) }
+                .isEmpty,
+            "the assistant's tail is oversized too, and is NOT this Document's "
+            + "to rotate — the sweep at project open is what rotates it")
+    }
+
+    /// The direction the rule exists for. An MCP call is a Document loaded as
+    /// the ASSISTANT, and its close must not delete the writer's own live tail
+    /// out from under the editor.
+    func test_anAssistantLoadedDocumentsCloseNeverRotatesTheAuthorsTail() async throws {
+        useASigningIdentity()
+        let identities = try XCTUnwrap(Document.localIdentitiesForTesting)
+
+        // The writer's tail, grown and left in place.
+        let writing = try await makeDoc(device: identities.author.deviceId)
+        writing.setParagraph(id: writing.sequence[0], text: "Alpha, by the writer.")
+        try await writing.flushBurstNow()
+        let docId = writing.docId
+        await writing.close()
+        let authorTail = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: identities.author.slug, in: projectURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: authorTail.path),
+                      "precondition: the author has a tail on disk")
+
+        // Claude's call: same document, loaded as the assistant.
+        let assisting = try await makeDoc(device: identities.assistant.deviceId)
+        try await assisting.appendMirrored(Op(
+            opId: ULID.generate(), docId: docId, at: Date(),
+            device: identities.assistant.deviceId, session: "s2",
+            kind: .checkpoint, changes: []))
+        Document.segmentSealThresholdForTesting = 1
+        await assisting.close()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: authorTail.path),
+            "an MCP call must not rotate — and so DELETE — the writer's own tail")
+        XCTAssertTrue(
+            segmentURLs(docId: docId)
+                .filter { $0.lastPathComponent.contains(identities.author.slug.raw) }
+                .isEmpty,
+            "nor turn it into a segment")
+        XCTAssertEqual(
+            segmentURLs(docId: docId)
+                .filter { $0.lastPathComponent.contains(identities.assistant.slug.raw) }
+                .count,
+            1,
+            "its own tail is its own to rotate")
+    }
+
+    /// The same rule from the other caller. Project-open maintenance sweeps
+    /// this Mac's oversized tails, and this Mac has four of them per doc.
+    func test_openMaintenanceRotatesEveryLocalActorsOversizedTail() async throws {
+        let device = useASigningIdentity()
+        let identities = try XCTUnwrap(Document.localIdentitiesForTesting)
+        let doc = try await makeDoc(device: device)
+        doc.setParagraph(id: doc.sequence[0], text: "Alpha, by the writer.")
+        try await doc.flushBurstNow()
+        try await doc.appendMirrored(Op(
+            opId: ULID.generate(), docId: doc.docId, at: Date(),
+            device: identities.assistant.deviceId, session: "s1",
+            kind: .checkpoint, changes: []))
+        // Close WITHOUT the test threshold, so both tails survive unrotated
+        // and the sweep is the only thing that can rotate them.
+        await doc.close()
+        XCTAssertTrue(segmentURLs(docId: doc.docId).isEmpty,
+                      "precondition: nothing rotated at close")
+
+        Document.segmentSealThresholdForTesting = 1
+        let store = try await DocumentStore.open(url: projectURL)
+        defer { Task { await store.close() } }
+        for identity in [identities.author, identities.assistant] {
+            XCTAssertEqual(
+                segmentURLs(docId: doc.docId)
+                    .filter { $0.lastPathComponent.contains(identity.slug.raw) }
+                    .count,
+                1,
+                "open-time maintenance must rotate \(identity.deviceId)'s tail too")
+        }
+    }
+
+    /// What the sweep COSTS, now that it is the one place all four actors
+    /// rotate (the whole-branch review's I1).
+    ///
+    /// Every seal attempt opens a writing coordination, reads the whole file
+    /// and runs a full chain verify before it can discover there is nothing to
+    /// sign — so a sweep that sealed all four per document was 4N coordinated
+    /// reads before the writer saw a window, and on a sixty-chapter novel that
+    /// is 240 of them. It seals the author's alone; rotation decides on a
+    /// `fileExists` and an `attributesOfItem` and reads nothing under the
+    /// threshold.
+    func test_openMaintenanceReadsOnlyTheAuthorsFile() async throws {
+        useASigningIdentity()
+        let identities = try XCTUnwrap(Document.localIdentitiesForTesting)
+        let doc = try await makeDoc(device: identities.author.deviceId)
+        let docId = doc.docId
+        doc.setParagraph(id: doc.sequence[0], text: "Alpha, by the writer.")
+        try await doc.flushBurstNow()
+        for actor in [identities.assistant, identities.translator, identities.maugham] {
+            try await doc.appendMirrored(Op(
+                opId: ULID.generate(), docId: docId, at: Date(),
+                device: actor.deviceId, session: "s1",
+                kind: .checkpoint, changes: []))
+        }
+        await doc.close()
+
+        let files = OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL)
+        for actor in identities.all {
+            XCTAssertTrue(
+                files.contains { $0.lastPathComponent.contains(actor.slug.raw) },
+                "precondition: \(actor.deviceId) has a file here")
+        }
+
+        // No test threshold, so nothing is over it and no rotation may read.
+        nonisolated(unsafe) var verifies = 0
+        OpLogChain.verifyObserverForTesting = { verifies += 1 }
+        let store = try await DocumentStore.open(url: projectURL)
+        OpLogChain.verifyObserverForTesting = nil
+        await store.close()
+
+        XCTAssertEqual(verifies, 1,
+            "one document, one coordinated read: the author's tail, whose "
+            + "crash-window leftover the sweep exists for. The assistant's, the "
+            + "translator's and Maugham's are sealed by their own next write.")
+        XCTAssertTrue(segmentURLs(docId: docId).isEmpty,
+                      "nothing was over the threshold, so nothing rotated")
     }
 
     func test_close_underThreshold_doesNotSeal() async throws {
@@ -255,7 +443,7 @@ final class SegmentSealTriggerTests: XCTestCase {
     }
 
     func test_documentStoreOpen_runsSealMaintenance() async throws {
-        let doc = try await makeDoc(device: DeviceIdentity.current.deviceId)
+        let doc = try await makeDoc(device: DeviceIdentity.author.deviceId)
         for i in 0..<30 {
             doc.setParagraph(id: doc.sequence[0],
                              text: "grown \(i) " + String(repeating: "z", count: 300))

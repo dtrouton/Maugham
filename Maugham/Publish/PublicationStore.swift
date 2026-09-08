@@ -74,7 +74,7 @@ public final class PublicationStore {
     /// the legacy unsuffixed one.
     public func append(_ pub: Publication) async throws {
         let url = Self.fileURL(
-            deviceSlug: DeviceIdentity.current.slug, in: projectURL)
+            deviceSlug: DeviceIdentity.author.slug, in: projectURL)
         try await JSONLAppendStore<Publication>(fileURL: url, presenter: presenter).append(pub)
     }
 

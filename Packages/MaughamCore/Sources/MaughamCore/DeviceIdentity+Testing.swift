@@ -15,16 +15,42 @@ import Foundation
 extension DeviceIdentity {
     /// A signing identity backed by an in-process P256 key, so the sign/verify
     /// contract is testable on a machine with no enclave (CI's VM runner).
-    static func softwareForTesting() -> DeviceIdentity {
+    static func softwareForTesting(actor: DeviceActor = .author) -> DeviceIdentity {
         let key = P256.Signing.PrivateKey()
-        return signed(publicKey: key.publicKey) { digest in
+        return signed(actor: actor, publicKey: key.publicKey) { digest in
             try key.signature(for: digest).rawRepresentation
         }
     }
 
     /// The unsigned twin over a known token, so a test can pin the
     /// token → fingerprint derivation and the `.unsigned` refusal.
-    static func unsignedForTesting(token: Data) -> DeviceIdentity {
-        unsigned(token: token)
+    static func unsignedForTesting(token: Data, actor: DeviceActor = .author) -> DeviceIdentity {
+        unsigned(actor: actor, token: token)
+    }
+}
+
+extension LocalIdentities {
+    /// Four software keys, one per actor — the test-side twin of `current`,
+    /// touching no disk and no enclave. Four DISTINCT keys, so a test that
+    /// signs as the translator and verifies as the author fails, as it must.
+    static func softwareForTesting() -> LocalIdentities {
+        LocalIdentities(
+            author: .softwareForTesting(actor: .author),
+            assistant: .softwareForTesting(actor: .assistant),
+            translator: .softwareForTesting(actor: .translator),
+            maugham: .softwareForTesting(actor: .maugham))
+    }
+
+    /// One given identity as the author, with a fresh software key for each of
+    /// the other three. The shape `OpLogStore`'s single-identity convenience
+    /// init needs: the suite's `identity` keeps meaning what it meant, and the
+    /// three fillers are distinct from it, so nothing it writes verifies under
+    /// an actor it never named.
+    static func forTesting(author: DeviceIdentity) -> LocalIdentities {
+        LocalIdentities(
+            author: author,
+            assistant: .softwareForTesting(actor: .assistant),
+            translator: .softwareForTesting(actor: .translator),
+            maugham: .softwareForTesting(actor: .maugham))
     }
 }

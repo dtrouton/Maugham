@@ -469,22 +469,28 @@ public final class Document {
     /// maintenance. Production reads `OpLogStore.segmentSealThreshold`.
     internal static var segmentSealThresholdForTesting: Int? = nil
 
-    /// Test-only override for the device identity and chain memory every
-    /// `Document.load` hands its `OpLogStore`. Production leaves both nil and
-    /// gets `DeviceIdentity.current` / `OpLogDeviceState.shared`.
+    /// Test-only override for this device's four writers and the chain memory
+    /// every `Document.load` hands its `OpLogStore`. Production leaves both nil
+    /// and gets `LocalIdentities.current` / `OpLogDeviceState.shared`.
     ///
     /// Why a seam at all (`segmentSealThresholdForTesting`'s shape): a test
-    /// that asserts a SEAL was written needs an identity that can sign, and
-    /// the machine running the suite may have none — CI's VM has no Secure
-    /// Enclave, so `DeviceIdentity.current` there is the unsigned token twin
-    /// and `sealChain` correctly writes nothing. Injecting
-    /// `DeviceIdentity.softwareForTesting()` makes the seal assertable without
+    /// that asserts a SEAL was written needs identities that can sign, and the
+    /// machine running the suite may have none — CI's VM has no Secure Enclave,
+    /// so every actor there is the unsigned token twin and `sealChain`
+    /// correctly writes nothing. Injecting
+    /// `LocalIdentities.softwareForTesting()` makes the seal assertable without
     /// making the production path conditional on anything.
+    ///
+    /// **All four, not one** (P1b): a `Document.load` now names an ACTOR and
+    /// derives its device string from this value, so a seam holding only the
+    /// author would have an assistant load sign as the machine's real assistant
+    /// key while its store trusted the fixture's. One value, four writers, no
+    /// way for the two to disagree.
     ///
     /// A test that sets these MUST clear them in `tearDown`: they are
     /// process-wide, and a leaked signer would silently change what every
     /// later test's load can vouch for.
-    internal static var deviceIdentityForTesting: DeviceIdentity? = nil
+    internal static var localIdentitiesForTesting: LocalIdentities? = nil
     internal static var deviceStateForTesting: OpLogDeviceState? = nil
 
     /// The ONE construction of an `OpLogStore` on a load path, so the two
@@ -497,8 +503,16 @@ public final class Document {
         OpLogStore(
             projectURL: projectURL,
             presenter: presenter,
-            identity: deviceIdentityForTesting ?? .current,
+            identities: loadIdentities,
             state: deviceStateForTesting ?? .shared)
+    }
+
+    /// This device's four writers — the injected quartet when a suite has one,
+    /// this machine's own otherwise. The ONE place a load path asks who this
+    /// device is, so the store that signs an op and the actor lookup that named
+    /// its device string can never come from two different answers.
+    internal static var loadIdentities: LocalIdentities {
+        localIdentitiesForTesting ?? .current
     }
 
     /// Test-only artificial delay injected inside the detached task-op disk
@@ -1175,7 +1189,12 @@ public final class Document {
             // nothing new, and a genuine failure is LOGGED and dropped —
             // sealing is maintenance, and it must never cost the writer the
             // burst that has already landed. Enclave signing is ~4.5 ms once
-            // per burst, which is the accepted price.
+            // per burst, which is the accepted price — and it stays ONE
+            // signature because `sealChain` decides from its own
+            // `linesSinceSeal` counters (the whole-branch review's I1). A
+            // burst wrote into the writer's file, so the writer's file is what
+            // is read, verified and signed; the assistant's and the
+            // translator's are not opened at all.
             do {
                 _ = try await opStore.sealChain(docId: docId)
             } catch {
@@ -1326,20 +1345,35 @@ public final class Document {
                 "close() chain seal failed for \(self.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         // Rotation (ADR 0016 / growth spec §5.2): this device's own oversized
-        // tail becomes an immutable compressed segment. Threshold-gated
-        // (usually a no-op) and best-effort — a seal failure must never block
-        // close; the next close or project-open maintenance retries. Never
-        // mid-typing, never another device's file, never the legacy unsuffixed
-        // file (sealTailIfNeeded's scope rules).
-        do {
-            _ = try await opStore.sealTailIfNeeded(
-                docId: docId,
-                deviceSlug: DeviceSlug.make(from: device),
-                threshold: Self.segmentSealThresholdForTesting
-                    ?? OpLogStore.segmentSealThreshold)
-        } catch {
-            documentLog.error(
-                "op-log seal failed for \(self.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        // tails become immutable compressed segments. Threshold-gated (usually
+        // a no-op) and best-effort — a seal failure must never block close; the
+        // next close or project-open maintenance retries. Never mid-typing,
+        // never another device's file, never the legacy unsuffixed file
+        // (sealTailIfNeeded's scope rules).
+        //
+        // THIS Document's own actor and no other (P1b, narrowed by the
+        // whole-branch review's I3). Rotation DELETES the tail it turns into a
+        // segment, and every MCP annotation or task call is a Document loaded
+        // as the assistant — so a close that swept all four would delete the
+        // file the writer's own open Document is appending to, from a call the
+        // writer never made. The other three actors' oversized tails are the
+        // project-open sweep's job (`DocumentStore.open`), which runs before
+        // any Document exists and therefore races none of them. The rotation
+        // carries the key of the actor whose slug names it
+        // (`sealTailIfNeeded`'s sidecar rule), so nothing signs for anybody
+        // else. AFTER `sealChain` above, for its reason: a segment must end on
+        // a seal line.
+        if let mine = opStore.identities.identity(forDeviceId: device) {
+            do {
+                _ = try await opStore.sealTailIfNeeded(
+                    docId: docId,
+                    deviceSlug: mine.slug,
+                    threshold: Self.segmentSealThresholdForTesting
+                        ?? OpLogStore.segmentSealThreshold)
+            } catch {
+                documentLog.error(
+                    "op-log seal failed for \(self.docId, privacy: .public) / \(mine.deviceId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
 
         // Drop the per-keystroke shingle/bigram memo — the doc is going away.

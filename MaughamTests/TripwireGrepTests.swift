@@ -6783,7 +6783,7 @@ final class TripwireGrepTests: XCTestCase {
     /// restored from another's backup — answered the same `hostName`, so their
     /// per-device op-log files collided; tripwire 17 is the record of what a
     /// collision on that file costs (a silently dropped conflict twin the
-    /// loader never opens). `DeviceIdentity.current.deviceId` (MaughamCore) is
+    /// loader never opens). `DeviceIdentity.author.deviceId` (MaughamCore) is
     /// the one answer on both surfaces, and it is derived from key material
     /// that cannot repeat across machines.
     func test_noHostnameIdentity() throws {
@@ -6796,7 +6796,7 @@ final class TripwireGrepTests: XCTestCase {
         }
         XCTAssertTrue(offenders.isEmpty,
             "A production file derives an identity from the host name. The "
-            + "device id is `DeviceIdentity.current.deviceId` — the prefix of "
+            + "device id is `DeviceIdentity.author.deviceId` — the prefix of "
             + "this device's key fingerprint — because two Macs can share a "
             + "name and then share a per-device op-log file, which is how a "
             + "writer's lines go missing (tripwire 17). Offenders:\n"
@@ -6837,7 +6837,7 @@ final class TripwireGrepTests: XCTestCase {
         try """
         // A comment may say ProcessInfo.processInfo.hostName — allowed.
         /// And may name the old "phone:<uuid>" and "unknown-host" spellings.
-        let sanctioned = DeviceIdentity.current.deviceId
+        let sanctioned = DeviceIdentity.author.deviceId
         let host = ProcessInfo.processInfo.hostName
         let minted = "phone:\\(UUID().uuidString)"
         let fallback = name.isEmpty ? "unknown-host" : name
@@ -6950,5 +6950,138 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(allowed.isEmpty,
             "Self-check: the allow-listed file must be skipped whole. Caught:\n"
             + allowed.joined(separator: "\n"))
+    }
+
+    // MARK: - No hand-built device string at a production `Document.load`
+    //         (signed op log P1b, plan constraint 5)
+
+    /// Every `device:` argument found inside a `Document.load(` call
+    /// expression in `text`, by line number.
+    ///
+    /// The scan is CALL-SHAPED rather than line-shaped because every
+    /// production call site spans four or five lines: it walks the source with
+    /// a paren counter, remembers the depth at which each `Document.load(`
+    /// opened, and records a `device:` label seen while any such call is still
+    /// open. Line comments are stripped first (with their newlines kept, so
+    /// line numbers survive), because prose about this rule must be able to
+    /// name the argument it forbids.
+    ///
+    /// **The stripper does not know about string literals** (the whole-branch
+    /// review's M3): a `//` inside one — a URL, say — takes the rest of that
+    /// line with it, so an unmatched `(` before it inflates the depth counter
+    /// for the remainder of the file. Nothing in the three roots does that
+    /// today, and the failure direction is a false POSITIVE, which is a red
+    /// test somebody reads rather than a rule that quietly stopped holding. If
+    /// one ever appears, teach the stripper about quotes rather than loosening
+    /// the census.
+    static func deviceArgumentsAtDocumentLoad(in text: String) -> [Int] {
+        let stripped = text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> String in
+                guard let comment = line.range(of: "//") else { return String(line) }
+                return String(line[line.startIndex..<comment.lowerBound])
+            }
+            .joined(separator: "\n")
+        let chars = Array(stripped)
+        let needle = Array("Document.load(")
+        let label = Array("device:")
+        var offenders: [Int] = []
+        var line = 1
+        var depth = 0
+        var openCalls: [Int] = []   // paren depths at which a load call opened
+        var i = 0
+        while i < chars.count {
+            switch chars[i] {
+            case "\n":
+                line += 1
+            case "(":
+                depth += 1
+                if i + 1 >= needle.count,
+                   Array(chars[(i + 1 - needle.count)...i]) == needle {
+                    openCalls.append(depth)
+                }
+            case ")":
+                if openCalls.last == depth { openCalls.removeLast() }
+                depth -= 1
+            default:
+                if !openCalls.isEmpty, chars[i] == "d",
+                   i + label.count <= chars.count,
+                   Array(chars[i..<(i + label.count)]) == label {
+                    // A LABEL, not the tail of `deviceId:` or `.device:` —
+                    // the character before must not be identifier-ish.
+                    let prev: Character = i > 0 ? chars[i - 1] : " "
+                    if !(prev.isLetter || prev.isNumber || prev == "_" || prev == ".") {
+                        offenders.append(line)
+                    }
+                }
+            }
+            i += 1
+        }
+        return offenders
+    }
+
+    /// **A production `Document.load` names an ACTOR, never a device string.**
+    ///
+    /// Before P1b, four production call sites passed a literal — `"wiki-rename"`,
+    /// `"find-replace"` and `"mcp"` twice — and a literal names no key, so
+    /// `OpLogStore.append` took the plain unchained path: everything Claude
+    /// wrote through MCP, and both automations of the writer's hand, were lines
+    /// nothing on the device could vouch for. The `device: String` overloads
+    /// survive as `internal` for the test call sites that predate the actors;
+    /// production says which of the four writers is acting and lets
+    /// `LocalIdentities` answer with the id.
+    func test_noDeviceStringAtAProductionDocumentLoad() throws {
+        let roots = [
+            sourceDir,
+            repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true),
+        ]
+        var offenders: [String] = []
+        let fm = FileManager.default
+        for root in roots {
+            guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: nil)
+            else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                for line in Self.deviceArgumentsAtDocumentLoad(in: text) {
+                    offenders.append("\(url.lastPathComponent):\(line)")
+                }
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production `Document.load` passes a `device:` string. A device is "
+            + "four writers (`DeviceActor`), and the one acting must be named as "
+            + "an actor — `.author` for the writer's own acts and the automations "
+            + "of their hand, `.assistant` for anything arriving through MCP, "
+            + "`.translator` for the translation pipeline, `.maugham` for the app "
+            + "acting on nobody's instruction. A hand-built string names no key, "
+            + "so the op appends unchained and unsigned. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: over a planted file, the multi-line call
+    /// and the single-line call are both caught, while the actor call, a
+    /// `device:` argument to something that is not `Document.load`, a
+    /// `deviceId:` label, and a comment naming the forbidden argument all go
+    /// through.
+    func test_theDocumentLoadActorCensusFiresOnAPlantedOffender() throws {
+        let planted = """
+        // A comment may say Document.load(url: x, device: "mcp", session: s).
+        let fine = try await Document.load(
+            url: docURL, actor: .assistant,
+            session: "s", presenter: nil)
+        let alsoFine = Op(docId: id, device: deviceId, session: s)
+        let stillFine = PendingBuffer(projectURL: p, docId: id, device: d)
+        let andFine = Document.load(url: u, deviceId: x, session: s)
+        let bad = try await Document.load(
+            url: docURL,
+            device: "find-replace",
+            session: "s", presenter: nil)
+        let alsoBad = try await Document.load(url: u, device: "mcp", session: s, presenter: nil)
+        """
+        let offenders = Self.deviceArgumentsAtDocumentLoad(in: planted)
+        XCTAssertEqual(offenders, [10, 12],
+            "Self-check: the two planted `device:` arguments should be the ones "
+            + "caught, and neither the actor call, the other constructors, the "
+            + "`deviceId:` label, nor the comment. Caught lines: \(offenders)")
     }
 }

@@ -323,7 +323,7 @@ final class ProjectASTAnchorTests: XCTestCase {
                 TranslationRecord(
                     paragraphId: id, language: "es", text: source,
                     sourceHash: TranslationHash.hash(source), verbatim: true),
-                forDocId: docId, deviceSlug: DeviceSlug.make(from: "test-mac"), in: store.url)
+                forDocId: docId, identity: LocalIdentities.current.translator, identities: .current, in: store.url)
         }
 
         let source = try ProjectASTBuilder

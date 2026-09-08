@@ -65,7 +65,7 @@ final class InboxStore {
 
     init(projectURL: URL,
          deviceId: String = InboxStore.currentDeviceId,
-         identity: DeviceIdentity = .current) {
+         identity: DeviceIdentity = .author) {
         self.projectURL = projectURL
         self.inboxDir = projectURL.appendingPathComponent(".maugham/inbox")
         self.deviceId = deviceId
@@ -87,10 +87,10 @@ final class InboxStore {
         JSONLAppendStore<InboxEntry>(fileURL: url, chain: chainPolicy())
     }
 
-    /// Mirrors `EditorHost.deviceId`: this device's key fingerprint, read once
-    /// per process from `DeviceIdentity.current` (memoized, so nothing here
+    /// Mirrors `ProjectStore.projectOpDevice`: this device's key fingerprint, read once
+    /// per process from `DeviceIdentity.author` (memoized, so nothing here
     /// touches the disk per call).
-    nonisolated static var currentDeviceId: String { DeviceIdentity.current.deviceId }
+    nonisolated static var currentDeviceId: String { DeviceIdentity.author.deviceId }
 
     private var ownManifestURL: URL {
         InboxManifest.inboxManifestURL(forDeviceSlug: DeviceSlug.make(from: deviceId),

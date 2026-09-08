@@ -303,7 +303,7 @@ final class CompileToolsTests: XCTestCase {
                 paragraphId: ids[0], language: "es", text: "Primero.",
                 sourceHash: TranslationHash.hash(doc.paragraphs[ids[0]] ?? ""),
                 verbatim: false),
-            forDocId: item.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
+            forDocId: item.id, identity: LocalIdentities.current.translator, identities: .current,
             in: fixtureURL)
 
         let data = try await PreviewCompileTool.handle(

@@ -63,6 +63,12 @@ public enum TranslationWritePipeline {
     /// one append. Returns the advisory warnings — structural drift and
     /// equals-source reminders — which never block the write.
     ///
+    /// `actor` is who is writing, and it decides both the file and the key that
+    /// signs it: `.translator` for `write_translation` and the pipeline's own
+    /// ingest, which is what a translation IS. The signer is taken out of
+    /// `identities` rather than passed beside it, so the key a line is signed
+    /// with and the keys the file is read back under cannot disagree.
+    ///
     /// Throws `MCPError.invalidArgument` and writes nothing if the language
     /// tag is malformed, an entry supplies other than exactly one form, the
     /// batch repeats a paragraph id, or a `text`/`verbatim` entry names an id
@@ -73,8 +79,10 @@ public enum TranslationWritePipeline {
         language: String,
         documentId: String,
         state: SourceState,
-        deviceSlug: DeviceSlug
-    ) throws -> [String] {
+        actor: DeviceActor,
+        identities: LocalIdentities = .current,
+        deviceState: OpLogDeviceState = .shared
+    ) async throws -> [String] {
         // 1. Valid language tag.
         try validate(language: language)
 
@@ -150,9 +158,10 @@ public enum TranslationWritePipeline {
                 }
             }
         }
-        try TranslationStore.appendBatch(
+        try await TranslationStore.appendBatch(
             records, forDocId: documentId, language: language,
-            deviceSlug: deviceSlug, in: state.projectURL)
+            identity: identities[actor], identities: identities,
+            state: deviceState, in: state.projectURL)
 
         return warnings
     }

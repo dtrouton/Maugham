@@ -28,8 +28,12 @@ final class SegmentIntegrityTests: XCTestCase {
         let url = projectURL.appendingPathComponent("manuscript/doc.md")
         try "Alpha paragraph.\n\nBeta paragraph."
             .write(to: url, atomically: true, encoding: .utf8)
+        // The author's own device string, because close rotates this device's
+        // own actors' tails and nobody else's (P1b) — a made-up device would
+        // grow a tail no local slug names, and nothing would seal.
         let doc = try await Document.load(
-            url: url, device: "test-mac", session: "s1", presenter: nil,
+            url: url, device: DeviceIdentity.author.deviceId, session: "s1",
+            presenter: nil,
             burstIdle: .seconds(3600), burstMax: .seconds(3600))
         doc.setParagraph(id: doc.sequence[0], text: "Alpha, sealed history.")
         try await doc.flushBurstNow()
@@ -52,7 +56,8 @@ final class SegmentIntegrityTests: XCTestCase {
         // 2. Loading the doc writes a forensic quarantine record.
         Document.segmentSealThresholdForTesting = nil
         let reloaded = try await Document.load(
-            url: url, device: "test-mac", session: "s2", presenter: nil)
+            url: url, device: DeviceIdentity.author.deviceId, session: "s2",
+            presenter: nil)
         let quarantineDir = projectURL
             .appendingPathComponent(".maugham/conflicts/quarantine")
         let records = (try? FileManager.default.contentsOfDirectory(

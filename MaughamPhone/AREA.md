@@ -37,9 +37,25 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   `UbiquitousFileSystem` seam, `ProjectsRoot` (bookmark
   lifecycle), `ProjectsBrowser` (id→manifest), `RecentsTracker`,
   `ColdLaunchDownloader`. The device id is NOT here: it is MaughamCore's
-  `DeviceIdentity.current.deviceId`, the same one the Mac reads (signed op log
-  P1) — never a `phone:<uuid>` of the phone's own, and `PhoneDeviceID` is
-  deleted. The key that id is derived from is an enclave key whose
+  `DeviceIdentity.author.deviceId`, the same one the Mac's writer reads (signed
+  op log P1) — never a `phone:<uuid>` of the phone's own, and `PhoneDeviceID` is
+  deleted. The phone is the `author` and holds that ONE key — and it
+  needs no code of its own to be. `LocalIdentities` is LAZY (signed op log P1b,
+  whole-branch review C1): its enumerating members (`all`, `fingerprints`,
+  `identity(forDeviceId:)`) answer over the actors whose key already exists on
+  disk and mint nothing, and only naming an actor (`subscript`, or one of the
+  four named properties) mints. The phone's writers name `.author`; nothing on
+  it ever names the other three, so nothing mints them, however many
+  `OpLogStore`s it constructs. **That last clause is the whole finding**: this
+  file used to say the phone "reaches for no other `DeviceActor`", which was
+  true as a grep and false as a fact — `OpLogStore(projectURL:)` defaults its
+  `identities:` argument, three phone sites take the default, and the eager
+  quartet minted three enclave keys on the main actor the moment the
+  Annotations tab opened. The guard is now a measurement:
+  `PhoneOneKeyTests.test_openingTheAnnotationsPathMintsNoKeyThePhoneWillNeverSignWith`
+  (`PhoneDeviceIdentityTests.swift`) runs the real read path and then asks
+  `DeviceState.directory` what is in it. The grep census it replaced is gone,
+  with the reason in its place in `TripwirePhoneGrepTest`. The key that id is derived from is an enclave key whose
   `dataRepresentation` blob the app persists itself, under
   `~/Library/Application Support/<supportFolderName>/device/` — outside every
   project folder, because it must never sync (`DeviceState.directory`; no
@@ -83,7 +99,11 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   device id string, and appends through `JSONLAppendStore` with a `ChainPolicy`**
   (`docId:` the annotation's own document, the project as `projectURL`) — the
   same store and the same chain as the inbox manifest, sealed after every op
-  because a lifecycle decision is rare. An unsigned phone writes chained ops and
+  because a lifecycle decision is rare. That identity is the **`author`'s**
+  (signed op log P1b, 2026-09-08): an accept or a reject on the phone is the
+  writer's own decision, so the phone signs as the writer and mints
+  none of the Mac's other three actor keys — nothing on the phone names them,
+  and under the lazy `LocalIdentities` a key exists only once a writer has. An unsigned phone writes chained ops and
   no seals, which is a state and not a failure. **`store.projects` holds ALL statuses**
   (mode-filtering is a pure view-layer step); the leaf/middle **re-slice from the
   store by id** so mid-stack counts stay fresh after a resolve.

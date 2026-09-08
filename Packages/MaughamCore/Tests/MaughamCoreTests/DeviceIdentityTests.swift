@@ -35,7 +35,7 @@ final class DeviceIdentityTests: XCTestCase {
     func test_aSecondLoadAnswersTheSameIdentityAndMintsNothing() throws {
         let dir = try makeDirectory()
 
-        let first = try DeviceIdentity.load(from: dir)
+        let first = try DeviceIdentity.load(from: dir, actor: .author)
         let afterFirst = try entries(of: dir)
         XCTAssertEqual(afterFirst.count, 1,
             "One load should leave exactly one file behind — the key blob or the "
@@ -43,7 +43,7 @@ final class DeviceIdentityTests: XCTestCase {
         let mintedAt = try FileManager.default
             .attributesOfItem(atPath: dir.appendingPathComponent(afterFirst[0]).path)[.modificationDate] as? Date
 
-        let second = try DeviceIdentity.load(from: dir)
+        let second = try DeviceIdentity.load(from: dir, actor: .author)
 
         XCTAssertEqual(first.deviceId, second.deviceId)
         XCTAssertEqual(first.fingerprint, second.fingerprint)
@@ -56,25 +56,24 @@ final class DeviceIdentityTests: XCTestCase {
             "The second load rewrote the key material — it must not touch it.")
     }
 
-    /// The id is 16 hex characters off a 64-hex fingerprint, whichever path
-    /// minted it.
-    func test_theIdIsSixteenHexOffTheSixtyFourHexFingerprint() throws {
-        let identity = try DeviceIdentity.load(from: try makeDirectory())
+    /// The id is the actor's name and 16 hex characters off a 64-hex
+    /// fingerprint, whichever path minted it — the author's included, so a
+    /// per-device file reads as itself (`<doc>.author-<16hex>-<8hex>.jsonl`).
+    func test_theIdIsTheActorsNameAndSixteenHexOffTheSixtyFourHexFingerprint() throws {
+        let identity = try DeviceIdentity.load(from: try makeDirectory(), actor: .author)
         let hex = CharacterSet(charactersIn: "0123456789abcdef")
         XCTAssertEqual(identity.fingerprint.count, 64)
-        XCTAssertEqual(identity.deviceId.count, 16)
+        XCTAssertEqual(identity.deviceId, "author-\(identity.fingerprint.prefix(16))")
         XCTAssertTrue(identity.fingerprint.unicodeScalars.allSatisfy(hex.contains),
             "Fingerprint is lowercase hex: \(identity.fingerprint)")
-        XCTAssertTrue(identity.deviceId.unicodeScalars.allSatisfy(hex.contains),
-            "Device id is lowercase hex: \(identity.deviceId)")
-        XCTAssertTrue(identity.fingerprint.hasPrefix(identity.deviceId))
+        XCTAssertEqual(identity.actor, .author)
     }
 
     // MARK: - (b) Two directories are two devices
 
     func test_twoDirectoriesAnswerDifferentIdentities() throws {
-        let one = try DeviceIdentity.load(from: try makeDirectory())
-        let two = try DeviceIdentity.load(from: try makeDirectory())
+        let one = try DeviceIdentity.load(from: try makeDirectory(), actor: .author)
+        let two = try DeviceIdentity.load(from: try makeDirectory(), actor: .author)
         XCTAssertNotEqual(one.deviceId, two.deviceId)
         XCTAssertNotEqual(one.fingerprint, two.fingerprint)
     }
@@ -130,7 +129,7 @@ final class DeviceIdentityTests: XCTestCase {
             "No Secure Enclave on this machine — the token path covers the rest.")
         let dir = try makeDirectory()
 
-        let first = try DeviceIdentity.load(from: dir)
+        let first = try DeviceIdentity.load(from: dir, actor: .author)
         XCTAssertTrue(first.canSign, "With an enclave present, load must mint an enclave key.")
         XCTAssertEqual(try entries(of: dir), ["device-key.blob"],
             "The enclave path persists the key's dataRepresentation, and nothing else.")
@@ -140,7 +139,7 @@ final class DeviceIdentityTests: XCTestCase {
         let signature = try P256.Signing.ECDSASignature(rawRepresentation: raw)
         XCTAssertTrue(try XCTUnwrap(first.publicKey).isValidSignature(signature, for: digest))
 
-        let second = try DeviceIdentity.load(from: dir)
+        let second = try DeviceIdentity.load(from: dir, actor: .author)
         XCTAssertEqual(first.publicKey?.rawRepresentation, second.publicKey?.rawRepresentation,
             "The second load must reuse the persisted blob, not mint a second key.")
         XCTAssertEqual(first.deviceId, second.deviceId)
@@ -156,7 +155,7 @@ final class DeviceIdentityTests: XCTestCase {
         let blob = dir.appendingPathComponent("device-key.blob")
         try Data("not a key".utf8).write(to: blob)
 
-        let identity = try DeviceIdentity.load(from: dir)
+        let identity = try DeviceIdentity.load(from: dir, actor: .author)
 
         XCTAssertNotEqual(
             try? Data(contentsOf: blob), Data("not a key".utf8),
@@ -184,11 +183,11 @@ final class DeviceIdentityTests: XCTestCase {
 
     func test_theSlugIsFilenameSafeAndStable() throws {
         let dir = try makeDirectory()
-        let identity = try DeviceIdentity.load(from: dir)
+        let identity = try DeviceIdentity.load(from: dir, actor: .author)
         let slug = identity.slug
 
         XCTAssertEqual(slug, DeviceSlug.make(from: identity.deviceId))
-        XCTAssertEqual(slug, try DeviceIdentity.load(from: dir).slug,
+        XCTAssertEqual(slug, try DeviceIdentity.load(from: dir, actor: .author).slug,
             "The slug must survive a relaunch.")
         let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-")
         XCTAssertTrue(slug.raw.unicodeScalars.allSatisfy(safe.contains),
@@ -245,11 +244,72 @@ final class DeviceIdentityTests: XCTestCase {
         try DeviceState.ensureDirectory(nested)
     }
 
-    // MARK: - current
+    // MARK: - The memoized per-actor identities
 
-    func test_currentAnswersAStableIdentity() throws {
-        XCTAssertEqual(DeviceIdentity.current.deviceId, DeviceIdentity.current.deviceId)
-        XCTAssertEqual(DeviceIdentity.current.fingerprint.count, 64)
+    /// Each actor is its own key in its own file. The author keeps the names
+    /// P1 shipped (`device-key.blob` / `device-token`); the other three suffix
+    /// theirs, so one `device/` folder holds four keys that cannot be confused.
+    func test_eachActorMintsItsOwnFileUnderItsOwnName() throws {
+        let dir = try makeDirectory()
+
+        for actor in DeviceActor.allCases {
+            _ = try DeviceIdentity.load(from: dir, actor: actor)
+        }
+
+        let names = Set(try entries(of: dir))
+        let expected: Set<String> = SecureEnclave.isAvailable
+            ? ["device-key.blob", "device-key.assistant.blob",
+               "device-key.translator.blob", "device-key.maugham.blob"]
+            : ["device-token", "device-token.assistant",
+               "device-token.translator", "device-token.maugham"]
+        XCTAssertEqual(names, expected,
+            "Four actors, four files, each named for its actor. Found: \(names.sorted())")
+    }
+
+    /// Four ids carrying four prefixes over four DISTINCT fingerprints — the
+    /// point of the whole slice: the role is in the key, not in a label beside
+    /// it, so an op's signature says which actor wrote it.
+    func test_theFourIdsCarryTheirPrefixesOverFourDistinctFingerprints() throws {
+        let dir = try makeDirectory()
+
+        let identities = try DeviceActor.allCases.map {
+            try DeviceIdentity.load(from: dir, actor: $0)
+        }
+
+        for identity in identities {
+            XCTAssertTrue(identity.deviceId.hasPrefix("\(identity.actor.rawValue)-"),
+                "\(identity.deviceId) does not name its own actor.")
+            XCTAssertEqual(identity.deviceId,
+                           "\(identity.actor.rawValue)-\(identity.fingerprint.prefix(16))")
+        }
+        XCTAssertEqual(Set(identities.map(\.fingerprint)).count, DeviceActor.allCases.count,
+            "Two actors share key material — then a signature proves nothing about "
+            + "which of them wrote the op.")
+        XCTAssertEqual(Set(identities.map(\.slug)).count, DeviceActor.allCases.count,
+            "Two actors share a filename partition (tripwire 17).")
+    }
+
+    /// The phone mints ONE key on first launch: it is the `author` on its own
+    /// device and nothing else. Minting four enclave keys where three would
+    /// never be used is work the writer waits for, for nothing.
+    func test_loadingTheAuthorAloneMintsNothingForTheOtherActors() throws {
+        let dir = try makeDirectory()
+
+        _ = try DeviceIdentity.load(from: dir, actor: .author)
+
+        let names = try entries(of: dir)
+        XCTAssertEqual(names.count, 1,
+            "Asking for the author minted more than the author. Found: \(names)")
+        for actor in DeviceActor.allCases where actor != .author {
+            XCTAssertFalse(names.contains(where: { $0.contains(actor.rawValue) }),
+                "\(actor.rawValue) has a file and nobody asked for it. Found: \(names)")
+        }
+    }
+
+    func test_theAuthorAnswersAStableIdentity() throws {
+        XCTAssertEqual(DeviceIdentity.author.deviceId, DeviceIdentity.author.deviceId)
+        XCTAssertEqual(DeviceIdentity.author.fingerprint.count, 64)
+        XCTAssertEqual(DeviceIdentity.author.actor, .author)
     }
 }
 
@@ -313,5 +373,114 @@ final class DeviceStateSweepTests: XCTestCase {
         XCTAssertTrue(exists(state))
         XCTAssertTrue(exists(stranger))
         XCTAssertTrue(exists(malformed), "a leaf with no readable pid is left alone")
+    }
+}
+
+
+/// `LocalIdentities` — this device's four actors in one value, so a reader can
+/// ask "is this device string one of mine?" without knowing which actor it is.
+final class LocalIdentitiesTests: XCTestCase {
+
+    func test_theSubscriptAnswersTheMemberNamedByTheActor() {
+        let local = LocalIdentities.softwareForTesting()
+        XCTAssertEqual(local[.author].fingerprint, local.author.fingerprint)
+        XCTAssertEqual(local[.assistant].fingerprint, local.assistant.fingerprint)
+        XCTAssertEqual(local[.translator].fingerprint, local.translator.fingerprint)
+        XCTAssertEqual(local[.maugham].fingerprint, local.maugham.fingerprint)
+    }
+
+    /// The census that keeps the enum and the struct from drifting: a fifth
+    /// `DeviceActor` case with no member here fails HERE rather than silently
+    /// leaving one actor's ops unrecognised as local (constraint 1).
+    func test_everyDeviceActorCaseHasAMemberAndAllIsInThatOrder() {
+        let local = LocalIdentities.softwareForTesting()
+        XCTAssertEqual(local.all.count, DeviceActor.allCases.count,
+            "A DeviceActor case has no member on LocalIdentities.")
+        XCTAssertEqual(local.all.map(\.actor), DeviceActor.allCases,
+            "`all` is `DeviceActor.allCases` order, so a caller iterating either "
+            + "one sees the same sequence.")
+        XCTAssertEqual(local.fingerprints, Set(local.all.map(\.fingerprint)))
+        XCTAssertEqual(local.fingerprints.count, DeviceActor.allCases.count)
+    }
+
+    func test_identityForDeviceIdRoundTripsEveryActorAndRefusesAStranger() {
+        let local = LocalIdentities.softwareForTesting()
+
+        for actor in DeviceActor.allCases {
+            let mine = local[actor]
+            let found = local.identity(forDeviceId: mine.deviceId)
+            XCTAssertEqual(found?.fingerprint, mine.fingerprint)
+            XCTAssertEqual(found?.actor, actor)
+        }
+
+        XCTAssertNil(local.identity(forDeviceId: "author-0123456789abcdef"),
+            "Another device's author is not this device's author — an id that "
+            + "merely LOOKS local must not be adopted, or this device would sign "
+            + "and seal a file it does not own (tripwire 17).")
+        XCTAssertNil(local.identity(forDeviceId: local.author.fingerprint),
+            "A fingerprint is not a device id.")
+        XCTAssertNil(local.identity(forDeviceId: ""))
+    }
+
+    // MARK: - Lazy: a key exists once a writer has named its actor (C1)
+
+    /// The rule the whole-branch review's C1 bought, in one test: a device
+    /// folder nobody has written into trusts NOTHING, and every actor's key
+    /// comes into being at the moment a writer names it — never because
+    /// something asked the value a question.
+    ///
+    /// This is the phone's whole protection. Its writers name `.author`; it
+    /// constructs `OpLogStore`s all day, each defaulting to `.current`, and
+    /// none of that may put a key in its container for an actor it will never
+    /// sign with.
+    func test_aFreshDeviceFolderTrustsNothingUntilAWriterNamesAnActor() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lazy-identities-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let local = LocalIdentities.device(in: tmp)
+
+        // Asking every enumerating question mints nothing.
+        XCTAssertTrue(local.fingerprints.isEmpty,
+            "A device that has never written trusts no key, because it holds none.")
+        XCTAssertTrue(local.all.isEmpty)
+        XCTAssertTrue(local.existingActors.isEmpty)
+        XCTAssertNil(local.identity(forDeviceId: "author-0123456789abcdef"))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: tmp.path), [],
+            "Enumerating wrote no key material.")
+
+        // Naming one actor mints exactly that one.
+        let author = local.author
+        XCTAssertEqual(local.existingActors, [.author])
+        XCTAssertEqual(local.fingerprints, [author.fingerprint])
+        XCTAssertEqual(local.identity(forDeviceId: author.deviceId)?.fingerprint,
+                       author.fingerprint)
+        for absent in [DeviceActor.assistant, .translator, .maugham] {
+            XCTAssertFalse(
+                DeviceIdentity.hasPersistedIdentity(for: absent, in: tmp),
+                "\(absent.rawValue) was never named, so it has no key.")
+        }
+
+        // And naming a second one leaves the first alone.
+        let maugham = local.maugham
+        XCTAssertEqual(local.existingActors, [.author, .maugham])
+        XCTAssertEqual(local.fingerprints, [author.fingerprint, maugham.fingerprint])
+        XCTAssertNotEqual(author.fingerprint, maugham.fingerprint)
+    }
+
+    /// A value built from four given identities is not lazy and never was: the
+    /// caller has already decided who this device is, so all four enumerate.
+    func test_aGivenQuartetEnumeratesAllFour() {
+        let local = LocalIdentities.softwareForTesting()
+        XCTAssertEqual(local.existingActors, DeviceActor.allCases)
+    }
+
+    /// The four software identities are four distinct keys, so a test that
+    /// signs as the translator and verifies as the author fails.
+    func test_theTestingMintGivesFourDistinctKeys() {
+        let local = LocalIdentities.softwareForTesting()
+        XCTAssertEqual(Set(local.all.map(\.deviceId)).count, DeviceActor.allCases.count)
+        XCTAssertTrue(local.all.allSatisfy(\.canSign))
     }
 }

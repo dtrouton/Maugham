@@ -199,7 +199,9 @@ button, because neither is something you need to do anything about:
   otherwise would be a lie about who wrote them. The same sentence also reports
   changes that came from another device — your iPhone, a second Mac — which are
   applied normally and simply carry someone else's signature rather than this
-  machine's.
+  machine's. "Another device" always means another machine: work Claude did
+  through MCP on this Mac, and translations the pipeline filed here, are signed
+  by this Mac's own keys and are never counted as coming from elsewhere.
 - **"N changes were written to this document by something that is not Maugham;
   kept in backup, not applied."** This one is the point of the whole thing.
   Those changes are *not* in your manuscript, they were never applied, and they
