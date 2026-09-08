@@ -612,6 +612,13 @@ public final class OpLogStore {
     /// Answers whether a seal was written. False is the ordinary answer on a
     /// device with no key and on a file with nothing new — neither is an error,
     /// and neither throws.
+    ///
+    /// **`__project__` is sealed here and rotated nowhere.** The two verbs are
+    /// different acts: this one SIGNS a run of lines in place, `sealTailIfNeeded`
+    /// REWRITES the tail into an immutable segment. Only the second refuses the
+    /// project stream (a recorded Denver decision), so the project's task log is
+    /// signed history like every other tail while its tail keeps growing —
+    /// which is what `ProjectStore._projectOpLogStore` exists to make possible.
     @discardableResult
     public func sealChain(docId: String) async throws -> Bool {
         try await store(forDocId: docId, deviceSlug: identity.slug).appendSeal()
