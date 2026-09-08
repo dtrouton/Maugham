@@ -12,7 +12,9 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 
 - `OpLogStore.swift` and `CheckpointStore.swift` — wrappers over `JSONLAppendStore<T>` that keep hot-path (op log, every typing burst) and cold-path (checkpoints, ⌘S) concurrency profiles explicit; `JSONLAppendStore` is the shared persistence primitive. **Both partition per device** — a writer appends only to its own `<stem>.<deviceSlug>.jsonl` and readers glob-merge every sibling, the legacy unsuffixed file included (ADR 0012; `PartitionedJSONLFile` in MaughamCore holds the checkpoint/publication template, `OpLogStore` its own). Checkpoints were left out of ADR 0012's scope and were fixed by FM-1; `formal/OpLogSync.tla`'s `_cpshared`/`_cppartitioned` pair is the proof that partitioning is the fix rather than a tidy-up.
 - `JSONLAppendStore.swift` — generic append + read + tail for any JSONL-typed store. Extend here if you need new shared persistence semantics. **It is chained when it holds a `ChainPolicy` and plain when it does not** (signed op log P1): the op log and the inbox pass one; publications and checkpoints do not, and keep the append they have always had. Project-scope TASK ops are not an exception — they are `Op`s appended through `OpLogStore` into `__project__.jsonl`, so they are chained like any other op.
-- `DeviceIdentity.swift` / `DeviceState.swift` (MaughamCore) — this device's enclave key, persisted by the app as a plain blob under Application Support, and the id/fingerprint/slug derived from it. `DeviceIdentity+Testing.swift` holds the test-only software signer, and is the one allow-list entry of `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`.
+- `DeviceActor.swift` (MaughamCore) — the closed enum of who, on this device, wrote an op: `author`, `assistant`, `translator`, `maugham`. The raw value is both the device-id prefix and the key-file suffix, so a fifth actor is a spec amendment and a new file on disk rather than a case added in passing; nothing switches over it with a `default`.
+- `LocalIdentities.swift` (MaughamCore) — this device's four writers in one value: `subscript(actor:)` (exhaustive, so a fifth case is a compile error), `all` in `DeviceActor.allCases` order, `fingerprints` (what *trusted* means on read), and `identity(forDeviceId:)`, which matches on the WHOLE id and never a prefix — another Mac's author carries `author-` too. `current` is computed over `DeviceIdentity.identity(for:)`'s per-actor memoization, so nothing is minted until it is asked for; the phone, which is the author alone, must reach `DeviceIdentity.author` directly rather than through here.
+- `DeviceIdentity.swift` / `DeviceState.swift` (MaughamCore) — one enclave key **per actor**, each persisted by the app as a plain blob under Application Support (`device-key.blob`/`device-token` for the author, `device-key.<actor>.blob`/`device-token.<actor>` for the other three), and the id/fingerprint/slug derived from it. `DeviceIdentity.author` is the writer's; `DeviceIdentity.identity(for:)` is any of the four. `DeviceIdentity+Testing.swift` holds the test-only software signer, and is the one allow-list entry of `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`.
 - `OpLogChain.swift` (MaughamCore) — the wire format (`prev` as the first key; the seal line) and the pure verifier that classifies every line. No I/O, no clock, no policy about who is trusted: the `trusted` closure and the remembered head are parameters. `Hex` lives here too, shared with the segment container and the fingerprint.
 - `OpLogDeviceState.swift` (MaughamCore) — what this device remembers: the chain head it last wrote into each file, and the digests of segments it has already verified. Also `ChainPolicy`, the value a chained `JSONLAppendStore` carries.
 - `OpLogProvenance.swift` (MaughamCore) — `FileProvenance` per file and `OpLogProvenance` over a document, the load's own account of what its history is made of. What `HistoryPane`'s unsigned-history sentence reads.
@@ -166,7 +168,9 @@ mints a `SecureEnclave.P256.Signing.PrivateKey` and persists its
 `dataRepresentation` as a plain file under
 `~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/`
 — no keychain item, no entitlement, and the blob is useless off this machine.
-`deviceId` is the 16-hex prefix of the fingerprint, `slug` is
+`deviceId` is `<actor>-<16-hex prefix of the fingerprint>` — the author's
+carries its prefix too, so a per-device file reads as itself,
+`<doc>.author-<16hex>-<8hex>.jsonl` — `slug` is
 `DeviceSlug.make(from: deviceId)` (tripwire 24 unchanged — only what `make` is
 handed changed), and `MacDeviceID`/`PhoneDeviceID` are deleted. **Unsigned is a
 state, not a failure**: with no enclave the device persists 32 random bytes,
@@ -241,14 +245,19 @@ file its seal closes are the same file.
 that doc that exists and holds unsealed lines — the two or three that wrote
 nothing cost no enclave operation, since `appendSeal` returns before it asks for
 a signature. The interval trigger inside `append` seals the file just appended
-to, under that file's own actor. `sealTailIfNeeded` is unchanged and still takes
-a SLUG: its callers (`Document.close()`, `DocumentStore`'s open-time sweep) pass
-the author's, so rotation into a `.mzseg` segment is the author's tail alone —
-another actor's tail rotates only if it crosses the 512 KB threshold, which
-Claude's annotation traffic does not approach in practice. What DID change is
-the sidecar's signer: the segment signature carries the key of the actor whose
-slug the segment is named for, and a slug naming no local actor gets no sidecar
-at all.
+to, under that file's own actor. `sealTailIfNeeded` still takes a SLUG, and both
+its callers (`Document.close()`, `DocumentStore`'s open-time sweep) now loop
+over `identities.all` and pass each local actor's — so a long MCP session's
+assistant tail rotates into a `.mzseg` segment at the same 512 KB threshold the
+writer's does, and nothing on this device grows without bound. The loop is over
+this device's OWN identities, which is how the scope rule survives being
+widened: never `__project__`, never the legacy unsuffixed file, never another
+device's — a document loaded under a device string naming no local actor rotates
+nothing at all. The sidecar's signer follows the slug: the segment signature
+carries the key of the actor whose slug the segment is named for, and a slug
+naming no local actor gets no sidecar at all. Pinned by
+`SegmentSealTriggerTests.test_close_rotatesEveryLocalActorsOversizedTail` and
+its open-maintenance twin, both of which fail with the author-only loop.
 
 **A torn LAST line is `tornTail`, not a break.** Bytes that do not close as a
 JSON object, with nothing after them, are a write that stopped mid-line: excluded
@@ -331,7 +340,12 @@ now takes `.file` records only — a `.lines` record is not a file waiting to co
 back. `HistoryPane` says the two things a writer can act on knowing and no
 others: `unsignedHistoryNotice` (legacy history, foreign-signed history, or ONE
 sentence carrying both — the coalescing rule) and `setAsideLinesNotice`, neither
-with a Retry, because neither is something the writer can undo. **The INBOX has
+with a Retry, because neither is something the writer can undo. **"Another
+device" in that sentence never means this Mac's assistant, translator or
+Maugham** (P1b): trust on the read side is all four local fingerprints, so
+Claude's annotation file and the pipeline's translation file are this device's
+own signed word, and a narrower trusted set would have the writer told their own
+MCP history came from somewhere else. **The INBOX has
 its own half of that sentence** — `InboxPane.setAsideNotice(lineCount:)`, drawn
 beside the unreadable-manifests notice — because the inbox's `.lines` records are
 filed under the manifest stream's own id (`InboxManifest.chainDocId`) and
@@ -340,7 +354,16 @@ nobody. Both panes count through `OpLogQuarantine.setAsideLineCount`, one
 implementation, because one record can hold a run of lines and the writer's
 question is how many CHANGES. **`unsealed`
 lines are never mentioned**: the live tail is always partly unsealed, so naming
-it would be a permanent notice about nothing. The device identities and chain
+it would be a permanent notice about nothing. **The production load door names an ACTOR:**
+`Document.load(url:actor:session:presenter:)` takes a `DeviceActor` and derives
+the device string from that actor's key, so the writer's editor loads
+`.author`, MCP loads `.assistant` (`AnnotationToolHelpers.withAnnotationDocument`,
+`TaskReadTools`), and `write_translation` loads `.translator`. The
+`device: String` overloads survive as **`internal`, test-only** — hundreds of
+test call sites predate the actors — and
+`TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` (with a planted
+offender) is what keeps a literal out of production, because a hand-built string
+names no key and appends unchained. The device identities and chain
 memory a load hands its `OpLogStore` come from `Document.makeLoadOpStore`, the
 one construction, with `Document.localIdentitiesForTesting` (all FOUR writers,
 since a load's `actor:` argument derives its device string from the same value)
@@ -487,6 +510,9 @@ Failure modes:
 7. **No software private key in production.** The device key is the enclave's — `SecureEnclave.P256.Signing.PrivateKey` — because a software key copies off the machine with the file that holds it, and a signature made with one proves nothing about which device wrote the op. `DeviceIdentity+Testing.swift` is the sole allow-list entry of `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`; a test that needs a *verified* line injects that signer.
 
 8. **A seal line is recognised in `OpLogChain` only.** `isSealLine` is the one door onto the `{"seal":` prefix, and `JSONLAppendStore.parse` — the one parser every reader shares (tails, decompressed segments, the inbox) — is its one caller. A second recogniser is a second opinion about what a seal is, and the failure is silent: a reader that hands a seal to an element decoder reports a healthy file as damaged.
+
+9. **A production `Document.load` names an actor, never a device string.** `Document.load(url:actor:session:presenter:)` is the production door; the `device: String` overloads are `internal` and test-only. A literal names no key, so `OpLogStore.append` takes the plain unchained path and the op is signed by nobody — which is exactly what happened to everything Claude wrote through MCP (`"mcp"`), both automations of the writer's hand (`"wiki-rename"`, `"find-replace"`) and the task rebalance (`"rebalance"`) under P1. `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` is the census; `test_theDocumentLoadActorCensusFiresOnAPlantedOffender` is its control. CLAUDE.md tripwire 38.
+
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 
 ## Behavioural claims

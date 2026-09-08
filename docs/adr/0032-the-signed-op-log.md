@@ -1,6 +1,6 @@
 # ADR 0032 — The signed op log: provenance for every op, the device before the person
 
-**Date:** 2026-09-07 · **Status:** Accepted (P1 built; P2 and P3 unwritten) · **Milestone:** signed-op-log-p1-integrity-and-the-device (branch `claude/signed-op-log-p1-2026-09-07`)
+**Date:** 2026-09-07 · **Amended 2026-09-08** (Addendum: actors) · **Status:** Accepted (P1 and P1b built; P2 and P3 unwritten) · **Milestone:** signed-op-log-p1-integrity-and-the-device (branch `claude/signed-op-log-p1-2026-09-07`), then signed-op-log-p1b-actors (branch `claude/signed-op-log-p1b-actors-2026-09-08`)
 
 ## Context
 
@@ -278,6 +278,108 @@ pane. None of it changes the wire format: a seal already carries the key that
 verifies it, so P2 supplies the `trusted` closure `OpLogChain.verify` already
 takes and *pending* becomes reachable. P3 adds roles and the per-op-kind check.
 
+## Addendum — actors, 2026-09-08 (P1b)
+
+**A device is four writers, and each holds a key of its own.** P1 gave the
+device one enclave key, which said *this Mac* and stopped there. Four different
+things write into one project's op logs — the writer typing, Claude answering
+through MCP, the translation pipeline filing a round, and the app rebalancing
+task priorities on nobody's instruction — and P1 recorded which was which
+nowhere at all. Worse, four `Document.load` call sites passed a **role as a
+device string** (`"wiki-rename"`, `"find-replace"`, `"mcp"` twice, and
+`TaskDeriver`'s `"rebalance"`), and a string names no key, so C1's rule took
+the plain unchained path for every one of them: everything Claude wrote through
+MCP and both automations of the writer's hand were lines nothing on the device
+could vouch for. That was the P1 handoff's decision #7, and Denver ruled it:
+*"lets use the terminology 'assistant' for anything through the mcp …
+translations get a special role of 'translator' … optimisations should be
+signed as Maugham itself … search and replace is an automation of the writer."*
+
+`DeviceActor` (MaughamCore) is the closed enum that follows — `author`,
+`assistant`, `translator`, `maugham` — and `LocalIdentities` holds all four
+identities in one value, subscripted exhaustively so a fifth case is a compile
+error rather than a silently missing key. Each actor mints and persists its own
+enclave blob under the same `device/` folder (the author keeps
+`device-key.blob`/`device-token`; the others take a `.<actor>` suffix), takes
+its own device id `<actor>-<16 hex>`, and therefore its own per-doc file. (In
+the FILENAME the hex run is shorter for `assistant` and `translator`, whose
+names do not leave sixteen hex digits inside `DeviceSlug.make`'s 24-character
+prefix cap; the id itself is untrimmed.)
+
+**Four KEYS rather than four labels, and what that does and does not buy.** A
+label is a claim made *inside* the line, so anything able to write a line is
+able to write the label; a key is who sealed the span, and only the enclave
+that holds it can produce that signature. The honest limit: all four actors run
+inside one Maugham process, so this does **not** protect against Maugham
+mislabelling its own writes — nothing stops the app from loading a document as
+`.author` and letting MCP write through it. What protects that is the
+compile-time argument: `Document.load(url:actor:session:presenter:)` is the
+production door, the `device: String` overload is `internal`, and
+`TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` (with a planted
+offender) keeps a literal out. What the four keys buy is provenance of the
+**channel**: a line in `<doc>.assistant-…jsonl` sealed by the assistant's key
+came through MCP, and no line elsewhere can claim to have.
+
+**What search-and-replace is.** It is the author's, not the app's. A
+project-wide replace is a machine performing what the writer decided, in the
+words the writer chose — an automation of their hand, and the same is true of a
+wiki-link rename. The distinction is not *did a human type each character* but
+*whose decision is in the op*, and by that rule only the priority rebalance
+belongs to `maugham`: nobody asked for it and nobody would notice it.
+
+**The rebalance marker moved from `device` to `session`.**
+`TaskDeriver.rebalanceSentinel` is still the string `"rebalance"`, but it is now
+the SESSION marker alone; the ops carry `DeviceActor.maugham`'s real device id,
+so they chain and seal like everything else, and every reader that recognised a
+rebalance by its device string recognises it by session. No `SynthesisSource`
+case, so no schema bump.
+
+**Translations are chained under two actors' files, and the existing merge is
+what makes that safe.** `TranslationStore` writes through the chained
+`JSONLAppendStore<TranslationRecord>` under the `translator` (the pipeline and
+`write_translation`) or the `author` (the Translation Review pane's own edits,
+because a purge is the writer's decision and filing it under the translator's
+key would put it in the wrong hand). Two actors therefore write two files for
+one `(docId, language)` — which is exactly what `loadMerged` has always done
+across device files, opId-ordered and deduped, so nothing new was needed. The
+chain is per file, so neither actor's rewrite can touch the other's lines
+(ADR 0012's single-writer premise, now per actor rather than per device).
+
+**Every local actor's oversized tail rotates.** `sealChain(docId:)` walks all
+four actors and seals each file that exists and holds unsealed lines — the ones
+that wrote nothing cost no enclave operation, since `appendSeal` returns before
+it asks for a signature. Rotation follows the same rule as of this addendum:
+`Document.close()` and `DocumentStore`'s open-time sweep call
+`sealTailIfNeeded` once per local identity rather than for the author alone, so
+a long MCP session's assistant tail becomes a `.mzseg` segment at the same
+512 KB threshold the writer's does. This supersedes the first spelling of §5 in
+this ADR's area guide, which said rotation was the author's tail alone. Two
+scope rules are unchanged and now matter more: rotation is never `__project__`,
+never the legacy unsuffixed file, and **never another device's** — the loop is
+over this device's own identities, so a document loaded under a device string
+that names no local actor rotates nothing. The sidecar carries the key of the
+actor whose slug the segment is named for, and a slug naming no local actor
+gets no signature at all.
+
+**Signing and trusting stopped having the same answer.** A line is signed by
+one actor; `ChainPolicy.trustedFingerprints` and every `trusted:` closure on the
+read side are **all four**, because the assistant's seal over the assistant's
+own file is this device's own word. A narrower set would file the writer's own
+MCP history as another device's unsigned history, and History's *"changes from
+another device"* would start counting Claude on this Mac. `OpLogStore` has no
+single `identity` property any more: it holds `identities`, and a reader wanting
+"the device" has to say which of the four it means.
+
+**The phone is the `author` and mints that one key.** Its captures and its
+accept/reject are the writer's acts; it reaches `DeviceIdentity.author`
+directly and never `LocalIdentities.current`, which would mint all four
+(`TripwirePhoneGrepTest.test_thePhoneReachesForNoIdentityButTheAuthors`).
+
+**No format change.** `prev`, the seal line, `.lines` records and
+`op-log-state.json` are exactly P1's; the state file belongs to the DEVICE and
+takes the author's fingerprint as its identity, because a device that re-keys
+re-keys all four. P2's registry admits a person, a device **and an actor**.
+
 ## Consequences
 
 - **A device is its key, so a device that loses its key is a new device.** It
@@ -393,4 +495,4 @@ takes and *pending* becomes reachable. P3 adds roles and the per-op-kind check.
 - `Maugham/OpLog/AREA.md` ("Chained and sealed", "Sealed segments"),
   `Maugham/Stores/AREA.md` (the inbox manifest; the `.maugham/` layout),
   `MaughamPhone/AREA.md` (the phone's writers and the aim's removal).
-- CLAUDE.md tripwires 35, 36 and 37.
+- CLAUDE.md tripwires 35, 36, 37 and 38.

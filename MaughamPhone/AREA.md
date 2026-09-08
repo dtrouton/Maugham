@@ -85,7 +85,10 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   device id string, and appends through `JSONLAppendStore` with a `ChainPolicy`**
   (`docId:` the annotation's own document, the project as `projectURL`) — the
   same store and the same chain as the inbox manifest, sealed after every op
-  because a lifecycle decision is rare. An unsigned phone writes chained ops and
+  because a lifecycle decision is rare. That identity is the **`author`'s**
+  (signed op log P1b, 2026-09-08): an accept or a reject on the phone is the
+  writer's own decision, so the phone signs as the writer and holds none of the
+  Mac's other three actor keys. An unsigned phone writes chained ops and
   no seals, which is a state and not a failure. **`store.projects` holds ALL statuses**
   (mode-filtering is a pure view-layer step); the leaf/middle **re-slice from the
   store by id** so mid-stack counts stay fresh after a resolve.

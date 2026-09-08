@@ -1,6 +1,6 @@
 # The signed op log — provenance for every op, people as keys, devices as certificates
 
-**Date:** 2026-09-05 · **Status:** approved in discussion; **§7 spike run 2026-09-07** (`docs/superpowers/notes/2026-09-07-signed-op-log-spike.md`) — four corrections folded in below and marked *(spike)*; **P2 ships labels only — ruled 2026-09-07** (§3, §8); the synced person key is a later milestone of its own; **P1 built 2026-09-07** (branch `claude/signed-op-log-p1-2026-09-07`, [ADR 0032](../../adr/0032-the-signed-op-log.md)) — verified/quarantined only, no registry, so *pending* (§4.4) does not yet exist; P2 and P3 unwritten
+**Date:** 2026-09-05 · **Status:** approved in discussion; **§7 spike run 2026-09-07** (`docs/superpowers/notes/2026-09-07-signed-op-log-spike.md`) — four corrections folded in below and marked *(spike)*; **P2 ships labels only — ruled 2026-09-07** (§3, §8); the synced person key is a later milestone of its own; **P1 built 2026-09-07** (branch `claude/signed-op-log-p1-2026-09-07`, [ADR 0032](../../adr/0032-the-signed-op-log.md)) — verified/quarantined only, no registry, so *pending* (§4.4) does not yet exist; **P1b (actors) built 2026-09-08** (branch `claude/signed-op-log-p1b-actors-2026-09-08`) — §4.1's Actors paragraph, §4.8's id shape and §4.9's role mapping below; P2 and P3 unwritten
 **Session:** "compiler / author / review split" (second brainstorm of the session)
 
 *Brainstormed with Denver 2026-09-05, from his question "protecting the oplog
@@ -151,6 +151,38 @@ silently), a key already present (certify against it), no key yet
 mark it *not yet shared*, watch `com.apple.security.keychainchanged`, adopt
 and merge an older key when it lands, never delete on a timer).
 
+**Actors — a device is four writers (2026-09-08, P1b).** A device key said
+*this Mac*, and that was not enough: the writer, Claude through MCP, the
+translation pipeline and the app's own housekeeping all appended under one
+key, and the role — where it was recorded at all — was a label beside the op
+that anything could have written. Denver ruled the vocabulary on the P1
+handoff's decision #7: *"lets use the terminology 'assistant' for anything
+through the mcp … translations get a special role of 'translator' …
+optimisations should be signed as Maugham itself … search and replace is an
+automation of the writer."*
+
+`DeviceActor` is the closed enum that follows, and each case holds **its own
+enclave key** under the same `device/` folder rather than a label in the line:
+
+| actor | who it is | what it signs |
+|---|---|---|
+| `author` | the writer's own hand, and the automations of it | the editor's ops, statement edits, the ⌘S checkpoint breadcrumb, wiki-rename, search-and-replace, the Translation Review pane's own edits, and the phone's every write |
+| `assistant` | anything arriving through MCP | Claude's annotations, comments, queries and task reads |
+| `translator` | the translation pipeline and `write_translation` | translation records for every language |
+| `maugham` | the app acting on nobody's instruction | the task-priority rebalance |
+
+A fifth actor is an amendment to this table, not a case added in passing:
+the enum is closed and `LocalIdentities`' subscript switches over it
+exhaustively, so the compiler asks for the fifth key on the day it arrives.
+
+**Why keys rather than labels.** A label lives inside the line, so anything
+that can write a line can write the label; a key is who sealed the span, and
+nothing can forge it. What this buys is honest and bounded: all four actors
+run inside one Maugham process, so the split does not stop Maugham
+mislabelling its own writes — that is the compile-time `actor:` parameter's
+job (§4.8) — it makes the *channel* a fact of the file. An annotation that
+claims to be Claude's carries the assistant's signature or it carries none.
+
 ### 4.2 The registry
 
 `.maugham/people/<personFingerprint>.json` and
@@ -297,6 +329,27 @@ private init and its filename-only life (tripwire 24); only what `make` is
 handed changes. Legacy slugs stay for legacy files. `MacDeviceID` is deleted;
 the phone's equivalent follows the same rule through MaughamCore (tripwire 19).
 
+**The slug is the ACTOR key's, not the device's (2026-09-08, P1b.)** A device
+id is `<actor>-<16 hex of that actor's fingerprint>` — the author's carries its
+prefix too, so a per-device file reads as itself:
+`<doc>.author-<16hex>-<8hex>.jsonl`, `<doc>.assistant-…`, and a translation
+file `<doc>.<lang>.translator-…`. (The FILENAME's hex run is shorter for the
+longer actor names: `DeviceSlug.make` caps its sanitized prefix at 24
+characters, which `author-` and `maugham-` fit inside and `assistant-` and
+`translator-` do not. The device ID is unaffected; only the slug is trimmed,
+and the FNV suffix keeps it unique.) The blobs follow: the author keeps
+`device-key.blob`/`device-token` and the other three are
+`device-key.<actor>.blob`/`device-token.<actor>`. `op-log-state.json` stays
+ONE file for the device and takes the **author's** fingerprint as its identity,
+because a device that re-keys re-keys all four.
+
+Which actor a load is is a **compile-time argument**, never a string:
+`Document.load(url:actor:session:presenter:)` is the production door, the
+`device: String` overload is `internal` and test-only, and a census forbids a
+`device:` literal at any production `Document.load` (tripwire 38). That is what
+keeps Maugham from mislabelling its own writes, since the four keys all live in
+one process.
+
 ### 4.9 Roles
 
 Two roles in this milestone, on the person record:
@@ -316,6 +369,20 @@ enforced half it explicitly deferred.
 admission with `role: author` signed by the current author, downgrading the
 previous author's role in the same act. Not built here; the record shape
 anticipates it and nothing here forecloses it.
+
+**P3 maps the actors onto this table (2026-09-08, P1b.)** The four keys of
+§4.1 already partition what a device writes, so P3's per-op-kind check reads
+the signing key rather than a claim: the `assistant` key gets exactly the
+**reviewer** row's permissions — annotation creation ops and inbox rows, and
+nothing that touches manuscript text, structure, dispositions, pass states or
+statements — which is what "MCP never mutates manuscript text" becomes when it
+is enforced at the storage layer rather than by the tool catalogue alone. The
+`translator` key gets a **row of its own**, since a translation record is not
+an annotation and is not manuscript text either: it may sign translation
+records for any language and nothing else. `author` keeps the everything row,
+and `maugham` signs only the priority rebalance. A person's role still gates
+what their DEVICES may write; the actor gates what each of a device's four keys
+may write within that.
 
 ### 4.10 The inbox
 
@@ -431,7 +498,21 @@ Recorded. P1 can be planned; P2 waits on §8's decision.
   the History line, so nothing regresses); `DeviceSlug` from the key
   fingerprint and `MacDeviceID` deleted; inbox rows sealed; the palette aim
   removed. Closes audit item 10. Testable on the Mac and in the iOS simulator.
-- **P2 — people and admission.** Device certificates; the registry with
+- **P1b — actors (built 2026-09-08).** `DeviceActor` and one enclave key per
+  actor on each device; `LocalIdentities` as the device's four writers in one
+  value; `OpLogStore` signing with the actor an op's `device` names and trusting
+  all four; `Document.load(actor:)` with the `device: String` overload made
+  test-only and censused; the sentinel device strings (`"wiki-rename"`,
+  `"find-replace"`, `"mcp"`, `"rebalance"`) gone, with the rebalance marker
+  moved to `session`; translation records chained under the translator (the
+  pipeline, `write_translation`) or the author (the Review pane's own edits);
+  every local actor's oversized tail rotating into a segment signed by its own
+  key. Answers the P1 handoff's decision #7. No format change: `prev`, seal
+  lines, `.lines` records and the state file are exactly P1's.
+- **P2 — people and admission.** The registry admits **a person, a device and
+  an actor** — a device's four keys are four admission records under one device
+  certificate, so People & Devices can show what Claude wrote on this Mac as
+  Claude's rather than as the writer's. Device certificates; the registry with
   signed records and the cache; the three states in full (pending arrives
   here); the admission sheet, labels and the `<label> (<own name>)`
   convention; revocation; the claim and adoption; People & Devices in

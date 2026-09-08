@@ -1,6 +1,6 @@
 # Signed op log P1 — handoff (2026-09-08)
 
-**Branch:** `claude/signed-op-log-p1-2026-09-07`, twenty commits on local `main` at `901b5598`, merged to local `main` UNPUSHED. **Plan:** `docs/superpowers/plans/2026-09-07-signed-op-log-p1-integrity-and-the-device.md`. **Spec:** `docs/superpowers/specs/2026-09-05-signed-op-log-design.md` §8's first bullet. **ADR:** `docs/adr/0032-the-signed-op-log.md`. Denver smokes before anything is pushed or tagged; P2 and P3 are unwritten (rule 11).
+**Branch:** `claude/signed-op-log-p1-2026-09-07`, twenty commits on local `main` at `901b5598`, merged to local `main` UNPUSHED. **P1b (actors) followed on 2026-09-08** (branch `claude/signed-op-log-p1b-actors-2026-09-08`), resolving decision #7 below; Denver smokes P1 and P1b together. **Plan:** `docs/superpowers/plans/2026-09-07-signed-op-log-p1-integrity-and-the-device.md`. **Spec:** `docs/superpowers/specs/2026-09-05-signed-op-log-design.md` §8's first bullet. **ADR:** `docs/adr/0032-the-signed-op-log.md`. Denver smokes before anything is pushed or tagged; P2 and P3 are unwritten (rule 11).
 
 ## What landed, per task
 
@@ -54,14 +54,30 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
 
 ## Smoke (Denver)
 
-1. Launch the dev app → open a real project → type one sentence → `.maugham/ops/` gains `<doc>.<16hex>-<8hex>.jsonl` beside the hostname-slug file; the old file's byte count no longer changes.
+1. Launch the dev app → open a real project → type one sentence → `.maugham/ops/` gains `<doc>.author-<16hex>-<8hex>.jsonl` beside the hostname-slug file (the `author-` prefix is P1b's; a P1 build wrote the same file without it); the old file's byte count no longer changes.
 2. Wait a burst (30–90 s) → the new tail's last line begins `{"seal":`.
 3. ⌘Q, relaunch, reopen → the words are intact; History (⌘⌥H) shows *Part of this document's history was written before this book was signed.* and nothing else new.
-4. With the app open, append any JSON line to the new tail from a shell (`echo '{"op_id":"x"}' >> .maugham/ops/<doc>.<16hex>-<8hex>.jsonl`) → reopen the document (or wait for the presenter) → History shows *1 change was written to this document by something that is not Maugham; kept in backup, not applied.*; the editor shows nothing new; `.maugham/conflicts/quarantined-ops/` holds a `.lines` file and its `.quarantine.json`.
+4. With the app open, append any JSON line to the new tail from a shell (`echo '{"op_id":"x"}' >> .maugham/ops/<doc>.author-<16hex>-<8hex>.jsonl`) → reopen the document (or wait for the presenter) → History shows *1 change was written to this document by something that is not Maugham; kept in backup, not applied.*; the editor shows nothing new; `.maugham/conflicts/quarantined-ops/` holds a `.lines` file and its `.quarantine.json`.
 5. Type one more sentence → the tail no longer contains the foreign line; the archive still does.
 6. Open a second Mac or the Statistics/Integrity check: nothing red; the check writes no record.
 7. Phone: update, capture a text note → the Mac's Inbox shows it; the phone's manifest has a seal line after the row. Open Annotations, accept one → the Mac applies it; History counts it as unsigned history from another device.
 8. Publish → Compile still works (segments with `.sig` sidecars beside them).
+9. **(P1b) The assistant is its own writer.** With the document open, ask Claude
+   Desktop for a comment on it (`add_comment`) → `.maugham/ops/` gains
+   `<doc>.assistant-<hex>-<8hex>.jsonl` beside the author's — a shorter hex run than
+   the author's, because `DeviceSlug.make` caps its prefix at 24 characters and
+   `assistant-` is ten of them — and its last line
+   begins `{"seal":`. Reopen the document → History (⌘⌥H) says **nothing** about
+   another device: the assistant's key is this Mac's own, so Claude's note is
+   this Mac's signed history rather than somebody else's unsigned history.
+10. **(P1b) The translator is its own writer.** On a project with a translated
+   edition, run `write_translation` (or a pipeline round from the Publish desk)
+   → `.maugham/translations/`'s op files gain
+   `<doc>.<lang>.translator-<hex>-<8hex>.jsonl`, its last line a seal. Then
+   purge a paragraph from the Translation Review pane → that edit lands in the
+   **author's** file for the same `(doc, language)`, because the writer's
+   decision is the writer's; both files merge and the pane reads what it read
+   before.
 
 ## Decisions owed
 
@@ -110,20 +126,25 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
    honest close is P2's registry plus a rule that an adopted head must be at or
    descended from the last trusted seal. **Confirm that P2 carries it.**
 
-7. **Four more sentinel device strings turned up while fixing C1, and their
-   streams are now unsigned.** The review named `TaskDeriver.rebalanceSentinel`;
-   the same shape is reached by every `Document.load` caller that passes a role
-   rather than a device — `"wiki-rename"` (`ProjectStore+Structure`),
-   `"find-replace"` (`ProjectStore+Search`) and `"mcp"` (`TaskReadTools`,
-   `AnnotationToolHelpers`). Under C1 all four write append-only, unchained,
-   unsealed files, which is exactly what they did before this milestone — and
-   the alternative, chaining them, is the mutually-truncating bug C1 exists to
-   remove. But `"mcp"` covers **every annotation Claude writes**, so a real
-   share of a project's history is deliberately outside the signature.
-   **Should those sites pass `DeviceIdentity.current.deviceId` instead**, so
-   Claude's writes are this Mac's own signed history in this Mac's own file?
-   That changes which file they land in (nothing is lost — ops merge by opId),
-   and it is a scope change rather than a fix, so it was not made here.
+7. **RESOLVED 2026-09-08 — the four sentinel device strings are gone, and a
+   device is four writers.** The question was whether `"wiki-rename"`,
+   `"find-replace"`, `"mcp"` (twice) and `"rebalance"` should pass this Mac's
+   own device id so their streams are signed. Denver ruled wider than the
+   question: *"lets use the terminology 'assistant' for anything through the
+   mcp … translations get a special role of 'translator' … optimisations should
+   be signed as Maugham itself … search and replace is an automation of the
+   writer."* So the answer is not one key but four — `DeviceActor`'s `author`,
+   `assistant`, `translator` and `maugham`, each holding its own enclave key
+   under the same `device/` folder and writing its own per-doc file — and a
+   production `Document.load` names an ACTOR rather than a device string
+   (tripwire 38). The two MCP sites load `.assistant`, the two automations of
+   the writer's hand load `.author`, `write_translation` and the pipeline load
+   `.translator`, and the rebalance signs as `maugham` with
+   `TaskDeriver.rebalanceSentinel` surviving as the SESSION marker alone. Which
+   file an op lands in did change; nothing is lost, because ops merge by opId.
+   Built as the P1b slice (branch `claude/signed-op-log-p1b-actors-2026-09-08`);
+   see [ADR 0032](../../adr/0032-the-signed-op-log.md)'s Actors addendum and the
+   spec's §4.1.
 
 8. **A Mac with no Secure Enclave is silently unsigned.** It writes chained
    lines that nothing seals and says nothing about it anywhere. **Should History
