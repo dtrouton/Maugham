@@ -96,11 +96,24 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     public func loadVerifiedStrict() async throws -> (elements: [Element], diagnostics: ParseDiagnostics) {
         let bytes = try readBytesStrict()
         guard let chain else { return parseDiagnosed(bytes: bytes) }
-        let read = Self.verifiedParse(
+        let fileKey = OpLogDeviceState.fileKey(fileURL)
+        let walked = OpLogChain.verify(
             bytes: bytes,
             trusted: { $0 == chain.identity.fingerprint },
-            rememberedHead: chain.state.head(for: OpLogDeviceState.fileKey(fileURL)),
+            rememberedHead: chain.state.head(for: fileKey))
+        // The same absent-head decision the op log's own reader and this
+        // store's chained WRITE make — one rule for every chained stream, so
+        // the inbox and the annotation log cannot grow an opinion of their own
+        // about what a missing remembered head means.
+        let (verification, _) = OpLogChain.resolveAbsentHead(
+            walked,
+            rememberedHead: chain.state.head(for: fileKey),
+            previousHead: chain.state.previousHead(for: fileKey))
+        let parsed = Self.parse(
+            bytes: Self.applied(verification, whole: bytes),
             dedupKey: dedupKey, sortedBy: sortedBy)
+        let read = (elements: parsed.elements, diagnostics: parsed.diagnostics,
+                    verification: verification)
         do {
             try Self.setAside(
                 read.verification, from: fileURL,
@@ -273,10 +286,19 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         coord.coordinate(writingItemAt: fileURL, options: [], error: &coordErr) { wu in
             do {
                 let existing = (try? Data(contentsOf: wu)) ?? Data()  // adr-0018-ok: append-store (op-log / inbox JSONL) bytes — the log IS the source of truth (ADR 0018)
-                let verification = OpLogChain.verify(
+                let walked = OpLogChain.verify(
                     bytes: existing,
                     trusted: { $0 == chain.identity.fingerprint },
                     rememberedHead: chain.state.head(for: fileKey))
+                // The same decision the READ makes about a remembered head that
+                // is nowhere in the file, from the same function. If the two
+                // disagreed, a load that held a forged tail back would be
+                // followed by an append that chained onto it, stranding the
+                // writer's own new ops after a break for good.
+                let (verification, _) = OpLogChain.resolveAbsentHead(
+                    walked,
+                    rememberedHead: chain.state.head(for: fileKey),
+                    previousHead: chain.state.previousHead(for: fileKey))
 
                 if !verification.quarantined.isEmpty {
                     try Self.setAside(

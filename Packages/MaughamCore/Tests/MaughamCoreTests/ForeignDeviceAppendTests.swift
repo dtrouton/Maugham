@@ -29,7 +29,8 @@ final class ForeignDeviceAppendTests: XCTestCase {
             withIntermediateDirectories: true)
         identity = .softwareForTesting()
         state = OpLogDeviceState(
-            fileURL: projectURL.appendingPathComponent("device-state.json"))
+            fileURL: projectURL.appendingPathComponent("device-state.json"),
+            identity: identity.fingerprint)
     }
 
     override func tearDown() async throws {
@@ -99,7 +100,8 @@ final class ForeignDeviceAppendTests: XCTestCase {
 
         let otherIdentity = DeviceIdentity.softwareForTesting()
         let otherState = OpLogDeviceState(
-            fileURL: projectURL.appendingPathComponent("other-state.json"))
+            fileURL: projectURL.appendingPathComponent("other-state.json"),
+            identity: otherIdentity.fingerprint)
         let other = OpLogStore(
             projectURL: projectURL, identity: otherIdentity, state: otherState)
         try await other.append(op("op-0002", device: sentinel))

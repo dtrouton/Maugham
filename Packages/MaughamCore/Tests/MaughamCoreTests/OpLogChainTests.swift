@@ -597,7 +597,8 @@ extension OpLogChain.BreakReason {
     var lineIndex: Int {
         switch self {
         case .prevMismatch(let i), .unchainedAfterChain(let i), .sealHeadMismatch(let i),
-             .sealSignatureInvalid(let i), .afterRememberedHead(let i):
+             .sealSignatureInvalid(let i), .afterRememberedHead(let i),
+             .cutShortBeforeRememberedHead(let i):
             return i
         }
     }

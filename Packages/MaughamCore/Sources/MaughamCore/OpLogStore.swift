@@ -400,32 +400,28 @@ public final class OpLogStore {
     private nonisolated static func classifyTail(
         url: URL, bytes: Data, identity: DeviceIdentity?, state: OpLogDeviceState?
     ) -> FileClassification {
-        let remembered = state?.head(for: OpLogDeviceState.fileKey(url))
-        let read = JSONLAppendStore<Op>.verifiedParse(
+        let fileKey = OpLogDeviceState.fileKey(url)
+        let walked = OpLogChain.verify(
             bytes: bytes,
             trusted: { key in identity.map { key == $0.fingerprint } ?? false },
-            rememberedHead: remembered,
-            dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
-        let verification = read.verification
+            rememberedHead: state?.head(for: fileKey))
 
-        // The adopt rule (spec §4.2's crash window). Three conditions, and all
-        // three are about this file holding together as OUR history: the walk
-        // never broke, every seal in it is ours, and the head we remember is
-        // nowhere in it — which is what a crash between remembering a head and
-        // writing the line that hashes to it leaves behind. Adopting a broken
-        // or foreign-sealed file's head would bless exactly what the remembered
-        // head exists to catch.
-        var adopted: String?
-        if let remembered, let head = verification.head,
-           verification.breakReason == nil,
-           verification.foreignSealCount == 0,
-           head != remembered {
-            adopted = head
-        }
+        // The adopt rule (spec §4.2's crash window) and its converse, both in
+        // `OpLogChain.resolveAbsentHead` — the one place that decides what a
+        // missing remembered head means, shared with the chained WRITE so a
+        // load cannot hold back lines the next append would chain onto.
+        let (verification, adopted) = OpLogChain.resolveAbsentHead(
+            walked,
+            rememberedHead: state?.head(for: fileKey),
+            previousHead: state?.previousHead(for: fileKey))
+
+        let parsed = JSONLAppendStore<Op>.parse(
+            bytes: JSONLAppendStore<Op>.applied(verification, whole: bytes),
+            dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
 
         return FileClassification(
-            ops: read.elements,
-            diagnostics: read.diagnostics,
+            ops: parsed.elements,
+            diagnostics: parsed.diagnostics,
             provenance: provenance(
                 name: url.lastPathComponent, lines: verification.lines,
                 isSealedSegment: false, segmentVerified: nil),

@@ -369,6 +369,12 @@ public enum OpLogChain {
         /// The line chains correctly and this device did not write it — it
         /// arrived after the head this device remembers.
         case afterRememberedHead(lineIndex: Int)
+        /// The head this device remembers is nowhere in the file, and the head
+        /// the file DOES have is not the one the crash window would leave
+        /// (`previousHead`). Something cut the file short and wrote its own
+        /// correctly-chained lines onto what was left; everything after the
+        /// last seal this device trusts is held back.
+        case cutShortBeforeRememberedHead(lineIndex: Int)
     }
 
     public struct Verification: Equatable, Sendable {
@@ -530,5 +536,114 @@ public enum OpLogChain {
             foreignSealCount: foreignSealCount,
             quarantined: quarantined,
             breakReason: breakReason)
+    }
+}
+
+// MARK: - The absent remembered head
+
+extension OpLogChain {
+
+    /// What a walk that finished clean should be treated as when the head this
+    /// device REMEMBERS is nowhere in the file.
+    ///
+    /// The remembered head is the extra fact only this device has: a line that
+    /// chains perfectly is still a stranger if it arrived after it. But the head
+    /// can also go missing, and then the walk has nothing to check the file
+    /// against — which is the hole the whole-branch review found (I2). An agent
+    /// that TRUNCATES the file back to a seal line and appends its own
+    /// correctly-chained lines leaves exactly that state: no break, our own
+    /// seals, and a head we have never seen. Before this rule the load adopted
+    /// that head and remembered it, so the next append chained onto the forgery.
+    ///
+    /// There is one innocent way to reach the same state, and it is the reason
+    /// adoption exists at all: the crash window. `chainedAppend` persists the
+    /// new head BEFORE writing the line that hashes to it, so dying between the
+    /// two leaves a remembered head no line carries — and the file's own head is
+    /// then the one we remembered LAST TIME (`previousHead`). That is the only
+    /// signature this rule adopts on.
+    ///
+    /// Everything else is a file cut short by something that is not this device.
+    /// The answer is the last thing this device actually SIGNED: every line
+    /// after the last seal whose key we trust is held back, and everything up to
+    /// and including that seal applies, because the seal is a signature over the
+    /// chain head at that point and nothing before it can have been changed
+    /// without breaking the walk. The state is NOT updated — this device does
+    /// not take a forged head as its own word.
+    ///
+    /// **What this does not catch, deliberately.** A device with no key signs
+    /// nothing, so there is no trusted seal to fall back to and the rule has
+    /// nothing to anchor on; its tail is unsigned history by definition, and
+    /// quarantining a whole unsigned file over a missing head would cost the
+    /// writer their manuscript to catch nobody. Such a file is left exactly as
+    /// the walk found it (ADR 0032 §3).
+    ///
+    /// Called by BOTH the read (`OpLogStore.classifyTail`) and the write
+    /// (`JSONLAppendStore.chainedAppend`), because they have to agree: a load
+    /// that holds lines back while the next append chains onto them would leave
+    /// the writer's own new ops stranded on the far side of a break forever.
+    nonisolated static func resolveAbsentHead(
+        _ verification: Verification,
+        rememberedHead: String?,
+        previousHead: String?
+    ) -> (verification: Verification, adoptedHead: String?) {
+        guard let rememberedHead,
+              let fileHead = verification.head,
+              verification.breakReason == nil,
+              fileHead != rememberedHead
+        else { return (verification, nil) }
+
+        // The crash window, and only it.
+        if fileHead == previousHead, verification.foreignSealCount == 0 {
+            return (verification, fileHead)
+        }
+
+        // Cut short by something else. Fall back to the last thing this device
+        // signed; with nothing signed there is nothing to fall back to.
+        guard let anchor = lastTrustedSealIndex(verification.lines),
+              anchor < verification.lines.count - 1
+        else { return (verification, nil) }
+        return (quarantining(verification, after: anchor), nil)
+    }
+
+    /// The index of the last line that is a seal this device's own key made —
+    /// `.verified` is exactly "covered by a seal the caller trusts", and a seal
+    /// line settles to its own span's state.
+    private nonisolated static func lastTrustedSealIndex(_ lines: [Line]) -> Int? {
+        lines.lastIndex { $0.kind == .seal && $0.state == .verified }
+    }
+
+    /// Rebuild the verdict with every line after `anchor` quarantined. The head
+    /// becomes the anchor's own hash, which keeps `Verification.head`'s one
+    /// invariant true: it is the hash of the last line that was APPLIED.
+    private nonisolated static func quarantining(
+        _ verification: Verification, after anchor: Int
+    ) -> Verification {
+        var lines = verification.lines
+        for index in (anchor + 1)..<lines.count {
+            lines[index].settle(.quarantined)
+        }
+
+        var legacyCount = 0, verifiedCount = 0, unsealedCount = 0, foreignSealCount = 0
+        var quarantined: [Data] = []
+        for line in lines {
+            switch line.state {
+            case .legacy: legacyCount += 1
+            case .verified: verifiedCount += 1
+            case .unsealed: unsealedCount += 1
+            case .unsignedHistory:
+                if line.kind == .seal { foreignSealCount += 1 }
+            case .quarantined: quarantined.append(line.bytes)
+            }
+        }
+
+        return Verification(
+            lines: lines,
+            head: lineHash(lines[anchor].bytes),
+            legacyCount: legacyCount,
+            verifiedCount: verifiedCount,
+            unsealedCount: unsealedCount,
+            foreignSealCount: foreignSealCount,
+            quarantined: quarantined,
+            breakReason: .cutShortBeforeRememberedHead(lineIndex: anchor + 1))
     }
 }

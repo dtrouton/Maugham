@@ -33,39 +33,79 @@ private let deviceStateLog = Logger(
 /// what makes both safe, which is what `@unchecked Sendable` is asserting.
 public final class OpLogDeviceState: @unchecked Sendable {
 
-    /// The whole persisted value. One file, two dictionaries, no schema
-    /// version: every field is additive and a missing one decodes empty.
+    /// The whole persisted value. One file, three dictionaries and the
+    /// fingerprint of the device they belong to; no schema version, because
+    /// every field is additive and a missing one decodes empty.
     private struct Stored: Codable {
+        /// Whose memory this is (`DeviceIdentity.fingerprint`). A file whose
+        /// identity is not the one it is opened for is not this device's word
+        /// about anything — see `init(fileURL:identity:)`.
+        var identity: String = ""
         var heads: [String: String] = [:]
+        /// The head each file had BEFORE the current one. The crash window's
+        /// only signature: `chainedAppend` persists a head before writing the
+        /// line that hashes to it, so a crash between the two leaves a
+        /// remembered head no line carries and a file whose own head is this.
+        var previousHeads: [String: String] = [:]
         var verifiedSegments: Set<String> = []
 
         init() {}
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
+            identity = try container.decodeIfPresent(String.self, forKey: .identity) ?? ""
             heads = try container.decodeIfPresent([String: String].self, forKey: .heads) ?? [:]
+            previousHeads = try container.decodeIfPresent(
+                [String: String].self, forKey: .previousHeads) ?? [:]
             verifiedSegments = try container.decodeIfPresent(
                 Set<String>.self, forKey: .verifiedSegments) ?? []
         }
     }
 
     public let fileURL: URL
+    /// The fingerprint this memory belongs to.
+    public let identity: String
     private let lock = NSLock()
     private var stored: Stored
 
-    /// Loads whatever is at `fileURL`, or starts empty. An unreadable or
-    /// undecodable file starts empty rather than throwing: this is a memory,
-    /// not a source of truth, and an empty memory is exactly the adopt case
-    /// the load path already handles.
-    public init(fileURL: URL) {
+    /// Loads whatever is at `fileURL` **and belongs to `identity`**, or starts
+    /// empty. An unreadable or undecodable file starts empty rather than
+    /// throwing: this is a memory, not a source of truth, and an empty memory
+    /// is exactly the adopt case the load path already handles.
+    ///
+    /// **A file belonging to another identity starts empty too, and is
+    /// rewritten.** The heads are keyed by project-path hash and filename; the
+    /// DEVICE is not in the key. Application Support is what Migration
+    /// Assistant copies, and the enclave blob it copies is not loadable on the
+    /// new Mac — so `DeviceIdentity.load` mints a new identity while every
+    /// remembered head for the OLD slug's files survives. With the old Mac
+    /// still appending to `<doc>.<oldSlug>.jsonl`, the migrated Mac would find
+    /// its stale head mid-file and quarantine everything after it: the writer's
+    /// own synced ops, held back under "written by something that is not
+    /// Maugham". No migration (tripwire 11) — a state file predating this field
+    /// reads as a mismatch, which is the adopt case.
+    public init(fileURL: URL, identity: String = DeviceIdentity.current.fingerprint) {
         self.fileURL = fileURL
+        self.identity = identity
         let bytes = try? Data(contentsOf: fileURL)  // adr-0018-ok: this device's own chain-head memory — derived bookkeeping, never manuscript text
-        self.stored = bytes.flatMap { try? JSONDecoder().decode(Stored.self, from: $0) } ?? Stored()
+        let decoded = bytes.flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
+        if let decoded, decoded.identity == identity {
+            self.stored = decoded
+            return
+        }
+        var fresh = Stored()
+        fresh.identity = identity
+        self.stored = fresh
+        // Rewritten, not merely ignored: a memory left on disk under a name
+        // this device does not answer to would come back the moment anything
+        // else opened it.
+        if bytes != nil { persistLocked() }
     }
 
     /// The process-wide memory, beside this device's key material.
     public static let shared = OpLogDeviceState(
-        fileURL: DeviceState.directory.appendingPathComponent("op-log-state.json"))
+        fileURL: DeviceState.directory.appendingPathComponent("op-log-state.json"),
+        identity: DeviceIdentity.current.fingerprint)
 
     // MARK: - Heads
 
@@ -75,8 +115,20 @@ public final class OpLogDeviceState: @unchecked Sendable {
         return stored.heads[fileKey]
     }
 
+    /// The head this file had before the one `head(for:)` answers. Nil until a
+    /// second head has been remembered for it.
+    public func previousHead(for fileKey: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored.previousHeads[fileKey]
+    }
+
     /// Remember (or, with `nil`, forget) the head this device last wrote into
-    /// the file `fileKey` names, and persist it before answering.
+    /// the file `fileKey` names, and persist it before answering. Remembering
+    /// SHIFTS the head it replaces into `previousHead`, which is the one
+    /// signature the crash window has (`OpLogChain.resolveAbsentHead`).
+    /// Forgetting forgets both — a file this device has no head for has no
+    /// predecessor either.
     ///
     /// The persist is inside the lock so two threads cannot interleave a
     /// mutation and a write and leave the file describing neither state.
@@ -84,9 +136,13 @@ public final class OpLogDeviceState: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         if let head {
+            if let outgoing = stored.heads[fileKey], outgoing != head {
+                stored.previousHeads[fileKey] = outgoing
+            }
             stored.heads[fileKey] = head
         } else {
             stored.heads.removeValue(forKey: fileKey)
+            stored.previousHeads.removeValue(forKey: fileKey)
         }
         persistLocked()
     }
