@@ -75,6 +75,15 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
    begins `{"seal":`. Reopen the document → History (⌘⌥H) says **nothing** about
    another device: the assistant's key is this Mac's own, so Claude's note is
    this Mac's signed history rather than somebody else's unsigned history.
+   **And this holds whether the document is open in the editor or not — the
+   open-document path is the one the smoke caught** (2026-09-08): the closed-doc
+   arm transient-loads as the assistant, but the open one writes through the
+   `Document` the editor loaded as the author, so Claude's note used to land in
+   the author's file under the author's key. `Document.addAnnotation` now stamps
+   the actor off the note's own author, so ask for the comment with the chapter
+   OPEN and check the assistant's file gains it — then accept or reject it from
+   the margin and check THAT op is in the author's file, because disposing of
+   Claude's note is the writer's act.
 10. **(P1b) The translator is its own writer.** On a project with a translated
    edition, run `write_translation` (or a pipeline round from the Publish desk)
    → `.maugham/translations/`'s op files gain

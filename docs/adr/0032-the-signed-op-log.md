@@ -312,7 +312,12 @@ able to write the label; a key is who sealed the span, and only the enclave
 that holds it can produce that signature. The honest limit: all four actors run
 inside one Maugham process, so this does **not** protect against Maugham
 mislabelling its own writes — nothing stops the app from loading a document as
-`.author` and letting MCP write through it. What protects that is the
+`.author` and letting MCP write through it. That is not hypothetical: Denver's
+smoke of this slice caught `add_comment` on an OPEN chapter signing Claude's
+note as the writer, and the fix is a rule rather than a load — an annotation
+CREATION whose author's `sourceKind` is not `.human` carries the assistant's id
+whichever `Document` it arrived through, while the writer's own notes and every
+disposition of Claude's stay the writer's. What protects that is the
 compile-time argument: `Document.load(url:actor:session:presenter:)` is the
 production door, the `device: String` overload is `internal`, and
 `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` (with a planted

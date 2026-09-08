@@ -191,7 +191,7 @@ extension Document {
         let op = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),
-            device: device, session: session,
+            device: deviceFor(author: author), session: session,
             kind: opKind, changes: changes, sequence: nil,
             provenance: Op.Provenance(
                 sessionId: session,
@@ -218,6 +218,44 @@ extension Document {
         invalidateTasksCache()
         if announcing { announceAnnotationsChanged() }
         return op.opId
+    }
+
+    /// **Who wrote this annotation, as the op log names devices** (Denver's
+    /// ruling, 2026-09-08: *"the mcp is on the device but a different identity
+    /// — we know that is an AI"*).
+    ///
+    /// An annotation CREATION whose author's `sourceKind` is not `.human` is
+    /// the ASSISTANT's act, whichever `Document` it arrived through. A closed
+    /// document's MCP write already had this, because
+    /// `AnnotationToolHelpers` transient-loads it as `.assistant`; an OPEN one
+    /// did not, because the tool writes through the live `Document` the editor
+    /// loaded as `.author` — so `add_comment` on an open chapter produced an op
+    /// carrying the writer's device id in the writer's own file, signed by the
+    /// writer's key. Claude's note was signed as the writer's. That is the
+    /// defect Denver's smoke of the P1b slice caught.
+    ///
+    /// This covers the compiler's own ingest too (`mintAnnotations`, and the
+    /// translation and translator environments), which reaches this method with
+    /// a `.claude` author: those notes are the AI's as well, and now land under
+    /// the assistant's key like every other one.
+    ///
+    /// `session` is deliberately NOT redirected — it is the sitting, and one
+    /// sitting can have two writers in it. And the redirect is the CREATION's
+    /// alone: `addReviewerAnnotation` below and every disposition op
+    /// (accept/reject/stet/triage/edit/withdraw) keep this `Document`'s own
+    /// device, because those are the writer's acts however the note arrived.
+    ///
+    /// Read from `Document.loadIdentities` — the same quartet the load's
+    /// `OpLogStore` was built with, so the id naming the file and the key
+    /// signing it can never come from two different answers. Naming the actor
+    /// mints its key on demand, which is the lazy rule's writer's door
+    /// (`LocalIdentities.subscript`). `OpLogStore.append` needs nothing else:
+    /// it derives the file and the signer from `op.device`, so the note lands
+    /// in `<doc>.assistant-…jsonl`, chained and sealed under the assistant's
+    /// key, with no other change.
+    private func deviceFor(author: AnnotationAuthor?) -> String {
+        guard let author, author.sourceKind != .human else { return device }
+        return Self.loadIdentities[.assistant].deviceId
     }
 
     /// Create a human-authored annotation (review toolbar / collaborator

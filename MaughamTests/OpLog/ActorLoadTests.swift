@@ -273,4 +273,84 @@ final class ActorLoadTests: XCTestCase {
             "and so does the open status — the whole compound undo ran")
         await doc.close()
     }
+
+    // MARK: - An AI's note is the assistant's, whichever Document it arrives through
+
+    /// **The smoke's defect** (Denver, 2026-09-08: *"the mcp is on the device
+    /// but a different identity — we know that is an AI"*).
+    ///
+    /// `AnnotationToolHelpers` loads a CLOSED document as the assistant, so the
+    /// test above already holds for that half. An OPEN document is the other
+    /// half and had no rule at all: the tool writes through the live `Document`
+    /// the editor loaded as `.author`, so `add_comment` on an open chapter
+    /// produced an op carrying `device: "author-…"` in the author's own file,
+    /// signed by the writer's key. Claude's note was signed as the writer's.
+    ///
+    /// The rule this pins: an annotation CREATION whose author is not `.human`
+    /// is the ASSISTANT's act. The writer's own creation and every disposition
+    /// op stay the Document's own device, because those are the writer's acts.
+    func test_anAIAuthoredNoteIsTheAssistantsEvenThroughTheWritersOwnDocument() async throws {
+        let docURL = try makeProject()
+        let doc = try await Document.load(
+            url: docURL, actor: .author, session: "s", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        let log = try await doc.opLog()
+        let pid = try XCTUnwrap(
+            log.first(where: { $0.kind == .bootstrap })?.changes.first?.paragraphId)
+
+        // Claude's note, arriving through the OPEN document the writer holds.
+        let claudeNote = try await doc.addAnnotation(
+            kind: .comment, paragraphId: pid,
+            body: "consider showing not telling",
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"))
+        // The writer's own note, through the same Document.
+        let humanNote = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: pid, span: nil,
+            body: "check this against the outline", authorName: "Denver")
+        // And the writer's disposition of Claude's note.
+        try await doc.acceptAnnotation(id: claudeNote)
+        await doc.close()
+
+        let assistantOps = try ops(of: identities.assistant)
+        let comment = try XCTUnwrap(
+            assistantOps.first { $0.opId == claudeNote },
+            "an AI-authored note lands in the assistant's own per-device file")
+        XCTAssertEqual(comment.device, identities.assistant.deviceId,
+                       "and carries the assistant's id, not the writer's")
+        XCTAssertEqual(comment.session, "s",
+                       "the session stays the Document's — one sitting, two writers")
+
+        let authorOps = try ops(of: identities.author)
+        XCTAssertNil(authorOps.first { $0.opId == claudeNote },
+                     "Claude's note is not in the writer's file")
+        let human = try XCTUnwrap(
+            authorOps.first { $0.opId == humanNote },
+            "a human-authored note is still the writer's own act")
+        XCTAssertEqual(human.device, identities.author.deviceId)
+        let accept = try XCTUnwrap(
+            authorOps.first {
+                $0.kind == .claudeAccept
+                    && $0.provenance?.sourceAnnotationId == claudeNote
+            },
+            "and so is disposing of Claude's note")
+        XCTAssertEqual(accept.device, identities.author.deviceId)
+
+        // Sealed under the assistant's key, by the close of the author's own
+        // Document — `sealChain(docId:)` seals every actor this store wrote to.
+        let seal = try XCTUnwrap(
+            OpLogChain.Seal.parse(try XCTUnwrap(lines(of: identities.assistant).last)),
+            "the assistant's tail ends on a seal")
+        XCTAssertTrue(seal.verifies())
+        XCTAssertEqual(seal.key, identities.assistant.fingerprint)
+
+        // And the writer's next load vouches for the whole of it.
+        let reopened = try await Document.load(
+            url: docURL, actor: .author, session: "s2", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        let provenance = try XCTUnwrap(reopened.provenance)
+        XCTAssertEqual(provenance.unsignedHistoryLines, 0,
+                       "the assistant is this device, not 'another device'")
+        XCTAssertGreaterThan(provenance.verifiedLines, 0)
+        await reopened.close()
+    }
 }
