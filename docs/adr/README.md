@@ -53,6 +53,7 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0029](0029-the-compilers-report-is-materialized.md) | The compiler's report is materialized: findings routed by nature, written by Maugham after the parse | Accepted | 2026-08-17 |
 | [0030](0030-three-people-seven-legs-directives-as-rulings.md) | Three people, seven legs, directives as rulings, and proposals into statements (amends [0024](0024-translation-layer.md)'s single-translator picture) | Accepted | 2026-08-29 |
 | [0031](0031-the-persona-is-an-input-to-the-run.md) | The persona is an input to the run: two verbs over one substrate (amends [0029](0029-the-compilers-report-is-materialized.md)'s framing) | Accepted | 2026-09-05 |
+| [0032](0032-the-signed-op-log.md) | The signed op log: provenance for every op, the device before the person (builds on [0012](0012-per-device-jsonl-partitioning.md) and [0016](0016-op-log-growth-without-compaction.md), amending neither's decision) | Accepted (P1 built) | 2026-09-07 |
 
 ## How to write a new ADR
 

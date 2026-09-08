@@ -47,6 +47,24 @@ struct InboxPane: View {
     @State private var promotePicking: InboxEntry?
     @State private var palettePicking: InboxEntry?
 
+    /// What was NOT applied from the inbox's manifests: rows something other
+    /// than Maugham wrote into a capture stream. They are kept as forensics and
+    /// there is nothing to bring back, so this notice carries no Retry — the
+    /// same contract, and the same words, as `HistoryPane.setAsideLinesNotice`
+    /// gives a document.
+    ///
+    /// Pure over the count, so the copy pins without a window and without disk.
+    /// The count comes from `InboxStore.setAsideLineCount`, which is the half
+    /// that has to read files.
+    static func setAsideNotice(lineCount: Int) -> String? {
+        guard lineCount > 0 else { return nil }
+        let subject = lineCount == 1
+            ? "1 capture was written"
+            : "\(lineCount) captures were written"
+        return "\(subject) to the inbox by something that is not Maugham; "
+             + "kept in backup, not shown."
+    }
+
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
@@ -65,6 +83,20 @@ struct InboxPane: View {
                     "Some captures can’t be read (\(store.unreadableManifests.joined(separator: ", "))). "
                     + "They are still in the file — check permissions or iCloud sync.",
                     systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
+            if let notice = Self.setAsideNotice(lineCount: store.setAsideLineCount) {
+                // The other half of the one new refusal in the tree (signed op
+                // log P1): a `.lines` record never returns, and until now the
+                // inbox's were written and shown to nobody — `HistoryPane` only
+                // reads a DOCUMENT's records, and these are filed under the
+                // manifest stream's own id.
+                Label(notice, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .padding(.horizontal, 12)

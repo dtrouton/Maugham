@@ -6646,4 +6646,309 @@ final class TripwireGrepTests: XCTestCase {
         }) ?? lines.endIndex
         return Array(lines[start..<end])
     }
+
+    // MARK: - No software private key in production (signed op log, spec §4.1)
+
+    /// A device key must not be a SOFTWARE key. A software P256 (or
+    /// Curve25519) private key lives in process memory and copies off the
+    /// machine with whatever file holds it, so a signature made with one
+    /// proves nothing about which device wrote the op — which is the entire
+    /// job of the signature. The only production signer is the enclave's,
+    /// `SecureEnclave.P256.Signing.PrivateKey`, whose `dataRepresentation` is
+    /// useless on any other machine; that is why the app can persist it as a
+    /// plain file and needs no keychain item and no entitlement.
+    ///
+    /// The test-only software signer lives in one file of its own,
+    /// `DeviceIdentity+Testing.swift` (an `internal` extension reachable only
+    /// through `@testable import MaughamCore`), and that file is this census's
+    /// ONE allow-list entry, by name.
+    ///
+    /// SHARED between the production check and its planted-offender self-check
+    /// — one place to widen the shape.
+    static func isSoftwarePrivateKeyLine(_ line: String) -> Bool {
+        if line.contains("Curve25519") { return true }
+        // The enclave spelling contains the software one as a substring, so the
+        // qualifier is what separates the sanctioned key from the forbidden one.
+        return line.contains("P256.Signing.PrivateKey(")
+            && !line.contains("SecureEnclave.P256.Signing.PrivateKey(")
+    }
+
+    /// Prose may name a software key; code may not construct one.
+    static func softwarePrivateKeyExcludeLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+    }
+
+    func test_noSoftwarePrivateKeyInProduction() throws {
+        let roots = [
+            sourceDir,
+            repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true),
+            repoRoot.appendingPathComponent("Packages/MaughamCore/Sources", isDirectory: true),
+        ]
+        var offenders: [String] = []
+        for root in roots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: [],
+                allowed: ["DeviceIdentity+Testing.swift"],
+                excludeLine: Self.softwarePrivateKeyExcludeLine,
+                extraOffender: Self.isSoftwarePrivateKeyLine)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file constructs a software signing key. The device key "
+            + "is the enclave's — `SecureEnclave.P256.Signing.PrivateKey` — because "
+            + "a software key copies off the machine with the file that holds it, "
+            + "and a signature that proves nothing about the device is not a "
+            + "signature. Test signers belong in DeviceIdentity+Testing.swift. "
+            + "Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: the SAME predicate, over a planted file,
+    /// catches the bare software key and the Curve25519 key, and lets the
+    /// sanctioned enclave construction and a comment naming the software key
+    /// through.
+    func test_theSoftwarePrivateKeyCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-softkey-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name P256.Signing.PrivateKey() and Curve25519 — allowed.
+        let sanctioned = try SecureEnclave.P256.Signing.PrivateKey()
+        let reloaded = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob)
+        let forbidden = P256.Signing.PrivateKey()
+        let alsoForbidden = Curve25519.Signing.PrivateKey()
+        """.write(to: tmp.appendingPathComponent("BadDeviceKey.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: [],
+            excludeLine: Self.softwarePrivateKeyExcludeLine,
+            extraOffender: Self.isSoftwarePrivateKeyLine)
+
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check: the two planted software keys should be the ones caught, "
+            + "and neither the enclave constructions nor the comment. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let forbidden") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let alsoForbidden") }))
+
+        // And the allow-list entry is honoured by name.
+        try fm.moveItem(at: tmp.appendingPathComponent("BadDeviceKey.swift"),
+                        to: tmp.appendingPathComponent("DeviceIdentity+Testing.swift"))
+        let allowed = try grepSwift(
+            in: tmp,
+            patterns: [],
+            allowed: ["DeviceIdentity+Testing.swift"],
+            excludeLine: Self.softwarePrivateKeyExcludeLine,
+            extraOffender: Self.isSoftwarePrivateKeyLine)
+        XCTAssertTrue(allowed.isEmpty,
+            "Self-check: the allow-listed file must be skipped whole. Caught:\n"
+            + allowed.joined(separator: "\n"))
+    }
+
+    // MARK: - The device string is the key (signed op log, spec §4.8)
+
+    /// The three production roots the device-identity censuses scan. The
+    /// shared substrate is in the list because a hand-built id there would
+    /// reach BOTH surfaces at once.
+    private var deviceIdentityRoots: [URL] {
+        [sourceDir,
+         repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true),
+         repoRoot.appendingPathComponent("Packages/MaughamCore/Sources", isDirectory: true)]
+    }
+
+    /// Prose may name a host name or a legacy id spelling; code may not use
+    /// one. SHARED by the two censuses below and their planted-offender
+    /// self-checks — one place to widen the shape.
+    static func deviceIdentityExcludeLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+    }
+
+    /// `ProcessInfo.processInfo.hostName` was the Mac's device id until the
+    /// signed op log; every other spelling of a host name is the same mistake.
+    static let hostnameIdentityPatterns = [".hostName"]
+
+    /// The two hand-built id spellings this milestone retired: the phone's
+    /// `"phone:<uuid>"` convention and the Mac's empty-hostname fallback.
+    static let handBuiltDeviceIdPatterns = ["\"phone:", "\"unknown-host\""]
+
+    /// A device's identity is its KEY's fingerprint, never its host name.
+    /// Two Macs named alike — the shipped default twice over, or a machine
+    /// restored from another's backup — answered the same `hostName`, so their
+    /// per-device op-log files collided; tripwire 17 is the record of what a
+    /// collision on that file costs (a silently dropped conflict twin the
+    /// loader never opens). `DeviceIdentity.current.deviceId` (MaughamCore) is
+    /// the one answer on both surfaces, and it is derived from key material
+    /// that cannot repeat across machines.
+    func test_noHostnameIdentity() throws {
+        var offenders: [String] = []
+        for root in deviceIdentityRoots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: Self.hostnameIdentityPatterns,
+                excludeLine: Self.deviceIdentityExcludeLine)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file derives an identity from the host name. The "
+            + "device id is `DeviceIdentity.current.deviceId` — the prefix of "
+            + "this device's key fingerprint — because two Macs can share a "
+            + "name and then share a per-device op-log file, which is how a "
+            + "writer's lines go missing (tripwire 17). Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// No production file hand-builds a device id. The phone minted
+    /// `"phone:<uuid>"` into `UserDefaults` and the Mac fell back to
+    /// `"unknown-host"`; both are gone, and a second source of device strings
+    /// is a second answer to which file this device appends to.
+    func test_noHandBuiltDeviceIdOutsideDeviceIdentity() throws {
+        var offenders: [String] = []
+        for root in deviceIdentityRoots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: Self.handBuiltDeviceIdPatterns,
+                excludeLine: Self.deviceIdentityExcludeLine)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file hand-builds a device id. `DeviceIdentity` is "
+            + "the only place a device string is decided, on the Mac and the "
+            + "phone alike; a literal here is a device that partitions its "
+            + "writes somewhere else. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the two censuses above: the SAME patterns and the SAME
+    /// exclusion, over a planted file, catch the host-name read and both
+    /// hand-built id spellings, and let the comments that merely NAME them
+    /// through.
+    func test_theDeviceIdentityCensusesFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-deviceid-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may say ProcessInfo.processInfo.hostName — allowed.
+        /// And may name the old "phone:<uuid>" and "unknown-host" spellings.
+        let sanctioned = DeviceIdentity.current.deviceId
+        let host = ProcessInfo.processInfo.hostName
+        let minted = "phone:\\(UUID().uuidString)"
+        let fallback = name.isEmpty ? "unknown-host" : name
+        """.write(to: tmp.appendingPathComponent("BadDeviceIdentity.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let hostOffenders = try grepSwift(
+            in: tmp,
+            patterns: Self.hostnameIdentityPatterns,
+            excludeLine: Self.deviceIdentityExcludeLine)
+        XCTAssertEqual(hostOffenders.count, 1,
+            "Self-check: the planted host-name READ should be the only catch, "
+            + "not the comment naming it. Caught:\n"
+            + hostOffenders.joined(separator: "\n"))
+        XCTAssertTrue(hostOffenders.first?.contains("let host") == true)
+
+        let idOffenders = try grepSwift(
+            in: tmp,
+            patterns: Self.handBuiltDeviceIdPatterns,
+            excludeLine: Self.deviceIdentityExcludeLine)
+        XCTAssertEqual(idOffenders.count, 2,
+            "Self-check: both planted id literals should be caught, and neither "
+            + "comment. Caught:\n" + idOffenders.joined(separator: "\n"))
+        XCTAssertTrue(idOffenders.contains(where: { $0.contains("let minted") }))
+        XCTAssertTrue(idOffenders.contains(where: { $0.contains("let fallback") }))
+    }
+
+    // MARK: - A seal line is recognised in OpLogChain only (tripwire 37)
+
+    /// The seal line's one top-level key, in both spellings a Swift source can
+    /// carry it: escaped inside a string literal (`{\"seal\":`, which is how
+    /// `OpLogChain.sealPrefix` is written) and bare (`"seal":`, a raw string or
+    /// a JSON fixture). SHARED by the census and its planted-offender
+    /// self-check — one place to widen the shape.
+    static func isSealKeyLine(_ line: String) -> Bool {
+        line.contains(#"\"seal\":"#) || line.contains(#""seal":"#)
+    }
+
+    /// Prose may name the seal's wire key; code may not recognise one.
+    static func sealKeyExcludeLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+    }
+
+    /// Tripwire 37, as a census rather than a warning. `OpLogChain.isSealLine`
+    /// is the one door onto the `{"seal":` prefix and `JSONLAppendStore.parse`
+    /// is its one caller, so a SECOND recogniser anywhere is a second opinion
+    /// about what a seal is — and it fails in the worst direction, silently: a
+    /// reader that hands a seal line to an element decoder reports a healthy
+    /// file as damaged. The claim was true when the milestone landed, which is
+    /// exactly when a census is cheap.
+    func test_sealLinesAreRecognisedInOpLogChainOnly() throws {
+        var offenders: [String] = []
+        for root in deviceIdentityRoots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: [],
+                allowed: ["OpLogChain.swift"],
+                excludeLine: Self.sealKeyExcludeLine,
+                extraOffender: Self.isSealKeyLine)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file outside OpLogChain.swift spells the seal line's "
+            + "wire key. `OpLogChain.isSealLine` is the ONE recogniser and "
+            + "`JSONLAppendStore.parse` its one caller — every reader (live "
+            + "tails, decompressed segments, the inbox) goes through that "
+            + "parser, so a seal can never reach an element decoder and be "
+            + "reported as damage. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: the SAME predicate, over a planted file,
+    /// catches both spellings and lets a comment naming the key through — and
+    /// the allow-list entry is honoured by name.
+    func test_theSealLineCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-seal-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try #"""
+        // A comment may name the {"seal": prefix — allowed.
+        let escaped = data.starts(with: Data("{\"seal\":".utf8))
+        let raw = line.hasPrefix(#"{"seal":"#)
+        let innocent = OpLogChain.isSealLine(data)
+        """#.write(to: tmp.appendingPathComponent("SecondSealReader.swift"),
+                   atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: [],
+            excludeLine: Self.sealKeyExcludeLine,
+            extraOffender: Self.isSealKeyLine)
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check: both planted spellings should be caught, and neither "
+            + "the comment nor the sanctioned call. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let escaped") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let raw") }))
+
+        try fm.moveItem(at: tmp.appendingPathComponent("SecondSealReader.swift"),
+                        to: tmp.appendingPathComponent("OpLogChain.swift"))
+        let allowed = try grepSwift(
+            in: tmp,
+            patterns: [],
+            allowed: ["OpLogChain.swift"],
+            excludeLine: Self.sealKeyExcludeLine,
+            extraOffender: Self.isSealKeyLine)
+        XCTAssertTrue(allowed.isEmpty,
+            "Self-check: the allow-listed file must be skipped whole. Caught:\n"
+            + allowed.joined(separator: "\n"))
+    }
 }

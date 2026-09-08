@@ -276,6 +276,20 @@ public final class ProjectStore {
     /// `listTasksAcrossProject` / `projectTasksOpLog` call.
     internal var _projectOpLogLoaded: Bool = false
 
+    /// The ONE `OpLogStore` the project stream appends through, for this
+    /// store's lifetime (the whole-branch review's I5).
+    ///
+    /// `OpLogStore.append` seals every `chainSealInterval` lines, and the
+    /// counter that drives it lives on the store INSTANCE — deliberately, as a
+    /// cadence rather than a fact. `appendProjectTaskOp` used to construct a
+    /// fresh store per append, so the counter started empty every time and
+    /// `__project__.jsonl` was the one op log nothing ever sealed: chained
+    /// forever, re-verified in full before every write, growing without limit
+    /// because segment rotation refuses it too (`sealTailIfNeeded`, a recorded
+    /// Denver decision). Holding one store makes the interval trigger work.
+    /// `@ObservationIgnored`: a lifecycle handle, never a rendered dependency.
+    @ObservationIgnored internal var _projectOpLogStore: OpLogStore?
+
     /// Version counter for the project op log. Bumped on every append.
     /// Part of the cross-project cache key per spec §9.5.
     internal var _projectLogVersion: Int = 0
@@ -300,7 +314,7 @@ public final class ProjectStore {
     /// ops live in a separate log anyway, so we mint our own per-instance.
     /// `@ObservationIgnored` because these are computed-once internal
     /// identifiers, never observed by SwiftUI.
-    @ObservationIgnored internal var projectOpDevice: String = MacDeviceID.current
+    @ObservationIgnored internal var projectOpDevice: String = DeviceIdentity.current.deviceId
     @ObservationIgnored internal var projectOpSession: String = UUID().uuidString
 
     /// Handle to the async op-log append triggered by the last project-task

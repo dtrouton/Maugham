@@ -437,4 +437,227 @@ final class TripwirePhoneGrepTest: XCTestCase {
         XCTAssertTrue(offenders.contains { $0.contains("\"audio\"") },
             "Self-check: the planted \"audio\" literal should be caught.")
     }
+
+    // MARK: - The device string is the key (signed op log, spec §4.8)
+
+    /// Twin of the Mac's `test_noHandBuiltDeviceIdOutsideDeviceIdentity`.
+    /// The phone used to mint `"phone:<uuid>"` into `UserDefaults` and call
+    /// that its device id; it now reads `DeviceIdentity.current.deviceId`
+    /// (MaughamCore) like the Mac, so one install has one identity derived
+    /// from its own key material. A literal here is a device that partitions
+    /// its writes somewhere else — the failure tripwire 17 exists for.
+    ///
+    /// The Mac census scans MaughamPhone/ too; this twin is what makes the
+    /// phone suite fail on its own, without waiting for a Mac gate.
+    func test_noHandBuiltDeviceIdOutsideDeviceIdentity() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+        let offenders = try Self.handBuiltDeviceIdOffenders(in: sourceDir)
+        XCTAssertTrue(offenders.isEmpty,
+                      "A phone production file hand-builds a device id or reads "
+                      + "the host name. `DeviceIdentity.current.deviceId` is the "
+                      + "one answer on both surfaces:\n"
+                      + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the twin FIRES on planted offenders — the two retired
+    /// id spellings and a host-name read — and lets the comments that merely
+    /// NAME them through.
+    func test_handBuiltDeviceIdTripwireFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-deviceid-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may say ProcessInfo.processInfo.hostName — allowed.
+        /// And may name the old "phone:<uuid>" and "unknown-host" spellings.
+        let sanctioned = DeviceIdentity.current.deviceId
+        let host = ProcessInfo.processInfo.hostName
+        let minted = "phone:\\(UUID().uuidString)"
+        let fallback = name.isEmpty ? "unknown-host" : name
+        """.write(to: tmp.appendingPathComponent("BadDeviceIdentity.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try Self.handBuiltDeviceIdOffenders(in: tmp)
+        XCTAssertEqual(offenders.count, 3,
+            "Self-check: the three planted uses should be caught and neither "
+            + "comment. Caught:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let host") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let minted") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let fallback") }))
+    }
+
+    // MARK: - The palette aim has no writer on the phone (signed op log P1)
+
+    /// The phone's capture aim picker was the ONE thing that ever stamped
+    /// `InboxEntry.paletteSubject`/`sense`, and it is gone: a capture lands in
+    /// the inbox plain, and the Mac aims it at a palette card when the writer
+    /// promotes it. The two fields survive on the wire because rows already on
+    /// disk carry them — decoded, tolerated, written by nobody.
+    ///
+    /// A census rather than a comment, because the removal is invisible: a
+    /// re-added `paletteSubject:` argument or a new `PaletteAim` value would
+    /// compile, pass every test, and quietly give the phone a second opinion
+    /// about which card a note belongs to.
+    func test_noPaletteAimWriterOnThePhone() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+        let offenders = try Self.paletteAimOffenders(in: sourceDir)
+        XCTAssertTrue(offenders.isEmpty,
+                      "A phone production file writes a palette aim. The aim "
+                      + "picker was removed in signed op log P1; a capture is "
+                      + "aimed on the Mac at promote time. Offenders:\n"
+                      + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the census FIRES on a planted writer and a planted
+    /// `PaletteAim` value, and lets prose that merely NAMES them through.
+    func test_paletteAimCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-aim-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // Prose may say paletteSubject: and PaletteAim — allowed.
+        /// The aim picker wrote paletteSubject: and held a PaletteAim.
+        let plain = try await writer.writeText(text)
+        let aimed = try await writer.writeText(text, paletteSubject: aim.subject)
+        var aim: PaletteAim?
+        """.write(to: tmp.appendingPathComponent("BadAim.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try Self.paletteAimOffenders(in: tmp)
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check: the two planted uses should be caught and neither "
+            + "comment. Caught:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let aimed") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("var aim") }))
+    }
+
+    /// SHARED by the palette-aim census and its self-check.
+    private static func paletteAimOffenders(in dir: URL) throws -> [String] {
+        let patterns = ["paletteSubject:", "PaletteAim"]
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (index, line) in text.split(separator: "\n",
+                                            omittingEmptySubsequences: false).enumerated() {
+                let lineStr = String(line)
+                let trimmed = lineStr.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { continue }
+                for pattern in patterns where lineStr.contains(pattern) {
+                    offenders.append("\(url.lastPathComponent):\(index + 1): " + trimmed)
+                    break
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// SHARED by the census and its self-check — one place to widen the shape.
+    /// Prose may name a host name or a retired id spelling; code may not use
+    /// one.
+    private static func handBuiltDeviceIdOffenders(in dir: URL) throws -> [String] {
+        let patterns = [".hostName", "\"phone:", "\"unknown-host\""]
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (index, line) in text.split(separator: "\n",
+                                            omittingEmptySubsequences: false).enumerated() {
+                let lineStr = String(line)
+                let trimmed = lineStr.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { continue }
+                for pattern in patterns where lineStr.contains(pattern) {
+                    offenders.append("\(url.lastPathComponent):\(index + 1): " + trimmed)
+                    break
+                }
+            }
+        }
+        return offenders
+    }
+
+    // MARK: - A seal line is recognised in OpLogChain only (tripwire 37, phone twin)
+
+    /// The Mac's `TripwireGrepTests.isSealKeyLine`, spelled here because the two
+    /// targets share no test code. Both spellings a Swift source can carry the
+    /// seal's one top-level key in: escaped inside a string literal
+    /// (`{\"seal\":`) and bare (`"seal":`).
+    private func isSealKeyLine(_ line: String) -> Bool {
+        line.contains(#"\"seal\":"#) || line.contains(#""seal":"#)
+    }
+
+    /// The phone reads seal lines through the SAME `JSONLAppendStore.parse` the
+    /// Mac does — `OpLogChain.isSealLine` is its one recogniser, and it lives in
+    /// MaughamCore. A phone-local recogniser would be tripwire 19's failure
+    /// (the phone reimplementing what the Mac implements) arriving as tripwire
+    /// 37's: a reader that hands a seal to an element decoder reports a healthy
+    /// manifest as damaged, and nothing goes red.
+    func test_noSealLineRecogniserOnThePhone() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+
+        let offenders = try grepSwiftDir(
+            in: sourceDir,
+            patterns: [],
+            excludeLine: { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+            },
+            extraOffender: isSealKeyLine)
+
+        XCTAssertTrue(offenders.isEmpty,
+            "A phone source spells the seal line's wire key. The one recogniser "
+            + "is MaughamCore's `OpLogChain.isSealLine`, reached through the "
+            + "shared `JSONLAppendStore.parse` (tripwires 19 and 37). "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: the same predicate catches both planted spellings and lets a
+    /// comment naming the key through.
+    func test_phoneSealLineCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-seal-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try #"""
+        // A comment may name the {"seal": prefix — allowed.
+        let escaped = data.starts(with: Data("{\"seal\":".utf8))
+        let raw = line.hasPrefix(#"{"seal":"#)
+        let innocent = OpLogChain.isSealLine(data)
+        """#.write(to: tmp.appendingPathComponent("SecondSealReader.swift"),
+                   atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwiftDir(
+            in: tmp,
+            patterns: [],
+            excludeLine: { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+            },
+            extraOffender: isSealKeyLine)
+
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check: both planted spellings should be caught, and neither "
+            + "the comment nor the sanctioned call. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let escaped") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let raw") }))
+    }
 }

@@ -218,7 +218,7 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
         await store.lockStatementOpen(statement.id)
         let pane = try await Document.load(
             url: root.appendingPathComponent(statement.path),
-            device: MacDeviceID.current, session: "pane-test",
+            device: DeviceIdentity.current.deviceId, session: "pane-test",
             presenter: ds.presenter)
         store.noteStatementDocumentOpened(pane, id: statement.id)
         store.unlockStatementOpen(statement.id)

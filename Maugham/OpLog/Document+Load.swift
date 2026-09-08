@@ -143,7 +143,8 @@ extension Document {
             throw DocumentRecoveryError.noOpLog
         }
 
-        let opStore = OpLogStore(projectURL: projectURL, presenter: presenter)
+        let opStore = Document.makeLoadOpStore(
+            projectURL: projectURL, presenter: presenter)
         let partial = await opStore.loadDiagnosedPartial(docId: docId)
 
         // Recovery mode exists for the refusal path alone. If every file read,
@@ -187,6 +188,11 @@ extension Document {
             Document.isAnnotationOpKind($0.kind)
         }
         doc.readOnlyRecovery = .init(unreadableFiles: partial.unreadableFiles)
+        // Signed op log P1: a partial view is still entitled to say what its
+        // readable files are made of. `loadDiagnosedPartial` counts only the
+        // files that READ — an unreadable one is named in `unreadableFiles`,
+        // which is a different fact and must not blur into "zero verified".
+        doc.provenance = partial.provenance
         return doc
     }
 
@@ -249,7 +255,8 @@ extension Document {
                 mdURL: url, device: device, session: session)
         }
 
-        let opStore = OpLogStore(projectURL: projectURL, presenter: presenter)
+        let opStore = Document.makeLoadOpStore(
+            projectURL: projectURL, presenter: presenter)
         let pending = PendingBuffer(projectURL: projectURL, docId: docId, device: device)
         // RULING-54: a pending file that exists but can't be read or decoded
         // holds un-bursted keystrokes from a crashed session. Not a refusal —
@@ -453,6 +460,13 @@ extension Document {
             Document.isAnnotationOpKind($0.kind)
         }
         doc.unrecoveredPendingFailure = pendingFailure
+        // Signed op log P1: what this document's history turned out to be made
+        // of. STAMPED, never posted — a notice from this windowless context is
+        // dropped by the receive helpers' liveness guard, exactly the pending
+        // stamp's reasoning above. `HistoryPane` reads the stamp off the open
+        // document; `EditorHost` is what tells the pane to look, once a window
+        // exists for it to look in.
+        doc.provenance = loaded.provenance
         return doc
     }
 }

@@ -164,10 +164,12 @@ struct EditorHost: View {
     /// instances. Computed once via a lazy static.
     private static let sessionId: String = UUID().uuidString
 
-    /// Device id — best-effort stable across launches. `hostName` is fine
-    /// for single-user / single-Mac use; multi-device sync via iCloud will
-    /// rely on the same value per machine.
-    private static let deviceId: String = MacDeviceID.current
+    /// Device id — the prefix of this device's key fingerprint, stable across
+    /// launches because the key itself is persisted (`DeviceIdentity`). Read
+    /// through a lazy static so the per-keystroke path never touches the disk,
+    /// and never from the host name: two Macs can share a name, and then they
+    /// share a per-device op-log file.
+    private static let deviceId: String = DeviceIdentity.current.deviceId
 
     var body: some View {
         // Snapshot the environment undo manager before the EditorSurface init
@@ -942,7 +944,12 @@ struct EditorHost: View {
             switch outcome {
             case .returned(let report), .supersededBySync(let report):
                 reports.append(report)
-            case .stillUnreadable, .corrupt:
+            case .stillUnreadable, .corrupt, .setAsideByProvenance:
+                // `.setAsideByProvenance` joins the silent arm for a stronger
+                // reason than the other two: a `.lines` record is not a file
+                // waiting to come back, so there is no report to aggregate and
+                // never will be. Task 6 keeps such records out of the sweep's
+                // input entirely; this arm is the belt.
                 break
             }
         }
@@ -952,6 +959,21 @@ struct EditorHost: View {
         // History pane's Retry hands to the sheet.
         let sweep = RecoveredHistoryReport.aggregate(reports)
         return HistoryPane.recoveredHistoryNotice(orphanCount: sweep.orphans.count)
+    }
+
+    /// Whether the History pane's picture of this doc's set-aside history is
+    /// now stale — the ONE decision behind the ONE post. Two causes: this load
+    /// set lines aside (a new `.lines` record the pane has never seen), or the
+    /// auto-return sweep changed a `.file` record on disk. Either is a change
+    /// to what that pane draws, and the pane is in another column with its own
+    /// load, so it is told once and told the same way.
+    ///
+    /// Static + pure so the OR is pinnable without a window, like its two
+    /// neighbours.
+    static func quarantineRecordsChanged(
+        setAsideAtLoad: Bool, outcomes: [ReturnOutcome]
+    ) -> Bool {
+        setAsideAtLoad || autoReturnChangedARecord(outcomes: outcomes)
     }
 
     /// Whether a sweep changed any record ON DISK — `.returned` and
@@ -966,7 +988,7 @@ struct EditorHost: View {
         outcomes.contains {
             switch $0 {
             case .returned, .supersededBySync: return true
-            case .stillUnreadable, .corrupt: return false
+            case .stillUnreadable, .corrupt, .setAsideByProvenance: return false
             }
         }
     }
@@ -1051,6 +1073,13 @@ struct EditorHost: View {
             if !doc.isReadOnlyRecovery {
                 let autoReturnDocId = doc.docId
                 let autoReturnProjectURL = store.url
+                // Signed op log P1: the load may have SET ASIDE lines
+                // something other than Maugham wrote, filing a `.lines`
+                // record. Like the pending-recovery stamp, the load says
+                // nothing itself — a windowless post is dropped by the
+                // liveness guard — so the fact rides here as a value and
+                // joins the one post below.
+                let setAsideAtLoad = (doc.provenance?.quarantinedLines ?? 0) > 0
                 // `docId`/`projectURL` are captured as VALUES here, not
                 // `doc`/`store` themselves: if the writer switches documents
                 // mid-return the attempt still completes harmlessly — it is
@@ -1059,10 +1088,14 @@ struct EditorHost: View {
                 // doc-scoped, so nothing here needs a
                 // `recoveryActionIsCurrent`-style staleness guard.
                 Task {
+                    // `.file` records ONLY: a `.lines` record is not a file
+                    // waiting to come back (`attemptReturn` answers
+                    // `.setAsideByProvenance` and touches nothing), so putting
+                    // one through the sweep would be a call that cannot do
+                    // anything. Its arrival is reported by `setAsideAtLoad`.
                     let held = OpLogQuarantine.records(
                         forDocId: autoReturnDocId, in: autoReturnProjectURL
-                    ).filter { $0.status == .held }
-                    guard !held.isEmpty else { return }
+                    ).filter { $0.status == .held && $0.kind == .file }
                     var outcomes: [ReturnOutcome] = []
                     for record in held {
                         // `presenter: nil` is deliberate, not an omission:
@@ -1087,7 +1120,8 @@ struct EditorHost: View {
                     // Anything that came back changed what the History pane is
                     // showing, and that pane is in another column with its own
                     // load — so it is told, project-scoped, before the toast.
-                    if Self.autoReturnChangedARecord(outcomes: outcomes) {
+                    if Self.quarantineRecordsChanged(
+                        setAsideAtLoad: setAsideAtLoad, outcomes: outcomes) {
                         MaughamEvent.post(
                             .maughamQuarantineRecordsChanged,
                             to: .project(for: autoReturnProjectURL))

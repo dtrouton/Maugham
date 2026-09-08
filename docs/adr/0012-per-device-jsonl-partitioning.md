@@ -56,6 +56,18 @@ Two devices can never target the same file path, so iCloud never has to reconcil
 - **`ProjectFolderPresenter` scope requirement.** New per-device files appear at runtime (a phone's first write creates a file the Mac has never seen). The presenter must subscribe at directory level for `presenterDidChangeSubitem` to fire. CLAUDE.md tripwire #7 implies this is already the case; verified during Phase B0 implementation.
 - **Late-arriving ops fold into the past.** Phone offline for a week → ops come back stamped from a week ago, fold into the past at their original ULID position. Rewind history can "grow backwards." This is a property of opId-ordered convergence, not specific to partitioning; partitioning just makes it more frequent because per-device files now arrive at iCloud-propagation cadence rather than being absent entirely. State at cursor X is deterministic *given the ops the load knew about* — can become more-informed than yesterday but never inconsistent.
 
+### Amended 2026-09-07 by ADR 0032
+
+The signed op log's P1 leaves this decision intact and builds on it twice. The
+**device slug's source changed** — `DeviceSlug.make(from:)` now takes
+`DeviceIdentity.deviceId`, the prefix of this device's key fingerprint, instead
+of the host name, so two Macs sharing a name can no longer share a per-device
+file; the slug's private init, its filename-only life and every filename seam
+are unchanged. And the **chained append rewrites the tail** when it sets
+foreign lines aside, which is safe for exactly the reason sealing is: the
+single-writer-per-(device, file) guarantee this ADR establishes. See
+[ADR 0032](0032-the-signed-op-log.md).
+
 ### What this does NOT solve
 
 - **Annotation race semantics** (spec §5.3 Races 1 and 2) — about deriver-level interpretation of overlapping lifecycle ops, not file-level conflicts. Partitioning makes both ops survive the file system; the deriver still has to decide which lifecycle state wins.

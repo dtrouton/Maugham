@@ -620,7 +620,7 @@ final class RepublisherTests: XCTestCase {
         else { return XCTFail("fixture compile failed") }
 
         let catalogURL = PublicationStore.fileURL(
-            deviceSlug: DeviceSlug.make(from: MacDeviceID.current), in: tmp)
+            deviceSlug: DeviceIdentity.current.slug, in: tmp)
         try FileManager.default.setAttributes(
             [.immutable: true], ofItemAtPath: catalogURL.path)
         defer {

@@ -18,6 +18,12 @@ public struct QuarantineRecord: Codable, Equatable, Sendable {
     public let quarantinedAt: Date
     public let reason: String         // the read error at quarantine time
     public var status: Status
+    /// Whether a whole FILE was set aside (the unreadable-file ladder) or a run
+    /// of LINES was (the chain's provenance check). The two are different
+    /// events with different endings: a file can come back, a foreign line
+    /// never can. Defaulted, and decoded tolerantly, so every record already on
+    /// disk reads `.file` without a migration.
+    public var kind: Kind
 
     public enum Status: String, Codable, Sendable {
         case held           // set aside, not yet returnable
@@ -25,13 +31,35 @@ public struct QuarantineRecord: Codable, Equatable, Sendable {
         case returned       // moved back into .maugham/ops/
     }
 
+    public enum Kind: String, Codable, Sendable {
+        case file           // the whole per-device file, moved out of the glob
+        case lines          // a run of lines this device did not write
+    }
+
     public init(docId: String, originalName: String, quarantinedAt: Date,
-                reason: String, status: Status) {
+                reason: String, status: Status, kind: Kind = .file) {
         self.docId = docId
         self.originalName = originalName
         self.quarantinedAt = quarantinedAt
         self.reason = reason
         self.status = status
+        self.kind = kind
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case docId, originalName, quarantinedAt, reason, status, kind
+    }
+
+    /// Hand-written for one reason: `kind` arrived after records were already
+    /// on disk, and a synthesized decoder would fail on every one of them.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        docId = try c.decode(String.self, forKey: .docId)
+        originalName = try c.decode(String.self, forKey: .originalName)
+        quarantinedAt = try c.decode(Date.self, forKey: .quarantinedAt)
+        reason = try c.decode(String.self, forKey: .reason)
+        status = try c.decode(Status.self, forKey: .status)
+        kind = try c.decodeIfPresent(Kind.self, forKey: .kind) ?? .file
     }
 }
 
@@ -56,6 +84,10 @@ public enum ReturnOutcome: Equatable, Sendable {
     /// Readable but a line fails to decode — stays held; salvage is the
     /// integrity path's job, not a merge input (spec §5 step 1).
     case corrupt(reason: String)
+    /// A `.lines` record: a run of lines this device did not write. It is not
+    /// a file that failed to read, so there is nothing to bring back — the
+    /// bytes are forensics. Nothing is touched and nothing is merged.
+    case setAsideByProvenance
 }
 
 /// The typed verb for setting an unreadable op-log file aside (Plan B,
@@ -171,6 +203,77 @@ public enum OpLogQuarantine {
         return record
     }
 
+    /// Sets a run of LINES aside: the bytes this device found in its own
+    /// op-log file that it did not write (spec §3's provenance check).
+    ///
+    /// Distinct from `quarantine` in every way that matters. Nothing moves —
+    /// the file itself is fine and stays exactly where it is; the caller has
+    /// already decided which of its lines are kept and rewrites the tail
+    /// without these. So this WRITES a copy of the foreign bytes under
+    /// `.maugham/conflicts/quarantined-ops/` as
+    /// `<originalName>.<hash>.<stamp>.lines`, with a `.lines` record beside
+    /// it, and that is the whole event: forensics the writer can read, never
+    /// a file that can come back (`attemptReturn` answers
+    /// `.setAsideByProvenance` for one and touches nothing).
+    ///
+    /// **Content-deduped**, exactly as `IntegrityQuarantine.record` is: the
+    /// FNV-64 of the joined lines goes in the destination name, and a second
+    /// call carrying the same bytes for the same file answers nil rather than
+    /// accumulating a new archive on every append. The same foreign line found
+    /// on ten consecutive opens is one record, not ten.
+    ///
+    /// The record is written FIRST for `quarantine`'s reason, one failure mode
+    /// shorter: a failed record write leaves no bytes, and a failed byte write
+    /// removes the record it just wrote.
+    ///
+    /// `nonisolated`: this is called from inside an `NSFileCoordinator`
+    /// writing-accessor block on the append path, which is a plain synchronous
+    /// closure with no isolation of its own. Nothing here touches MainActor
+    /// state — it is a directory create and two file writes under a path the
+    /// coordinated file is not in — so stating that is honest rather than a
+    /// route around the checker.
+    @discardableResult
+    public nonisolated static func setAsideLines(
+        _ lines: [Data], from fileURL: URL, docId: String, reason: String,
+        in projectURL: URL, now: Date = Date()
+    ) throws -> QuarantineRecord? {
+        guard !lines.isEmpty else { return nil }
+
+        let fm = FileManager.default
+        let dir = projectURL.appendingPathComponent(directoryName, isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        var body = Data()
+        for line in lines {
+            body.append(line)
+            body.append(0x0A)
+        }
+
+        let originalName = fileURL.lastPathComponent
+        let contentHash = StableHash.fnv1a64Hex(String(decoding: body, as: UTF8.self))
+        let prefix = "\(originalName).\(contentHash)."
+        if let existing = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil),
+           existing.contains(where: {
+               $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "lines"
+           }) {
+            return nil  // the same bytes are already on file for this doc
+        }
+
+        let destURL = dir.appendingPathComponent("\(prefix)\(stamp(from: now)).lines")
+        let record = QuarantineRecord(
+            docId: docId, originalName: originalName, quarantinedAt: now,
+            reason: reason, status: .held, kind: .lines)
+        let sidecar = sidecarURL(forQuarantinedName: destURL.lastPathComponent, in: dir)
+        try JSONEncoder().encode(record).write(to: sidecar, options: .atomic)
+        do {
+            try body.write(to: destURL, options: .atomic)
+        } catch {
+            try? fm.removeItem(at: sidecar)
+            throw error
+        }
+        return record
+    }
+
     /// The `<quarantined name>.quarantine.json` convention, in one place —
     /// `quarantine` mints it, its collision loop probes it, and
     /// `rewriteRecord` resolves it back. Three spellings of the same suffix
@@ -215,7 +318,7 @@ public enum OpLogQuarantine {
     /// isolation split stays intact, at the cost of recomputing the
     /// correction on every call rather than settling it once on disk.
     private nonisolated static func reconciled(_ record: QuarantineRecord, in projectURL: URL) -> QuarantineRecord {
-        guard record.status == .held else { return record }
+        guard record.status == .held, record.kind == .file else { return record }
         let quarantinedURL = quarantinedFileURL(for: record, in: projectURL)
         let destURL = projectURL
             .appendingPathComponent(".maugham/ops", isDirectory: true)
@@ -240,6 +343,35 @@ public enum OpLogQuarantine {
     ///
     /// `nonisolated`: a pure filesystem read touching no MainActor state —
     /// same reasoning as `defaultStubProbe`.
+    /// How many CHANGES a set of records held back — the non-empty lines
+    /// across every `.lines` record's data file, not the number of records.
+    /// One record can hold a run of lines, and the question a pane asks on the
+    /// writer's behalf is how much of their history this is, so the answer has
+    /// to open the files.
+    ///
+    /// Lives here rather than on a pane because TWO panes ask it: History for
+    /// a document's own op-log files, the Inbox for the manifest stream
+    /// (`InboxManifest.chainDocId`). A second copy would be two answers to one
+    /// question. Separate from the notice copy on purpose — a notice that read
+    /// disk would do file I/O on every `body` evaluation; each pane calls this
+    /// once, on refresh.
+    ///
+    /// `.file` records are skipped: their data file is a whole op log, whose
+    /// line count is a different quantity entirely.
+    public nonisolated static func setAsideLineCount(
+        records: [QuarantineRecord], in projectURL: URL
+    ) -> Int {
+        records
+            .filter { $0.kind == .lines }
+            .reduce(0) { total, record in
+                let url = quarantinedFileURL(for: record, in: projectURL)
+                guard let bytes = try? Data(contentsOf: url) else { return total }  // adr-0018-ok: a set-aside `.lines` archive — forensics this counts, never manuscript truth
+                return total + bytes
+                    .split(separator: 0x0A, omittingEmptySubsequences: true)
+                    .count
+            }
+    }
+
     public nonisolated static func quarantinedFileURL(for record: QuarantineRecord, in projectURL: URL) -> URL {
         let dir = projectURL.appendingPathComponent(directoryName, isDirectory: true)
         for entry in sidecars(in: projectURL) {
@@ -287,7 +419,7 @@ public enum OpLogQuarantine {
     /// Internal rather than private so a test that pins `quarantine`'s
     /// destination naming can predict the name from the `now` it injected,
     /// instead of re-spelling this format and drifting from it.
-    static func stamp(from date: Date) -> String {
+    nonisolated static func stamp(from date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date).replacingOccurrences(of: ":", with: "-")
@@ -350,6 +482,11 @@ extension OpLogQuarantine {
     public static func attemptReturn(
         record: QuarantineRecord, in projectURL: URL, presenter: NSFilePresenter?
     ) async -> ReturnOutcome {
+        // A `.lines` record is not a file that failed to read — it is a copy of
+        // bytes this device did not write, kept as forensics. There is nothing
+        // to bring back, so this answers before touching anything at all.
+        guard record.kind == .file else { return .setAsideByProvenance }
+
         let dataURL = OpLogQuarantine.quarantinedFileURL(for: record, in: projectURL)
 
         let quarantinedStore = JSONLAppendStore<Op>(

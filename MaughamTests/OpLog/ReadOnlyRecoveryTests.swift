@@ -61,6 +61,18 @@ final class ReadOnlyRecoveryTests: XCTestCase {
         XCTAssertEqual(doc.readOnlyRecovery?.unreadableFiles.map(\.name),
                        [badURL.lastPathComponent], "the banner's names ride on the doc")
         XCTAssertTrue(doc.displayText.contains("Three."), "the readable history is all there")
+        // Signed op log P1: a partial view is entitled to say what its READABLE
+        // files are made of — this is exactly where a writer most wants to know.
+        // The unreadable file is named in `unreadableFiles` and contributes no
+        // provenance at all, which is a different fact from "zero verified".
+        let provenance = try XCTUnwrap(
+            doc.provenance, "the recovery door stamps provenance too")
+        XCTAssertEqual(provenance.files.count, 1,
+                       "only the file that READ has provenance")
+        XCTAssertFalse(provenance.files.contains { $0.name == badURL.lastPathComponent },
+                       "an unreadable file is named, never counted")
+        XCTAssertEqual(provenance.quarantinedLines, 0,
+                       "nothing here was refused — the file simply could not be read")
 
         // …every mutation entry point no-ops…
         doc.setFullText("VANDALISM")
@@ -317,11 +329,15 @@ final class ReadOnlyRecoveryTests: XCTestCase {
         // load. The sweep can empty the held set behind its back, and without
         // a post the pane's standing notice went stale and its button
         // re-attempted a record that had already come back.
+        // Signed op log P1 widened the predicate rather than adding a second
+        // post: `quarantineRecordsChanged` is `autoReturnChangedARecord` OR
+        // "this load set lines aside". One post, two causes.
         XCTAssertTrue(
-            hookSlice.contains("Self.autoReturnChangedARecord(")
+            hookSlice.contains("Self.quarantineRecordsChanged(")
                 && hookSlice.contains(".maughamQuarantineRecordsChanged"),
             "the hook posts the project-scoped records-changed event when an "
-            + "outcome actually changed a record")
+            + "outcome actually changed a record — or when the load itself "
+            + "set lines aside")
         XCTAssertTrue(
             hookSlice.contains("to: .project(for: autoReturnProjectURL)"),
             "scoped .project (ADR 0021 / tripwire 21) — a window on another "

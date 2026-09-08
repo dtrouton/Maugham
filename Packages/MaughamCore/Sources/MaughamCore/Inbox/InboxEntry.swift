@@ -89,12 +89,18 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
     /// it as nil — tripwire 19.
     public var transcriptionError: String?
     /// Palette aim: which palette-group subject (e.g. "The Flat") the capturer
-    /// pointed this entry at. nil unless the capturer aimed it — tripwire 19
-    /// (phone writer optional param, Mac promote reads it if present).
+    /// pointed this entry at.
+    ///
+    /// **Decoded and tolerated; written by nobody since signed op log P1.** The
+    /// phone's aim picker was the one writer and it is gone, so a fresh row
+    /// always carries nil here. The field stays because rows already on disk
+    /// carry a subject, and the Mac's `InboxPane`/`PalettePickerSheet` still
+    /// read it when promoting one of those.
     public var paletteSubject: String?
     /// Palette aim: which sense (e.g. "smell") the capturer tagged this
-    /// entry with. nil unless the capturer aimed it. Free-form string, not a
-    /// `Sense` enum, so an older Core doesn't need to know the sense list.
+    /// entry with. Free-form string, not a `Sense` enum, so an older Core
+    /// doesn't need to know the sense list. Same status as `paletteSubject`:
+    /// read for rows already on disk, written by nobody.
     public var sense: String?
 
     public init(

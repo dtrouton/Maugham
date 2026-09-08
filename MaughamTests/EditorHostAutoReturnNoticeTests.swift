@@ -109,6 +109,57 @@ final class EditorHostAutoReturnNoticeTests: XCTestCase {
         ]), "nothing moved and no sidecar was rewritten — no surface is stale")
     }
 
+    // MARK: - Signed op log P1: the one post, two causes
+
+    /// The pane's staleness has TWO causes and ONE post. A load that set lines
+    /// aside filed a `.lines` record the pane has never seen; a sweep that
+    /// returned a file took a `.file` record out of the held set. Either makes
+    /// the other column's copy wrong, and both must reach it through the same
+    /// event — a second post site is a second thing to forget.
+    func test_recordsChanged_isTrueWhenTheLoadSetLinesAside() {
+        XCTAssertTrue(EditorHost.quarantineRecordsChanged(
+            setAsideAtLoad: true, outcomes: []),
+            "a load that refused a line makes the pane stale on its own — "
+            + "the sweep has nothing to do with it")
+    }
+
+    func test_recordsChanged_isTrueWhenTheSweepChangedARecord() {
+        XCTAssertTrue(EditorHost.quarantineRecordsChanged(
+            setAsideAtLoad: false, outcomes: [.returned(report(orphanTexts: []))]))
+    }
+
+    func test_recordsChanged_isFalseWhenNeitherHappened() {
+        XCTAssertFalse(EditorHost.quarantineRecordsChanged(
+            setAsideAtLoad: false, outcomes: []))
+        XCTAssertFalse(EditorHost.quarantineRecordsChanged(
+            setAsideAtLoad: false,
+            outcomes: [.stillUnreadable(reason: "permission denied")]))
+    }
+
+    /// A `.lines` record is not a file waiting to come back, so it must not
+    /// reach the sweep at all — `attemptReturn` would answer
+    /// `.setAsideByProvenance` and touch nothing, which is a call that cannot
+    /// do anything. The census guards the filter, and the post's own OR.
+    func test_theAutoReturnSweepTakesFileRecordsOnly_census() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("Maugham/Views/EditorHost.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            source.contains("$0.status == .held && $0.kind == .file"),
+            "the auto-return sweep reads `.file` records only")
+        XCTAssertTrue(
+            source.contains("(doc.provenance?.quarantinedLines ?? 0) > 0"),
+            "the load's own set-aside fact rides to the post as a value")
+        XCTAssertTrue(
+            source.contains("Self.quarantineRecordsChanged("),
+            "and joins the ONE post through the one predicate")
+        XCTAssertEqual(
+            source.components(separatedBy: ".maughamQuarantineRecordsChanged").count - 1, 1,
+            "one post site — two would be two things to forget")
+    }
+
     // MARK: - The set-aside press's two belts (fix round: M4)
 
     /// Both are states unreachable by construction today, which is exactly why

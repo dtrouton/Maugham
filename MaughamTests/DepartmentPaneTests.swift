@@ -1267,7 +1267,7 @@ final class DepartmentPaneTests: XCTestCase {
             TranslationRecord(paragraphId: paragraphId, language: language, text: text,
                               sourceHash: TranslationHash.hash(source), verbatim: false),
             forDocId: doc.docId,
-            deviceSlug: DeviceSlug.make(from: MacDeviceID.current),
+            deviceSlug: DeviceIdentity.current.slug,
             in: fixture.projectURL)
     }
 

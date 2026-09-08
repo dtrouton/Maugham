@@ -60,6 +60,21 @@ public final class Document {
     public internal(set) var readOnlyRecovery: ReadOnlyRecoveryState?
     public var isReadOnlyRecovery: Bool { readOnlyRecovery != nil }
 
+    /// What the load found this document's history to be MADE OF (signed op
+    /// log P1): how many lines of each op-log file this device can vouch for,
+    /// how many are merely history, and how many it refused to apply.
+    ///
+    /// Stamped by BOTH doors — the strict `Document.load` and the read-only
+    /// recovery load — because "what is this made of" is a fair question about
+    /// a partial view too, and a recovery view is exactly where a writer most
+    /// wants the answer. Nil only for a `Document` built by some other route.
+    ///
+    /// A fact, never a verdict: nothing here decides whether the document may
+    /// be opened. `HistoryPane` is what says it out loud, and it says only the
+    /// two things a writer can act on knowing — unsigned history, and lines
+    /// set aside — never the ordinary unsealed tail.
+    public internal(set) var provenance: OpLogProvenance?
+
     /// The pending file `load` found but could not recover (RULING-54,
     /// M9-OL-010): un-bursted keystrokes from a crashed session, already
     /// preserved in the quarantine record. Stamped by `Document.load` and
@@ -453,6 +468,38 @@ public final class Document {
     /// Test-only override for the seal threshold used by close()/open-time
     /// maintenance. Production reads `OpLogStore.segmentSealThreshold`.
     internal static var segmentSealThresholdForTesting: Int? = nil
+
+    /// Test-only override for the device identity and chain memory every
+    /// `Document.load` hands its `OpLogStore`. Production leaves both nil and
+    /// gets `DeviceIdentity.current` / `OpLogDeviceState.shared`.
+    ///
+    /// Why a seam at all (`segmentSealThresholdForTesting`'s shape): a test
+    /// that asserts a SEAL was written needs an identity that can sign, and
+    /// the machine running the suite may have none — CI's VM has no Secure
+    /// Enclave, so `DeviceIdentity.current` there is the unsigned token twin
+    /// and `sealChain` correctly writes nothing. Injecting
+    /// `DeviceIdentity.softwareForTesting()` makes the seal assertable without
+    /// making the production path conditional on anything.
+    ///
+    /// A test that sets these MUST clear them in `tearDown`: they are
+    /// process-wide, and a leaked signer would silently change what every
+    /// later test's load can vouch for.
+    internal static var deviceIdentityForTesting: DeviceIdentity? = nil
+    internal static var deviceStateForTesting: OpLogDeviceState? = nil
+
+    /// The ONE construction of an `OpLogStore` on a load path, so the two
+    /// doors (strict and read-only recovery) cannot end up with different
+    /// identities — which would mean one of them vouching for lines the other
+    /// sets aside.
+    internal static func makeLoadOpStore(
+        projectURL: URL, presenter: NSFilePresenter?
+    ) -> OpLogStore {
+        OpLogStore(
+            projectURL: projectURL,
+            presenter: presenter,
+            identity: deviceIdentityForTesting ?? .current,
+            state: deviceStateForTesting ?? .shared)
+    }
 
     /// Test-only artificial delay injected inside the detached task-op disk
     /// append (`appendTaskOpInternal`). Makes the close-time drain race
@@ -1119,6 +1166,22 @@ public final class Document {
             // unconditionally on burst; the cache rebuilds lazily on the next
             // `tasks(filter:)` read.
             invalidateTasksCache()
+            // Seal what this burst just wrote (signed op log P1, spec §4.3's
+            // third trigger — a burst IS "typing followed by idle"). One
+            // signature over the whole run since the last seal, so the tail
+            // this device wrote is not merely chained (tamper-EVIDENT) but
+            // signed. Best-effort by construction: `sealChain` answers false
+            // rather than throwing on a device with no key and on a file with
+            // nothing new, and a genuine failure is LOGGED and dropped —
+            // sealing is maintenance, and it must never cost the writer the
+            // burst that has already landed. Enclave signing is ~4.5 ms once
+            // per burst, which is the accepted price.
+            do {
+                _ = try await opStore.sealChain(docId: docId)
+            } catch {
+                documentLog.error(
+                    "burst seal failed for \(self.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
 
         // Annotation maintenance — two separate gates:
@@ -1248,12 +1311,26 @@ public final class Document {
             try? await pending.clear()
         }
 
-        // Seal-on-close (ADR 0016 / growth spec §5.2): rotate this device's
-        // own oversized tail into an immutable compressed segment. Threshold-
-        // gated (usually a no-op) and best-effort — a seal failure must never
-        // block close; the next close or project-open maintenance retries.
-        // Never mid-typing, never another device's file, never the legacy
-        // unsuffixed file (sealTailIfNeeded's scope rules).
+        // Seal-on-close, chain half FIRST (signed op log P1): sign this
+        // device's own live tail before the rotation below may turn it into an
+        // immutable segment, so a sealed segment ENDS on a seal line and its
+        // whole span is verified inside the container. The other order rotates
+        // an unsealed span away where nothing can ever sign it. This is
+        // load-bearing for ops that arrive OUTSIDE the burst path — an
+        // annotation, a task op, a checkpoint breadcrumb — since a burst seals
+        // itself. Best-effort for the rotation's own reason.
+        do {
+            _ = try await opStore.sealChain(docId: docId)
+        } catch {
+            documentLog.error(
+                "close() chain seal failed for \(self.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+        // Rotation (ADR 0016 / growth spec §5.2): this device's own oversized
+        // tail becomes an immutable compressed segment. Threshold-gated
+        // (usually a no-op) and best-effort — a seal failure must never block
+        // close; the next close or project-open maintenance retries. Never
+        // mid-typing, never another device's file, never the legacy unsuffixed
+        // file (sealTailIfNeeded's scope rules).
         do {
             _ = try await opStore.sealTailIfNeeded(
                 docId: docId,

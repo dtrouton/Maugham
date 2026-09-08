@@ -29,8 +29,18 @@ final class OpLogStoreDiagnosedTests: XCTestCase {
     /// its tail chopped, no trailing newline — exactly a crash mid-`append`).
     /// `loadDiagnosed` must (a) return exactly the N valid ops, never the torn
     /// one, and (b) report the torn line in `diagnostics.skipped`.
+    ///
+    /// The fixture reproduces the crash exactly, and since the chain landed it
+    /// has to: the line is CHAINED onto the file's head (a truncated line still
+    /// names its `prev`, which the format writes first) and the head it would
+    /// have hashed to is remembered BEFORE the bytes are written, which is the
+    /// order `chainedAppend` writes in and why a crash there is recoverable. A
+    /// torn line that skipped either step is a line this device did not write,
+    /// and the reader sets it aside instead — a different event, covered by
+    /// `OpLogVerifiedLoadTests`.
     func test_loadDiagnosed_tornFinalLine_quarantinedAndExcludedFromStream() async throws {
-        let store = OpLogStore(projectURL: tmp)
+        let state = OpLogDeviceState(fileURL: tmp.appendingPathComponent("state.json"))
+        let store = OpLogStore(projectURL: tmp, state: state)
         try await store.append(makeOp(opId: "01HZK01"))
         try await store.append(makeOp(opId: "01HZK02"))
 
@@ -38,13 +48,21 @@ final class OpLogStoreDiagnosedTests: XCTestCase {
         let slug = DeviceSlug.make(from: "m")
         let fileURL = OpLogStore.opLogFileURL(
             forDocId: "doc-1", deviceSlug: slug, in: tmp)
-        // Encode a full op line, then chop its last 10 bytes so the JSON is
-        // unterminated and cannot decode.
+        // Encode a full op line, CHAIN it onto the file's head — a crash
+        // mid-append leaves a truncated line that already names its `prev`,
+        // because `prev` is the first key the format writes — then chop its
+        // last 10 bytes so the JSON is unterminated and cannot decode.
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
         enc.outputFormatting = [.sortedKeys]
-        let full = try enc.encode(makeOp(opId: "01HZK03"))
+        let head = OpLogChain.lineHash(Data(
+            try Data(contentsOf: fileURL)
+                .split(separator: 0x0A, omittingEmptySubsequences: true).last!))
+        let full = OpLogChain.chainedLine(
+            elementJSON: try enc.encode(makeOp(opId: "01HZK03")), prev: head)
         let torn = full.prefix(full.count - 10)   // no trailing newline either
+        state.remember(head: OpLogChain.lineHash(full),
+                       for: OpLogDeviceState.fileKey(fileURL))
         let handle = try FileHandle(forWritingTo: fileURL)
         try handle.seekToEnd()
         try handle.write(contentsOf: Data(torn))

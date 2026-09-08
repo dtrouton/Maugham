@@ -7,8 +7,10 @@ import Foundation
 /// never has to reconcile concurrent appends to one path (which it resolves by
 /// whole-file replace, silently dropping the loser as a conflict-twin the
 /// loader never opens). The slug must be:
-///   - filename-safe (the `device` string is a hostname or `phone:<uuid>` —
-///     may contain dots, colons, spaces);
+///   - filename-safe (the `device` string is `DeviceIdentity.deviceId`, 16 hex
+///     characters off the device key's fingerprint — and, in op logs written
+///     before the signed op log, a hostname or `phone:<uuid>`, which may carry
+///     dots, colons and spaces; both must sanitize);
 ///   - stable for a given `device` string across launches (so a device keeps
 ///     writing to the same file);
 ///   - collision-resistant after sanitization/truncation (hence the hash

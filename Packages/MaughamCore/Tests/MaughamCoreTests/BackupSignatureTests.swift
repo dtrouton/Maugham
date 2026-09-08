@@ -28,6 +28,32 @@ final class BackupSignatureTests: XCTestCase {
                        atomically: true, encoding: .utf8)
     }
 
+    /// Signed op log P1: a seal is a LINE in the op-log file, and it is not an
+    /// op. `compute` already `try? decode`s and continues past anything that
+    /// is not an `Op`, so a seal contributes no opId — pinned here, because the
+    /// alternative is a backup runner that sees every sealed document as
+    /// changed and re-copies the whole project on a cadence nobody asked for.
+    @MainActor
+    func test_signature_unchangedWhenASealLineIsAppended() throws {
+        let proj = makeProject()
+        defer { try? FileManager.default.removeItem(at: proj) }
+        try writeOps(proj, [contentOp("01A"), contentOp("01B")])
+        let before = BackupSignature.compute(projectURL: proj)
+
+        let url = proj.appendingPathComponent(".maugham/ops/doc-0f0f0f0f.macA.jsonl")
+        let identity = DeviceIdentity.softwareForTesting()
+        let existing = try Data(contentsOf: url)
+        let head = OpLogChain.lineHash(Data(
+            existing.split(separator: UInt8(0x0A), omittingEmptySubsequences: true).last!))
+        var seal = try OpLogChain.Seal.line(
+            head: head, identity: identity, at: Date(timeIntervalSince1970: 42))
+        seal.append(0x0A)
+        try (existing + seal).write(to: url)
+
+        XCTAssertEqual(BackupSignature.compute(projectURL: proj), before,
+                       "a seal changes no signature — it commits to ops already counted")
+    }
+
     @MainActor
     func test_signature_unchangedWhenOnlyACheckpointOpIsAppended() throws {
         let proj = makeProject()

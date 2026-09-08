@@ -1,15 +1,19 @@
 import XCTest
 @testable import MaughamPhone
-import MaughamCore
+@testable import MaughamCore
 
 /// Acceptance tests for the phone-side `AnnotationWriter` (Task F.2). The
 /// load-bearing case is the accept round-trip: a `claudeAccept` of a suggested
 /// change must carry the creation op's `changes` VERBATIM so the Mac
 /// re-materializes the edit on replay (spec §3.9).
+@MainActor
 final class AnnotationWriterTests: XCTestCase {
 
-    // Shared fixtures.
-    private let deviceId = "phone:TEST"
+    // Shared fixtures. The simulator's own identity may or may not hold a key,
+    // so the seal half is asserted under a software signer — the same choice
+    // `InboxCaptureWriterTests` makes, and for the same reason.
+    private var identity: DeviceIdentity!
+    private var deviceId: String { identity.deviceId }
     private let appVersion = "0.1.0"
     private let osVersion = "iOS 17.4"
     // The real on-disk format (ADR 0008): `doc-<8hex>` or `scene-<8hex>`.
@@ -17,16 +21,47 @@ final class AnnotationWriterTests: XCTestCase {
     // "No open annotations" footgun.
     private let docId = "doc-0f677d7e"
 
-    private func makeWriter(projectRoot: URL = FileManager.default.temporaryDirectory) -> AnnotationWriter {
+    override func setUpWithError() throws {
+        identity = .softwareForTesting()
+    }
+
+    private func makeWriter(
+        projectRoot: URL = FileManager.default.temporaryDirectory,
+        identity: DeviceIdentity? = nil
+    ) -> AnnotationWriter {
         AnnotationWriter(
             projectRoot: projectRoot,
             docId: docId,
-            deviceId: deviceId,
-            io: CoordinatedFileIO(),
+            identity: identity ?? self.identity,
             appVersion: appVersion,
             osVersion: osVersion,
             now: { Date(timeIntervalSince1970: 1_700_000_000) }
         )
+    }
+
+    /// A fresh project root that is cleaned up with the test. Each one is its
+    /// own chain, so a remembered head never leaks between cases.
+    private func makeProjectRoot(
+        _ label: String, file: StaticString = #filePath, line: UInt = #line
+    ) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(label)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        return root
+    }
+
+    /// The stream's raw lines, seals and all.
+    private func lines(in url: URL) throws -> [Data] {
+        try Data(contentsOf: url)
+            .split(separator: 0x0A, omittingEmptySubsequences: false)
+            .filter { !$0.isEmpty }.map { Data($0) }
+    }
+
+    private func opLogURL(in projectRoot: URL, slug: DeviceSlug? = nil) -> URL {
+        projectRoot
+            .appendingPathComponent(".maugham/ops", isDirectory: true)
+            .appendingPathComponent("\(docId).\((slug ?? identity.slug).raw).jsonl")
     }
 
     /// A `.comment` annotation (no paragraph mutation).
@@ -70,7 +105,9 @@ final class AnnotationWriterTests: XCTestCase {
         XCTAssertEqual(decoded.provenance?.userResponse, reason)
         XCTAssertEqual(decoded.provenance?.appVersion, appVersion)
         XCTAssertEqual(decoded.provenance?.osVersion, osVersion)
-        XCTAssertTrue(decoded.device.hasPrefix("phone:"))
+        XCTAssertEqual(decoded.device, deviceId,
+            "the op carries the writer's own device id verbatim; the phone:<uuid> "
+            + "prefix convention is gone — the id is a key fingerprint now")
         // session and provenance.sessionId are the SAME minted value.
         XCTAssertEqual(decoded.session, decoded.provenance?.sessionId)
         XCTAssertNil(decoded.sequence, "lifecycle ops don't set sequence")
@@ -300,33 +337,97 @@ final class AnnotationWriterTests: XCTestCase {
         XCTAssertEqual(withFields, withoutFields)
     }
 
-    // MARK: - 5. Coordinated append lands at the per-device op-log path
+    // MARK: - 5. The chained append lands at the per-device op-log path
 
-    @MainActor
     func test_reject_appendsToPerDeviceOpLogFile() async throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AnnotationWriterTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try makeProjectRoot("AnnotationWriterTests")
 
         let writer = makeWriter(projectRoot: projectRoot)
         let ann = commentAnnotation()
         let appended = try await writer.reject(ann, reason: "off-voice")
 
         // The file must exist at .maugham/ops/<docId>.<slug>.jsonl (docId already
-        // carries the d_ prefix; OpLogStore does NOT add another).
-        let expectedURL = projectRoot
-            .appendingPathComponent(".maugham/ops", isDirectory: true)
-            .appendingPathComponent("\(docId).\(DeviceSlug.make(from: deviceId).raw).jsonl")
+        // carries its full form; OpLogStore does NOT add a prefix).
+        let expectedURL = opLogURL(in: projectRoot)
         XCTAssertTrue(FileManager.default.fileExists(atPath: expectedURL.path),
                       "op-log file should exist at the per-device path")
 
         // Load it back through JSONLAppendStore<Op> and confirm the op matches.
         let store = JSONLAppendStore<Op>(fileURL: expectedURL)
         let loaded = try await store.load()
-        XCTAssertEqual(loaded.count, 1)
+        XCTAssertEqual(loaded.count, 1, "one op — the seal is not an element")
         XCTAssertEqual(loaded.first, appended)
         XCTAssertEqual(loaded.first?.provenance?.sourceAnnotationId, ann.id)
         XCTAssertEqual(loaded.first?.provenance?.userResponse, "off-voice")
+    }
+
+    // MARK: - 6. The chain (task 8)
+
+    /// Every op links to the head this phone verified, and a seal signs it on
+    /// the spot — so the SECOND op's `prev` is the first op's SEAL, which is the
+    /// head by then. The Mac's own reader sees two ops and no seals.
+    func test_everyOpIsChainedAndSealedOnTheSpot() async throws {
+        let projectRoot = try makeProjectRoot("AnnotationWriterChain")
+        let writer = makeWriter(projectRoot: projectRoot)
+        let ann = commentAnnotation()
+        let first = try await writer.reject(ann, reason: "off-voice")
+        let second = try await writer.archive(ann)
+
+        let url = opLogURL(in: projectRoot)
+        let lines = try lines(in: url)
+        XCTAssertEqual(lines.count, 4, "an op and a seal for each of the two ops")
+
+        XCTAssertEqual(OpLogChain.prev(ofLine: lines[0]) ?? nil, OpLogChain.genesis,
+                       "the first line of a fresh file chains to the genesis sentinel")
+        let firstSeal = try XCTUnwrap(OpLogChain.Seal.parse(lines[1]))
+        XCTAssertTrue(firstSeal.verifies())
+        XCTAssertEqual(firstSeal.key, identity.fingerprint)
+        XCTAssertEqual(firstSeal.head, OpLogChain.lineHash(lines[0]))
+
+        XCTAssertEqual(OpLogChain.prev(ofLine: lines[2]) ?? nil,
+                       OpLogChain.lineHash(lines[1]),
+                       "the second op chains onto the head — the seal that preceded it")
+        let secondSeal = try XCTUnwrap(OpLogChain.Seal.parse(lines[3]))
+        XCTAssertTrue(secondSeal.verifies())
+        XCTAssertEqual(secondSeal.head, OpLogChain.lineHash(lines[2]))
+
+        let loaded = try await JSONLAppendStore<Op>(fileURL: url).load()
+        XCTAssertEqual(loaded.map(\.opId), [first, second].map(\.opId).sorted(),
+                       "the Mac reader sees two ops and no seals")
+    }
+
+    /// A phone with no key is a state, not a failure: the ops are written,
+    /// chained to each other, and nothing throws — there is simply no seal.
+    func test_aPhoneWithNoKeyChainsItsOpsAndSealsNothing() async throws {
+        let projectRoot = try makeProjectRoot("AnnotationWriterUnsigned")
+        let unsigned = DeviceIdentity.unsignedForTesting(token: Data(repeating: 7, count: 32))
+        let writer = makeWriter(projectRoot: projectRoot, identity: unsigned)
+        let ann = commentAnnotation()
+        _ = try await writer.reject(ann, reason: "no")
+        _ = try await writer.archive(ann)
+
+        let url = opLogURL(in: projectRoot, slug: unsigned.slug)
+        let lines = try lines(in: url)
+        XCTAssertEqual(lines.count, 2, "two ops, no seals")
+        XCTAssertEqual(OpLogChain.prev(ofLine: lines[1]) ?? nil,
+                       OpLogChain.lineHash(lines[0]))
+        let loaded = try await JSONLAppendStore<Op>(fileURL: url).load()
+        XCTAssertEqual(loaded.count, 2)
+    }
+
+    /// The op's `device` field and the stream's own filename come from ONE
+    /// name — the identity's. Two spellings could file an op under a device
+    /// whose key never signed it.
+    func test_theOpsDeviceIsTheIdentityThatSignedIt() async throws {
+        let projectRoot = try makeProjectRoot("AnnotationWriterName")
+        let writer = makeWriter(projectRoot: projectRoot)
+        let appended = try await writer.reject(commentAnnotation(), reason: "no")
+
+        XCTAssertEqual(appended.device, identity.deviceId)
+        let url = opLogURL(in: projectRoot)
+        XCTAssertEqual(url.lastPathComponent,
+                       "\(docId).\(identity.slug.raw).jsonl")
+        let seal = try XCTUnwrap(OpLogChain.Seal.parse(try lines(in: url)[1]))
+        XCTAssertEqual(seal.key, identity.fingerprint)
     }
 }

@@ -40,20 +40,57 @@ final class InboxStore {
     /// pane shows a notice when non-empty; the rows are intact on disk.
     private(set) var unreadableManifests: [String] = []
 
+    /// How many manifest ROWS the verified read held back — lines something
+    /// other than Maugham wrote into an inbox stream, kept as forensics and
+    /// never applied (signed op log P1).
+    ///
+    /// The records were being written and surfaced NOWHERE: `HistoryPane` only
+    /// ever asks for a DOCUMENT's records, and the inbox files its own under
+    /// `InboxManifest.chainDocId`. A refusal nobody is told about is the one
+    /// shape constraint 7 forbids, so the pane says it here. Counted once, on
+    /// `refresh` — the notice itself is pure over this number.
+    private(set) var setAsideLineCount: Int = 0
+
     private let projectURL: URL
     private let inboxDir: URL
-    /// This Mac's own device identifier — matches the op-log `device` (hostName)
-    /// so a single machine's inbox + op-log writes carry a consistent identity.
+    /// This Mac's own device identifier — the same string the op-log `device`
+    /// carries, so a single machine's inbox + op-log writes carry a consistent
+    /// identity.
     private let deviceId: String
+    /// This device as the CHAIN names it — the key that signs a capture's seal
+    /// and the word against which a manifest's lines are verified. Injectable
+    /// so a test can hold a signing key on a machine (or a CI runner) that has
+    /// no enclave.
+    private let identity: DeviceIdentity
 
-    init(projectURL: URL, deviceId: String = InboxStore.currentDeviceId) {
+    init(projectURL: URL,
+         deviceId: String = InboxStore.currentDeviceId,
+         identity: DeviceIdentity = .current) {
         self.projectURL = projectURL
         self.inboxDir = projectURL.appendingPathComponent(".maugham/inbox")
         self.deviceId = deviceId
+        self.identity = identity
     }
 
-    /// Mirrors `EditorHost.deviceId`: hostName, best-effort stable per machine.
-    nonisolated static var currentDeviceId: String { MacDeviceID.current }
+    /// The inbox's chain, for whichever manifest is being read or written: this
+    /// device's key and memory, the project it belongs to, and the inbox's own
+    /// stream name in place of a docId (the manifest is a project's captures,
+    /// not a document's history).
+    private func chainPolicy() -> ChainPolicy {
+        ChainPolicy(identity: identity, state: .shared,
+                    docId: InboxManifest.chainDocId, projectURL: projectURL)
+    }
+
+    private func manifestStore(at url: URL) -> JSONLAppendStore<InboxEntry> {
+        // No dedupKey: we need every status-transition row, then collapse
+        // last-wins ourselves (JSONLAppendStore's dedup keeps *first*).
+        JSONLAppendStore<InboxEntry>(fileURL: url, chain: chainPolicy())
+    }
+
+    /// Mirrors `EditorHost.deviceId`: this device's key fingerprint, read once
+    /// per process from `DeviceIdentity.current` (memoized, so nothing here
+    /// touches the disk per call).
+    nonisolated static var currentDeviceId: String { DeviceIdentity.current.deviceId }
 
     private var ownManifestURL: URL {
         InboxManifest.inboxManifestURL(forDeviceSlug: DeviceSlug.make(from: deviceId),
@@ -67,10 +104,13 @@ final class InboxStore {
         var rows: [InboxEntry] = []
         var unreadable: [String] = []
         for url in urls {
-            // No dedupKey: we need every status-transition row, then collapse
-            // last-wins ourselves (JSONLAppendStore's dedup keeps *first*).
-            let store = JSONLAppendStore<InboxEntry>(fileURL: url)
-            do { rows.append(contentsOf: try await store.loadStrict()) }
+            // The verified read (spec §4.2): seal lines never reach the entry
+            // decoder, and a run of lines this device cannot vouch for is set
+            // aside under the inbox's own stream name before the rest is
+            // parsed — the same three steps the op log's tails take, in the
+            // same implementation.
+            let store = manifestStore(at: url)
+            do { rows.append(contentsOf: try await store.loadVerifiedStrict().elements) }
             catch {
                 // Unreadable is RECORDED, never presented as empty (RULING-7):
                 // the device's captures are intact in the file; the pane says
@@ -81,6 +121,10 @@ final class InboxStore {
             }
         }
         unreadableManifests = unreadable.sorted()
+        setAsideLineCount = OpLogQuarantine.setAsideLineCount(
+            records: OpLogQuarantine.records(
+                forDocId: InboxManifest.chainDocId, in: projectURL),
+            in: projectURL)
         // Last-wins by row-write time (writtenAt), across all files and all
         // rows for an id. createdAt is immutable across transition rows, so it
         // can't order them; writtenAt is stamped fresh on every append.
@@ -159,8 +203,13 @@ final class InboxStore {
         // worker re-transcribes in an infinite loop. (Smoke caught this.)
         let basis = entry.writtenAt ?? entry.createdAt
         stamped.writtenAt = max(Date(), basis.addingTimeInterval(0.001))
-        let store = JSONLAppendStore<InboxEntry>(fileURL: ownManifestURL)
+        let store = manifestStore(at: ownManifestURL)
         try await store.append(stamped)
+        // A seal per capture. Captures are rare — a photograph, a voice note, a
+        // status flip — so one signature each is a cost the writer never feels,
+        // and it means no capture ever sits in the tail merely chained. A
+        // device with no key writes no seal and reports nothing wrong.
+        try await store.appendSeal()
     }
 
     /// Replace an entry's transcript + transcription state (Whisper result, or a

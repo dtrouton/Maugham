@@ -404,4 +404,80 @@ final class OpLogQuarantineTests: XCTestCase {
         XCTAssertEqual(OpLogQuarantine.records(forDocId: "doc-1", in: tmp).first?.status, .returned,
                        "`.returned` is terminal — the loser's verdict must not overwrite it")
     }
+
+    // MARK: - Lines set aside by provenance (Task 4)
+
+    /// (g) The same foreign bytes found again are one record, not two — the
+    /// hash of the lines is in the destination name, exactly as
+    /// `IntegrityQuarantine.record` dedupes a persistent tear.
+    @MainActor
+    func test_setAsideLines_isContentDeduped() throws {
+        let src = tmp.appendingPathComponent(".maugham/ops/doc-1.maca.jsonl")
+        let lines = [Data("{\"a\":1}".utf8), Data("{\"b\":2}".utf8)]
+
+        let first = try OpLogQuarantine.setAsideLines(
+            lines, from: src, docId: "doc-1", reason: "written by something that is not Maugham",
+            in: tmp)
+        XCTAssertNotNil(first)
+        XCTAssertEqual(first?.kind, .lines)
+        XCTAssertEqual(first?.status, .held)
+
+        let second = try OpLogQuarantine.setAsideLines(
+            lines, from: src, docId: "doc-1", reason: "written by something that is not Maugham",
+            in: tmp)
+        XCTAssertNil(second, "the same bytes for the same file are already on file")
+
+        let dir = tmp.appendingPathComponent(".maugham/conflicts/quarantined-ops")
+        let archives = try FileManager.default
+            .contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "lines" }
+        XCTAssertEqual(archives.count, 1, "one file on disk")
+        XCTAssertEqual(try Data(contentsOf: archives[0]),
+                       Data("{\"a\":1}\n{\"b\":2}\n".utf8),
+                       "the bytes verbatim, newline-separated")
+        XCTAssertEqual(OpLogQuarantine.records(forDocId: "doc-1", in: tmp).count, 1)
+    }
+
+    /// Different bytes are a different event and get their own record.
+    @MainActor
+    func test_setAsideLines_differentBytesGetTheirOwnRecord() throws {
+        let src = tmp.appendingPathComponent(".maugham/ops/doc-1.maca.jsonl")
+        XCTAssertNotNil(try OpLogQuarantine.setAsideLines(
+            [Data("one".utf8)], from: src, docId: "doc-1", reason: "r", in: tmp))
+        XCTAssertNotNil(try OpLogQuarantine.setAsideLines(
+            [Data("two".utf8)], from: src, docId: "doc-1", reason: "r", in: tmp))
+        XCTAssertEqual(OpLogQuarantine.records(forDocId: "doc-1", in: tmp).count, 2)
+    }
+
+    /// (g) A `.lines` record has nowhere to go back to. `attemptReturn` says so
+    /// and touches nothing: the live file stays, the archive stays.
+    @MainActor
+    func test_attemptReturn_onALinesRecord_movesNothing() async throws {
+        let src = tmp.appendingPathComponent(".maugham/ops/doc-1.maca.jsonl")
+        try writeJSONL([opFixture("aaaa")], to: src)
+        let liveBytes = try Data(contentsOf: src)
+
+        let record = try XCTUnwrap(try OpLogQuarantine.setAsideLines(
+            [Data("{\"stranger\":true}".utf8)], from: src, docId: "doc-1",
+            reason: "written by something that is not Maugham", in: tmp))
+        let archive = OpLogQuarantine.quarantinedFileURL(for: record, in: tmp)
+
+        let outcome = await OpLogQuarantine.attemptReturn(record: record, in: tmp, presenter: nil)
+        XCTAssertEqual(outcome, .setAsideByProvenance)
+        XCTAssertEqual(try Data(contentsOf: src), liveBytes, "the live file is untouched")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: archive.path),
+                      "the forensics stay where they are")
+        XCTAssertEqual(OpLogQuarantine.records(forDocId: "doc-1", in: tmp).first?.status, .held)
+    }
+
+    /// A record written before `kind` existed decodes as `.file`, so the whole
+    /// ledger already on disk keeps its meaning without a migration.
+    func test_aRecordWithNoKindDecodesAsAFile() throws {
+        let json = Data("""
+            {"docId":"doc-1","originalName":"doc-1.maca.jsonl",\
+            "quarantinedAt":1,"reason":"torn","status":"held"}
+            """.utf8)
+        let record = try JSONDecoder().decode(QuarantineRecord.self, from: json)
+        XCTAssertEqual(record.kind, .file)
+    }
 }

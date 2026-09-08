@@ -177,12 +177,26 @@ public final class DocumentStore {
         // close — revisit if open-time cost shows up in the fixture). Uses the
         // just-wired presenter so the seal's coordinated read/delete don't
         // bounce back as our own external-change callbacks.
-        let sealSlug = DeviceSlug.make(from: MacDeviceID.current)
+        let sealSlug = DeviceIdentity.current.slug
         let opsDirNames = ((try? FileManager.default.contentsOfDirectory(
             at: url.appendingPathComponent(".maugham/ops"),
             includingPropertiesForKeys: nil)) ?? []).map(\.lastPathComponent)
-        let sealStore = OpLogStore(projectURL: url, presenter: store.presenter)
+        let sealStore = OpLogStore(
+            projectURL: url, presenter: store.presenter,
+            identity: Document.deviceIdentityForTesting ?? .current,
+            state: Document.deviceStateForTesting ?? .shared)
         for docId in OpLogStore.docIds(inOpsDirectoryFilenames: opsDirNames).sorted() {
+            // The chain seal FIRST, then the rotation — `Document.close()`'s
+            // order, for its reason (signed op log P1): a segment must end on
+            // a seal line so its whole span is verified inside the container.
+            // Best-effort, per doc, so one doc's failure never stops the
+            // sweep.
+            do {
+                _ = try await sealStore.sealChain(docId: docId)
+            } catch {
+                documentStoreLog.error(
+                    "open-time chain seal failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
             do {
                 _ = try await sealStore.sealTailIfNeeded(
                     docId: docId, deviceSlug: sealSlug,

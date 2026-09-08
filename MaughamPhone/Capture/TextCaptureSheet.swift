@@ -7,8 +7,6 @@ import MaughamCore
 struct TextCaptureSheet: View {
     /// The writer bound to the selected project's folder, built by the parent.
     let writer: InboxCaptureWriter
-    /// The current palette aim (nil = plain inbox), threaded into the write.
-    var aim: PaletteAim?
     /// Called after a successful inbox write so `CaptureView` can record the
     /// capture into recents.
     let onCommit: () -> Void
@@ -57,7 +55,7 @@ struct TextCaptureSheet: View {
         isSaving = true
         Task {
             do {
-                try await writer.writeText(text, paletteSubject: aim?.subject, sense: aim?.sense)
+                try await writer.writeText(text)
                 onCommit()
                 dismiss()
             } catch {

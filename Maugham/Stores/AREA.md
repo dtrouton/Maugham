@@ -37,11 +37,14 @@ The persistence and coordination layer: project structure, documents, recents, s
 
 Everything derived lives under `.maugham/` in the project folder. Each subdirectory has one owner:
 
+**One thing deliberately does NOT live here: this device's own key material.** `DeviceState.directory` is `~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/` — `device-key.blob`, `device-token` and `op-log-state.json` (signed op log P1, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md)). It is outside the project because it must never sync: an enclave-wrapped key blob is useless on another machine, a copied device token would make two machines answer the same device id and collide on one per-device op-log file (tripwire 17), and the remembered chain heads are this device's private account of what IT wrote — the fact that catches a correctly-chained line somebody else appended. Under XCTest the path gains an `xctest-worker-<pid>` leaf, the `TestWorkspace.root` idiom verbatim, so seven parallel workers never share a key or a head.
+
 | Path | Owner | Purpose |
 |---|---|---|
 | `.maugham/ops/` | `OpLogStore` (in OpLog area) | Per-doc JSONL op logs |
 | `.maugham/checkpoints.<deviceSlug>.jsonl` | `CheckpointStore` (OpLog area) | Project-scope checkpoints from ⌘S, partitioned per device (FM-1). A FILE, never a directory — and never the unsuffixed `checkpoints.jsonl`, which stays a merge source and is never written |
 | `.maugham/conflicts/` | `DocumentStore` | Conflict backup copies |
+| `.maugham/conflicts/quarantined-ops/` | `OpLogQuarantine` (in OpLog area) | Op-log history set aside, in two kinds. A `.file` record is a whole op-log file that could not be read, MOVED here and offered back by the pane's Retry. A `.lines` record (signed op log P1) is a COPY of a run of lines this device did not write — the file itself stays where it is — content-deduped, and it never returns (`ReturnOutcome.setAsideByProvenance`). Both carry a `<name>.quarantine.json` sidecar |
 | `.maugham/sessions/` | `SessionLog` | Per-session activity records |
 | `.maugham/ui-state/` | `ProjectStore` (UI extension) | Window position, last-opened doc, cursor restore |
 | `.maugham/scratch/` | Various | Transient writes; safe to nuke |
@@ -256,6 +259,34 @@ Path/filename matching (`research/palette`, `craft-intent.md`) was fragile: rena
 - **Lookups go role-first, path-second.** `PaletteConvention`/`PaletteLookup` (MaughamCore) hold the canonical constants (`folderPath`, `groupTitle`, `craftIntentFileName`, `craftIntentTitle`) and the shared role-first-then-path lookup functions; `ProjectStore.paletteGroup()` wraps the palette half, and `ProjectStore.paletteFolderPath`/`paletteGroupTitle` are thin aliases onto `PaletteConvention`, not independent literals. **The craft-intent half of this no longer has a Mac wrapper** — M1A Task 8 deleted `ProjectStore.craftIntentItem(forPieceId:)` and the `craftIntentFileName`/`craftIntentTitle` aliases with the seam they served. The MaughamCore constants and `PaletteLookup.craftIntentItem` stay, because adoption (`ProjectStore+StatementAdoption.swift`), the palette heal, `Promotion.isCraftIntent` and the **phone** all still read them.
 - **Lazy healing, no migration.** A lookup that falls back to path identity stamps the role on that item and saves the manifest (`ProjectStore.healRole`/`stampRole`, fire-and-forget `Task`, idempotent) — the item is role-identified from then on, so renaming the palette group through any Research affordance no longer detaches it. Mac-only: the phone never writes the manifest, so it consumes `PaletteLookup` read-only with no healing. **The craft-intent doc's lazy heal is gone**: it lived inside `craftIntentItem(forPieceId:)`, which M1A Task 8 deleted, and nothing on the Mac performs that lookup any more. What survives is the EAGER load-time heal (`healPaletteRolesEagerly`), and it survives for adoption alone — see the adoption section above.
 - **Live title everywhere.** `ProjectStore.paletteGroupDisplayTitle` reads the group's actual (possibly renamed) title with no side effect, so the wall header/sidebar always show what the writer renamed it to, not the frozen default.
+
+## The inbox manifest is chained history (signed op log P1, task 7)
+
+Every manifest stream — this Mac's own and every sibling device's — is read and
+written through a `JSONLAppendStore<InboxEntry>` carrying a `ChainPolicy`
+(`InboxStore.chainPolicy()`). Three consequences, and none of them is optional:
+
+- **`refresh` reads verified.** `loadVerifiedStrict()` replaces `loadStrict()`:
+  seal lines never reach the entry decoder, and a run of lines this device
+  cannot vouch for is set aside — under `InboxManifest.chainDocId`, the literal
+  `"inbox"`, because a manifest is a project's captures and has no docId of its
+  own — before the rest is parsed. It is the SAME implementation the op log's
+  tails use (`JSONLAppendStore.verifiedParse` / `.setAside`), not a copy: two
+  opinions about what a broken chain means is how one stream ends up trusting
+  what the other quarantines. The pane's `unreadableManifests` list is
+  untouched; a broken chain is not an unreadable file.
+- **Every append is sealed on the spot.** `appendThrowing` appends and then
+  calls `appendSeal()`. Captures are rare — a photograph, a voice note, a
+  status flip — so a signature each costs nothing and no capture sits in the
+  tail merely chained. A Mac with no key writes no seal and reports nothing
+  wrong (spec §4.1).
+- **`identity` is injectable.** `InboxStore(projectURL:deviceId:identity:)`
+  defaults to `DeviceIdentity.current`; a test passes a software signer,
+  because CI's runner has no enclave. `deviceId` still names the row and the
+  manifest file; the identity is what the chain is verified against.
+
+The phone writes the same bytes into its own stream through the same store —
+see `MaughamPhone/AREA.md`'s `Capture/` bullet (tripwire 19).
 
 ## Promote-into-card seam (2026-07-11)
 

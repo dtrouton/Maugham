@@ -181,3 +181,34 @@ Manuscripts are stored as a history — an append-only log under `.maugham/ops/`
 
 In every case: your words are not gone. The refusal is Maugham declining to guess at a manuscript it can't fully read, not a sign anything has been lost.
 
+### Who wrote your history
+
+Maugham signs the history it writes. Every change your Mac appends is linked to
+the one before it, and every stretch of them is signed by a key that lives in
+this machine's secure hardware and never leaves it. You never see any of this
+working, and there is nothing to set up. It exists so that a change appended by
+something that isn't Maugham — a script, a tool, an agent poking at the folder —
+can be told apart from a change you made.
+
+Two sentences can appear at the top of the History pane, and neither has a
+button, because neither is something you need to do anything about:
+
+- **"Part of this document's history was written before this book was signed."**
+  Ordinary and permanent for anything you wrote before this feature existed.
+  Those words are yours; nothing can sign them retroactively, and pretending
+  otherwise would be a lie about who wrote them. The same sentence also reports
+  changes that came from another device — your iPhone, a second Mac — which are
+  applied normally and simply carry someone else's signature rather than this
+  machine's.
+- **"N changes were written to this document by something that is not Maugham;
+  kept in backup, not applied."** This one is the point of the whole thing.
+  Those changes are *not* in your manuscript, they were never applied, and they
+  have not been deleted either — a copy is kept in the project's backup folder
+  so you can look at it. There is no Retry here and nothing to bring back: the
+  same rule that discards an edit made to the `.md` outside Maugham applies to
+  history written outside Maugham.
+
+Your own words are never at risk from any of this. Maugham will always open a
+document; the worst it will do is decline to apply something it can't account
+for, and tell you it did.
+

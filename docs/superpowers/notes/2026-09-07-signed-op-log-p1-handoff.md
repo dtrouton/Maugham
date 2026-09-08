@@ -1,0 +1,130 @@
+# Signed op log P1 — handoff (2026-09-08)
+
+**Branch:** `claude/signed-op-log-p1-2026-09-07`, twenty commits on local `main` at `901b5598`, merged to local `main` UNPUSHED. **Plan:** `docs/superpowers/plans/2026-09-07-signed-op-log-p1-integrity-and-the-device.md`. **Spec:** `docs/superpowers/specs/2026-09-05-signed-op-log-design.md` §8's first bullet. **ADR:** `docs/adr/0032-the-signed-op-log.md`. Denver smokes before anything is pushed or tagged; P2 and P3 are unwritten (rule 11).
+
+## What landed, per task
+
+1. **`DeviceIdentity` / `DeviceState`** (`5f0dbde4`) — the Secure Enclave key whose `dataRepresentation` the app persists itself under `~/Library/Application Support/<variant>/device/` (`device-key.blob`; never a keychain item, no entitlement), an unsigned twin (`device-token`) where no enclave is, a per-XCTest-process leaf, and the census that keeps `P256.Signing.PrivateKey(` out of production (`DeviceIdentity+Testing.swift` is the one allow-list entry).
+2. **The device string is the key** (`ffabef76`) — `MacDeviceID` and `PhoneDeviceID` deleted; every site reads `DeviceIdentity.current.deviceId`/`.slug`; censuses against hostname identity and hand-built ids on both targets.
+3. **`OpLogChain`** (`e8ded16d`, `d60fea3a`) — the pure wire format and verifier: `prev` as the first JSON key, seal lines, `genesis` for a fresh file, the per-line classification.
+4. **The chained append** (`26a0f255`) — `ChainPolicy` on `JSONLAppendStore`, `OpLogDeviceState` (remembered heads, verified digests), the chain-head check before every write with foreign lines set aside as `.lines` records through `OpLogQuarantine`, seals every `OpLogStore.chainSealInterval` appends.
+5. **The verified load** (`f0ce810c`, `63f38702`) — every line classified on both the async and the sync readers, the `.mzseg.sig` sidecar and the verify cache, `OpLogProvenance`, the table-driven `Hex` that took verification from ~450 ms to the chain's real cost.
+6. **The Mac** (`4826bce9`) — seals on burst, close and open-time maintenance (before the segment seal), provenance stamped on `Document` at load, History's two sentences.
+7. **The inbox** (`52a26e51`) — chained and sealed after every row on the Mac and the phone through one shared read/write path (`JSONLAppendStore.loadVerifiedStrict`).
+8. **The phone** (`7cb9f89a`) — `AnnotationWriter` through the chained store with a seal per op, `CoordinatedFileIO.coordinatedAppendLine` deleted, the palette aim removed (`PaletteAimPicker`, the three `aim:` parameters, `paletteSubject`/`sense` no longer written — still decoded; the Mac still reads them for rows on disk).
+9. **Docs** (`8baad8b2`) — ADR 0032, the OpLog/Stores/Phone area guides, CLAUDE.md tripwires 35–37, the History guide, roadmap, product, spec status.
+10. **The whole-branch review's fix wave** (`105a0575`..`3cb2a239`, eight commits) — see below.
+
+## What was measured
+
+- **Enclave tests ran, not skipped, on this Mac** — in `DeviceIdentityTests` (package), and in the iPhone 17 simulator (`PhoneDeviceIdentityTests`, twice). CI's macOS VM runner and the Intel-era phone image take the unsigned-token path; the skips there are by measurement (`SecureEnclave.isAvailable`), never by platform guess.
+- **Cost** (release, task 5's fixture, 50,000 chained lines in seven signed segments plus a 6,250-line tail; machine at load average 4.5): chain walk over the tail 55–83 ms; seven sidecar reads and signature checks ~3 ms; a real tail rotates at 512 KB (~600 lines) so a real open walks about an eighth of that. Before the hex fix the same walk cost ~450 ms — 107 of `lineHash`'s 109 ms was per-byte `String(format: "%02x")`. The end-to-end cold/warm/control readings (~6 s each) are `JSONDecoder` and are not a budget measurement. See Decisions owed #1 and #5.
+- **Gates at merge:** `swift test` 839 (2 env-gated skips) / `./scripts/test.sh full` 8,312 passed, no skips beyond the standard env-gated and lock-state ones / `./scripts/test.sh phone` 245 / Release build green / warning census on branch files: zero from this branch (the one hit, `EditorHost.swift:724`, is from 2026-07-11).
+
+## What Denver will see on first launch (writer-facing)
+
+- **This Mac is a new device to its own history.** Its id was its hostname; it is now the key's fingerprint, so the slug changes and the app starts a fresh `<doc>.<16hex>-<8hex>.jsonl` beside the old hostname-slug file on the first keystroke. The old file is read as another device's — every word applies, as *unsigned history* — and is never appended to or sealed again. History shows *Part of this document's history was written before this book was signed.* once per document. The same is true of the phone's old `phone:<uuid>` file after its update.
+- The one edge: a crash-recovery `pending` file partitioned under the OLD slug is not read after the upgrade. An updater relaunch follows a clean quit, which clears it.
+- The dev and stable variants now hold different keys (separate Application Support folders), so they write different files. They shared one hostname slug before.
+
+## The whole-branch review — the streak holds
+
+The review (opus, over the twelve-commit diff plus the ledger) returned one Critical and seven Importants no per-task review could see:
+
+- **C1** — `TaskDeriver`'s rebalance ops carry `device: "rebalance"`, so every Mac chained into ONE shared `<doc>.rebalance-<fnv>.jsonl` and the chained append's tail rewrite would truncate the other Mac's lines and accuse it of not being Maugham. Fixed: a device chains only its own file (`OpLogStore.append` attaches the `ChainPolicy` only when `op.device == identity.deviceId`; a sentinel op appends plain and unsealed, as before the milestone). The fix surfaced FOUR more sentinels — see Decisions owed #7.
+- **I2** — truncate-to-the-last-seal-then-append was adoptable. Fixed by the crash-window rule: `OpLogDeviceState` remembers `previousHead` too; a remembered head absent from the file adopts only when nothing was remembered or the file's head is the previous one; otherwise lines after the last TRUSTED seal are set aside and the state stays put. Applied on the write path as well (a load-only rule would lose the writer's new ops on the next open) and a no-op where no trusted seal exists (an unsigned device's file is unsigned history, not a forgery) — both pinned, both in ADR 0032 §3.
+- **I3** — a migrated or re-keyed Mac kept stale heads and would quarantine its twin's live ops. Fixed: `op-log-state.json` carries the identity fingerprint; a mismatch starts empty.
+- **I4** — Tasks 7 and 8 had made both phone writers `@MainActor`, dragging multi-megabyte asset writes onto the main thread. Fixed: writers nonisolated, one main-actor hop for append+seal, asset writes pinned off-main.
+- **I5** — `__project__` was chained but never sealed (a fresh `OpLogStore` per append). Fixed: `ProjectStore` holds one store; `sealChain` accepts the project stream; `sealTailIfNeeded` still refuses it (Decisions owed #4).
+- **I6** — tripwire 37 had no census. Fixed: `test_sealLinesAreRecognisedInOpLogChainOnly` on both targets, with planted offenders.
+- **I8 + the torn-tail seam** — a torn LAST line in a foreign mid-sync file read as a break and its `.lines` record was surfaced nowhere for the inbox. Fixed: a torn last line is `tornTail` (skipped to `diagnostics.skipped` as before, never a `.lines` record); `InboxPane.setAsideNotice` says what the inbox held back.
+- **M1/M2** — a restored Mac re-mints on the enclave rather than dropping to the token; dead-pid test leaves are swept. **M3/M4/M7/I7** — prose corrections in ADR 0032 and the area guide (a signed segment settles legacy lines as verified; the `.sig` sidecar contributes nothing to `BackupSignature`; an integrity check classifies keylessly and can pass opIds the load will not apply; the budget was not met as stated).
+
+The scoped re-review of the wave (sonnet) returned **all findings addressed, no new Critical or Important breakage**; it accepted both I2 departures on inspection of the write-path code and the crash-window logic, and confirmed the three new lock-guarded test seams are justified.
+
+## Rulings made during execution (Denver can undo any of them)
+
+- Segment signatures live in a `.mzseg.sig` sidecar, not a new container version — additive, no reader of MZS1 breaks, no paired release forced.
+- `prev` is a wire key inserted textually as the first JSON key, never an `Op`/`InboxEntry` field.
+- CI runners are assumed enclave-less; every verified-path test injects the software signer.
+- A fresh file's chain starts at `OpLogChain.genesis`, so its first line is sealed too.
+- Nil-default callers of `loadFileDiagnosed` (`ProjectIntegrity.check`) classify but never write a `.lines` record.
+- Tripwire 37 was given its census in the fix wave rather than deferred.
+- C1, I2, I3, I4, I5, I8 as described above; M1/M2 taken in the wave; M5/M6/I7 recorded here rather than coded.
+
+## Smoke (Denver)
+
+1. Launch the dev app → open a real project → type one sentence → `.maugham/ops/` gains `<doc>.<16hex>-<8hex>.jsonl` beside the hostname-slug file; the old file's byte count no longer changes.
+2. Wait a burst (30–90 s) → the new tail's last line begins `{"seal":`.
+3. ⌘Q, relaunch, reopen → the words are intact; History (⌘⌥H) shows *Part of this document's history was written before this book was signed.* and nothing else new.
+4. With the app open, append any JSON line to the new tail from a shell (`echo '{"op_id":"x"}' >> .maugham/ops/<doc>.<16hex>-<8hex>.jsonl`) → reopen the document (or wait for the presenter) → History shows *1 change was written to this document by something that is not Maugham; kept in backup, not applied.*; the editor shows nothing new; `.maugham/conflicts/quarantined-ops/` holds a `.lines` file and its `.quarantine.json`.
+5. Type one more sentence → the tail no longer contains the foreign line; the archive still does.
+6. Open a second Mac or the Statistics/Integrity check: nothing red; the check writes no record.
+7. Phone: update, capture a text note → the Mac's Inbox shows it; the phone's manifest has a seal line after the row. Open Annotations, accept one → the Mac applies it; History counts it as unsigned history from another device.
+8. Publish → Compile still works (segments with `.sig` sidecars beside them).
+
+## Decisions owed
+
+1. **The 100 ms budget at 50k lines was not met as stated.** The plan's global
+   constraint 3 says "50k ops must add under 100 ms to a cold open". Task 5's
+   first measurement of that fixture added roughly **450 ms end to end**; after
+   the hex fix the chain's own work is **55–83 ms** on a tail eight times the
+   size `segmentSealThreshold` lets a real one reach, and the end-to-end delta
+   sits inside the parse's own noise (the load is ~5.8 s of `JSONDecoder`). The
+   implementer's reframe — that the budget is really about a realistic
+   per-document op count — may well be right, but it is a change to an
+   acceptance criterion made by the implementer. **Is the reframe accepted, and
+   what is the budget restated against?** ADR 0032 and `Maugham/OpLog/AREA.md`
+   now say what was measured and that the budget was not met; neither claims it
+   was.
+
+2. **A set-aside notice never clears** (review M6). `HistoryPane`'s set-aside
+   line count sums every `.lines` archive for the document, forever, with no
+   dismissal path. That is the intended forensic contract — the bytes are kept
+   and there is nothing to bring back — but it means one agent write leaves a
+   permanent orange line in History for the life of the project. **Should there
+   be a way to acknowledge one?** The same question now applies to the Inbox
+   pane's own half of that sentence (`InboxPane.setAsideNotice`).
+
+3. **`OpLogDeviceState` rewrites its whole file on every `remember`, and prunes
+   nothing** (review M5). Entries for deleted projects stay forever. Fine at
+   today's sizes; a slow leak, and the write amplification grows with the number
+   of files this device has ever written. **Left alone, pruned on some trigger,
+   or moved to an append-and-compact shape?**
+
+4. **The project stream has no size ceiling.** `__project__` now seals like every
+   other stream (review I5), but `sealTailIfNeeded` still refuses to rotate it —
+   a recorded decision — so its tail grows without limit and the chained
+   append's verify cost grows with it. Pre-existing growth, new cost. **Should
+   the project stream rotate into segments, and if so what owns the boundary?**
+
+5. **The cost fixture wants one re-run on a quiet machine.** The numbers in
+   ADR 0032 and the AREA guide come from a run taken while other work was on the
+   box (ledger L56). They should be re-taken once and quoted durably.
+
+6. **The truncation rule is closed at P1 only where a seal exists.**
+   `OpLogChain.resolveAbsentHead` quarantines a forged tail back to the last
+   seal this device TRUSTS, so an unsigned device (no enclave) is not protected
+   at all — deliberately, because quarantining a whole unsigned file over a
+   missing head would cost the writer their manuscript to catch nobody. The
+   honest close is P2's registry plus a rule that an adopted head must be at or
+   descended from the last trusted seal. **Confirm that P2 carries it.**
+
+7. **Four more sentinel device strings turned up while fixing C1, and their
+   streams are now unsigned.** The review named `TaskDeriver.rebalanceSentinel`;
+   the same shape is reached by every `Document.load` caller that passes a role
+   rather than a device — `"wiki-rename"` (`ProjectStore+Structure`),
+   `"find-replace"` (`ProjectStore+Search`) and `"mcp"` (`TaskReadTools`,
+   `AnnotationToolHelpers`). Under C1 all four write append-only, unchained,
+   unsealed files, which is exactly what they did before this milestone — and
+   the alternative, chaining them, is the mutually-truncating bug C1 exists to
+   remove. But `"mcp"` covers **every annotation Claude writes**, so a real
+   share of a project's history is deliberately outside the signature.
+   **Should those sites pass `DeviceIdentity.current.deviceId` instead**, so
+   Claude's writes are this Mac's own signed history in this Mac's own file?
+   That changes which file they land in (nothing is lost — ops merge by opId),
+   and it is a scope change rather than a fix, so it was not made here.
+
+8. **A Mac with no Secure Enclave is silently unsigned.** It writes chained
+   lines that nothing seals and says nothing about it anywhere. **Should History
+   say so once per project?** (Carried from the plan's own list.)

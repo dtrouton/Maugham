@@ -109,7 +109,7 @@ extension ProjectStore {
         // Invalidate the cross-project cache so the next list rebuilds.
         _projectTasksCacheKey = nil
 
-        let store = OpLogStore(projectURL: url)
+        let store = projectOpLogStore
         Task { @MainActor in
             // LOG (can't propagate): `appendProjectTaskOp` is a sync
             // fire-and-forget; the Task outlives it. A swallowed `try?` would
@@ -121,6 +121,15 @@ extension ProjectStore {
                     "project task op append failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    /// The one store the project stream appends through — see
+    /// `ProjectStore._projectOpLogStore` for why it must not be per-append.
+    var projectOpLogStore: OpLogStore {
+        if let existing = _projectOpLogStore { return existing }
+        let minted = OpLogStore(projectURL: url)
+        _projectOpLogStore = minted
+        return minted
     }
 
     /// In-memory snapshot of the project-scope op log. Lazily-loaded from

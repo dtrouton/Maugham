@@ -1,5 +1,86 @@
 // Maugham/OpLog/OpLogStore.swift  (now in MaughamCore)
+import CryptoKit
 import Foundation
+import os
+
+/// Diagnostic channel for the two things a LOAD can fail at without failing:
+/// recording the lines it set aside, and signing a segment it just minted.
+/// Neither may cost the writer their manuscript, so neither throws — and a
+/// silent best-effort is only honest if it says so somewhere.
+private let opLogLoadLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.core",
+    category: "OpLogStore")
+
+/// One device's signature over a sealed segment's digest, written beside the
+/// segment as `<name>.mzseg.sig`.
+///
+/// **Why beside rather than inside.** A `.mzseg` is immutable bytes whose
+/// checksum is part of its own header; signing it in place would mean rewriting
+/// it, and a segment that can be rewritten is not sealed. The signature is
+/// therefore a sidecar, and losing it costs exactly what losing any derived
+/// file costs: the segment reads as unsigned history, which is honest.
+///
+/// **Why over the digest.** The segment already commits to every one of its
+/// bytes through the SHA-256 in its header, so signing those 32 bytes signs the
+/// whole segment — one signature per segment instead of one per line, and the
+/// verification is a single P256 check however long the history is. It is the
+/// same three fields a seal line carries (`OpLogChain.Seal`) over a different
+/// digest, and it goes through the same credential helpers so the two shapes
+/// cannot drift apart.
+public struct SegmentSignature: Codable, Equatable, Sendable {
+    /// The segment's own uncompressed-content digest, 64 hex characters.
+    public let digest: String
+    /// The signing key's fingerprint (`DeviceIdentity.fingerprint(of:)`).
+    public let key: String
+    /// Base64 of the public key's X9.63 representation.
+    public let pub: String
+    /// Base64 of the 64-byte raw P256 signature over the digest's 32 bytes.
+    public let sig: String
+    public let at: Date
+
+    public init(digest: String, key: String, pub: String, sig: String, at: Date) {
+        self.digest = digest
+        self.key = key
+        self.pub = pub
+        self.sig = sig
+        self.at = at
+    }
+
+    /// Sign `digest` with `identity`. Throws `DeviceIdentityError.unsigned` on a
+    /// device with no key — a condition, not a failure.
+    public static func make(
+        digest: String, identity: DeviceIdentity, at: Date = Date()
+    ) throws -> SegmentSignature {
+        let credentials = try OpLogChain.credentials(signing: digest, identity: identity)
+        return SegmentSignature(
+            digest: digest, key: credentials.key,
+            pub: credentials.pub, sig: credentials.sig, at: at)
+    }
+
+    /// Does this signature hold together over the digest it names? Says nothing
+    /// about whether the key is TRUSTED — that is the reader's question.
+    public func verifies() -> Bool {
+        OpLogChain.credentialsVerify(
+            .init(key: key, pub: pub, sig: sig), over: digest)
+    }
+
+    /// The signature beside a segment, or nil when there is none to read. A
+    /// missing or unreadable sidecar is never an error: it means the segment is
+    /// unsigned history.
+    public static func read(at url: URL) -> SegmentSignature? {
+        guard let bytes = try? Data(contentsOf: url) else { return nil }  // adr-0018-ok: derived signature sidecar, never manuscript text
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = JSONLAppendStore<SegmentSignature>.dateDecoding
+        return try? decoder.decode(SegmentSignature.self, from: bytes)
+    }
+
+    func encoded() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = JSONLAppendStore<SegmentSignature>.dateEncoding
+        return try encoder.encode(self)
+    }
+}
 
 /// Per-document append-only JSONL op log, **partitioned per device** (ADR 0012,
 /// spec §3.12). Each device writes only to its own file
@@ -22,10 +103,35 @@ public final class OpLogStore {
     public let projectURL: URL
     public let presenter: NSFilePresenter?
 
-    public init(projectURL: URL, presenter: NSFilePresenter? = nil) {
+    /// This device, as every line it writes will name it. Defaulted, so every
+    /// existing caller still compiles and gets the real identity.
+    public let identity: DeviceIdentity
+    /// What this device remembers about the files it has written.
+    public let deviceState: OpLogDeviceState
+
+    public init(
+        projectURL: URL,
+        presenter: NSFilePresenter? = nil,
+        identity: DeviceIdentity = .current,
+        state: OpLogDeviceState = .shared
+    ) {
         self.projectURL = projectURL
         self.presenter = presenter
+        self.identity = identity
+        self.deviceState = state
     }
+
+    /// Lines this device has appended to each file since that file's last seal.
+    /// In memory and per store instance on purpose: it is a cadence, not a
+    /// fact — losing it costs at most one late seal, and the seal itself is
+    /// idempotent (nothing unsealed, nothing written).
+    ///
+    /// Keyed on the file APPENDED to, which is the same file `sealChain` seals
+    /// because `append` only ever counts a line it CHAINED, and it only chains
+    /// this device's own. Before that rule (the whole-branch review's C1) a
+    /// foreign-device append could push this counter over the interval and
+    /// spend the seal on a file the run of lines was never in.
+    private var linesSinceSeal: [URL: Int] = [:]
 
     /// Test-only failure-injection seam. When non-nil, `append` throws this
     /// error instead of writing — letting tests exercise the disk-error
@@ -55,18 +161,24 @@ public final class OpLogStore {
     /// dropping it silently. `load(docId:)` delegates here and discards the
     /// diagnostics, so existing callers are unaffected.
     public func loadDiagnosed(docId: String)
-        async throws -> (ops: [Op], diagnostics: ParseDiagnostics)
+        async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance)
     {
         let urls = Self.opLogFileURLs(forDocId: docId, in: projectURL)
-        guard !urls.isEmpty else { return ([], ParseDiagnostics()) }
+        guard !urls.isEmpty else { return ([], ParseDiagnostics(), OpLogProvenance()) }
         var merged: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
+        var files: [FileProvenance] = []
         for url in urls {
-            let result = try await Self.loadFileDiagnosed(url: url, presenter: presenter)
+            let result = try await Self.loadFileDiagnosed(
+                url: url, presenter: presenter,
+                identity: identity, state: deviceState)
             merged.append(contentsOf: result.ops)
             skipped.append(contentsOf: result.diagnostics.skipped)
+            files.append(result.provenance)
         }
-        return (Self.mergeSortedDedup(merged), ParseDiagnostics(skipped: skipped))
+        return (Self.mergeSortedDedup(merged),
+                ParseDiagnostics(skipped: skipped),
+                OpLogProvenance(files: files))
     }
 
     /// The result of `loadDiagnosedPartial` — the recovery spec §4's read.
@@ -75,6 +187,11 @@ public final class OpLogStore {
         public let diagnostics: ParseDiagnostics
         /// Sorted by filename; reuses the checkpoint slice's pair type.
         public let unreadableFiles: [CheckpointLoad.UnreadableFile]
+        /// What each READABLE file turned out to be made of. A file that could
+        /// not be read has no provenance — it is named in `unreadableFiles`
+        /// instead, which is a different fact and must not be blurred into a
+        /// count of zero verified lines.
+        public let provenance: OpLogProvenance
     }
 
     /// RULING-54's DELIBERATE partial read, for the read-only recovery rung
@@ -87,11 +204,15 @@ public final class OpLogStore {
         var all: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var unreadable: [CheckpointLoad.UnreadableFile] = []
+        var files: [FileProvenance] = []
         for url in Self.opLogFileURLs(forDocId: docId, in: projectURL) {
             do {
-                let result = try await Self.loadFileDiagnosed(url: url, presenter: presenter)
+                let result = try await Self.loadFileDiagnosed(
+                    url: url, presenter: presenter,
+                    identity: identity, state: deviceState)
                 all.append(contentsOf: result.ops)
                 skipped.append(contentsOf: result.diagnostics.skipped)
+                files.append(result.provenance)
             } catch {
                 unreadable.append(.init(
                     name: url.lastPathComponent,
@@ -101,7 +222,8 @@ public final class OpLogStore {
         return PartialOpLogLoad(
             ops: Self.mergeSortedDedup(all),
             diagnostics: ParseDiagnostics(skipped: skipped),
-            unreadableFiles: unreadable.sorted { $0.name < $1.name })
+            unreadableFiles: unreadable.sorted { $0.name < $1.name },
+            provenance: OpLogProvenance(files: files))
     }
 
     /// Load + parse ONE op-log file — plain `.jsonl` tail or sealed `.mzseg`
@@ -156,76 +278,375 @@ public final class OpLogStore {
         }
     }
 
-    public static func loadFileDiagnosed(
+    /// The coordinated read of one op-log file's exact bytes. Nil when the file
+    /// is not there (which is not a failure); a throw when it is there and
+    /// cannot be read (RULING-54: unreadable-yet-present is never empty).
+    private static func readCoordinated(
         url: URL, presenter: NSFilePresenter?
-    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics) {
-        if url.pathExtension == OpLogSegment.fileExtension {
-            let coord = NSFileCoordinator(filePresenter: presenter)
-            var coordErr: NSError?
-            var readErr: Error?
-            var bytes: Data?
-            coord.coordinate(readingItemAt: url, options: [], error: &coordErr) { ru in
-                do { bytes = try Data(contentsOf: ru) }  // adr-0018-ok: op-log file bytes — the op log IS the source of truth (ADR 0018)
-                catch { readErr = error }
-            }
-            if let coordErr { throw coordErr }
-            if let readErr {
-                // Unreadable, not corrupt: a CHECKSUM failure below salvages
-                // and quarantines, because the bytes were readable and partial
-                // truth is recordable. Here nothing can be known — throw
-                // (RULING-54), the same split the inbox fix drew.
-                throw ReadError.unreadableFile(
-                    name: url.lastPathComponent,
-                    underlying: readErr.localizedDescription)
-            }
-            guard let container = bytes else { return ([], ParseDiagnostics()) }
-
-            let decoded = OpLogSegment.decodeVerifying(container)
-            var skipped: [ParseDiagnostics.SkippedLine] = []
-            if let failure = decoded.failure {
-                skipped.append(.init(
-                    byteOffset: 0,
-                    raw: "<segment \(url.lastPathComponent): \(failure)>"))
-            }
-            guard let jsonl = decoded.jsonl else {
-                return ([], ParseDiagnostics(skipped: skipped))
-            }
-            let parsed = JSONLAppendStore<Op>.parse(
-                bytes: jsonl,
-                dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
-            // Per-line skips inside a salvaged segment only matter when the
-            // container itself verified (otherwise the container record covers it).
-            if decoded.isVerified {
-                skipped.append(contentsOf: parsed.diagnostics.skipped)
-            }
-            return (parsed.elements, ParseDiagnostics(skipped: skipped))
+    ) throws -> Data? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let coord = NSFileCoordinator(filePresenter: presenter)
+        var coordErr: NSError?
+        var readErr: Error?
+        var bytes: Data?
+        coord.coordinate(readingItemAt: url, options: [], error: &coordErr) { ru in
+            do { bytes = try Data(contentsOf: ru) }  // adr-0018-ok: op-log file bytes — the op log IS the source of truth (ADR 0018)
+            catch { readErr = error }
         }
-        let store = JSONLAppendStore<Op>(
-            fileURL: url, presenter: presenter,
-            dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
-        do {
-            let result = try await store.loadDiagnosedStrict()
-            return (result.elements, result.diagnostics)
-        } catch {
+        // Unreadable, not corrupt: a CHECKSUM failure salvages and quarantines,
+        // because the bytes were readable and partial truth is recordable. Here
+        // nothing can be known — throw, the same split the inbox fix drew.
+        if let failure = (coordErr as Error?) ?? readErr {
             throw ReadError.unreadableFile(
                 name: url.lastPathComponent,
-                underlying: error.localizedDescription)
+                underlying: failure.localizedDescription)
         }
+        return bytes ?? Data()
+    }
+
+    public static func loadFileDiagnosed(
+        url: URL, presenter: NSFilePresenter?,
+        identity: DeviceIdentity? = nil, state: OpLogDeviceState? = nil
+    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance) {
+        guard let bytes = try readCoordinated(url: url, presenter: presenter) else {
+            return ([], ParseDiagnostics(),
+                    FileProvenance(name: url.lastPathComponent,
+                                   isSealedSegment: url.pathExtension == OpLogSegment.fileExtension))
+        }
+        let classified = classify(
+            url: url, bytes: bytes, identity: identity, state: state)
+
+        // The three writes a load is allowed to make, all of them derived
+        // bookkeeping and every one best-effort: nothing here may cost the
+        // writer the load of their own manuscript.
+        if let digest = classified.verifiedSegmentDigest {
+            state?.markVerified(segmentDigest: digest)
+        }
+        if let head = classified.adoptedHead {
+            state?.remember(head: head, for: OpLogDeviceState.fileKey(url))
+        }
+        // A forensic record is the LOAD path's to write, and only its. A caller
+        // taking the nil defaults — `ProjectIntegrity.check`, and anything else
+        // that inspects a project without opening it — classifies with no key
+        // and no remembered head, so its picture is strictly WEAKER than the
+        // load's: it cannot see an `afterRememberedHead` break at all, and what
+        // it does see it would file under the load's name. A check reports; the
+        // load records.
+        let recordsWhatItSetsAside = identity != nil && state != nil
+        if recordsWhatItSetsAside, let verification = classified.verification,
+           let docId = docId(fromOpLogFilename: url.lastPathComponent) {
+            do {
+                try JSONLAppendStore<Op>.setAside(
+                    verification, from: url, docId: docId,
+                    in: projectRoot(of: url))
+            } catch {
+                // Mirrors `Document+Load.swift`'s stance on a forensic write
+                // that fails: the record is how the writer LEARNS, never how
+                // the load proceeds.
+                opLogLoadLog.error("""
+                    Could not record set-aside lines from \
+                    \(url.lastPathComponent, privacy: .public): \
+                    \(String(describing: error), privacy: .public).
+                    """)
+            }
+        }
+        return (classified.ops, classified.diagnostics, classified.provenance)
+    }
+
+    /// The project root a `.maugham/ops/<file>` URL sits under.
+    private nonisolated static func projectRoot(of url: URL) -> URL {
+        url.deletingLastPathComponent()      // .maugham/ops
+            .deletingLastPathComponent()     // .maugham
+            .deletingLastPathComponent()     // the project
+    }
+
+    // MARK: - Classification (the one rule both readers obey)
+
+    /// What one file turned out to be, and what the reader that can write is
+    /// asked to do about it. Pure over the bytes plus two READS (this device's
+    /// remembered head and verified-segment memory, and the signature sidecar
+    /// beside a segment) — so the coordinated reader and the synchronous one
+    /// can call the same function and cannot disagree about which ops a
+    /// document is made of. Only the coordinated one performs the side effects.
+    struct FileClassification {
+        let ops: [Op]
+        let diagnostics: ParseDiagnostics
+        let provenance: FileProvenance
+        /// The walk this classification came out of, when there was one —
+        /// what it kept, what it held back, and why. Nil only where a segment
+        /// failed before any line could be walked. The reader that can WRITE
+        /// hands it to `JSONLAppendStore.setAside`, which owns both the record
+        /// and the words for it.
+        let verification: OpLogChain.Verification?
+        /// Non-nil when this device may now adopt the file's head as its own
+        /// (the crash window: a remembered head no line in the file hashes to,
+        /// in a file that holds together and whose every seal is ours).
+        let adoptedHead: String?
+        /// Non-nil when a segment's signature settled it for the first time and
+        /// the digest is worth remembering.
+        let verifiedSegmentDigest: String?
+    }
+
+    nonisolated static func classify(
+        url: URL, bytes: Data, identity: DeviceIdentity?, state: OpLogDeviceState?
+    ) -> FileClassification {
+        url.pathExtension == OpLogSegment.fileExtension
+            ? classifySegment(url: url, container: bytes, identity: identity, state: state)
+            : classifyTail(url: url, bytes: bytes, identity: identity, state: state)
+    }
+
+    /// A live `.jsonl` tail: verified against this device's remembered head,
+    /// with everything the walk quarantined held back.
+    private nonisolated static func classifyTail(
+        url: URL, bytes: Data, identity: DeviceIdentity?, state: OpLogDeviceState?
+    ) -> FileClassification {
+        let fileKey = OpLogDeviceState.fileKey(url)
+        let walked = OpLogChain.verify(
+            bytes: bytes,
+            trusted: { key in identity.map { key == $0.fingerprint } ?? false },
+            rememberedHead: state?.head(for: fileKey))
+
+        // The adopt rule (spec §4.2's crash window) and its converse, both in
+        // `OpLogChain.resolveAbsentHead` — the one place that decides what a
+        // missing remembered head means, shared with the chained WRITE so a
+        // load cannot hold back lines the next append would chain onto.
+        let (verification, adopted) = OpLogChain.resolveAbsentHead(
+            walked,
+            rememberedHead: state?.head(for: fileKey),
+            previousHead: state?.previousHead(for: fileKey))
+
+        let parsed = JSONLAppendStore<Op>.parse(
+            bytes: JSONLAppendStore<Op>.applied(verification, whole: bytes),
+            dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+
+        return FileClassification(
+            ops: parsed.elements,
+            diagnostics: parsed.diagnostics,
+            provenance: provenance(
+                name: url.lastPathComponent, lines: verification.lines,
+                isSealedSegment: false, segmentVerified: nil),
+            verification: verification,
+            adoptedHead: adopted,
+            verifiedSegmentDigest: nil)
+    }
+
+    /// A sealed `.mzseg` segment. Immutable bytes with a digest already inside
+    /// them, so the question is asked once and then remembered: does a
+    /// signature this device trusts name this digest? If so the segment's lines
+    /// are settled WHOLE and never walked again. If not — a foreign signature,
+    /// no signature at all, a segment minted before this milestone — the lines
+    /// are walked keylessly, which still catches a break.
+    private nonisolated static func classifySegment(
+        url: URL, container: Data, identity: DeviceIdentity?, state: OpLogDeviceState?
+    ) -> FileClassification {
+        let decoded = OpLogSegment.decodeVerifying(container)
+        var skipped: [ParseDiagnostics.SkippedLine] = []
+        if let failure = decoded.failure {
+            skipped.append(.init(
+                byteOffset: 0,
+                raw: "<segment \(url.lastPathComponent): \(failure)>"))
+        }
+        guard let jsonl = decoded.jsonl else {
+            return FileClassification(
+                ops: [], diagnostics: ParseDiagnostics(skipped: skipped),
+                provenance: FileProvenance(
+                    name: url.lastPathComponent,
+                    isSealedSegment: true, segmentVerified: false),
+                verification: nil,
+                adoptedHead: nil, verifiedSegmentDigest: nil)
+        }
+
+        // Only a container that verified may be keyed on: the digest a file
+        // CARRIES is the digest a tamperer would leave alone.
+        let digest = decoded.isVerified ? decoded.digest : nil
+        var settled = false
+        var toRemember: String?
+        if let digest {
+            if state?.isVerified(segmentDigest: digest) == true {
+                settled = true
+            } else if let identity,
+                      let signature = SegmentSignature.read(
+                          at: segmentSignatureURL(for: url)),
+                      signature.digest == digest,
+                      signature.key == identity.fingerprint,
+                      signature.verifies() {
+                settled = true
+                toRemember = digest
+            }
+        }
+
+        let parsedAll = JSONLAppendStore<Op>.parse(
+            bytes: jsonl, dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+        if settled {
+            // Per-line skips inside a segment only matter when the container
+            // itself verified (otherwise the container record covers it) — and
+            // a settled segment always verified.
+            skipped.append(contentsOf: parsedAll.diagnostics.skipped)
+            let lines = nonEmptyLineCount(jsonl)
+            return FileClassification(
+                ops: parsedAll.elements,
+                diagnostics: ParseDiagnostics(skipped: skipped),
+                provenance: FileProvenance(
+                    name: url.lastPathComponent, verified: lines,
+                    isSealedSegment: true, segmentVerified: true),
+                verification: nil,
+                adoptedHead: nil, verifiedSegmentDigest: toRemember)
+        }
+
+        let read = JSONLAppendStore<Op>.verifiedParse(
+            bytes: jsonl, trusted: { _ in false }, rememberedHead: nil,
+            dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+        if decoded.isVerified {
+            skipped.append(contentsOf: read.diagnostics.skipped)
+        }
+        return FileClassification(
+            ops: read.elements,
+            diagnostics: ParseDiagnostics(skipped: skipped),
+            provenance: provenance(
+                name: url.lastPathComponent, lines: read.verification.lines,
+                isSealedSegment: true, segmentVerified: false),
+            verification: read.verification,
+            adoptedHead: nil, verifiedSegmentDigest: nil)
+    }
+
+    /// How many non-blank lines these bytes hold — counted, never SPLIT.
+    ///
+    /// The settled-segment branch needs this number and nothing else from the
+    /// bytes, and `split(separator:)` over a five-megabyte segment allocates one
+    /// `Data` slice per line to answer it. On the 50,000-line fixture that was
+    /// the single largest cost the chain added to a load, for a count.
+    private nonisolated static func nonEmptyLineCount(_ bytes: Data) -> Int {
+        bytes.withUnsafeBytes { raw -> Int in
+            var count = 0
+            var inLine = false
+            for byte in raw {
+                if byte == 0x0A {
+                    if inLine { count += 1; inLine = false }
+                } else {
+                    inLine = true
+                }
+            }
+            return inLine ? count + 1 : count
+        }
+    }
+
+    /// The counts, taken off the LINES themselves rather than off the walk's
+    /// own tallies — one place decides what each class means, and a new state
+    /// on `OpLogChain.Line` is a compile error here rather than a silent zero.
+    private nonisolated static func provenance(
+        name: String, lines: [OpLogChain.Line],
+        isSealedSegment: Bool, segmentVerified: Bool?
+    ) -> FileProvenance {
+        var legacy = 0, verified = 0, unsealed = 0, unsignedHistory = 0, quarantined = 0
+        for line in lines {
+            switch line.state {
+            case .legacy: legacy += 1
+            case .verified: verified += 1
+            case .unsealed: unsealed += 1
+            case .unsignedHistory: unsignedHistory += 1
+            // A torn last line is in no provenance class: it was never
+            // applied as history and it was never held back either. The
+            // element decoder reports it in `diagnostics.skipped`, which is
+            // the channel a torn line has always used.
+            case .tornTail: break
+            case .quarantined: quarantined += 1
+            }
+        }
+        return FileProvenance(
+            name: name, legacy: legacy, verified: verified, unsealed: unsealed,
+            unsignedHistory: unsignedHistory, quarantined: quarantined,
+            isSealedSegment: isSealedSegment, segmentVerified: segmentVerified)
     }
 
     /// Append to the writer's own per-device file, keyed by `op.device`.
+    ///
+    /// The write is chained (spec §3) **only when the op is this device's own**:
+    /// it verifies the file's tail against this device's remembered head first,
+    /// sets aside anything it did not write, and links the new line to what it
+    /// kept. Every `chainSealInterval` lines it also asks for a seal, which is
+    /// what turns a run of chained lines into history this device has signed.
+    ///
+    /// **A foreign `op.device` takes the plain, unchained append.** An op
+    /// self-describes the device that made it, and the write target is derived
+    /// from that string — so an op carrying a SENTINEL rather than a device id
+    /// lands in a file every Mac derives the same name for. There are several
+    /// on the Mac (`TaskDeriver.rebalanceSentinel`, and the `Document.load`
+    /// callers that pass `"wiki-rename"`, `"find-replace"` and `"mcp"`); count
+    /// the call sites, never this sentence. That file is the single exception to ADR
+    /// 0012's one-writer-per-file premise, and the chained append's rewrite step
+    /// is licensed by exactly that premise: chaining it would have each Mac set
+    /// aside and TRUNCATE the other's ops, and tell the writer their own second
+    /// machine is "something that is not Maugham". A device chains only its own
+    /// file; anything else is appended to, never rewritten.
     public func append(_ op: Op) async throws {
         if let injected = appendFailureForTesting { throw injected }
-        try await store(forDocId: op.docId, deviceSlug: DeviceSlug.make(from: op.device))
-            .append(op)
+        let slug = DeviceSlug.make(from: op.device)
+        let isOwnDevice = op.device == identity.deviceId
+        try await store(
+            forDocId: op.docId, deviceSlug: slug, chained: isOwnDevice
+        ).append(op)
+
+        guard isOwnDevice else {
+            opLogLoadLog.notice("""
+                A sentinel-device op was written unchained to \
+                \(Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: self.projectURL)
+                    .lastPathComponent, privacy: .public): \
+                its device (\(op.device, privacy: .public)) is not this one, so \
+                the file has more than one writer and must not be rewritten.
+                """)
+            return
+        }
+
+        let url = Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: projectURL)
+        let count = (linesSinceSeal[url] ?? 0) + 1
+        linesSinceSeal[url] = count
+        guard count >= Self.chainSealInterval else { return }
+        if try await sealChain(docId: op.docId) { linesSinceSeal[url] = 0 }
     }
 
-    private func store(forDocId docId: String, deviceSlug: DeviceSlug) -> JSONLAppendStore<Op> {
+    /// How many chained lines this device writes into a file before it seals
+    /// them. A seal is one signature over the whole run, so the interval trades
+    /// signing cost against how much of the tail is merely chained (tamper-
+    /// EVIDENT) rather than sealed (tamper-evident and signed).
+    ///
+    /// `nonisolated` for `segmentSealThreshold`'s reason: an immutable
+    /// `Sendable` `Int` that touches no actor state.
+    public nonisolated static let chainSealInterval = 100
+
+    /// Seal this device's own live tail for `docId`: one signature over the
+    /// chain head, committing to every line since the last seal.
+    ///
+    /// Answers whether a seal was written. False is the ordinary answer on a
+    /// device with no key and on a file with nothing new — neither is an error,
+    /// and neither throws.
+    ///
+    /// **`__project__` is sealed here and rotated nowhere.** The two verbs are
+    /// different acts: this one SIGNS a run of lines in place, `sealTailIfNeeded`
+    /// REWRITES the tail into an immutable segment. Only the second refuses the
+    /// project stream (a recorded Denver decision), so the project's task log is
+    /// signed history like every other tail while its tail keeps growing —
+    /// which is what `ProjectStore._projectOpLogStore` exists to make possible.
+    @discardableResult
+    public func sealChain(docId: String) async throws -> Bool {
+        try await store(forDocId: docId, deviceSlug: identity.slug).appendSeal()
+    }
+
+    /// The append store for one (docId, slug) file. `chained` is the ONE place
+    /// the policy is attached, and `append` is the one place that decides it —
+    /// a device chains only its own file.
+    private func store(
+        forDocId docId: String, deviceSlug: DeviceSlug, chained: Bool = true
+    ) -> JSONLAppendStore<Op> {
         JSONLAppendStore<Op>(
             fileURL: Self.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL),
             presenter: presenter,
             dedupKey: { $0.opId },
-            sortedBy: { $0.opId < $1.opId })
+            sortedBy: { $0.opId < $1.opId },
+            chain: chained
+                ? ChainPolicy(
+                    identity: identity, state: deviceState,
+                    docId: docId, projectURL: projectURL)
+                : nil)
     }
 
     // MARK: - Seal (tail → immutable segment)
@@ -328,6 +749,24 @@ public final class OpLogStore {
         try container.write(to: tmpURL, options: .atomic)
         try fm.moveItem(at: tmpURL, to: segURL)
 
+        // 2b. Sign the segment's digest, beside the segment. Best-effort for
+        //     the same reason the seal itself is maintenance rather than truth:
+        //     a device with no key signs nothing, a failed write leaves a
+        //     segment that reads as unsigned history, and neither may cost the
+        //     writer the rotation their tail needs.
+        if identity.canSign {
+            do { try Self.writeSegmentSignature(
+                    for: segURL, jsonl: bytes, identity: identity) }
+            catch {
+                opLogLoadLog.error("""
+                    Could not sign segment \
+                    \(segURL.lastPathComponent, privacy: .public): \
+                    \(String(describing: error), privacy: .public). \
+                    It will read as unsigned history.
+                    """)
+            }
+        }
+
         // 3. Coordinated delete of the tail; the next append recreates it via
         //    JSONLAppendStore.append's create branch.
         let delCoord = NSFileCoordinator(filePresenter: presenter)
@@ -423,6 +862,32 @@ public final class OpLogStore {
                 "\(docId).\(deviceSlug.raw).seg\(String(format: "%04d", index)).\(OpLogSegment.fileExtension)")
     }
 
+    /// The signature beside a sealed segment: the segment's own name with
+    /// `.sig` appended, so it sorts next to it and `opLogFileURLs` — which
+    /// matches on `.jsonl` and `.mzseg` endings — can never list it as history.
+    /// SINGLE SOURCE OF TRUTH for the sidecar's name.
+    public nonisolated static func segmentSignatureURL(for segmentURL: URL) -> URL {
+        segmentURL.deletingLastPathComponent()
+            .appendingPathComponent(segmentURL.lastPathComponent + ".sig")
+    }
+
+    /// Sign a freshly minted segment's digest and write the sidecar beside it.
+    ///
+    /// Throws on a device with no key and on a failed write. Both are conditions
+    /// the SEAL is required to survive — the caller logs and carries on, and a
+    /// segment with no signature is unsigned history rather than a refusal.
+    @discardableResult
+    nonisolated static func writeSegmentSignature(
+        for segmentURL: URL, jsonl: Data, identity: DeviceIdentity, at: Date = Date()
+    ) throws -> URL {
+        let digest = OpLogSegment.hex(Data(SHA256.hash(data: jsonl)))
+        let signature = try SegmentSignature.make(
+            digest: digest, identity: identity, at: at)
+        let url = segmentSignatureURL(for: segmentURL)
+        try signature.encoded().write(to: url, options: .atomic)
+        return url
+    }
+
     /// Parse `<docId>.<deviceSlug>.seg<NNNN>.mzseg` → NNNN, or nil if `name`
     /// is not a segment of this (docId, deviceSlug) pair.
     nonisolated static func segmentIndex(
@@ -440,11 +905,19 @@ public final class OpLogStore {
     /// local-only / heuristic readers that deliberately avoid async
     /// coordination; the async `load(docId:)` is the coordinated path and is
     /// preferred where the call site can await. Same opId dedupe + sort.
+    /// The synchronous reader classifies exactly as the coordinated one does —
+    /// same `classify`, same applied set — and writes NOTHING: no quarantine
+    /// record, no remembered head, no verified digest. It is a reader with no
+    /// presenter and no writer's authority, so it simply omits what it will not
+    /// apply. That the two agree is not a matter of care; it is the same
+    /// function called twice, and `OpLogVerifiedLoadTests` pins it anyway,
+    /// because this is the reader MCP's `read_document` and the Practice walk
+    /// see a closed manuscript through.
     public nonisolated static func loadSyncMerged(
-        forDocId docId: String, in projectURL: URL
+        forDocId docId: String, in projectURL: URL,
+        identity: DeviceIdentity? = .current,
+        state: OpLogDeviceState? = .shared
     ) throws -> [Op] {
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
         var ops: [Op] = []
         for url in opLogFileURLs(forDocId: docId, in: projectURL) {
             let data: Data
@@ -459,17 +932,8 @@ public final class OpLogStore {
                     name: url.lastPathComponent,
                     underlying: error.localizedDescription)
             }
-            if url.pathExtension == OpLogSegment.fileExtension {
-                guard let jsonl = OpLogSegment.decodeVerifying(data).jsonl else { continue }
-                ops.append(contentsOf: JSONLAppendStore<Op>.parse(bytes: jsonl).elements)
-                continue
-            }
-            guard let text = String(data: data, encoding: .utf8) else { continue }
-            for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-                guard let lineData = String(line).data(using: .utf8),
-                      let op = try? dec.decode(Op.self, from: lineData) else { continue }
-                ops.append(op)
-            }
+            ops.append(contentsOf: classify(
+                url: url, bytes: data, identity: identity, state: state).ops)
         }
         return mergeSortedDedup(ops)
     }
