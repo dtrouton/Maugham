@@ -54,6 +54,21 @@
    honest close is P2's registry plus a rule that an adopted head must be at or
    descended from the last trusted seal. **Confirm that P2 carries it.**
 
-7. **A Mac with no Secure Enclave is silently unsigned.** It writes chained
+7. **Four more sentinel device strings turned up while fixing C1, and their
+   streams are now unsigned.** The review named `TaskDeriver.rebalanceSentinel`;
+   the same shape is reached by every `Document.load` caller that passes a role
+   rather than a device — `"wiki-rename"` (`ProjectStore+Structure`),
+   `"find-replace"` (`ProjectStore+Search`) and `"mcp"` (`TaskReadTools`,
+   `AnnotationToolHelpers`). Under C1 all four write append-only, unchained,
+   unsealed files, which is exactly what they did before this milestone — and
+   the alternative, chaining them, is the mutually-truncating bug C1 exists to
+   remove. But `"mcp"` covers **every annotation Claude writes**, so a real
+   share of a project's history is deliberately outside the signature.
+   **Should those sites pass `DeviceIdentity.current.deviceId` instead**, so
+   Claude's writes are this Mac's own signed history in this Mac's own file?
+   That changes which file they land in (nothing is lost — ops merge by opId),
+   and it is a scope change rather than a fix, so it was not made here.
+
+8. **A Mac with no Secure Enclave is silently unsigned.** It writes chained
    lines that nothing seals and says nothing about it anywhere. **Should History
    say so once per project?** (Carried from the plan's own list.)

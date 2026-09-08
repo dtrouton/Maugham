@@ -568,9 +568,11 @@ public final class OpLogStore {
     ///
     /// **A foreign `op.device` takes the plain, unchained append.** An op
     /// self-describes the device that made it, and the write target is derived
-    /// from that string — so an op carrying a SENTINEL (`TaskDeriver`'s
-    /// `rebalance`, the one production instance) lands in a file every Mac
-    /// derives the same name for. That file is the single exception to ADR
+    /// from that string — so an op carrying a SENTINEL rather than a device id
+    /// lands in a file every Mac derives the same name for. There are several
+    /// on the Mac (`TaskDeriver.rebalanceSentinel`, and the `Document.load`
+    /// callers that pass `"wiki-rename"`, `"find-replace"` and `"mcp"`); count
+    /// the call sites, never this sentence. That file is the single exception to ADR
     /// 0012's one-writer-per-file premise, and the chained append's rewrite step
     /// is licensed by exactly that premise: chaining it would have each Mac set
     /// aside and TRUNCATE the other's ops, and tell the writer their own second

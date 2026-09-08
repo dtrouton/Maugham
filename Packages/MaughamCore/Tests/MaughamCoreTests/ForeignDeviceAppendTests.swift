@@ -42,7 +42,9 @@ final class ForeignDeviceAppendTests: XCTestCase {
     /// The sentinel `TaskDeriver` stamps on a rebalance op. Spelled here rather
     /// than imported: `TaskDeriver` is the Mac target's, and the rule this file
     /// pins is MaughamCore's — it holds for ANY device string that is not this
-    /// device's, of which the sentinel is the one production instance.
+    /// device's. There are several on the Mac (`rebalance`, plus the
+    /// `Document.load` callers passing `wiki-rename`, `find-replace` and
+    /// `mcp`); this one stands for all of them.
     private let sentinel = "rebalance"
 
     private func makeStore(_ id: DeviceIdentity? = nil) -> OpLogStore {

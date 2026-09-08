@@ -256,10 +256,15 @@ final class DocumentLoadQuarantineTests: XCTestCase {
         let (project, docURL) = try makeTestProject(
             prefix: "DOCFOREIGN", initialMd: "Hello.\n")
 
+        // THIS device's own id, not a fixture string: a device chains only ops
+        // carrying its own id (the whole-branch review's C1), so a `device: "m"`
+        // document writes an UNCHAINED file and there is no chain here to test.
+        let device = DeviceIdentity.current.deviceId
+
         // Type through the real path, so the tail is this Mac's own chained
         // history rather than a fixture: bootstrap line, burst, close seal.
         let doc1 = try await Document.load(
-            url: docURL, device: "m", session: "s", presenter: nil,
+            url: docURL, device: device, session: "s", presenter: nil,
             burstIdle: .seconds(3600), burstMax: .seconds(3600))
         let docId = doc1.docId
         doc1.setParagraph(id: doc1.sequence[0], text: "Hello, and then some.")
@@ -268,7 +273,7 @@ final class DocumentLoadQuarantineTests: XCTestCase {
         await doc1.close()
 
         let opLogURL = OpLogStore.opLogFileURL(
-            forDocId: docId, deviceSlug: DeviceSlug.make(from: "m"), in: project)
+            forDocId: docId, deviceSlug: DeviceSlug.make(from: device), in: project)
         let before = try Data(contentsOf: opLogURL)
             .split(separator: 0x0A, omittingEmptySubsequences: true)
         XCTAssertGreaterThanOrEqual(before.count, 2,
@@ -281,7 +286,7 @@ final class DocumentLoadQuarantineTests: XCTestCase {
         enc.outputFormatting = [.sortedKeys]
         let foreignOp = Op(
             opId: ULID.generate(), docId: docId, at: Date(),
-            device: "m", session: "s", kind: .typingBurst,
+            device: device, session: "s", kind: .typingBurst,
             changes: [.init(paragraphId: "ab2c", prior: nil, next: foreignText)],
             // The strongest form: an explicit sequence PLACING the paragraph,
             // so nothing downstream can drop it as an orphan. With the
@@ -299,7 +304,7 @@ final class DocumentLoadQuarantineTests: XCTestCase {
 
         // The load.
         let doc2 = try await Document.load(
-            url: docURL, device: "m", session: "s", presenter: nil,
+            url: docURL, device: device, session: "s", presenter: nil,
             burstIdle: .seconds(3600), burstMax: .seconds(3600))
 
         XCTAssertFalse(doc2.sequence.contains("ab2c"),

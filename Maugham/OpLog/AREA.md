@@ -210,11 +210,18 @@ load. No migration: an older file reads as a mismatch, which is the empty case.
 
 **A device chains only its OWN file.** `OpLogStore.append` attaches the
 `ChainPolicy` when `op.device == identity.deviceId` and takes the plain append
-otherwise, logging at `.notice`. The one production instance is
-`TaskDeriver.rebalanceSentinel`: `DeviceSlug.make` is deterministic, so every Mac
-derives the same `<docId>.rebalance-<fnv32>.jsonl`, and that file is the single
-exception to ADR 0012's one-writer premise — which is precisely what licenses the
-chained append's truncating rewrite. That also keeps `linesSinceSeal` honest: the
+otherwise, logging at `.notice`. `DeviceSlug.make` is deterministic, so every op
+carrying a SENTINEL rather than a device id lands in a file every Mac derives the
+same name for — the single exception to ADR 0012's one-writer premise, which is
+precisely what licenses the chained append's truncating rewrite. **There is more
+than one sentinel and the list is a grep, not a sentence**: today they are
+`TaskDeriver.rebalanceSentinel` plus the `Document.load` callers passing
+`"wiki-rename"` (`ProjectStore+Structure`), `"find-replace"`
+(`ProjectStore+Search`) and `"mcp"` (`TaskReadTools`, `AnnotationToolHelpers`).
+Their streams are append-only and unsigned, which is what they were before this
+milestone; whether Claude's own annotation writes should instead be filed under
+THIS device's identity — signed history rather than a shared sentinel file — is
+an open decision in the handoff. The rule also keeps `linesSinceSeal` honest: the
 counter only ever sees a line this device chained, so the file it counts and the
 file `sealChain` seals are the same file.
 
