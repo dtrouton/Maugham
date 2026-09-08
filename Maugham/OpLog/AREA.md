@@ -186,11 +186,44 @@ hashes to, which is the adopt case, where the other order would leave the
 device's own last op quarantined as a stranger's. And the whole append (read the
 tail, verify, set aside, rewrite the kept prefix, chain, remember, write) is
 **inside ONE coordinated write** — never a nested coordination, which would
-deadlock on the write already held. **The adopt rule**: a remembered head absent
-from the file is adopted only when the walk never broke AND every seal in the
-file is ours. Adopting a broken or foreign-sealed file's head would bless exactly
-what the remembered head exists to catch. Keying on the project PATH means a
-moved project forgets and adopts, which is the safe direction.
+deadlock on the write already held.
+
+**`OpLogChain.resolveAbsentHead` is the ONE place that decides what a missing
+remembered head means, and all three readers-or-writers call it** — the op log's
+`classifyTail`, the chained append, and the verified read. It adopts on the
+crash window and only there: the walk never broke, every seal in the file is
+ours, and the file's own head is the one this device remembered LAST time
+(`OpLogDeviceState.previousHead`, shifted in by `remember`). Anything else — a
+file truncated back to a seal with correctly-chained lines written onto it,
+which the chain rules alone cannot fault — quarantines every line after the last
+seal this device TRUSTS and does not update the state. A device with no key has
+no trusted seal to anchor on, so its file is left exactly as the walk found it
+rather than quarantined whole; its tail is unsigned history by definition. Keying
+on the project PATH means a moved project forgets entirely: nothing adopted,
+nothing quarantined, which is the safe direction.
+
+**The state file belongs to one identity.** `op-log-state.json` carries the
+fingerprint of the device that wrote it and starts empty (rewriting the file)
+under any other — the heads have no device in their key, and Application Support
+is what Migration Assistant copies while the enclave blob it copies will not
+load. No migration: an older file reads as a mismatch, which is the empty case.
+
+**A device chains only its OWN file.** `OpLogStore.append` attaches the
+`ChainPolicy` when `op.device == identity.deviceId` and takes the plain append
+otherwise, logging at `.notice`. The one production instance is
+`TaskDeriver.rebalanceSentinel`: `DeviceSlug.make` is deterministic, so every Mac
+derives the same `<docId>.rebalance-<fnv32>.jsonl`, and that file is the single
+exception to ADR 0012's one-writer premise — which is precisely what licenses the
+chained append's truncating rewrite. That also keeps `linesSinceSeal` honest: the
+counter only ever sees a line this device chained, so the file it counts and the
+file `sealChain` seals are the same file.
+
+**A torn LAST line is `tornTail`, not a break.** Bytes that do not close as a
+JSON object, with nothing after them, are a write that stopped mid-line: excluded
+from the walk, never quarantined, the head unmoved, and handed to the element
+decoder so they appear in `diagnostics.skipped` as a torn line always has. An
+incomplete line with something after it still breaks the chain — the write
+finished, so the damage is not a tear.
 
 **Quarantine is a `.lines` record that never returns.** A quarantined line is
 never applied and never deleted: `OpLogQuarantine.setAsideLines` copies the bytes
@@ -218,7 +251,12 @@ unsealed / unsigned-history / quarantined. **A record is the load path's alone**
 a caller taking the nil `identity`/`state` defaults (`ProjectIntegrity.check`)
 classifies with no key and no remembered head, so its reading of a file is
 strictly weaker than the load's — it cannot see an `afterRememberedHead` break at
-all — and it therefore writes nothing. A check reports; the load records. **Seal lines never reach an element
+all — and it therefore writes nothing. A check reports; the load records. **The
+two are not interchangeable and must not be read as one another**: because the
+check classifies keylessly, it can hand back opIds the load will not apply, so
+`ProjectIntegrity`'s dangling-pointer check can pass over ops a document never
+sees. Never treat a clean check as a statement about what the load will do.
+**Seal lines never reach an element
 decoder**: the filter is in `JSONLAppendStore.parse`, the one parser every
 reader shares, so a seal is never reported as a torn line.
 
@@ -228,7 +266,14 @@ sites — count them, don't read a number here.** On the Mac they are: every
 `OpLogStore.chainSealInterval` (100) appends, from `OpLogStore.append` itself;
 after every burst that actually appended (`Document.flushBurstNow` — a burst IS
 "typing followed by idle"); at `Document.close()`; and over every doc this Mac
-has written at project open (`DocumentStore`). The inbox and the phone do not
+has written at project open (`DocumentStore`). **`__project__` reaches the first
+of those through `ProjectStore._projectOpLogStore`, the ONE store the project
+task stream appends through for the store's lifetime** — a fresh store per
+append reset the interval counter every time, so the project stream was the one
+op log nothing ever sealed. `sealChain` never refused it; only `sealTailIfNeeded`
+does, and that refusal is about segment ROTATION, a different act. The residue
+worth knowing: the project stream therefore has no size ceiling, and the chained
+append's verify cost grows with it. The inbox and the phone do not
 use this verb at all — they call `JSONLAppendStore.appendSeal()` directly after
 **every** append (`InboxStore.appendThrowing`, `InboxCaptureWriter`,
 `AnnotationWriter`), because a capture or a lifecycle decision is rare and one
@@ -254,7 +299,14 @@ now takes `.file` records only — a `.lines` record is not a file waiting to co
 back. `HistoryPane` says the two things a writer can act on knowing and no
 others: `unsignedHistoryNotice` (legacy history, foreign-signed history, or ONE
 sentence carrying both — the coalescing rule) and `setAsideLinesNotice`, neither
-with a Retry, because neither is something the writer can undo. **`unsealed`
+with a Retry, because neither is something the writer can undo. **The INBOX has
+its own half of that sentence** — `InboxPane.setAsideNotice(lineCount:)`, drawn
+beside the unreadable-manifests notice — because the inbox's `.lines` records are
+filed under the manifest stream's own id (`InboxManifest.chainDocId`) and
+`HistoryPane` only ever asks for a DOCUMENT's, so they were written and shown to
+nobody. Both panes count through `OpLogQuarantine.setAsideLineCount`, one
+implementation, because one record can hold a run of lines and the writer's
+question is how many CHANGES. **`unsealed`
 lines are never mentioned**: the live tail is always partly unsealed, so naming
 it would be a permanent notice about nothing. The device identity and chain
 memory a load hands its `OpLogStore` come from `Document.makeLoadOpStore`, the
@@ -298,7 +350,12 @@ chain walk is skipped entirely, every line counts `verified`, and nothing is
 read but the container itself. **Trusted sidecar** — the `.sig` beside it names
 this digest under a key equal to `identity.fingerprint` and verifies: the walk
 is skipped the same way and the digest is remembered (`markVerified`), so the
-next load takes the first outcome. **Keyless walk** — a foreign signature, no
+next load takes the first outcome. A settled segment's lines count as
+**verified** whatever they were before rotation, legacy included: the device
+signed those exact bytes, which is the whole claim a seal makes. The
+consequence is that a document's "written before this book was signed" sentence
+DISAPPEARS once its legacy tail has been rotated into a signed segment —
+nothing was rewritten, the sentence simply became false. **Keyless walk** — a foreign signature, no
 signature at all, or a segment minted before this milestone: every line is
 walked with `trusted: { _ in false }` and no remembered head, counted by the
 state the walk gives it, and a break still quarantines. Only a container that
@@ -308,7 +365,11 @@ would leave alone.
 **Where the time goes.** The load is `JSONDecoder`, and the chain is a rounding
 error on it — measured on 50,000 chained lines (42 MB) in release, the walk over
 the live tail costs 55-80 ms and seven signature checks about 3 ms, against 5.8
-seconds of parsing. Two things keep it there and must not be undone: `Hex`
+seconds of parsing. Those are the measured numbers and they are all this claims:
+the plan's stated budget of **under 100 ms added to a 50k cold open was not met
+as a headline figure** — the first measurement added about 450 ms end to end,
+before the hex fix — and whether to restate the budget against a realistic
+per-document op count is an open Denver decision rather than a settled one. Two things keep it there and must not be undone: `Hex`
 (`OpLogChain.swift`) is table-driven, because the obvious `String(format: "%02x")`
 spelling cost 107 ms of a 109 ms `lineHash` total on that fixture; and the
 settled-segment branch COUNTS lines rather than splitting them, because

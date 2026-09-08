@@ -123,13 +123,56 @@ stranger's. And the whole append — read the tail, verify, set aside, rewrite,
 chain, remember, write — happens **inside one coordinated write**, never a
 nested coordination.
 
-**The adopt rule** covers that crash window: a remembered head absent from the
-file is adopted only when the file holds together as *our* history — the walk
-never broke, and every seal in it is ours. Adopting a broken or foreign-sealed
+**The adopt rule** covers that crash window, and *only* it. A remembered head
+absent from the file is adopted when the walk never broke, every seal in the
+file is ours, and the file's own head is the one this device remembered *last
+time* (`previousHead`) — which is exactly what remembering a head before writing
+the line that hashes to it leaves behind. Adopting a broken or foreign-sealed
 file's head would bless exactly what the remembered head exists to catch.
-Keying on the project *path* means a project that moves forgets its heads and
-adopts, which is the safe direction: the writer's own history is never
-quarantined because they dragged a folder.
+Keying on the project *path* means a project that moves forgets its heads
+entirely, which is the safe direction: nothing is adopted and nothing is
+quarantined, and the writer's own history is never held back because they
+dragged a folder.
+
+**What is caught, and what is not.** An agent that APPENDS is caught: however
+correctly it chains, its line arrives after the head this device remembers. An
+agent that TRUNCATES the file back to a seal line and appends its own
+correctly-chained lines used to be caught by nothing — no break, our own seals,
+and a head we had simply never seen, which the load adopted and remembered, so
+the next append chained onto the forgery. That is now the *converse* of the
+adopt rule: when the file's head is not the crash window's, every line after the
+last seal this device **trusts** is quarantined ("the history's chain is
+broken"), the prefix up to and including that seal applies, and the state is not
+updated. The read, the chained write and the verified read all take that
+decision from one function (`OpLogChain.resolveAbsentHead`), because a load that
+held lines back while the next append chained onto them would strand the
+writer's own new ops behind a permanent break.
+
+On an **unsigned** device the rule catches nobody, deliberately. "Every seal
+trusted" is vacuous with zero seals, so there is nothing to fall back to, and
+quarantining a whole unsigned file over a missing head would cost the writer
+their manuscript to catch nobody. Such a file is left exactly as the walk found
+it: its tail is unsigned history by definition, which is what an unsigned device
+writes. The honest close for both halves is P2's registry plus a rule that an
+adopted head must be at or descended from the last trusted seal.
+
+**The state file belongs to one identity.** `op-log-state.json` carries the
+fingerprint of the device that wrote it, and opening it under any other one
+starts empty and rewrites the file. The heads are keyed by project path and
+filename with the device nowhere in the key, and Application Support is what
+Migration Assistant copies — while the enclave blob it copies will not load, so
+the new Mac gets a new identity and would otherwise keep every remembered head
+for the old slug's files, and quarantine its still-running twin's live ops as a
+stranger's. There is no migration: a state file predating the field reads as a
+mismatch, which is the empty case.
+
+**A torn last line is a crash, not a forgery.** A line whose bytes do not close
+as a JSON object, and which nothing follows, is classified `tornTail`: excluded
+from the walk, never a break, never quarantined, the running head unmoved, and
+the bytes handed to the element decoder, which reports them in
+`diagnostics.skipped` exactly as a torn line was reported before the chain
+existed. Only the *last* line may be torn — an incomplete line with something
+after it means the write finished, so the damage is not a tear.
 
 ### 4. Seals are decoupled from appends
 
@@ -164,9 +207,28 @@ a single P256 check however long the history is. Losing the sidecar costs what
 losing any derived file costs — the segment reads as unsigned history, which is
 honest.
 
+**The sidecar contributes no content to `BackupSignature`, and the plan's
+seam-9 premise that it "is a content file: it contributes a hash" is wrong.**
+`BackupSignature` routes anything under `.maugham/ops/` into its op-ids branch,
+so a `.sig` (and, pre-existing, a `.mzseg`) decodes to zero ops and contributes
+a constant line: re-signing a segment produces an identical backup signature.
+The half of that seam that mattered does hold and is pinned — a **seal line
+changes no signature**, because seal lines fail `decode(Op.self)` and are
+skipped, so a burst's seal does not mint a new backup generation.
+
 A verified digest is remembered in `OpLogDeviceState` and never re-verified, so
 a warm open pays nothing for sealed history and only the unsealed tail is
 walked.
+
+**A signed segment settles its lines as *verified*, legacy ones included, and
+that is correct rather than laundering.** A tail that began as pre-P1 lines and
+was later rotated is a run of bytes this device's key has signed the digest of
+— the claim a seal makes is *these exact bytes are mine*, and it is true of a
+legacy line inside a segment as much as a chained one. The consequence to know
+is that the notice is not stable over a document's life: "part of this
+document's history was written before this book was signed" stops appearing once
+that legacy tail has been rotated into a signed segment. Nothing was rewritten;
+the sentence became false.
 
 ### 6. Three states, of which P1 builds two
 
@@ -231,14 +293,27 @@ takes and *pending* becomes reachable. P3 adds roles and the per-op-kind check.
   `JSONLAppendStore.parse` — the one parser every reader shares (tails,
   decompressed segments, the inbox) — so no reader can hand a seal to an
   element decoder and then report the file as damaged.
-- **Verification costs a rounding error against parsing.** Measured on 50,000
-  chained lines in release, the tail walk and its signature checks are tens of
-  milliseconds against seconds of `JSONDecoder`, and that fixture's tail is
-  eight times the size `segmentSealThreshold` lets a real one reach. Two things
-  keep it there: `Hex` is table-driven (the obvious `String(format: "%02x")`
-  spelling cost 107 ms of a 109 ms `lineHash` total on that fixture), and the
-  settled-segment branch counts lines rather than splitting them. See
-  `Maugham/OpLog/AREA.md`.
+- **Verification costs a rounding error against parsing — and the plan's
+  100 ms-at-50k budget was not met as a headline number.** The first measurement
+  of a 50,000-line cold open added about 450 ms end to end, against a stated
+  budget of 100 ms; the hex fix took the chain's own work down to 55-83 ms on
+  that fixture, after which the end-to-end delta sits inside the parse's own
+  noise. What is claimed here is what was measured, never that the budget was
+  met: the tail walk and its signature checks are tens of milliseconds against
+  seconds of `JSONDecoder`, and that fixture's tail is eight times the size
+  `segmentSealThreshold` lets a real one reach. **Whether the budget should be
+  restated against a realistic per-document op count is Denver's decision, not
+  the implementer's, and it is open** (the handoff's Decisions owed). Two things
+  keep the cost where it is: `Hex` is table-driven (the obvious
+  `String(format: "%02x")` spelling cost 107 ms of a 109 ms `lineHash` total on
+  that fixture), and the settled-segment branch counts lines rather than
+  splitting them. See `Maugham/OpLog/AREA.md`.
+- **The project stream is signed but never rotated, and its tail has no
+  ceiling.** `__project__` seals like any other stream now that `ProjectStore`
+  holds one `OpLogStore` for its lifetime, but `sealTailIfNeeded` still refuses
+  it, so the file grows without limit and the chained append's verify cost grows
+  with it. That is a pre-existing growth with a new cost attached, and it is
+  recorded rather than fixed.
 - **A check is not a load.** `ProjectIntegrity.check` classifies with no key and
   no remembered head, so its reading of a file is strictly weaker than the
   load's — it cannot see an after-remembered-head break at all — and it
