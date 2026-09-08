@@ -199,7 +199,7 @@ final class RepublisherTests: XCTestCase {
                 sourceHash: TranslationHash.hash(doc.paragraphs[id] ?? ""),
                 verbatim: false)
             try await TranslationStore.append(
-                rec, forDocId: item.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                rec, forDocId: item.id, identity: LocalIdentities.current.translator, identities: .current,
                 in: projectURL)
         }
 
@@ -511,7 +511,7 @@ final class RepublisherTests: XCTestCase {
                 sourceHash: TranslationHash.hash(doc.paragraphs[id] ?? ""),
                 verbatim: false)
             try await TranslationStore.append(
-                rec, forDocId: item.id, deviceSlug: slug, in: projectURL)
+                rec, forDocId: item.id, identity: LocalIdentities.current.translator, identities: .current, in: projectURL)
         }
         // Scene heading: identity translation (fully covered, no gap).
         // Action block: translated as THREE lines against the source's two,

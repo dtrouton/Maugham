@@ -68,13 +68,13 @@ final class SpotCheckTests: XCTestCase {
                        documentStore: documentStore, doc: doc)
     }
 
-    private func seed(_ harness: Harness, paragraph index: Int, text: String) throws {
+    private func seed(_ harness: Harness, paragraph index: Int, text: String) async throws {
         let id = harness.doc.sequence[index]
-        _ = try TranslationWritePipeline.perform(
+        _ = try await TranslationWritePipeline.perform(
             entries: [.init(paragraphId: id, text: text, verbatim: nil, delete: nil)],
             language: "es", documentId: harness.doc.docId,
             state: (harness.doc.sequence, harness.doc.paragraphs, harness.projectURL),
-            deviceSlug: DeviceIdentity.author.slug)
+            actor: .translator)
     }
 
     private func entries(_ texts: [(String, String)]) -> [TranslationBadgeLayout.Entry] {
@@ -311,9 +311,9 @@ final class SpotCheckTests: XCTestCase {
 
     func test_theCollatorIsAskedAboutOneParagraphWithBothTextsAndItsNeighbour() async throws {
         let harness = try await makeHarness()
-        try seed(harness, paragraph: 0, text: "Llegó la niebla.")
-        try seed(harness, paragraph: 1, text: "Cerró la puerta.")
-        try seed(harness, paragraph: 2, text: "Nadie habló.")
+        try await seed(harness, paragraph: 0, text: "Llegó la niebla.")
+        try await seed(harness, paragraph: 1, text: "Cerró la puerta.")
+        try await seed(harness, paragraph: 2, text: "Nadie habló.")
         let (coldCall, factory) = ColdCallSpyFactory.makeColdCall()
 
         _ = await SpotCheck.askTheCollator(
@@ -332,7 +332,7 @@ final class SpotCheckTests: XCTestCase {
 
     func test_aCollationComesBackParsed() async throws {
         let harness = try await makeHarness()
-        try seed(harness, paragraph: 0, text: "Llegó la bruma.")
+        try await seed(harness, paragraph: 0, text: "Llegó la bruma.")
         let id = harness.doc.sequence[0]
         let (coldCall, factory) = ColdCallSpyFactory.makeColdCall()
         factory.configure = {
@@ -380,7 +380,7 @@ final class SpotCheckTests: XCTestCase {
     /// pressed.
     func test_neitherSpotCheckWritesAnything() async throws {
         let harness = try await makeHarness()
-        try seed(harness, paragraph: 0, text: "Llegó la niebla.")
+        try await seed(harness, paragraph: 0, text: "Llegó la niebla.")
         let id = harness.doc.sequence[0]
         let statementsBefore = harness.store.manifest.statements.count
         let roundsBefore = TranslationRoundStore(projectURL: harness.projectURL)

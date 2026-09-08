@@ -460,7 +460,7 @@ final class SampleCompilerTests: XCTestCase {
                     paragraphId: id, language: "es", text: Self.editionSentence,
                     sourceHash: TranslationHash.hash(doc.paragraphs[id] ?? ""),
                     verbatim: false),
-                forDocId: item.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                forDocId: item.id, identity: LocalIdentities.current.translator, identities: .current,
                 in: projectURL)
         }
         return LangSampleFixture(

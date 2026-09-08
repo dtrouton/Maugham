@@ -40,7 +40,7 @@ final class TranslationPreflightTests: XCTestCase {
                               text: "uno dos tres cuatro cinco",
                               sourceHash: TranslationHash.hash(
                                   fixture.document.paragraphs[paragraph] ?? "")),
-            forDocId: "doc-1", deviceSlug: DeviceSlug.make(from: "seed-device"),
+            forDocId: "doc-1", identity: LocalIdentities.current.translator, identities: .current,
             in: fixture.projectURL)
 
         let both = TranslationPreflight.budgets(

@@ -209,7 +209,7 @@ final class PreviewCompilerTests: XCTestCase {
         try await TranslationStore.append(
             TranslationRecord(paragraphId: paragraphID, language: "es",
                               text: text, sourceHash: sourceHash, verbatim: false),
-            forDocId: fx.docID, deviceSlug: DeviceSlug.make(from: "test-mac"),
+            forDocId: fx.docID, identity: LocalIdentities.current.translator, identities: .current,
             in: fx.projectURL)
     }
 
@@ -325,7 +325,7 @@ final class PreviewCompilerTests: XCTestCase {
                 TranslationRecord(paragraphId: id, language: "es", text: "Alfa.",
                                   sourceHash: TranslationHash.hash(fx.docA.doc.paragraphs[id] ?? ""),
                                   verbatim: false),
-                forDocId: fx.docA.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                forDocId: fx.docA.id, identity: LocalIdentities.current.translator, identities: .current,
                 in: fx.projectURL)
         }
 
@@ -918,7 +918,7 @@ final class PreviewCompilerTests: XCTestCase {
                     paragraphId: id, language: "sr", text: "Prevedeni.",
                     sourceHash: TranslationHash.hash(fx.doc.paragraphs[id] ?? ""),
                     verbatim: false),
-                forDocId: fx.docID, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                forDocId: fx.docID, identity: LocalIdentities.current.translator, identities: .current,
                 in: fx.projectURL)
         }
 
@@ -960,7 +960,7 @@ final class PreviewCompilerTests: XCTestCase {
                         paragraphId: id, language: tag, text: "Prevedenina\(tag).",
                         sourceHash: TranslationHash.hash(fx.doc.paragraphs[id] ?? ""),
                         verbatim: false),
-                    forDocId: fx.docID, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                    forDocId: fx.docID, identity: LocalIdentities.current.translator, identities: .current,
                     in: fx.projectURL)
             }
         }

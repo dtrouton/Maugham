@@ -450,7 +450,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
                 sourceHash: TranslationHash.hash(harness.doc.paragraphs[ids[0]] ?? ""),
                 verbatim: false),
             forDocId: harness.doc.docId,
-            deviceSlug: DeviceIdentity.author.slug,
+            identity: LocalIdentities.current.translator, identities: .current,
             in: harness.projectURL)
         try await TranslationStore.append(
             TranslationRecord(
@@ -458,7 +458,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
                 sourceHash: TranslationHash.hash("something else entirely"),
                 verbatim: false),
             forDocId: harness.doc.docId,
-            deviceSlug: DeviceIdentity.author.slug,
+            identity: LocalIdentities.current.translator, identities: .current,
             in: harness.projectURL)
 
         _ = try await harness.environment.translatorIdentity("es")
@@ -495,7 +495,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
                     sourceHash: TranslationHash.hash(harness.doc.paragraphs[id] ?? ""),
                     at: twoDaysAgo),
                 forDocId: harness.doc.docId,
-                deviceSlug: DeviceIdentity.author.slug,
+                identity: LocalIdentities.current.translator, identities: .current,
                 in: harness.projectURL)
         }
         _ = try await harness.environment.translatorIdentity("es")
@@ -842,13 +842,13 @@ final class TranslatorEnvironmentTests: XCTestCase {
     // MARK: - The fix gather (Plan 3)
 
     private func seedTranslation(_ harness: Harness, paragraph index: Int,
-                                 text: String, language: String = "es") throws {
+                                 text: String, language: String = "es") async throws {
         let id = harness.doc.sequence[index]
-        _ = try TranslationWritePipeline.perform(
+        _ = try await TranslationWritePipeline.perform(
             entries: [.init(paragraphId: id, text: text, verbatim: nil, delete: nil)],
             language: language, documentId: harness.doc.docId,
             state: (harness.doc.sequence, harness.doc.paragraphs, harness.projectURL),
-            deviceSlug: DeviceIdentity.author.slug)
+            actor: .translator)
     }
 
     /// The `.fix` work-list is built FROM the notes: one `.fresh` item per
@@ -859,8 +859,8 @@ final class TranslatorEnvironmentTests: XCTestCase {
     /// report fail whole with no clue why).
     func test_theFixGatherBuildsTheWorkListFromTheNotesItBriefs() async throws {
         let harness = try await makeHarness()
-        try seedTranslation(harness, paragraph: 0, text: "Llegó la niebla.")
-        try seedTranslation(harness, paragraph: 2, text: "Nadie habló.")
+        try await seedTranslation(harness, paragraph: 0, text: "Llegó la niebla.")
+        try await seedTranslation(harness, paragraph: 2, text: "Nadie habló.")
         let ids = harness.doc.sequence
         let notes: [TranslatorBriefing.FixNote] = [
             .init(id: "n-last", paragraphId: ids[2], author: "Ocampo", kind: "rhythm",
@@ -913,7 +913,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
     /// and the one it appended — and carries the report's own answers whole.
     func test_ingestReportsRewritesAndTheFixReportsAnswers() async throws {
         let harness = try await makeHarness()
-        try seedTranslation(harness, paragraph: 0, text: "Llegó la niebla.")
+        try await seedTranslation(harness, paragraph: 0, text: "Llegó la niebla.")
         let id = harness.doc.sequence[0]
         let before = try XCTUnwrap(
             TranslationStore.latestByParagraph(records(harness))[id])

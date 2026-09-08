@@ -270,7 +270,7 @@ final class PublicationToolsTests: XCTestCase {
             sourceHash: TranslationHash.hash(doc.paragraphs[paragraphID] ?? ""),
             verbatim: false)
         try await TranslationStore.append(
-            rec, forDocId: item.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
+            rec, forDocId: item.id, identity: LocalIdentities.current.translator, identities: .current,
             in: projectURL)
 
         // Edition identity (spec 2026-07-23): the es edition renders an EXISTING

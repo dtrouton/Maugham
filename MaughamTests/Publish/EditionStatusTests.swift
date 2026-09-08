@@ -226,7 +226,7 @@ final class EditionStatusTests: XCTestCase {
             TranslationRecord(paragraphId: paragraphId, language: language, text: text,
                               sourceHash: TranslationHash.hash(source), verbatim: false),
             forDocId: doc.docId,
-            deviceSlug: DeviceIdentity.author.slug,
+            identity: LocalIdentities.current.translator, identities: .current,
             in: projectURL)
     }
 

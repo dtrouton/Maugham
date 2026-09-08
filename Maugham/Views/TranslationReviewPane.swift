@@ -105,18 +105,28 @@ enum TranslationReviewPaneLogic {
     /// paragraph no longer exists, so there is no live source text to hash
     /// against — mirrors `WriteTranslationTool`'s own delete-form record for
     /// an id outside the current sequence (source lookup falls back to `""`).
+    ///
+    /// **The writer's own act, so it signs as the `author`** (P1b) — a purge is
+    /// the person at the keyboard deciding a stale translation is gone, and
+    /// filing it under the translator's key would put their decision in the
+    /// pipeline's hand. It is the one thing in the translation directory that
+    /// is not the translator's.
+    @MainActor
     static func purgeOrphans(
         _ ids: [String], docId: String, language: String,
-        deviceSlug: DeviceSlug, projectURL: URL
-    ) throws {
+        identities: LocalIdentities = .current,
+        deviceState: OpLogDeviceState = .shared,
+        projectURL: URL
+    ) async throws {
         guard !ids.isEmpty else { return }
         let records = ids.map {
             TranslationRecord(paragraphId: $0, language: language, text: nil,
                               sourceHash: TranslationHash.hash(""))
         }
-        try TranslationStore.appendBatch(
+        try await TranslationStore.appendBatch(
             records, forDocId: docId, language: language,
-            deviceSlug: deviceSlug, in: projectURL)
+            identity: identities.author, identities: identities,
+            state: deviceState, in: projectURL)
     }
 }
 
@@ -693,23 +703,27 @@ struct TranslationReviewPane: View {
     /// delete-and-recreate spirit applies.
     private func purgeOrphans(_ ids: [String]) {
         guard let language = control.translationLanguage else { return }
-        let deviceSlug = DeviceIdentity.author.slug
-        do {
-            try TranslationReviewPaneLogic.purgeOrphans(
-                ids, docId: document.docId, language: language,
-                deviceSlug: deviceSlug, projectURL: document.opStore.projectURL)
-        } catch {
-            // No sheet — spec §2.2 keeps this action silent — but a write that
-            // failed must not vanish without trace: the rows stay on screen and
-            // a retry is a click away, so the log is where the reason lives.
-            translationPaneLog.warning(
-                "orphan purge failed for \(ids.count, privacy: .public) id(s) in \(language, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return
+        // The write is chained and sealed now, so it is `async`; the notify
+        // stays on the far side of it, exactly where it was, so a live
+        // translation surface still re-derives only after the tombstones land.
+        Task { @MainActor in
+            do {
+                try await TranslationReviewPaneLogic.purgeOrphans(
+                    ids, docId: document.docId, language: language,
+                    projectURL: document.opStore.projectURL)
+            } catch {
+                // No sheet — spec §2.2 keeps this action silent — but a write that
+                // failed must not vanish without trace: the rows stay on screen and
+                // a retry is a click away, so the log is where the reason lives.
+                translationPaneLog.warning(
+                    "orphan purge failed for \(ids.count, privacy: .public) id(s) in \(language, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                return
+            }
+            MaughamEvent.post(
+                .maughamTranslationDidUpdate,
+                to: .project(for: document.opStore.projectURL),
+                payload: ["document_id": document.docId, "language": language])
         }
-        MaughamEvent.post(
-            .maughamTranslationDidUpdate,
-            to: .project(for: document.opStore.projectURL),
-            payload: ["document_id": document.docId, "language": language])
     }
 }
 

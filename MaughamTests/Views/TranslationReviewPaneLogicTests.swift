@@ -167,34 +167,43 @@ final class TranslationReviewPaneLogicTests: XCTestCase {
         XCTAssertTrue(TranslationReviewPaneLogic.orphanRows(from: orphans).isEmpty)
     }
 
-    func test_purgeOrphans_emitsExactlyOneTombstonePerId_inOneBatch() throws {
+    /// The purge is the WRITER's act, so it lands in the author's file, not the
+    /// translator's — one tombstone per id, in one batch, under the author's
+    /// key (P1b).
+    func test_purgeOrphans_emitsExactlyOneTombstonePerId_inOneBatch() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("TRP-purge-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let slug = DeviceSlug.unsafeForTesting("maca-test")
+        let identities = LocalIdentities.current
 
         // The orphans exist because those paragraphs were translated once, so
         // seed that: a purge into a language with nothing translated in it
         // records nothing at all, by `TranslationStore.appendBatch`'s
         // tombstone guard (a tombstones-only file is a phantom language).
-        try TranslationStore.appendBatch(
+        try await TranslationStore.appendBatch(
             ["zzzz", "yyyy"].map {
                 TranslationRecord(paragraphId: $0, language: "es",
                                   text: "Huérfano", sourceHash: "x")
             },
-            forDocId: "doc1", language: "es", deviceSlug: slug, in: dir)
+            forDocId: "doc1", language: "es", identity: identities.translator,
+            identities: identities, in: dir)
 
-        try TranslationReviewPaneLogic.purgeOrphans(
+        try await TranslationReviewPaneLogic.purgeOrphans(
             ["zzzz", "yyyy"], docId: "doc1", language: "es",
-            deviceSlug: slug, projectURL: dir)
+            identities: identities, projectURL: dir)
 
         let url = TranslationStore.fileURL(
-            forDocId: "doc1", language: "es", deviceSlug: slug, in: dir)
-        let contents = try String(contentsOf: url, encoding: .utf8)
-        let lines = contents.split(separator: "\n", omittingEmptySubsequences: true)
-        XCTAssertEqual(lines.count, 4,
-                       "the two seeded translations plus one tombstone line per id, in one batch")
+            forDocId: "doc1", language: "es",
+            deviceSlug: identities.author.slug, in: dir)
+        let records = try Data(contentsOf: url)
+            .split(separator: 0x0A, omittingEmptySubsequences: false)
+            .filter { !$0.isEmpty }
+            .map { Data($0) }
+            .filter { !OpLogChain.isSealLine($0) }
+        XCTAssertEqual(records.count, 2,
+                       "one tombstone line per id, in one batch, in the "
+                       + "writer's own file")
 
         let loaded = TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: dir)
         XCTAssertEqual(loaded.count, 4)
@@ -204,21 +213,23 @@ final class TranslationReviewPaneLogicTests: XCTestCase {
                       "and both orphans are gone from the derived state")
     }
 
-    func test_purgeOrphans_roundTrip_purgedOrphanIsAbsentFromNextDerivation() throws {
+    func test_purgeOrphans_roundTrip_purgedOrphanIsAbsentFromNextDerivation() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("TRP-purge-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let slug = DeviceSlug.unsafeForTesting("maca-test")
+        let identities = LocalIdentities.current
 
         // Seed an orphan translation (its paragraph is not in `sequence`
         // below), then purge it through the pane's action.
-        try TranslationStore.appendBatch(
+        try await TranslationStore.appendBatch(
             [TranslationRecord(paragraphId: "zzzz", language: "es",
                                text: "Huérfano", sourceHash: "x")],
-            forDocId: "doc1", language: "es", deviceSlug: slug, in: dir)
-        try TranslationReviewPaneLogic.purgeOrphans(
-            ["zzzz"], docId: "doc1", language: "es", deviceSlug: slug, projectURL: dir)
+            forDocId: "doc1", language: "es", identity: identities.translator,
+            identities: identities, in: dir)
+        try await TranslationReviewPaneLogic.purgeOrphans(
+            ["zzzz"], docId: "doc1", language: "es",
+            identities: identities, projectURL: dir)
 
         let records = TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: dir)
         let derived = TranslationDeriver.derive(

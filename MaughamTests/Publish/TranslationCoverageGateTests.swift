@@ -145,7 +145,7 @@ final class TranslationCoverageGateTests: XCTestCase {
             paragraphId: paragraphID, language: language, text: text,
             sourceHash: sourceHash, verbatim: verbatim)
         try await TranslationStore.append(
-            rec, forDocId: fx.docID, deviceSlug: DeviceSlug.make(from: "test-mac"),
+            rec, forDocId: fx.docID, identity: LocalIdentities.current.translator, identities: .current,
             in: fx.projectURL)
     }
 
@@ -269,7 +269,7 @@ final class TranslationCoverageGateTests: XCTestCase {
                 sourceHash: TranslationHash.hash(doc.paragraphs[id] ?? ""),
                 verbatim: false)
             try await TranslationStore.append(
-                rec, forDocId: docID, deviceSlug: slug, in: store.url)
+                rec, forDocId: docID, identity: LocalIdentities.current.translator, identities: .current, in: store.url)
         }
         let report = try TranslationCoverage.check(projectStore: store, language: "es")
         XCTAssertFalse(report.isBlocked, "piece must be fully covered for drift to run")
@@ -424,7 +424,7 @@ final class TranslationCoverageGateTests: XCTestCase {
                 sourceHash: TranslationHash.hash(fx.docA.doc.paragraphs[id] ?? ""),
                 verbatim: false)
             try await TranslationStore.append(
-                rec, forDocId: fx.docA.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                rec, forDocId: fx.docA.id, identity: LocalIdentities.current.translator, identities: .current,
                 in: fx.projectURL)
         }
 

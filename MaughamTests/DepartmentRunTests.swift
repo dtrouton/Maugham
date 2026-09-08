@@ -1939,7 +1939,7 @@ final class DepartmentRunTests: XCTestCase {
         try await TranslationStore.append(
             TranslationRecord(paragraphId: "zzzz", language: seedLanguage,
                               text: "placeholder", sourceHash: TranslationHash.hash("x")),
-            forDocId: "doc-1", deviceSlug: DeviceSlug.make(from: "seed-device"),
+            forDocId: "doc-1", identity: LocalIdentities.current.translator, identities: .current,
             in: h.projectURL)
 
         let suite = "DepartmentMintSheet-\(UUID().uuidString)"

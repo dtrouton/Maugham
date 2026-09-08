@@ -540,7 +540,7 @@ extension TranslatorOrchestrator.Environment {
                 // the writer deleted mid-round therefore rejects the whole
                 // batch, loudly, naming the ids — the honest all-or-nothing
                 // answer, and the words are still there to be re-run.
-                warnings = try TranslationWritePipeline.perform(
+                warnings = try await TranslationWritePipeline.perform(
                     entries: report.entries.map {
                         TranslationWritePipeline.Entry(
                             paragraphId: $0.paragraphId, text: $0.text,
@@ -549,7 +549,7 @@ extension TranslatorOrchestrator.Environment {
                     language: context.language,
                     documentId: context.docId,
                     state: state,
-                    deviceSlug: DeviceIdentity.author.slug)
+                    actor: .translator)
                 written = report.entries.count
             } catch {
                 return .init(rejection: sentence(for: error))
