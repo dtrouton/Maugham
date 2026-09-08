@@ -240,6 +240,25 @@ one out of a `Document.load`. The rule also keeps `linesSinceSeal` honest: the
 counter only ever sees a line this device chained, so the file it counts and the
 file its seal closes are the same file.
 
+**An annotation op's actor follows its AUTHOR's source kind, not the Document it
+arrived through** (Denver's ruling, 2026-09-08: *"the mcp is on the device but a
+different identity — we know that is an AI"*). `Document.addAnnotation` stamps
+`deviceFor(author:)` rather than the Document's own `device`: an author whose
+`sourceKind` is not `.human` is the ASSISTANT's, read off `Document.loadIdentities`
+so the id naming the file and the key signing it come from one answer. A CLOSED
+document already had this by construction, since `AnnotationToolHelpers`
+transient-loads it as `.assistant`; an OPEN one did not, because the tool writes
+through the live `Document` the editor loaded as `.author` — and Denver's smoke of
+this slice caught `add_comment` on an open chapter landing in the author's file
+under the author's key. Claude's note was signed as the writer's. The same rule
+covers the compiler's ingest and the two translation environments, which reach
+`addAnnotation` with a `.claude` author. `session` is NOT redirected — a sitting
+can have two writers in it — and neither is anything else: human-authored
+creation (`addReviewerAnnotation`) and every disposition op
+(accept/reject/stet/triage/edit/withdraw) keep this Document's own device,
+because those are the writer's acts however the note arrived. Pinned by
+`ActorLoadTests.test_anAIAuthoredNoteIsTheAssistantsEvenThroughTheWritersOwnDocument`.
+
 **Sealing is per actor, and the decisions are made by a COUNTER and by the
 Document's own actor — never by a scan.** `sealChain(docId:)` seals the files
 this store has appended to since their last seal, read off its in-memory
