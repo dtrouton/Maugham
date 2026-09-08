@@ -177,7 +177,6 @@ public final class DocumentStore {
         // close — revisit if open-time cost shows up in the fixture). Uses the
         // just-wired presenter so the seal's coordinated read/delete don't
         // bounce back as our own external-change callbacks.
-        let sealSlug = DeviceIdentity.author.slug
         let opsDirNames = ((try? FileManager.default.contentsOfDirectory(
             at: url.appendingPathComponent(".maugham/ops"),
             includingPropertiesForKeys: nil)) ?? []).map(\.lastPathComponent)
@@ -197,14 +196,20 @@ public final class DocumentStore {
                 documentStoreLog.error(
                     "open-time chain seal failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
-            do {
-                _ = try await sealStore.sealTailIfNeeded(
-                    docId: docId, deviceSlug: sealSlug,
-                    threshold: Document.segmentSealThresholdForTesting
-                        ?? OpLogStore.segmentSealThreshold)
-            } catch {
-                documentStoreLog.error(
-                    "open-time op-log seal failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            // Every local actor's tail, not the author's alone (P1b): the
+            // assistant, the translator and Maugham each write a per-doc file
+            // of their own here, and a sweep naming one slug leaves the other
+            // three to grow unbounded.
+            for identity in sealStore.identities.all {
+                do {
+                    _ = try await sealStore.sealTailIfNeeded(
+                        docId: docId, deviceSlug: identity.slug,
+                        threshold: Document.segmentSealThresholdForTesting
+                            ?? OpLogStore.segmentSealThreshold)
+                } catch {
+                    documentStoreLog.error(
+                        "open-time op-log seal failed for \(docId, privacy: .public) / \(identity.deviceId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
             }
         }
 

@@ -1340,20 +1340,31 @@ public final class Document {
                 "close() chain seal failed for \(self.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         // Rotation (ADR 0016 / growth spec §5.2): this device's own oversized
-        // tail becomes an immutable compressed segment. Threshold-gated
-        // (usually a no-op) and best-effort — a seal failure must never block
-        // close; the next close or project-open maintenance retries. Never
-        // mid-typing, never another device's file, never the legacy unsuffixed
-        // file (sealTailIfNeeded's scope rules).
-        do {
-            _ = try await opStore.sealTailIfNeeded(
-                docId: docId,
-                deviceSlug: DeviceSlug.make(from: device),
-                threshold: Self.segmentSealThresholdForTesting
-                    ?? OpLogStore.segmentSealThreshold)
-        } catch {
-            documentLog.error(
-                "op-log seal failed for \(self.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        // tails become immutable compressed segments. Threshold-gated (usually
+        // a no-op) and best-effort — a seal failure must never block close; the
+        // next close or project-open maintenance retries. Never mid-typing,
+        // never another device's file, never the legacy unsuffixed file
+        // (sealTailIfNeeded's scope rules).
+        //
+        // EVERY local actor, not the one that loaded this doc (P1b). A device
+        // is four writers with four per-doc files, and naming one slug here
+        // left the assistant's, the translator's and Maugham's own tails to
+        // grow without bound — the growth ADR 0016 exists to bound, bounded for
+        // the writer's file alone. Each rotation carries the key of the actor
+        // whose slug names it (`sealTailIfNeeded`'s sidecar rule), so nothing
+        // signs for anybody else. AFTER `sealChain` above, for its reason: a
+        // segment must end on a seal line.
+        for identity in opStore.identities.all {
+            do {
+                _ = try await opStore.sealTailIfNeeded(
+                    docId: docId,
+                    deviceSlug: identity.slug,
+                    threshold: Self.segmentSealThresholdForTesting
+                        ?? OpLogStore.segmentSealThreshold)
+            } catch {
+                documentLog.error(
+                    "op-log seal failed for \(self.docId, privacy: .public) / \(identity.deviceId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
 
         // Drop the per-keystroke shingle/bigram memo — the doc is going away.

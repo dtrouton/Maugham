@@ -113,10 +113,6 @@ public final class OpLogStore {
     /// read (all four — every actor here is this device), and which files this
     /// device seals (each actor's own).
     public let identities: LocalIdentities
-    /// The author — this device's own hand. Kept as the name the many readers
-    /// that mean "this Mac" already use (the state file's identity, the seal
-    /// sweep's slug); it is `identities.author` and nothing more.
-    public var identity: DeviceIdentity { identities.author }
     /// What this device remembers about the files it has written.
     public let deviceState: OpLogDeviceState
 
