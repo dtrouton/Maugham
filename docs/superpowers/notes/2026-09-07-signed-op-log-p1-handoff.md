@@ -60,7 +60,7 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
 4. With the app open, append any JSON line to the new tail from a shell (`echo '{"op_id":"x"}' >> .maugham/ops/<doc>.author-<16hex>-<8hex>.jsonl`) → reopen the document (or wait for the presenter) → History shows *1 change was written to this document by something that is not Maugham; kept in backup, not applied.*; the editor shows nothing new; `.maugham/conflicts/quarantined-ops/` holds a `.lines` file and its `.quarantine.json`.
 5. Type one more sentence → the tail no longer contains the foreign line; the archive still does.
 6. Open a second Mac or the Statistics/Integrity check: nothing red; the check writes no record.
-7. Phone: update, capture a text note → the Mac's Inbox shows it; the phone's manifest has a seal line after the row. Open Annotations, accept one → the Mac applies it; History counts it as unsigned history from another device.
+7. Phone: update, capture a text note → the Mac's Inbox shows it; the phone's manifest has a seal line after the row. Open Annotations, accept one → the Mac applies it; History counts it as unsigned history from another device. **Allow iCloud a few minutes** — on the 2026-09-08 run the accept took ~10 min to reach the Mac and the note under one; both arrived as `<doc>.author-<phone hex>-…jsonl` / `inbox.author-<phone hex>-…jsonl`, chained from genesis and sealed under the phone's key (verified 2026-09-08 23:55).
 8. Publish → Compile still works (segments with `.sig` sidecars beside them).
 9. **(P1b) The assistant is its own writer — and that call is when its key comes
    into being.** `LocalIdentities` is lazy (P1b's whole-branch review, C1): a key
