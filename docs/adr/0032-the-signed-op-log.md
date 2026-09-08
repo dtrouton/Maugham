@@ -361,6 +361,21 @@ that names no local actor rotates nothing. The sidecar carries the key of the
 actor whose slug the segment is named for, and a slug naming no local actor
 gets no signature at all.
 
+**Which files a seal touches is decided by a counter, and which tails a close
+rotates is decided by the Document's own actor** (the whole-branch review's I1
+and I3, same day). `appendSeal` cannot discover that a file has nothing unsealed
+without a coordinated write acquisition, a whole-file read and a full verify, so
+`sealChain(docId:)` consults the store's in-memory `linesSinceSeal` counters and
+touches only files it has appended to since their last seal — one signature per
+burst, not four. The project-open sweep has no counters, being a fresh store, so
+it asks `sealChain(docId:actor:)` for the AUTHOR's tail alone, which is P1's
+shape; another actor's crash-window leftover is sealed by that actor's own next
+write. And because rotation DELETES the tail it seals, a Document rotates only
+the actor it was loaded as — an MCP call is a Document loaded as the assistant,
+and a fan-out there would delete the file the writer's open Document is
+appending to. The sweep stays the one place all four rotate, and is safe there
+because it runs before the first `Document.load`.
+
 **Signing and trusting stopped having the same answer.** A line is signed by
 one actor; `ChainPolicy.trustedFingerprints` and every `trusted:` closure on the
 read side are **all four**, because the assistant's seal over the assistant's
@@ -370,10 +385,29 @@ another device"* would start counting Claude on this Mac. `OpLogStore` has no
 single `identity` property any more: it holds `identities`, and a reader wanting
 "the device" has to say which of the four it means.
 
-**The phone is the `author` and mints that one key.** Its captures and its
-accept/reject are the writer's acts; it reaches `DeviceIdentity.author`
-directly and never `LocalIdentities.current`, which would mint all four
-(`TripwirePhoneGrepTest.test_thePhoneReachesForNoIdentityButTheAuthors`).
+**A key exists once a WRITER has named its actor** (amended by the whole-branch
+review's C1, same day). `LocalIdentities` is lazy, and the split is by who is
+asking. `subscript(actor:)` and the four named properties MINT — naming an actor
+is the writer's act (`Document.load(actor:)`, the translation writers,
+`TaskDeriver`'s Maugham id), and a key about to sign something is worth minting.
+`all`, `fingerprints`, `existingActors` and `identity(forDeviceId:)` ENUMERATE,
+over exactly the actors whose blob or token is already on disk — so a read path
+trusts the keys this device has ever written with, and constructing
+`LocalIdentities.current` costs nothing at all.
+
+There is deliberately no writer's lookup that mints from an id's actor prefix. A
+device id is DERIVED from its key, so an op can only carry `maugham-…` because
+something named `.maugham` and minted it; a prefix-minting lookup would close
+nothing and would mint this device's own author key on another Mac's author op.
+
+**The phone is the `author` and mints that one key** — and under the lazy rule it
+needs no code of its own to be. Its captures and its accept/reject are the
+writer's acts, so its writers name `.author`; the three actors nothing on it ever
+names are never minted, whatever it constructs. The guard is a measurement rather
+than a spelling census, because the thing that broke it was a DEFAULT argument
+(`OpLogStore(projectURL:)`, three phone sites) that no grep can see:
+`PhoneOneKeyTests` runs the real annotation read path and then asks the phone's
+own device folder what is in it.
 
 **No format change.** `prev`, the seal line, `.lines` records and
 `op-log-state.json` are exactly P1's; the state file belongs to the DEVICE and

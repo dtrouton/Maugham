@@ -62,8 +62,13 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
 6. Open a second Mac or the Statistics/Integrity check: nothing red; the check writes no record.
 7. Phone: update, capture a text note → the Mac's Inbox shows it; the phone's manifest has a seal line after the row. Open Annotations, accept one → the Mac applies it; History counts it as unsigned history from another device.
 8. Publish → Compile still works (segments with `.sig` sidecars beside them).
-9. **(P1b) The assistant is its own writer.** With the document open, ask Claude
-   Desktop for a comment on it (`add_comment`) → `.maugham/ops/` gains
+9. **(P1b) The assistant is its own writer — and that call is when its key comes
+   into being.** `LocalIdentities` is lazy (P1b's whole-branch review, C1): a key
+   exists once a WRITER has named its actor, so before this step
+   `~/Library/Application Support/<supportFolderName>/device/` holds
+   `device-key.blob` (the author's) and nothing else. Look, then act. With the
+   document open, ask Claude Desktop for a comment on it (`add_comment`) →
+   `device-key.assistant.blob` appears in that folder, and `.maugham/ops/` gains
    `<doc>.assistant-<hex>-<8hex>.jsonl` beside the author's — a shorter hex run than
    the author's, because `DeviceSlug.make` caps its prefix at 24 characters and
    `assistant-` is ten of them — and its last line
@@ -80,6 +85,17 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
    before.
 
 ## Decisions owed
+
+0. **An unreadable translator file reads as absent, and P1b sharpened what that
+   costs** (P1b's whole-branch review, M5). `TranslationStore.loadMerged` warns
+   and `continue`s over a device file it cannot read — RULING-54's forbidden
+   shape, pre-existing and deliberately documented. With two actors' files per
+   `(doc, language)` since P1b, an unreadable TRANSLATOR file now shows a
+   *partly* translated document rather than an untranslated one, because the
+   author's own file for the same pair still reads. Not a branch defect, and
+   named here rather than left unremarked. **Should a device file that is
+   present and unreadable refuse the read loudly, as the op log's own strict
+   reader does?**
 
 1. **The 100 ms budget at 50k lines was not met as stated.** The plan's global
    constraint 3 says "50k ops must add under 100 ms to a cold open". Task 5's

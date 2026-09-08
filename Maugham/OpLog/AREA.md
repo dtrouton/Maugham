@@ -240,24 +240,42 @@ one out of a `Document.load`. The rule also keeps `linesSinceSeal` honest: the
 counter only ever sees a line this device chained, so the file it counts and the
 file its seal closes are the same file.
 
-**Sealing is per actor, and the two seal verbs take different arguments.**
-`sealChain(docId:)` walks this device's four actors and seals each one's file for
-that doc that exists and holds unsealed lines — the two or three that wrote
-nothing cost no enclave operation, since `appendSeal` returns before it asks for
-a signature. The interval trigger inside `append` seals the file just appended
-to, under that file's own actor. `sealTailIfNeeded` still takes a SLUG, and both
-its callers (`Document.close()`, `DocumentStore`'s open-time sweep) now loop
-over `identities.all` and pass each local actor's — so a long MCP session's
-assistant tail rotates into a `.mzseg` segment at the same 512 KB threshold the
-writer's does, and nothing on this device grows without bound. The loop is over
-this device's OWN identities, which is how the scope rule survives being
-widened: never `__project__`, never the legacy unsuffixed file, never another
-device's — a document loaded under a device string naming no local actor rotates
-nothing at all. The sidecar's signer follows the slug: the segment signature
-carries the key of the actor whose slug the segment is named for, and a slug
-naming no local actor gets no sidecar at all. Pinned by
-`SegmentSealTriggerTests.test_close_rotatesEveryLocalActorsOversizedTail` and
-its open-maintenance twin, both of which fail with the author-only loop.
+**Sealing is per actor, and the decisions are made by a COUNTER and by the
+Document's own actor — never by a scan.** `sealChain(docId:)` seals the files
+this store has appended to since their last seal, read off its in-memory
+`linesSinceSeal` counters. It is not a nicety: `appendSeal` opens an
+`NSFileCoordinator` writing coordination, reads the whole file and runs a full
+`OpLogChain.verify` over it BEFORE it can discover there is nothing to sign, so a
+walk over four actors at the burst boundary was three extra coordinated
+acquisitions, three extra whole-file reads and three extra verifies on the
+writer's keystroke path. The interval trigger inside `append` seals the file just
+appended to, under that file's own actor.
+
+The open-time sweep has no counters — it is a fresh store — so it uses the other
+door, `sealChain(docId:actor:)`, and asks for the **author's** tail alone, which
+is P1's shape and the crash-window leftover it exists for; another actor's
+leftover is sealed by that actor's own next write, by its own cadence and its own
+close.
+
+`sealTailIfNeeded` still takes a SLUG, and its two callers differ on purpose.
+`Document.close()` rotates the tail of the actor that Document was LOADED as and
+no other — rotation DELETES the tail it seals, and every MCP annotation or task
+call is a Document loaded as the assistant, so a fan-out there would delete the
+file the writer's own open Document is appending to. `DocumentStore`'s open-time
+sweep is the one place every local actor rotates, so a long MCP session's
+assistant tail still becomes a `.mzseg` at the same 512 KB threshold the writer's
+does; it is safe there because it runs before the first `Document.load`, so no
+live appender exists to race the read→delete gap. The scope rule survives both:
+never `__project__`, never the legacy unsuffixed file, never another device's —
+a document loaded under a device string naming no local actor rotates nothing at
+all. The sidecar's signer follows the slug: the segment signature carries the key
+of the actor whose slug the segment is named for, and a slug naming no local
+actor gets no sidecar at all. Pinned by
+`SegmentSealTriggerTests.test_close_rotatesOnlyTheActorThisDocumentWasLoadedAs`,
+`test_anAssistantLoadedDocumentsCloseNeverRotatesTheAuthorsTail`,
+`test_openMaintenanceRotatesEveryLocalActorsOversizedTail` and
+`test_openMaintenanceReadsOnlyTheAuthorsFile`, plus `ActorSigningTests`'
+verify-counting pins in MaughamCore.
 
 **A torn LAST line is `tornTail`, not a break.** Bytes that do not close as a
 JSON object, with nothing after them, are a write that stopped mid-line: excluded
@@ -307,7 +325,8 @@ sites — count them, don't read a number here.** On the Mac they are: every
 `OpLogStore.chainSealInterval` (100) appends, from `OpLogStore.append` itself;
 after every burst that actually appended (`Document.flushBurstNow` — a burst IS
 "typing followed by idle"); at `Document.close()`; and over every doc this Mac
-has written at project open (`DocumentStore`). **`__project__` reaches the first
+has written at project open (`DocumentStore`, through the counter-free
+`sealChain(docId:actor:)` and the author alone). **`__project__` reaches the first
 of those through `ProjectStore._projectOpLogStore`, the ONE store the project
 task stream appends through for the store's lifetime** — a fresh store per
 append reset the interval counter every time, so the project stream was the one
