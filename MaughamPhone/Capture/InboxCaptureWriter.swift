@@ -22,10 +22,15 @@ import MaughamCore
 /// One store, one chain, both surfaces — the Mac's `InboxStore` writes the same
 /// bytes into its own stream (tripwire 19).
 ///
-/// `@MainActor` because `JSONLAppendStore` is, and the writer is driven from
-/// SwiftUI, where every caller already is.
-@MainActor
-struct InboxCaptureWriter {
+/// **Nonisolated, and deliberately.** `JSONLAppendStore` is `@MainActor`, and
+/// making the whole writer `@MainActor` to reach it took the ASSET writes with
+/// it — `writeImage`'s and `writeAudio`'s coordinated `Data.write` of a whole
+/// photograph or a whole `.m4a`, inside an `NSFileCoordinator` claim against an
+/// iCloud Drive path, on the phone's one interaction that must never hitch (the
+/// whole-branch review's I4). Only the MANIFEST hops, and it hops ONCE for the
+/// row and its seal together, so an accept and the signature over it cannot be
+/// interleaved by anything else on the main actor.
+struct InboxCaptureWriter: Sendable {
     let projectRoot: URL
     /// This phone, as the chain names it: the key that signs a capture's seal,
     /// and the id every row and the manifest's own filename are derived from.
@@ -34,7 +39,7 @@ struct InboxCaptureWriter {
     let identity: DeviceIdentity
     var io: CoordinatedFileIO = .live
     /// Injectable clock so tests can pin `createdAt`/`writtenAt` deterministically.
-    var now: () -> Date = { Date() }
+    var now: @Sendable () -> Date = { Date() }
 
     /// The row's `device_id`, and the slug its manifest is named for. Derived
     /// from the identity rather than passed beside it: two spellings of this
@@ -46,7 +51,7 @@ struct InboxCaptureWriter {
         projectRoot: URL,
         identity: DeviceIdentity = .current,
         io: CoordinatedFileIO = .live,
-        now: @escaping () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.projectRoot = projectRoot
         self.identity = identity
@@ -203,8 +208,20 @@ struct InboxCaptureWriter {
     /// A phone with no key writes no seal, appends its row anyway, and reports
     /// nothing wrong — being unsigned is a state, not a failure (spec §4.1).
     private func appendManifest(_ entry: InboxEntry) async throws {
+        try await Self.appendChained(
+            entry, to: manifestURL, identity: identity, projectRoot: projectRoot)
+    }
+
+    /// The one main-actor hop, doing the row and its seal inside it. Two hops
+    /// would let anything else on the main actor land between a capture and the
+    /// signature over it.
+    @MainActor
+    private static func appendChained(
+        _ entry: InboxEntry, to url: URL,
+        identity: DeviceIdentity, projectRoot: URL
+    ) async throws {
         let store = JSONLAppendStore<InboxEntry>(
-            fileURL: manifestURL,
+            fileURL: url,
             chain: ChainPolicy(
                 identity: identity, state: .shared,
                 docId: InboxManifest.chainDocId, projectURL: projectRoot))

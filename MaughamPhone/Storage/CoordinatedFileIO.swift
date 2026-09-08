@@ -89,6 +89,7 @@ struct CoordinatedFileIO: UbiquitousDownloader, Sendable {
     /// temp-swapped) URL inside a write coordination. Use for ANY write into
     /// `.maugham/inbox/*` or `.maugham/ops/*.jsonl`.
     func coordinatedWrite(at url: URL, _ body: (URL) throws -> Void) throws {
+        Self.writeObserverForTesting?()
         let coordinator = NSFileCoordinator()
         var coordinationError: NSError?
         var accessorError: Swift.Error?
@@ -104,6 +105,20 @@ struct CoordinatedFileIO: UbiquitousDownloader, Sendable {
         if let coordinationError { throw coordinationError }
         if let accessorError { throw accessorError }
     }
+
+    /// Test-only seam: called once at the top of every `coordinatedWrite`, on
+    /// whatever thread the write is running on.
+    ///
+    /// The thing it exists to pin is invisible from outside — an asset write
+    /// that has drifted onto the main actor produces the same bytes as one that
+    /// has not, and the phone's own tests are fast and local, so nothing goes
+    /// red when a multi-megabyte photograph starts blocking the capture path
+    /// inside an `NSFileCoordinator` claim against an iCloud path (the
+    /// whole-branch review's I4). The only way to see it is from inside the
+    /// write. `nonisolated(unsafe)` for `OpLogChain.verifyObserverForTesting`'s
+    /// reason: a test's own variable, set and cleared on one thread, never
+    /// assigned in production.
+    nonisolated(unsafe) static var writeObserverForTesting: (@Sendable () -> Void)?
 
     /// Create a directory (and intermediates) if missing. Coordinated, so it
     /// races cleanly against the Mac creating the same `.maugham/` subtree.

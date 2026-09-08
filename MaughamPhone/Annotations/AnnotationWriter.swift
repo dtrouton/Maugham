@@ -31,10 +31,13 @@ import MaughamCore
 /// seals, and reports nothing wrong: being unsigned is a state, not a failure
 /// (spec §4.1).
 ///
-/// `@MainActor` because `JSONLAppendStore` is, and every caller
-/// (`AnnotationDetailView`) already is.
-@MainActor
-struct AnnotationWriter {
+/// **Nonisolated, and deliberately.** `JSONLAppendStore` is `@MainActor`; making
+/// the whole writer `@MainActor` to reach it would put every other thing this
+/// type does on the main actor too, which is the shape the whole-branch review
+/// found on the capture writer (I4). Only the op APPEND hops, and it hops ONCE
+/// for the line and its seal together, so nothing else on the main actor can
+/// land between a decision and the signature over it.
+struct AnnotationWriter: Sendable {
     let projectRoot: URL
     /// The annotation's document id — the full `doc-<hex>` or `scene-<hex>` form
     /// per ADR 0008 (same string the creation op carries in `op.docId`). The op-log file is `<docId>.<slug>.jsonl`.
@@ -49,7 +52,7 @@ struct AnnotationWriter {
     /// e.g. "iOS 17.4" — forensic only.
     var osVersion: String
     /// Injectable clock so tests can pin `at` deterministically.
-    var now: () -> Date = { Date() }
+    var now: @Sendable () -> Date = { Date() }
     /// One session id per writer instance — groups all ops from a single
     /// writing/review session so the Mac history pane shows them together (not as
     /// a string of one-op "sessions"). Reused for every op this writer appends; the
@@ -331,14 +334,25 @@ struct AnnotationWriter {
     /// The seal is per op, for the reason the type comment gives: the phone's
     /// ops are rare lifecycle decisions, not a keystroke stream.
     private func append(_ op: Op) async throws -> Op {
+        try await Self.appendChained(
+            op, to: opLogURL, identity: identity,
+            docId: docId, projectRoot: projectRoot)
+        return op
+    }
+
+    /// The one main-actor hop, doing the line and its seal inside it.
+    @MainActor
+    private static func appendChained(
+        _ op: Op, to url: URL, identity: DeviceIdentity,
+        docId: String, projectRoot: URL
+    ) async throws {
         let store = JSONLAppendStore<Op>(
-            fileURL: opLogURL,
+            fileURL: url,
             chain: ChainPolicy(
                 identity: identity, state: .shared,
                 docId: docId, projectURL: projectRoot))
         try await store.append(op)
         try await store.appendSeal()
-        return op
     }
 }
 
