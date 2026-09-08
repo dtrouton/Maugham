@@ -497,8 +497,21 @@ public final class Document {
         OpLogStore(
             projectURL: projectURL,
             presenter: presenter,
-            identity: deviceIdentityForTesting ?? .author,
+            identities: loadIdentities,
             state: deviceStateForTesting ?? .shared)
+    }
+
+    /// This device's four writers, with `deviceIdentityForTesting` standing in
+    /// for the AUTHOR when a suite has injected one. The other three are the
+    /// device's own: a test that swaps the writer's key is saying something
+    /// about the writer, never about the assistant.
+    internal static var loadIdentities: LocalIdentities {
+        guard let injected = deviceIdentityForTesting else { return .current }
+        return LocalIdentities(
+            author: injected,
+            assistant: .identity(for: .assistant),
+            translator: .identity(for: .translator),
+            maugham: .identity(for: .maugham))
     }
 
     /// Test-only artificial delay injected inside the detached task-op disk

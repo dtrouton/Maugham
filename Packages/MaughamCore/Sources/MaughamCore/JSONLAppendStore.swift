@@ -99,7 +99,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         let fileKey = OpLogDeviceState.fileKey(fileURL)
         let walked = OpLogChain.verify(
             bytes: bytes,
-            trusted: { $0 == chain.identity.fingerprint },
+            trusted: { chain.trustedFingerprints.contains($0) },
             rememberedHead: chain.state.head(for: fileKey))
         // The same absent-head decision the op log's own reader and this
         // store's chained WRITE make — one rule for every chained stream, so
@@ -256,8 +256,10 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// 1. **Read the tail** off the coordinated URL itself — never a nested
     ///    coordination, which would deadlock on the write we already hold.
     /// 2. **Verify** against this device's remembered head. `trusted` is this
-    ///    device's own fingerprint and nothing else: P1 has no registry, and a
-    ///    seal from anyone else is history rather than this device's word.
+    ///    device's own fingerprints and nothing else — all four of its actors
+    ///    since P1b, one for a store built with a single identity: P1 has no
+    ///    registry, and a seal from anyone else is history rather than this
+    ///    device's word.
     /// 3. **Set aside** whatever the verifier quarantined, then rewrite the
     ///    kept bytes. Quarantined lines are always a suffix (the walk stops at
     ///    the first break and quarantines everything after it), so "kept" is a
@@ -288,7 +290,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
                 let existing = (try? Data(contentsOf: wu)) ?? Data()  // adr-0018-ok: append-store (op-log / inbox JSONL) bytes — the log IS the source of truth (ADR 0018)
                 let walked = OpLogChain.verify(
                     bytes: existing,
-                    trusted: { $0 == chain.identity.fingerprint },
+                    trusted: { chain.trustedFingerprints.contains($0) },
                     rememberedHead: chain.state.head(for: fileKey))
                 // The same decision the READ makes about a remembered head that
                 // is nowhere in the file, from the same function. If the two

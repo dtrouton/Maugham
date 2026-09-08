@@ -40,4 +40,17 @@ extension LocalIdentities {
             translator: .softwareForTesting(actor: .translator),
             maugham: .softwareForTesting(actor: .maugham))
     }
+
+    /// One given identity as the author, with a fresh software key for each of
+    /// the other three. The shape `OpLogStore`'s single-identity convenience
+    /// init needs: the suite's `identity` keeps meaning what it meant, and the
+    /// three fillers are distinct from it, so nothing it writes verifies under
+    /// an actor it never named.
+    static func forTesting(author: DeviceIdentity) -> LocalIdentities {
+        LocalIdentities(
+            author: author,
+            assistant: .softwareForTesting(actor: .assistant),
+            translator: .softwareForTesting(actor: .translator),
+            maugham: .softwareForTesting(actor: .maugham))
+    }
 }

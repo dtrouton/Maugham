@@ -103,21 +103,32 @@ public final class OpLogStore {
     public let projectURL: URL
     public let presenter: NSFilePresenter?
 
-    /// This device, as every line it writes will name it. Defaulted, so every
-    /// existing caller still compiles and gets the real identity.
-    public let identity: DeviceIdentity
+    /// This device's four writers, as every line one of them writes will name
+    /// it. Defaulted, so every existing caller still compiles and gets the real
+    /// identities.
+    ///
+    /// A store holds all four rather than one because the three questions the
+    /// op log asks about a key have stopped having the same answer: which key
+    /// SIGNS a line (the actor named by `op.device`), which keys are TRUSTED on
+    /// read (all four — every actor here is this device), and which files this
+    /// device seals (each actor's own).
+    public let identities: LocalIdentities
+    /// The author — this device's own hand. Kept as the name the many readers
+    /// that mean "this Mac" already use (the state file's identity, the seal
+    /// sweep's slug); it is `identities.author` and nothing more.
+    public var identity: DeviceIdentity { identities.author }
     /// What this device remembers about the files it has written.
     public let deviceState: OpLogDeviceState
 
     public init(
         projectURL: URL,
         presenter: NSFilePresenter? = nil,
-        identity: DeviceIdentity = .author,
+        identities: LocalIdentities = .current,
         state: OpLogDeviceState = .shared
     ) {
         self.projectURL = projectURL
         self.presenter = presenter
-        self.identity = identity
+        self.identities = identities
         self.deviceState = state
     }
 
@@ -171,7 +182,7 @@ public final class OpLogStore {
         for url in urls {
             let result = try await Self.loadFileDiagnosed(
                 url: url, presenter: presenter,
-                identity: identity, state: deviceState)
+                identities: identities, state: deviceState)
             merged.append(contentsOf: result.ops)
             skipped.append(contentsOf: result.diagnostics.skipped)
             files.append(result.provenance)
@@ -209,7 +220,7 @@ public final class OpLogStore {
             do {
                 let result = try await Self.loadFileDiagnosed(
                     url: url, presenter: presenter,
-                    identity: identity, state: deviceState)
+                    identities: identities, state: deviceState)
                 all.append(contentsOf: result.ops)
                 skipped.append(contentsOf: result.diagnostics.skipped)
                 files.append(result.provenance)
@@ -306,7 +317,7 @@ public final class OpLogStore {
 
     public static func loadFileDiagnosed(
         url: URL, presenter: NSFilePresenter?,
-        identity: DeviceIdentity? = nil, state: OpLogDeviceState? = nil
+        identities: LocalIdentities? = nil, state: OpLogDeviceState? = nil
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance) {
         guard let bytes = try readCoordinated(url: url, presenter: presenter) else {
             return ([], ParseDiagnostics(),
@@ -314,7 +325,7 @@ public final class OpLogStore {
                                    isSealedSegment: url.pathExtension == OpLogSegment.fileExtension))
         }
         let classified = classify(
-            url: url, bytes: bytes, identity: identity, state: state)
+            url: url, bytes: bytes, identities: identities, state: state)
 
         // The three writes a load is allowed to make, all of them derived
         // bookkeeping and every one best-effort: nothing here may cost the
@@ -332,7 +343,7 @@ public final class OpLogStore {
         // load's: it cannot see an `afterRememberedHead` break at all, and what
         // it does see it would file under the load's name. A check reports; the
         // load records.
-        let recordsWhatItSetsAside = identity != nil && state != nil
+        let recordsWhatItSetsAside = identities != nil && state != nil
         if recordsWhatItSetsAside, let verification = classified.verification,
            let docId = docId(fromOpLogFilename: url.lastPathComponent) {
             do {
@@ -388,22 +399,27 @@ public final class OpLogStore {
     }
 
     nonisolated static func classify(
-        url: URL, bytes: Data, identity: DeviceIdentity?, state: OpLogDeviceState?
+        url: URL, bytes: Data, identities: LocalIdentities?, state: OpLogDeviceState?
     ) -> FileClassification {
         url.pathExtension == OpLogSegment.fileExtension
-            ? classifySegment(url: url, container: bytes, identity: identity, state: state)
-            : classifyTail(url: url, bytes: bytes, identity: identity, state: state)
+            ? classifySegment(url: url, container: bytes, identities: identities, state: state)
+            : classifyTail(url: url, bytes: bytes, identities: identities, state: state)
     }
 
     /// A live `.jsonl` tail: verified against this device's remembered head,
     /// with everything the walk quarantined held back.
     private nonisolated static func classifyTail(
-        url: URL, bytes: Data, identity: DeviceIdentity?, state: OpLogDeviceState?
+        url: URL, bytes: Data, identities: LocalIdentities?, state: OpLogDeviceState?
     ) -> FileClassification {
         let fileKey = OpLogDeviceState.fileKey(url)
+        // Trusted is EVERY actor on this device: the assistant's seal over the
+        // assistant's own file is this device's word, and a trust set of one
+        // fingerprint would file the writer's own MCP history under "another
+        // device's unsigned history" in the History pane.
+        let trusted = identities?.fingerprints ?? []
         let walked = OpLogChain.verify(
             bytes: bytes,
-            trusted: { key in identity.map { key == $0.fingerprint } ?? false },
+            trusted: { trusted.contains($0) },
             rememberedHead: state?.head(for: fileKey))
 
         // The adopt rule (spec §4.2's crash window) and its converse, both in
@@ -437,7 +453,7 @@ public final class OpLogStore {
     /// no signature at all, a segment minted before this milestone — the lines
     /// are walked keylessly, which still catches a break.
     private nonisolated static func classifySegment(
-        url: URL, container: Data, identity: DeviceIdentity?, state: OpLogDeviceState?
+        url: URL, container: Data, identities: LocalIdentities?, state: OpLogDeviceState?
     ) -> FileClassification {
         let decoded = OpLogSegment.decodeVerifying(container)
         var skipped: [ParseDiagnostics.SkippedLine] = []
@@ -464,11 +480,11 @@ public final class OpLogStore {
         if let digest {
             if state?.isVerified(segmentDigest: digest) == true {
                 settled = true
-            } else if let identity,
+            } else if let identities,
                       let signature = SegmentSignature.read(
                           at: segmentSignatureURL(for: url)),
                       signature.digest == digest,
-                      signature.key == identity.fingerprint,
+                      identities.fingerprints.contains(signature.key),
                       signature.verifies() {
                 settled = true
                 toRemember = digest
@@ -581,12 +597,15 @@ public final class OpLogStore {
     public func append(_ op: Op) async throws {
         if let injected = appendFailureForTesting { throw injected }
         let slug = DeviceSlug.make(from: op.device)
-        let isOwnDevice = op.device == identity.deviceId
+        // WHICH of this device's writers made this op — the whole id, never a
+        // prefix: another Mac's author carries `author-` too, and adopting one
+        // would have this device chain and seal a file it does not own.
+        let signer = identities.identity(forDeviceId: op.device)
         try await store(
-            forDocId: op.docId, deviceSlug: slug, chained: isOwnDevice
+            forDocId: op.docId, deviceSlug: slug, signer: signer
         ).append(op)
 
-        guard isOwnDevice else {
+        guard let signer else {
             opLogLoadLog.notice("""
                 A sentinel-device op was written unchained to \
                 \(Self.opLogFileURL(forDocId: op.docId, deviceSlug: slug, in: self.projectURL)
@@ -601,7 +620,11 @@ public final class OpLogStore {
         let count = (linesSinceSeal[url] ?? 0) + 1
         linesSinceSeal[url] = count
         guard count >= Self.chainSealInterval else { return }
-        if try await sealChain(docId: op.docId) { linesSinceSeal[url] = 0 }
+        // The cadence belongs to the FILE, so the seal it triggers is that
+        // file's — signed by the actor who just wrote into it, not by the
+        // author on everyone's behalf, and not spread over four files because
+        // one of them filled up.
+        if try await sealChain(docId: op.docId, by: signer) { linesSinceSeal[url] = 0 }
     }
 
     /// How many chained lines this device writes into a file before it seals
@@ -626,27 +649,52 @@ public final class OpLogStore {
     /// project stream (a recorded Denver decision), so the project's task log is
     /// signed history like every other tail while its tail keeps growing —
     /// which is what `ProjectStore._projectOpLogStore` exists to make possible.
+    /// **One seal per local actor that has written here** (P1b). A device is
+    /// four writers with four files, and a seal signs a run of lines in ONE of
+    /// them; sealing only the author's would leave everything the assistant,
+    /// the translator and Maugham itself wrote chained but never signed.
+    ///
+    /// An actor with no file here, or a file with nothing unsealed, costs
+    /// nothing: `appendSeal` returns before it asks for a signature, so the
+    /// three actors that were not involved spend no enclave operation.
     @discardableResult
     public func sealChain(docId: String) async throws -> Bool {
-        try await store(forDocId: docId, deviceSlug: identity.slug).appendSeal()
+        var sealed = false
+        for actor in identities.all {
+            let url = Self.opLogFileURL(
+                forDocId: docId, deviceSlug: actor.slug, in: projectURL)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            if try await sealChain(docId: docId, by: actor) { sealed = true }
+        }
+        return sealed
     }
 
-    /// The append store for one (docId, slug) file. `chained` is the ONE place
+    /// One local actor's own tail for `docId`, sealed with that actor's key.
+    @discardableResult
+    private func sealChain(docId: String, by actor: DeviceIdentity) async throws -> Bool {
+        try await store(
+            forDocId: docId, deviceSlug: actor.slug, signer: actor
+        ).appendSeal()
+    }
+
+    /// The append store for one (docId, slug) file. `signer` is the ONE place
     /// the policy is attached, and `append` is the one place that decides it —
-    /// a device chains only its own file.
+    /// a device chains only its own files, and signs each with the key of the
+    /// actor that owns it. Nil signer is the plain, unchained store.
     private func store(
-        forDocId docId: String, deviceSlug: DeviceSlug, chained: Bool = true
+        forDocId docId: String, deviceSlug: DeviceSlug, signer: DeviceIdentity?
     ) -> JSONLAppendStore<Op> {
         JSONLAppendStore<Op>(
             fileURL: Self.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL),
             presenter: presenter,
             dedupKey: { $0.opId },
             sortedBy: { $0.opId < $1.opId },
-            chain: chained
-                ? ChainPolicy(
-                    identity: identity, state: deviceState,
-                    docId: docId, projectURL: projectURL)
-                : nil)
+            chain: signer.map {
+                ChainPolicy(
+                    identity: $0, state: deviceState,
+                    docId: docId, projectURL: projectURL,
+                    trustedFingerprints: identities.fingerprints)
+            })
     }
 
     // MARK: - Seal (tail → immutable segment)
@@ -754,9 +802,14 @@ public final class OpLogStore {
         //     a device with no key signs nothing, a failed write leaves a
         //     segment that reads as unsigned history, and neither may cost the
         //     writer the rotation their tail needs.
-        if identity.canSign {
+        // The sidecar carries the key of the actor whose slug this segment
+        // is named for — the same key that sealed the lines inside it. A slug
+        // naming no local actor gets no signature at all: nothing on this
+        // device may vouch for another device's bytes.
+        if let signer = identities.all.first(where: { $0.slug == deviceSlug }),
+           signer.canSign {
             do { try Self.writeSegmentSignature(
-                    for: segURL, jsonl: bytes, identity: identity) }
+                    for: segURL, jsonl: bytes, identity: signer) }
             catch {
                 opLogLoadLog.error("""
                     Could not sign segment \
@@ -915,7 +968,7 @@ public final class OpLogStore {
     /// see a closed manuscript through.
     public nonisolated static func loadSyncMerged(
         forDocId docId: String, in projectURL: URL,
-        identity: DeviceIdentity? = .author,
+        identities: LocalIdentities? = .current,
         state: OpLogDeviceState? = .shared
     ) throws -> [Op] {
         var ops: [Op] = []
@@ -933,7 +986,7 @@ public final class OpLogStore {
                     underlying: error.localizedDescription)
             }
             ops.append(contentsOf: classify(
-                url: url, bytes: data, identity: identity, state: state).ops)
+                url: url, bytes: data, identities: identities, state: state).ops)
         }
         return mergeSortedDedup(ops)
     }

@@ -217,7 +217,19 @@ public final class OpLogDeviceState: @unchecked Sendable {
 /// A value, not a service — `JSONLAppendStore` holds one or holds nil, and
 /// nil is the unchained store every non-op-log caller still gets.
 public struct ChainPolicy: Sendable {
+    /// The key this store SIGNS with: one actor, never a set. A seal names one
+    /// device and one moment, and a line is written by one writer.
     public let identity: DeviceIdentity
+    /// The keys this store TRUSTS on read: every actor on this device
+    /// (`LocalIdentities.fingerprints`). Signing and trusting are different
+    /// questions and P1b is where they stop having the same answer — the
+    /// assistant's seal over the assistant's file is this device's own word,
+    /// and a trust set of one fingerprint would file it as another device's
+    /// unsigned history.
+    ///
+    /// Defaulted to the signer alone, so every caller that has one identity and
+    /// means it (the inbox, the phone's annotation writer) keeps P1's shape.
+    public let trustedFingerprints: Set<String>
     public let state: OpLogDeviceState
     public let docId: String
     public let projectURL: URL
@@ -226,9 +238,11 @@ public struct ChainPolicy: Sendable {
         identity: DeviceIdentity,
         state: OpLogDeviceState,
         docId: String,
-        projectURL: URL
+        projectURL: URL,
+        trustedFingerprints: Set<String>? = nil
     ) {
         self.identity = identity
+        self.trustedFingerprints = trustedFingerprints ?? [identity.fingerprint]
         self.state = state
         self.docId = docId
         self.projectURL = projectURL

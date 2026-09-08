@@ -150,4 +150,67 @@ final class ForeignDeviceAppendTests: XCTestCase {
             "one op, no seal: the foreign appends counted for nothing")
         XCTAssertFalse(own.contains(where: OpLogChain.isSealLine))
     }
+
+    // MARK: - (c) the four local actors, each under its own key
+
+    /// The assistant's op belongs to the assistant. It lands in the assistant's
+    /// own file, chained onto that file's head, and the seal that closes its run
+    /// carries the ASSISTANT's fingerprint — not the author's, which is what a
+    /// device with one key would have signed it with.
+    func test_anAssistantsOpChainsAndSealsUnderTheAssistantsOwnKey() async throws {
+        let quartet = LocalIdentities.softwareForTesting()
+        let quartetState = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("quartet-state.json"),
+            identity: quartet.author.fingerprint)
+        let store = OpLogStore(
+            projectURL: projectURL, identities: quartet, state: quartetState)
+
+        for i in 1...OpLogStore.chainSealInterval {
+            try await store.append(
+                op("op-\(String(format: "%04d", i))", device: quartet.assistant.deviceId))
+        }
+
+        let written = try lines(of: fileURL(forDevice: quartet.assistant.deviceId))
+        XCTAssertEqual(written.count, OpLogStore.chainSealInterval + 1,
+                       "every op plus the seal that closes the run")
+        XCTAssertEqual(OpLogChain.prev(ofLine: written[0]), .some(OpLogChain.genesis))
+        XCTAssertEqual(OpLogChain.prev(ofLine: written[1]),
+                       .some(OpLogChain.lineHash(written[0])))
+
+        let seal = try XCTUnwrap(OpLogChain.Seal.parse(try XCTUnwrap(written.last)))
+        XCTAssertEqual(seal.key, quartet.assistant.fingerprint,
+            "the role is in the key: an op through MCP is sealed by the assistant")
+        XCTAssertNotEqual(seal.key, quartet.author.fingerprint)
+        XCTAssertTrue(seal.verifies())
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: fileURL(forDevice: quartet.author.deviceId).path),
+            "the author wrote nothing here and has no file")
+    }
+
+    /// The widening is exact: a device string that is none of the four still
+    /// takes the plain append. `identity(forDeviceId:)` matches whole ids, so
+    /// another Mac's author — same `author-` prefix, different key — is a
+    /// stranger like any other.
+    func test_aDeviceStringMatchingNoLocalActorStillAppendsPlain() async throws {
+        let quartet = LocalIdentities.softwareForTesting()
+        let quartetState = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("quartet-state.json"),
+            identity: quartet.author.fingerprint)
+        let store = OpLogStore(
+            projectURL: projectURL, identities: quartet, state: quartetState)
+        let anotherMac = DeviceIdentity.softwareForTesting(actor: .author)
+
+        try await store.append(op("op-0001", device: sentinel))
+        try await store.append(op("op-0002", device: anotherMac.deviceId))
+
+        for device in [sentinel, anotherMac.deviceId] {
+            for line in try lines(of: fileURL(forDevice: device)) {
+                XCTAssertEqual(OpLogChain.prev(ofLine: line), .some(nil),
+                    "\(device) is not one of this device's four writers")
+                XCTAssertFalse(OpLogChain.isSealLine(line))
+            }
+        }
+    }
 }

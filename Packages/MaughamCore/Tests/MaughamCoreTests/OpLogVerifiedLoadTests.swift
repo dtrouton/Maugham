@@ -12,7 +12,8 @@ final class OpLogVerifiedLoadTests: XCTestCase {
 
     private let docId = "doc-verified"
     private var projectURL: URL!
-    /// This device.
+    /// This device — its four actors, of which `mine` is the author.
+    private var quartet: LocalIdentities!
     private var mine: DeviceIdentity!
     private var myState: OpLogDeviceState!
     /// Another device whose seals this device does not trust.
@@ -28,7 +29,8 @@ final class OpLogVerifiedLoadTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/ops"),
             withIntermediateDirectories: true)
-        mine = .softwareForTesting()
+        quartet = .softwareForTesting()
+        mine = quartet.author
         theirs = .softwareForTesting()
         broken = .softwareForTesting()
         myState = makeState("mine")
@@ -78,7 +80,7 @@ final class OpLogVerifiedLoadTests: XCTestCase {
     /// This device's own file: chained lines, sealed by this device's key.
     @discardableResult
     private func writeMyOwnSealedFile(_ opIds: [String]) async throws -> [String] {
-        let store = OpLogStore(projectURL: projectURL, identity: mine, state: myState)
+        let store = OpLogStore(projectURL: projectURL, identities: quartet, state: myState)
         for id in opIds { try await store.append(op(id, device: mine)) }
         let sealed = try await store.sealChain(docId: docId)
         XCTAssertTrue(sealed, "the fixture's own file is sealed")
@@ -131,7 +133,21 @@ final class OpLogVerifiedLoadTests: XCTestCase {
     }
 
     private func makeReader() -> OpLogStore {
-        OpLogStore(projectURL: projectURL, identity: mine, state: myState)
+        OpLogStore(projectURL: projectURL, identities: quartet, state: myState)
+    }
+
+    /// The assistant's own file: chained lines under the assistant's key,
+    /// sealed by it. Written through the same store the reader uses, because
+    /// the point is that ONE device wrote both files.
+    @discardableResult
+    private func writeTheAssistantsSealedFile(_ opIds: [String]) async throws -> [String] {
+        let store = makeReader()
+        for id in opIds {
+            try await store.append(op(id, device: quartet.assistant))
+        }
+        let sealed = try await store.sealChain(docId: docId)
+        XCTAssertTrue(sealed, "the assistant's file is sealed by the assistant")
+        return opIds
     }
 
     // MARK: - (a) the whole glob, classified
@@ -257,7 +273,7 @@ final class OpLogVerifiedLoadTests: XCTestCase {
 
         let async = try await makeReader().loadDiagnosed(docId: docId).ops.map(\.opId)
         let sync = try OpLogStore.loadSyncMerged(
-            forDocId: docId, in: projectURL, identity: mine, state: myState).map(\.opId)
+            forDocId: docId, in: projectURL, identities: quartet, state: myState).map(\.opId)
         XCTAssertEqual(sync, async)
         XCTAssertFalse(sync.contains("04C"))
     }
@@ -267,7 +283,7 @@ final class OpLogVerifiedLoadTests: XCTestCase {
     func test_theSyncReaderWritesNoQuarantineRecord() async throws {
         try await writeBrokenForeignFile(keptOpIds: ["04A"], brokenOpId: "04C")
         _ = try OpLogStore.loadSyncMerged(
-            forDocId: docId, in: projectURL, identity: mine, state: myState)
+            forDocId: docId, in: projectURL, identities: quartet, state: myState)
         XCTAssertTrue(linesRecords.isEmpty)
     }
 
@@ -293,7 +309,7 @@ final class OpLogVerifiedLoadTests: XCTestCase {
         XCTAssertEqual(async.provenance.quarantinedLines, 1)
 
         let sync = try OpLogStore.loadSyncMerged(
-            forDocId: docId, in: projectURL, identity: mine, state: myState).map(\.opId)
+            forDocId: docId, in: projectURL, identities: quartet, state: myState).map(\.opId)
         XCTAssertEqual(sync, async.ops.map(\.opId))
         XCTAssertEqual(linesRecords.first?.reason,
                        "written by something that is not Maugham")
@@ -362,5 +378,66 @@ final class OpLogVerifiedLoadTests: XCTestCase {
         let partial = await reader.loadDiagnosedPartial(docId: docId)
         XCTAssertEqual(partial.ops.map(\.opId), strict.ops.map(\.opId))
         XCTAssertEqual(partial.provenance.quarantinedLines, 1)
+    }
+
+    // MARK: - (f) every actor on this device is this device
+
+    /// A file the ASSISTANT sealed is this device's own history. Both readers
+    /// must say so: its lines are `verified`, not `unsignedHistory`, and the
+    /// project does not claim to hold another device's unsigned history — which
+    /// is what a trust set of one fingerprint would have made of it, and what
+    /// the History pane would have told the writer.
+    func test_aFileSealedByTheAssistantIsThisDevicesOwnVerifiedHistory() async throws {
+        try await writeTheAssistantsSealedFile(["05A", "05B"])
+
+        let loaded = try await makeReader().loadDiagnosed(docId: docId)
+        XCTAssertEqual(loaded.ops.map(\.opId), ["05A", "05B"])
+
+        let file = try XCTUnwrap(loaded.provenance.files.first {
+            $0.name == fileURL(of: quartet.assistant).lastPathComponent
+        })
+        XCTAssertEqual(file.verified, 3, "two ops and the seal that covers them")
+        XCTAssertEqual(file.unsignedHistory, 0)
+        XCTAssertFalse(loaded.provenance.hasUnsignedForeignHistory,
+            "the assistant is not a foreign device — it is this one")
+
+        let sync = try OpLogStore.loadSyncMerged(
+            forDocId: docId, in: projectURL, identities: quartet, state: myState)
+        XCTAssertEqual(sync.map(\.opId), loaded.ops.map(\.opId))
+    }
+
+    /// And the widening stops at this device. A stranger's seal over the same
+    /// shape of file is still unsigned history, in the same load.
+    func test_aStrangersSealIsStillUnsignedHistoryBesideTheAssistants() async throws {
+        try await writeTheAssistantsSealedFile(["05A"])
+        try await writeForeignSealedFile(["02A"])
+
+        let provenance = try await makeReader().loadDiagnosed(docId: docId).provenance
+        func file(_ url: URL) throws -> FileProvenance {
+            try XCTUnwrap(provenance.files.first { $0.name == url.lastPathComponent })
+        }
+        XCTAssertEqual(try file(fileURL(of: quartet.assistant)).verified, 2)
+        XCTAssertEqual(try file(fileURL(of: quartet.assistant)).unsignedHistory, 0)
+        XCTAssertEqual(try file(fileURL(of: theirs)).verified, 0)
+        XCTAssertEqual(try file(fileURL(of: theirs)).unsignedHistory, 2)
+        XCTAssertTrue(provenance.hasUnsignedForeignHistory)
+    }
+
+    /// The adopt rule is the device's, so it reaches the actors: the crash
+    /// window in the TRANSLATOR's file is the same crash, and its history is
+    /// not quarantined for it.
+    func test_aRememberedHeadIsAdoptedInAnyLocalActorsFile() async throws {
+        let store = makeReader()
+        try await store.append(op("06A", device: quartet.translator))
+        let sealed = try await store.sealChain(docId: docId)
+        XCTAssertTrue(sealed)
+
+        let key = OpLogDeviceState.fileKey(fileURL(of: quartet.translator))
+        let trueHead = try XCTUnwrap(myState.head(for: key))
+        myState.remember(head: String(repeating: "b", count: 64), for: key)
+
+        let loaded = try await makeReader().loadDiagnosed(docId: docId)
+        XCTAssertEqual(loaded.ops.map(\.opId), ["06A"])
+        XCTAssertEqual(myState.head(for: key), trueHead)
     }
 }

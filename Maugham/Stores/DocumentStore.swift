@@ -183,7 +183,7 @@ public final class DocumentStore {
             includingPropertiesForKeys: nil)) ?? []).map(\.lastPathComponent)
         let sealStore = OpLogStore(
             projectURL: url, presenter: store.presenter,
-            identity: Document.deviceIdentityForTesting ?? .author,
+            identities: Document.loadIdentities,
             state: Document.deviceStateForTesting ?? .shared)
         for docId in OpLogStore.docIds(inOpsDirectoryFilenames: opsDirNames).sorted() {
             // The chain seal FIRST, then the rotation — `Document.close()`'s
