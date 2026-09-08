@@ -151,7 +151,25 @@ public enum TranslationStore {
                 docId: docId, projectURL: projectURL,
                 trustedFingerprints: identities.fingerprints))
         try await store.appendBatch(records)
-        try await store.appendSeal()
+        // Best-effort, like every other seal site in the codebase (the
+        // whole-branch review's I2). The records above are durably written; a
+        // seal that cannot be made leaves a run of unsealed lines, which is a
+        // state the walk already reads and says so in the doc comment eleven
+        // lines up. Reporting it as a FAILED WRITE would hand
+        // `TranslationWritePipeline.perform` an error that `WriteTranslationTool`
+        // returns to Claude and `TranslatorEnvironment` turns into a round
+        // rejection — whose likely answer is a retry, minting fresh opIds for
+        // the same paragraphs. A duplicated batch, and a translator told its
+        // work was lost when it was not. Sealing is maintenance, not truth.
+        do { try await store.appendSeal() }
+        catch {
+            translationLog.error("""
+                Could not seal the translation batch for \
+                \(docId, privacy: .public)/\(language, privacy: .public): \
+                \(String(describing: error), privacy: .public). \
+                The records are written; the run is unsealed until the next one.
+                """)
+        }
     }
 
     /// opId-ascending, canonical-content tiebreak, first-wins dedup by opId —
@@ -165,6 +183,12 @@ public enum TranslationStore {
     /// forensic path the op log uses, under the manuscript's own `docId` — the
     /// language is in the filename, so a `.lines` record files under the
     /// document History already shows.
+    ///
+    /// **A read that can write one thing.** Lines the walk held back are filed
+    /// through `JSONLAppendStore.setAside`, so this synchronous, thirty-caller
+    /// read is not obviously read-only. It is bounded: the quarantine dedupes
+    /// by content hash, so a record cannot multiply, and the directory scan it
+    /// costs happens only once something has been quarantined.
     ///
     /// This is `JSONLAppendStore.loadVerifiedStrict`'s body, spelled
     /// synchronously over the same nonisolated helpers, because `loadMerged` is

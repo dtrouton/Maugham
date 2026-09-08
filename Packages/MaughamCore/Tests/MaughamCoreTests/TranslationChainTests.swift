@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import MaughamCore
 
@@ -95,6 +96,55 @@ final class TranslationChainTests: XCTestCase {
     private func merged() -> [TranslationRecord] {
         TranslationStore.loadMerged(forDocId: docId, language: "es", in: projectURL,
                                     identities: mine, state: myState)
+    }
+
+    // MARK: - (0) A seal failure is not a failed write (I2)
+
+    /// The records landed. Saying otherwise costs the translator its work.
+    ///
+    /// `appendBatch` is one coordinated write and the seal that follows is a
+    /// second one, deliberately — and until the whole-branch review's I2 the
+    /// second one's throw came straight back out of the function. Every other
+    /// seal site in the codebase is best-effort with a logged failure, on the
+    /// stated principle that sealing is maintenance and not truth; this one
+    /// handed `TranslationWritePipeline.perform` an error, which
+    /// `WriteTranslationTool` returns to Claude as a failed write and
+    /// `TranslatorEnvironment` turns into a round rejection. The likely reply is
+    /// a retry, which mints fresh opIds for the same paragraphs: a duplicated
+    /// batch, and a translator told its work was lost when it was durably on
+    /// disk.
+    ///
+    /// The failure is injected where a real one lives — an identity that says
+    /// it can sign and then cannot. An unsigned identity would not do: it
+    /// answers false before it asks for a signature, so nothing throws.
+    func test_aSealFailureAfterADurableBatchIsNotAFailedWrite() async throws {
+        struct EnclaveRefused: Error {}
+        let key = P256.Signing.PrivateKey()
+        let cannotSign = DeviceIdentity.signed(
+            actor: .translator, publicKey: key.publicKey
+        ) { _ in throw EnclaveRefused() }
+        let trusting = LocalIdentities(
+            author: mine.author, assistant: mine.assistant,
+            translator: cannotSign, maugham: mine.maugham)
+
+        let records = (0..<2).map { record("bbb\($0)", "t\($0)") }
+        try await TranslationStore.appendBatch(
+            records, forDocId: docId, language: "es",
+            identity: cannotSign, identities: trusting,
+            state: myState, in: projectURL)
+
+        let written = try lines(of: cannotSign)
+        XCTAssertEqual(written.count, 2,
+            "the batch is durably on disk — it is the SEAL that could not be "
+            + "written, and an unsealed run is a state the walk already reads")
+        XCTAssertNil(OpLogChain.Seal.parse(written[1]),
+                     "and no seal line was written")
+
+        let merged = TranslationStore.loadMerged(
+            forDocId: docId, language: "es", in: projectURL,
+            identities: trusting, state: myState)
+        XCTAssertEqual(merged.count, 2,
+                       "the records read back, which is the whole point")
     }
 
     // MARK: - (a) A batch is N chained lines and one seal
