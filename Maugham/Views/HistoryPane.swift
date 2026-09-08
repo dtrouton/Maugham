@@ -303,28 +303,13 @@ struct HistoryPane: View {
              + "kept in backup, not applied."
     }
 
-    /// How many CHANGES were set aside — the non-empty lines across every
-    /// `.lines` record's data file, not the number of records. One record can
-    /// hold a run of lines, and the writer's question is how much of their
-    /// history this is, so the answer has to open the files.
-    ///
-    /// Separate from the notice on purpose: a notice that read disk would do
-    /// file I/O on every `body` evaluation. `reload()` calls this once.
-    /// `.file` records are skipped — their data file is a whole op log, whose
-    /// line count is a different quantity entirely.
+    /// How many CHANGES were set aside. One line, because the counting is
+    /// `OpLogQuarantine.setAsideLineCount`'s — the Inbox pane asks the same
+    /// question of the manifest stream, and two copies would be two answers.
     static func setAsideLineCount(
         records: [QuarantineRecord], in projectURL: URL
     ) -> Int {
-        records
-            .filter { $0.kind == .lines }
-            .reduce(0) { total, record in
-                let url = OpLogQuarantine.quarantinedFileURL(
-                    for: record, in: projectURL)
-                guard let bytes = try? Data(contentsOf: url) else { return total }  // adr-0018-ok: a set-aside `.lines` archive — forensics this pane counts, never manuscript truth
-                return total + bytes
-                    .split(separator: 0x0A, omittingEmptySubsequences: true)
-                    .count
-            }
+        OpLogQuarantine.setAsideLineCount(records: records, in: projectURL)
     }
 
     /// The notice shown after a Retry completes. Zero orphans is

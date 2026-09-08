@@ -343,6 +343,35 @@ public enum OpLogQuarantine {
     ///
     /// `nonisolated`: a pure filesystem read touching no MainActor state —
     /// same reasoning as `defaultStubProbe`.
+    /// How many CHANGES a set of records held back — the non-empty lines
+    /// across every `.lines` record's data file, not the number of records.
+    /// One record can hold a run of lines, and the question a pane asks on the
+    /// writer's behalf is how much of their history this is, so the answer has
+    /// to open the files.
+    ///
+    /// Lives here rather than on a pane because TWO panes ask it: History for
+    /// a document's own op-log files, the Inbox for the manifest stream
+    /// (`InboxManifest.chainDocId`). A second copy would be two answers to one
+    /// question. Separate from the notice copy on purpose — a notice that read
+    /// disk would do file I/O on every `body` evaluation; each pane calls this
+    /// once, on refresh.
+    ///
+    /// `.file` records are skipped: their data file is a whole op log, whose
+    /// line count is a different quantity entirely.
+    public nonisolated static func setAsideLineCount(
+        records: [QuarantineRecord], in projectURL: URL
+    ) -> Int {
+        records
+            .filter { $0.kind == .lines }
+            .reduce(0) { total, record in
+                let url = quarantinedFileURL(for: record, in: projectURL)
+                guard let bytes = try? Data(contentsOf: url) else { return total }  // adr-0018-ok: a set-aside `.lines` archive — forensics this counts, never manuscript truth
+                return total + bytes
+                    .split(separator: 0x0A, omittingEmptySubsequences: true)
+                    .count
+            }
+    }
+
     public nonisolated static func quarantinedFileURL(for record: QuarantineRecord, in projectURL: URL) -> URL {
         let dir = projectURL.appendingPathComponent(directoryName, isDirectory: true)
         for entry in sidecars(in: projectURL) {

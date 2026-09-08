@@ -544,6 +544,11 @@ public final class OpLogStore {
             case .verified: verified += 1
             case .unsealed: unsealed += 1
             case .unsignedHistory: unsignedHistory += 1
+            // A torn last line is in no provenance class: it was never
+            // applied as history and it was never held back either. The
+            // element decoder reports it in `diagnostics.skipped`, which is
+            // the channel a torn line has always used.
+            case .tornTail: break
             case .quarantined: quarantined += 1
             }
         }

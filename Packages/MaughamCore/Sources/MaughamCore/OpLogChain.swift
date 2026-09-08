@@ -140,6 +140,26 @@ public enum OpLogChain {
         byte == 0x20 || byte == 0x09 || byte == 0x0D || byte == 0x0A
     }
 
+    /// Do these bytes fail to close as a JSON object? A whole line always ends
+    /// in `}`; a line a crash stopped in the middle of does not.
+    ///
+    /// Deliberately a shape test rather than a parse: the walk runs once per
+    /// line on every load, and the question here is only ever asked of the last
+    /// line. It is a heuristic in one direction — a tear that happens to land
+    /// just after a nested `}` still reads as whole and fails in the element
+    /// decoder, which is where a torn line ended up before this branch existed.
+    nonisolated static func isIncompleteObject(_ line: Data) -> Bool {
+        var index = line.endIndex
+        while index > line.startIndex {
+            let before = line.index(before: index)
+            if !isWhitespace(line[before]) {
+                return line[before] != UInt8(ascii: "}")
+            }
+            index = before
+        }
+        return true
+    }
+
     // MARK: - Reading a line's prev
 
     /// The line's `prev`, read TEXTUALLY off the first key — the format fixes
@@ -338,6 +358,19 @@ public enum OpLogChain {
             case unsignedHistory
             /// Never applied: the chain broke at or before this line.
             case quarantined
+            /// The FILE'S LAST line, whose bytes do not form a complete JSON
+            /// object: a write interrupted mid-line, which is the one thing a
+            /// crash can leave behind that is nobody's forgery.
+            ///
+            /// It is excluded from the walk entirely — not a break, not
+            /// quarantined, and the running head does not move onto it — and
+            /// its bytes are handed on to the element decoder, which reports
+            /// them in `diagnostics.skipped` exactly as a torn line was
+            /// reported before the chain existed. Without this the tear read as
+            /// `unchainedAfterChain` and the writer was told their own
+            /// half-written op was "written by something that is not Maugham",
+            /// in a record that never clears (the whole-branch review's L62).
+            case tornTail
         }
 
         public let bytes: Data
@@ -438,10 +471,11 @@ public enum OpLogChain {
         var foreignSealCount = 0
         var reachedRememberedHead = false
 
-        for raw in bytes.split(separator: 0x0A, omittingEmptySubsequences: false) {
-            if raw.isEmpty { continue }
-            let line = Data(raw)
-            let index = lines.count
+        let lineData = bytes.split(separator: 0x0A, omittingEmptySubsequences: false)
+            .filter { !$0.isEmpty }
+            .map { Data($0) }
+
+        for (index, line) in lineData.enumerated() {
             let kind: Line.Kind = isSealLine(line) ? .seal : .op
 
             if breakReason != nil {
@@ -451,6 +485,13 @@ public enum OpLogChain {
             if reachedRememberedHead {
                 breakReason = .afterRememberedHead(lineIndex: index)
                 lines.append(Line(bytes: line, kind: kind, state: .quarantined))
+                continue
+            }
+            // A tear is only ever the LAST line — a write that stopped
+            // mid-line. An incomplete line anywhere else has something after
+            // it, which means the write finished and the damage is not a tear.
+            if index == lineData.count - 1, isIncompleteObject(line) {
+                lines.append(Line(bytes: line, kind: kind, state: .tornTail))
                 continue
             }
 
@@ -524,6 +565,7 @@ public enum OpLogChain {
             case .verified: verifiedCount += 1
             case .unsealed: unsealedCount += 1
             case .unsignedHistory: break
+            case .tornTail: break
             case .quarantined: quarantined.append(line.bytes)
             }
         }
@@ -632,6 +674,7 @@ extension OpLogChain {
             case .unsealed: unsealedCount += 1
             case .unsignedHistory:
                 if line.kind == .seal { foreignSealCount += 1 }
+            case .tornTail: break
             case .quarantined: quarantined.append(line.bytes)
             }
         }

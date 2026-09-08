@@ -40,6 +40,17 @@ final class InboxStore {
     /// pane shows a notice when non-empty; the rows are intact on disk.
     private(set) var unreadableManifests: [String] = []
 
+    /// How many manifest ROWS the verified read held back — lines something
+    /// other than Maugham wrote into an inbox stream, kept as forensics and
+    /// never applied (signed op log P1).
+    ///
+    /// The records were being written and surfaced NOWHERE: `HistoryPane` only
+    /// ever asks for a DOCUMENT's records, and the inbox files its own under
+    /// `InboxManifest.chainDocId`. A refusal nobody is told about is the one
+    /// shape constraint 7 forbids, so the pane says it here. Counted once, on
+    /// `refresh` — the notice itself is pure over this number.
+    private(set) var setAsideLineCount: Int = 0
+
     private let projectURL: URL
     private let inboxDir: URL
     /// This Mac's own device identifier — the same string the op-log `device`
@@ -110,6 +121,10 @@ final class InboxStore {
             }
         }
         unreadableManifests = unreadable.sorted()
+        setAsideLineCount = OpLogQuarantine.setAsideLineCount(
+            records: OpLogQuarantine.records(
+                forDocId: InboxManifest.chainDocId, in: projectURL),
+            in: projectURL)
         // Last-wins by row-write time (writtenAt), across all files and all
         // rows for an id. createdAt is immutable across transition rows, so it
         // can't order them; writtenAt is stamped fresh on every append.
