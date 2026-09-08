@@ -26,7 +26,8 @@ final class BootstrapTests: XCTestCase {
             docId: "doc-1",
             mdURL: mdURL,
             device: "m",
-            session: "s")
+            session: "s",
+            opStore: OpLogStore(projectURL: tmp))
 
         // .md gained inline IDs
         let after = try String(contentsOf: mdURL, encoding: .utf8)
@@ -66,7 +67,8 @@ final class BootstrapTests: XCTestCase {
 
         let result = try await Bootstrap.run(
             projectURL: tmp, docId: "doc-1", mdURL: mdURL,
-            device: "m", session: "s")
+            device: "m", session: "s",
+            opStore: OpLogStore(projectURL: tmp))
 
         XCTAssertFalse(result.bootstrapped,
             "an anchored file with an existing op log must be a no-op")
@@ -86,7 +88,8 @@ final class BootstrapTests: XCTestCase {
 
         let result = try await Bootstrap.run(
             projectURL: tmp, docId: "doc-1", mdURL: mdURL,
-            device: "m", session: "s")
+            device: "m", session: "s",
+            opStore: OpLogStore(projectURL: tmp))
 
         XCTAssertTrue(result.bootstrapped,
             "anchored file + empty op log must seed the log")
@@ -116,7 +119,8 @@ final class BootstrapTests: XCTestCase {
 
         _ = try await Bootstrap.run(
             projectURL: tmp, docId: "doc-1", mdURL: mdURL,
-            device: "m", session: "s")
+            device: "m", session: "s",
+            opStore: OpLogStore(projectURL: tmp))
 
         let cps = await CheckpointStore(projectURL: tmp).load().checkpoints
         XCTAssertEqual(cps.count, 1)

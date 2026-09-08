@@ -14,11 +14,17 @@ public enum Bootstrap {
     ///   chain memory, so where the caller holds anything else — a suite's
     ///   injected quartet — the very first op in the log is signed by a key the
     ///   load does not recognise and reads back as legacy history forever.
-    ///   Nil keeps the old behaviour for the callers that have no store.
+    ///
+    ///   **Required** (the whole-branch review's M1). It was optional, with a
+    ///   store of this function's own behind the nil — which is the defect
+    ///   above, preserved for the test call sites that had no store to hand.
+    ///   There is one production caller and it threads its store; a test that
+    ///   wants the machine's own identities says `OpLogStore(projectURL:)` and
+    ///   says it out loud.
     public static func run(
         projectURL: URL, docId: String, mdURL: URL,
         device: String, session: String,
-        opStore: OpLogStore? = nil
+        opStore: OpLogStore
     ) async throws -> Result {
         let original = (try? String(contentsOf: mdURL, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned import read — mints ids for a new/imported plain file; not read as truth for an existing doc (ADR 0018)
         // A Fountain manuscript's two-space "held blank" (Task 13 dialogue pause)
@@ -115,13 +121,13 @@ public enum Bootstrap {
     private static func emitBootstrap(
         projectURL: URL, docId: String, device: String, session: String,
         changes: [Op.ParagraphChange], sequence: [String],
-        paragraphMap: [String: String], opStore: OpLogStore?
+        paragraphMap: [String: String], opStore: OpLogStore
     ) async throws {
         let op = Op(
             opId: ULID.generate(), docId: docId, at: Date(),
             device: device, session: session, kind: .bootstrap,
             changes: changes, sequence: sequence, provenance: nil)
-        try await (opStore ?? OpLogStore(projectURL: projectURL)).append(op)
+        try await opStore.append(op)
 
         let wordCount = paragraphMap.values
             .map { $0.split { $0.isWhitespace || $0.isNewline }.count }

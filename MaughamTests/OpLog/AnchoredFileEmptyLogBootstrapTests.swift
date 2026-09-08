@@ -131,7 +131,8 @@ final class AnchoredFileEmptyLogBootstrapTests: XCTestCase {
 
         _ = try await Bootstrap.run(
             projectURL: fx.projectURL, docId: fx.docId, mdURL: fx.docURL,
-            device: "m", session: "s")
+            device: "m", session: "s",
+            opStore: OpLogStore(projectURL: fx.projectURL))
 
         // The ids Bootstrap minted, read back from the now-anchored `.md`.
         let mintedIds = ParagraphParser.parse(

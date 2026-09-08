@@ -6965,6 +6965,15 @@ final class TripwireGrepTests: XCTestCase {
     /// open. Line comments are stripped first (with their newlines kept, so
     /// line numbers survive), because prose about this rule must be able to
     /// name the argument it forbids.
+    ///
+    /// **The stripper does not know about string literals** (the whole-branch
+    /// review's M3): a `//` inside one — a URL, say — takes the rest of that
+    /// line with it, so an unmatched `(` before it inflates the depth counter
+    /// for the remainder of the file. Nothing in the three roots does that
+    /// today, and the failure direction is a false POSITIVE, which is a red
+    /// test somebody reads rather than a rule that quietly stopped holding. If
+    /// one ever appears, teach the stripper about quotes rather than loosening
+    /// the census.
     static func deviceArgumentsAtDocumentLoad(in text: String) -> [Int] {
         let stripped = text
             .split(separator: "\n", omittingEmptySubsequences: false)

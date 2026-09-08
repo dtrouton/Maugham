@@ -80,17 +80,27 @@ public enum TaskDeriver {
     ///   into paragraph text.
     /// - Parameter maughamDeviceId: the device string the emitted rebalance ops
     ///   carry — `DeviceActor.maugham`'s id, because the priority rebalance is
-    ///   the app acting on its own behalf. Defaulted at the CALL SITE rather
-    ///   than read inside, so this projection stays pure over its arguments; the
-    ///   one production caller that actually appends the ops
-    ///   (`Document.rebuildTasksCache`) passes the id off the very
-    ///   `OpLogStore` that will sign them, so a suite's injected identities and
-    ///   the file the op lands in cannot disagree.
+    ///   the app acting on its own behalf. Passed in rather than read inside, so
+    ///   this projection stays pure over its arguments; the one production
+    ///   caller that actually appends the ops (`Document.rebuildTasksCache`)
+    ///   passes the id off the very `OpLogStore` that will sign them, so a
+    ///   suite's injected identities and the file the op lands in cannot
+    ///   disagree.
+    ///
+    ///   **`nil` means "emit no rebalance ops"** — for a caller that discards
+    ///   them, which is every read-only projection in `ProjectStore+Tasks`. The
+    ///   rebalanced PRIORITIES are still applied, so the task list a reader gets
+    ///   is unchanged; only the ops nobody was going to write are not built.
+    ///   There is no default, and that is the point (the whole-branch review's
+    ///   M2): the default was `DeviceIdentity.identity(for: .maugham).deviceId`,
+    ///   which is disk I/O and — before the lazy `LocalIdentities` — an enclave
+    ///   mint, on the main actor, at three call sites that bound the result to
+    ///   `_`.
     public static func derive(
         ops: [Op],
         paragraphs: [String: String],
         docId: String,
-        maughamDeviceId: String = DeviceIdentity.identity(for: .maugham).deviceId
+        maughamDeviceId: String?
     ) -> (tasks: [WriterTask], rebalanceOps: [Op], mintedAnchors: [MintedAnchor]) {
 
         // 0. Apply rewind semantics: if there is a `.checkpointRestore` with
@@ -473,7 +483,7 @@ public enum TaskDeriver {
     /// rewrite the whole group with evenly-spaced integer priorities (1.0,
     /// 2.0, …) and emit one `.taskPriorityChange` per rewritten task.
     private static func rebalanceIfNeeded(
-        _ tasks: [WriterTask], docId: String, maughamDeviceId: String
+        _ tasks: [WriterTask], docId: String, maughamDeviceId: String?
     ) -> (rebalanced: [WriterTask], ops: [Op]) {
 
         // Group by parentTaskId. We use the optional directly as key via a
@@ -502,6 +512,11 @@ public enum TaskDeriver {
                 let newPrio = Double(idx + 1)
                 if newPrio != t.priority {
                     newPriorities[t.id] = newPrio
+                    // No device to sign as means no op to sign: the caller is
+                    // a read-only projection that discards them (M2). The new
+                    // priority above is still applied, so what it reads is what
+                    // an appending caller would read.
+                    guard let maughamDeviceId else { continue }
                     newOps.append(Op(
                         opId: "rebalance_\(t.id)",
                         docId: docId,

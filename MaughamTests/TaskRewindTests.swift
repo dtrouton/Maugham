@@ -273,7 +273,7 @@ final class TaskRewindTests: XCTestCase {
         let (derived, _, _) = TaskDeriver.derive(
             ops: [childCreateOp, parentChangeOp],
             paragraphs: [:],
-            docId: doc.docId)
+            docId: doc.docId, maughamDeviceId: "maugham-test")
 
         let orphanChild = derived.first { $0.id == "orphan-child-id" }
         XCTAssertNotNil(orphanChild,

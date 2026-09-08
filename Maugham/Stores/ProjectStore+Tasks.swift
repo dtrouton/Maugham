@@ -240,8 +240,14 @@ extension ProjectStore {
             guard let ops = try? OpLogStore.loadSyncMerged(forDocId: item.id, in: url)
             else { continue }
             let paragraphs = Deriver.deriveWithSequenceFallback(ops: ops).paragraphs
+            // `maughamDeviceId: nil` — this projection reads and never writes,
+            // so the rebalance ops it would build are discarded on the next
+            // line. Nil builds none of them and applies the priorities anyway
+            // (M2); the id it used to default to is disk I/O on the main actor
+            // for a value bound to `_`.
             let (closedTasks, _, _) = TaskDeriver.derive(
-                ops: ops, paragraphs: paragraphs, docId: item.id)
+                ops: ops, paragraphs: paragraphs, docId: item.id,
+                maughamDeviceId: nil)
             all.append(contentsOf: closedTasks)
         }
 
@@ -250,7 +256,8 @@ extension ProjectStore {
         let (projectTasks, _, _) = TaskDeriver.derive(
             ops: _projectOpLogMirror,
             paragraphs: [:],
-            docId: Self.projectTasksDocId)
+            docId: Self.projectTasksDocId,
+            maughamDeviceId: nil)   // read-only projection (M2)
         all.append(contentsOf: projectTasks)
 
         _projectTasksCache = all
@@ -278,7 +285,8 @@ extension ProjectStore {
         let (projectTasks, _, _) = TaskDeriver.derive(
             ops: _projectOpLogMirror,
             paragraphs: [:],
-            docId: Self.projectTasksDocId)
+            docId: Self.projectTasksDocId,
+            maughamDeviceId: nil)   // read-only projection (M2)
         return projectTasks.map(\.priority).min() ?? 0.0
     }
 

@@ -93,7 +93,7 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
 
         // Straight off the deriver's own projection, not the preview.
         let (derived, _, _) = TaskDeriver.derive(
-            ops: try await doc.opLog(), paragraphs: doc.paragraphs, docId: doc.docId)
+            ops: try await doc.opLog(), paragraphs: doc.paragraphs, docId: doc.docId, maughamDeviceId: "maugham-test")
         let task = try XCTUnwrap(
             derived.first { $0.id == preview.id },
             "the promoted task never came back out of TaskDeriver")
@@ -117,7 +117,7 @@ final class DiagnosticPromoteToTaskTests: XCTestCase {
         let preview = doc.createPaneTask(body: "draft act 2", parentTaskId: nil)
 
         let (derived, _, _) = TaskDeriver.derive(
-            ops: try await doc.opLog(), paragraphs: doc.paragraphs, docId: doc.docId)
+            ops: try await doc.opLog(), paragraphs: doc.paragraphs, docId: doc.docId, maughamDeviceId: "maugham-test")
         let task = try XCTUnwrap(derived.first { $0.id == preview.id })
         XCTAssertEqual(task.anchor?.docId, doc.docId)
         XCTAssertNil(
