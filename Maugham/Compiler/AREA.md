@@ -645,6 +645,7 @@ One run walks left to right. Each arrow is a value, never a shared object.
 | `CompilerAllowlist.swift` | The enumerated read-only MCP tool list, as `--allowedTools` |
 | `CompilerRunner.swift` | The seam: `send(message:systemPreamble:) -> CompilerRunEvent`, plus every way a run can fail |
 | `ClaudeCLISession.swift` | The warm subprocess behind that seam |
+| `RunTiming.swift` | `RunTiming` (elapsed, first line, API duration, turns, output and thinking tokens, cost, model, effort — read off the CLI's `result` event plus Maugham's own clock; stored on `CompilerRun.timing`) and `RunProgress` (the live thinking-token estimate the panes draw) |
 | `DiagnosticIngest.swift` | The structured message → notes, clause statuses, fact-candidates and the letter, anchored against the LIVE document. One section is one unit, so arrival can become incremental without the fold changing. `SectionedOutcome.sidecarDiagnostics` keeps conformance strains only; `.mintable` is the other half, built from the same accepted diagnostics rather than re-parsed. `parseLetter` is the sixth section and carries the two exemptions described above |
 | `CompilerNote.swift` | **The value that crosses from parse to mint** (M4 P1 Task 3) — what `Environment.mintAnnotations` writes as a pass-stamped `Annotation`. Neither a `Diagnostic` (no run id, no staleness anchor, no sidecar identity) nor an `Annotation` (derived from ops, not caller-constructed); `CompilerMintContext` is what one mint needs off the run that produced it (lane, round, editor name, cold-or-warm), minted once at the keystroke and carried rather than re-asked at mint time |
 | `DeclaredWorldDeriver.swift` | Also the one-shot's pipe discipline: stdout is drained WHILE the process runs. Reading it from `terminationHandler` deadlocked on any answer past ~64 KB — the child blocks on its own write, so it never exits, so the handler never fires. **120s deadline** (Stage 3), four times the spike's measured 30s sonnet cost: an overrunning process is `terminate()`d and the derivation returns its ordinary honest `nil` — ordinarily through the SAME EOF-and-exit resolution every other unreadable answer already goes through, and by force (`OneShotOutput.deadlineExpired`, after a 2s `terminationGrace`) when a group member escapes the group SIGTERM and withholds EOF by holding the inherited pipe: CI run 31595012981 hit exactly that (the killpg/fork race), and a real CLI grandchild that setsids has the same shape. Both doors are the deadline's own; `derive` never hangs on a stranger's file descriptor |
@@ -693,7 +694,7 @@ Spec §3.4, verbatim, with the enforcing site beside it:
 | It dies on the AI toggle going off | `CompilerRunModifier`'s `.onChange(of: mcpEnabled)` — **and** `ClaudeCLISession` re-reads the toggle before every spawn, so a session already warm cannot answer one more run |
 | It dies on app quit | `CompilerRunModifier`'s `.maughamAppWillTerminate` |
 | It dies on window/project close | `ProjectWindow`'s own `.onDisappear` → `detach()`, because that path must also drop the orchestrator's hold on the window's stores |
-| It dies quietly after ~10 min idle | `ClaudeCLISession.idleTimeout` (600 s; the per-turn budget is `ClaudeCLISession.defaultRunTimeout` — **300 s since 2026-08-18**, raised from 120 by Denver's ruling after two whole-piece first rounds died at the old one, read the number off the constant). **The translation cast runs on `ClaudeCLISession.translationRunTimeout` — 900 s (2026-09-02)**, passed by `TranslatorEnvironment+Project`'s runner and `ColdCall.productionRunnerFactory`, because a translate or fix leg sends a chapter's whole work-list in one turn and a long chapter ran past 300 s on its own; the compiler and the designer keep the default. Safe above the idle budget because `idleDidExpire` refuses while a turn is in flight |
+| It dies quietly after ~10 min idle | `ClaudeCLISession.idleTimeout` (600 s); the per-turn budget is a SILENCE budget, `ClaudeCLISession.defaultSilenceTimeout` (180 s, reset by every line the child writes — thinking deltas and the CLI's `system/thinking_tokens` progress events included) behind a ceiling, `defaultRunTimeout` (1,200 s), one constant for every session type since 2026-09-09 (the reader's-own-session spec §2); `translationRunTimeout` is gone. A stall carries `CompilerRunFailure.Stall` — which budget, after how long, how many thinking tokens — and `RoundNarrative.stallCopy` says it. Safe above the idle budget because `idleDidExpire` refuses while a turn is in flight |
 | Death mid-run fails that run once; the next keystroke starts fresh | `CompilerOrchestrator.finish`'s `.failed` arm — the marker and the intent hash are both left where they were |
 | **It dies on ⌘⇧R, and is replaced in the same act** | `CompilerOrchestrator.beginRun`'s `if freshEyes { retireSession() }` — the one teardown that is a *run* rather than an ending, so it is the orchestrator's rather than a fourth arm of `CompilerRunModifier`. Placed below the in-flight refusal, the generation check and the empty-delta guard: a fresh-eyes press that is refused or abandoned must not cost the writer their warm session |
 
@@ -1575,6 +1576,19 @@ refuses in words when the ring has aged it out, and this area's own writes
   same invocation. `ClaudeCLISessionTests.test_spawnArgumentsMatchTheSpike`
   asserts both, and it parses argv with `components` rather than `split`
   because the flag's value is the empty string.
+- **The session is the reader's own, not the writer's** (2026-09-09,
+  reader's-own-session spec §3). The preamble rides on `--system-prompt`
+  rather than `--append-system-prompt`, so it is the whole system prompt and
+  not appended to the CLI's own coding-agent one —
+  `TripwireGrepTests.test_noProductionSpawnAppendsToTheCodingAgentPrompt`
+  forbids the append flag in every production spawn. `--setting-sources ""`
+  keeps the writer's hooks, plugins, CLAUDE.md and global effort out of the
+  session entirely (`test_everyProductionSpawnIgnoresTheWritersSettingsFiles`).
+  `--effort` is passed explicitly (`ClaudeCLISession.Effort`, `defaultEffort
+  = .high` for every kind until the evals milestone decides otherwise) because
+  `--setting-sources ""` drops the effort level the writer's own runs would
+  otherwise have inherited. `--bare` is forbidden — it never reads OAuth.
+  `DeclaredWorldDeriver.arguments` passes the same three flags.
 
 ## The intent loop, both directions
 

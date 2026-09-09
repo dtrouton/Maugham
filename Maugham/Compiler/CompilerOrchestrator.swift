@@ -1073,8 +1073,9 @@ final class CompilerOrchestrator {
         // the same tired reader given the same pages again. `retireSession`
         // is `shutdown()`'s body minus the surface — the process is signalled
         // and reaped, the config file goes with it, and `sentBriefing` clears
-        // so the replacement is told the essay, the world and the bible in
-        // full rather than "unchanged since last run".
+        // so the replacement is told the essay, the declared world, the
+        // bible and the pinned references in full rather than "Declared
+        // world, bible and pinned references: unchanged since last run."
         //
         // Late on purpose: below the in-flight refusal (`runRequested`), below
         // the burst-flush hop's generation check, and below the empty-delta

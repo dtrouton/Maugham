@@ -48,8 +48,10 @@ final class ClaudeWorldDeriver: WorldDeriver {
     private var resolvedCLI: URL?
 
     /// **The derivation deadline: 120s.** It matched `ClaudeCLISession`'s own
-    /// `runTimeout` when both were 120, and deliberately did not follow it to
-    /// 300 on 2026-08-18: that raise was for a session reading a WHOLE
+    /// `runTimeout` when both were 120, and deliberately did not follow it
+    /// through the 300s raise on 2026-08-18 or the single 1,200s ceiling
+    /// every session type now shares (`defaultRunTimeout`, reader's-own-session
+    /// spec §2, 2026-09-09): that ceiling is for a session reading a WHOLE
     /// manuscript cold, and this is a one-shot over an intent essay whose
     /// measured cost is below. Four times headroom over the spike's own —
     /// a real derivation against Denver's Tribute intent finished in **30s**

@@ -1,6 +1,6 @@
 # The reader's own session — liveness, identity, and a complete briefing
 
-**Date:** 2026-09-09 · **Status:** draft for Denver's review
+**Date:** 2026-09-09 · **Status:** built 2026-09-09 on branch `claude/readers-own-session-2026-09-09`; effort table deferred to the evals spec
 **Session:** "first reader timeouts on a 450-paragraph screenplay"
 
 *Brainstormed with Denver 2026-09-09, out of four checks on one screenplay
