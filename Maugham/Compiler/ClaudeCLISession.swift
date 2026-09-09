@@ -42,8 +42,7 @@ final class ClaudeCLISession: CompilerRunner {
     /// Reads `UserPreferences.mcpEnabled`. Consulted before *every* spawn.
     private let isEnabled: () -> Bool
     private let idleTimeout: TimeInterval
-    /// Readable, like `confinement`, for exactly one assertion: the two
-    /// translation factories hand their sessions `translationRunTimeout`.
+    /// Readable for the two factory tests that pin every session on one ceiling.
     let runTimeout: TimeInterval
     /// How long the death join will wait for the child's exit once stdout has
     /// reached EOF, before falling back to the statusless sentence. See
@@ -55,44 +54,26 @@ final class ClaudeCLISession: CompilerRunner {
     /// short against the run timeout it exists to keep a death away from.
     nonisolated static let defaultDeathReapGrace: TimeInterval = 2
 
-    /// **How long one turn may take before the session is torn down and the
-    /// run reported as `.timedOut`.**
+    /// **How long the child may be SILENT before the turn is stopped — 180 s.**
     ///
-    /// **300 s since 2026-08-18 (Denver's ruling), raised from 120.** The old
-    /// budget was set against the ordinary case this loop was built for — a
-    /// delta of a few changed paragraphs, which comes back in seconds — and it
-    /// is not the case that hurts. A pass's FIRST round on a piece, and every
-    /// Fresh Eyes read (⌘⇧R), send the whole manuscript to a cold session; two
-    /// of Denver's own — Structural, then Line — hit 120 s on legitimate whole-
-    /// piece reads and died with nothing to show for the wait, which is the
-    /// worst possible failure for an expensive keystroke. A budget that kills
-    /// the reads it was never measured against is a budget measured on the
-    /// wrong run.
-    ///
-    /// Still bounded, and still below `idleTimeout` (600 s): the point of the
-    /// deadline is that a genuinely hung subprocess cannot bill indefinitely or
-    /// leave the strip saying "Checking…" forever, and five minutes buys the
-    /// long reads without weakening that.
-    ///
-    /// A named default rather than a literal in the init because two surfaces
-    /// now quote it in prose (`AREA.md`, `DeclaredWorldDeriver.defaultDeadline`'s
-    /// comparison) and a number with no home is a number that goes stale.
-    nonisolated static let defaultRunTimeout: TimeInterval = 300
+    /// Liveness, not wall clock (spec §2, 2026-09-09). Four whole-piece checks
+    /// on a 457-paragraph screenplay died at the old 300 s per-turn budget
+    /// while Opus was visibly streaming thinking at ~68 tokens/s — the timer
+    /// killed a model that was working and threw away what it had paid for.
+    /// Every line the child writes resets this: a text, thinking or signature
+    /// delta, a `system/thinking_tokens` progress event, a `rate_limit_event`,
+    /// a line that is not JSON. Silence is what "genuinely hung" means. 180 s
+    /// covers an overloaded API's retry backoff and the gap between a tool
+    /// result and the next request's first byte, with room.
+    nonisolated static let defaultSilenceTimeout: TimeInterval = 180
 
-    /// **The per-turn budget for the translation cast — 900 s (2026-09-02,
-    /// Denver's ruling).** A compiler turn sends a delta and reads back a
-    /// short report; a translate leg sends a chapter's whole work-list and
-    /// waits for the whole chapter back in the target language, and the fix
-    /// legs resend the full noted set — output is the slow direction, and a
-    /// long chapter ran past `defaultRunTimeout` on its own, killing the leg
-    /// with nothing written. Applied by `TranslatorEnvironment+Project`'s
-    /// runner and `ColdCall.productionRunnerFactory` (a cold read of a whole
-    /// chapter has the same shape); the compiler and the designer keep the
-    /// default. Above `idleTimeout` on purpose and safely: the idle timer
-    /// checks `inFlight` before it fires, so it cannot end a turn in
-    /// progress. The structural fix — chunking the work-list so one leg is
-    /// several bounded turns — is a roadmap follow-on, not this constant.
-    nonisolated static let translationRunTimeout: TimeInterval = 900
+    /// **The ceiling — 1,200 s (20 min) — one constant for every session
+    /// type.** A child still speaking at the ceiling is stopped anyway: the
+    /// point is that a runaway session cannot bill indefinitely. The
+    /// translation cast's separate 900 s budget (2026-09-02) is gone with the
+    /// per-turn kill it was a stopgap for. Safe above `idleTimeout` (600 s)
+    /// because `idleDidExpire` refuses while a turn is in flight.
+    nonisolated static let defaultRunTimeout: TimeInterval = 1_200
 
     /// **What the spawned CLI can reach — a spawn-argument fact, not a
     /// setting** (translation pipeline spec §11).
@@ -138,6 +119,13 @@ final class ClaudeCLISession: CompilerRunner {
 
     private var inFlight: CheckedContinuation<CompilerRunEvent, Never>?
     private var runTimeoutTask: Task<Void, Never>?
+    private let silenceTimeout: TimeInterval
+    private var silenceTask: Task<Void, Never>?
+    /// The last moment the child wrote anything on stdout, for the live
+    /// generation. Read by the silence watch, written by `receive`.
+    private var lastActivityAt = Date()
+    /// When the turn in flight was sent — the ceiling's and the stall's clock.
+    private var turnStartedAt = Date()
     private var idleTask: Task<Void, Never>?
 
     /// The death join's two halves (issue #36): whether stdout has reached EOF,
@@ -201,6 +189,7 @@ final class ClaudeCLISession: CompilerRunner {
          cliOverride: URL?,
          isEnabled: @escaping () -> Bool,
          idleTimeout: TimeInterval = 600,
+         silenceTimeout: TimeInterval = ClaudeCLISession.defaultSilenceTimeout,
          runTimeout: TimeInterval = ClaudeCLISession.defaultRunTimeout,
          deathReapGrace: TimeInterval = ClaudeCLISession.defaultDeathReapGrace,
          locator: @escaping @Sendable () -> URL? = { ClaudeCLISession.locateCLI() }) {
@@ -209,6 +198,7 @@ final class ClaudeCLISession: CompilerRunner {
         self.cliOverride = cliOverride
         self.isEnabled = isEnabled
         self.idleTimeout = idleTimeout
+        self.silenceTimeout = silenceTimeout
         self.runTimeout = runTimeout
         self.deathReapGrace = deathReapGrace
         self.locator = locator
@@ -297,7 +287,9 @@ final class ClaudeCLISession: CompilerRunner {
                         token: token)
                 return
             }
+            turnStartedAt = Date()
             armRunTimeout(token: token)
+            armSilenceWatch(token: token)
         }
 
         // Only while a process still stands. A turn resolved BY a teardown —
@@ -657,6 +649,8 @@ final class ClaudeCLISession: CompilerRunner {
 
     private func receive(line: String, generation gen: Int) {
         guard gen == generation, inFlight != nil else { return }
+        // Liveness, before meaning: whatever this line IS, the child wrote it.
+        lastActivityAt = Date()
         switch Self.classify(line: line) {
         case .ignore:
             return
@@ -851,6 +845,8 @@ final class ClaudeCLISession: CompilerRunner {
         isRunning = false
         runTimeoutTask?.cancel()
         runTimeoutTask = nil
+        silenceTask?.cancel()
+        silenceTask = nil
         cont.resume(returning: event)
     }
 
@@ -866,10 +862,39 @@ final class ClaudeCLISession: CompilerRunner {
 
     private func runDidTimeOut(token: Int) {
         guard token == runToken, inFlight != nil else { return }
-        // The CLI is still working on the turn; ending it means ending the
-        // process. The next send respawns.
+        stall(token: token, cause: .ceiling, after: Date().timeIntervalSince(turnStartedAt))
+    }
+
+    /// One sleep per silence budget rather than a timer re-armed per line: a
+    /// thinking model writes several lines a second, and cancelling and
+    /// recreating a `Task` for each would be the cost this watch exists to
+    /// avoid. It sleeps the remaining budget, checks again, and only stops the
+    /// turn when the quiet has really lasted.
+    private func armSilenceWatch(token: Int) {
+        silenceTask?.cancel()
+        lastActivityAt = Date()
+        let budget = silenceTimeout
+        silenceTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let quiet = Date().timeIntervalSince(self.lastActivityAt)
+                if quiet >= budget {
+                    self.stall(token: token, cause: .silence, after: quiet)
+                    return
+                }
+                let remaining = max(0.05, budget - quiet)
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+            }
+        }
+    }
+
+    /// The one door out of a turn by timer. The CLI is still working (or has
+    /// gone quiet); ending it means ending the process. The next send respawns.
+    private func stall(token: Int, cause: CompilerRunFailure.Stall.Cause, after: TimeInterval) {
+        guard token == runToken, inFlight != nil else { return }
+        let stall = CompilerRunFailure.Stall(cause: cause, after: after, thinkingTokens: nil)
         teardown()
-        resolve(.failed(.timedOut), token: token)
+        resolve(.failed(.timedOut(stall)), token: token)
     }
 
     private func armIdleTimer() {
@@ -893,6 +918,8 @@ final class ClaudeCLISession: CompilerRunner {
         generation &+= 1
         runTimeoutTask?.cancel()
         runTimeoutTask = nil
+        silenceTask?.cancel()
+        silenceTask = nil
         stdoutPipe?.fileHandleForReading.readabilityHandler = nil
         stderrPipe?.fileHandleForReading.readabilityHandler = nil
         process?.terminationHandler = nil

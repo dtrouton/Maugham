@@ -145,7 +145,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_aFailedRunOnThisDocumentIsItsOwnPhase() {
         let at = Date(timeIntervalSince1970: 1_750_000_000)
         for failure: CompilerRunFailure in [
-            .timedOut, .unusableOutput, .cliNotFound, .disabledByToggle,
+            .timedOut(), .unusableOutput, .cliNotFound, .disabledByToggle,
             .sessionDied(detail: "the CLI exited"),
         ] {
             XCTAssertEqual(
@@ -168,7 +168,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_anotherDocumentsFailureLeavesThisCockpitIdle() {
         XCTAssertEqual(
             ReviewRoundCockpit.phase(
-                runState: .failed(docId: "ch-2", failure: .timedOut, at: Date()),
+                runState: .failed(docId: "ch-2", failure: .timedOut(), at: Date()),
                 docId: "ch-1"),
             .idle,
             "a failure on ANOTHER document must leave this cockpit idle")
@@ -196,7 +196,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
                 + "Cancel the writer pressed themselves")
         }
         XCTAssertFalse(
-            CompilerRunFailure.timedOut.isTheWritersOwnDoing,
+            CompilerRunFailure.timedOut().isTheWritersOwnDoing,
             "\u{2026}and a timeout is not, which is why it reaches the strip")
     }
 
@@ -749,7 +749,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
 
         let failed = mountCockpit(
             activePassId: "copyedit", round: 2,
-            phase: .failed(.timedOut, at: Date()))
+            phase: .failed(.timedOut(), at: Date()))
         XCTAssertNil(findButton(labelled: ReviewRoundCockpit.cancelTitle, in: failed),
                      "a failed round has already ended \u{2014} the remedy is "
                      + "another round, not cancelling the one that is over")
@@ -807,10 +807,10 @@ final class ReviewRoundCockpitTests: XCTestCase {
         let report = "Since round 1: 2 resolved \u{00b7} 1 persisting \u{00b7} 3 new"
         let window = mountCockpit(
             activePassId: "copyedit", round: 2,
-            phase: .failed(.timedOut, at: Date()), reportLine: report)
+            phase: .failed(.timedOut(), at: Date()), reportLine: report)
 
         let labels = allLabels(in: window)
-        XCTAssertTrue(labels.contains(RoundNarrative.failureCopy(.timedOut)),
+        XCTAssertTrue(labels.contains(RoundNarrative.failureCopy(.timedOut())),
                       "premise: the failure is drawn \u{2014} got \(labels)")
         XCTAssertFalse(
             labels.contains(report),
@@ -1139,7 +1139,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// of itself.
     func test_everySurfaceReadsTheOneFailureSpelling() throws {
         XCTAssertFalse(
-            RoundNarrative.failureCopy(.timedOut).isEmpty,
+            RoundNarrative.failureCopy(.timedOut()).isEmpty,
             "premise: the shared spelling exists and answers")
 
         for path in Self.oneSpellingSurfaces {

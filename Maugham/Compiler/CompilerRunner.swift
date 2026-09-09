@@ -21,8 +21,10 @@ public enum CompilerRunFailure: Equatable, Sendable {
     /// The AI toggle is off. Checked before any spawn, on every send.
     case disabledByToggle
     /// The turn outran its budget. The session is torn down; the next send
-    /// starts fresh.
-    case timedOut
+    /// starts fresh. `Stall` says WHICH budget — the child went quiet, or the
+    /// ceiling passed while it was still speaking — because the two mean
+    /// different things to the writer (spec §2).
+    case timedOut(Stall = .unknown)
     /// The subprocess ended without producing a result, was cancelled, or
     /// could not be written to. `detail` says which.
     case sessionDied(detail: String)
@@ -44,6 +46,33 @@ extension CompilerRunFailure {
         static let cancelled = "cancelled"
         static let sessionShutDown = "session shut down"
         static let runInFlight = "a run is already in flight"
+    }
+
+    /// Why a turn was stopped by a timer, and how far it had got.
+    ///
+    /// `silence` is what "genuinely hung" means — the CLI wrote nothing for
+    /// `silenceTimeout`. `ceiling` is a child still speaking when the run's
+    /// hard bound passed. `thinkingTokens` is the CLI's own running estimate
+    /// at the moment of the stop (Task 3 fills it; `nil` until then and for
+    /// a runner that reports none).
+    public struct Stall: Equatable, Sendable {
+        public enum Cause: String, Equatable, Sendable {
+            case silence, ceiling
+        }
+        public let cause: Cause
+        public let after: TimeInterval
+        public let thinkingTokens: Int?
+
+        public init(cause: Cause, after: TimeInterval, thinkingTokens: Int? = nil) {
+            self.cause = cause
+            self.after = after
+            self.thinkingTokens = thinkingTokens
+        }
+
+        /// A stop with no account of itself — the default so a `.timedOut()`
+        /// built by a test or a legacy site still compiles and still says
+        /// "took too long".
+        public static let unknown = Stall(cause: .ceiling, after: 0)
     }
 
     /// Whether this failure is the writer's own action coming back at them.

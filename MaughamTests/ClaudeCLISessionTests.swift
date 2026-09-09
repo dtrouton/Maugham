@@ -61,6 +61,13 @@ final class ClaudeCLISessionTests: XCTestCase {
         /// pass for the wrong reason — the next send did work, but only after
         /// waiting out the stale process.
         case slowWhileFlagged
+        /// Keep TALKING for as long as the `slow` flag file exists — one
+        /// `system/thinking_tokens` progress line every 100 ms, the line the
+        /// real CLI emits while the model thinks (captured 2026-09-09) — and
+        /// answer once the flag lifts. A session that measures liveness by
+        /// silence must not kill this one; a session that measures it by wall
+        /// clock did (spec §2).
+        case chatterWhileFlagged
     }
 
     /// A main-actor box, so an escaping handler can record what it saw.
@@ -175,6 +182,14 @@ final class ClaudeCLISessionTests: XCTestCase {
               waited=$((waited+1))
             done
           fi
+          if [ "$MODE" = "chatterWhileFlagged" ]; then
+            waited=0
+            while [ -e "$FLAG" ] && [ "$waited" -lt \(maxStallSeconds * 10) ]; do
+              printf '%s\\n' '{"type":"system","subtype":"thinking_tokens","estimated_tokens":50,"estimated_tokens_delta":50,"session_id":"fake-session","uuid":"00000000-0000-0000-0000-000000000000"}'
+              sleep 0.1
+              waited=$((waited+1))
+            done
+          fi
           if [ "$MODE" = "streaming" ]; then
             printf '%s\\n' '\(Self.capturedThinkingStart)'
             printf '%s\\n' '\(Self.capturedThinkingDelta)'
@@ -206,6 +221,7 @@ final class ClaudeCLISessionTests: XCTestCase {
         confinement: ClaudeCLISession.Confinement? = nil,
         isEnabled: @escaping () -> Bool = { true },
         idleTimeout: TimeInterval = 600,
+        silenceTimeout: TimeInterval = 20,
         runTimeout: TimeInterval = 20,
         deathReapGrace: TimeInterval = ClaudeCLISession.defaultDeathReapGrace,
         locator: (@Sendable () -> URL?)? = nil
@@ -217,6 +233,7 @@ final class ClaudeCLISessionTests: XCTestCase {
             cliOverride: cli,
             isEnabled: isEnabled,
             idleTimeout: idleTimeout,
+            silenceTimeout: silenceTimeout,
             runTimeout: runTimeout,
             deathReapGrace: deathReapGrace,
             locator: locator ?? { nil })
@@ -520,31 +537,70 @@ final class ClaudeCLISessionTests: XCTestCase {
         session.shutdown()
     }
 
-    /// A turn that outruns its budget is reported as a timeout, not left
-    /// hanging.
-    /// The translation cast's budget is a named constant beside the compiler's,
-    /// so the number quoted in `AREA.md` has a home; it must stay above the
-    /// compiler's (the reason it exists) and finite (the reason a budget exists).
-    func test_theTranslationBudgetIsLongerThanTheCompilersAndStillBounded() {
-        XCTAssertEqual(ClaudeCLISession.translationRunTimeout, 900)
-        XCTAssertGreaterThan(ClaudeCLISession.translationRunTimeout,
-                             ClaudeCLISession.defaultRunTimeout)
-        XCTAssertLessThan(ClaudeCLISession.translationRunTimeout, 3600)
+    /// The two budgets are the spec's numbers (§2), and the translation cast's
+    /// separate 900 s constant is gone: one ceiling for every session type.
+    func test_theBudgetsAreTheSpecs() {
+        XCTAssertEqual(ClaudeCLISession.defaultSilenceTimeout, 180)
+        XCTAssertEqual(ClaudeCLISession.defaultRunTimeout, 1_200)
     }
 
-    func test_runTimeout() async throws {
+    /// A child that has stopped writing is what "hung" means: the silence
+    /// budget ends it, and the stall says so.
+    func test_silenceEndsATurnAndSaysSo() async throws {
         let cli = try makeFakeCLI(mode: .slowWhileFlagged)
         try Data().write(to: slowFlagURL)   // never lifted: the turn never lands
-        let session = makeSession(cli: cli, runTimeout: 0.4)
+        let session = makeSession(cli: cli, silenceTimeout: 0.4, runTimeout: 20)
 
         let started = Date()
         let event = await session.send(message: "slow", systemPreamble: nil)
         let elapsed = Date().timeIntervalSince(started)
 
-        XCTAssertEqual(event, .failed(.timedOut))
-        XCTAssertLessThan(elapsed, 4, "the timeout must fire well before the fixture answers")
+        guard case .failed(.timedOut(let stall)) = event else {
+            return XCTFail("expected a stall, got \(event)")
+        }
+        XCTAssertEqual(stall.cause, .silence)
+        XCTAssertGreaterThanOrEqual(stall.after, 0.4)
+        XCTAssertLessThan(elapsed, 4, "the silence budget must fire well before the fixture answers")
         XCTAssertFalse(session.isRunning)
+        session.shutdown()
+    }
 
+    /// A child still WRITING past the old per-turn budget is not hung. The
+    /// silence timer resets on every line — thinking-progress lines included,
+    /// which the classifier otherwise ignores — so the turn is allowed to
+    /// finish (spec §2: liveness, not wall clock).
+    func test_aChildStillWritingIsNotKilled() async throws {
+        let cli = try makeFakeCLI(mode: .chatterWhileFlagged)
+        try Data().write(to: slowFlagURL)
+        // A silence budget shorter than the chatter's total, a ceiling far off.
+        let session = makeSession(cli: cli, silenceTimeout: 0.5, runTimeout: 20)
+
+        let flag = slowFlagURL
+        Task.detached {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? FileManager.default.removeItem(at: flag)
+        }
+        let event = await session.send(message: "chatty", systemPreamble: nil)
+
+        XCTAssertEqual(event, .resultText("FAKE RESULT"),
+            "1.5 s of chatter against a 0.5 s silence budget must not be a stall")
+        session.shutdown()
+    }
+
+    /// The ceiling still bounds a child that never stops talking.
+    func test_theCeilingEndsAChildThatNeverStopsTalking() async throws {
+        let cli = try makeFakeCLI(mode: .chatterWhileFlagged)
+        try Data().write(to: slowFlagURL)   // never lifted
+        let session = makeSession(cli: cli, silenceTimeout: 5, runTimeout: 0.6)
+
+        let event = await session.send(message: "chatty", systemPreamble: nil)
+
+        guard case .failed(.timedOut(let stall)) = event else {
+            return XCTFail("expected a stall, got \(event)")
+        }
+        XCTAssertEqual(stall.cause, .ceiling)
+        XCTAssertGreaterThanOrEqual(stall.after, 0.6)
+        XCTAssertFalse(session.isRunning)
         session.shutdown()
     }
 

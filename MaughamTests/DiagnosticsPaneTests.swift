@@ -271,7 +271,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             .contains("Allow Claude to connect (MCP)"),
             "the copy must name the exact Settings toggle (General \u{2192} Claude integration), "
             + "not a paraphrase a writer cannot find")
-        XCTAssertFalse(RoundNarrative.failureCopy(.timedOut).isEmpty)
+        XCTAssertFalse(RoundNarrative.failureCopy(.timedOut()).isEmpty)
         XCTAssertTrue(RoundNarrative.failureCopy(.sessionDied(detail: "the CLI exited"))
             .contains("the CLI exited"))
         XCTAssertFalse(RoundNarrative.failureCopy(.unusableOutput).isEmpty)
@@ -578,7 +578,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         let runner = SpyRunner()
         // A failing turn leaves the delta marker exactly where it was, so
         // every run below has real prose to check and reaches `ensureRunner`.
-        runner.nextEvent = .failed(.timedOut)
+        runner.nextEvent = .failed(.timedOut())
 
         let orchestrator = CompilerOrchestrator()
         var environment = makeEnvironment(docId: docId, runner: runner)
@@ -1361,7 +1361,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                       "Author's Reread is a check; a round would have asked for a "
                       + "lane here and been refused \u{2014} got \(recorder.roundEditorAsks)")
 
-        runner.release(.failed(.timedOut))
+        runner.release(.failed(.timedOut()))
     }
 
     /// Every append the Reread press makes, in order. A reference box because
@@ -1410,7 +1410,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                        "a second read while one is under way starts nothing \u{2014} "
                        + "the button must say so rather than swallow the press")
 
-        runner.release(.failed(.timedOut))
+        runner.release(.failed(.timedOut()))
     }
 
     // MARK: - Drift (spec §4's last bullet, computed in Stage 3 by `DriftDetector`)
@@ -2561,7 +2561,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                       "a run that found nothing is over \u{2014} what stands is the last "
                       + "finished report, and it is answerable")
         XCTAssertTrue(DiagnosticsPane.offersDurableActions(
-            state: .failed(.timedOut, at: Date())),
+            state: .failed(.timedOut(), at: Date())),
                       "a run that died never replaced anything, so the previous run's "
                       + "notes must not be frozen behind it")
     }

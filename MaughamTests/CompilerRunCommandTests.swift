@@ -830,7 +830,7 @@ final class CompilerRunCommandTests: XCTestCase {
     /// the compiler never sees them again, and nothing on screen says so.
     func test_theMarkerAdvancesOnlyOnSuccess() throws {
         let runner = SpyRunner()
-        runner.nextEvent = .failed(.timedOut)
+        runner.nextEvent = .failed(.timedOut())
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
         harness.orchestrator.runRequested(docId: docId, kind: .check)
@@ -843,7 +843,7 @@ final class CompilerRunCommandTests: XCTestCase {
         else {
             return XCTFail("expected a reported failure, got \(harness.orchestrator.runState)")
         }
-        XCTAssertEqual(failure, .timedOut)
+        XCTAssertEqual(failure, .timedOut())
         XCTAssertEqual(stateDocId, docId,
             "the failure belongs to the document it was raised on — otherwise a "
             + "red line follows the writer to a document that never ran")

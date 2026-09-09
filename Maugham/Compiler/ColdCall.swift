@@ -121,8 +121,7 @@ final class ColdCall {
                 model: model,
                 confinement: .sealed,
                 cliOverride: nil,
-                isEnabled: { preferences?.mcpEnabled ?? false },
-                runTimeout: ClaudeCLISession.translationRunTimeout)
+                isEnabled: { preferences?.mcpEnabled ?? false })
         }
     }
 }
