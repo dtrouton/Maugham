@@ -1,6 +1,6 @@
 # Signed op log P2 — people and admission (labels only)
 
-**Date:** 2026-09-09 · **Status:** designed in discussion with Denver; three plans, each written after the one before is built (rule 11). **Parent spec:** `2026-09-05-signed-op-log-design.md` (§3 decisions, §4.2 registry, §4.4–4.7 states/admission/revocation/claim, §5 surfaces, §8 sequencing). **ADR:** [0032](../../adr/0032-the-signed-op-log.md), whose §8 names what P2 adds without a format change. **Built ground:** P1 (chain, seals, quarantine), P1b (four actors, `LocalIdentities`), the performance step (`OpLogDeviceState` records roots and prunes; `__project__` rotates).
+**Date:** 2026-09-09 · **Status:** designed in discussion with Denver; two plans, the second written after the first is built (rule 11). **Parent spec:** `2026-09-05-signed-op-log-design.md` (§3 decisions, §4.2 registry, §4.4–4.7 states/admission/revocation/claim, §5 surfaces, §8 sequencing). **ADR:** [0032](../../adr/0032-the-signed-op-log.md), whose §8 names what P2 adds without a format change. **Built ground:** P1 (chain, seals, quarantine), P1b (four actors, `LocalIdentities`), the performance step (`OpLogDeviceState` records roots and prunes; `__project__` rotates).
 
 ## 0. What this milestone is, in one paragraph
 
@@ -125,13 +125,14 @@ Admitting a device admits every actor key its device record lists, because they 
 
 Nothing new is written through MCP. `list_annotations` already resolves `author`. A `list_people` read is a widening for a later milestone if a use appears.
 
-## 8. Plans (rule 11: build each before writing the next)
+## 8. Plans (rule 11: build the first before writing the second; rule 12: ~10 tasks each)
 
-- **P2a — records, trust, pending.** D0, D2, D3′ as three small tasks; `RegistryRecord` types and canonical signing (`RegistryWriter`/`RegistryReader` in MaughamCore, software signers in tests); the cache; `TrustTable.resolve`/`classify` with every arm pinned windowlessly; `Line.State.pending`, the provenance counts, `OpLogStore` building its closure from the table (B3's `.noChain` arm first, so nothing regresses); the device record written at open on Mac and phone; History's pending line and the two audit lines that need no sheet (joined a chain, silently admitted — the second lands in P2b when memory exists, so P2a ships the first). Paired schema: the phone reads records through MaughamCore.
-- **P2b — the sheet, the memory, the pane.** The admission sheet and its windowless decision model; admission memory and silent admission; People & Devices; the phone's Settings row; the Inbox byline.
-- **P2c — revocation, retirement, the claim, the docs.** The three record mutations and their classifications; the claim sheet; Integrity's rows; ADR 0032's P2 section, the OpLog/Stores/Phone area guides, the History and Settings guides, the roadmap; tripwire rows for the two censuses.
+Two plans, not three (Denver, 2026-09-09: "does this plan really need to be split?" — the split is the task cap, not the milestone, which ships whole on one branch). Twenty-two tasks in one plan is past where a plan has failed before (M1C); two at the cap is the smallest split that keeps each under it.
 
-Release binds at the end of P2c as a paired Mac + phone release: the phone learns to read records in P2a and would otherwise be reading a registry it cannot verify.
+- **P2a — records, trust, pending.** D0, D2, D3′ as three small tasks; `RegistryRecord` types and canonical signing (`RegistryWriter`/`RegistryReader` in MaughamCore, software signers in tests); the cache; `TrustTable.resolve`/`classify` with every arm pinned windowlessly; `Line.State.pending`, the provenance counts, `OpLogStore` building its closure from the table (B3's `.noChain` arm first, so nothing regresses); the device record written at open on Mac and phone; History's pending line and the *joined a chain* audit line. Paired schema: the phone reads records through MaughamCore.
+- **P2b — everything the writer touches.** The admission sheet and its windowless decision model; admission memory and silent admission; People & Devices; the phone's Settings row; the Inbox byline; revocation, retirement and the claim (record mutations plus sheet arms, once P2b's machinery exists); Integrity's rows; ADR 0032's P2 section, the OpLog/Stores/Phone area guides, the History and Settings guides, the roadmap; tripwire rows for the two censuses.
+
+Release binds at the end of P2b as a paired Mac + phone release: the phone learns to read records in P2a and would otherwise be reading a registry it cannot verify.
 
 ## 9. Testing
 
