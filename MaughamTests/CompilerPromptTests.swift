@@ -2825,6 +2825,14 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertEqual(lines, ["Good Luck Babe Soundtrack (res-3) \u{2014} web link, not readable: https://music.apple.com/x"])
     }
 
+    /// A link asset that never got a URL says the fact and stops — a trailing
+    /// colon over nothing reads as a truncated line.
+    func test_aLinkWithNoURLDropsTheColon() {
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            shelf([researchPin("res-4", "Untitled Link")]), body: { _ in .link(url: "") })
+        XCTAssertEqual(lines, ["Untitled Link (res-4) \u{2014} web link, not readable"])
+    }
+
     /// **A note refused on its SIZE says so without a word count** — nothing
     /// was read, and inventing a number here is the one thing this line cannot
     /// honestly carry. Distinct from the over-the-cap line above it, which was
@@ -2854,15 +2862,26 @@ final class CompilerPromptTests: XCTestCase {
     /// **The budget is spent in the writer's own order**, so a shelf whose
     /// notes overrun it inlines the ones at the top rather than an arbitrary
     /// selection — and everything past it still says how to fetch it.
+    ///
+    /// **And a pin past the budget is never READ** (whole-branch review, minor
+    /// 4): the resolver hits the disk, and a shelf of forty notes used to read
+    /// all forty on the main actor at every ⌘R to word-count thirty of them.
+    /// A pin the budget cannot afford gets the bare fetch line, which is what
+    /// a pin with no body has always got — the word count is a courtesy, and
+    /// not one worth a file read apiece.
     func test_theInlineBudgetIsSpentInShelfOrder() {
-        let body = String(repeating: "x", count: 3_900)   // under the per-note cap
+        let body = String(repeating: "x", count: 4_000)   // exactly the per-note cap
         let pins = (1...12).map { researchPin("res-\($0)", "Note \($0)") }
+        var reads = 0
         let lines = CompilerOrchestrator.Environment.pinnedListingLines(
-            shelf(pins), body: { _ in .text(body) })
-        // 10 × 3,900 = 39,000 fits; the 11th would pass 40,000.
+            shelf(pins), body: { _ in reads += 1; return .text(body) })
+        // 10 × 4,000 = 40,000 spends the budget exactly; the 11th has nothing
+        // left to spend and is not read at all.
         XCTAssertEqual(lines.filter { $0.contains(":\n") }.count, 10)
-        XCTAssertTrue(lines[10].hasSuffix("fetch with read_document"))
-        XCTAssertTrue(lines[11].hasSuffix("fetch with read_document"))
+        XCTAssertEqual(lines[10], "Note 11 (res-11) \u{2014} read_document")
+        XCTAssertEqual(lines[11], "Note 12 (res-12) \u{2014} read_document")
+        XCTAssertEqual(reads, 10,
+            "the two pins past the budget must not be read to be word-counted")
     }
 
     // MARK: - The listing is part of the hashed unit

@@ -64,9 +64,11 @@ final class ClaudeCLISession: CompilerRunner {
     /// on a 457-paragraph screenplay died at the old 300 s per-turn budget
     /// while Opus was visibly streaming thinking at ~68 tokens/s — the timer
     /// killed a model that was working and threw away what it had paid for.
-    /// Every line the child writes resets this: a text, thinking or signature
-    /// delta, a `system/thinking_tokens` progress event, a `rate_limit_event`,
-    /// a line that is not JSON. Silence is what "genuinely hung" means. 180 s
+    /// Every line the child writes resets this, on stdout OR stderr: a text,
+    /// thinking or signature delta, a `system/thinking_tokens` progress
+    /// event, a `rate_limit_event`, a line that is not JSON — and a retry
+    /// backoff logged to stderr with stdout silent, which is a working child
+    /// and not a hung one. Silence is what "genuinely hung" means. 180 s
     /// covers an overloaded API's retry backoff and the gap between a tool
     /// result and the next request's first byte, with room.
     nonisolated static let defaultSilenceTimeout: TimeInterval = 180
@@ -430,9 +432,20 @@ final class ClaudeCLISession: CompilerRunner {
         // child's stderr closes, GCD reports the fd continuously readable, and
         // a handler that never unregisters itself spins that queue until
         // teardown happens to nil it.
+        //
+        // A line here is also LIVENESS (whole-branch review, minor 3): a CLI
+        // logging a retry backoff writes on stderr with stdout silent, and a
+        // watch that counted stdout alone would read that as a hang. Same
+        // discipline as `receive` — the hop to the main actor carries the
+        // frozen generation, so a line from a retired process cannot revive a
+        // turn that has moved on.
         let tail = StderrTail()
-        stderr.fileHandleForReading.readabilityHandler = { fh in
-            if tail.consume(from: fh) { fh.readabilityHandler = nil }
+        stderr.fileHandleForReading.readabilityHandler = { [weak self] fh in
+            if tail.consume(from: fh) {
+                fh.readabilityHandler = nil
+            } else {
+                Task { @MainActor in self?.noteActivity(generation: gen) }
+            }
         }
         // The SECOND death signal (issue #36): stdout's EOF and the child's
         // exit are independent deliveries with no ordering, and the EOF used to
@@ -524,7 +537,7 @@ final class ClaudeCLISession: CompilerRunner {
             "--tools", "",
             // REPLACES the coding-agent prompt rather than appending to it —
             // the preamble is the whole identity the model reads.
-            "--system-prompt", preamble?.isEmpty == false ? preamble! : defaultSystemPrompt,
+            "--system-prompt", (preamble?.isEmpty == false ? preamble : nil) ?? defaultSystemPrompt,
         ]
         if case .bridged = confinement {
             args += CompilerAllowlist.cliArguments()
@@ -705,6 +718,17 @@ final class ClaudeCLISession: CompilerRunner {
                 for line in lines { session?.receive(line: line, generation: gen) }
             }
         }
+    }
+
+    /// **The child wrote something, and that is all this says.** The stderr
+    /// drain has no line to classify and no turn to advance — only the fact
+    /// that the process is still working, which is what the silence budget
+    /// measures. Behind `receive`'s two guards for `receive`'s reasons: a
+    /// retired process's enqueued bytes must not keep a live turn's watch
+    /// awake, and there is no turn to keep awake when none is in flight.
+    private func noteActivity(generation gen: Int) {
+        guard gen == generation, inFlight != nil else { return }
+        lastActivityAt = Date()
     }
 
     private func receive(line: String, generation gen: Int) {
@@ -1000,10 +1024,10 @@ final class ClaudeCLISession: CompilerRunner {
     /// gone quiet); ending it means ending the process. The next send respawns.
     private func stall(token: Int, cause: CompilerRunFailure.Stall.Cause, after: TimeInterval) {
         guard token == runToken, inFlight != nil else { return }
-        let stall = CompilerRunFailure.Stall(
+        let reason = CompilerRunFailure.Stall(
             cause: cause, after: after, thinkingTokens: latestThinkingEstimate)
         teardown()
-        resolve(.failed(.timedOut(stall)), token: token)
+        resolve(.failed(.timedOut(reason)), token: token)
     }
 
     private func armIdleTimer() {

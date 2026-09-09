@@ -68,6 +68,11 @@ final class ClaudeCLISessionTests: XCTestCase {
         /// silence must not kill this one; a session that measures it by wall
         /// clock did (spec §2).
         case chatterWhileFlagged
+        /// Keep talking on STDERR — one line every 100 ms while the `slow` flag
+        /// exists, stdout silent throughout — and answer once it lifts. A real
+        /// CLI logging a retry backoff does exactly this, and a session that
+        /// counted only stdout as liveness called it a stall.
+        case stderrChatterWhileFlagged
         /// Emit the thinking-progress event and answer with the TIMED result
         /// line — the 2026-09-09 capture — so the session's `RunTiming` is
         /// read off a real shape.
@@ -200,6 +205,14 @@ final class ClaudeCLISessionTests: XCTestCase {
             waited=0
             while [ -e "$FLAG" ] && [ "$waited" -lt \(maxStallSeconds * 10) ]; do
               printf '%s\\n' '{"type":"system","subtype":"thinking_tokens","estimated_tokens":50,"estimated_tokens_delta":50,"session_id":"fake-session","uuid":"00000000-0000-0000-0000-000000000000"}'
+              sleep 0.1
+              waited=$((waited+1))
+            done
+          fi
+          if [ "$MODE" = "stderrChatterWhileFlagged" ]; then
+            waited=0
+            while [ -e "$FLAG" ] && [ "$waited" -lt \(maxStallSeconds * 10) ]; do
+              echo "retrying in 1s (attempt $waited)" >&2
               sleep 0.1
               waited=$((waited+1))
             done
@@ -565,6 +578,12 @@ final class ClaudeCLISessionTests: XCTestCase {
 
     /// A child that has stopped writing is what "hung" means: the silence
     /// budget ends it, and the stall says so.
+    ///
+    /// **Margin**: the fixture never answers at all, so the only clock this
+    /// test races is its own upper bound — 6 s against a 0.4 s budget, ~15×.
+    /// The gate runs seven XCTest workers in parallel (CLAUDE.md's build
+    /// flow), and a spawn scheduled behind six other hosts is the confounder
+    /// that makes a tight bound fail in-suite and pass in isolation.
     func test_silenceEndsATurnAndSaysSo() async throws {
         let cli = try makeFakeCLI(mode: .slowWhileFlagged)
         try Data().write(to: slowFlagURL)   // never lifted: the turn never lands
@@ -579,7 +598,10 @@ final class ClaudeCLISessionTests: XCTestCase {
         }
         XCTAssertEqual(stall.cause, .silence)
         XCTAssertGreaterThanOrEqual(stall.after, 0.4)
-        XCTAssertLessThan(elapsed, 4, "the silence budget must fire well before the fixture answers")
+        XCTAssertLessThan(elapsed, 6,
+            "the silence budget must fire well before the fixture answers \u{2014} and the "
+            + "bound is loose enough that a spawn queued behind six other workers is not a "
+            + "failure")
         XCTAssertFalse(session.isRunning)
         session.shutdown()
     }
@@ -588,29 +610,72 @@ final class ClaudeCLISessionTests: XCTestCase {
     /// silence timer resets on every line — thinking-progress lines included,
     /// which the classifier otherwise ignores — so the turn is allowed to
     /// finish (spec §2: liveness, not wall clock).
+    ///
+    /// **Margin**: the fixture writes a line every 0.1 s against a 1.5 s
+    /// silence budget, so fourteen consecutive lines would have to be lost to
+    /// scheduling before this stalls — 15×. The gate runs seven XCTest
+    /// workers in parallel (CLAUDE.md's build flow) and every one of them can
+    /// hold the CPU while this fixture's `sleep` loop waits, which is exactly
+    /// the in-suite/in-isolation confounder a 5× margin would surface as a
+    /// mystery flake.
     func test_aChildStillWritingIsNotKilled() async throws {
         let cli = try makeFakeCLI(mode: .chatterWhileFlagged)
         try Data().write(to: slowFlagURL)
         // A silence budget shorter than the chatter's total, a ceiling far off.
-        let session = makeSession(cli: cli, silenceTimeout: 0.5, runTimeout: 20)
+        let session = makeSession(cli: cli, silenceTimeout: 1.5, runTimeout: 20)
 
         let flag = slowFlagURL
         Task.detached {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
             try? FileManager.default.removeItem(at: flag)
         }
         let event = await session.send(message: "chatty", systemPreamble: nil)
 
         XCTAssertEqual(event, .resultText("FAKE RESULT"),
-            "1.5 s of chatter against a 0.5 s silence budget must not be a stall")
+            "3 s of chatter at 0.1 s a line against a 1.5 s silence budget must not be a stall")
+        session.shutdown()
+    }
+
+    /// **Stderr is liveness too.** A CLI logging a retry backoff writes on
+    /// stderr with stdout silent — the writer's read is progressing, and a
+    /// watch that counted only stdout would kill it. The stderr drain, which
+    /// exists to keep the pipe from wedging, therefore says the child is
+    /// alive on the same discipline the stdout reader uses.
+    ///
+    /// **Margin**: a line every 0.1 s against a 1.5 s budget, for 3 s — the
+    /// same 15× as `test_aChildStillWritingIsNotKilled`, and for the same
+    /// reason (CLAUDE.md's seven parallel XCTest workers).
+    func test_stderrCountsAsLiveness() async throws {
+        let cli = try makeFakeCLI(mode: .stderrChatterWhileFlagged)
+        try Data().write(to: slowFlagURL)
+        let session = makeSession(cli: cli, silenceTimeout: 1.5, runTimeout: 20)
+
+        let flag = slowFlagURL
+        Task.detached {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? FileManager.default.removeItem(at: flag)
+        }
+        let event = await session.send(message: "noisy on stderr", systemPreamble: nil)
+
+        XCTAssertEqual(event, .resultText("FAKE RESULT"),
+            "3 s of stderr at 0.1 s a line, stdout silent, must not read as a stall")
         session.shutdown()
     }
 
     /// The ceiling still bounds a child that never stops talking.
+    ///
+    /// **Margin**: the two budgets have to stay apart under load, and it is
+    /// their RATIO that decides which one fires — a 1.5 s ceiling under a
+    /// 10 s silence budget is 6.7×, so the ceiling wins even if the fixture's
+    /// 0.1 s lines arrive a hundredfold late. Under seven parallel XCTest
+    /// workers (CLAUDE.md's build flow) the old 0.6 s / 5 s pair left only
+    /// 8× and no headroom for a starved spawn; the chatter also has to get
+    /// its first line out before the ceiling, which 1.5 s affords and 0.6 s
+    /// barely did.
     func test_theCeilingEndsAChildThatNeverStopsTalking() async throws {
         let cli = try makeFakeCLI(mode: .chatterWhileFlagged)
         try Data().write(to: slowFlagURL)   // never lifted
-        let session = makeSession(cli: cli, silenceTimeout: 5, runTimeout: 0.6)
+        let session = makeSession(cli: cli, silenceTimeout: 10, runTimeout: 1.5)
 
         let event = await session.send(message: "chatty", systemPreamble: nil)
 
@@ -618,7 +683,7 @@ final class ClaudeCLISessionTests: XCTestCase {
             return XCTFail("expected a stall, got \(event)")
         }
         XCTAssertEqual(stall.cause, .ceiling)
-        XCTAssertGreaterThanOrEqual(stall.after, 0.6)
+        XCTAssertGreaterThanOrEqual(stall.after, 1.5)
         XCTAssertFalse(session.isRunning)
         session.shutdown()
     }
@@ -1264,10 +1329,16 @@ final class ClaudeCLISessionTests: XCTestCase {
 
     /// A stall carries the last estimate the session saw, so the sentence can
     /// say how far the read had got.
+    ///
+    /// **Margin**: the same 1.5 s ceiling under a 10 s silence budget as
+    /// `test_theCeilingEndsAChildThatNeverStopsTalking`, and for the same
+    /// reason — 6.7× between the two budgets, and time enough for the
+    /// chatter's first line (which is what carries the estimate this test is
+    /// about) to arrive on a machine running seven XCTest workers at once.
     func test_aStallCarriesTheThinkingEstimate() async throws {
         let cli = try makeFakeCLI(mode: .chatterWhileFlagged)
         try Data().write(to: slowFlagURL)   // never lifted
-        let session = makeSession(cli: cli, silenceTimeout: 5, runTimeout: 0.6)
+        let session = makeSession(cli: cli, silenceTimeout: 10, runTimeout: 1.5)
         let event = await session.send(message: "chatty", systemPreamble: nil)
         guard case .failed(.timedOut(let stall)) = event else {
             return XCTFail("expected a stall, got \(event)")

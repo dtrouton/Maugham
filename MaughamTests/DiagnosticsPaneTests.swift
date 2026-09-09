@@ -193,6 +193,25 @@ final class DiagnosticsPaneTests: XCTestCase {
             .hasSuffix(" \u{00b7} read in 4m 12s"))
     }
 
+    /// **The clean header says it too**, and this is the arm that matters most
+    /// for a first reader: she raises no conformance strain, so every check of
+    /// hers leaves this pane `.clean` and the `.idle` line above is never
+    /// reached. The suffix sits inside the sentence, before the full stop,
+    /// because the sentence is what the writer reads.
+    func test_theCleanHeaderCarriesReadIn() throws {
+        var run = makeRun()
+        let untimed = DiagnosticsPane.headerCopy(for: .clean(lastRun: run))
+        XCTAssertTrue(untimed.hasPrefix("Nothing to flag. Last checked "), untimed)
+        XCTAssertFalse(untimed.contains("read in"),
+                       "a run filed before timing existed says what it always did: \(untimed)")
+
+        run.timing = RunTiming(elapsed: 252, model: "opus", effort: "high")
+        let timed = DiagnosticsPane.headerCopy(for: .clean(lastRun: run))
+        XCTAssertEqual(timed,
+                       String(untimed.dropLast()) + " \u{00b7} read in 4m 12s.",
+                       "the suffix belongs inside the sentence, before the full stop")
+    }
+
     // MARK: - The legible wait (requirement 5)
 
     /// **A two-minute "Checking…" reads as a hang.** The running header names

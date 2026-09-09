@@ -967,7 +967,15 @@ struct DiagnosticsPane: View {
             case .showing, .settled:
                 opening = "Nothing to flag"
             }
-            let line = "\(opening). Last checked \(relative(run.at))."
+            // **What it cost, on this arm too** (spec 2026-09-09 §5, and the
+            // whole-branch review). A first reader raises no conformance
+            // strain, so every check of hers lands here rather than on
+            // `.idle` — a "read in" that only the `.idle` arm carried was a
+            // clause the reader who most needs it never saw. Inside the
+            // sentence, before the full stop, because the sentence is the
+            // unit the writer reads.
+            let line = "\(opening). Last checked \(relative(run.at))"
+                + RoundNarrative.readInSuffix(run.timing) + "."
             // Appended rather than interleaved: the standing sentence is the
             // one the writer reads at a glance, and this is the footnote to it.
             guard let discarded = discardedNotesSentence(run.droppedDangling) else {

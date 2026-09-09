@@ -542,6 +542,10 @@ extension CompilerOrchestrator.Environment {
             let words = trimmed.split { $0.isWhitespace || $0.isNewline }.count
             return "\(base) — \(RoundNarrative.thousands(words)) words, fetch with read_document"
         case (.research, .link(let url)):
+            // An empty URL is a research item that never got one. The trailing
+            // colon would promise an address and then show none, which reads
+            // as a truncation rather than a fact about the item.
+            guard !url.isEmpty else { return "\(base) — web link, not readable" }
             return "\(base) — web link, not readable: \(url)"
         case (.research, .unreadable):
             return "\(base) — title only"
@@ -578,12 +582,12 @@ extension CompilerOrchestrator.Environment {
     static let inlineBodyCap = 4_000
     /// A file larger than this is never read to find out it is too long.
     ///
-    /// Sixteen times the cap, in BYTES against a cap in CHARACTERS, so no
-    /// note that would have been inlined can be refused here: UTF-8 spends at
-    /// most four bytes on a scalar, and this leaves four times that headroom
-    /// again. What it stops is the other end — a pinned multi-megabyte file
-    /// read whole on the main actor at every ⌘R, only to be rejected by the
-    /// cap one line later.
+    /// About sixteen times the cap (16.4×), in BYTES against a cap in
+    /// CHARACTERS, so no note that would have been inlined can be refused
+    /// here: UTF-8 spends at most four bytes on a scalar, and this leaves
+    /// four times that headroom again. What it stops is the other end — a
+    /// pinned multi-megabyte file read whole on the main actor at every ⌘R,
+    /// only to be rejected by the cap one line later.
     static let inlineReadCeilingBytes = 65_536
     /// A briefing inlines at most this many characters of notes, in shelf
     /// order.
@@ -686,7 +690,24 @@ extension CompilerOrchestrator.Environment {
             // nothing is the same defect `PinnedShelf`'s own assembly drops.
             if let title = section.title { out.append("## \(title)") }
             for pin in taken {
-                out.append(pinnedListingLine(pin, body: body(pin), spent: &spent))
+                // **Spent means spent — don't read what cannot be inlined**
+                // (whole-branch review, minor 4). `body` goes to disk, and a
+                // shelf of forty notes read all forty on the main actor at
+                // every ⌘R just to word-count the ones the budget had already
+                // refused. Past the budget a `.research` pin gets the bare
+                // fetch line, which is the line a pin with no body has always
+                // got; the word count is a courtesy, not one worth a file read
+                // apiece. Only `.research` reads a body at all — the other
+                // kinds ignore it — so the guard is theirs alone. Exact and
+                // not conservative: a pin the REMAINING budget cannot fit is
+                // still read once, because a shorter note behind it may fit,
+                // and refusing on "less than a note's cap remains" would cost
+                // the writer material that would have travelled.
+                if case .research = pin.kind, spent >= inlineBudget {
+                    out.append(pinnedListingLine(pin, body: nil, spent: &spent))
+                } else {
+                    out.append(pinnedListingLine(pin, body: body(pin), spent: &spent))
+                }
             }
             emitted += taken.count
         }
