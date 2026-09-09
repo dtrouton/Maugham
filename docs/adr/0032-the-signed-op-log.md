@@ -116,7 +116,15 @@ the chain rules alone. `OpLogDeviceState` is the extra fact only this device
 has — the head it last wrote into each file, keyed
 `<SHA-256 of the project root path>/<filename>`, persisted beside the key
 material in `op-log-state.json`. Anything after that head arrived from
-somewhere else, however well it chains.
+somewhere else, however well it chains. Each entry also records the project
+ROOT beside its head, because the key hashes that path and cannot be read
+backwards, and an entry whose recorded root no longer has a `.maugham` child is
+pruned at load while one with no recorded root is kept until its next `remember`
+records one (2026-09-09, the P1 handoff's decision #3). What was NOT done there
+is coalescing the persists: the head is remembered before the batch is written,
+and deferring that write would turn a crash into a set-aside of the writer's own
+words rather than the adopt case. It is already one persist per batch, not one
+per line.
 
 Two orderings are load-bearing. The head is **remembered before the line is
 written**: a crash between them leaves a remembered head no line hashes to,
@@ -187,7 +195,9 @@ is the one verb, and enclave signing (~4.5 ms) never runs in a loop:
 - at `Document.close()`, and over every doc this Mac has written at project
   open, from `DocumentStore` — in both cases **before `sealTailIfNeeded`**, so
   a rotated `.mzseg` ends on a seal line and its whole span is verified inside
-  the container;
+  the container. That open sweep also takes the project stream, which rotates at
+  the same threshold as every other tail and has no other boundary to rotate at
+  (2026-09-09);
 - after **every** append on the phone (`AnnotationWriter`) and for every inbox
   capture on both surfaces, because those are rare lifecycle acts rather than a
   keystroke stream.
@@ -358,11 +368,14 @@ it asks for a signature. Rotation follows the same rule as of this addendum:
 `sealTailIfNeeded` once per local identity rather than for the author alone, so
 a long MCP session's assistant tail becomes a `.mzseg` segment at the same
 512 KB threshold the writer's does. This supersedes the first spelling of §5 in
-this ADR's area guide, which said rotation was the author's tail alone. Two
-scope rules are unchanged and now matter more: rotation is never `__project__`,
-never the legacy unsuffixed file, and **never another device's** — the loop is
-over this device's own identities, so a document loaded under a device string
-that names no local actor rotates nothing. The sidecar carries the key of the
+this ADR's area guide, which said rotation was the author's tail alone. The
+scope rules that survive this addendum, and now matter more: rotation is never
+the legacy unsuffixed file, and **never another device's** — the loop is over
+this device's own identities, so a document loaded under a device string that
+names no local actor rotates nothing. `__project__` was a third such exclusion
+when this addendum was written and is one no longer: since 2026-09-09 it rotates
+at the same 512 KB, at the open sweep alone, which names it by hand and takes it
+last (the Consequences say why). The sidecar carries the key of the
 actor whose slug the segment is named for, and a slug naming no local actor
 gets no signature at all.
 
@@ -437,27 +450,49 @@ re-keys all four. P2's registry admits a person, a device **and an actor**.
   `JSONLAppendStore.parse` — the one parser every reader shares (tails,
   decompressed segments, the inbox) — so no reader can hand a seal to an
   element decoder and then report the file as damaged.
-- **Verification costs a rounding error against parsing — and the plan's
-  100 ms-at-50k budget was not met as a headline number.** The first measurement
-  of a 50,000-line cold open added about 450 ms end to end, against a stated
-  budget of 100 ms; the hex fix took the chain's own work down to 55-83 ms on
-  that fixture, after which the end-to-end delta sits inside the parse's own
-  noise. What is claimed here is what was measured, never that the budget was
-  met: the tail walk and its signature checks are tens of milliseconds against
-  seconds of `JSONDecoder`, and that fixture's tail is eight times the size
-  `segmentSealThreshold` lets a real one reach. **Whether the budget should be
-  restated against a realistic per-document op count is Denver's decision, not
-  the implementer's, and it is open** (the handoff's Decisions owed). Two things
-  keep the cost where it is: `Hex` is table-driven (the obvious
-  `String(format: "%02x")` spelling cost 107 ms of a 109 ms `lineHash` total on
-  that fixture), and the settled-segment branch counts lines rather than
-  splitting them. See `Maugham/OpLog/AREA.md`.
-- **The project stream is signed but never rotated, and its tail has no
-  ceiling.** `__project__` seals like any other stream now that `ProjectStore`
-  holds one `OpLogStore` for its lifetime, but `sealTailIfNeeded` still refuses
-  it, so the file grows without limit and the chained append's verify cost grows
-  with it. That is a pre-existing growth with a new cost attached, and it is
-  recorded rather than fixed.
+- **Verification costs a rounding error against parsing, and the budget — as
+  Denver restated it on 2026-09-09 — is met.** The budget is no longer an
+  end-to-end subtraction, which cannot be measured on this box: it is the
+  chain's own cost, read directly by the fixture, in two figures. The walk over
+  a realistic tail (≤ 512 KB, some 600 lines) is to stay under **20 ms**, and
+  the walk over the fixture's 8×-oversized 6,250-line tail under **100 ms**.
+  Measured on a quiet machine at `4543b1a4`, best of three runs each, the
+  50,000-line fixture (42 MB, seven signed segments plus that tail):
+
+  | quantity | before | after |
+  |---|---|---|
+  | cold verified load (empty state) | 5934.2 ms | 514.6 ms |
+  | warm verified load (state warm) | 5918.7 ms | 503.1 ms |
+  | control (parse only, no verify) | 5832.0 ms | 421.5 ms |
+  | chain walk over the live tail | 48.9 ms | 33.9 ms |
+  | seven sidecar reads + signature checks | 1.7 ms | 0.8 ms |
+
+  Against those numbers the oversized-tail figure holds as **measured** —
+  33.9 ms against 100 ms — and the realistic-tail figure holds as **derived**:
+  the fixture only ever walks its own tail, and a real one is a tenth of it, so
+  the ≈ 3.4 ms quoted is the measured walk divided by ten, not a measurement of
+  its own. The three end-to-end columns fell by about 91% because the DATE parse
+  changed (`ISO8601Fast`, a hand parser for the two shapes this app writes, the
+  formatter still behind it), not because verification got cheaper; the load was
+  parsing and still is. What keeps the cost where it is, and must not be undone:
+  `Hex` is table-driven (the obvious `String(format: "%02x")` spelling cost
+  107 ms of a 109 ms `lineHash` total on that fixture), the settled-segment
+  branch counts lines rather than splitting them, `prev(ofLine:)` reads the
+  fixed `{"prev":"<64 hex>"` prefix by bytes, no date decode allocates a
+  formatter, and the head persist is not coalesced (§3's crash window). Full
+  tables in `docs/superpowers/notes/2026-09-09-perf-step-measurements.md`; the
+  whole must-not-undo list with its reasons — count it there, not here — in
+  `Maugham/OpLog/AREA.md`'s "Where the time goes".
+- **The project stream is signed AND rotated, at the same 512 KB as every other
+  tail** (Denver, 2026-09-09; one constant, `OpLogStore.segmentSealThreshold`,
+  not two). `__project__` seals like any other stream now that `ProjectStore`
+  holds one `OpLogStore` for its lifetime, and `sealTailIfNeeded` no longer
+  refuses it. The open sweep in `DocumentStore.open` is its ONE boundary,
+  because a document rotates at close and the project stream has no close; the
+  sweep names it by hand and takes it last, since the manuscript-id reader
+  `docIds(inOpsDirectoryFilenames:)` excludes it by contract. The residue: a
+  session appending more than 512 KB of task ops (some 2,500 of them) carries
+  the excess until the next open, which is accepted rather than fixed.
 - **A check is not a load.** `ProjectIntegrity.check` classifies with no key and
   no remembered head, so its reading of a file is strictly weaker than the
   load's — it cannot see an after-remembered-head break at all — and it

@@ -48,6 +48,12 @@ public final class OpLogDeviceState: @unchecked Sendable {
         /// remembered head no line carries and a file whose own head is this.
         var previousHeads: [String: String] = [:]
         var verifiedSegments: Set<String> = []
+        /// The project each head's hash was taken over: the hash half of a
+        /// `fileKey` to the root's path. It is what makes an entry ATTRIBUTABLE,
+        /// and so prunable — the key alone is a hash and names nothing that can
+        /// be looked for on disk. Absent for every entry written before this
+        /// field, which is why a head with no record here is kept.
+        var roots: [String: String] = [:]
 
         init() {}
 
@@ -59,6 +65,7 @@ public final class OpLogDeviceState: @unchecked Sendable {
                 [String: String].self, forKey: .previousHeads) ?? [:]
             verifiedSegments = try container.decodeIfPresent(
                 Set<String>.self, forKey: .verifiedSegments) ?? []
+            roots = try container.decodeIfPresent([String: String].self, forKey: .roots) ?? [:]
         }
     }
 
@@ -67,6 +74,16 @@ public final class OpLogDeviceState: @unchecked Sendable {
     public let identity: String
     private let lock = NSLock()
     private var stored: Stored
+    private var persists = 0
+    /// How many times the file has been rewritten. The performance step pins it
+    /// (`OpLogDeviceStateTests.test_aBatchPersistsOnce`): one write per
+    /// `remember`, one per `markVerified`, and an append is one `remember` for
+    /// the whole batch. Read under the lock, like everything else here.
+    internal var persistCountForTesting: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return persists
+    }
 
     /// Loads whatever is at `fileURL` **and belongs to `identity`**, or starts
     /// empty. An unreadable or undecodable file starts empty rather than
@@ -91,6 +108,7 @@ public final class OpLogDeviceState: @unchecked Sendable {
         let decoded = bytes.flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
         if let decoded, decoded.identity == identity {
             self.stored = decoded
+            if Self.prune(&self.stored) { persistLocked() }
             return
         }
         var fresh = Stored()
@@ -132,9 +150,17 @@ public final class OpLogDeviceState: @unchecked Sendable {
     ///
     /// The persist is inside the lock so two threads cannot interleave a
     /// mutation and a write and leave the file describing neither state.
-    public func remember(head: String?, for fileKey: String) {
+    /// `root` is the project the key's hash was taken over, recorded so the
+    /// entry can be pruned when that project is gone. Nil records nothing and
+    /// leaves any existing record alone: a head nothing can attribute is a head
+    /// nothing may delete. Forgetting (`head == nil`) keeps the record too —
+    /// the project's other op-log files are still keyed on the same hash.
+    public func remember(head: String?, for fileKey: String, root: URL? = nil) {
         lock.lock()
         defer { lock.unlock() }
+        if let root {
+            stored.roots[Self.scopeHash(ofKey: fileKey)] = root.standardizedFileURL.path
+        }
         if let head {
             if let outgoing = stored.heads[fileKey], outgoing != head {
                 stored.previousHeads[fileKey] = outgoing
@@ -173,24 +199,74 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// directories never collide.
     public nonisolated static func fileKey(_ url: URL) -> String {
         let standardized = url.standardizedFileURL
-        var directory = standardized.deletingLastPathComponent()
-        var root: URL?
+        let scope = (projectRoot(of: url) ?? standardized.deletingLastPathComponent()).path
+        return "\(hex(SHA256.hash(data: Data(scope.utf8))))/\(standardized.lastPathComponent)"
+    }
+
+    /// The project `fileKey` scopes this file to: the nearest ancestor
+    /// directory with a `.maugham` child, or nil for a file outside a project.
+    ///
+    /// Exists as a function of its own because the load path has a URL and no
+    /// project handle, and the root it records beside a head must be the very
+    /// directory the key's hash was taken over — two spellings of "the project
+    /// this file is in" would prune entries the key does not name.
+    nonisolated static func projectRoot(of url: URL) -> URL? {
+        var directory = url.standardizedFileURL.deletingLastPathComponent()
         while directory.path != "/" && !directory.path.isEmpty {
             let candidate = directory.appendingPathComponent(".maugham")
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                root = directory
-                break
-            }
+            if FileManager.default.fileExists(atPath: candidate.path) { return directory }
             let parent = directory.deletingLastPathComponent()
-            if parent.path == directory.path { break }
+            if parent.path == directory.path { return nil }
             directory = parent
         }
-        let scope = (root ?? standardized.deletingLastPathComponent()).path
-        return "\(hex(SHA256.hash(data: Data(scope.utf8))))/\(standardized.lastPathComponent)"
+        return nil
     }
 
     private nonisolated static func hex(_ digest: SHA256Digest) -> String {
         Hex.encode(digest)
+    }
+
+    // MARK: - Pruning
+
+    /// The hash half of a `fileKey` — everything before the first `/`. One
+    /// project, one hash, however many op-log files it holds.
+    private nonisolated static func scopeHash(ofKey fileKey: String) -> String {
+        String(fileKey.prefix { $0 != "/" })
+    }
+
+    /// Drops every head whose recorded project is no longer on disk, and
+    /// answers whether anything went.
+    ///
+    /// Without it the memory only grows: a head per op-log file per project
+    /// ever opened, in one file read on every load. The test is the narrowest
+    /// one that answers the question asked — is the recorded root still
+    /// there — and NOT whether it still has a `.maugham` child. The wider test
+    /// reads every condition that makes one directory read fail (a folder
+    /// outside an active security scope on iOS, a permissions or ownership
+    /// change on the Mac) as a deleted project, and drops every head for it
+    /// silently: the adopt path logs nothing, so the loss would never be
+    /// reported. A root that is present but has lost its `.maugham` has no
+    /// lines for those heads to protect, so keeping them costs nothing.
+    ///
+    /// An entry pruned by mistake is still the ADOPT case, the same fall-back a
+    /// moved project already takes — the safe direction — but the narrower
+    /// predicate reaches for it far less often.
+    ///
+    /// `verifiedSegments` is untouched — a segment digest is a hash of bytes
+    /// and belongs to no project — and so is any head whose hash has no
+    /// recorded root, which is every head written before this field existed.
+    private nonisolated static func prune(_ stored: inout Stored) -> Bool {
+        let dead = stored.roots.filter { _, path in
+            !FileManager.default.fileExists(atPath: path)
+        }
+        guard !dead.isEmpty else { return false }
+        let hashes = Set(dead.keys)
+        stored.heads = stored.heads.filter { !hashes.contains(scopeHash(ofKey: $0.key)) }
+        stored.previousHeads = stored.previousHeads.filter {
+            !hashes.contains(scopeHash(ofKey: $0.key))
+        }
+        for hash in hashes { stored.roots.removeValue(forKey: hash) }
+        return true
     }
 
     // MARK: - Persistence
@@ -198,6 +274,7 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// Call with `lock` held. Atomic, so a crash mid-write leaves the previous
     /// memory rather than a truncated one.
     private func persistLocked() {
+        persists += 1
         do {
             try DeviceState.ensureDirectory(fileURL.deletingLastPathComponent())
             try JSONEncoder().encode(stored).write(to: fileURL, options: .atomic)

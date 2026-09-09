@@ -53,8 +53,13 @@ final class OpLogStoreSegmentTests: XCTestCase {
         XCTAssertEqual(OpLogStore.docId(fromOpLogFilename: url.lastPathComponent), docId)
         XCTAssertEqual(OpLogStore.segmentIndex(
             fromFilename: url.lastPathComponent, docId: docId, deviceSlug: .unsafeForTesting("maca")), 3)
+        // The synthetic project stream ROTATES since 2026-09-09, so segments
+        // with this name really exist on disk now — and the manuscript-id
+        // reader still has to leave them out, because that is what keeps the
+        // stream out of every caller that asks for the project's documents
+        // (the open sweep names it separately, by hand).
         XCTAssertNil(OpLogStore.docId(fromOpLogFilename: "__project__.maca.seg0001.mzseg"),
-                     "__project__ stays excluded")
+                     "__project__ stays excluded, segment or tail")
         XCTAssertNil(OpLogStore.segmentIndex(
             fromFilename: "doc-seg1.OTHER.seg0001.mzseg", docId: docId, deviceSlug: .unsafeForTesting("maca")),
             "another device's segment is not ours")

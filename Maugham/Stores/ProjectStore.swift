@@ -284,9 +284,10 @@ public final class ProjectStore {
     /// cadence rather than a fact. `appendProjectTaskOp` used to construct a
     /// fresh store per append, so the counter started empty every time and
     /// `__project__.jsonl` was the one op log nothing ever sealed: chained
-    /// forever, re-verified in full before every write, growing without limit
-    /// because segment rotation refuses it too (`sealTailIfNeeded`, a recorded
-    /// Denver decision). Holding one store makes the interval trigger work.
+    /// forever, and re-verified in full before every write. Holding one store
+    /// makes the interval trigger work. (Its growth is bounded separately —
+    /// the tail rotates into a segment at `segmentSealThreshold` like every
+    /// other tail, swept at project open; see `DocumentStore.open`.)
     /// `@ObservationIgnored`: a lifecycle handle, never a rendered dependency.
     @ObservationIgnored internal var _projectOpLogStore: OpLogStore?
 

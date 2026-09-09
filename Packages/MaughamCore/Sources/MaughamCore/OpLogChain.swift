@@ -170,7 +170,13 @@ public enum OpLogChain {
     /// is not a JSON object we can read at all, the inner `nil` means it is an
     /// object whose first key is not `prev`. Both are unchained to the walk;
     /// the distinction is for callers that want to say which.
+    ///
+    /// `fastPrev` answers the one shape Maugham writes without accumulating a
+    /// byte; everything else falls through to the reader below, whose answers
+    /// are the contract (`OpLogChainTests.test_prevAnswersWhatTheTextualReaderAnsweredForEveryShape`).
     public nonisolated static func prev(ofLine line: Data) -> String?? {
+        if let fast = fastPrev(ofLine: line) { return .some(fast) }
+
         var index = line.startIndex
         func skipWhitespace() {
             while index < line.endIndex, isWhitespace(line[index]) { index = line.index(after: index) }
@@ -219,6 +225,44 @@ public enum OpLogChain {
             return .none
         }
         return .some(text)
+    }
+
+    /// The one shape this app writes: the exact nine bytes `{"prev":"`, then 64
+    /// hex, then a closing quote. Nil means "not that shape", and the textual
+    /// reader answers instead — this path only ever READS, so the wire format
+    /// is untouched.
+    ///
+    /// Worth a function of its own because it is the whole per-line cost of a
+    /// walk: the textual reader accumulates the key and the value into two
+    /// `Data`s a byte at a time, about 11 ms per 6,000 lines. The 64 bytes are
+    /// checked for hex rather than merely counted, and that is what makes this
+    /// an equivalence rather than a second opinion: neither `"` nor `\` is hex,
+    /// so the quote at offset 73 is necessarily the FIRST one, which is exactly
+    /// where the textual reader would have stopped.
+    ///
+    /// A `Data` slice does not start at index 0 — the verifier hands this
+    /// function slices of a whole file — so every offset is off `startIndex`.
+    private nonisolated static func fastPrev(ofLine line: Data) -> String? {
+        let start = line.startIndex
+        guard line.count >= 74, line[start + 73] == UInt8(ascii: "\"") else { return nil }
+        for offset in 0..<prevPrefix.count where line[start + offset] != prevPrefix[offset] {
+            return nil
+        }
+        let value = line[(start + prevPrefix.count)..<(start + 73)]
+        guard value.allSatisfy(isHex) else { return nil }
+        return String(decoding: value, as: UTF8.self)
+    }
+
+    /// `{"prev":"` — the fixed opening of a chained line, as bytes.
+    private nonisolated static let prevPrefix = Array("{\"prev\":\"".utf8)
+
+    private nonisolated static func isHex(_ byte: UInt8) -> Bool {
+        switch byte {
+        case UInt8(ascii: "0")...UInt8(ascii: "9"),
+             UInt8(ascii: "a")...UInt8(ascii: "f"),
+             UInt8(ascii: "A")...UInt8(ascii: "F"): return true
+        default: return false
+        }
     }
 
     // MARK: - Signing a digest

@@ -190,7 +190,16 @@ public final class DocumentStore {
             projectURL: url, presenter: store.presenter,
             identities: Document.loadIdentities,
             state: Document.deviceStateForTesting ?? .shared)
-        for docId in OpLogStore.docIds(inOpsDirectoryFilenames: opsDirNames).sorted() {
+        // The project stream LAST, and named by hand: the manuscript-id reader
+        // `docIds(inOpsDirectoryFilenames:)` excludes `__project__` by
+        // contract (it answers doc ids, and the stream holds no manuscript
+        // content), so a sweep that only iterated it would leave the one op log
+        // with no ceiling. `__project__` rotates at the same threshold as every
+        // other tail (Denver, 2026-09-09), and here is its only boundary — a
+        // document also rotates at close, and the project stream has no close.
+        let sweptDocIds = OpLogStore.docIds(inOpsDirectoryFilenames: opsDirNames).sorted()
+            + [ProjectStore.projectTasksDocId]
+        for docId in sweptDocIds {
             // The chain seal FIRST, then the rotation — `Document.close()`'s
             // order, for its reason (signed op log P1): a segment must end on
             // a seal line so its whole span is verified inside the container.
