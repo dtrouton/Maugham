@@ -17,6 +17,7 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `DeviceIdentity.swift` / `DeviceState.swift` (MaughamCore) — one enclave key **per actor**, each persisted by the app as a plain blob under Application Support (`device-key.blob`/`device-token` for the author, `device-key.<actor>.blob`/`device-token.<actor>` for the other three), and the id/fingerprint/slug derived from it. `DeviceIdentity.author` is the writer's; `DeviceIdentity.identity(for:)` is any of the four. `DeviceIdentity+Testing.swift` holds the test-only software signer, and is the one allow-list entry of `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`.
 - `OpLogChain.swift` (MaughamCore) — the wire format (`prev` as the first key; the seal line) and the pure verifier that classifies every line. No I/O, no clock, no policy about who is trusted: the `trusted` closure and the remembered head are parameters. `Hex` lives here too, shared with the segment container and the fingerprint.
 - `OpLogDeviceState.swift` (MaughamCore) — what this device remembers: the chain head it last wrote into each file, and the digests of segments it has already verified. Also `ChainPolicy`, the value a chained `JSONLAppendStore` carries.
+- `ISO8601Fast.swift` (MaughamCore) — the byte-level parser for the two ISO-8601 spellings the app writes (no fraction, or exactly three digits), tried before `ISO8601DateFormatter` on the op log's decode path. Equivalence by construction rather than by replicating Foundation's undocumented truncation: every other shape falls through to the formatter chain untouched. See "Where the time goes" item 4.
 - `OpLogProvenance.swift` (MaughamCore) — `FileProvenance` per file and `OpLogProvenance` over a document, the load's own account of what its history is made of. What `HistoryPane`'s unsigned-history sentence reads.
 - `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`.
 - `EchoState.swift` — typed snapshot of "bytes we just wrote to disk." The `init` is `private`; the only construction paths are the three named factories (`initialLoad`, `afterWrite`, `afterIngest`), which is a compile-checked invariant. The echo guard in `Document.handleExternalDiskChange` reads `lastDiskEcho.bytes` to suppress presenter callbacks that arrive in response to our own writes. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
@@ -477,7 +478,11 @@ machine, best of three runs, at `4543b1a4`: the walk over the live tail costs
 **421.5 ms** of parse-only control and a **514.6 ms** cold verified load. Before
 the 2026-09-09 performance step those same four readings were 48.9 / 1.7 /
 5832.0 / 5934.2 ms — the end-to-end columns fell by about 91% because the DATE parse
-changed, not because verification got cheaper. **The budget is Denver's
+changed, not because verification got cheaper. The walk's own 48.9 → 33.9 ms is
+Task 1's `prev` fast path, the only change on that path — with one clause of
+honesty about its size: Task 1's own report read 41.0 ms on a **single** run, so
+the remaining ~7 ms is best-of-three against one run rather than a second cause.
+**The budget is Denver's
 restatement of 2026-09-09 and it holds**: the chain's own cost read by the
 fixture, under **20 ms** on a realistic tail (≤ 512 KB, some 600 lines) and
 under **100 ms** on the fixture's 8×-oversized 6,250-line tail. The second

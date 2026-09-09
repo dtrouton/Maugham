@@ -609,24 +609,34 @@ final class OpLogChainTests: XCTestCase {
         XCTAssertEqual(OpLogChain.prev(ofLine: slice), .some(.some(OpLogChain.genesis)))
     }
 
-    /// A sanity pin, not a gate: 50 ms is 50× the target for this many lines in
-    /// debug, so it cannot flake, and it fails loudly if the fast path is ever
-    /// removed and the reader goes back to accumulating bytes into a `Data`.
-    func test_sixThousandLinesAreReadWellInsideFiftyMilliseconds() {
-        let lines = (0..<6_000).map {
-            OpLogChain.chainedLine(elementJSON: element($0), prev: OpLogChain.genesis)
+    /// A realistic tail's worth of lines, every one of them read back to the
+    /// head it was chained on. This used to carry a wall-clock bound as well; it
+    /// does not any more. A flaky test is worse than none in this suite
+    /// (tripwire 33), the assertion's real protection was thin — a reverted fast
+    /// path would have had to be 5× slower than the reader it replaced to trip
+    /// it — and speed is measured by the fixtures in
+    /// `docs/superpowers/notes/2026-09-09-perf-step-measurements.md`, not here.
+    /// What is worth pinning at this size is that the answer stays right when
+    /// there are thousands of lines rather than three.
+    func test_sixThousandLinesEachReadBackTheHeadTheyWereChainedOn() {
+        var heads: [String] = []
+        var prev = OpLogChain.genesis
+        let lines: [Data] = (0..<6_000).map { index in
+            let line = OpLogChain.chainedLine(elementJSON: element(index), prev: prev)
+            heads.append(prev)
+            prev = OpLogChain.lineHash(line)
+            return line
         }
 
-        let started = Date()
         var read = 0
-        for line in lines where OpLogChain.prev(ofLine: line) == .some(.some(OpLogChain.genesis)) {
+        for (index, line) in lines.enumerated() {
+            XCTAssertEqual(
+                OpLogChain.prev(ofLine: line), .some(.some(heads[index])),
+                "line \(index) did not read back the head it was chained on")
             read += 1
         }
-        let elapsed = Date().timeIntervalSince(started)
 
         XCTAssertEqual(read, 6_000)
-        XCTAssertLessThan(elapsed, 0.050,
-                          "6,000 prev reads took \(Int(elapsed * 1000)) ms")
     }
 
     // MARK: - Helpers

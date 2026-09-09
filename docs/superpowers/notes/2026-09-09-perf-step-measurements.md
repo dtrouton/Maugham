@@ -48,9 +48,14 @@ Two readings of that table:
   Task 2 report confirms it: with the one wiring line commented out the control
   read 5817.6 ms again.
 - **The chain walk's −30.7% is Task 1's `prev` fast path**, the only change on
-  that path. The signature-check column is 0.9 ms of noise either side of a
-  measurement under 2 ms; it is reported for completeness and no change on this
-  branch touched signature verification.
+  that path. One clause of honesty about the size of it: Task 1's own report
+  measured 48.9 → 41.0 ms on a **single** run, and this table is best-of-three
+  against that one run, so the remaining ~7 ms is most likely the difference
+  between the two methods rather than a second cause. No second cause has been
+  identified, and none is needed to explain a fall of this size. The
+  signature-check column is 0.9 ms of noise either side of a measurement under
+  2 ms; it is reported for completeness and no change on this branch touched
+  signature verification.
 
 ### Against the budget (decision #1, 2026-09-09)
 

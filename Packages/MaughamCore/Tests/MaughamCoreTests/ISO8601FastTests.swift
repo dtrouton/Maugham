@@ -94,6 +94,14 @@ final class ISO8601FastTests: XCTestCase {
             XCTAssertLessThan(
                 abs(parsed.timeIntervalSince1970 - seconds), 1e-3,
                 "\(string) parsed as \(parsed.timeIntervalSince1970), wanted \(seconds)")
+            // And the round trip closes on the BYTES, which is the claim the
+            // design argument actually rests on: encode, decode, re-encode, and
+            // the formatter spells exactly what it spelled before. A tolerance
+            // cannot see a value that lands a hair on the wrong side of the
+            // formatter's own millisecond rounding on the way back out.
+            XCTAssertEqual(
+                formatter.string(from: parsed), string,
+                "re-encoding \(string) did not reproduce it")
         }
     }
 }

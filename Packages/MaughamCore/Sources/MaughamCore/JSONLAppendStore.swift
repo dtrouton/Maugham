@@ -364,8 +364,18 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
                 // Persist-before-write, over the head the WHOLE batch leaves:
                 // a crash mid-write leaves a remembered head no line hashes to,
                 // which is the adopt case, never a line this device wrote
-                // sitting after the head it remembers.
-                chain.state.remember(head: prev, for: fileKey, root: chain.projectURL)
+                // sitting after the head it remembers. Nothing here may defer
+                // or coalesce it — the ordering IS the crash-window argument.
+                //
+                // The root is derived from the file URL, not taken from
+                // `chain.projectURL`: the recorded path must be the very
+                // directory `fileKey`'s hash was taken over, or a prune could
+                // drop entries the key does not name. The load path
+                // (`OpLogStore.remember`) derives it the same way, so the two
+                // callers cannot disagree by construction rather than by
+                // convention.
+                chain.state.remember(
+                    head: prev, for: fileKey, root: OpLogDeviceState.projectRoot(of: fileURL))
 
                 if FileManager.default.fileExists(atPath: wu.path) {
                     let h = try FileHandle(forWritingTo: wu)

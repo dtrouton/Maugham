@@ -174,16 +174,23 @@ final class OpLogDeviceStateTests: XCTestCase {
         let gone = try project("Gone")
         let key = OpLogDeviceState.fileKey(
             gone.appendingPathComponent(".maugham/ops/d.author-a.jsonl"))
-        OpLogDeviceState(fileURL: stateURL, identity: mine)
-            .remember(head: "one", for: key, root: gone)
+        let state = OpLogDeviceState(fileURL: stateURL, identity: mine)
+        state.remember(head: "one", for: key, root: gone)
+        state.markVerified(segmentDigest: "digest-a")
         try FileManager.default.removeItem(at: gone)
 
-        _ = OpLogDeviceState(fileURL: stateURL, identity: mine)
+        let reloaded = OpLogDeviceState(fileURL: stateURL, identity: mine)
 
         let json = try XCTUnwrap(JSONSerialization.jsonObject(
             with: Data(contentsOf: stateURL)) as? [String: Any])
         XCTAssertEqual((json["heads"] as? [String: String])?.isEmpty, true)
         XCTAssertEqual((json["roots"] as? [String: String])?.isEmpty, true)
+        // A segment digest is a hash of BYTES and belongs to no project, so it
+        // outlives the project whose heads went. Stated only in `prune`'s doc
+        // comment until now, and a distinction that lives in a comment is the
+        // shape this repo has a standing lesson about.
+        XCTAssertTrue(reloaded.isVerified(segmentDigest: "digest-a"))
+        XCTAssertEqual((json["verifiedSegments"] as? [String])?.first, "digest-a")
     }
 
     /// A state file written before roots were recorded has heads it cannot
@@ -257,17 +264,34 @@ final class OpLogDeviceStateTests: XCTestCase {
         XCTAssertEqual(state.persistCountForTesting, before + 3, "forgetting persists too")
     }
 
-    /// Pruning asks one question — does this root still have a `.maugham`
-    /// child — and anything that cannot answer yes is gone. A recorded path
-    /// that is now a FILE cannot have one, so it prunes like a deleted folder
-    /// rather than throwing or being skipped.
-    func test_pruningIsBestEffortOverAnUnreadableRoot() throws {
-        let notAProject = tmp.appendingPathComponent("not-a-project")
-        try Data("x".utf8).write(to: notAProject)
-        let key = "\(String(repeating: "a", count: 64))/d.author-a.jsonl"
+    /// Pruning asks one question — is the recorded root still on disk — and a
+    /// path that is simply gone answers no. It is best-effort: nothing throws,
+    /// nothing is skipped, the entry goes and the next load adopts.
+    func test_pruningDropsAHeadWhoseRootIsGone() throws {
+        let gone = try project("Gone")
+        let key = OpLogDeviceState.fileKey(
+            gone.appendingPathComponent(".maugham/ops/d.author-a.jsonl"))
         OpLogDeviceState(fileURL: stateURL, identity: mine)
-            .remember(head: "h", for: key, root: notAProject)
+            .remember(head: "h", for: key, root: gone)
+        try FileManager.default.removeItem(at: gone)
 
         XCTAssertNil(OpLogDeviceState(fileURL: stateURL, identity: mine).head(for: key))
+    }
+
+    /// The predicate is the root ITSELF, not its `.maugham` child. A directory
+    /// that is present but whose `.maugham` cannot be found — a project whose
+    /// derived folder was deleted, or any condition that makes that one read
+    /// fail while the folder is alive — KEEPS its heads: the loss is silent by
+    /// construction (the adopt path logs nothing), and a root with no
+    /// `.maugham` has no lines for those heads to protect anyway.
+    func test_aRootThatExistsWithoutAMaughamChildKeepsItsHeads() throws {
+        let root = try project("Present")
+        let key = OpLogDeviceState.fileKey(
+            root.appendingPathComponent(".maugham/ops/d.author-a.jsonl"))
+        OpLogDeviceState(fileURL: stateURL, identity: mine)
+            .remember(head: "h", for: key, root: root)
+        try FileManager.default.removeItem(at: root.appendingPathComponent(".maugham"))
+
+        XCTAssertEqual(OpLogDeviceState(fileURL: stateURL, identity: mine).head(for: key), "h")
     }
 }

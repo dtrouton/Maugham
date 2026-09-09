@@ -238,20 +238,26 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// answers whether anything went.
     ///
     /// Without it the memory only grows: a head per op-log file per project
-    /// ever opened, in one file read on every load. The test is the one
-    /// `fileKey` itself asks — is there a `.maugham` child — so a path that is
-    /// now a file, or a folder that is gone, both read as gone. That is the
-    /// safe direction: an entry pruned by mistake is the ADOPT case, the same
-    /// fall-back a moved project already takes, where keeping a dead one costs
-    /// nothing but never ends.
+    /// ever opened, in one file read on every load. The test is the narrowest
+    /// one that answers the question asked — is the recorded root still
+    /// there — and NOT whether it still has a `.maugham` child. The wider test
+    /// reads every condition that makes one directory read fail (a folder
+    /// outside an active security scope on iOS, a permissions or ownership
+    /// change on the Mac) as a deleted project, and drops every head for it
+    /// silently: the adopt path logs nothing, so the loss would never be
+    /// reported. A root that is present but has lost its `.maugham` has no
+    /// lines for those heads to protect, so keeping them costs nothing.
+    ///
+    /// An entry pruned by mistake is still the ADOPT case, the same fall-back a
+    /// moved project already takes — the safe direction — but the narrower
+    /// predicate reaches for it far less often.
     ///
     /// `verifiedSegments` is untouched — a segment digest is a hash of bytes
     /// and belongs to no project — and so is any head whose hash has no
     /// recorded root, which is every head written before this field existed.
     private nonisolated static func prune(_ stored: inout Stored) -> Bool {
         let dead = stored.roots.filter { _, path in
-            !FileManager.default.fileExists(
-                atPath: URL(fileURLWithPath: path).appendingPathComponent(".maugham").path)
+            !FileManager.default.fileExists(atPath: path)
         }
         guard !dead.isEmpty else { return false }
         let hashes = Set(dead.keys)
