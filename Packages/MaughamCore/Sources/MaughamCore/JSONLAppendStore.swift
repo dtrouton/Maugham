@@ -472,7 +472,9 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
 
     // Computed property returning a fresh instance per call keeps this
     // nonisolated without the (unsafe) baggage on a class-typed stored property.
-    // These stores are not on the hot path so the allocation cost is negligible.
+    // The allocation is real and this IS a hot path — a cold open decodes a date
+    // per op-log line — which is why `ISO8601Fast` takes the two shapes the app
+    // writes and the formatter is only ever the fallback behind it.
     nonisolated private static var iso8601Formatter: ISO8601DateFormatter {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -490,7 +492,10 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         .custom { decoder in
             let c = try decoder.singleValueContainer()
             let s = try c.decode(String.self)
-            // Accept fractional-second and whole-second ISO8601 strings.
+            // Accept fractional-second and whole-second ISO8601 strings. The
+            // hand parser takes both of the shapes this app writes; every
+            // fallback behind it is exactly the one that was always there.
+            if let d = ISO8601Fast.date(utf8: s.utf8) { return d }
             if let d = iso8601Formatter.date(from: s) { return d }
             if let d = ISO8601DateFormatter().date(from: s) { return d }
             // Backward-compat for CheckpointStore data written via secondsSince1970.
