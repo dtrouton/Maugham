@@ -335,4 +335,37 @@ final class RoundNarrativeTests: XCTestCase {
                            + "/ \(String(describing: fresh))")
         }
     }
+
+    // MARK: - The stall says which budget (spec 2026-09-09 §2)
+
+    func test_aSilenceStallSaysClaudeWentQuiet() {
+        let stall = CompilerRunFailure.Stall(cause: .silence, after: 183, thinkingTokens: nil)
+        XCTAssertEqual(
+            RoundNarrative.failureCopy(.timedOut(stall)),
+            "Claude went quiet for 3 minutes and was stopped.")
+    }
+
+    func test_aCeilingStallSaysTheReadPassedTheBound() {
+        let stall = CompilerRunFailure.Stall(cause: .ceiling, after: 1_204, thinkingTokens: 31_000)
+        XCTAssertEqual(
+            RoundNarrative.failureCopy(.timedOut(stall)),
+            "The read passed 20 minutes and was stopped \u{2014} 31,000 tokens of thinking so far.")
+    }
+
+    func test_aStallWithNoAccountOfItselfStillSaysTookTooLong() {
+        XCTAssertEqual(
+            RoundNarrative.failureCopy(.timedOut()),
+            "The check took too long and was stopped.")
+        XCTAssertEqual(
+            RoundNarrative.failureCopy(.timedOut(), session: .translation),
+            "The translation round took too long and was stopped.")
+    }
+
+    func test_theMinutesPhraseRoundsToTheNearestMinuteAndNeverSaysZero() {
+        XCTAssertEqual(RoundNarrative.minutesPhrase(20), "under a minute")
+        XCTAssertEqual(RoundNarrative.minutesPhrase(59), "under a minute")
+        XCTAssertEqual(RoundNarrative.minutesPhrase(60), "1 minute")
+        XCTAssertEqual(RoundNarrative.minutesPhrase(183), "3 minutes")
+        XCTAssertEqual(RoundNarrative.minutesPhrase(1_204), "20 minutes")
+    }
 }

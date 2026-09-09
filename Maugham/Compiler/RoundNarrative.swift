@@ -238,13 +238,48 @@ enum RoundNarrative {
         case .disabledByToggle:
             return "Claude access is off in Settings \u{2014} turn on "
                 + "\u{201C}Allow Claude to connect (MCP)\u{201D} to \(session.purpose)."
-        case .timedOut:
-            return "\(session.subject) took too long and was stopped."
+        case .timedOut(let stall):
+            return stallCopy(stall, session: session)
         case .sessionDied(let detail):
             return "\(session.owner) ended before it could answer: \(detail)."
         case .unusableOutput:
             return "Claude's answer couldn't be read as \(session.product)."
         }
+    }
+
+    /// **Which budget stopped the turn, and how far it had got** (spec
+    /// 2026-09-09 §2). A stall with no account of itself (`Stall.unknown`,
+    /// `after == 0`) keeps the sentence every caller had before this
+    /// milestone, so a legacy `.timedOut()` reads exactly as it did.
+    static func stallCopy(_ stall: CompilerRunFailure.Stall, session: SessionWork) -> String {
+        guard stall.after > 0 else {
+            return "\(session.subject) took too long and was stopped."
+        }
+        let base: String
+        switch stall.cause {
+        case .silence:
+            base = "Claude went quiet for \(minutesPhrase(stall.after)) and was stopped"
+        case .ceiling:
+            base = "The read passed \(minutesPhrase(stall.after)) and was stopped"
+        }
+        guard let tokens = stall.thinkingTokens, tokens > 0 else { return base + "." }
+        return base + " \u{2014} \(thousands(tokens)) tokens of thinking so far."
+    }
+
+    /// Whole minutes, in the writer's English. Under sixty seconds is "under
+    /// a minute" rather than "0 minutes".
+    static func minutesPhrase(_ seconds: TimeInterval) -> String {
+        let minutes = Int((seconds / 60).rounded(.down))
+        guard minutes >= 1 else { return "under a minute" }
+        return minutes == 1 ? "1 minute" : "\(minutes) minutes"
+    }
+
+    /// `31,000`, never `31000`: the pane's numbers are read, not parsed.
+    static func thousands(_ n: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter.string(from: NSNumber(value: n)) ?? "\(n)"
     }
 
     /// **Which of the three long-lived sessions died**, for the arms of
