@@ -545,6 +545,10 @@ extension CompilerOrchestrator.Environment {
             return "\(base) — web link, not readable: \(url)"
         case (.research, .unreadable):
             return "\(base) — title only"
+        case (.research, .longNote):
+            // No word count: nothing was read, and a number invented here
+            // would be the one thing this line cannot honestly carry.
+            return "\(base) — long note, fetch with read_document"
         case (.research, nil): return "\(base) — read_document"
         case (.palette, _): return "\(base) — read_palette_card"
         case (.scrap, _): return "\(base) — list_canvas"
@@ -558,6 +562,11 @@ extension CompilerOrchestrator.Environment {
         case link(url: String)
         /// An image, PDF or audio asset — nothing a briefing can carry.
         case unreadable
+        /// A note whose FILE is over `inlineReadCeilingBytes` — refused on its
+        /// size alone, without being read. Distinct from a `.text` that turns
+        /// out to be over `inlineBodyCap`, which was read and so can say how
+        /// many words it holds.
+        case longNote
     }
 
     /// A note under this many characters travels in the briefing whole.
@@ -567,6 +576,15 @@ extension CompilerOrchestrator.Environment {
     /// writer actually pins to a chapter — arrive intact, short enough that
     /// one sprawling file cannot be the whole briefing.
     static let inlineBodyCap = 4_000
+    /// A file larger than this is never read to find out it is too long.
+    ///
+    /// Sixteen times the cap, in BYTES against a cap in CHARACTERS, so no
+    /// note that would have been inlined can be refused here: UTF-8 spends at
+    /// most four bytes on a scalar, and this leaves four times that headroom
+    /// again. What it stops is the other end — a pinned multi-megabyte file
+    /// read whole on the main actor at every ⌘R, only to be rejected by the
+    /// cap one line later.
+    static let inlineReadCeilingBytes = 65_536
     /// A briefing inlines at most this many characters of notes, in shelf
     /// order.
     ///
@@ -598,8 +616,19 @@ extension CompilerOrchestrator.Environment {
             // not be able to read a file outside the project root, exactly as
             // `read_document`'s own research arm resolves it (A5).
             guard let path = item.path,
-                  let abs = try? SafeRelativePath.resolve(path, under: projectRoot),
-                  let text = try? String(contentsOf: abs, encoding: .utf8) // adr-0018-ok: research-note body for the briefing, not manuscript
+                  let abs = try? SafeRelativePath.resolve(path, under: projectRoot)
+            else { return nil }
+            // **Stat before read.** The cap below would refuse a huge note
+            // anyway, but only after it had been read whole, synchronously,
+            // on this actor. A file that cannot possibly inline is answered
+            // for out of its size alone. A stat that FAILS falls through to
+            // the read, which is the honest direction: the file may still be
+            // small, and the read has its own `try?`.
+            if let size = (try? abs.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+               size > inlineReadCeilingBytes {
+                return .longNote
+            }
+            guard let text = try? String(contentsOf: abs, encoding: .utf8) // adr-0018-ok: research-note body for the briefing, not manuscript
             else { return nil }
             return .text(text)
         case .link:

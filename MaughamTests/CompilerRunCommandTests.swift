@@ -1637,6 +1637,101 @@ final class CompilerRunCommandTests: XCTestCase {
                       + "fetches through its own tool; got \(lines)")
     }
 
+    /// **A note too big to inline is never read to find that out** (fix round
+    /// 1): the guard is a stat, and it runs before the body read.
+    ///
+    /// The end-to-end proof, because a unit test over `pinnedListingLines`
+    /// could be satisfied by a `.longNote` nobody ever produces. This one puts
+    /// a real file of `inlineReadCeilingBytes + 1` bytes on disk, pins it, and
+    /// asks the production wiring what it says about it — so a guard placed
+    /// AFTER the read (which would answer with a word count, the file being
+    /// perfectly readable) fails here and nowhere else.
+    func test_productionRefusesAnOversizeNoteWithoutReadingIt() async throws {
+        let root = try makeProjectRoot()
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("research"), withIntermediateDirectories: true)
+        try "Prose.\n".write(
+            to: root.appendingPathComponent("manuscript/ch1.md"),
+            atomically: true, encoding: .utf8)
+        let ceiling = CompilerOrchestrator.Environment.inlineReadCeilingBytes
+        let oversize = String(repeating: "a", count: ceiling + 1)   // ASCII: one byte each
+        let noteURL = root.appendingPathComponent("research/dreams.md")
+        try oversize.write(to: noteURL, atomically: true, encoding: .utf8)
+        let onDisk = try FileManager.default.attributesOfItem(atPath: noteURL.path)[.size] as? Int
+        XCTAssertEqual(onDisk, ceiling + 1,
+                       "the fixture must actually be over the ceiling, or this "
+                       + "test proves nothing")
+
+        let note = ResearchItem(id: "res-dreams", title: "Dreams Notes 4", type: .asset,
+                                kind: .document, path: "research/dreams.md")
+        let chapter = StructureItem(id: "ch-1", title: "Chapter 1", type: .document,
+                                    path: "manuscript/ch1.md",
+                                    linkedResearchIds: ["res-dreams"])
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [chapter], research: [note])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: root.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        XCTAssertEqual(environment.pinnedListing("ch-1"),
+                       ["Dreams Notes 4 (res-dreams) \u{2014} long note, fetch with read_document"],
+                       "refused on its size, with no word count — a count would "
+                       + "mean the file had been read after all")
+    }
+
+    /// **And the guard really is BEFORE the read** — the discriminator, because
+    /// the test above is not one.
+    ///
+    /// An oversize ASCII note answers "long note" whether the stat runs before
+    /// the body read or after it, so that test pins the LINE and nothing about
+    /// the order (measured: moving the guard below the read leaves it green).
+    /// This file is over the ceiling AND undecodable as UTF-8, which splits the
+    /// two: read first and `String(contentsOf:encoding:)` fails, the pin falls
+    /// to `nil`, and the line is the bare `read_document` pointer. Only a stat
+    /// that runs first can answer "long note" about bytes nothing could read.
+    func test_productionStatsAPinnedNoteBeforeItReadsIt() async throws {
+        let root = try makeProjectRoot()
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("research"), withIntermediateDirectories: true)
+        try "Prose.\n".write(
+            to: root.appendingPathComponent("manuscript/ch1.md"),
+            atomically: true, encoding: .utf8)
+        let ceiling = CompilerOrchestrator.Environment.inlineReadCeilingBytes
+        // 0xFF is not a legal UTF-8 byte anywhere in a sequence.
+        let undecodable = Data(repeating: 0xFF, count: ceiling + 1)
+        try undecodable.write(to: root.appendingPathComponent("research/dreams.md"))
+
+        let note = ResearchItem(id: "res-dreams", title: "Dreams Notes 4", type: .asset,
+                                kind: .document, path: "research/dreams.md")
+        let chapter = StructureItem(id: "ch-1", title: "Chapter 1", type: .document,
+                                    path: "manuscript/ch1.md",
+                                    linkedResearchIds: ["res-dreams"])
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [chapter], research: [note])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: root.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        XCTAssertEqual(environment.pinnedListing("ch-1"),
+                       ["Dreams Notes 4 (res-dreams) \u{2014} long note, fetch with read_document"],
+                       "the bare read_document line here would mean the read ran "
+                       + "first and the stat never decided anything")
+    }
+
     /// **The regression this task's research caught.** `StructureItem.links`
     /// is `InspectorLinksSection`'s document-to-document backlink field —
     /// unrelated despite the name — and `ProjectStore.linkResearch` (the

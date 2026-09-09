@@ -2825,6 +2825,16 @@ final class CompilerPromptTests: XCTestCase {
         XCTAssertEqual(lines, ["Good Luck Babe Soundtrack (res-3) \u{2014} web link, not readable: https://music.apple.com/x"])
     }
 
+    /// **A note refused on its SIZE says so without a word count** — nothing
+    /// was read, and inventing a number here is the one thing this line cannot
+    /// honestly carry. Distinct from the over-the-cap line above it, which was
+    /// read and so can count.
+    func test_aNoteRefusedOnItsSizeSaysSoWithoutCountingWords() {
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            shelf([researchPin("res-2", "Dreams Notes 4")]), body: { _ in .longNote })
+        XCTAssertEqual(lines, ["Dreams Notes 4 (res-2) \u{2014} long note, fetch with read_document"])
+    }
+
     /// An image, a PDF or a recording is a title and nothing else — there is
     /// no text for a briefing to carry.
     func test_anUnreadableAssetIsTitleOnly() {
