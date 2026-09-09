@@ -399,7 +399,22 @@ filed under the manifest stream's own id (`InboxManifest.chainDocId`) and
 `HistoryPane` only ever asks for a DOCUMENT's, so they were written and shown to
 nobody. Both panes count through `OpLogQuarantine.setAsideLineCount`, one
 implementation, because one record can hold a run of lines and the writer's
-question is how many CHANGES. **`unsealed`
+question is how many CHANGES. **And the sentence is ACKNOWLEDGED, per device per
+record** (P2a, D2, `SetAsideAcknowledgement.swift`): what P1 shipped summed every
+record forever, so one foreign line found once was a standing accusation the
+writer could only silence by deleting the forensics it was about. An
+**Acknowledge** button beside each notice records the ARCHIVE FILENAMES in this
+device's `UIState.acknowledgedSetAsideRecords` (through
+`DocumentStore.acknowledgeSetAsideRecords`, which unions), the sentence counts
+only what `SetAsideAcknowledgement.unacknowledged` returns, and a record filed
+tomorrow brings it back counting only itself. **Both panes call that one
+predicate and neither restates the filter** — a census in
+`SetAsideAcknowledgementTests` holds the field to four files: `UIState`, the
+store's verb, and the two panes that hand it to the predicate. **Nothing under
+`.maugham/conflicts/` is touched**: the History pane's `Set-aside records`
+disclosure lists every record whether acknowledged or not, because what the
+writer put down is the sentence, not the evidence. Per DEVICE because UI state
+is this machine's — acknowledging here says nothing about the phone. **`unsealed`
 lines are never mentioned**: the live tail is always partly unsealed, so naming
 it would be a permanent notice about nothing. **The production load door names an ACTOR:**
 `Document.load(url:actor:session:presenter:)` takes a `DeviceActor` and derives

@@ -40,16 +40,20 @@ final class InboxStore {
     /// pane shows a notice when non-empty; the rows are intact on disk.
     private(set) var unreadableManifests: [String] = []
 
-    /// How many manifest ROWS the verified read held back — lines something
+    /// The manifest ROWS the verified read held back — runs of lines something
     /// other than Maugham wrote into an inbox stream, kept as forensics and
     /// never applied (signed op log P1).
     ///
     /// The records were being written and surfaced NOWHERE: `HistoryPane` only
     /// ever asks for a DOCUMENT's records, and the inbox files its own under
     /// `InboxManifest.chainDocId`. A refusal nobody is told about is the one
-    /// shape constraint 7 forbids, so the pane says it here. Counted once, on
-    /// `refresh` — the notice itself is pure over this number.
-    private(set) var setAsideLineCount: Int = 0
+    /// shape constraint 7 forbids, so the pane says it.
+    ///
+    /// **The RECORDS rather than a count**, since P2a's D2: what the pane draws
+    /// is a count of the lines in the records the writer has not yet
+    /// acknowledged, and the acknowledgements are UI state the pane holds, not
+    /// the store. Read once, on `refresh`.
+    private(set) var setAsideRecords: [QuarantineRecord] = []
 
     private let projectURL: URL
     private let inboxDir: URL
@@ -121,10 +125,9 @@ final class InboxStore {
             }
         }
         unreadableManifests = unreadable.sorted()
-        setAsideLineCount = OpLogQuarantine.setAsideLineCount(
-            records: OpLogQuarantine.records(
-                forDocId: InboxManifest.chainDocId, in: projectURL),
-            in: projectURL)
+        setAsideRecords = OpLogQuarantine
+            .records(forDocId: InboxManifest.chainDocId, in: projectURL)
+            .filter { $0.kind == .lines }
         // Last-wins by row-write time (writtenAt), across all files and all
         // rows for an id. createdAt is immutable across transition rows, so it
         // can't order them; writtenAt is stamped fresh on every append.

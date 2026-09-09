@@ -128,10 +128,18 @@ struct HistoryPane: View {
     /// article: history the writer cannot currently see.
     @State private var heldQuarantineRecords: [QuarantineRecord] = []
     /// How many CHANGES were set aside because something that is not Maugham
-    /// wrote them into one of this doc's op-log files (signed op log P1). A
-    /// count rather than the records, because the notice is pure over the
-    /// count and reading the archives is `reload()`'s job, not `body`'s.
+    /// wrote them into one of this doc's op-log files (signed op log P1) **and
+    /// the writer has not yet acknowledged** (P2a, D2). A count rather than the
+    /// records, because the notice is pure over the count and reading the
+    /// archives is `reload()`'s job, not `body`'s.
     @State private var setAsideLineCount: Int = 0
+    /// Every set-aside record for this doc, acknowledged or not, by the name it
+    /// is acknowledged under. The disclosure below the sentence lists these
+    /// REGARDLESS: what an Acknowledge press puts down is the sentence, not the
+    /// forensics. Resolved on `reload()` and held, because
+    /// `SetAsideAcknowledgement.name(for:in:)` reads the quarantine directory
+    /// and a per-row read from `body` is tripwire 4.
+    @State private var setAsideRecordNames: [String] = []
     @State private var isRetryingQuarantine: Bool = false
     /// The report from the most recently completed Retry, kept only long
     /// enough for the writer to view or dismiss it — cleared when the sheet
@@ -389,12 +397,46 @@ struct HistoryPane: View {
                 Divider()
             }
             if let notice = Self.setAsideLinesNotice(lineCount: setAsideLineCount) {
-                Label(notice, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // The one control this statement of fact carries (P2a, D2):
+                // there is still nothing to bring back, but a sentence that
+                // could never be put down was an accusation the writer could
+                // only silence by deleting forensics. Acknowledge records the
+                // record names in THIS device's UI state and touches nothing
+                // under `.maugham/conflicts/`.
+                HStack(spacing: 8) {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Spacer(minLength: 4)
+                    Button("Acknowledge", action: acknowledgeSetAside)
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
+            if !setAsideRecordNames.isEmpty {
+                // Listed whether acknowledged or not — the archives are the
+                // writer's to read at any time, and an acknowledgement is a
+                // statement about the sentence above, never about the evidence.
+                DisclosureGroup("Set-aside records") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(setAsideRecordNames, id: \.self) { name in
+                            Text(name)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+                .font(.caption)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
             if let report = recoveredReport, !report.orphans.isEmpty {
@@ -563,7 +605,29 @@ struct HistoryPane: View {
             : OpLogQuarantine.records(forDocId: activeDocId, in: projectURL)
                 .filter { $0.status == .held }
         heldQuarantineRecords = held.filter { $0.kind == .file }
-        setAsideLineCount = Self.setAsideLineCount(records: held, in: projectURL)
+        // The sentence counts only what this device has NOT yet told the
+        // writer about (P2a, D2) — the disclosure below it keeps the whole
+        // list. Both resolutions happen here rather than in `body`, because
+        // each reads the quarantine directory.
+        let setAside = held.filter { $0.kind == .lines }
+        setAsideRecordNames = setAside.map {
+            SetAsideAcknowledgement.name(for: $0, in: projectURL)
+        }
+        setAsideLineCount = Self.setAsideLineCount(
+            records: SetAsideAcknowledgement.unacknowledged(
+                records: setAside,
+                acknowledged: documentStore?.uiState.acknowledgedSetAsideRecords ?? [],
+                in: projectURL),
+            in: projectURL)
+    }
+
+    /// Put the set-aside sentence down: every record it could be about is
+    /// recorded as seen in this device's UI state, and the reload recomputes
+    /// the count from what is left. Nothing on disk moves — the disclosure
+    /// above goes on listing exactly what it listed before.
+    private func acknowledgeSetAside() {
+        documentStore?.acknowledgeSetAsideRecords(Set(setAsideRecordNames))
+        Task { await reload() }
     }
 
     /// Runs `attemptReturn` for every held record, reloads, and surfaces

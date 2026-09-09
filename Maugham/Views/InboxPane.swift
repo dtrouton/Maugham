@@ -25,6 +25,14 @@ struct InboxPane: View {
     let retranscribe: (InboxEntry) -> Void
 
     @State private var editing: InboxEntry?
+    /// How many set-aside CAPTURES this device has not yet told the writer
+    /// about, and the names of every record whether acknowledged or not
+    /// (signed op log P2a, D2). Resolved on the pane's `.task` from
+    /// `store.setAsideRecords` and held, because both resolutions read the
+    /// quarantine directory and a read from `body` would do file I/O on every
+    /// evaluation.
+    @State private var setAsideLineCount: Int = 0
+    @State private var setAsideRecordNames: [String] = []
     @State private var audio = InboxAudioPlayer()
     @State private var promoteError: String?
     /// What the last **Send to Canvas** did, shown in the pane until it ages out.
@@ -90,18 +98,30 @@ struct InboxPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
-            if let notice = Self.setAsideNotice(lineCount: store.setAsideLineCount) {
+            if let notice = Self.setAsideNotice(lineCount: setAsideLineCount) {
                 // The other half of the one new refusal in the tree (signed op
                 // log P1): a `.lines` record never returns, and until now the
                 // inbox's were written and shown to nobody — `HistoryPane` only
                 // reads a DOCUMENT's records, and these are filed under the
                 // manifest stream's own id.
-                Label(notice, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                //
+                // Acknowledge is P2a's D2, and it is the History pane's button
+                // to the letter: the record names go into THIS device's UI
+                // state, the archives are not touched, and a capture written by
+                // something else tomorrow brings the sentence back counting
+                // only itself.
+                HStack(spacing: 8) {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Spacer(minLength: 4)
+                    Button("Acknowledge", action: acknowledgeSetAside)
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
             if let sentToCanvas {
@@ -122,7 +142,10 @@ struct InboxPane: View {
         // Tripwire #15: empty-state panes need BOTH the inner ContentUnavailableView
         // frame and this outer frame, or the toolbar floats to vertical center.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .task { await store.refresh() }
+        .task {
+            await store.refresh()
+            reloadSetAside()
+        }
         // Six seconds, as `CanvasPromotionModifier`'s confirmation gives the
         // promotion sentence — and restarted by every send, because the value
         // changes on each one.
@@ -170,6 +193,35 @@ struct InboxPane: View {
                 promoteToPaletteNewCard(entry, title: title)
             }
         }
+    }
+
+    /// Resolve the set-aside sentence's two numbers from what the refresh
+    /// found: the count is of the records this device has NOT yet told the
+    /// writer about, the names are of all of them. `SetAsideAcknowledgement` is
+    /// the one predicate — the History pane asks it the same question of a
+    /// document's records, and a second spelling here would be a second answer.
+    private func reloadSetAside() {
+        let records = store.setAsideRecords
+        let projectURL = projectStore.url
+        setAsideRecordNames = records.map {
+            SetAsideAcknowledgement.name(for: $0, in: projectURL)
+        }
+        setAsideLineCount = OpLogQuarantine.setAsideLineCount(
+            records: SetAsideAcknowledgement.unacknowledged(
+                records: records,
+                acknowledged: projectStore.documentStore?.uiState
+                    .acknowledgedSetAsideRecords ?? [],
+                in: projectURL),
+            in: projectURL)
+    }
+
+    /// Put the sentence down: every record it could be about is recorded as
+    /// seen in this device's UI state, and the recount leaves the sentence
+    /// standing only if something arrived that the writer has not seen.
+    private func acknowledgeSetAside() {
+        projectStore.documentStore?
+            .acknowledgeSetAsideRecords(Set(setAsideRecordNames))
+        reloadSetAside()
     }
 
     private var header: some View {

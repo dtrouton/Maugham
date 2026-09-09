@@ -303,6 +303,29 @@ public final class DocumentStore {
         updateUIState { $0.authorReaderChoice = choice }
     }
 
+    /// Record that the writer has seen these set-aside records — the archive
+    /// filenames `SetAsideAcknowledgement.name(for:in:)` resolves (signed op
+    /// log P2a, D2).
+    ///
+    /// **Unions, never replaces.** Two panes draw the sentence — the History
+    /// pane about a document's records, the Inbox about the manifest stream's —
+    /// and acknowledging one must not un-acknowledge what the other already
+    /// said. An empty press is a no-op rather than a clear, so a pane with
+    /// nothing standing cannot quietly forget the set.
+    ///
+    /// **Nothing under `.maugham/conflicts/` is touched.** The archives are
+    /// forensics and stay; what the writer put down is the sentence, not the
+    /// evidence, which is why the History pane's disclosure goes on listing
+    /// every record afterwards.
+    ///
+    /// A named verb rather than an `updateUIState { … }` at each call site, for
+    /// `setAuthorReaderChoice`'s reason above: two panes write this field, and
+    /// one door in is what keeps them from spelling the union differently.
+    public func acknowledgeSetAsideRecords(_ names: Set<String>) {
+        guard !names.isEmpty else { return }
+        updateUIState { $0.acknowledgedSetAsideRecords.formUnion(names) }
+    }
+
     // MARK: - Non-Document file save path (research notes, partial-restore)
 
     /// Schedule a coordinated write of `text` to `path` on a 750ms debounce.

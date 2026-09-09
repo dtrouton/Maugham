@@ -107,6 +107,28 @@ public struct UIState: Codable, Equatable, Sendable {
     /// default rule instead of being swept here.
     public var authorReaderChoice: AuthorReaderChoice?
 
+    /// **Which set-aside records this device has already told the writer
+    /// about** (signed op log P2a, D2) — archive filenames, the key
+    /// `SetAsideAcknowledgement` resolves and the History pane's disclosure
+    /// shows.
+    ///
+    /// **No schema bump**, for `authorReaderChoice`'s reason one field up: one
+    /// additive key with a tolerated-missing default, so a file written without
+    /// it decodes to nothing acknowledged — every record then still has its
+    /// say, which is the correct first-run behaviour — and an older build
+    /// ignores a key it has never heard of. Nothing acknowledged writes no key
+    /// at all, so a project where this never happened has the file it always
+    /// had.
+    ///
+    /// **Per device on purpose.** UI state is this machine's: acknowledging a
+    /// foreign line here says nothing about the phone, and each device tells
+    /// its own writer once.
+    ///
+    /// **Names, never records.** A name whose archive is gone stays in the set
+    /// rather than being swept — forgetting it would resurrect a sentence the
+    /// writer already put down, and the archives are not this file's to police.
+    public var acknowledgedSetAsideRecords: Set<String>
+
     /// Which review pass each piece was last looked at through
     /// (`ActivePassMemory`, M3-P1 Task 5).
     ///
@@ -186,7 +208,8 @@ public struct UIState: Codable, Equatable, Sendable {
         activePassMemory: ActivePassMemory = .empty,
         detailColumnWidth: Double = UIState.defaultDetailColumnWidth,
         publishImprint: String? = nil,
-        authorReaderChoice: AuthorReaderChoice? = nil
+        authorReaderChoice: AuthorReaderChoice? = nil,
+        acknowledgedSetAsideRecords: Set<String> = []
     ) {
         self.schemaVersion = schemaVersion
         self.selectedSubject = selectedSubject
@@ -203,6 +226,7 @@ public struct UIState: Codable, Equatable, Sendable {
             UIState.clampedDetailColumnWidth(detailColumnWidth)
         self.publishImprint = publishImprint
         self.authorReaderChoice = authorReaderChoice
+        self.acknowledgedSetAsideRecords = acknowledgedSetAsideRecords
     }
 
     public static let empty = UIState()
@@ -213,7 +237,8 @@ public struct UIState: Codable, Equatable, Sendable {
              isNoChromeOn,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
              persona, personaMemory, compilerModel, activePassMemory,
-             detailColumnWidth, publishImprint, authorReaderChoice
+             detailColumnWidth, publishImprint, authorReaderChoice,
+             acknowledgedSetAsideRecords
     }
 
     /// Hand-written because `selectedSubject` is not stored the way it is
@@ -244,6 +269,12 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(detailColumnWidth, forKey: .detailColumnWidth)
         try c.encodeIfPresent(publishImprint, forKey: .publishImprint)
         try c.encodeIfPresent(authorReaderChoice, forKey: .authorReaderChoice)
+        // Written only once there IS one, so a `ui-state.json` on a project
+        // where nothing was ever set aside stays exactly the file it was.
+        if !acknowledgedSetAsideRecords.isEmpty {
+            try c.encode(acknowledgedSetAsideRecords,
+                         forKey: .acknowledgedSetAsideRecords)
+        }
     }
 
     public init(from decoder: Decoder) throws {
@@ -288,6 +319,12 @@ public struct UIState: Codable, Equatable, Sendable {
         // throwing the rest of the file away with it.
         self.authorReaderChoice =
             (try? c.decodeIfPresent(AuthorReaderChoice.self, forKey: .authorReaderChoice)) ?? nil
+        // Absent is the state every project starts in and every file written
+        // before P2a is in: nothing acknowledged, so every set-aside record
+        // still has its say.
+        self.acknowledgedSetAsideRecords =
+            (try? c.decode(Set<String>.self,
+                           forKey: .acknowledgedSetAsideRecords)) ?? []
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep), and `binderSegment` in shell-finish stage
         // 2b Task 7, when the binder strip died with `BinderSegment`, and
