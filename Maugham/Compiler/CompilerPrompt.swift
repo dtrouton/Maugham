@@ -364,6 +364,23 @@ enum CompilerPrompt {
             previousBriefingHash: previousBriefingHash)
     }
 
+    /// **Absences are stated** (spec 2026-09-09 §4.3): a model told nothing
+    /// about the craft intent spent calls discovering there was none.
+    static let noIntentDeclared =
+        "No craft intent has been declared for this piece or its project."
+
+    /// Said once, before the output contract, for every kind: the message is
+    /// the read. `search_text` and `find_references` stay for checking a
+    /// specific continuity question — the sentence forbids exploring, not
+    /// checking.
+    static let wholeReadInstruction =
+        "Everything this read is judged against is in this message. A pinned "
+        + "note listed without its text can be fetched with the tool named on "
+        + "its line; a statement or ledger that is not listed here does not "
+        + "exist \u{2014} do not go looking for it, and do not read the outline "
+        + "or other documents. search_text and find_references are for a "
+        + "specific continuity question, not for exploring."
+
     /// The run message: the declared world (essay + derived clauses/rules),
     /// the bible slice, the listings, the delta, and the section schema.
     ///
@@ -451,6 +468,8 @@ enum CompilerPrompt {
         } else if hash != nil {
             if let essay, !essay.isEmpty {
                 sections.append("Declared intent (essay):\n\(cleaned(essay))")
+            } else {
+                sections.append(noIntentDeclared)
             }
             if let world, !(world.clauses.isEmpty && world.rules.isEmpty) {
                 sections.append(worldSection(world))
@@ -475,6 +494,12 @@ enum CompilerPrompt {
             if let pinned = pinnedSection(pinnedListing) {
                 sections.append(pinned)
             }
+        } else {
+            // Nothing to diff in at all — no essay, no world, no facts, no
+            // ledger, no pins — so there is no unit to elide and nothing was
+            // declared, full stop. A model told nothing about the craft
+            // intent spent calls discovering there was none.
+            sections.append(noIntentDeclared)
         }
 
         // **The palette listing stays outside the gate**, where it has always
@@ -615,6 +640,7 @@ enum CompilerPrompt {
         // editor, so the one expression is true for both loops and there is no
         // second place to remember the rule. The ingest end is
         // `LetterDosage.judgesIntentDrift`.
+        sections.append(wholeReadInstruction)
         sections.append(sectionSchema(judgesIntentDrift: !reader.isFirstReader))
 
         return (sections.joined(separator: "\n\n"), hash)
@@ -831,6 +857,10 @@ enum CompilerPrompt {
     /// that same shelf is not a standard, it is her taste — the books she
     /// reads and loves — so the sentence is restated here in those terms
     /// rather than left to be inferred from the general one.
+    static let firstReaderNotBriefed =
+        "You are deliberately not briefed on the writer's lessons ledger or "
+        + "their process; neither exists for you to fetch."
+
     static let firstReaderInstruction = """
         Report what happened in you as you read, each report under the kind \
         it is: dream_break, where the fiction stopped holding you; belief, \
@@ -930,6 +960,7 @@ enum CompilerPrompt {
                         + rulings.map { "- \(cleaned($0.text))" })
                         .joined(separator: "\n"))
             }
+            blocks.append(firstReaderNotBriefed)
             blocks.append(firstReaderInstruction)
             // Blank lines between the blocks, where `passSection` uses single
             // ones: the description is the writer's own prose and may be

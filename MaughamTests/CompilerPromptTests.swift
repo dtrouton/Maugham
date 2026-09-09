@@ -2911,4 +2911,51 @@ final class CompilerPromptTests: XCTestCase {
             previousBriefingHash: nil)
         XCTAssertNotNil(hash)
     }
+
+    // MARK: - The briefing states its absences (spec 2026-09-09 §4.3)
+
+    func test_aMissingEssayIsSaidRatherThanLeftToBeFetched() {
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        XCTAssertTrue(message.contains(CompilerPrompt.noIntentDeclared))
+        let (withEssay, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        XCTAssertFalse(withEssay.contains(CompilerPrompt.noIntentDeclared))
+    }
+
+    func test_theAbsenceIsNotRepeatedWhenTheUnitIsElided() {
+        let (_, hash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil,
+            bibleFacts: [makeFact(subject: "Kelly", fact: "is 31")],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        let (second, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil,
+            bibleFacts: [makeFact(subject: "Kelly", fact: "is 31")],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: hash)
+        XCTAssertFalse(second.contains(CompilerPrompt.noIntentDeclared),
+            "the absence is part of the unchanged unit")
+    }
+
+    func test_aFirstReaderIsToldWhatSheIsNotBriefedOn() throws {
+        let section = try XCTUnwrap(CompilerPrompt.readerSection(firstReader()))
+        XCTAssertTrue(section.contains(CompilerPrompt.firstReaderNotBriefed))
+    }
+
+    func test_everyBriefingSaysItIsTheWholeRead() {
+        for kind in [RunKind.check, .round] {
+            let (message, _) = CompilerPrompt.runMessageV2(
+                delta: makeDelta(), kind: kind, world: nil, essay: "Essay.", bibleFacts: [],
+                paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+            let whole = message.range(of: CompilerPrompt.wholeReadInstruction)
+            let schema = message.range(of: "Respond with")
+            XCTAssertNotNil(whole)
+            XCTAssertNotNil(schema)
+            if let whole, let schema {
+                XCTAssertLessThan(whole.lowerBound, schema.lowerBound,
+                    "said before the output contract, as the last thing about the read")
+            }
+        }
+    }
 }
