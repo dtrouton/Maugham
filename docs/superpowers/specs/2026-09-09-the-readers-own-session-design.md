@@ -122,31 +122,28 @@ different runner with a short, bounded answer and was not implicated.
   read once in the plan for whether it stands alone as an identity (they
   already open "You are …"); nothing from the coding-agent prompt is carried
   over on purpose.
-- **`--effort <level>` explicit, per session kind.** `ClaudeCLISession.Effort`
+- **`--effort <level>` explicit — and, in this milestone, unchanged.**
+  Ignoring the settings files also drops the `effortLevel: high` every run
+  inherits today, so the CLI would fall back to its own default; the argument
+  is therefore passed explicitly at every spawn. `ClaudeCLISession.Effort`
   is an enum over the CLI's accepted set (`low`, `medium`, `high`, `xhigh`,
   `max`; an unknown value is ignored by the CLI with a warning, so the set is
-  pinned by a test). The level is a spawn argument like the model, decided by
-  the orchestrator that owns the session, in one table:
+  pinned by a test). **Every session kind passes `high`** — the value Denver's
+  runs have carried all along — so this milestone changes the session's
+  identity, its liveness and its briefing and NOT how hard the model thinks.
+  One variable at a time.
 
-  | session | effort | why |
-  |---|---|---|
-  | check (Author's ⌘R) | medium | a reader reports a reading; 17k tokens of deliberation is an editor's habit |
-  | round (Review's Run) | high | the piece whole, filed and numbered |
-  | cold read (Reread / Fresh Eyes) | high | always the full letter |
-  | translator legs | medium | output-heavy, not deliberation-heavy |
-  | blind reader and collator (`ColdCall`) | medium | the 8 Sept reader spent ~21k tokens thinking to write 6k chars |
-  | designer | medium | — |
-  | declared-world derivation | low | a short structured answer |
-
-  The check's effort is a session-level argument and a check and a round can
-  share one warm session today, so a kind change respawns (the "retire session
-  on a kind change" carry from the two-loops spec lands here as a consequence,
-  not a separate decision). No writer-facing dial: the depth menu chooses the
-  model and stays what it is; effort is recorded on the run (§5) so it can be
-  seen, and the table is one place to change.
+  **The per-kind table is decided by evals, not here** (Denver, 2026-09-09:
+  *"the effort thing I think we need to tie to developing a set of evals for
+  review, translation etc. Without tests we're just guessing"*). What this
+  milestone contributes to that decision is the instrumentation: effort is
+  recorded on every run beside its timing (§5), so an eval can read what a
+  run was asked for and what it cost. The evals are their own spec and their
+  own milestone; the table moves when they say so. No writer-facing dial in
+  the meantime — the depth menu chooses the model and stays what it is.
 
 `DeclaredWorldDeriver` spawns the same way (`--setting-sources ""`,
-`--system-prompt`, `--effort low`) because it is the same shape of process
+`--system-prompt`, `--effort high`) because it is the same shape of process
 and inherits the same hook today.
 
 **Enforced:** `TripwireGrepTests` gains a census — `--append-system-prompt`
@@ -217,7 +214,8 @@ and `total_cost_usd`; its `system/thinking_tokens` events carry
 
 - Chunking a translate or fix leg into several bounded turns — its own plan,
   already recorded in the roadmap.
-- A writer-facing effort dial, or deriving effort from the depth menu.
+- A writer-facing effort dial, deriving effort from the depth menu, or any
+  per-kind effort value: the evals milestone decides those.
 - `MAX_THINKING_TOKENS`; effort is the API's own dial and the CLI's.
 - Trimming the sixty MCP tool schemas out of the prefix (the CLI's, and cached).
 - Chunking a check over a long piece: a reader reads the whole thing.
