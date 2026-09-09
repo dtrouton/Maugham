@@ -1610,10 +1610,17 @@ final class CompilerRunCommandTests: XCTestCase {
             onRunAcknowledged: { _ in })
     }
 
-    /// Each pinned kind names the tool that fetches its full contents — a
-    /// research note through `read_document`, a palette card through its own
-    /// tool, because `CompilerPrompt`'s section header names only the first.
-    func test_productionPinnedListingNamesTheFetchToolPerKind() async throws {
+    /// **A small research note travels in the briefing whole, and everything
+    /// else names the tool that fetches it** (the reader's-own-session spec
+    /// §4). The end-to-end proof of the inlining: the body here is read off
+    /// the fixture's real file, through the production wiring, so a
+    /// `pinnedBody` that resolved the path wrongly or lost the manifest lookup
+    /// would show up as the old pointer line rather than as nothing at all.
+    ///
+    /// A palette card is still a pointer — told apart by POSITION, not id
+    /// shape — and fetches through its own tool, because `CompilerPrompt`'s
+    /// section header names no tool for anybody.
+    func test_productionPinnedListingInlinesANoteAndNamesTheToolForTheRest() async throws {
         let root = try makeListingsProjectRoot()
         let store = try await ProjectStore.load(from: root)
         let documentStore = try await DocumentStore.open(url: root)
@@ -1622,8 +1629,9 @@ final class CompilerRunCommandTests: XCTestCase {
 
         let lines = environment.pinnedListing("ch-1")
 
-        XCTAssertTrue(lines.contains("The falls at night (res-note) — read_document"),
-                      "a plain research note fetches through read_document; got \(lines)")
+        XCTAssertTrue(lines.contains("The falls at night (res-note):\n  The falls at night."),
+                      "a small research note is given in full under its title, "
+                      + "indented, read off its own file; got \(lines)")
         XCTAssertTrue(lines.contains("Act II fog (res-card) — read_palette_card"),
                       "a palette card is told apart by position, not id shape, and "
                       + "fetches through its own tool; got \(lines)")

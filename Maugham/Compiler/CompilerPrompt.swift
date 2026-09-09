@@ -442,10 +442,12 @@ enum CompilerPrompt {
         // hash where it was. See `briefingHashInput`.
         let lessonsSection = lessonsSection(lessons)
         let hash = briefingHashInput(
-            essay: essay, world: world, bibleFacts: bibleFacts, lessons: lessonsSection)
+            essay: essay, world: world, bibleFacts: bibleFacts, lessons: lessonsSection,
+            pinnedListing: pinnedListing)
             .map(sha256Hex)
         if let hash, hash == previousBriefingHash {
-            sections.append("Declared world and bible: unchanged since last run.")
+            sections.append(
+                "Declared world, bible and pinned references: unchanged since last run.")
         } else if hash != nil {
             if let essay, !essay.isEmpty {
                 sections.append("Declared intent (essay):\n\(cleaned(essay))")
@@ -464,10 +466,23 @@ enum CompilerPrompt {
             if let lessonsSection {
                 sections.append(lessonsSection)
             }
+            // **Inside the gate as of the reader's-own-session spec §4**, with
+            // the four above it, because the listing stopped being titles and
+            // became the notes themselves. Re-sending forty inlined notes on
+            // every ⌘R is exactly the cost the gate exists to avoid, and the
+            // shelf is a thing the writer DECLARED — they chose these pins —
+            // rather than context that moves with the run.
+            if let pinned = pinnedSection(pinnedListing) {
+                sections.append(pinned)
+            }
         }
 
-        sections.append(
-            contentsOf: listingSections(pinnedListing: pinnedListing, paletteListing: paletteListing))
+        // **The palette listing stays outside the gate**, where it has always
+        // been: it is still ids and titles, so re-sending it costs a line each
+        // and there is nothing to elide.
+        if let palette = paletteSection(paletteListing) {
+            sections.append(palette)
+        }
 
         // Between the listings and the delta: context about the prose the
         // delta is about to show, rather than part of the standing briefing
@@ -682,8 +697,10 @@ enum CompilerPrompt {
 
     /// The one place the v2 briefing hash's input is assembled, so the hash
     /// gate and the embed decision can never compute it two ways. `nil`
-    /// when essay, world (empty counts as absent) and facts are ALL absent
-    /// — nothing to diff in means no hash to track.
+    /// when essay, world (empty counts as absent), facts, ledger and pins are
+    /// ALL absent — nothing to diff in means no hash to track. A shelf of pins
+    /// on its own is enough: the writer chose them, and since §4 the listing
+    /// carries their words.
     ///
     /// **`lessons` is the rendered SECTION, not the ledger's markdown** (P2
     /// Task 4). The hash exists to answer "has what this run is told changed?",
@@ -693,12 +710,14 @@ enum CompilerPrompt {
     /// the bible slice to communicate a deletion. Hashing what is actually
     /// said keeps the marker line honest in both directions.
     private static func briefingHashInput(
-        essay: String?, world: DerivedWorld?, bibleFacts: [BibleFact], lessons: String?
+        essay: String?, world: DerivedWorld?, bibleFacts: [BibleFact], lessons: String?,
+        pinnedListing: [String]
     ) -> String? {
         let essayEmpty = essay?.isEmpty ?? true
         let worldEmpty = world.map { $0.clauses.isEmpty && $0.rules.isEmpty } ?? true
         let lessonsEmpty = lessons?.isEmpty ?? true
         guard !essayEmpty || !worldEmpty || !bibleFacts.isEmpty || !lessonsEmpty
+                || !pinnedListing.isEmpty
         else { return nil }
 
         var parts: [String] = ["essay:\(essay ?? "")"]
@@ -711,6 +730,20 @@ enum CompilerPrompt {
         }
         parts.append("facts:" + bibleFacts.map { "\($0.subject)|\($0.fact)" }.joined(separator: ";"))
         parts.append("lessons:\(lessons ?? "")")
+        // Last, and over the LINES rather than the shelf — the same rule the
+        // ledger follows one line up. What the hash answers is "has what this
+        // run is told changed?", and the listing is now what the run is told:
+        // a note whose body travels inline moves the hash when its words move,
+        // while a shelf whose notes were all too long to inline moves it only
+        // when a title, an id or a word count does.
+        //
+        // Joined with U+001E (record separator) and deliberately NOT U+001F:
+        // the unit separator is `RoundFingerprint.stringValue`'s identity
+        // spelling and a census keeps it to that one site, because two
+        // spellings of "the same finding" is how a dedupe forks. This join is
+        // not an identity — it is a hash input over lines that may each carry
+        // newlines of their own, so it needs a byte no note body contains.
+        parts.append("pinned:" + pinnedListing.joined(separator: "\u{1E}"))
         return parts.joined(separator: "\n")
     }
 
@@ -1412,21 +1445,31 @@ enum CompilerPrompt {
 
     // MARK: - Listings (pinned / palette)
 
-    private static func listingSections(pinnedListing: [String], paletteListing: [String]) -> [String] {
-        var sections: [String] = []
-        if !pinnedListing.isEmpty {
-            sections.append(
-                "Pinned references (id and title only — fetch full contents "
-                    + "with read_document if a note needs them):\n"
-                    + pinnedListing.map { "- \($0)" }.joined(separator: "\n"))
-        }
-        if !paletteListing.isEmpty {
-            sections.append(
-                "Palette cards (id and title only — fetch full contents "
-                    + "with read_palette_card if a note needs them):\n"
-                    + paletteListing.map { "- \($0)" }.joined(separator: "\n"))
-        }
-        return sections
+    /// **The shelf, with the small notes in it** (spec 2026-09-09 §4). The
+    /// header no longer promises "id and title only", because most lines are
+    /// no longer that — a line that inlines its note carries the body indented
+    /// under the title, and the bullet lands on its first line alone. That
+    /// shape is accepted rather than pretty, on `pinnedListingLines`' own rule:
+    /// what the prompt owes the run is the writer's grouping and the writer's
+    /// words, not Markdown structure.
+    ///
+    /// `nil` for an empty shelf, so the caller composes it like every other
+    /// optional section.
+    private static func pinnedSection(_ pinnedListing: [String]) -> String? {
+        guard !pinnedListing.isEmpty else { return nil }
+        return "Pinned references — a short note is given in full under "
+            + "its title; a long one says how to fetch it:\n"
+            + pinnedListing.map { "- \($0)" }.joined(separator: "\n")
+    }
+
+    /// The palette, unchanged: ids and titles, fetched with
+    /// `read_palette_card`. A card is a handful of fields the model rarely
+    /// needs whole, so nothing here inlines.
+    private static func paletteSection(_ paletteListing: [String]) -> String? {
+        guard !paletteListing.isEmpty else { return nil }
+        return "Palette cards (id and title only — fetch full contents "
+            + "with read_palette_card if a note needs them):\n"
+            + paletteListing.map { "- \($0)" }.joined(separator: "\n")
     }
 
     // MARK: - Delta section
