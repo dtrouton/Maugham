@@ -31,15 +31,78 @@ enum RoundNarrative {
     /// the verb that predates the split, and the one call site that is not a
     /// check — Review's cockpit — names itself.
     static func checkingCopy(
-        _ counts: CompilerOrchestrator.DeltaCounts, kind: RunKind = .check
+        _ counts: CompilerOrchestrator.DeltaCounts, kind: RunKind = .check,
+        elapsed: TimeInterval? = nil, thinkingTokens: Int? = nil
     ) -> String {
+        let base: String
         switch kind {
         case .round:
-            return "Reading the whole piece\u{2026}"
+            base = "Reading the whole piece\u{2026}"
         case .check:
-            guard let phrase = paragraphPhrase(counts) else { return "Checking\u{2026}" }
-            return "Checking \(phrase)\u{2026}"
+            if let phrase = paragraphPhrase(counts) {
+                base = "Checking \(phrase)\u{2026}"
+            } else {
+                base = "Checking\u{2026}"
+            }
         }
+        // **The wait made legible** (spec 2026-09-09 §5): how long it has
+        // been, and what the model has done so far, from the CLI's own
+        // estimate. No clock means the sentence every caller had before this
+        // milestone — a caller with nothing to say about the wait says
+        // nothing rather than "0s".
+        guard let elapsed else { return base }
+        var line = base + " " + clockPhrase(elapsed)
+        if let thinkingTokens, thinkingTokens > 0 {
+            line += " \u{00b7} thinking (\(roughThousands(thinkingTokens)) tokens)"
+        }
+        return line
+    }
+
+    /// `4s`, `2m 10s`, `1h 2m` — the strip's clock. Truncated, never
+    /// rounded up: a run in its fourth second has not reached five.
+    static func clockPhrase(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded(.down)))
+        let hours = total / 3_600, minutes = (total % 3_600) / 60, secs = total % 60
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        if minutes > 0 { return "\(minutes)m \(secs)s" }
+        return "\(secs)s"
+    }
+
+    /// `12k`, never `12,400`, while the number is still moving: a digit that
+    /// changes every tick is a number the writer reads as noise. The settled
+    /// figure gets `thousands` in the tooltip.
+    static func roughThousands(_ n: Int) -> String {
+        n >= 1_000 ? "\(n / 1_000)k" : "\(n)"
+    }
+
+    /// The suffix the "Last checked" line and the cockpit's report line carry
+    /// over a run that recorded its timing; empty otherwise, so a run filed
+    /// before this milestone reads exactly as it did.
+    static func readInSuffix(_ timing: RunTiming?) -> String {
+        guard let timing else { return "" }
+        return " \u{00b7} read in \(clockPhrase(timing.elapsed))"
+    }
+
+    /// **The tooltip behind that suffix** — what the turn cost, for a
+    /// writer who wants it, on a line nobody has to read. Every clause but the
+    /// model is optional, because a legacy record or a result event that named
+    /// none of them must still produce a sentence rather than a row of blanks.
+    static func timingDetail(_ timing: RunTiming) -> String {
+        var parts: [String] = []
+        if let first = timing.firstLineAfter {
+            parts.append("First word after \(clockPhrase(first))")
+        }
+        if let turns = timing.turns {
+            parts.append(turns == 1 ? "1 turn" : "\(turns) turns")
+        }
+        if let thinking = timing.thinkingTokens {
+            parts.append("\(thousands(thinking)) tokens of thinking")
+        }
+        parts.append("\(timing.model) at \(timing.effort)")
+        if let cost = timing.costUSD {
+            parts.append(String(format: "$%.2f", cost))
+        }
+        return parts.joined(separator: " \u{00b7} ")
     }
 
     /// What a delta is, in the writer's English — the ONE spelling, read by the

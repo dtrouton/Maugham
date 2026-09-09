@@ -117,6 +117,19 @@ final class ReviewRoundCockpitTests: XCTestCase {
             .running(counts))
     }
 
+    /// **The cockpit's running line ticks like the pane's** (spec 2026-09-09
+    /// §5). The decision is static so the clock is assertable without mounting
+    /// anything — the strip's own instance property is one caller of it.
+    func test_theRunningStatusLineCarriesElapsedAndProgress() {
+        let since = Date(timeIntervalSince1970: 1_000)
+        let line = ReviewRoundCockpit.statusLine(
+            phase: .running(CompilerOrchestrator.DeltaCounts(new: 40, revised: 2)),
+            reportLine: nil,
+            runSince: since, runProgress: RunProgress(thinkingTokens: 9_000, at: since),
+            now: since.addingTimeInterval(65))
+        XCTAssertEqual(line, "Reading the whole piece\u{2026} 1m 5s \u{00b7} thinking (9k tokens)")
+    }
+
     /// A run that worked and had nothing to read is idle here: `.nothingNew`
     /// says the key worked, which is what the report line under it already
     /// carries, and the strip must offer its buttons again the moment it lands.
@@ -1023,11 +1036,15 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// gear menu draws whatever it was constructed with either way.
     func test_theAnnotationsPaneThreadsItsOwnCompilerModelToTheCockpit() throws {
         let pane = try Self.source(of: "Views/AnnotationsPane.swift")
-        let call = try XCTUnwrap(
-            pane.range(of: "ReviewRoundCockpit("),
+        // **Balanced parens, never a character budget** (`mountArguments`'
+        // own reasoning): this scan took a fixed 1600-character prefix until
+        // the run's clock arrived on two arguments of its own and pushed
+        // `compilerModel:` past it. A budget over a list that grows is a test
+        // that fails for the wrong reason.
+        let after = try XCTUnwrap(
+            Self.mountArguments(of: "ReviewRoundCockpit(", in: pane),
             "the pane must still construct the cockpit for this census to "
             + "have a subject")
-        let after = String(pane[call.upperBound...].prefix(1600))
         XCTAssertTrue(after.contains("compilerModel: compilerModel"),
                       "the pane's own stored `compilerModel` must reach the "
                       + "cockpit \u{2014} got:\n\(after)")

@@ -68,6 +68,14 @@ struct ReviewRoundCockpit: View {
     /// since-last-round comparison, resolved by `reportLine(history:run:annotations:)`.
     /// `nil` when there is no round to report on.
     let reportLine: String?
+    /// **When the round in flight began, and how far it has got** (spec
+    /// 2026-09-09 §5) — the orchestrator's, so the strip's running line
+    /// is a clock rather than a fixed sentence. Defaulted, because a host with
+    /// no run to describe supplies neither and gets the line it always had;
+    /// `var` rather than `let` for the same reason, so the memberwise init
+    /// keeps every existing call site compiling.
+    var runSince: Date? = nil
+    var runProgress: RunProgress? = nil
     /// Ask for a round. `true` is the cold read (⌘⇧R).
     let onRun: (_ freshEyes: Bool) -> Void
     /// Record which pass this piece is being reviewed through. The write
@@ -283,12 +291,18 @@ struct ReviewRoundCockpit: View {
     /// `annotations` must be the document's queue in EVERY state. The
     /// arithmetic (`SinceLastRound`) does its own status filtering; a caller
     /// that pre-filtered to open notes would report zero resolved forever.
+    ///
+    /// **And what the round cost** (spec 2026-09-09 §5), as one clause on the
+    /// end — empty over a run filed before timing existed, and absent
+    /// entirely when there is no line to hang it on.
     static func reportLine(
         history: [RoundRecord], run: CompilerRun?, annotations: [Annotation]
     ) -> String? {
-        RoundNarrative.freshEyesHeader(run: run)
+        let line = RoundNarrative.freshEyesHeader(run: run)
             ?? RoundNarrative.sinceLastRoundLine(
                 history: history, run: run, annotations: annotations)
+        guard let line else { return nil }
+        return line + RoundNarrative.readInSuffix(run?.timing)
     }
 
     /// **What an empty queue says now** — the Review copy carry.
@@ -486,30 +500,65 @@ struct ReviewRoundCockpit: View {
     /// Diagnostics pane says about the same death, in one spelling, so a writer
     /// who checks the other pane to understand this one finds the same account
     /// of it (`ReviewRoundCockpitTests`' one-spelling census).
-    private var statusLine: String? {
+    ///
+    /// **Static, so the clock is assertable without a mount** (spec
+    /// 2026-09-09 §5): `now` is a parameter the `TimelineView` supplies and a
+    /// test moves. The instance property below is one caller of it.
+    static func statusLine(
+        phase: RunPhase, reportLine: String?,
+        runSince: Date?, runProgress: RunProgress?, now: Date = Date()
+    ) -> String? {
         switch phase {
         // `.round`, always: this cockpit IS the round loop, and its runs read
         // the piece whole (two loops P1 Task 3). Author's pane says the
         // check's sentence at the mirror of this line.
         case .running(let counts):
-            return RoundNarrative.checkingCopy(counts, kind: .round)
+            return RoundNarrative.checkingCopy(
+                counts, kind: .round,
+                elapsed: runSince.map { now.timeIntervalSince($0) },
+                thinkingTokens: runProgress?.thinkingTokens)
         case .failed(let failure, _): return RoundNarrative.failureCopy(failure)
         case .idle: return reportLine
+        }
+    }
+
+    private var statusLine: String? {
+        Self.statusLine(phase: phase, reportLine: reportLine,
+                        runSince: runSince, runProgress: runProgress)
+    }
+
+    /// One spelling of the status line's look, so the ticking arm and the
+    /// still one cannot drift apart.
+    @ViewBuilder
+    private func statusText(_ line: String?) -> some View {
+        if let line {
+            Text(line)
+                .font(.caption)
+                // Red only for a failure, on `DiagnosticsPane.header`'s
+                // rule: the strip's ordinary lines are secondary, and a
+                // colour that never changes is a colour that says nothing.
+                .foregroundStyle(isFailure ? Color.red : Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             lanePicker
-            if let statusLine {
-                Text(statusLine)
-                    .font(.caption)
-                    // Red only for a failure, on `DiagnosticsPane.header`'s
-                    // rule: the strip's ordinary lines are secondary, and a
-                    // colour that never changes is a colour that says nothing.
-                    .foregroundStyle(isFailure ? Color.red : Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            // **The running line is a clock and the rest is not** (spec
+            // 2026-09-09 §5), so only the live case is redrawn — one
+            // `Text` at 1 Hz, and only while a round is in flight. Author's
+            // pane does the same at the mirror of this line.
+            if case .running = phase {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    statusText(Self.statusLine(
+                        phase: phase, reportLine: reportLine,
+                        runSince: runSince, runProgress: runProgress,
+                        now: context.date))
+                }
+            } else if let statusLine {
+                statusText(statusLine)
             }
             letterRow
             askRow

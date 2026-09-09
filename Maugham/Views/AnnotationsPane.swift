@@ -720,6 +720,11 @@ struct AnnotationsPane: View {
                 phase: ReviewRoundCockpit.phase(
                     runState: orchestrator.runState, docId: document.docId),
                 reportLine: cockpitReportLine(diagnostics, docId: document.docId),
+                // **The live round's clock** (spec 2026-09-09 §5): the strip
+                // draws the wait, and the orchestrator is the one thing that
+                // knows when it started and how far it has got.
+                runSince: orchestrator.runStartedAt,
+                runProgress: orchestrator.runProgress,
                 // **The round cockpit's own button, and it is a round by
                 // construction** (two loops P1) — this surface exists only in
                 // Review. Said literally rather than minted from a persona,

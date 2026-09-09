@@ -432,7 +432,9 @@ struct DiagnosticsPane: View {
         // Counting those made `.idle` reachable over an empty pane, where its
         // copy says the compiler found nothing to raise.
         Self.headerState(runState: orchestrator.runState, lastRun: lastRun,
-                          noteCount: strains.count, docId: docId)
+                          noteCount: strains.count, docId: docId,
+                          runStartedAt: orchestrator.runStartedAt,
+                          runProgress: orchestrator.runProgress)
     }
 
     /// Whether the rows on screen may be acted on — read through `state`, which
@@ -494,8 +496,13 @@ struct DiagnosticsPane: View {
         case neverRun
         case idle(lastRun: CompilerRun)
         /// Carrying what the run is reading, so the wait is legible from the
-        /// moment it starts (requirement 5).
-        case running(checking: CompilerOrchestrator.DeltaCounts)
+        /// moment it starts (requirement 5) — and, since spec
+        /// 2026-09-09 §5, WHEN it started and how far the model has got, so
+        /// the same state read a minute later says a different sentence. Both
+        /// are optional: a caller with no clock draws the line requirement 5
+        /// shipped.
+        case running(checking: CompilerOrchestrator.DeltaCounts,
+                     since: Date?, progress: RunProgress?)
         case nothingNew(at: Date)
         case failed(CompilerRunFailure, at: Date)
         case clean(lastRun: CompilerRun)
@@ -514,11 +521,16 @@ struct DiagnosticsPane: View {
         runState: CompilerOrchestrator.RunState,
         lastRun: CompilerRun?,
         noteCount: Int,
-        docId: String
+        docId: String,
+        runStartedAt: Date? = nil,
+        runProgress: RunProgress? = nil
     ) -> HeaderState {
         switch runState {
         case .running(let runDocId, let checking) where runDocId == docId:
-            return .running(checking: checking)
+            // The clock and the progress are the ORCHESTRATOR's, not the run
+            // state's: they belong to the live turn rather than to the delta
+            // it was launched over, and a caller with neither passes neither.
+            return .running(checking: checking, since: runStartedAt, progress: runProgress)
         case .nothingNew(let runDocId, let at) where runDocId == docId:
             return .nothingNew(at: at)
         case .failed(let runDocId, let failure, let at) where runDocId == docId:
@@ -605,9 +617,24 @@ struct DiagnosticsPane: View {
                 // the WIDTH conflict `DetailColumnWidthTests` documents.
                 // Measured 2026-08-08 (macOS 26.5); see
                 // `DiagnosticsPaneColumnHeightTests`.
-                Text(headerLine)
-                    .font(.caption)
-                    .foregroundStyle(isFailureState ? Color.red : .secondary)
+                //
+                // **While a run is live the line is a clock** (spec
+                // 2026-09-09 §5), so it is redrawn once a second and only
+                // then. Tripwire 30 is about scene-proportional work keyed on
+                // a redraw counter; this is one `Text` at 1 Hz, and it stops
+                // the moment the state leaves `.running`.
+                if case .running = state {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(Self.headerCopy(for: state, wetInk: wetInk, now: context.date))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text(headerLine)
+                        .font(.caption)
+                        .foregroundStyle(isFailureState ? Color.red : .secondary)
+                        .help(timingHelp)
+                }
                 Spacer()
                 if case .running = state {
                     Button("Cancel") { orchestrator.cancel() }
@@ -704,6 +731,20 @@ struct DiagnosticsPane: View {
     static let rereadHelp = "Read the whole piece cold (\u{2318}\u{21e7}R)"
 
     private var headerLine: String { Self.headerCopy(for: state, wetInk: wetInk) }
+
+    /// **What the run cost, behind the line rather than on it** (spec
+    /// 2026-09-09 §5). Only a finished run has any of it, and `.help("")`
+    /// draws no tooltip at all — so the two states that can carry a
+    /// record answer, and every other state silently declines.
+    private var timingHelp: String {
+        if case .idle(let run) = state, let timing = run.timing {
+            return RoundNarrative.timingDetail(timing)
+        }
+        if case .clean(let run) = state, let timing = run.timing {
+            return RoundNarrative.timingDetail(timing)
+        }
+        return ""
+    }
 
     /// **"Le Guin reads this piece", "Claude reads this piece"** — who reads
     /// this piece's CHECKS, in the header's own shape. The round cockpit drew
@@ -858,18 +899,28 @@ struct DiagnosticsPane: View {
     /// still said "N notes went to your queue" here even after `emptyState`
     /// below it stopped saying it — the same defect, one call site over.
     static func headerCopy(
-        for state: HeaderState, wetInk: WetInk = .none
+        for state: HeaderState, wetInk: WetInk = .none, now: Date = Date()
     ) -> String {
         switch state {
         case .neverRun:
             return "Not checked yet \u{2014} press \u{2318}R to check your writing."
         case .idle(let run):
+            // **What it cost, in one clause** (spec 2026-09-09 §5). Empty over
+            // a run filed before timing existed, so the line a writer already
+            // knows is unchanged to the byte.
             return "Last checked \(relative(run.at)) \u{00b7} \(run.deltaSummary)"
-        case .running(let checking):
+                + RoundNarrative.readInSuffix(run.timing)
+        case .running(let checking, let since, let progress):
             // `.check`, always: this pane is Author's, and Author's ⌘R is the
             // check (two loops P1 Task 3). The cockpit passes `.round` at the
             // mirror of this line.
-            return RoundNarrative.checkingCopy(checking, kind: .check)
+            //
+            // `now` is a parameter rather than a `Date()` inside, so the clock
+            // is what the `TimelineView` supplies and what a test moves.
+            return RoundNarrative.checkingCopy(
+                checking, kind: .check,
+                elapsed: since.map { now.timeIntervalSince($0) },
+                thinkingTokens: progress?.thinkingTokens)
         case .nothingNew:
             return "Nothing new since the last check."
         case .failed(let failure, _):
@@ -1660,7 +1711,9 @@ struct DiagnosticsPane: View {
         case .neverRun:
             return ("Not checked yet", "checkmark.seal",
                     "Press \u{2318}R and \(readerName) reads what you've written.")
-        case .running(let checking):
+        case .running(let checking, _, _):
+            // The empty state names the delta and never the clock: it is a
+            // placeholder for a list, not the header's live line.
             guard let phrase = RoundNarrative.paragraphPhrase(checking) else {
                 return ("Checking\u{2026}", "hourglass",
                         "Claude is reading what you've written since the last check.")

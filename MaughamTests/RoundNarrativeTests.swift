@@ -61,7 +61,8 @@ final class RoundNarrativeTests: XCTestCase {
             RoundNarrative.checkingCopy(counts(new: 3, revised: 0), kind: .check),
             "Checking 3 new paragraphs\u{2026}")
         XCTAssertEqual(
-            DiagnosticsPane.headerCopy(for: .running(checking: counts(new: 3, revised: 0))),
+            DiagnosticsPane.headerCopy(
+                for: .running(checking: counts(new: 3, revised: 0), since: nil, progress: nil)),
             "Checking 3 new paragraphs\u{2026}",
             "Author's pane is the check's home")
         XCTAssertEqual(
@@ -367,5 +368,44 @@ final class RoundNarrativeTests: XCTestCase {
         XCTAssertEqual(RoundNarrative.minutesPhrase(60), "1 minute")
         XCTAssertEqual(RoundNarrative.minutesPhrase(183), "3 minutes")
         XCTAssertEqual(RoundNarrative.minutesPhrase(1_204), "20 minutes")
+    }
+
+    // MARK: - The live wait and the read-in line (spec 2026-09-09 §5)
+
+    /// **A writer watching a bare "Checking…" cannot tell a working compiler
+    /// from a hung one.** The clock and the model's own thinking estimate make
+    /// the wait legible; a caller with no clock keeps the sentence it had.
+    func test_theCheckingLineCarriesElapsedAndThinkingProgress() {
+        XCTAssertEqual(
+            RoundNarrative.checkingCopy(counts(new: 457, revised: 0), kind: .check,
+                                        elapsed: 130, thinkingTokens: 12_400),
+            "Checking 457 new paragraphs\u{2026} 2m 10s \u{00b7} thinking (12k tokens)")
+        XCTAssertEqual(
+            RoundNarrative.checkingCopy(counts(new: 3, revised: 0), kind: .check, elapsed: 4),
+            "Checking 3 new paragraphs\u{2026} 4s")
+        XCTAssertEqual(
+            RoundNarrative.checkingCopy(counts(new: 40, revised: 2), kind: .round),
+            "Reading the whole piece\u{2026}",
+            "no clock, no suffix \u{2014} the sentence every caller had")
+    }
+
+    /// **What a finished run says it cost.** The suffix is one clause on a line
+    /// the writer already reads; everything else is behind the tooltip.
+    func test_theReadInSuffixAndItsDetail() {
+        let timing = RunTiming(elapsed: 252, firstLineAfter: 4.1, apiDuration: 250, turns: 6,
+                               outputTokens: 14_000, thinkingTokens: 12_504, costUSD: 0.31,
+                               model: "opus", effort: "high")
+        XCTAssertEqual(RoundNarrative.readInSuffix(timing), " \u{00b7} read in 4m 12s")
+        XCTAssertEqual(RoundNarrative.readInSuffix(nil), "")
+        XCTAssertEqual(
+            RoundNarrative.timingDetail(timing),
+            "First word after 4s \u{00b7} 6 turns \u{00b7} 12,504 tokens of thinking "
+            + "\u{00b7} opus at high \u{00b7} $0.31")
+    }
+
+    func test_theClockPhraseSpellsSecondsMinutesAndHours() {
+        XCTAssertEqual(RoundNarrative.clockPhrase(4), "4s")
+        XCTAssertEqual(RoundNarrative.clockPhrase(130), "2m 10s")
+        XCTAssertEqual(RoundNarrative.clockPhrase(3_725), "1h 2m")
     }
 }
