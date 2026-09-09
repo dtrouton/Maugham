@@ -248,6 +248,16 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// reported. A root that is present but has lost its `.maugham` has no
     /// lines for those heads to protect, so keeping them costs nothing.
     ///
+    /// **D3′ (Denver's ruling): a root is dead only when the root is absent
+    /// AND its parent is present.** A deleted project leaves its parent
+    /// directory behind — the enclosing folder is still there, only the
+    /// project inside it is gone. An unmounted volume takes its whole path
+    /// with it: the parent is gone too, not just the leaf. Without the second
+    /// clause an unmounted volume reads exactly like a deleted project and
+    /// loses its heads on every launch it happens to be absent for, silently
+    /// giving up one launch's worth of tamper detection for a project that was
+    /// never touched at all.
+    ///
     /// An entry pruned by mistake is still the ADOPT case, the same fall-back a
     /// moved project already takes — the safe direction — but the narrower
     /// predicate reaches for it far less often.
@@ -257,7 +267,9 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// recorded root, which is every head written before this field existed.
     private nonisolated static func prune(_ stored: inout Stored) -> Bool {
         let dead = stored.roots.filter { _, path in
-            !FileManager.default.fileExists(atPath: path)
+            guard !FileManager.default.fileExists(atPath: path) else { return false }
+            let parent = URL(fileURLWithPath: path).deletingLastPathComponent().path
+            return FileManager.default.fileExists(atPath: parent)
         }
         guard !dead.isEmpty else { return false }
         let hashes = Set(dead.keys)
