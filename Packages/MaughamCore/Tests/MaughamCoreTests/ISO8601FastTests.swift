@@ -56,9 +56,16 @@ final class ISO8601FastTests: XCTestCase {
             "2026-02-30T00:00:00Z",
             "2026-09-09T24:00:00Z",
             "2026-09-09T12:60:00Z",
+            "2026-09-09T12:00:60Z",
             "1757000000",
             "2026-09-09T12:00:00z",
             "",
+            // Fraction lengths this app never writes. The formatter TRUNCATES
+            // past three digits; rather than replicate that, they fall to it.
+            "2026-09-09T12:00:00.5Z",
+            "2026-09-09T12:00:00.12Z",
+            "2026-09-09T12:00:00.1234Z",
+            "2026-09-09T12:00:00.999999999Z",
         ]
         for string in refusals {
             XCTAssertNil(

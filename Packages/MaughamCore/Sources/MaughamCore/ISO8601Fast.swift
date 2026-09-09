@@ -4,7 +4,7 @@ import Foundation
 /// A hand parser for the two ISO 8601 shapes Maugham itself writes:
 ///
 ///     YYYY-MM-DDTHH:MM:SSZ
-///     YYYY-MM-DDTHH:MM:SS.fffZ      (1–9 fraction digits)
+///     YYYY-MM-DDTHH:MM:SS.fffZ      (exactly three fraction digits)
 ///
 /// It exists for one reason: a cold open of a 50,000-line op log decodes a date
 /// per line, and `ISO8601DateFormatter` costs an allocation and a trip through
@@ -17,6 +17,17 @@ import Foundation
 /// refuses by answering nil, and the caller falls back to the formatter that
 /// has always been there — so a shape this parser has never seen decodes
 /// exactly as it did before, and being wrong here can only cost speed.
+///
+/// The fraction is where that promise had to be paid for. `ISO8601DateFormatter`
+/// with `.withFractionalSeconds` TRUNCATES a longer fraction to its first three
+/// digits, so a parser that read `.999999999Z` as 0.999999999 would decode a
+/// different instant than the strategy behind it — and since every remembered
+/// chain head is a hash over RE-ENCODED bytes, a foreign line with nine digits
+/// would re-encode as the next whole second and move a hash. Rather than
+/// replicate an undocumented Foundation truncation, this parser takes only the
+/// two lengths Maugham itself writes: none, or exactly three. One, two, and
+/// four through nine digits are refused and fall to the formatter, which is the
+/// only thing that has ever decided what they mean.
 public enum ISO8601Fast {
 
     /// The parsed instant, or nil if the bytes are not one of the two shapes.
@@ -65,20 +76,13 @@ public enum ISO8601Fast {
         var fraction = 0.0
         if index < end, utf8[index] == UInt8(ascii: ".") {
             index = utf8.index(after: index)
-            var value = 0
-            var seen = 0
-            while index < end, seen < 9 {
-                let byte = utf8[index]
-                guard byte >= 0x30, byte <= 0x39 else { break }
-                value = value * 10 + Int(byte - 0x30)
-                index = utf8.index(after: index)
-                seen += 1
-            }
-            guard seen >= 1 else { return nil }
-            fraction = Double(value) / powerOfTen(seen)
+            // Exactly three. Fewer and this fails here; more and the fourth
+            // digit is still sitting where the `Z` has to be.
+            guard let milliseconds = digits(3) else { return nil }
+            fraction = Double(milliseconds) / 1_000
         }
 
-        // `Z`, and then nothing — a tenth fraction digit or a trailing offset
+        // `Z`, and then nothing — a fourth fraction digit or a trailing offset
         // lands here and is refused.
         guard literal(UInt8(ascii: "Z")), index == end else { return nil }
 
@@ -112,20 +116,5 @@ public enum ISO8601Fast {
         let dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1
         let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
         return era * 146_097 + dayOfEra - 719_468
-    }
-
-    /// A switch rather than a table: nothing to allocate, nothing to bounds-check.
-    private static func powerOfTen(_ exponent: Int) -> Double {
-        switch exponent {
-        case 1: return 10
-        case 2: return 100
-        case 3: return 1_000
-        case 4: return 10_000
-        case 5: return 100_000
-        case 6: return 1_000_000
-        case 7: return 10_000_000
-        case 8: return 100_000_000
-        default: return 1_000_000_000
-        }
     }
 }

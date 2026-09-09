@@ -66,6 +66,37 @@ final class JSONLDateCodingTests: XCTestCase {
         try assertStableReEncoding(of: "[\"1757000000.5\"]")
     }
 
+    /// The gap the review found: a fraction longer than three digits.
+    /// `ISO8601DateFormatter` truncates it to the first three, so a fast path
+    /// that read all nine would decode a different instant AND re-encode to a
+    /// different second — a moved hash on a foreign line. The parser refuses
+    /// every fraction length but three, which puts the answer back where it has
+    /// always been. Asserted at the STRATEGY, because that is the level at which
+    /// nothing may have changed for any input.
+    func test_theStrategysAnswerIsUnchangedForFractionLengthsTheAppNeverWrites() throws {
+        let strings = [
+            "2026-09-09T12:00:00.999999999Z",
+            "2026-09-09T12:00:00.5Z",
+            "2026-09-09T12:00:00.1234Z",
+        ]
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let whole = ISO8601DateFormatter()
+
+        for string in strings {
+            let viaStrategy = try XCTUnwrap(
+                decoder().decode([Date].self, from: Data("[\"\(string)\"]".utf8)).first)
+            let viaFormatter = try XCTUnwrap(
+                fractional.date(from: string) ?? whole.date(from: string),
+                "neither formatter parsed \(string)")
+            XCTAssertEqual(viaStrategy, viaFormatter, "\(string)")
+            XCTAssertEqual(
+                try encoder().encode([viaStrategy]),
+                try encoder().encode([viaFormatter]),
+                "\(string) re-encodes differently")
+        }
+    }
+
     func test_anOffsetDateStillTakesTheFormatterFallback() throws {
         let decoded = try decoder().decode(
             [Date].self, from: Data("[\"2026-09-09T12:00:00+02:00\"]".utf8))
