@@ -7084,4 +7084,80 @@ final class TripwireGrepTests: XCTestCase {
             + "caught, and neither the actor call, the other constructors, the "
             + "`deviceId:` label, nor the comment. Caught lines: \(offenders)")
     }
+
+    // MARK: - The spawned session is the reader's own (spec 2026-09-09 §3)
+
+    /// A line that spells the old flag inside prose rather than as an argument.
+    private static func appendSystemPromptCommentLine(_ line: String) -> Bool {
+        line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+    }
+
+    /// `--append-system-prompt` keeps Claude Code's coding-agent prompt in
+    /// front of whatever Maugham says; `--system-prompt` replaces it. No
+    /// production spawn may use the former.
+    func test_noProductionSpawnAppendsToTheCodingAgentPrompt() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            patterns: ["\"--append-system-prompt\""],
+            excludeLine: Self.appendSystemPromptCommentLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production spawn appends to the coding-agent system prompt. Use "
+            + "--system-prompt so the preamble IS the prompt (spec 2026-09-09 §3). "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// Every production file that builds a `claude` argv (it names
+    /// `--output-format`) must also pass `--setting-sources`, or the writer's
+    /// hooks, plugins and global effort ride into the session.
+    func test_everyProductionSpawnIgnoresTheWritersSettingsFiles() throws {
+        // Hoisted rather than called inside the assertion: `XCTAssertTrue`'s
+        // autoclosure is non-throwing, and one scan answers both halves.
+        let offenders = try spawnSitesMissingSettingSources(in: sourceDir)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production `claude` spawn does not pass --setting-sources \"\". "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// Files under `dir` whose text builds a claude argv (`--output-format`)
+    /// without `--setting-sources`.
+    private func spawnSitesMissingSettingSources(in dir: URL) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else { return [] }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let spawns = text.contains("\"--output-format\"")
+            let ignores = text.contains("\"--setting-sources\"")
+            if spawns && !ignores { offenders.append(url.lastPathComponent) }
+        }
+        return offenders
+    }
+
+    /// CONTROL: both censuses fire on planted offenders and pass a clean file.
+    func test_theSpawnCensusesFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-spawn-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name "--append-system-prompt" — allowed.
+        let bad = ["-p", "--output-format", "json", "--append-system-prompt", preamble]
+        """.write(to: tmp.appendingPathComponent("BadSpawn.swift"), atomically: true, encoding: .utf8)
+        try """
+        let good = ["-p", "--output-format", "json", "--setting-sources", "", "--system-prompt", preamble]
+        """.write(to: tmp.appendingPathComponent("GoodSpawn.swift"), atomically: true, encoding: .utf8)
+
+        let appended = try grepSwift(
+            in: tmp, patterns: ["\"--append-system-prompt\""],
+            excludeLine: Self.appendSystemPromptCommentLine)
+        XCTAssertEqual(appended.count, 1, "Self-check: one planted append. Caught:\n"
+            + appended.joined(separator: "\n"))
+        XCTAssertTrue(appended[0].hasPrefix("BadSpawn.swift"))
+
+        let missing = try spawnSitesMissingSettingSources(in: tmp)
+        XCTAssertEqual(missing, ["BadSpawn.swift"],
+            "Self-check: the spawn without --setting-sources is the one caught")
+    }
 }

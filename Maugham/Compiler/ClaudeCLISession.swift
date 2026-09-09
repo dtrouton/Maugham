@@ -44,6 +44,10 @@ final class ClaudeCLISession: CompilerRunner {
     private let idleTimeout: TimeInterval
     /// Readable for the two factory tests that pin every session on one ceiling.
     let runTimeout: TimeInterval
+    /// How hard the spawned model thinks. Readable because the run record
+    /// names it: with the writer's settings files out of the session, this is
+    /// the only place the effort is decided.
+    let effort: Effort
     /// How long the death join will wait for the child's exit once stdout has
     /// reached EOF, before falling back to the statusless sentence. See
     /// `tryCompleteDeath`.
@@ -103,6 +107,28 @@ final class ClaudeCLISession: CompilerRunner {
             }
         }
     }
+
+    /// **How hard the model thinks — the CLI's own dial, spelled as it
+    /// accepts it.** An unknown value is ignored by `claude` with a warning
+    /// and its default used instead, so the set is pinned by test.
+    ///
+    /// `--effort` is passed on every spawn because `--setting-sources ""`
+    /// drops the `effortLevel` the writer's runs inherited from their user
+    /// settings; `defaultEffort` is that inherited value, so this milestone
+    /// changes the session's identity, liveness and briefing and NOT how hard
+    /// it thinks. The per-kind table is the evals milestone's to decide
+    /// (`docs/superpowers/specs/2026-09-09-evals-design.md`).
+    enum Effort: String, CaseIterable, Equatable, Sendable {
+        case low, medium, high, xhigh, max
+    }
+
+    nonisolated static let defaultEffort: Effort = .high
+
+    /// The system prompt a caller that passes no preamble gets. Never the
+    /// CLI's own: a nil must not bring the coding-agent prompt back.
+    nonisolated static let defaultSystemPrompt =
+        "You are reading for the writer of a manuscript-in-progress. Everything "
+        + "you need is in the message; answer with what it asks for and nothing else."
 
     // MARK: - Session state
 
@@ -185,6 +211,7 @@ final class ClaudeCLISession: CompilerRunner {
     }
 
     init(model: String,
+         effort: Effort = ClaudeCLISession.defaultEffort,
          confinement: Confinement,
          cliOverride: URL?,
          isEnabled: @escaping () -> Bool,
@@ -194,6 +221,7 @@ final class ClaudeCLISession: CompilerRunner {
          deathReapGrace: TimeInterval = ClaudeCLISession.defaultDeathReapGrace,
          locator: @escaping @Sendable () -> URL? = { ClaudeCLISession.locateCLI() }) {
         self.model = model
+        self.effort = effort
         self.confinement = confinement
         self.cliOverride = cliOverride
         self.isEnabled = isEnabled
@@ -352,7 +380,7 @@ final class ClaudeCLISession: CompilerRunner {
         let proc = Process()
         proc.executableURL = cli
         proc.arguments = Self.arguments(
-            model: model, confinement: confinement, preamble: lastPreamble)
+            model: model, effort: effort, confinement: confinement, preamble: lastPreamble)
         proc.environment = ProcessInfo.processInfo.environment
         // Defence in depth behind `--tools ""`, for both confinements. An
         // unset `currentDirectoryURL` inherits Maugham's own, which for a
@@ -417,10 +445,14 @@ final class ClaudeCLISession: CompilerRunner {
 
     /// The invocation the spike measured, plus Task 4's allowlist.
     ///
-    /// The system preamble rides on `--append-system-prompt` rather than being
-    /// prepended to the first user message: verified 2026-08-04 to compose with
-    /// `-p` + stream-json in both directions, and it governs the whole session
+    /// The system preamble rides on `--system-prompt` rather than being
+    /// prepended to the first user message: it governs the whole session
     /// rather than one turn, which is what the caller means by "preamble".
+    /// The flag REPLACES Claude Code's coding-agent system prompt rather than
+    /// appending to it — verified live on `claude` 2.1.266, 2026-09-09, that
+    /// what the model reads is exactly what is passed (spec 2026-09-09 §3).
+    /// Until then the preamble rode on `--append-system-prompt` and the
+    /// reader met the coding-agent prompt first.
     ///
     /// **The membrane is two flags, and the enumerated one is the weaker
     /// half.** `--allowedTools` removes nothing: it pre-approves the tools it
@@ -441,13 +473,22 @@ final class ClaudeCLISession: CompilerRunner {
     /// both, for the reason above. Verified live 2026-08-29 against `claude`
     /// 2.1.251: `--strict-mcp-config` with no `--mcp-config` beside it is
     /// accepted, the turn runs, and a `result` event comes back.
-    static func arguments(model: String, confinement: Confinement, preamble: String?) -> [String] {
+    static func arguments(model: String, effort: Effort, confinement: Confinement,
+                          preamble: String?) -> [String] {
         var args = [
             "-p",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--verbose",
             "--model", model,
+            "--effort", effort.rawValue,
+            // **No settings file reaches the session** (spec 2026-09-09 §3):
+            // no hooks, no plugin's SessionStart injection, no CLAUDE.md, no
+            // inherited effort. MCP still arrives through --mcp-config,
+            // permissions through --allowedTools, and OAuth still works —
+            // verified live on 2.1.266. NOT --bare, whose help says OAuth and
+            // the keychain are never read.
+            "--setting-sources", "",
         ]
         if case .bridged(let path) = confinement {
             args += ["--mcp-config", path.path]
@@ -461,11 +502,11 @@ final class ClaudeCLISession: CompilerRunner {
             // 2026-08-08). It changes nothing about how a turn ENDS — the
             // `result` event is still the only thing that resolves one.
             "--include-partial-messages",
-            "--tools", ""
+            "--tools", "",
+            // REPLACES the coding-agent prompt rather than appending to it —
+            // the preamble is the whole identity the model reads.
+            "--system-prompt", preamble?.isEmpty == false ? preamble! : defaultSystemPrompt,
         ]
-        if let preamble, !preamble.isEmpty {
-            args += ["--append-system-prompt", preamble]
-        }
         if case .bridged = confinement {
             args += CompilerAllowlist.cliArguments()
         }

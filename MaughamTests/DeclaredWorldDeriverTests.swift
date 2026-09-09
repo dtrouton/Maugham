@@ -538,4 +538,21 @@ final class DeclaredWorldDeriverTests: XCTestCase {
         XCTAssertTrue(sentPrompt.contains("clauses"))
         XCTAssertTrue(sentPrompt.contains("verbatim"))
     }
+
+    /// The one-shot deriver spawns the same shape as the warm session (spec
+    /// 2026-09-09 §3): no settings files, its own system prompt, explicit
+    /// effort, no built-in tools, and — as before — no `--mcp-config` at all.
+    func test_spawnArgumentsKeepTheWritersSettingsOut() {
+        let argv = ClaudeWorldDeriver.arguments(model: "haiku")
+        func value(after flag: String) -> String? {
+            guard let i = argv.firstIndex(of: flag), i + 1 < argv.count else { return nil }
+            return argv[i + 1]
+        }
+        XCTAssertEqual(value(after: "--setting-sources"), "")
+        XCTAssertEqual(value(after: "--system-prompt"), ClaudeWorldDeriver.derivationSystemPrompt)
+        XCTAssertEqual(value(after: "--effort"), ClaudeCLISession.defaultEffort.rawValue)
+        XCTAssertEqual(value(after: "--tools"), "")
+        XCTAssertFalse(argv.contains("--mcp-config"))
+        XCTAssertFalse(argv.contains("--append-system-prompt"))
+    }
 }

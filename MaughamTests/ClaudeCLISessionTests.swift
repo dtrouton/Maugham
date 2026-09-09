@@ -883,9 +883,9 @@ final class ClaudeCLISessionTests: XCTestCase {
     }
 
     /// The invocation is the one the spike measured, and the system preamble
-    /// rides on `--append-system-prompt` (verified 2026-08-04 to compose with
-    /// `-p` + stream-json in both directions) rather than being smuggled into
-    /// the first user message.
+    /// rides on `--system-prompt` — REPLACING the coding-agent prompt rather
+    /// than appending to it (verified 2026-09-09 on `claude` 2.1.266) — rather
+    /// than being smuggled into the first user message.
     ///
     /// **`--tools ""` is the membrane's other half and the reason this test is
     /// not cosmetic.** `--allowedTools` removes nothing — it pre-approves the
@@ -924,7 +924,22 @@ final class ClaudeCLISessionTests: XCTestCase {
         XCTAssertEqual(value(after: "--model"), "haiku")
         XCTAssertEqual(value(after: "--mcp-config"),
                        tempDir.appendingPathComponent("mcp.json").path)
-        XCTAssertEqual(value(after: "--append-system-prompt"), "BE TERSE")
+        // **The session is the reader's own** (spec 2026-09-09 §3). Verified
+        // live on claude 2.1.266: `--setting-sources ""` keeps OAuth and drops
+        // every hook, plugin, CLAUDE.md and the writer's global effort;
+        // `--system-prompt` REPLACES the coding-agent prompt rather than
+        // appending to it; `--effort` is explicit so ignoring the settings
+        // files does not fall back to the CLI's own default.
+        XCTAssertEqual(value(after: "--setting-sources"), "",
+                       "no settings file may reach the reader's session")
+        XCTAssertEqual(value(after: "--system-prompt"), "BE TERSE",
+                       "the preamble is the WHOLE system prompt")
+        XCTAssertFalse(argv.contains("--append-system-prompt"),
+                       "appending keeps the coding-agent prompt in front of the reader")
+        XCTAssertFalse(argv.contains("--bare"),
+                       "--bare never reads OAuth and would log the writer out")
+        XCTAssertEqual(value(after: "--effort"), "high",
+                       "this milestone pins every session on the effort the writer's runs already inherited")
         XCTAssertEqual(value(after: "--allowedTools"),
                        CompilerAllowlist.cliArguments()[1],
                        "the allowlist is Task 4's, passed through whole")
@@ -994,7 +1009,11 @@ final class ClaudeCLISessionTests: XCTestCase {
         }
         XCTAssertEqual(value(after: "--tools"), "",
                        "--tools \"\" is what removes Read/Glob/Grep")
-        XCTAssertEqual(value(after: "--append-system-prompt"), "BE TERSE")
+        // A sealed session is the reader's own too (spec 2026-09-09 §3): the
+        // preamble IS its system prompt, and no settings file reaches it.
+        XCTAssertEqual(value(after: "--system-prompt"), "BE TERSE")
+        XCTAssertEqual(value(after: "--setting-sources"), "")
+        XCTAssertFalse(argv.contains("--append-system-prompt"))
 
         let cwd = try String(contentsOf: cwdURL, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1011,9 +1030,10 @@ final class ClaudeCLISessionTests: XCTestCase {
     func test_argumentsDifferBetweenBridgedAndSealedExactlyWhereTheMembraneSaysTheyDo() {
         let config = URL(fileURLWithPath: "/tmp/x/mcp.json")
         let bridged = ClaudeCLISession.arguments(
-            model: "haiku", confinement: .bridged(mcpConfigPath: config), preamble: nil)
+            model: "haiku", effort: .high,
+            confinement: .bridged(mcpConfigPath: config), preamble: nil)
         let sealed = ClaudeCLISession.arguments(
-            model: "haiku", confinement: .sealed, preamble: nil)
+            model: "haiku", effort: .high, confinement: .sealed, preamble: nil)
 
         XCTAssertTrue(bridged.contains("--mcp-config"))
         XCTAssertTrue(bridged.contains("--allowedTools"))
@@ -1030,6 +1050,31 @@ final class ClaudeCLISessionTests: XCTestCase {
         XCTAssertEqual(
             ClaudeCLISession.Confinement.bridged(mcpConfigPath: config).workingDirectory,
             config.deletingLastPathComponent())
+    }
+
+    /// The effort levels are the CLI's five, spelled as it accepts them — an
+    /// unknown value is ignored by `claude` with a warning, which is a silent
+    /// fallback to its default.
+    func test_effortLevelsAreTheCLIsFive() {
+        XCTAssertEqual(ClaudeCLISession.Effort.allCases.map(\.rawValue),
+                       ["low", "medium", "high", "xhigh", "max"])
+        XCTAssertEqual(ClaudeCLISession.defaultEffort, .high)
+    }
+
+    /// A caller with no preamble still gets a system prompt of Maugham's, so
+    /// the coding-agent prompt can never come back through a nil.
+    func test_aNilPreambleStillReplacesTheSystemPrompt() async throws {
+        let cli = try makeFakeCLI(mode: .normal)
+        let session = makeSession(cli: cli)
+        _ = await session.send(message: "hello", systemPreamble: nil)
+        var argv = try String(contentsOf: argsURL, encoding: .utf8)
+            .components(separatedBy: "\n")
+        if argv.last?.isEmpty == true { argv.removeLast() }
+        guard let i = argv.firstIndex(of: "--system-prompt"), i + 1 < argv.count else {
+            return XCTFail("--system-prompt missing from \(argv)")
+        }
+        XCTAssertEqual(argv[i + 1], ClaudeCLISession.defaultSystemPrompt)
+        session.shutdown()
     }
 
     // MARK: - Streaming (Task 4)

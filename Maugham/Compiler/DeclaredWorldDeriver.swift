@@ -142,14 +142,27 @@ final class ClaudeWorldDeriver: WorldDeriver {
 
     // MARK: - Spawn
 
+    /// The deriver's whole system prompt — the identity its stdin prompt
+    /// already opens with, so nothing of Claude Code's own prompt is in
+    /// front of it (spec 2026-09-09 §3).
+    static let derivationSystemPrompt =
+        "You are the derivation layer of a writing tool. Answer only with the "
+        + "structure the message asks for."
+
     /// `-p --output-format json`: one batch JSON envelope, never
     /// `stream-json`. No `--mcp-config` at all — the flag that grants MCP
     /// tools is simply absent, not merely empty — and `--tools ""` empties
     /// the built-in set (Read/Glob/Grep would otherwise reach any file in
     /// the working directory even under an enumerated allowlist; see
-    /// `ClaudeCLISession.arguments`'s doc for the flag's own history).
+    /// `ClaudeCLISession.arguments`'s doc for the flag's own history). The
+    /// three arguments the warm session passes for the writer's sake are
+    /// passed here too: the deriver inherits the same hooks otherwise.
     static func arguments(model: String) -> [String] {
-        ["-p", "--output-format", "json", "--model", model, "--tools", ""]
+        ["-p", "--output-format", "json", "--model", model,
+         "--effort", ClaudeCLISession.defaultEffort.rawValue,
+         "--setting-sources", "",
+         "--system-prompt", derivationSystemPrompt,
+         "--tools", ""]
     }
 
     /// The prompt handed to the CLI on stdin: the schema, then the writer's
