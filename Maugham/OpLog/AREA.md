@@ -290,7 +290,8 @@ under a device string naming no local actor rotates nothing at all. `__project__
 is no longer outside it: since 2026-09-09 the open sweep names the project
 stream by hand, last, and rotates it at the same threshold (it is not in
 `docIds(inOpsDirectoryFilenames:)`, which answers MANUSCRIPT ids), and that
-sweep is its only boundary because it has no close. The sidecar's signer follows the slug: the segment signature carries the key
+sweep is its only boundary because it has no close.
+The sidecar's signer follows the slug: the segment signature carries the key
 of the actor whose slug the segment is named for, and a slug naming no local
 actor gets no sidecar at all. Pinned by
 `SegmentSealTriggerTests.test_close_rotatesOnlyTheActorThisDocumentWasLoadedAs`,
@@ -352,13 +353,14 @@ has written at project open (`DocumentStore`, through the counter-free
 of those through `ProjectStore._projectOpLogStore`, the ONE store the project
 task stream appends through for the store's lifetime** — a fresh store per
 append reset the interval counter every time, so the project stream was the one
-op log nothing ever sealed. `sealChain` never refused it; `sealTailIfNeeded`
-did until 2026-09-09, and that refusal was about segment ROTATION, a different
-act. It refuses nothing now: the project stream rotates at the same 512 KB as
-every other tail, at the open sweep, so it has a ceiling like every other tail.
-The residue worth knowing: open is its ONLY boundary, so a session appending
-past 512 KB of task ops — some 2,500 of them — carries the excess until the
-next open. The inbox and the phone do not
+op log nothing ever sealed. The two verbs remain different acts:
+`sealChain` SIGNS a run of lines in place and never refused the project stream,
+while `sealTailIfNeeded` REWRITES the tail into an immutable segment and did
+refuse it until 2026-09-09. That refusal is gone: the project stream rotates at
+the same 512 KB as every other tail, at the open sweep, so it has a ceiling like
+every other tail. The residue worth knowing: open is its ONLY boundary, so a
+session appending past 512 KB of task ops — some 2,500 of them — carries the
+excess until the next open. The inbox and the phone do not
 use this verb at all — they call `JSONLAppendStore.appendSeal()` directly after
 **every** append (`InboxStore.appendThrowing`, `InboxCaptureWriter`,
 `AnnotationWriter`), because a capture or a lifecycle decision is rare and one

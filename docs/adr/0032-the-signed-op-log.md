@@ -368,11 +368,14 @@ it asks for a signature. Rotation follows the same rule as of this addendum:
 `sealTailIfNeeded` once per local identity rather than for the author alone, so
 a long MCP session's assistant tail becomes a `.mzseg` segment at the same
 512 KB threshold the writer's does. This supersedes the first spelling of §5 in
-this ADR's area guide, which said rotation was the author's tail alone. Two
-scope rules are unchanged and now matter more: rotation is never `__project__`,
-never the legacy unsuffixed file, and **never another device's** — the loop is
-over this device's own identities, so a document loaded under a device string
-that names no local actor rotates nothing. The sidecar carries the key of the
+this ADR's area guide, which said rotation was the author's tail alone. The
+scope rules that survive this addendum, and now matter more: rotation is never
+the legacy unsuffixed file, and **never another device's** — the loop is over
+this device's own identities, so a document loaded under a device string that
+names no local actor rotates nothing. `__project__` was a third such exclusion
+when this addendum was written and is one no longer: since 2026-09-09 it rotates
+at the same 512 KB, at the open sweep alone, which names it by hand and takes it
+last (the Consequences say why). The sidecar carries the key of the
 actor whose slug the segment is named for, and a slug naming no local actor
 gets no signature at all.
 
