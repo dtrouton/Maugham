@@ -115,9 +115,20 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
    implementer's reframe — that the budget is really about a realistic
    per-document op count — may well be right, but it is a change to an
    acceptance criterion made by the implementer. **Is the reframe accepted, and
-   what is the budget restated against?** ADR 0032 and `Maugham/OpLog/AREA.md`
-   now say what was measured and that the budget was not met; neither claims it
-   was.
+   what is the budget restated against?** As this was written, ADR 0032 and
+   `Maugham/OpLog/AREA.md` said what was measured and that the budget was not
+   met; neither claimed it was.
+
+   **Decided 2026-09-09:** the reframe is accepted, and the budget is restated
+   as the chain's own cost read directly by the fixture, never an end-to-end
+   subtraction — under **20 ms** on a realistic tail (≤ 512 KB, ~600 lines) and
+   under **100 ms** on the fixture's 8×-oversized 6,250-line tail. Both hold: the
+   walk measures **33.9 ms** on the fixture, and the realistic figure is DERIVED
+   from it at ≈ 3.4 ms and labelled derived wherever it appears. Landed in
+   ADR 0032's Consequences (the verification-cost bullet) and
+   `Maugham/OpLog/AREA.md`'s "Where the time goes"; full tables in
+   `docs/superpowers/notes/2026-09-09-perf-step-measurements.md`. Neither
+   document says "not met" any more.
 
 2. **A set-aside notice never clears** (review M6). `HistoryPane`'s set-aside
    line count sums every `.lines` archive for the document, forever, with no
@@ -133,15 +144,53 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
    of files this device has ever written. **Left alone, pruned on some trigger,
    or moved to an append-and-compact shape?**
 
+   **Decided 2026-09-09: prune-only, at load.** `OpLogDeviceState` now records
+   the project ROOT beside each head (the key hashes that path and cannot be read
+   backwards) and drops, at load, every entry whose recorded root no longer has a
+   `.maugham` child; an entry with no recorded root is kept until its next
+   `remember` records one. The whole-file rewrite shape is unchanged, and the
+   persists were deliberately NOT coalesced: the head is written before the batch
+   by design (ADR 0032 §3's crash window), so deferring it would turn a crash
+   into a set-aside of the writer's own words — and it is already one persist per
+   BATCH, not one per line, now pinned by a lock-guarded `persistCountForTesting`.
+   Commit `296ada6c`; ADR 0032 §3.
+
+   **Still open for Denver:** an UNREACHABLE root is pruned like a deleted one.
+   A project on a detached external drive loses its remembered heads at launch,
+   and the next load adopts the file's own head — the safe direction, and the same
+   thing a moved project already gets — but *unreachable ≠ deleted* is a
+   distinction Denver may want drawn.
+
 4. **The project stream has no size ceiling.** `__project__` now seals like every
    other stream (review I5), but `sealTailIfNeeded` still refuses to rotate it —
    a recorded decision — so its tail grows without limit and the chained
    append's verify cost grows with it. Pre-existing growth, new cost. **Should
    the project stream rotate into segments, and if so what owns the boundary?**
 
+   **Decided 2026-09-09: it rotates, at the same 512 KB** — one constant,
+   `OpLogStore.segmentSealThreshold`, not two — **and the project-open sweep owns
+   the boundary alone.** A document rotates at close and the project stream has
+   no close, so open is its moment: the sweep in `DocumentStore.open` names
+   `__project__` by hand and takes it last, because the manuscript-id reader
+   `docIds(inOpsDirectoryFilenames:)` excludes it by contract and still does.
+   `sealTailIfNeeded`'s `guard docId != "__project__"` is gone, so neither verb
+   refuses the project stream now. The accepted residue: in-session growth past
+   512 KB (some 2,500 task ops) waits for the next open. Commit `4543b1a4`;
+   ADR 0032 §4 and its Consequences. This decision's heading is now false — the
+   project stream has a ceiling.
+
 5. **The cost fixture wants one re-run on a quiet machine.** The numbers in
    ADR 0032 and the AREA guide come from a run taken while other work was on the
    box (ledger L56). They should be re-taken once and quoted durably.
+
+   **Decided 2026-09-09: done, twice over.** Three quiet-machine runs before the
+   step (`8e9aabf7`) and three after (`4543b1a4`), with no `xcodebuild` running
+   and the load averages recorded for each, all five printed quantities per run,
+   a min row and a delta table. They live in
+   `docs/superpowers/notes/2026-09-09-perf-step-measurements.md`, and the min rows
+   are quoted in ADR 0032's Consequences and `Maugham/OpLog/AREA.md`. Headline:
+   the cold verified load went 5934.2 → 514.6 ms and the chain walk 48.9 →
+   33.9 ms.
 
 6. **The truncation rule is closed at P1 only where a seal exists.**
    `OpLogChain.resolveAbsentHead` quarantines a forged tail back to the last

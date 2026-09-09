@@ -285,9 +285,12 @@ sweep is the one place every local actor rotates, so a long MCP session's
 assistant tail still becomes a `.mzseg` at the same 512 KB threshold the writer's
 does; it is safe there because it runs before the first `Document.load`, so no
 live appender exists to race the read→delete gap. The scope rule survives both:
-never `__project__`, never the legacy unsuffixed file, never another device's —
-a document loaded under a device string naming no local actor rotates nothing at
-all. The sidecar's signer follows the slug: the segment signature carries the key
+never the legacy unsuffixed file, never another device's — a document loaded
+under a device string naming no local actor rotates nothing at all. `__project__`
+is no longer outside it: since 2026-09-09 the open sweep names the project
+stream by hand, last, and rotates it at the same threshold (it is not in
+`docIds(inOpsDirectoryFilenames:)`, which answers MANUSCRIPT ids), and that
+sweep is its only boundary because it has no close. The sidecar's signer follows the slug: the segment signature carries the key
 of the actor whose slug the segment is named for, and a slug naming no local
 actor gets no sidecar at all. Pinned by
 `SegmentSealTriggerTests.test_close_rotatesOnlyTheActorThisDocumentWasLoadedAs`,
@@ -349,10 +352,13 @@ has written at project open (`DocumentStore`, through the counter-free
 of those through `ProjectStore._projectOpLogStore`, the ONE store the project
 task stream appends through for the store's lifetime** — a fresh store per
 append reset the interval counter every time, so the project stream was the one
-op log nothing ever sealed. `sealChain` never refused it; only `sealTailIfNeeded`
-does, and that refusal is about segment ROTATION, a different act. The residue
-worth knowing: the project stream therefore has no size ceiling, and the chained
-append's verify cost grows with it. The inbox and the phone do not
+op log nothing ever sealed. `sealChain` never refused it; `sealTailIfNeeded`
+did until 2026-09-09, and that refusal was about segment ROTATION, a different
+act. It refuses nothing now: the project stream rotates at the same 512 KB as
+every other tail, at the open sweep, so it has a ceiling like every other tail.
+The residue worth knowing: open is its ONLY boundary, so a session appending
+past 512 KB of task ops — some 2,500 of them — carries the excess until the
+next open. The inbox and the phone do not
 use this verb at all — they call `JSONLAppendStore.appendSeal()` directly after
 **every** append (`InboxStore.appendThrowing`, `InboxCaptureWriter`,
 `AnnotationWriter`), because a capture or a lifecycle decision is rare and one
@@ -423,7 +429,9 @@ Readers see one merged `[Op]` exactly as before — recognition lives ONLY in
 `OpLogStore.opLogFileURLs` / `docId(fromOpLogFilename:)` / `loadFileDiagnosed`
 / `loadSyncMerged` (single-source helpers; grep tripwires on both targets).
 Scope: never the legacy unsuffixed file, never another device's tail, never
-`__project__`/inbox/pending, never mid-typing, Mac-only in v1. Crash window
+inbox/pending, never mid-typing, Mac-only in v1. `__project__` was on that list
+until 2026-09-09 and is not any more — it rotates at the same threshold, at the
+project-open sweep alone (it has no close). Crash window
 between segment-write and tail-delete is safe by construction
 (`mergeSortedDedup` collapses the duplicates; the next seal converges).
 A checksum failure quarantines + marks the doc unhealthy (backups pause) while
@@ -461,20 +469,53 @@ itself verified may be keyed on, since the stored digest is the one a tamperer
 would leave alone.
 
 **Where the time goes.** The load is `JSONDecoder`, and the chain is a rounding
-error on it — measured on 50,000 chained lines (42 MB) in release, the walk over
-the live tail costs 55-80 ms and seven signature checks about 3 ms, against 5.8
-seconds of parsing. Those are the measured numbers and they are all this claims:
-the plan's stated budget of **under 100 ms added to a 50k cold open was not met
-as a headline figure** — the first measurement added about 450 ms end to end,
-before the hex fix — and whether to restate the budget against a realistic
-per-document op count is an open Denver decision rather than a settled one. Two things keep it there and must not be undone: `Hex`
-(`OpLogChain.swift`) is table-driven, because the obvious `String(format: "%02x")`
-spelling cost 107 ms of a 109 ms `lineHash` total on that fixture; and the
-settled-segment branch COUNTS lines rather than splitting them, because
-`split(separator:)` over a five-megabyte segment allocates a slice per line to
-answer a question that is a number. The tail in that fixture is also eight times
-the size a real one reaches — `segmentSealThreshold` rotates it at 512 KB — so a
-real load walks a small fraction of it.
+error on it. Measured on 50,000 chained lines (42 MB) in release on a quiet
+machine, best of three runs, at `4543b1a4`: the walk over the live tail costs
+**33.9 ms** and seven sidecar reads plus signature checks **0.8 ms**, against
+**421.5 ms** of parse-only control and a **514.6 ms** cold verified load. Before
+the 2026-09-09 performance step those same four readings were 48.9 / 1.7 /
+5832.0 / 5934.2 ms — the end-to-end columns fell by about 91% because the DATE parse
+changed, not because verification got cheaper. **The budget is Denver's
+restatement of 2026-09-09 and it holds**: the chain's own cost read by the
+fixture, under **20 ms** on a realistic tail (≤ 512 KB, some 600 lines) and
+under **100 ms** on the fixture's 8×-oversized 6,250-line tail. The second
+figure is measured (33.9 ms); the first is DERIVED — a real tail is a tenth of
+the fixture's, so ≈ 3.4 ms — because the fixture only ever walks its own tail.
+Full tables in `docs/superpowers/notes/2026-09-09-perf-step-measurements.md`.
+
+What keeps the cost where it is, and must not be undone:
+
+1. **`Hex` (`OpLogChain.swift`) is table-driven**, because the obvious
+   `String(format: "%02x")` spelling cost 107 ms of a 109 ms `lineHash` total on
+   that fixture.
+2. **The settled-segment branch COUNTS lines rather than splitting them**,
+   because `split(separator:)` over a five-megabyte segment allocates a slice per
+   line to answer a question that is a number.
+3. **`prev(ofLine:)` reads the fixed prefix by bytes.** A chained line begins
+   exactly `{"prev":"<64 hex>"`, and the fast path checks that prefix and all 64
+   hex bytes before answering, so it can never differ from the textual reader,
+   which still handles every other shape. The shape that must not come back is
+   per-byte `Data` accumulation into a `String` — that was ~11 ms per 6,000
+   lines, the largest per-line cost on the walk.
+4. **No date decode allocates a formatter.** `ISO8601Fast` hand-parses the two
+   shapes this app writes — `YYYY-MM-DDTHH:MM:SSZ` and the same with exactly
+   three fraction digits — with days-from-civil arithmetic, and the unchanged
+   `ISO8601DateFormatter` and epoch fallbacks sit behind it. The shape that must
+   not come back is a formatter allocated per date. **And the fast path takes
+   ONLY those two shapes on purpose**: the formatter TRUNCATES fractions past
+   three digits, so a fast path that accepted 1–9 digits would answer
+   differently from the reader it replaces. Offsets, other fraction lengths and
+   epoch strings all fall through. The ENCODING side
+   (`JSONLAppendStore.dateEncoding`) is byte-untouched, because every remembered
+   chain head is a hash over encoded bytes.
+5. **The head is persisted BEFORE the batch is written, and those persists are
+   not coalesced.** The 2026-09-09 step considered batching them and refused:
+   the crash window is the whole point of the ordering (ADR 0032 §3). A crash
+   between remember and write leaves a head no line hashes to, which the load
+   adopts; a crash the other way leaves the writer's own last op sitting after
+   the remembered head, which is the quarantine case. Deferring the persist
+   would turn a crash into a set-aside of the writer's own words. It is already
+   one persist per BATCH, not one per line.
 
 ## External-edit discard + forensic snapshots (ADR 0019, hardened 2026-07-01)
 
