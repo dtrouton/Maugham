@@ -398,6 +398,10 @@ final class RoundNarrativeTests: XCTestCase {
         XCTAssertEqual(RoundNarrative.readInSuffix(timing), " \u{00b7} read in 4m 12s")
         XCTAssertEqual(RoundNarrative.readInSuffix(nil), "")
         XCTAssertEqual(
+            RoundNarrative.readInLine(timing), "Read in 4m 12s.",
+            "a sentence, not a suffix \u{2014} the cockpit has nothing to hang "
+            + "the clause on when a lane's first round is the only one there is")
+        XCTAssertEqual(
             RoundNarrative.timingDetail(timing),
             "First word after 4s \u{00b7} 6 turns \u{00b7} 12,504 tokens of thinking "
             + "\u{00b7} opus at high \u{00b7} $0.31")

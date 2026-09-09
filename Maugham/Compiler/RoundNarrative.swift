@@ -83,6 +83,15 @@ enum RoundNarrative {
         return " \u{00b7} read in \(clockPhrase(timing.elapsed))"
     }
 
+    /// **The same fact as a sentence**, for a surface with nothing to hang the
+    /// suffix on. Review's cockpit reports a round against the one before it,
+    /// so a lane's FIRST round has no line at all — and the cost of the
+    /// only round a writer has run is exactly the thing they want to know.
+    /// Capital letter and full stop, because here it is the whole line.
+    static func readInLine(_ timing: RunTiming) -> String {
+        "Read in \(clockPhrase(timing.elapsed))."
+    }
+
     /// **The tooltip behind that suffix** — what the turn cost, for a
     /// writer who wants it, on a line nobody has to read. Every clause but the
     /// model is optional, because a legacy record or a result event that named

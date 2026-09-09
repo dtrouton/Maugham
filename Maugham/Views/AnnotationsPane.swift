@@ -725,6 +725,9 @@ struct AnnotationsPane: View {
                 // knows when it started and how far it has got.
                 runSince: orchestrator.runStartedAt,
                 runProgress: orchestrator.runProgress,
+                // The timing of the round the line above was built from, so
+                // the tooltip behind it describes that same turn.
+                reportTiming: cockpitReportTiming(diagnostics, docId: document.docId),
                 // **The round cockpit's own button, and it is a round by
                 // construction** (two loops P1) — this surface exists only in
                 // Review. Said literally rather than minted from a persona,
@@ -971,6 +974,16 @@ struct AnnotationsPane: View {
             history: diagnostics.roundHistory(docId: docId),
             run: diagnostics.lastRound(docId: docId),
             annotations: cockpitAnnotations)
+    }
+
+    /// **The run `cockpitReportLine` was resolved from**, so the tooltip and
+    /// the line cannot describe different turns. Same read, same gate on
+    /// `version`.
+    private func cockpitReportTiming(
+        _ diagnostics: DiagnosticsStore, docId: String
+    ) -> RunTiming? {
+        _ = diagnostics.version
+        return diagnostics.lastRound(docId: docId)?.timing
     }
 
     /// **The document's queue in EVERY state** — what the since-last-round

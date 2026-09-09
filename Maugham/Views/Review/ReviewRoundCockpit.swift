@@ -76,6 +76,12 @@ struct ReviewRoundCockpit: View {
     /// keeps every existing call site compiling.
     var runSince: Date? = nil
     var runProgress: RunProgress? = nil
+    /// **What the round `reportLine` was built from cost** (fix round 1) —
+    /// the tooltip behind the idle line, so Review says what Author's header
+    /// says about the same turn rather than showing the suffix with nothing
+    /// behind it. The run is the one `reportLine` was resolved from; the host
+    /// passes its timing beside the line.
+    var reportTiming: RunTiming? = nil
     /// Ask for a round. `true` is the cold read (⌘⇧R).
     let onRun: (_ freshEyes: Bool) -> Void
     /// Record which pass this piece is being reviewed through. The write
@@ -301,7 +307,15 @@ struct ReviewRoundCockpit: View {
         let line = RoundNarrative.freshEyesHeader(run: run)
             ?? RoundNarrative.sinceLastRoundLine(
                 history: history, run: run, annotations: annotations)
-        guard let line else { return nil }
+        guard let line else {
+            // **A lane's first round has no round to be "since"** (fix round
+            // 1), so there is no sentence for the suffix to hang on —
+            // and the cost of the only round a writer has run is exactly what
+            // they want to know. Say it as a line of its own. Still nil when
+            // there is no timing either: then there is genuinely nothing.
+            guard let timing = run?.timing else { return nil }
+            return RoundNarrative.readInLine(timing)
+        }
         return line + RoundNarrative.readInSuffix(run?.timing)
     }
 
@@ -403,6 +417,14 @@ struct ReviewRoundCockpit: View {
         let offer = RoundNarrative.runRoundTitle(
             editorName: pass.effectiveEditorName)
         return "\(offer) \(next) (\u{2318}R)"
+    }
+
+    /// **The tooltip behind the idle line** — `RoundNarrative`'s one
+    /// spelling of what a turn cost, never a second sentence here.
+    /// `.help("")` draws nothing, which is what a run with no timing gets.
+    static func reportHelp(_ timing: RunTiming?) -> String {
+        guard let timing else { return "" }
+        return RoundNarrative.timingDetail(timing)
     }
 
     static let freshEyesHelp =
@@ -558,7 +580,11 @@ struct ReviewRoundCockpit: View {
                         now: context.date))
                 }
             } else if let statusLine {
+                // The tooltip rides the still line alone: a round in flight
+                // has no cost to report yet, and a failure's sentence is not
+                // about a turn that finished.
                 statusText(statusLine)
+                    .help(isFailure ? "" : Self.reportHelp(reportTiming))
             }
             letterRow
             askRow

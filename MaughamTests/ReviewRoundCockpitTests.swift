@@ -130,6 +130,38 @@ final class ReviewRoundCockpitTests: XCTestCase {
         XCTAssertEqual(line, "Reading the whole piece\u{2026} 1m 5s \u{00b7} thinking (9k tokens)")
     }
 
+    /// **A lane's first round used to report its cost nowhere** (fix round 1).
+    /// There is no fresh-eyes header and no round to compare against, so
+    /// `reportLine` answered nil and the read-in suffix had nothing to hang
+    /// on. It says the sentence instead — and still answers nil when
+    /// there is no timing either, because then there is genuinely nothing to
+    /// report.
+    func test_aFirstRoundsCostIsASentenceOfItsOwn() {
+        var run = makeRun(round: 1, passId: "line", freshEyes: nil)
+        XCTAssertNil(
+            ReviewRoundCockpit.reportLine(history: [], run: run, annotations: []),
+            "no comparison, no fresh eyes and no timing is nothing to say")
+
+        run.timing = RunTiming(elapsed: 252, model: "opus", effort: "high")
+        XCTAssertEqual(
+            ReviewRoundCockpit.reportLine(history: [], run: run, annotations: []),
+            "Read in 4m 12s.")
+    }
+
+    /// **The cockpit's idle line carries the same tooltip Author's header
+    /// does** (fix round 1) — one spelling of what a turn cost, so a
+    /// writer who reads the round in Review learns what they would have
+    /// learned in the other persona. `.help("")` draws nothing, which is what
+    /// a run with no timing gets.
+    func test_theIdleLinesTooltipIsTheSameDetailAuthorDraws() {
+        let timing = RunTiming(elapsed: 252, firstLineAfter: 4.1, apiDuration: 250,
+                               turns: 6, outputTokens: 14_000, thinkingTokens: 12_504,
+                               costUSD: 0.31, model: "opus", effort: "high")
+        XCTAssertEqual(ReviewRoundCockpit.reportHelp(timing),
+                       RoundNarrative.timingDetail(timing))
+        XCTAssertEqual(ReviewRoundCockpit.reportHelp(nil), "")
+    }
+
     /// A run that worked and had nothing to read is idle here: `.nothingNew`
     /// says the key worked, which is what the report line under it already
     /// carries, and the strip must offer its buttons again the moment it lands.
