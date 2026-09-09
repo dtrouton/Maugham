@@ -68,6 +68,10 @@ final class ClaudeCLISessionTests: XCTestCase {
         /// silence must not kill this one; a session that measures it by wall
         /// clock did (spec §2).
         case chatterWhileFlagged
+        /// Emit the thinking-progress event and answer with the TIMED result
+        /// line — the 2026-09-09 capture — so the session's `RunTiming` is
+        /// read off a real shape.
+        case timed
     }
 
     /// A main-actor box, so an escaping handler can record what it saw.
@@ -100,6 +104,16 @@ final class ClaudeCLISessionTests: XCTestCase {
     static let capturedTextDelta = #"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"hello "}},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"e43f7a65-0886-4e0e-9e79-579bf54aa4bf"}"#
     static let capturedSecondTextDelta = #"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"world"}},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"e43f7a65-0886-4e0e-9e79-579bf54aa4bg"}"#
     static let capturedTextStop = #"{"type":"stream_event","event":{"type":"content_block_stop","index":1},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"ec36f353-60a8-408a-aef2-45fe16924d89"}"#
+
+    /// **Captured 2026-09-09 from `claude` 2.1.266** (one `-p --include-partial-
+    /// messages --model haiku --effort low` turn; session/uuid fields as they
+    /// came). Two lines the 2026-08-08 capture predates: the CLI's own
+    /// thinking-token progress event, and a `result` carrying `usage`,
+    /// `ttft_ms` and `duration_ms`. The result line is the capture trimmed to
+    /// the fields the session reads — `modelUsage`, `subagent_stats` and the
+    /// rest are dropped, the key names are verbatim.
+    static let capturedThinkingProgress = #"{"type":"system","subtype":"thinking_tokens","estimated_tokens":150,"estimated_tokens_delta":100,"session_id":"3c2e3e65-6fc5-43cb-9509-227661f44a82","uuid":"3dd12b93-b21a-4c94-a2e0-c027c92cf721"}"#
+    static let capturedTimedResult = #"{"duration_api_ms":3632,"stop_reason":"end_turn","session_id":"3c2e3e65-6fc5-43cb-9509-227661f44a82","total_cost_usd":0.00253,"usage":{"input_tokens":431,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":227,"output_tokens_details":{"thinking_tokens":185},"service_tier":"standard"},"permission_denials":[],"terminal_reason":"completed","is_error":false,"num_turns":1,"subtype":"success","result":"FAKE RESULT","ttft_ms":2419,"type":"result","duration_ms":2887,"uuid":"6a1d1b2e-0000-4000-8000-000000000001"}"#
 
     private var tempDir: URL!
     /// One line per spawn of the fake CLI.
@@ -203,6 +217,11 @@ final class ClaudeCLISessionTests: XCTestCase {
             printf '%s\\n' 'this line is not JSON at all'
             printf '%s\\n' '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}'
             printf '%s\\n' '{"no_type_field":true}'
+          fi
+          if [ "$MODE" = "timed" ]; then
+            printf '%s\\n' '\(Self.capturedThinkingProgress)'
+            printf '%s\\n' '\(Self.capturedTimedResult)'
+            continue
           fi
           printf '%s\\n' '{"type":"system","subtype":"init","session_id":"fake-session"}'
           printf '%s\\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"partial"}]}}'
@@ -1200,6 +1219,60 @@ final class ClaudeCLISessionTests: XCTestCase {
             line: Self.capturedTextDelta, generation: session.sessionEpoch)
 
         XCTAssertEqual(chunks.value, [], "no turn is in flight to stream into")
+        session.shutdown()
+    }
+
+    // MARK: - The run knows how long it took (spec 2026-09-09 §5)
+
+    func test_theThinkingProgressEventIsClassifiedAsProgress() {
+        XCTAssertEqual(
+            ClaudeCLISession.classify(line: Self.capturedThinkingProgress),
+            .thinkingProgress(estimatedTokens: 150))
+    }
+
+    func test_theResultLineYieldsItsFacts() throws {
+        let facts = try XCTUnwrap(ClaudeCLISession.resultFacts(fromLine: Self.capturedTimedResult))
+        XCTAssertEqual(facts.apiDuration ?? 0, 3.632, accuracy: 0.0005)
+        XCTAssertEqual(facts.turns, 1)
+        XCTAssertEqual(facts.outputTokens, 227)
+        XCTAssertEqual(facts.thinkingTokens, 185)
+        XCTAssertEqual(facts.costUSD ?? 0, 0.00253, accuracy: 0.000001)
+    }
+
+    func test_aTurnRecordsItsTimingAndReportsProgress() async throws {
+        let cli = try makeFakeCLI(mode: .timed)
+        let session = makeSession(cli: cli, model: "haiku")
+        let progress = Box<[RunProgress]>([])
+        session.setProgressHandler { progress.value.append($0) }
+
+        XCTAssertNil(session.lastTurnTiming, "nothing has run")
+        let event = await session.send(message: "hello", systemPreamble: nil)
+
+        XCTAssertEqual(event, .resultText("FAKE RESULT"))
+        let timing = try XCTUnwrap(session.lastTurnTiming)
+        XCTAssertGreaterThan(timing.elapsed, 0)
+        XCTAssertNotNil(timing.firstLineAfter)
+        XCTAssertEqual(timing.thinkingTokens, 185)
+        XCTAssertEqual(timing.outputTokens, 227)
+        XCTAssertEqual(timing.turns, 1)
+        XCTAssertEqual(timing.model, "haiku")
+        XCTAssertEqual(timing.effort, "high")
+        XCTAssertEqual(progress.value.map(\.thinkingTokens), [150],
+            "the CLI's own estimate reaches the handler as it arrives")
+        session.shutdown()
+    }
+
+    /// A stall carries the last estimate the session saw, so the sentence can
+    /// say how far the read had got.
+    func test_aStallCarriesTheThinkingEstimate() async throws {
+        let cli = try makeFakeCLI(mode: .chatterWhileFlagged)
+        try Data().write(to: slowFlagURL)   // never lifted
+        let session = makeSession(cli: cli, silenceTimeout: 5, runTimeout: 0.6)
+        let event = await session.send(message: "chatty", systemPreamble: nil)
+        guard case .failed(.timedOut(let stall)) = event else {
+            return XCTFail("expected a stall, got \(event)")
+        }
+        XCTAssertEqual(stall.thinkingTokens, 50, "the chatter's estimate is 50 on every line")
         session.shutdown()
     }
 }

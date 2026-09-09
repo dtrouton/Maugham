@@ -181,6 +181,18 @@ final class ClaudeCLISession: CompilerRunner {
     /// `result` path, and the reason the two travel the same road.
     private var partialHandler: (@MainActor (String) -> Void)?
 
+    /// Where a live turn's progress goes. Caller-owned exactly as
+    /// `partialHandler` is, and reached through the same two guards.
+    private var progressHandler: (@MainActor (RunProgress) -> Void)?
+    /// The CLI's last thinking-token estimate for the turn in flight.
+    private var latestThinkingEstimate: Int?
+    /// When the first stdout line of the turn in flight arrived.
+    private var firstLineAt: Date?
+    /// The measurement of the last turn that resolved with a result. See
+    /// `RunTiming`; the protocol's default is `nil`, and so is this before any
+    /// turn and after one that failed.
+    private(set) var lastTurnTiming: RunTiming?
+
     /// Resolved once per session and reused by every respawn — locating the
     /// CLI can cost a login shell, and death/cancel/timeout/toggle cycles all
     /// respawn. Only a SUCCESS is cached: a writer who installs `claude`
@@ -316,6 +328,9 @@ final class ClaudeCLISession: CompilerRunner {
                 return
             }
             turnStartedAt = Date()
+            latestThinkingEstimate = nil
+            firstLineAt = nil
+            lastTurnTiming = nil
             armRunTimeout(token: token)
             armSilenceWatch(token: token)
         }
@@ -330,6 +345,10 @@ final class ClaudeCLISession: CompilerRunner {
 
     func setPartialHandler(_ handler: (@MainActor (String) -> Void)?) {
         partialHandler = handler
+    }
+
+    func setProgressHandler(_ handler: (@MainActor (RunProgress) -> Void)?) {
+        progressHandler = handler
     }
 
     func cancelCurrentRun() {
@@ -692,6 +711,7 @@ final class ClaudeCLISession: CompilerRunner {
         guard gen == generation, inFlight != nil else { return }
         // Liveness, before meaning: whatever this line IS, the child wrote it.
         lastActivityAt = Date()
+        if firstLineAt == nil { firstLineAt = Date() }
         switch Self.classify(line: line) {
         case .ignore:
             return
@@ -702,7 +722,21 @@ final class ClaudeCLISession: CompilerRunner {
             // otherwise be spliced into the live run's report, and the run they
             // corrupted would still resolve normally.
             partialHandler?(chunk)
+        case .thinkingProgress(let tokens):
+            latestThinkingEstimate = tokens
+            progressHandler?(RunProgress(thinkingTokens: tokens, at: Date()))
         case .result(let text):
+            // Measured BEFORE resolving: `resolve` resumes the continuation,
+            // and the caller reads `lastTurnTiming` the moment it comes back.
+            let facts = Self.resultFacts(fromLine: line)
+            let now = Date()
+            lastTurnTiming = RunTiming(
+                elapsed: now.timeIntervalSince(turnStartedAt),
+                firstLineAfter: firstLineAt.map { $0.timeIntervalSince(turnStartedAt) },
+                apiDuration: facts?.apiDuration, turns: facts?.turns,
+                outputTokens: facts?.outputTokens,
+                thinkingTokens: facts?.thinkingTokens ?? latestThinkingEstimate,
+                costUSD: facts?.costUSD, model: model, effort: effort.rawValue)
             resolve(.resultText(text), token: runToken)
         case .unusableResult:
             resolve(.failed(.unusableOutput), token: runToken)
@@ -806,6 +840,10 @@ final class ClaudeCLISession: CompilerRunner {
         /// CLI cut them — they close no sentence and respect no boundary, so
         /// a reader has to accumulate before it can parse anything.
         case partialText(String)
+        /// The CLI's own running estimate of how many thinking tokens the turn
+        /// has spent, as `system`/`thinking_tokens`. A liveness signal with a
+        /// number on it: it says the model is still working AND how hard.
+        case thinkingProgress(estimatedTokens: Int)
         case result(String)
         case unusableResult
     }
@@ -822,6 +860,10 @@ final class ClaudeCLISession: CompilerRunner {
               let type = dict["type"] as? String
         else { return .ignore }
         if type == streamEventType { return classifyStreamEvent(dict) }
+        if type == "system", dict["subtype"] as? String == "thinking_tokens",
+           let tokens = dict["estimated_tokens"] as? Int {
+            return .thinkingProgress(estimatedTokens: tokens)
+        }
         guard type == "result" else { return .ignore }
         guard let text = dict["result"] as? String, !text.isEmpty else {
             return .unusableResult
@@ -856,6 +898,31 @@ final class ClaudeCLISession: CompilerRunner {
               let text = delta["text"] as? String, !text.isEmpty
         else { return .ignore }
         return .partialText(text)
+    }
+
+    /// What the `result` event says about the turn (captured 2026-09-09;
+    /// every field optional because an older CLI omits some).
+    struct ResultFacts: Equatable {
+        var apiDuration: TimeInterval?
+        var turns: Int?
+        var outputTokens: Int?
+        var thinkingTokens: Int?
+        var costUSD: Double?
+    }
+
+    static func resultFacts(fromLine line: String) -> ResultFacts? {
+        guard let data = line.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              dict["type"] as? String == "result"
+        else { return nil }
+        let usage = dict["usage"] as? [String: Any]
+        let details = usage?["output_tokens_details"] as? [String: Any]
+        return ResultFacts(
+            apiDuration: (dict["duration_api_ms"] as? Double).map { $0 / 1000 },
+            turns: dict["num_turns"] as? Int,
+            outputTokens: usage?["output_tokens"] as? Int,
+            thinkingTokens: details?["thinking_tokens"] as? Int,
+            costUSD: dict["total_cost_usd"] as? Double)
     }
 
     // MARK: - Resolution, timers, teardown
@@ -933,7 +1000,8 @@ final class ClaudeCLISession: CompilerRunner {
     /// gone quiet); ending it means ending the process. The next send respawns.
     private func stall(token: Int, cause: CompilerRunFailure.Stall.Cause, after: TimeInterval) {
         guard token == runToken, inFlight != nil else { return }
-        let stall = CompilerRunFailure.Stall(cause: cause, after: after, thinkingTokens: nil)
+        let stall = CompilerRunFailure.Stall(
+            cause: cause, after: after, thinkingTokens: latestThinkingEstimate)
         teardown()
         resolve(.failed(.timedOut(stall)), token: token)
     }

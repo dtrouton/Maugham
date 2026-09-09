@@ -53,8 +53,9 @@ extension CompilerRunFailure {
     /// `silence` is what "genuinely hung" means — the CLI wrote nothing for
     /// `silenceTimeout`. `ceiling` is a child still speaking when the run's
     /// hard bound passed. `thinkingTokens` is the CLI's own running estimate
-    /// at the moment of the stop (Task 3 fills it; `nil` until then and for
-    /// a runner that reports none).
+    /// at the moment of the stop — the last `system`/`thinking_tokens` event
+    /// the session saw — and `nil` for a turn that reported none, or a runner
+    /// that reads none.
     public struct Stall: Equatable, Sendable {
         public enum Cause: String, Equatable, Sendable {
             case silence, ceiling
@@ -132,6 +133,12 @@ public protocol CompilerRunner: AnyObject {
     /// entirely — a runner that cannot stream is a runner that never calls
     /// this, which is exactly what the default below is.
     @MainActor func setPartialHandler(_ handler: (@MainActor (String) -> Void)?)
+    /// The timing of the LAST turn that resolved with a result — `nil` before
+    /// any turn, after a failure, and for a runner that measures nothing.
+    @MainActor var lastTurnTiming: RunTiming? { get }
+    /// Where a live turn's progress goes, or `nil` to stop listening. A
+    /// preview, like the partial text.
+    @MainActor func setProgressHandler(_ handler: (@MainActor (RunProgress) -> Void)?)
 }
 
 public extension CompilerRunner {
@@ -140,4 +147,9 @@ public extension CompilerRunner {
     /// end", and it is what keeps every existing conformer — including the
     /// suites' doubles — compiling unchanged.
     @MainActor func setPartialHandler(_ handler: (@MainActor (String) -> Void)?) {}
+    /// Measuring is optional in the same way and for the same reason: a
+    /// double that answers from an array has no turn to measure and no
+    /// progress to report.
+    @MainActor var lastTurnTiming: RunTiming? { nil }
+    @MainActor func setProgressHandler(_ handler: (@MainActor (RunProgress) -> Void)?) {}
 }
