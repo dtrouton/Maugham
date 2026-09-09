@@ -274,11 +274,12 @@ enum RoundNarrative {
         return minutes == 1 ? "1 minute" : "\(minutes) minutes"
     }
 
-    /// `31,000`, never `31000`: the pane's numbers are read, not parsed.
+    /// `31,000`, never `31000`: the pane's numbers are read, not parsed. POSIX
+    /// locale carries no grouping separator, so use en_US instead.
     static func thousands(_ n: Int) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.locale = Locale(identifier: "en_US")
         return formatter.string(from: NSNumber(value: n)) ?? "\(n)"
     }
 
