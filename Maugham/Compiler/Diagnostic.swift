@@ -297,6 +297,19 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// section existed, on the same convention as `clauseStatuses`.
     var letter: Letter?
 
+    /// **How long the run took and what it cost** (spec 2026-09-09 §5).
+    ///
+    /// The two clocks are Maugham's own and the rest is the CLI's `result`
+    /// event, read off the session that ran the turn — so the pane can say
+    /// what a check cost after it has stopped being live, and the evals
+    /// milestone can read a run beside the effort it was asked for.
+    ///
+    /// `nil` on every record written before this milestone, on a preview
+    /// (nothing has resolved yet), and on a runner that measures nothing —
+    /// which is every suite's spy. Optional for `clauseStatuses`' reason:
+    /// absent is a real state and reads as one.
+    var timing: RunTiming?
+
     init(id: String, at: Date, model: String, lastOpId: String?,
          deltaSummary: String, intentSnapshot: String?, droppedDangling: Int = 0,
          clauseStatuses: [DiagnosticIngest.ClauseStatus]? = nil,
@@ -304,7 +317,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
          freshEyes: Bool? = nil, intentDriftVerdict: String? = nil,
          mintedNotes: Int? = nil, openInOtherLanes: Int? = nil,
          kind: RunKind? = nil, readerName: String? = nil,
-         letter: Letter? = nil) {
+         letter: Letter? = nil, timing: RunTiming? = nil) {
         self.id = id
         self.at = at
         self.model = model
@@ -323,6 +336,7 @@ struct CompilerRun: Codable, Equatable, Sendable {
         self.kind = kind
         self.readerName = readerName
         self.letter = letter
+        self.timing = timing
     }
 
     /// Hand-written for one field: a sidecar written before `droppedDangling`
@@ -360,5 +374,6 @@ struct CompilerRun: Codable, Equatable, Sendable {
         kind = try c.decodeIfPresent(RunKind.self, forKey: .kind)
         readerName = try c.decodeIfPresent(String.self, forKey: .readerName)
         letter = try c.decodeIfPresent(Letter.self, forKey: .letter)
+        timing = try c.decodeIfPresent(RunTiming.self, forKey: .timing)
     }
 }

@@ -456,6 +456,19 @@ final class CompilerOrchestrator {
     nonisolated static let passlessEditorName = "Claude"
 
     private(set) var runState: RunState = .idle
+
+    /// **When the run in flight was sent, and what the CLI has thought so
+    /// far** — the two facts the panes draw while "Checking…" is on
+    /// screen (spec 2026-09-09 §5). Both `nil` between runs, which is
+    /// what makes "is a run live" answerable from either of them.
+    ///
+    /// `runProgress` is a preview on the partial text's terms: it belongs to
+    /// the turn that reported it and nothing may be concluded from it that
+    /// outlives that turn, which is why it is cleared everywhere the run ends
+    /// rather than left standing as the last thing known.
+    private(set) var runStartedAt: Date?
+    private(set) var runProgress: RunProgress?
+
     private(set) var diagnostics: DiagnosticsStore?
 
     private var environment: Environment?
@@ -1088,6 +1101,12 @@ final class CompilerOrchestrator {
         // later — the pane's header says what is being read from this moment on
         // rather than from the moment the answer comes back (requirement 5).
         runState = .running(docId: docId, checking: DeltaCounts(of: delta))
+        // Beside the state and not after the send: the elapsed figure the pane
+        // draws is the writer's own wait, which starts at the keystroke — the
+        // burst flush and the declared world's derivation are seconds the
+        // writer spends looking at "Checking…" like any other.
+        runStartedAt = Date()
+        runProgress = nil
         // Minted here rather than when the answer lands, because the stream
         // stores notes against it before there is an answer — and a note whose
         // run id changed at the end would be a different run's note as far as
@@ -1182,6 +1201,14 @@ final class CompilerOrchestrator {
                 ask: ask, freshEyes: freshEyes, kind: kind)
             runner.setPartialHandler { [weak self] chunk in
                 self?.receivePartial(chunk, generation: generation)
+            }
+            // The generation guard is the partial handler's, for its reason: a
+            // retired session's late report must not be attributed to the run
+            // that replaced it. `receivePartial` makes the same check inside
+            // itself; there is nothing to delegate to here.
+            runner.setProgressHandler { [weak self] progress in
+                guard let self, self.runGeneration == generation else { return }
+                self.runProgress = progress
             }
 
             let event = await runner.send(message: message, systemPreamble: preamble)
@@ -1294,13 +1321,31 @@ final class CompilerOrchestrator {
                              // a claim that this run queued none — and the
                              // cross-lane count is the same fact seen from the
                              // other side, so it is nil for the same reason.
-                             mintedNotes: nil, openInOtherLanes: nil),
+                             mintedNotes: nil, openInOtherLanes: nil,
+                             // A turn still arriving has resolved nothing, so
+                             // there is nothing yet to say it cost — nil for
+                             // the two counts' own reason, one line up.
+                             timing: nil),
             // **A preview shows what the report shows, and nothing else**
             // (M4 P1 Task 3). Continuity and reader sections still accumulate
             // on `run.outcome` — the run's own record reads its counts off it
             // — but they are no longer the sidecar's, so they must not be
             // previewed into it either. They mint at `finish` or not at all.
             diagnostics: run.outcome.sidecarDiagnostics, docId: docId)
+    }
+
+    /// **The two live-run facts, cleared together** (spec 2026-09-09 §5).
+    ///
+    /// Called from every place a run stops being live and in lockstep with
+    /// `runState`, never ahead of it: a start time left standing draws a
+    /// duration that goes on counting over a check that ended, and a progress
+    /// figure left standing is one turn's thinking attributed to the next.
+    /// They clear together because "a run is live" must have one answer —
+    /// a start with no progress is an ordinary early turn, but a progress
+    /// figure with no start is nothing at all.
+    private func endLiveRun() {
+        runStartedAt = nil
+        runProgress = nil
     }
 
     /// Throw away whatever the stream put on the pane, and forget the stream.
@@ -1349,7 +1394,8 @@ final class CompilerOrchestrator {
         intentSnapshot: String?, passId: String?, round: Int?, freshEyes: Bool,
         kind: RunKind, readerName: String?,
         outcome: DiagnosticIngest.SectionedOutcome, scenePosition: ScenePosition,
-        stage: DraftStage?, ask: String?, mintedNotes: Int?, openInOtherLanes: Int?
+        stage: DraftStage?, ask: String?, mintedNotes: Int?, openInOtherLanes: Int?,
+        timing: RunTiming?
     ) -> CompilerRun {
         // **The letter's one mutable field, stamped here** (spec §3.4). The
         // position is the run's, not the model's: it is derived app-side at
@@ -1466,7 +1512,13 @@ final class CompilerOrchestrator {
             // same way `intentDriftVerdict` is — the preview and the finished
             // answer describe the same turn's letter, and `nil` where no
             // section has answered it yet (Task 2 wires the parse).
-            letter: letter)
+            letter: letter,
+            // **What the turn cost** (spec 2026-09-09 §5), read off the
+            // session that ran it. `nil` on a preview, which has no resolved
+            // turn to have cost anything, and on a runner that measures
+            // nothing — undefaulted for `passId`/`round`'s reason, so a third
+            // call site cannot quietly file a run claiming it cost nothing.
+            timing: timing)
     }
 
     /// **What the last round in this run's lane raised**, or `nil` when there
@@ -1573,6 +1625,11 @@ final class CompilerOrchestrator {
         runGeneration &+= 1
         isPreparingRun = false
         runState = .idle
+        // In lockstep with the state, and so only on the path that ends the
+        // run here. A cancel of a run already SENT leaves both standing until
+        // its failure reaches `finish`, which is the same tick `runState`
+        // stops saying "running" — one answer to "is a run live", not two.
+        endLiveRun()
     }
 
     /// End the session: the AI toggle going off, project close, app quit.
@@ -1595,7 +1652,10 @@ final class CompilerOrchestrator {
         // A turn cut short leaves the surface saying "running" forever
         // otherwise. A REPORTED failure is left alone: the toggle going off
         // must not erase the banner explaining why the last run failed.
-        if isRunning { runState = .idle }
+        if isRunning {
+            runState = .idle
+            endLiveRun()
+        }
     }
 
     /// Shut down and release the window's object graph. The close-the-window
@@ -1653,6 +1713,7 @@ final class CompilerOrchestrator {
             runState = failure.isTheWritersOwnDoing
                 ? .idle
                 : .failed(docId: docId, failure: failure, at: Date())
+            endLiveRun()
 
         case .resultText(let text):
             // **The whole turn at once, and it REPLACES whatever streamed.**
@@ -1677,6 +1738,11 @@ final class CompilerOrchestrator {
             else {
                 discardStreamPreview()
                 runState = .failed(docId: docId, failure: .unusableOutput, at: Date())
+                // The arm's own early return, and the third place a run stops
+                // being live: a turn Maugham could not read has ended exactly
+                // as a failed one has, and a clock left ticking here would
+                // outlive every later run.
+                endLiveRun()
                 return
             }
 
@@ -1735,7 +1801,13 @@ final class CompilerOrchestrator {
                 kind: kind, readerName: readerName,
                 outcome: outcome, scenePosition: scenePosition, stage: stage, ask: ask,
                 mintedNotes: mint.minted,
-                openInOtherLanes: mint.openInOtherLanes)
+                openInOtherLanes: mint.openInOtherLanes,
+                // **Read off the session that ran the turn** (spec 2026-09-09
+                // §5), here rather than at the keystroke because it is the one
+                // thing on the record that is not known until the answer
+                // lands. `nil` from a runner that measures nothing, which is
+                // every suite's double.
+                timing: runner?.lastTurnTiming)
             // Dropped rather than discarded: `replace` below supersedes the
             // preview wholesale, so taking it off the pane first would blink
             // the report out and back.
@@ -1751,6 +1823,7 @@ final class CompilerOrchestrator {
                 sentBriefing[docId] = (briefingHash, runner.sessionEpoch)
             }
             runState = .idle
+            endLiveRun()
         }
     }
 

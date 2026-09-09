@@ -48,6 +48,20 @@ final class CompilerRunCommandTests: XCTestCase {
         /// transport chose, which close nothing.
         func stream(_ chunk: String) { partialHandler?(chunk) }
 
+        /// What the last turn cost, as a real session measures it. Settable
+        /// rather than measured: this spy has no process and no clock, so the
+        /// test IS the measurement.
+        var lastTurnTiming: RunTiming?
+        private(set) var progressHandler: (@MainActor (RunProgress) -> Void)?
+
+        func setProgressHandler(_ handler: (@MainActor (RunProgress) -> Void)?) {
+            progressHandler = handler
+        }
+
+        /// Report progress the way `ClaudeCLISession` does off the CLI's own
+        /// thinking-token stream — mid-turn, as many times as it likes.
+        func progress(_ p: RunProgress) { progressHandler?(p) }
+
         func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
             sends.append((message, systemPreamble))
             onSend?()
@@ -7421,5 +7435,71 @@ final class CompilerRunCommandTests: XCTestCase {
                        "the mint dropped the heading between the note and the op")
         XCTAssertNil(plain.lessonHeading,
                      "the mint put a heading on a note that carried none")
+    }
+
+    // MARK: - What the turn cost (spec 2026-09-09 §5)
+
+    /// A run held open at the send — the window in which the orchestrator is
+    /// the only thing that knows a check is happening, and so the only thing
+    /// that can say when it started and what it has thought so far.
+    ///
+    /// Spelled here rather than inline because the three timing tests want the
+    /// same held turn and two of them are about what is true DURING it: an
+    /// assertion made before `awaitSends` has returned reads a run that has
+    /// not started as one that started and cleared.
+    private func makeHeldRun() throws -> (
+        orchestrator: CompilerOrchestrator, runner: SpyRunner,
+        diagnostics: DiagnosticsStore, docId: String
+    ) {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // hold the turn open
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        return (harness.orchestrator, runner, harness.diagnostics, docId)
+    }
+
+    /// **The run record carries what the turn cost** (spec 2026-09-09 §5): the
+    /// runner's timing is copied onto the record in `finish`, so the pane can
+    /// say "read in 4m 12s" over a run that is no longer live.
+    func test_theRecordCarriesTheRunnersTiming() throws {
+        let (_, runner, diagnostics, docId) = try makeHeldRun()
+        runner.lastTurnTiming = RunTiming(
+            elapsed: 252, firstLineAfter: 4.1, apiDuration: 250, turns: 6,
+            outputTokens: 14_000, thinkingTokens: 12_504, costUSD: 0.31,
+            model: "opus", effort: "high")
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+
+        let run = try XCTUnwrap(diagnostics.lastCheck(docId: docId))
+        XCTAssertEqual(run.timing?.elapsed, 252)
+        XCTAssertEqual(run.timing?.thinkingTokens, 12_504)
+        XCTAssertEqual(run.timing?.effort, "high")
+    }
+
+    /// While a run is live the orchestrator says when it started and what the
+    /// CLI has thought so far; both clear when it ends.
+    func test_theLiveRunExposesItsStartAndProgress() throws {
+        let (orchestrator, runner, _, _) = try makeHeldRun()
+        XCTAssertNotNil(orchestrator.runStartedAt)
+        XCTAssertNil(orchestrator.runProgress)
+        runner.progress(RunProgress(thinkingTokens: 12_000, at: Date()))
+        XCTAssertEqual(orchestrator.runProgress?.thinkingTokens, 12_000)
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+        XCTAssertNil(orchestrator.runStartedAt)
+        XCTAssertNil(orchestrator.runProgress)
+    }
+
+    /// A legacy sidecar has no timing; the record decodes without it.
+    func test_aRecordWithoutTimingStillDecodes() throws {
+        let json = """
+        {"id":"r1","at":"2026-09-09T09:00:00Z","model":"sonnet","deltaSummary":"3 new, 0 revised \u{00b6}"}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let run = try decoder.decode(CompilerRun.self, from: Data(json.utf8))
+        XCTAssertNil(run.timing)
     }
 }
