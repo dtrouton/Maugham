@@ -365,7 +365,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
                 // a crash mid-write leaves a remembered head no line hashes to,
                 // which is the adopt case, never a line this device wrote
                 // sitting after the head it remembers.
-                chain.state.remember(head: prev, for: fileKey)
+                chain.state.remember(head: prev, for: fileKey, root: chain.projectURL)
 
                 if FileManager.default.fileExists(atPath: wu.path) {
                     let h = try FileHandle(forWritingTo: wu)

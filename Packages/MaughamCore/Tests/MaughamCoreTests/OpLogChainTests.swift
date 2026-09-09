@@ -559,6 +559,76 @@ final class OpLogChainTests: XCTestCase {
         }
     }
 
+    // MARK: - Reading a line's prev
+
+    /// A 64-hex `prev` written as the first key — the only shape Maugham ever
+    /// writes — is read by a byte-level fast path rather than by accumulating
+    /// the key and the value a byte at a time. Every other shape falls through
+    /// to the textual reader, so the two must agree everywhere.
+    ///
+    /// The expected values here were CAPTURED from the textual reader before
+    /// the fast path existed: this corpus is what pins the refactor as an
+    /// equivalence rather than a change of answer.
+    func test_prevAnswersWhatTheTextualReaderAnsweredForEveryShape() {
+        let hex = String(repeating: "ab", count: 32)
+        let corpus: [(name: String, line: String, expected: String??)] = [
+            ("the shape Maugham writes", "{\"prev\":\"\(hex)\",\"opId\":\"op-1\"}", .some(.some(hex))),
+            ("the same with no second key", "{\"prev\":\"\(hex)\"}", .some(.some(hex))),
+            ("a leading space", " {\"prev\":\"\(hex)\"}", .some(.some(hex))),
+            ("spaces inside", "{ \"prev\" : \"\(hex)\" }", .some(.some(hex))),
+            ("a value that is not 64 long", "{\"prev\":\"short\"}", .some(.some("short"))),
+            ("63 hex", "{\"prev\":\"\(String(hex.dropLast()))\"}", .some(.some(String(hex.dropLast())))),
+            ("65 hex", "{\"prev\":\"\(hex)c\"}", .some(.some(hex + "c"))),
+            ("a short value whose 74th byte happens to be a quote",
+             "{\"prev\":\"a\",\"x\":\"\(String(repeating: "a", count: 56))\"", .some(.some("a"))),
+            ("unterminated", "{\"prev\":\"\(hex)", .none),
+            ("an unquoted value", "{\"prev\":\(hex)}", .none),
+            ("a first key that merely starts with prev", "{\"prevx\":\"\(hex)\"}", .some(nil)),
+            ("prev as the second key", "{\"a\":1,\"prev\":\"\(hex)\"}", .some(nil)),
+            ("an empty object", "{}", .some(nil)),
+            ("not an object", "[1]", .none),
+            ("no bytes at all", "", .none),
+        ]
+
+        for entry in corpus {
+            XCTAssertEqual(OpLogChain.prev(ofLine: Data(entry.line.utf8)), entry.expected,
+                           "\(entry.name): \(entry.line)")
+        }
+    }
+
+    /// A `Data` slice does not start at index 0, and a fast path that assumes it
+    /// does reads the wrong 64 bytes off every line the walk hands it — which is
+    /// exactly how the verifier sees them, as slices of the whole file.
+    func test_prevReadsASliceThatDoesNotStartAtZero() {
+        let line = OpLogChain.chainedLine(elementJSON: element(1), prev: OpLogChain.genesis)
+        var file = Data("nnnn".utf8)
+        file.append(line)
+        let slice = file.dropFirst(4)
+
+        XCTAssertNotEqual(slice.startIndex, 0, "the fixture is only a fixture if the slice is offset")
+        XCTAssertEqual(OpLogChain.prev(ofLine: slice), .some(.some(OpLogChain.genesis)))
+    }
+
+    /// A sanity pin, not a gate: 50 ms is 50× the target for this many lines in
+    /// debug, so it cannot flake, and it fails loudly if the fast path is ever
+    /// removed and the reader goes back to accumulating bytes into a `Data`.
+    func test_sixThousandLinesAreReadWellInsideFiftyMilliseconds() {
+        let lines = (0..<6_000).map {
+            OpLogChain.chainedLine(elementJSON: element($0), prev: OpLogChain.genesis)
+        }
+
+        let started = Date()
+        var read = 0
+        for line in lines where OpLogChain.prev(ofLine: line) == .some(.some(OpLogChain.genesis)) {
+            read += 1
+        }
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertEqual(read, 6_000)
+        XCTAssertLessThan(elapsed, 0.050,
+                          "6,000 prev reads took \(Int(elapsed * 1000)) ms")
+    }
+
     // MARK: - Helpers
 
     /// Rewrites one substring of a line and answers the new bytes. Used to

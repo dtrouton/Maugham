@@ -330,7 +330,12 @@ public final class OpLogStore {
             state?.markVerified(segmentDigest: digest)
         }
         if let head = classified.adoptedHead {
-            state?.remember(head: head, for: OpLogDeviceState.fileKey(url))
+            // The root is the one `fileKey` scoped this file to, not a
+            // handle of this static function's own: it has a URL and no
+            // project. Recording the same directory the hash was taken over is
+            // what lets the entry be pruned when that project is gone.
+            state?.remember(head: head, for: OpLogDeviceState.fileKey(url),
+                            root: OpLogDeviceState.projectRoot(of: url))
         }
         // A forensic record is the LOAD path's to write, and only its. A caller
         // taking the nil defaults — `ProjectIntegrity.check`, and anything else
