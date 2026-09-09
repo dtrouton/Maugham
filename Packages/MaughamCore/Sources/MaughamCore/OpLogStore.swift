@@ -330,7 +330,12 @@ public final class OpLogStore {
             state?.markVerified(segmentDigest: digest)
         }
         if let head = classified.adoptedHead {
-            state?.remember(head: head, for: OpLogDeviceState.fileKey(url))
+            // The root is the one `fileKey` scoped this file to, not a
+            // handle of this static function's own: it has a URL and no
+            // project. Recording the same directory the hash was taken over is
+            // what lets the entry be pruned when that project is gone.
+            state?.remember(head: head, for: OpLogDeviceState.fileKey(url),
+                            root: OpLogDeviceState.projectRoot(of: url))
         }
         // A forensic record is the LOAD path's to write, and only its. A caller
         // taking the nil defaults — `ProjectIntegrity.check`, and anything else
@@ -640,12 +645,13 @@ public final class OpLogStore {
     /// device with no key and on a file with nothing new — neither is an error,
     /// and neither throws.
     ///
-    /// **`__project__` is sealed here and rotated nowhere.** The two verbs are
-    /// different acts: this one SIGNS a run of lines in place, `sealTailIfNeeded`
-    /// REWRITES the tail into an immutable segment. Only the second refuses the
-    /// project stream (a recorded Denver decision), so the project's task log is
-    /// signed history like every other tail while its tail keeps growing —
-    /// which is what `ProjectStore._projectOpLogStore` exists to make possible.
+    /// **`__project__` is sealed here and rotated by the open sweep** (since
+    /// 2026-09-09). The two verbs are still different acts: this one SIGNS a
+    /// run of lines in place, `sealTailIfNeeded` REWRITES the tail into an
+    /// immutable segment. Neither refuses the project stream any more, so the
+    /// project's task log is signed history like every other tail AND bounded
+    /// like every other tail — the seal is what `ProjectStore._projectOpLogStore`
+    /// exists to make possible, the rotation is `DocumentStore.open`'s.
     /// **One seal per local actor THIS STORE has written to since that file's
     /// last seal** (P1b, narrowed by the whole-branch review's I1). A device is
     /// four writers with four files, and a seal signs a run of lines in ONE of
@@ -758,8 +764,9 @@ public final class OpLogStore {
     /// one of THIS device's own actors — sealing is a rewrite of a
     /// single-writer file, the exact case ADR 0012 makes conflict-twin-free.
     /// NEVER the legacy unsuffixed `<docId>.jsonl` (no unambiguous owner;
-    /// frozen since ADR 0012), never another device's file, never
-    /// `__project__`.
+    /// frozen since ADR 0012), and never another device's file. The synthetic
+    /// `__project__` stream is not an exception: it rotates at this same
+    /// threshold (Denver, 2026-09-09 — one constant, not two).
     ///
     /// **Its two callers, and why each is inside that rule** (the whole-branch
     /// review's I3). `Document.close()` rotates the tail of the actor that
@@ -770,7 +777,9 @@ public final class OpLogStore {
     /// it is safe there for two reasons that do not hold at close — all four
     /// slugs name this device's own actors, and the sweep is awaited before the
     /// first `Document.load`, so no live appender exists to race the
-    /// read→delete gap the note below reasons about.
+    /// read→delete gap the note below reasons about. That sweep is also the
+    /// project stream's ONLY boundary: `__project__` has no close to rotate at,
+    /// so open is its moment.
     ///
     /// Crash safety is by construction, not by care: dying between the
     /// segment write and the tail delete leaves the same ops in both files —
@@ -798,7 +807,6 @@ public final class OpLogStore {
         docId: String, deviceSlug: DeviceSlug,
         threshold: Int = OpLogStore.segmentSealThreshold
     ) async throws -> URL? {
-        guard docId != "__project__" else { return nil }
         let fm = FileManager.default
         let tailURL = Self.opLogFileURL(
             forDocId: docId, deviceSlug: deviceSlug, in: projectURL)

@@ -297,9 +297,12 @@ extension ProjectStore {
     private func ensureProjectOpLogLoaded() {
         guard !_projectOpLogLoaded else { return }
         _projectOpLogLoaded = true
-        // Synchronous, partition-aware read (legacy + per-device files; ADR
-        // 0012). The project log is tiny (pane-created tasks only); skipping
-        // NSFileCoordinator is acceptable for this local-only synthetic log.
+        // Synchronous, partition-aware read (legacy + per-device files, and
+        // each device's sealed segments alongside its live tail; ADR 0012 /
+        // ADR 0016). Each tail is bounded at `segmentSealThreshold` by the
+        // open sweep, so this reads a rotated history rather than one
+        // ever-growing file; skipping NSFileCoordinator is acceptable for this
+        // local-only synthetic log.
         // If iCloud coordination ever matters, route through the async
         // OpLogStore.load via a startup task instead.
         // RULING-54 lenient, reason recorded: the tiny synthetic project
