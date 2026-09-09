@@ -434,7 +434,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
     /// did not come back has written nothing. Ingest is not called with an
     /// empty report, or a partial one — it is not called at all.
     func test_aFailedRunIngestsNothing() throws {
-        for failure in [CompilerRunFailure.timedOut, .cliNotFound,
+        for failure in [CompilerRunFailure.timedOut(), .cliNotFound,
                         .sessionDied(detail: "the CLI exited with status 1")] {
             let runner = SpyRunner()
             runner.nextEvent = .failed(failure)

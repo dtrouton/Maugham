@@ -104,7 +104,12 @@ the remedy is the row you're reading. **A round that fails says so right there**
 in red, in place of the usual line — *"The check took too long and was
 stopped"* — rather than leaving the strip looking like a round that simply
 came back with nothing, and both buttons stay live, because another round is
-the answer to a failed one. **A run in flight can be cancelled right there** —
+the answer to a failed one. A round that Claude stopped talking to for three
+minutes says *Claude went quiet for 3 minutes and was stopped*; one that ran
+twenty minutes says the read passed its bound, with how much thinking it had
+done. While a round runs, the line counts the minutes and shows what Claude
+has thought so far; afterwards it says how long the read took, and hovering
+it shows the detail. **A run in flight can be cancelled right there** —
 a Cancel button sits beside the checking line for as long as the round is
 running, the same control Diagnostics offers, and pressing it lands you back
 at Run round with nothing held against you: it's the same as a round you

@@ -61,6 +61,22 @@ final class ClaudeCLISessionTests: XCTestCase {
         /// pass for the wrong reason — the next send did work, but only after
         /// waiting out the stale process.
         case slowWhileFlagged
+        /// Keep TALKING for as long as the `slow` flag file exists — one
+        /// `system/thinking_tokens` progress line every 100 ms, the line the
+        /// real CLI emits while the model thinks (captured 2026-09-09) — and
+        /// answer once the flag lifts. A session that measures liveness by
+        /// silence must not kill this one; a session that measures it by wall
+        /// clock did (spec §2).
+        case chatterWhileFlagged
+        /// Keep talking on STDERR — one line every 100 ms while the `slow` flag
+        /// exists, stdout silent throughout — and answer once it lifts. A real
+        /// CLI logging a retry backoff does exactly this, and a session that
+        /// counted only stdout as liveness called it a stall.
+        case stderrChatterWhileFlagged
+        /// Emit the thinking-progress event and answer with the TIMED result
+        /// line — the 2026-09-09 capture — so the session's `RunTiming` is
+        /// read off a real shape.
+        case timed
     }
 
     /// A main-actor box, so an escaping handler can record what it saw.
@@ -93,6 +109,16 @@ final class ClaudeCLISessionTests: XCTestCase {
     static let capturedTextDelta = #"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"hello "}},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"e43f7a65-0886-4e0e-9e79-579bf54aa4bf"}"#
     static let capturedSecondTextDelta = #"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"world"}},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"e43f7a65-0886-4e0e-9e79-579bf54aa4bg"}"#
     static let capturedTextStop = #"{"type":"stream_event","event":{"type":"content_block_stop","index":1},"session_id":"586491a3-9c71-4c09-af23-cf920396a799","parent_tool_use_id":null,"uuid":"ec36f353-60a8-408a-aef2-45fe16924d89"}"#
+
+    /// **Captured 2026-09-09 from `claude` 2.1.266** (one `-p --include-partial-
+    /// messages --model haiku --effort low` turn; session/uuid fields as they
+    /// came). Two lines the 2026-08-08 capture predates: the CLI's own
+    /// thinking-token progress event, and a `result` carrying `usage`,
+    /// `ttft_ms` and `duration_ms`. The result line is the capture trimmed to
+    /// the fields the session reads — `modelUsage`, `subagent_stats` and the
+    /// rest are dropped, the key names are verbatim.
+    static let capturedThinkingProgress = #"{"type":"system","subtype":"thinking_tokens","estimated_tokens":150,"estimated_tokens_delta":100,"session_id":"3c2e3e65-6fc5-43cb-9509-227661f44a82","uuid":"3dd12b93-b21a-4c94-a2e0-c027c92cf721"}"#
+    static let capturedTimedResult = #"{"duration_api_ms":3632,"stop_reason":"end_turn","session_id":"3c2e3e65-6fc5-43cb-9509-227661f44a82","total_cost_usd":0.00253,"usage":{"input_tokens":431,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":227,"output_tokens_details":{"thinking_tokens":185},"service_tier":"standard"},"permission_denials":[],"terminal_reason":"completed","is_error":false,"num_turns":1,"subtype":"success","result":"FAKE RESULT","ttft_ms":2419,"type":"result","duration_ms":2887,"uuid":"6a1d1b2e-0000-4000-8000-000000000001"}"#
 
     private var tempDir: URL!
     /// One line per spawn of the fake CLI.
@@ -175,6 +201,22 @@ final class ClaudeCLISessionTests: XCTestCase {
               waited=$((waited+1))
             done
           fi
+          if [ "$MODE" = "chatterWhileFlagged" ]; then
+            waited=0
+            while [ -e "$FLAG" ] && [ "$waited" -lt \(maxStallSeconds * 10) ]; do
+              printf '%s\\n' '{"type":"system","subtype":"thinking_tokens","estimated_tokens":50,"estimated_tokens_delta":50,"session_id":"fake-session","uuid":"00000000-0000-0000-0000-000000000000"}'
+              sleep 0.1
+              waited=$((waited+1))
+            done
+          fi
+          if [ "$MODE" = "stderrChatterWhileFlagged" ]; then
+            waited=0
+            while [ -e "$FLAG" ] && [ "$waited" -lt \(maxStallSeconds * 10) ]; do
+              echo "retrying in 1s (attempt $waited)" >&2
+              sleep 0.1
+              waited=$((waited+1))
+            done
+          fi
           if [ "$MODE" = "streaming" ]; then
             printf '%s\\n' '\(Self.capturedThinkingStart)'
             printf '%s\\n' '\(Self.capturedThinkingDelta)'
@@ -188,6 +230,11 @@ final class ClaudeCLISessionTests: XCTestCase {
             printf '%s\\n' 'this line is not JSON at all'
             printf '%s\\n' '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}'
             printf '%s\\n' '{"no_type_field":true}'
+          fi
+          if [ "$MODE" = "timed" ]; then
+            printf '%s\\n' '\(Self.capturedThinkingProgress)'
+            printf '%s\\n' '\(Self.capturedTimedResult)'
+            continue
           fi
           printf '%s\\n' '{"type":"system","subtype":"init","session_id":"fake-session"}'
           printf '%s\\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"partial"}]}}'
@@ -206,6 +253,7 @@ final class ClaudeCLISessionTests: XCTestCase {
         confinement: ClaudeCLISession.Confinement? = nil,
         isEnabled: @escaping () -> Bool = { true },
         idleTimeout: TimeInterval = 600,
+        silenceTimeout: TimeInterval = 20,
         runTimeout: TimeInterval = 20,
         deathReapGrace: TimeInterval = ClaudeCLISession.defaultDeathReapGrace,
         locator: (@Sendable () -> URL?)? = nil
@@ -217,6 +265,7 @@ final class ClaudeCLISessionTests: XCTestCase {
             cliOverride: cli,
             isEnabled: isEnabled,
             idleTimeout: idleTimeout,
+            silenceTimeout: silenceTimeout,
             runTimeout: runTimeout,
             deathReapGrace: deathReapGrace,
             locator: locator ?? { nil })
@@ -520,31 +569,122 @@ final class ClaudeCLISessionTests: XCTestCase {
         session.shutdown()
     }
 
-    /// A turn that outruns its budget is reported as a timeout, not left
-    /// hanging.
-    /// The translation cast's budget is a named constant beside the compiler's,
-    /// so the number quoted in `AREA.md` has a home; it must stay above the
-    /// compiler's (the reason it exists) and finite (the reason a budget exists).
-    func test_theTranslationBudgetIsLongerThanTheCompilersAndStillBounded() {
-        XCTAssertEqual(ClaudeCLISession.translationRunTimeout, 900)
-        XCTAssertGreaterThan(ClaudeCLISession.translationRunTimeout,
-                             ClaudeCLISession.defaultRunTimeout)
-        XCTAssertLessThan(ClaudeCLISession.translationRunTimeout, 3600)
+    /// The two budgets are the spec's numbers (§2), and the translation cast's
+    /// separate 900 s constant is gone: one ceiling for every session type.
+    func test_theBudgetsAreTheSpecs() {
+        XCTAssertEqual(ClaudeCLISession.defaultSilenceTimeout, 180)
+        XCTAssertEqual(ClaudeCLISession.defaultRunTimeout, 1_200)
     }
 
-    func test_runTimeout() async throws {
+    /// A child that has stopped writing is what "hung" means: the silence
+    /// budget ends it, and the stall says so.
+    ///
+    /// **Margin**: the fixture never answers at all, so the only clock this
+    /// test races is its own upper bound — 6 s against a 0.4 s budget, ~15×.
+    /// The gate runs seven XCTest workers in parallel (CLAUDE.md's build
+    /// flow), and a spawn scheduled behind six other hosts is the confounder
+    /// that makes a tight bound fail in-suite and pass in isolation.
+    func test_silenceEndsATurnAndSaysSo() async throws {
         let cli = try makeFakeCLI(mode: .slowWhileFlagged)
         try Data().write(to: slowFlagURL)   // never lifted: the turn never lands
-        let session = makeSession(cli: cli, runTimeout: 0.4)
+        let session = makeSession(cli: cli, silenceTimeout: 0.4, runTimeout: 20)
 
         let started = Date()
         let event = await session.send(message: "slow", systemPreamble: nil)
         let elapsed = Date().timeIntervalSince(started)
 
-        XCTAssertEqual(event, .failed(.timedOut))
-        XCTAssertLessThan(elapsed, 4, "the timeout must fire well before the fixture answers")
+        guard case .failed(.timedOut(let stall)) = event else {
+            return XCTFail("expected a stall, got \(event)")
+        }
+        XCTAssertEqual(stall.cause, .silence)
+        XCTAssertGreaterThanOrEqual(stall.after, 0.4)
+        XCTAssertLessThan(elapsed, 6,
+            "the silence budget must fire well before the fixture answers \u{2014} and the "
+            + "bound is loose enough that a spawn queued behind six other workers is not a "
+            + "failure")
         XCTAssertFalse(session.isRunning)
+        session.shutdown()
+    }
 
+    /// A child still WRITING past the old per-turn budget is not hung. The
+    /// silence timer resets on every line — thinking-progress lines included,
+    /// which the classifier otherwise ignores — so the turn is allowed to
+    /// finish (spec §2: liveness, not wall clock).
+    ///
+    /// **Margin**: the fixture writes a line every 0.1 s against a 1.5 s
+    /// silence budget, so fourteen consecutive lines would have to be lost to
+    /// scheduling before this stalls — 15×. The gate runs seven XCTest
+    /// workers in parallel (CLAUDE.md's build flow) and every one of them can
+    /// hold the CPU while this fixture's `sleep` loop waits, which is exactly
+    /// the in-suite/in-isolation confounder a 5× margin would surface as a
+    /// mystery flake.
+    func test_aChildStillWritingIsNotKilled() async throws {
+        let cli = try makeFakeCLI(mode: .chatterWhileFlagged)
+        try Data().write(to: slowFlagURL)
+        // A silence budget shorter than the chatter's total, a ceiling far off.
+        let session = makeSession(cli: cli, silenceTimeout: 1.5, runTimeout: 20)
+
+        let flag = slowFlagURL
+        Task.detached {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? FileManager.default.removeItem(at: flag)
+        }
+        let event = await session.send(message: "chatty", systemPreamble: nil)
+
+        XCTAssertEqual(event, .resultText("FAKE RESULT"),
+            "3 s of chatter at 0.1 s a line against a 1.5 s silence budget must not be a stall")
+        session.shutdown()
+    }
+
+    /// **Stderr is liveness too.** A CLI logging a retry backoff writes on
+    /// stderr with stdout silent — the writer's read is progressing, and a
+    /// watch that counted only stdout would kill it. The stderr drain, which
+    /// exists to keep the pipe from wedging, therefore says the child is
+    /// alive on the same discipline the stdout reader uses.
+    ///
+    /// **Margin**: a line every 0.1 s against a 1.5 s budget, for 3 s — the
+    /// same 15× as `test_aChildStillWritingIsNotKilled`, and for the same
+    /// reason (CLAUDE.md's seven parallel XCTest workers).
+    func test_stderrCountsAsLiveness() async throws {
+        let cli = try makeFakeCLI(mode: .stderrChatterWhileFlagged)
+        try Data().write(to: slowFlagURL)
+        let session = makeSession(cli: cli, silenceTimeout: 1.5, runTimeout: 20)
+
+        let flag = slowFlagURL
+        Task.detached {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? FileManager.default.removeItem(at: flag)
+        }
+        let event = await session.send(message: "noisy on stderr", systemPreamble: nil)
+
+        XCTAssertEqual(event, .resultText("FAKE RESULT"),
+            "3 s of stderr at 0.1 s a line, stdout silent, must not read as a stall")
+        session.shutdown()
+    }
+
+    /// The ceiling still bounds a child that never stops talking.
+    ///
+    /// **Margin**: the two budgets have to stay apart under load, and it is
+    /// their RATIO that decides which one fires — a 1.5 s ceiling under a
+    /// 10 s silence budget is 6.7×, so the ceiling wins even if the fixture's
+    /// 0.1 s lines arrive a hundredfold late. Under seven parallel XCTest
+    /// workers (CLAUDE.md's build flow) the old 0.6 s / 5 s pair left only
+    /// 8× and no headroom for a starved spawn; the chatter also has to get
+    /// its first line out before the ceiling, which 1.5 s affords and 0.6 s
+    /// barely did.
+    func test_theCeilingEndsAChildThatNeverStopsTalking() async throws {
+        let cli = try makeFakeCLI(mode: .chatterWhileFlagged)
+        try Data().write(to: slowFlagURL)   // never lifted
+        let session = makeSession(cli: cli, silenceTimeout: 10, runTimeout: 1.5)
+
+        let event = await session.send(message: "chatty", systemPreamble: nil)
+
+        guard case .failed(.timedOut(let stall)) = event else {
+            return XCTFail("expected a stall, got \(event)")
+        }
+        XCTAssertEqual(stall.cause, .ceiling)
+        XCTAssertGreaterThanOrEqual(stall.after, 1.5)
+        XCTAssertFalse(session.isRunning)
         session.shutdown()
     }
 
@@ -827,9 +967,9 @@ final class ClaudeCLISessionTests: XCTestCase {
     }
 
     /// The invocation is the one the spike measured, and the system preamble
-    /// rides on `--append-system-prompt` (verified 2026-08-04 to compose with
-    /// `-p` + stream-json in both directions) rather than being smuggled into
-    /// the first user message.
+    /// rides on `--system-prompt` — REPLACING the coding-agent prompt rather
+    /// than appending to it (verified 2026-09-09 on `claude` 2.1.266) — rather
+    /// than being smuggled into the first user message.
     ///
     /// **`--tools ""` is the membrane's other half and the reason this test is
     /// not cosmetic.** `--allowedTools` removes nothing — it pre-approves the
@@ -868,7 +1008,22 @@ final class ClaudeCLISessionTests: XCTestCase {
         XCTAssertEqual(value(after: "--model"), "haiku")
         XCTAssertEqual(value(after: "--mcp-config"),
                        tempDir.appendingPathComponent("mcp.json").path)
-        XCTAssertEqual(value(after: "--append-system-prompt"), "BE TERSE")
+        // **The session is the reader's own** (spec 2026-09-09 §3). Verified
+        // live on claude 2.1.266: `--setting-sources ""` keeps OAuth and drops
+        // every hook, plugin, CLAUDE.md and the writer's global effort;
+        // `--system-prompt` REPLACES the coding-agent prompt rather than
+        // appending to it; `--effort` is explicit so ignoring the settings
+        // files does not fall back to the CLI's own default.
+        XCTAssertEqual(value(after: "--setting-sources"), "",
+                       "no settings file may reach the reader's session")
+        XCTAssertEqual(value(after: "--system-prompt"), "BE TERSE",
+                       "the preamble is the WHOLE system prompt")
+        XCTAssertFalse(argv.contains("--append-system-prompt"),
+                       "appending keeps the coding-agent prompt in front of the reader")
+        XCTAssertFalse(argv.contains("--bare"),
+                       "--bare never reads OAuth and would log the writer out")
+        XCTAssertEqual(value(after: "--effort"), "high",
+                       "this milestone pins every session on the effort the writer's runs already inherited")
         XCTAssertEqual(value(after: "--allowedTools"),
                        CompilerAllowlist.cliArguments()[1],
                        "the allowlist is Task 4's, passed through whole")
@@ -938,7 +1093,11 @@ final class ClaudeCLISessionTests: XCTestCase {
         }
         XCTAssertEqual(value(after: "--tools"), "",
                        "--tools \"\" is what removes Read/Glob/Grep")
-        XCTAssertEqual(value(after: "--append-system-prompt"), "BE TERSE")
+        // A sealed session is the reader's own too (spec 2026-09-09 §3): the
+        // preamble IS its system prompt, and no settings file reaches it.
+        XCTAssertEqual(value(after: "--system-prompt"), "BE TERSE")
+        XCTAssertEqual(value(after: "--setting-sources"), "")
+        XCTAssertFalse(argv.contains("--append-system-prompt"))
 
         let cwd = try String(contentsOf: cwdURL, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -955,9 +1114,10 @@ final class ClaudeCLISessionTests: XCTestCase {
     func test_argumentsDifferBetweenBridgedAndSealedExactlyWhereTheMembraneSaysTheyDo() {
         let config = URL(fileURLWithPath: "/tmp/x/mcp.json")
         let bridged = ClaudeCLISession.arguments(
-            model: "haiku", confinement: .bridged(mcpConfigPath: config), preamble: nil)
+            model: "haiku", effort: .high,
+            confinement: .bridged(mcpConfigPath: config), preamble: nil)
         let sealed = ClaudeCLISession.arguments(
-            model: "haiku", confinement: .sealed, preamble: nil)
+            model: "haiku", effort: .high, confinement: .sealed, preamble: nil)
 
         XCTAssertTrue(bridged.contains("--mcp-config"))
         XCTAssertTrue(bridged.contains("--allowedTools"))
@@ -974,6 +1134,31 @@ final class ClaudeCLISessionTests: XCTestCase {
         XCTAssertEqual(
             ClaudeCLISession.Confinement.bridged(mcpConfigPath: config).workingDirectory,
             config.deletingLastPathComponent())
+    }
+
+    /// The effort levels are the CLI's five, spelled as it accepts them — an
+    /// unknown value is ignored by `claude` with a warning, which is a silent
+    /// fallback to its default.
+    func test_effortLevelsAreTheCLIsFive() {
+        XCTAssertEqual(ClaudeCLISession.Effort.allCases.map(\.rawValue),
+                       ["low", "medium", "high", "xhigh", "max"])
+        XCTAssertEqual(ClaudeCLISession.defaultEffort, .high)
+    }
+
+    /// A caller with no preamble still gets a system prompt of Maugham's, so
+    /// the coding-agent prompt can never come back through a nil.
+    func test_aNilPreambleStillReplacesTheSystemPrompt() async throws {
+        let cli = try makeFakeCLI(mode: .normal)
+        let session = makeSession(cli: cli)
+        _ = await session.send(message: "hello", systemPreamble: nil)
+        var argv = try String(contentsOf: argsURL, encoding: .utf8)
+            .components(separatedBy: "\n")
+        if argv.last?.isEmpty == true { argv.removeLast() }
+        guard let i = argv.firstIndex(of: "--system-prompt"), i + 1 < argv.count else {
+            return XCTFail("--system-prompt missing from \(argv)")
+        }
+        XCTAssertEqual(argv[i + 1], ClaudeCLISession.defaultSystemPrompt)
+        session.shutdown()
     }
 
     // MARK: - Streaming (Task 4)
@@ -1099,6 +1284,66 @@ final class ClaudeCLISessionTests: XCTestCase {
             line: Self.capturedTextDelta, generation: session.sessionEpoch)
 
         XCTAssertEqual(chunks.value, [], "no turn is in flight to stream into")
+        session.shutdown()
+    }
+
+    // MARK: - The run knows how long it took (spec 2026-09-09 §5)
+
+    func test_theThinkingProgressEventIsClassifiedAsProgress() {
+        XCTAssertEqual(
+            ClaudeCLISession.classify(line: Self.capturedThinkingProgress),
+            .thinkingProgress(estimatedTokens: 150))
+    }
+
+    func test_theResultLineYieldsItsFacts() throws {
+        let facts = try XCTUnwrap(ClaudeCLISession.resultFacts(fromLine: Self.capturedTimedResult))
+        XCTAssertEqual(facts.apiDuration ?? 0, 3.632, accuracy: 0.0005)
+        XCTAssertEqual(facts.turns, 1)
+        XCTAssertEqual(facts.outputTokens, 227)
+        XCTAssertEqual(facts.thinkingTokens, 185)
+        XCTAssertEqual(facts.costUSD ?? 0, 0.00253, accuracy: 0.000001)
+    }
+
+    func test_aTurnRecordsItsTimingAndReportsProgress() async throws {
+        let cli = try makeFakeCLI(mode: .timed)
+        let session = makeSession(cli: cli, model: "haiku")
+        let progress = Box<[RunProgress]>([])
+        session.setProgressHandler { progress.value.append($0) }
+
+        XCTAssertNil(session.lastTurnTiming, "nothing has run")
+        let event = await session.send(message: "hello", systemPreamble: nil)
+
+        XCTAssertEqual(event, .resultText("FAKE RESULT"))
+        let timing = try XCTUnwrap(session.lastTurnTiming)
+        XCTAssertGreaterThan(timing.elapsed, 0)
+        XCTAssertNotNil(timing.firstLineAfter)
+        XCTAssertEqual(timing.thinkingTokens, 185)
+        XCTAssertEqual(timing.outputTokens, 227)
+        XCTAssertEqual(timing.turns, 1)
+        XCTAssertEqual(timing.model, "haiku")
+        XCTAssertEqual(timing.effort, "high")
+        XCTAssertEqual(progress.value.map(\.thinkingTokens), [150],
+            "the CLI's own estimate reaches the handler as it arrives")
+        session.shutdown()
+    }
+
+    /// A stall carries the last estimate the session saw, so the sentence can
+    /// say how far the read had got.
+    ///
+    /// **Margin**: the same 1.5 s ceiling under a 10 s silence budget as
+    /// `test_theCeilingEndsAChildThatNeverStopsTalking`, and for the same
+    /// reason — 6.7× between the two budgets, and time enough for the
+    /// chatter's first line (which is what carries the estimate this test is
+    /// about) to arrive on a machine running seven XCTest workers at once.
+    func test_aStallCarriesTheThinkingEstimate() async throws {
+        let cli = try makeFakeCLI(mode: .chatterWhileFlagged)
+        try Data().write(to: slowFlagURL)   // never lifted
+        let session = makeSession(cli: cli, silenceTimeout: 10, runTimeout: 1.5)
+        let event = await session.send(message: "chatty", systemPreamble: nil)
+        guard case .failed(.timedOut(let stall)) = event else {
+            return XCTFail("expected a stall, got \(event)")
+        }
+        XCTAssertEqual(stall.thinkingTokens, 50, "the chatter's estimate is 50 on every line")
         session.shutdown()
     }
 }

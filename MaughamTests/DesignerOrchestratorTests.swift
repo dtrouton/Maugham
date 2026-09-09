@@ -363,7 +363,7 @@ final class DesignerOrchestratorTests: XCTestCase {
     /// reachable from exactly one place in the file and that place holds a
     /// parsed report.
     func test_aFailedRunStagesNothing() throws {
-        for failure in [CompilerRunFailure.timedOut, .cliNotFound,
+        for failure in [CompilerRunFailure.timedOut(), .cliNotFound,
                         .sessionDied(detail: "the CLI exited with status 1")] {
             let runner = SpyRunner()
             runner.nextEvent = .failed(failure)
@@ -603,7 +603,7 @@ final class DesignerOrchestratorTests: XCTestCase {
     /// again.
     func test_aFailedRunOpensNoRoundToChange() throws {
         let runner = SpyRunner()
-        runner.nextEvent = .failed(.timedOut)
+        runner.nextEvent = .failed(.timedOut())
         let harness = try makeHarness(runner: runner, inputs: makeInputs())
 
         harness.orchestrator.runDesign()

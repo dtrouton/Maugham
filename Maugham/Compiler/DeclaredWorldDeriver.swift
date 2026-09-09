@@ -48,8 +48,10 @@ final class ClaudeWorldDeriver: WorldDeriver {
     private var resolvedCLI: URL?
 
     /// **The derivation deadline: 120s.** It matched `ClaudeCLISession`'s own
-    /// `runTimeout` when both were 120, and deliberately did not follow it to
-    /// 300 on 2026-08-18: that raise was for a session reading a WHOLE
+    /// `runTimeout` when both were 120, and deliberately did not follow it
+    /// through the 300s raise on 2026-08-18 or the single 1,200s ceiling
+    /// every session type now shares (`defaultRunTimeout`, reader's-own-session
+    /// spec §2, 2026-09-09): that ceiling is for a session reading a WHOLE
     /// manuscript cold, and this is a one-shot over an intent essay whose
     /// measured cost is below. Four times headroom over the spike's own —
     /// a real derivation against Denver's Tribute intent finished in **30s**
@@ -142,14 +144,27 @@ final class ClaudeWorldDeriver: WorldDeriver {
 
     // MARK: - Spawn
 
+    /// The deriver's whole system prompt — the identity its stdin prompt
+    /// already opens with, so nothing of Claude Code's own prompt is in
+    /// front of it (spec 2026-09-09 §3).
+    static let derivationSystemPrompt =
+        "You are the derivation layer of a writing tool. Answer only with the "
+        + "structure the message asks for."
+
     /// `-p --output-format json`: one batch JSON envelope, never
     /// `stream-json`. No `--mcp-config` at all — the flag that grants MCP
     /// tools is simply absent, not merely empty — and `--tools ""` empties
     /// the built-in set (Read/Glob/Grep would otherwise reach any file in
     /// the working directory even under an enumerated allowlist; see
-    /// `ClaudeCLISession.arguments`'s doc for the flag's own history).
+    /// `ClaudeCLISession.arguments`'s doc for the flag's own history). The
+    /// three arguments the warm session passes for the writer's sake are
+    /// passed here too: the deriver inherits the same hooks otherwise.
     static func arguments(model: String) -> [String] {
-        ["-p", "--output-format", "json", "--model", model, "--tools", ""]
+        ["-p", "--output-format", "json", "--model", model,
+         "--effort", ClaudeCLISession.defaultEffort.rawValue,
+         "--setting-sources", "",
+         "--system-prompt", derivationSystemPrompt,
+         "--tools", ""]
     }
 
     /// The prompt handed to the CLI on stdin: the schema, then the writer's

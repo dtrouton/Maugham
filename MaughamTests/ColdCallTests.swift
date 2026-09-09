@@ -56,11 +56,11 @@ final class ColdCallTests: XCTestCase {
     /// failure is returned as it came.
     func test_aFailedTurnEndsTheProcessAndReturnsTheFailure() async {
         let (coldCall, factory) = makeColdCall()
-        factory.configure = { $0.nextEvent = .failed(.timedOut) }
+        factory.configure = { $0.nextEvent = .failed(.timedOut()) }
 
         let event = await coldCall.call(message: "x", preamble: nil, model: "opus")
 
-        XCTAssertEqual(event, .failed(.timedOut))
+        XCTAssertEqual(event, .failed(.timedOut()))
         XCTAssertEqual(factory.made[0].shutdowns, 1)
         XCTAssertFalse(coldCall.isRunning)
     }
@@ -161,8 +161,8 @@ final class ColdCallTests: XCTestCase {
         let session = runner as? ClaudeCLISession
         XCTAssertNotNil(session, "production spawns the real CLI session")
         XCTAssertEqual(session?.confinement, .sealed)
-        XCTAssertEqual(session?.runTimeout, ClaudeCLISession.translationRunTimeout,
-                       "a cold read of a whole chapter gets the translation cast's budget, not the compiler's")
+        XCTAssertEqual(session?.runTimeout, ClaudeCLISession.defaultRunTimeout,
+                       "one ceiling for every session type (spec 2026-09-09 §2)")
         session?.shutdown()
     }
 }

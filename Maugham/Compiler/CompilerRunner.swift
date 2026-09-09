@@ -21,8 +21,10 @@ public enum CompilerRunFailure: Equatable, Sendable {
     /// The AI toggle is off. Checked before any spawn, on every send.
     case disabledByToggle
     /// The turn outran its budget. The session is torn down; the next send
-    /// starts fresh.
-    case timedOut
+    /// starts fresh. `Stall` says WHICH budget — the child went quiet, or the
+    /// ceiling passed while it was still speaking — because the two mean
+    /// different things to the writer (spec §2).
+    case timedOut(Stall = .unknown)
     /// The subprocess ended without producing a result, was cancelled, or
     /// could not be written to. `detail` says which.
     case sessionDied(detail: String)
@@ -44,6 +46,34 @@ extension CompilerRunFailure {
         static let cancelled = "cancelled"
         static let sessionShutDown = "session shut down"
         static let runInFlight = "a run is already in flight"
+    }
+
+    /// Why a turn was stopped by a timer, and how far it had got.
+    ///
+    /// `silence` is what "genuinely hung" means — the CLI wrote nothing for
+    /// `silenceTimeout`. `ceiling` is a child still speaking when the run's
+    /// hard bound passed. `thinkingTokens` is the CLI's own running estimate
+    /// at the moment of the stop — the last `system`/`thinking_tokens` event
+    /// the session saw — and `nil` for a turn that reported none, or a runner
+    /// that reads none.
+    public struct Stall: Equatable, Sendable {
+        public enum Cause: String, Equatable, Sendable {
+            case silence, ceiling
+        }
+        public let cause: Cause
+        public let after: TimeInterval
+        public let thinkingTokens: Int?
+
+        public init(cause: Cause, after: TimeInterval, thinkingTokens: Int? = nil) {
+            self.cause = cause
+            self.after = after
+            self.thinkingTokens = thinkingTokens
+        }
+
+        /// A stop with no account of itself — the default so a `.timedOut()`
+        /// built by a test or a legacy site still compiles and still says
+        /// "took too long".
+        public static let unknown = Stall(cause: .ceiling, after: 0)
     }
 
     /// Whether this failure is the writer's own action coming back at them.
@@ -83,9 +113,10 @@ public protocol CompilerRunner: AnyObject {
     /// This is what makes diffed-in context safe to send. A session that timed
     /// out, was cancelled or expired idle respawns silently on the next `send`
     /// with no memory of anything; `CompilerPrompt.runMessageV2`'s
-    /// `previousBriefingHash` would then tell a brand-new process that the
-    /// declared world and bible are "unchanged since last run", describing a
-    /// run it never saw, and it would judge the prose against nothing at all.
+    /// `previousBriefingHash` would then tell a brand-new process "Declared
+    /// world, bible and pinned references: unchanged since last run.",
+    /// describing a run it never saw, and it would judge the prose against
+    /// nothing at all.
     @MainActor var sessionEpoch: Int { get }
     /// Where a turn's text goes **as it arrives**, or `nil` to stop listening.
     ///
@@ -103,6 +134,12 @@ public protocol CompilerRunner: AnyObject {
     /// entirely — a runner that cannot stream is a runner that never calls
     /// this, which is exactly what the default below is.
     @MainActor func setPartialHandler(_ handler: (@MainActor (String) -> Void)?)
+    /// The timing of the LAST turn that resolved with a result — `nil` before
+    /// any turn, after a failure, and for a runner that measures nothing.
+    @MainActor var lastTurnTiming: RunTiming? { get }
+    /// Where a live turn's progress goes, or `nil` to stop listening. A
+    /// preview, like the partial text.
+    @MainActor func setProgressHandler(_ handler: (@MainActor (RunProgress) -> Void)?)
 }
 
 public extension CompilerRunner {
@@ -111,4 +148,9 @@ public extension CompilerRunner {
     /// end", and it is what keeps every existing conformer — including the
     /// suites' doubles — compiling unchanged.
     @MainActor func setPartialHandler(_ handler: (@MainActor (String) -> Void)?) {}
+    /// Measuring is optional in the same way and for the same reason: a
+    /// double that answers from an array has no turn to measure and no
+    /// progress to report.
+    @MainActor var lastTurnTiming: RunTiming? { nil }
+    @MainActor func setProgressHandler(_ handler: (@MainActor (RunProgress) -> Void)?) {}
 }

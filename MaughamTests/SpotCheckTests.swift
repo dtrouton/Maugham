@@ -217,7 +217,7 @@ final class SpotCheckTests: XCTestCase {
     func test_aDeadSessionIsRefusedInTheRoundsOwnWords() async throws {
         let harness = try await makeHarness()
         let (coldCall, factory) = ColdCallSpyFactory.makeColdCall()
-        factory.configure = { $0.nextEvent = .failed(.timedOut) }
+        factory.configure = { $0.nextEvent = .failed(.timedOut()) }
 
         let outcome = await SpotCheck.gloss(
             paragraphId: "bbbb", language: "es",
@@ -226,7 +226,7 @@ final class SpotCheckTests: XCTestCase {
             projectURL: harness.projectURL, coldCall: coldCall, model: "sonnet")
 
         XCTAssertEqual(outcome, .refused(
-            RoundNarrative.failureCopy(.timedOut, session: .translation)))
+            RoundNarrative.failureCopy(.timedOut(), session: .translation)))
         await harness.documentStore.close()
     }
 

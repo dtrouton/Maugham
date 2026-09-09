@@ -229,7 +229,12 @@ final class CompilerPromptTests: XCTestCase {
         let (message, _) = CompilerPrompt.runMessageV2(
             delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
             paletteListing: ["Villain sketch (card-xyz)"],
-            pinnedListing: ["Chapter One (doc-abc)"], previousBriefingHash: nil)
+            // The pinned line as `pinnedListingLines` writes it: since the
+            // reader's-own-session spec §4 the fetch tool is named on the
+            // LINE, per pin, because a link pin must never be told to use
+            // `read_document` — the header names no tool at all any more.
+            pinnedListing: ["Chapter One (doc-abc) \u{2014} read_document"],
+            previousBriefingHash: nil)
         XCTAssertTrue(message.contains("Chapter One (doc-abc)"))
         XCTAssertTrue(message.contains("Villain sketch (card-xyz)"))
         XCTAssertTrue(message.contains("read_document"))
@@ -2777,5 +2782,199 @@ final class CompilerPromptTests: XCTestCase {
                        "the third section had no room for a pin, so it is "
                        + "omitted whole rather than drawn as a bare heading")
         XCTAssertEqual(lines.last, "…and 1 more pinned — see References")
+    }
+
+    // MARK: - Small pinned notes travel inline (spec 2026-09-09 §4)
+
+    private func shelf(_ pins: [PinnedReference]) -> PinnedShelf {
+        PinnedShelf(sections: [PinnedSection(title: nil, references: pins)])
+    }
+    private func researchPin(_ id: String, _ title: String) -> PinnedReference {
+        PinnedReference(id: id, kind: .research(itemId: id), title: title)
+    }
+
+    /// **The note is IN the briefing, not a tool call away.** A shelf of
+    /// titles reads to the model as work to be done before it can start, and
+    /// the whole point of pinning a note is that the run is meant to have read
+    /// it.
+    func test_aSmallNoteIsInlinedUnderItsTitle() {
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            shelf([researchPin("res-1", "Montage - Grace")]),
+            body: { _ in .text("Kelly showing off ring\n\nGrace & Kelly dancing") })
+        XCTAssertEqual(lines, [
+            "Montage - Grace (res-1):\n  Kelly showing off ring\n  \n  Grace & Kelly dancing"
+        ])
+    }
+
+    /// Over the per-note cap the line goes back to being a pointer — and says
+    /// how long the thing is, so the model can decide whether it wants it.
+    func test_aNoteOverTheCapSaysHowToFetchItAndHowLong() {
+        let long = String(repeating: "word ", count: 1_200)   // 6,000 chars
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            shelf([researchPin("res-2", "Dreams Notes 4")]), body: { _ in .text(long) })
+        XCTAssertEqual(lines, ["Dreams Notes 4 (res-2) \u{2014} 1,200 words, fetch with read_document"])
+    }
+
+    /// **A web link is never advertised as readable.** `read_document` on a
+    /// link asset answers nothing useful, and a line telling the model to try
+    /// buys a wasted tool call per run.
+    func test_aWebLinkIsNeverAdvertisedForReadDocument() {
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            shelf([researchPin("res-3", "Good Luck Babe Soundtrack")]),
+            body: { _ in .link(url: "https://music.apple.com/x") })
+        XCTAssertEqual(lines, ["Good Luck Babe Soundtrack (res-3) \u{2014} web link, not readable: https://music.apple.com/x"])
+    }
+
+    /// A link asset that never got a URL says the fact and stops — a trailing
+    /// colon over nothing reads as a truncated line.
+    func test_aLinkWithNoURLDropsTheColon() {
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            shelf([researchPin("res-4", "Untitled Link")]), body: { _ in .link(url: "") })
+        XCTAssertEqual(lines, ["Untitled Link (res-4) \u{2014} web link, not readable"])
+    }
+
+    /// **A note refused on its SIZE says so without a word count** — nothing
+    /// was read, and inventing a number here is the one thing this line cannot
+    /// honestly carry. Distinct from the over-the-cap line above it, which was
+    /// read and so can count.
+    func test_aNoteRefusedOnItsSizeSaysSoWithoutCountingWords() {
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            shelf([researchPin("res-2", "Dreams Notes 4")]), body: { _ in .longNote })
+        XCTAssertEqual(lines, ["Dreams Notes 4 (res-2) \u{2014} long note, fetch with read_document"])
+    }
+
+    /// An image, a PDF or a recording is a title and nothing else — there is
+    /// no text for a briefing to carry.
+    func test_anUnreadableAssetIsTitleOnly() {
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            shelf([researchPin("res-4", "Cover scan")]), body: { _ in .unreadable })
+        XCTAssertEqual(lines, ["Cover scan (res-4) \u{2014} title only"])
+    }
+
+    /// No body resolver, or an item the manifest no longer holds: the line the
+    /// listing has always written.
+    func test_aPinWithNoBodyKeepsTheFetchLine() {
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            shelf([researchPin("res-5", "Unknown")]), body: { _ in nil })
+        XCTAssertEqual(lines, ["Unknown (res-5) \u{2014} read_document"])
+    }
+
+    /// **The budget is spent in the writer's own order**, so a shelf whose
+    /// notes overrun it inlines the ones at the top rather than an arbitrary
+    /// selection — and everything past it still says how to fetch it.
+    ///
+    /// **And a pin past the budget is never READ** (whole-branch review, minor
+    /// 4): the resolver hits the disk, and a shelf of forty notes used to read
+    /// all forty on the main actor at every ⌘R to word-count thirty of them.
+    /// A pin the budget cannot afford gets the bare fetch line, which is what
+    /// a pin with no body has always got — the word count is a courtesy, and
+    /// not one worth a file read apiece.
+    func test_theInlineBudgetIsSpentInShelfOrder() {
+        let body = String(repeating: "x", count: 4_000)   // exactly the per-note cap
+        let pins = (1...12).map { researchPin("res-\($0)", "Note \($0)") }
+        var reads = 0
+        let lines = CompilerOrchestrator.Environment.pinnedListingLines(
+            shelf(pins), body: { _ in reads += 1; return .text(body) })
+        // 10 × 4,000 = 40,000 spends the budget exactly; the 11th has nothing
+        // left to spend and is not read at all.
+        XCTAssertEqual(lines.filter { $0.contains(":\n") }.count, 10)
+        XCTAssertEqual(lines[10], "Note 11 (res-11) \u{2014} read_document")
+        XCTAssertEqual(lines[11], "Note 12 (res-12) \u{2014} read_document")
+        XCTAssertEqual(reads, 10,
+            "the two pins past the budget must not be read to be word-counted")
+    }
+
+    // MARK: - The listing is part of the hashed unit
+
+    /// The shelf diffs in with the essay, the world, the bible and the ledger:
+    /// unchanged pins hash the same, a changed note moves the hash.
+    func test_thePinnedListingFoldsIntoTheBriefingHash() {
+        let (first, firstHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay.", bibleFacts: [],
+            paletteListing: [], pinnedListing: ["Note (res-1):\n  body"],
+            previousBriefingHash: nil)
+        let (_, sameHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay.", bibleFacts: [],
+            paletteListing: [], pinnedListing: ["Note (res-1):\n  body"],
+            previousBriefingHash: firstHash)
+        let (_, movedHash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay.", bibleFacts: [],
+            paletteListing: [], pinnedListing: ["Note (res-1):\n  a different body"],
+            previousBriefingHash: firstHash)
+        XCTAssertTrue(first.contains("Pinned references"))
+        XCTAssertEqual(sameHash, firstHash)
+        XCTAssertNotEqual(movedHash, firstHash)
+    }
+
+    /// **Inlining is only affordable because the shelf is elided when it has
+    /// not moved** — otherwise every ⌘R would re-send every note it inlined.
+    func test_anUnchangedShelfIsNotResent() {
+        let (_, hash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay.", bibleFacts: [],
+            paletteListing: [], pinnedListing: ["Note (res-1):\n  body"],
+            previousBriefingHash: nil)
+        let (second, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay.", bibleFacts: [],
+            paletteListing: [], pinnedListing: ["Note (res-1):\n  body"],
+            previousBriefingHash: hash)
+        XCTAssertFalse(second.contains("Note (res-1)"), "an unchanged shelf is elided with the rest of the unit")
+        XCTAssertTrue(second.contains("Declared world, bible and pinned references: unchanged since last run."))
+    }
+
+    /// A writer who has pinned notes and declared nothing else still gets a
+    /// hash — the shelf alone is something to diff against.
+    func test_pinsAloneAreSomethingDeclared() {
+        let (_, hash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: ["Note (res-1):\n  body"],
+            previousBriefingHash: nil)
+        XCTAssertNotNil(hash)
+    }
+
+    // MARK: - The briefing states its absences (spec 2026-09-09 §4.3)
+
+    func test_aMissingEssayIsSaidRatherThanLeftToBeFetched() {
+        let (message, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil, bibleFacts: [],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        XCTAssertTrue(message.contains(CompilerPrompt.noIntentDeclared))
+        let (withEssay, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: "Essay.", bibleFacts: [],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        XCTAssertFalse(withEssay.contains(CompilerPrompt.noIntentDeclared))
+    }
+
+    func test_theAbsenceIsNotRepeatedWhenTheUnitIsElided() {
+        let (_, hash) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil,
+            bibleFacts: [makeFact(subject: "Kelly", fact: "is 31")],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+        let (second, _) = CompilerPrompt.runMessageV2(
+            delta: makeDelta(), world: nil, essay: nil,
+            bibleFacts: [makeFact(subject: "Kelly", fact: "is 31")],
+            paletteListing: [], pinnedListing: [], previousBriefingHash: hash)
+        XCTAssertFalse(second.contains(CompilerPrompt.noIntentDeclared),
+            "the absence is part of the unchanged unit")
+    }
+
+    func test_aFirstReaderIsToldWhatSheIsNotBriefedOn() throws {
+        let section = try XCTUnwrap(CompilerPrompt.readerSection(firstReader()))
+        XCTAssertTrue(section.contains(CompilerPrompt.firstReaderNotBriefed))
+    }
+
+    func test_everyBriefingSaysItIsTheWholeRead() {
+        for kind in [RunKind.check, .round] {
+            let (message, _) = CompilerPrompt.runMessageV2(
+                delta: makeDelta(), kind: kind, world: nil, essay: "Essay.", bibleFacts: [],
+                paletteListing: [], pinnedListing: [], previousBriefingHash: nil)
+            let whole = message.range(of: CompilerPrompt.wholeReadInstruction)
+            let schema = message.range(of: "Respond with")
+            XCTAssertNotNil(whole)
+            XCTAssertNotNil(schema)
+            if let whole, let schema {
+                XCTAssertLessThan(whole.lowerBound, schema.lowerBound,
+                    "said before the output contract, as the last thing about the read")
+            }
+        }
     }
 }

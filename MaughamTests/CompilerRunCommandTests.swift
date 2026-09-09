@@ -48,6 +48,20 @@ final class CompilerRunCommandTests: XCTestCase {
         /// transport chose, which close nothing.
         func stream(_ chunk: String) { partialHandler?(chunk) }
 
+        /// What the last turn cost, as a real session measures it. Settable
+        /// rather than measured: this spy has no process and no clock, so the
+        /// test IS the measurement.
+        var lastTurnTiming: RunTiming?
+        private(set) var progressHandler: (@MainActor (RunProgress) -> Void)?
+
+        func setProgressHandler(_ handler: (@MainActor (RunProgress) -> Void)?) {
+            progressHandler = handler
+        }
+
+        /// Report progress the way `ClaudeCLISession` does off the CLI's own
+        /// thinking-token stream — mid-turn, as many times as it likes.
+        func progress(_ p: RunProgress) { progressHandler?(p) }
+
         func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
             sends.append((message, systemPreamble))
             onSend?()
@@ -830,7 +844,7 @@ final class CompilerRunCommandTests: XCTestCase {
     /// the compiler never sees them again, and nothing on screen says so.
     func test_theMarkerAdvancesOnlyOnSuccess() throws {
         let runner = SpyRunner()
-        runner.nextEvent = .failed(.timedOut)
+        runner.nextEvent = .failed(.timedOut())
         let harness = try makeHarness(runner: runner, reading: standingReading())
 
         harness.orchestrator.runRequested(docId: docId, kind: .check)
@@ -843,7 +857,7 @@ final class CompilerRunCommandTests: XCTestCase {
         else {
             return XCTFail("expected a reported failure, got \(harness.orchestrator.runState)")
         }
-        XCTAssertEqual(failure, .timedOut)
+        XCTAssertEqual(failure, .timedOut())
         XCTAssertEqual(stateDocId, docId,
             "the failure belongs to the document it was raised on — otherwise a "
             + "red line follows the writer to a document that never ran")
@@ -1596,10 +1610,17 @@ final class CompilerRunCommandTests: XCTestCase {
             onRunAcknowledged: { _ in })
     }
 
-    /// Each pinned kind names the tool that fetches its full contents — a
-    /// research note through `read_document`, a palette card through its own
-    /// tool, because `CompilerPrompt`'s section header names only the first.
-    func test_productionPinnedListingNamesTheFetchToolPerKind() async throws {
+    /// **A small research note travels in the briefing whole, and everything
+    /// else names the tool that fetches it** (the reader's-own-session spec
+    /// §4). The end-to-end proof of the inlining: the body here is read off
+    /// the fixture's real file, through the production wiring, so a
+    /// `pinnedBody` that resolved the path wrongly or lost the manifest lookup
+    /// would show up as the old pointer line rather than as nothing at all.
+    ///
+    /// A palette card is still a pointer — told apart by POSITION, not id
+    /// shape — and fetches through its own tool, because `CompilerPrompt`'s
+    /// section header names no tool for anybody.
+    func test_productionPinnedListingInlinesANoteAndNamesTheToolForTheRest() async throws {
         let root = try makeListingsProjectRoot()
         let store = try await ProjectStore.load(from: root)
         let documentStore = try await DocumentStore.open(url: root)
@@ -1608,11 +1629,107 @@ final class CompilerRunCommandTests: XCTestCase {
 
         let lines = environment.pinnedListing("ch-1")
 
-        XCTAssertTrue(lines.contains("The falls at night (res-note) — read_document"),
-                      "a plain research note fetches through read_document; got \(lines)")
+        XCTAssertTrue(lines.contains("The falls at night (res-note):\n  The falls at night."),
+                      "a small research note is given in full under its title, "
+                      + "indented, read off its own file; got \(lines)")
         XCTAssertTrue(lines.contains("Act II fog (res-card) — read_palette_card"),
                       "a palette card is told apart by position, not id shape, and "
                       + "fetches through its own tool; got \(lines)")
+    }
+
+    /// **A note too big to inline is never read to find that out** (fix round
+    /// 1): the guard is a stat, and it runs before the body read.
+    ///
+    /// The end-to-end proof, because a unit test over `pinnedListingLines`
+    /// could be satisfied by a `.longNote` nobody ever produces. This one puts
+    /// a real file of `inlineReadCeilingBytes + 1` bytes on disk, pins it, and
+    /// asks the production wiring what it says about it — so a guard placed
+    /// AFTER the read (which would answer with a word count, the file being
+    /// perfectly readable) fails here and nowhere else.
+    func test_productionRefusesAnOversizeNoteWithoutReadingIt() async throws {
+        let root = try makeProjectRoot()
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("research"), withIntermediateDirectories: true)
+        try "Prose.\n".write(
+            to: root.appendingPathComponent("manuscript/ch1.md"),
+            atomically: true, encoding: .utf8)
+        let ceiling = CompilerOrchestrator.Environment.inlineReadCeilingBytes
+        let oversize = String(repeating: "a", count: ceiling + 1)   // ASCII: one byte each
+        let noteURL = root.appendingPathComponent("research/dreams.md")
+        try oversize.write(to: noteURL, atomically: true, encoding: .utf8)
+        let onDisk = try FileManager.default.attributesOfItem(atPath: noteURL.path)[.size] as? Int
+        XCTAssertEqual(onDisk, ceiling + 1,
+                       "the fixture must actually be over the ceiling, or this "
+                       + "test proves nothing")
+
+        let note = ResearchItem(id: "res-dreams", title: "Dreams Notes 4", type: .asset,
+                                kind: .document, path: "research/dreams.md")
+        let chapter = StructureItem(id: "ch-1", title: "Chapter 1", type: .document,
+                                    path: "manuscript/ch1.md",
+                                    linkedResearchIds: ["res-dreams"])
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [chapter], research: [note])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: root.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        XCTAssertEqual(environment.pinnedListing("ch-1"),
+                       ["Dreams Notes 4 (res-dreams) \u{2014} long note, fetch with read_document"],
+                       "refused on its size, with no word count — a count would "
+                       + "mean the file had been read after all")
+    }
+
+    /// **And the guard really is BEFORE the read** — the discriminator, because
+    /// the test above is not one.
+    ///
+    /// An oversize ASCII note answers "long note" whether the stat runs before
+    /// the body read or after it, so that test pins the LINE and nothing about
+    /// the order (measured: moving the guard below the read leaves it green).
+    /// This file is over the ceiling AND undecodable as UTF-8, which splits the
+    /// two: read first and `String(contentsOf:encoding:)` fails, the pin falls
+    /// to `nil`, and the line is the bare `read_document` pointer. Only a stat
+    /// that runs first can answer "long note" about bytes nothing could read.
+    func test_productionStatsAPinnedNoteBeforeItReadsIt() async throws {
+        let root = try makeProjectRoot()
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("research"), withIntermediateDirectories: true)
+        try "Prose.\n".write(
+            to: root.appendingPathComponent("manuscript/ch1.md"),
+            atomically: true, encoding: .utf8)
+        let ceiling = CompilerOrchestrator.Environment.inlineReadCeilingBytes
+        // 0xFF is not a legal UTF-8 byte anywhere in a sequence.
+        let undecodable = Data(repeating: 0xFF, count: ceiling + 1)
+        try undecodable.write(to: root.appendingPathComponent("research/dreams.md"))
+
+        let note = ResearchItem(id: "res-dreams", title: "Dreams Notes 4", type: .asset,
+                                kind: .document, path: "research/dreams.md")
+        let chapter = StructureItem(id: "ch-1", title: "Chapter 1", type: .document,
+                                    path: "manuscript/ch1.md",
+                                    linkedResearchIds: ["res-dreams"])
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [chapter], research: [note])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: root.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: root)
+        let documentStore = try await DocumentStore.open(url: root)
+        let environment = makeProductionEnvironment(
+            store: store, documentStore: documentStore, root: root)
+
+        XCTAssertEqual(environment.pinnedListing("ch-1"),
+                       ["Dreams Notes 4 (res-dreams) \u{2014} long note, fetch with read_document"],
+                       "the bare read_document line here would mean the read ran "
+                       + "first and the stat never decided anything")
     }
 
     /// **The regression this task's research caught.** `StructureItem.links`
@@ -7421,5 +7538,71 @@ final class CompilerRunCommandTests: XCTestCase {
                        "the mint dropped the heading between the note and the op")
         XCTAssertNil(plain.lessonHeading,
                      "the mint put a heading on a note that carried none")
+    }
+
+    // MARK: - What the turn cost (spec 2026-09-09 §5)
+
+    /// A run held open at the send — the window in which the orchestrator is
+    /// the only thing that knows a check is happening, and so the only thing
+    /// that can say when it started and what it has thought so far.
+    ///
+    /// Spelled here rather than inline because the three timing tests want the
+    /// same held turn and two of them are about what is true DURING it: an
+    /// assertion made before `awaitSends` has returned reads a run that has
+    /// not started as one that started and cleared.
+    private func makeHeldRun() throws -> (
+        orchestrator: CompilerOrchestrator, runner: SpyRunner,
+        diagnostics: DiagnosticsStore, docId: String
+    ) {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // hold the turn open
+        let harness = try makeHarness(runner: runner, reading: standingReading())
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        return (harness.orchestrator, runner, harness.diagnostics, docId)
+    }
+
+    /// **The run record carries what the turn cost** (spec 2026-09-09 §5): the
+    /// runner's timing is copied onto the record in `finish`, so the pane can
+    /// say "read in 4m 12s" over a run that is no longer live.
+    func test_theRecordCarriesTheRunnersTiming() throws {
+        let (_, runner, diagnostics, docId) = try makeHeldRun()
+        runner.lastTurnTiming = RunTiming(
+            elapsed: 252, firstLineAfter: 4.1, apiDuration: 250, turns: 6,
+            outputTokens: 14_000, thinkingTokens: 12_504, costUSD: 0.31,
+            model: "opus", effort: "high")
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+
+        let run = try XCTUnwrap(diagnostics.lastCheck(docId: docId))
+        XCTAssertEqual(run.timing?.elapsed, 252)
+        XCTAssertEqual(run.timing?.thinkingTokens, 12_504)
+        XCTAssertEqual(run.timing?.effort, "high")
+    }
+
+    /// While a run is live the orchestrator says when it started and what the
+    /// CLI has thought so far; both clear when it ends.
+    func test_theLiveRunExposesItsStartAndProgress() throws {
+        let (orchestrator, runner, _, _) = try makeHeldRun()
+        XCTAssertNotNil(orchestrator.runStartedAt)
+        XCTAssertNil(orchestrator.runProgress)
+        runner.progress(RunProgress(thinkingTokens: 12_000, at: Date()))
+        XCTAssertEqual(orchestrator.runProgress?.thinkingTokens, 12_000)
+
+        runner.release(.resultText(Self.fourEmptySections))
+        settle()
+        XCTAssertNil(orchestrator.runStartedAt)
+        XCTAssertNil(orchestrator.runProgress)
+    }
+
+    /// A legacy sidecar has no timing; the record decodes without it.
+    func test_aRecordWithoutTimingStillDecodes() throws {
+        let json = """
+        {"id":"r1","at":"2026-09-09T09:00:00Z","model":"sonnet","deltaSummary":"3 new, 0 revised \u{00b6}"}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let run = try decoder.decode(CompilerRun.self, from: Data(json.utf8))
+        XCTAssertNil(run.timing)
     }
 }

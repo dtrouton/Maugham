@@ -284,9 +284,9 @@ final class DepartmentRunTests: XCTestCase {
     func test_aRoundThatEndedSaysWhichEditionItEnded() {
         let target = DepartmentRunTarget.ready(docId: "doc-1", title: "Chapter 1")
         let died = TranslatorOrchestrator.RunState.failed(
-            docId: "doc-1", language: "es", failure: .run(.timedOut), at: Date())
+            docId: "doc-1", language: "es", failure: .run(.timedOut()), at: Date())
         XCTAssertEqual(state("es", target: target, runState: died).phase,
-                       .failed(.run(.timedOut)))
+                       .failed(.run(.timedOut())))
         XCTAssertEqual(state("fr", target: target, runState: died).phase, .idle,
                        "a red line across the French row for a Spanish death is a lie")
 
@@ -359,7 +359,7 @@ final class DepartmentRunTests: XCTestCase {
         XCTAssertEqual(
             DepartmentRunSession.read(
                 runState: .failed(docId: "d", language: "es",
-                                  failure: .run(.timedOut), at: Date()),
+                                  failure: .run(.timedOut()), at: Date()),
                 isRunning: false),
             .free,
             "a round that ended badly is not a session still holding the desk")
@@ -524,7 +524,7 @@ final class DepartmentRunTests: XCTestCase {
     func test_aCancelIsNotDrawnAsAFailure() {
         let line = DepartmentRunState.reportLine(.cancelled)
         XCTAssertEqual(line, DepartmentRunState.cancelledLine)
-        for failure: CompilerRunFailure in [.timedOut, .unusableOutput, .cliNotFound] {
+        for failure: CompilerRunFailure in [.timedOut(), .unusableOutput, .cliNotFound] {
             XCTAssertNotEqual(
                 line, DepartmentRunState.failureCopy(.run(failure)),
                 "a cancel must not wear a failure's sentence")
@@ -540,7 +540,7 @@ final class DepartmentRunTests: XCTestCase {
     /// the wrong thing.
     func test_aDeadTranslationRoundIsNotDescribedAsADeadCheck() {
         for failure: CompilerRunFailure in [.sessionDied(detail: "exit 1"),
-                                            .unusableOutput, .timedOut] {
+                                            .unusableOutput, .timedOut()] {
             XCTAssertNotEqual(
                 DepartmentRunState.failureCopy(.run(failure)),
                 RoundNarrative.failureCopy(failure),
@@ -877,7 +877,7 @@ final class DepartmentRunTests: XCTestCase {
         XCTAssertEqual(DesignSession.read(runState: .idle, isRunning: false), .free)
         XCTAssertEqual(
             DesignSession.read(
-                runState: .failed(failure: .run(.timedOut), at: Date()),
+                runState: .failed(failure: .run(.timedOut()), at: Date()),
                 isRunning: false),
             .free,
             "a round that ended badly is not a session still holding the desk")
@@ -905,7 +905,7 @@ final class DepartmentRunTests: XCTestCase {
     /// account of the wrong thing.
     func test_aDeadDesignRoundIsNotDescribedAsADeadCheck() {
         for failure: CompilerRunFailure in [.sessionDied(detail: "exit 1"),
-                                            .unusableOutput, .timedOut] {
+                                            .unusableOutput, .timedOut()] {
             XCTAssertNotEqual(
                 DepartmentDesignRow.failureCopy(.run(failure)),
                 RoundNarrative.failureCopy(failure),
@@ -916,8 +916,8 @@ final class DepartmentRunTests: XCTestCase {
         XCTAssertEqual(DepartmentDesignRow.failureCopy(.run(.cliNotFound)),
                        RoundNarrative.failureCopy(.cliNotFound))
         // …and it is a third account, not the translator's with a new label.
-        XCTAssertNotEqual(DepartmentDesignRow.failureCopy(.run(.timedOut)),
-                          DepartmentRunState.failureCopy(.run(.timedOut)))
+        XCTAssertNotEqual(DepartmentDesignRow.failureCopy(.run(.timedOut())),
+                          DepartmentRunState.failureCopy(.run(.timedOut())))
     }
 
     /// **A report that read perfectly and could not be written down says what

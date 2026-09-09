@@ -117,6 +117,51 @@ final class ReviewRoundCockpitTests: XCTestCase {
             .running(counts))
     }
 
+    /// **The cockpit's running line ticks like the pane's** (spec 2026-09-09
+    /// §5). The decision is static so the clock is assertable without mounting
+    /// anything — the strip's own instance property is one caller of it.
+    func test_theRunningStatusLineCarriesElapsedAndProgress() {
+        let since = Date(timeIntervalSince1970: 1_000)
+        let line = ReviewRoundCockpit.statusLine(
+            phase: .running(CompilerOrchestrator.DeltaCounts(new: 40, revised: 2)),
+            reportLine: nil,
+            runSince: since, runProgress: RunProgress(thinkingTokens: 9_000, at: since),
+            now: since.addingTimeInterval(65))
+        XCTAssertEqual(line, "Reading the whole piece\u{2026} 1m 5s \u{00b7} thinking (9k tokens)")
+    }
+
+    /// **A lane's first round used to report its cost nowhere** (fix round 1).
+    /// There is no fresh-eyes header and no round to compare against, so
+    /// `reportLine` answered nil and the read-in suffix had nothing to hang
+    /// on. It says the sentence instead — and still answers nil when
+    /// there is no timing either, because then there is genuinely nothing to
+    /// report.
+    func test_aFirstRoundsCostIsASentenceOfItsOwn() {
+        var run = makeRun(round: 1, passId: "line", freshEyes: nil)
+        XCTAssertNil(
+            ReviewRoundCockpit.reportLine(history: [], run: run, annotations: []),
+            "no comparison, no fresh eyes and no timing is nothing to say")
+
+        run.timing = RunTiming(elapsed: 252, model: "opus", effort: "high")
+        XCTAssertEqual(
+            ReviewRoundCockpit.reportLine(history: [], run: run, annotations: []),
+            "Read in 4m 12s.")
+    }
+
+    /// **The cockpit's idle line carries the same tooltip Author's header
+    /// does** (fix round 1) — one spelling of what a turn cost, so a
+    /// writer who reads the round in Review learns what they would have
+    /// learned in the other persona. `.help("")` draws nothing, which is what
+    /// a run with no timing gets.
+    func test_theIdleLinesTooltipIsTheSameDetailAuthorDraws() {
+        let timing = RunTiming(elapsed: 252, firstLineAfter: 4.1, apiDuration: 250,
+                               turns: 6, outputTokens: 14_000, thinkingTokens: 12_504,
+                               costUSD: 0.31, model: "opus", effort: "high")
+        XCTAssertEqual(ReviewRoundCockpit.reportHelp(timing),
+                       RoundNarrative.timingDetail(timing))
+        XCTAssertEqual(ReviewRoundCockpit.reportHelp(nil), "")
+    }
+
     /// A run that worked and had nothing to read is idle here: `.nothingNew`
     /// says the key worked, which is what the report line under it already
     /// carries, and the strip must offer its buttons again the moment it lands.
@@ -145,7 +190,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_aFailedRunOnThisDocumentIsItsOwnPhase() {
         let at = Date(timeIntervalSince1970: 1_750_000_000)
         for failure: CompilerRunFailure in [
-            .timedOut, .unusableOutput, .cliNotFound, .disabledByToggle,
+            .timedOut(), .unusableOutput, .cliNotFound, .disabledByToggle,
             .sessionDied(detail: "the CLI exited"),
         ] {
             XCTAssertEqual(
@@ -168,7 +213,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_anotherDocumentsFailureLeavesThisCockpitIdle() {
         XCTAssertEqual(
             ReviewRoundCockpit.phase(
-                runState: .failed(docId: "ch-2", failure: .timedOut, at: Date()),
+                runState: .failed(docId: "ch-2", failure: .timedOut(), at: Date()),
                 docId: "ch-1"),
             .idle,
             "a failure on ANOTHER document must leave this cockpit idle")
@@ -196,7 +241,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
                 + "Cancel the writer pressed themselves")
         }
         XCTAssertFalse(
-            CompilerRunFailure.timedOut.isTheWritersOwnDoing,
+            CompilerRunFailure.timedOut().isTheWritersOwnDoing,
             "\u{2026}and a timeout is not, which is why it reaches the strip")
     }
 
@@ -749,7 +794,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
 
         let failed = mountCockpit(
             activePassId: "copyedit", round: 2,
-            phase: .failed(.timedOut, at: Date()))
+            phase: .failed(.timedOut(), at: Date()))
         XCTAssertNil(findButton(labelled: ReviewRoundCockpit.cancelTitle, in: failed),
                      "a failed round has already ended \u{2014} the remedy is "
                      + "another round, not cancelling the one that is over")
@@ -807,10 +852,10 @@ final class ReviewRoundCockpitTests: XCTestCase {
         let report = "Since round 1: 2 resolved \u{00b7} 1 persisting \u{00b7} 3 new"
         let window = mountCockpit(
             activePassId: "copyedit", round: 2,
-            phase: .failed(.timedOut, at: Date()), reportLine: report)
+            phase: .failed(.timedOut(), at: Date()), reportLine: report)
 
         let labels = allLabels(in: window)
-        XCTAssertTrue(labels.contains(RoundNarrative.failureCopy(.timedOut)),
+        XCTAssertTrue(labels.contains(RoundNarrative.failureCopy(.timedOut())),
                       "premise: the failure is drawn \u{2014} got \(labels)")
         XCTAssertFalse(
             labels.contains(report),
@@ -1023,11 +1068,15 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// gear menu draws whatever it was constructed with either way.
     func test_theAnnotationsPaneThreadsItsOwnCompilerModelToTheCockpit() throws {
         let pane = try Self.source(of: "Views/AnnotationsPane.swift")
-        let call = try XCTUnwrap(
-            pane.range(of: "ReviewRoundCockpit("),
+        // **Balanced parens, never a character budget** (`mountArguments`'
+        // own reasoning): this scan took a fixed 1600-character prefix until
+        // the run's clock arrived on two arguments of its own and pushed
+        // `compilerModel:` past it. A budget over a list that grows is a test
+        // that fails for the wrong reason.
+        let after = try XCTUnwrap(
+            Self.mountArguments(of: "ReviewRoundCockpit(", in: pane),
             "the pane must still construct the cockpit for this census to "
             + "have a subject")
-        let after = String(pane[call.upperBound...].prefix(1600))
         XCTAssertTrue(after.contains("compilerModel: compilerModel"),
                       "the pane's own stored `compilerModel` must reach the "
                       + "cockpit \u{2014} got:\n\(after)")
@@ -1139,7 +1188,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// of itself.
     func test_everySurfaceReadsTheOneFailureSpelling() throws {
         XCTAssertFalse(
-            RoundNarrative.failureCopy(.timedOut).isEmpty,
+            RoundNarrative.failureCopy(.timedOut()).isEmpty,
             "premise: the shared spelling exists and answers")
 
         for path in Self.oneSpellingSurfaces {

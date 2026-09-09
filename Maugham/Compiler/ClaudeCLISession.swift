@@ -42,9 +42,12 @@ final class ClaudeCLISession: CompilerRunner {
     /// Reads `UserPreferences.mcpEnabled`. Consulted before *every* spawn.
     private let isEnabled: () -> Bool
     private let idleTimeout: TimeInterval
-    /// Readable, like `confinement`, for exactly one assertion: the two
-    /// translation factories hand their sessions `translationRunTimeout`.
+    /// Readable for the two factory tests that pin every session on one ceiling.
     let runTimeout: TimeInterval
+    /// How hard the spawned model thinks. Readable because the run record
+    /// names it: with the writer's settings files out of the session, this is
+    /// the only place the effort is decided.
+    let effort: Effort
     /// How long the death join will wait for the child's exit once stdout has
     /// reached EOF, before falling back to the statusless sentence. See
     /// `tryCompleteDeath`.
@@ -55,44 +58,28 @@ final class ClaudeCLISession: CompilerRunner {
     /// short against the run timeout it exists to keep a death away from.
     nonisolated static let defaultDeathReapGrace: TimeInterval = 2
 
-    /// **How long one turn may take before the session is torn down and the
-    /// run reported as `.timedOut`.**
+    /// **How long the child may be SILENT before the turn is stopped — 180 s.**
     ///
-    /// **300 s since 2026-08-18 (Denver's ruling), raised from 120.** The old
-    /// budget was set against the ordinary case this loop was built for — a
-    /// delta of a few changed paragraphs, which comes back in seconds — and it
-    /// is not the case that hurts. A pass's FIRST round on a piece, and every
-    /// Fresh Eyes read (⌘⇧R), send the whole manuscript to a cold session; two
-    /// of Denver's own — Structural, then Line — hit 120 s on legitimate whole-
-    /// piece reads and died with nothing to show for the wait, which is the
-    /// worst possible failure for an expensive keystroke. A budget that kills
-    /// the reads it was never measured against is a budget measured on the
-    /// wrong run.
-    ///
-    /// Still bounded, and still below `idleTimeout` (600 s): the point of the
-    /// deadline is that a genuinely hung subprocess cannot bill indefinitely or
-    /// leave the strip saying "Checking…" forever, and five minutes buys the
-    /// long reads without weakening that.
-    ///
-    /// A named default rather than a literal in the init because two surfaces
-    /// now quote it in prose (`AREA.md`, `DeclaredWorldDeriver.defaultDeadline`'s
-    /// comparison) and a number with no home is a number that goes stale.
-    nonisolated static let defaultRunTimeout: TimeInterval = 300
+    /// Liveness, not wall clock (spec §2, 2026-09-09). Four whole-piece checks
+    /// on a 457-paragraph screenplay died at the old 300 s per-turn budget
+    /// while Opus was visibly streaming thinking at ~68 tokens/s — the timer
+    /// killed a model that was working and threw away what it had paid for.
+    /// Every line the child writes resets this, on stdout OR stderr: a text,
+    /// thinking or signature delta, a `system/thinking_tokens` progress
+    /// event, a `rate_limit_event`, a line that is not JSON — and a retry
+    /// backoff logged to stderr with stdout silent, which is a working child
+    /// and not a hung one. Silence is what "genuinely hung" means. 180 s
+    /// covers an overloaded API's retry backoff and the gap between a tool
+    /// result and the next request's first byte, with room.
+    nonisolated static let defaultSilenceTimeout: TimeInterval = 180
 
-    /// **The per-turn budget for the translation cast — 900 s (2026-09-02,
-    /// Denver's ruling).** A compiler turn sends a delta and reads back a
-    /// short report; a translate leg sends a chapter's whole work-list and
-    /// waits for the whole chapter back in the target language, and the fix
-    /// legs resend the full noted set — output is the slow direction, and a
-    /// long chapter ran past `defaultRunTimeout` on its own, killing the leg
-    /// with nothing written. Applied by `TranslatorEnvironment+Project`'s
-    /// runner and `ColdCall.productionRunnerFactory` (a cold read of a whole
-    /// chapter has the same shape); the compiler and the designer keep the
-    /// default. Above `idleTimeout` on purpose and safely: the idle timer
-    /// checks `inFlight` before it fires, so it cannot end a turn in
-    /// progress. The structural fix — chunking the work-list so one leg is
-    /// several bounded turns — is a roadmap follow-on, not this constant.
-    nonisolated static let translationRunTimeout: TimeInterval = 900
+    /// **The ceiling — 1,200 s (20 min) — one constant for every session
+    /// type.** A child still speaking at the ceiling is stopped anyway: the
+    /// point is that a runaway session cannot bill indefinitely. The
+    /// translation cast's separate 900 s budget (2026-09-02) is gone with the
+    /// per-turn kill it was a stopgap for. Safe above `idleTimeout` (600 s)
+    /// because `idleDidExpire` refuses while a turn is in flight.
+    nonisolated static let defaultRunTimeout: TimeInterval = 1_200
 
     /// **What the spawned CLI can reach — a spawn-argument fact, not a
     /// setting** (translation pipeline spec §11).
@@ -123,6 +110,28 @@ final class ClaudeCLISession: CompilerRunner {
         }
     }
 
+    /// **How hard the model thinks — the CLI's own dial, spelled as it
+    /// accepts it.** An unknown value is ignored by `claude` with a warning
+    /// and its default used instead, so the set is pinned by test.
+    ///
+    /// `--effort` is passed on every spawn because `--setting-sources ""`
+    /// drops the `effortLevel` the writer's runs inherited from their user
+    /// settings; `defaultEffort` is that inherited value, so this milestone
+    /// changes the session's identity, liveness and briefing and NOT how hard
+    /// it thinks. The per-kind table is the evals milestone's to decide
+    /// (`docs/superpowers/specs/2026-09-09-evals-design.md`).
+    enum Effort: String, CaseIterable, Equatable, Sendable {
+        case low, medium, high, xhigh, max
+    }
+
+    nonisolated static let defaultEffort: Effort = .high
+
+    /// The system prompt a caller that passes no preamble gets. Never the
+    /// CLI's own: a nil must not bring the coding-agent prompt back.
+    nonisolated static let defaultSystemPrompt =
+        "You are reading for the writer of a manuscript-in-progress. Everything "
+        + "you need is in the message; answer with what it asks for and nothing else."
+
     // MARK: - Session state
 
     private var process: Process?
@@ -138,6 +147,13 @@ final class ClaudeCLISession: CompilerRunner {
 
     private var inFlight: CheckedContinuation<CompilerRunEvent, Never>?
     private var runTimeoutTask: Task<Void, Never>?
+    private let silenceTimeout: TimeInterval
+    private var silenceTask: Task<Void, Never>?
+    /// The last moment the child wrote anything on stdout, for the live
+    /// generation. Read by the silence watch, written by `receive`.
+    private var lastActivityAt = Date()
+    /// When the turn in flight was sent — the ceiling's and the stall's clock.
+    private var turnStartedAt = Date()
     private var idleTask: Task<Void, Never>?
 
     /// The death join's two halves (issue #36): whether stdout has reached EOF,
@@ -166,6 +182,18 @@ final class ClaudeCLISession: CompilerRunner {
     /// cannot do is reach it — that guard is `receive`'s, shared with the
     /// `result` path, and the reason the two travel the same road.
     private var partialHandler: (@MainActor (String) -> Void)?
+
+    /// Where a live turn's progress goes. Caller-owned exactly as
+    /// `partialHandler` is, and reached through the same two guards.
+    private var progressHandler: (@MainActor (RunProgress) -> Void)?
+    /// The CLI's last thinking-token estimate for the turn in flight.
+    private var latestThinkingEstimate: Int?
+    /// When the first stdout line of the turn in flight arrived.
+    private var firstLineAt: Date?
+    /// The measurement of the last turn that resolved with a result. See
+    /// `RunTiming`; the protocol's default is `nil`, and so is this before any
+    /// turn and after one that failed.
+    private(set) var lastTurnTiming: RunTiming?
 
     /// Resolved once per session and reused by every respawn — locating the
     /// CLI can cost a login shell, and death/cancel/timeout/toggle cycles all
@@ -197,18 +225,22 @@ final class ClaudeCLISession: CompilerRunner {
     }
 
     init(model: String,
+         effort: Effort = ClaudeCLISession.defaultEffort,
          confinement: Confinement,
          cliOverride: URL?,
          isEnabled: @escaping () -> Bool,
          idleTimeout: TimeInterval = 600,
+         silenceTimeout: TimeInterval = ClaudeCLISession.defaultSilenceTimeout,
          runTimeout: TimeInterval = ClaudeCLISession.defaultRunTimeout,
          deathReapGrace: TimeInterval = ClaudeCLISession.defaultDeathReapGrace,
          locator: @escaping @Sendable () -> URL? = { ClaudeCLISession.locateCLI() }) {
         self.model = model
+        self.effort = effort
         self.confinement = confinement
         self.cliOverride = cliOverride
         self.isEnabled = isEnabled
         self.idleTimeout = idleTimeout
+        self.silenceTimeout = silenceTimeout
         self.runTimeout = runTimeout
         self.deathReapGrace = deathReapGrace
         self.locator = locator
@@ -297,7 +329,12 @@ final class ClaudeCLISession: CompilerRunner {
                         token: token)
                 return
             }
+            turnStartedAt = Date()
+            latestThinkingEstimate = nil
+            firstLineAt = nil
+            lastTurnTiming = nil
             armRunTimeout(token: token)
+            armSilenceWatch(token: token)
         }
 
         // Only while a process still stands. A turn resolved BY a teardown —
@@ -310,6 +347,10 @@ final class ClaudeCLISession: CompilerRunner {
 
     func setPartialHandler(_ handler: (@MainActor (String) -> Void)?) {
         partialHandler = handler
+    }
+
+    func setProgressHandler(_ handler: (@MainActor (RunProgress) -> Void)?) {
+        progressHandler = handler
     }
 
     func cancelCurrentRun() {
@@ -360,7 +401,7 @@ final class ClaudeCLISession: CompilerRunner {
         let proc = Process()
         proc.executableURL = cli
         proc.arguments = Self.arguments(
-            model: model, confinement: confinement, preamble: lastPreamble)
+            model: model, effort: effort, confinement: confinement, preamble: lastPreamble)
         proc.environment = ProcessInfo.processInfo.environment
         // Defence in depth behind `--tools ""`, for both confinements. An
         // unset `currentDirectoryURL` inherits Maugham's own, which for a
@@ -391,9 +432,20 @@ final class ClaudeCLISession: CompilerRunner {
         // child's stderr closes, GCD reports the fd continuously readable, and
         // a handler that never unregisters itself spins that queue until
         // teardown happens to nil it.
+        //
+        // A line here is also LIVENESS (whole-branch review, minor 3): a CLI
+        // logging a retry backoff writes on stderr with stdout silent, and a
+        // watch that counted stdout alone would read that as a hang. Same
+        // discipline as `receive` — the hop to the main actor carries the
+        // frozen generation, so a line from a retired process cannot revive a
+        // turn that has moved on.
         let tail = StderrTail()
-        stderr.fileHandleForReading.readabilityHandler = { fh in
-            if tail.consume(from: fh) { fh.readabilityHandler = nil }
+        stderr.fileHandleForReading.readabilityHandler = { [weak self] fh in
+            if tail.consume(from: fh) {
+                fh.readabilityHandler = nil
+            } else {
+                Task { @MainActor in self?.noteActivity(generation: gen) }
+            }
         }
         // The SECOND death signal (issue #36): stdout's EOF and the child's
         // exit are independent deliveries with no ordering, and the EOF used to
@@ -425,10 +477,14 @@ final class ClaudeCLISession: CompilerRunner {
 
     /// The invocation the spike measured, plus Task 4's allowlist.
     ///
-    /// The system preamble rides on `--append-system-prompt` rather than being
-    /// prepended to the first user message: verified 2026-08-04 to compose with
-    /// `-p` + stream-json in both directions, and it governs the whole session
+    /// The system preamble rides on `--system-prompt` rather than being
+    /// prepended to the first user message: it governs the whole session
     /// rather than one turn, which is what the caller means by "preamble".
+    /// The flag REPLACES Claude Code's coding-agent system prompt rather than
+    /// appending to it — verified live on `claude` 2.1.266, 2026-09-09, that
+    /// what the model reads is exactly what is passed (spec 2026-09-09 §3).
+    /// Until then the preamble rode on `--append-system-prompt` and the
+    /// reader met the coding-agent prompt first.
     ///
     /// **The membrane is two flags, and the enumerated one is the weaker
     /// half.** `--allowedTools` removes nothing: it pre-approves the tools it
@@ -449,13 +505,22 @@ final class ClaudeCLISession: CompilerRunner {
     /// both, for the reason above. Verified live 2026-08-29 against `claude`
     /// 2.1.251: `--strict-mcp-config` with no `--mcp-config` beside it is
     /// accepted, the turn runs, and a `result` event comes back.
-    static func arguments(model: String, confinement: Confinement, preamble: String?) -> [String] {
+    static func arguments(model: String, effort: Effort, confinement: Confinement,
+                          preamble: String?) -> [String] {
         var args = [
             "-p",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--verbose",
             "--model", model,
+            "--effort", effort.rawValue,
+            // **No settings file reaches the session** (spec 2026-09-09 §3):
+            // no hooks, no plugin's SessionStart injection, no CLAUDE.md, no
+            // inherited effort. MCP still arrives through --mcp-config,
+            // permissions through --allowedTools, and OAuth still works —
+            // verified live on 2.1.266. NOT --bare, whose help says OAuth and
+            // the keychain are never read.
+            "--setting-sources", "",
         ]
         if case .bridged(let path) = confinement {
             args += ["--mcp-config", path.path]
@@ -469,11 +534,11 @@ final class ClaudeCLISession: CompilerRunner {
             // 2026-08-08). It changes nothing about how a turn ENDS — the
             // `result` event is still the only thing that resolves one.
             "--include-partial-messages",
-            "--tools", ""
+            "--tools", "",
+            // REPLACES the coding-agent prompt rather than appending to it —
+            // the preamble is the whole identity the model reads.
+            "--system-prompt", (preamble?.isEmpty == false ? preamble : nil) ?? defaultSystemPrompt,
         ]
-        if let preamble, !preamble.isEmpty {
-            args += ["--append-system-prompt", preamble]
-        }
         if case .bridged = confinement {
             args += CompilerAllowlist.cliArguments()
         }
@@ -655,8 +720,22 @@ final class ClaudeCLISession: CompilerRunner {
         }
     }
 
+    /// **The child wrote something, and that is all this says.** The stderr
+    /// drain has no line to classify and no turn to advance — only the fact
+    /// that the process is still working, which is what the silence budget
+    /// measures. Behind `receive`'s two guards for `receive`'s reasons: a
+    /// retired process's enqueued bytes must not keep a live turn's watch
+    /// awake, and there is no turn to keep awake when none is in flight.
+    private func noteActivity(generation gen: Int) {
+        guard gen == generation, inFlight != nil else { return }
+        lastActivityAt = Date()
+    }
+
     private func receive(line: String, generation gen: Int) {
         guard gen == generation, inFlight != nil else { return }
+        // Liveness, before meaning: whatever this line IS, the child wrote it.
+        lastActivityAt = Date()
+        if firstLineAt == nil { firstLineAt = Date() }
         switch Self.classify(line: line) {
         case .ignore:
             return
@@ -667,7 +746,21 @@ final class ClaudeCLISession: CompilerRunner {
             // otherwise be spliced into the live run's report, and the run they
             // corrupted would still resolve normally.
             partialHandler?(chunk)
+        case .thinkingProgress(let tokens):
+            latestThinkingEstimate = tokens
+            progressHandler?(RunProgress(thinkingTokens: tokens, at: Date()))
         case .result(let text):
+            // Measured BEFORE resolving: `resolve` resumes the continuation,
+            // and the caller reads `lastTurnTiming` the moment it comes back.
+            let facts = Self.resultFacts(fromLine: line)
+            let now = Date()
+            lastTurnTiming = RunTiming(
+                elapsed: now.timeIntervalSince(turnStartedAt),
+                firstLineAfter: firstLineAt.map { $0.timeIntervalSince(turnStartedAt) },
+                apiDuration: facts?.apiDuration, turns: facts?.turns,
+                outputTokens: facts?.outputTokens,
+                thinkingTokens: facts?.thinkingTokens ?? latestThinkingEstimate,
+                costUSD: facts?.costUSD, model: model, effort: effort.rawValue)
             resolve(.resultText(text), token: runToken)
         case .unusableResult:
             resolve(.failed(.unusableOutput), token: runToken)
@@ -771,6 +864,10 @@ final class ClaudeCLISession: CompilerRunner {
         /// CLI cut them — they close no sentence and respect no boundary, so
         /// a reader has to accumulate before it can parse anything.
         case partialText(String)
+        /// The CLI's own running estimate of how many thinking tokens the turn
+        /// has spent, as `system`/`thinking_tokens`. A liveness signal with a
+        /// number on it: it says the model is still working AND how hard.
+        case thinkingProgress(estimatedTokens: Int)
         case result(String)
         case unusableResult
     }
@@ -787,6 +884,10 @@ final class ClaudeCLISession: CompilerRunner {
               let type = dict["type"] as? String
         else { return .ignore }
         if type == streamEventType { return classifyStreamEvent(dict) }
+        if type == "system", dict["subtype"] as? String == "thinking_tokens",
+           let tokens = dict["estimated_tokens"] as? Int {
+            return .thinkingProgress(estimatedTokens: tokens)
+        }
         guard type == "result" else { return .ignore }
         guard let text = dict["result"] as? String, !text.isEmpty else {
             return .unusableResult
@@ -823,6 +924,31 @@ final class ClaudeCLISession: CompilerRunner {
         return .partialText(text)
     }
 
+    /// What the `result` event says about the turn (captured 2026-09-09;
+    /// every field optional because an older CLI omits some).
+    struct ResultFacts: Equatable {
+        var apiDuration: TimeInterval?
+        var turns: Int?
+        var outputTokens: Int?
+        var thinkingTokens: Int?
+        var costUSD: Double?
+    }
+
+    static func resultFacts(fromLine line: String) -> ResultFacts? {
+        guard let data = line.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              dict["type"] as? String == "result"
+        else { return nil }
+        let usage = dict["usage"] as? [String: Any]
+        let details = usage?["output_tokens_details"] as? [String: Any]
+        return ResultFacts(
+            apiDuration: (dict["duration_api_ms"] as? Double).map { $0 / 1000 },
+            turns: dict["num_turns"] as? Int,
+            outputTokens: usage?["output_tokens"] as? Int,
+            thinkingTokens: details?["thinking_tokens"] as? Int,
+            costUSD: dict["total_cost_usd"] as? Double)
+    }
+
     // MARK: - Resolution, timers, teardown
 
     /// Drop this turn's claim on the session — but only while it still holds
@@ -851,6 +977,8 @@ final class ClaudeCLISession: CompilerRunner {
         isRunning = false
         runTimeoutTask?.cancel()
         runTimeoutTask = nil
+        silenceTask?.cancel()
+        silenceTask = nil
         cont.resume(returning: event)
     }
 
@@ -866,10 +994,40 @@ final class ClaudeCLISession: CompilerRunner {
 
     private func runDidTimeOut(token: Int) {
         guard token == runToken, inFlight != nil else { return }
-        // The CLI is still working on the turn; ending it means ending the
-        // process. The next send respawns.
+        stall(token: token, cause: .ceiling, after: Date().timeIntervalSince(turnStartedAt))
+    }
+
+    /// One sleep per silence budget rather than a timer re-armed per line: a
+    /// thinking model writes several lines a second, and cancelling and
+    /// recreating a `Task` for each would be the cost this watch exists to
+    /// avoid. It sleeps the remaining budget, checks again, and only stops the
+    /// turn when the quiet has really lasted.
+    private func armSilenceWatch(token: Int) {
+        silenceTask?.cancel()
+        lastActivityAt = Date()
+        let budget = silenceTimeout
+        silenceTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let quiet = Date().timeIntervalSince(self.lastActivityAt)
+                if quiet >= budget {
+                    self.stall(token: token, cause: .silence, after: quiet)
+                    return
+                }
+                let remaining = max(0.05, budget - quiet)
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+            }
+        }
+    }
+
+    /// The one door out of a turn by timer. The CLI is still working (or has
+    /// gone quiet); ending it means ending the process. The next send respawns.
+    private func stall(token: Int, cause: CompilerRunFailure.Stall.Cause, after: TimeInterval) {
+        guard token == runToken, inFlight != nil else { return }
+        let reason = CompilerRunFailure.Stall(
+            cause: cause, after: after, thinkingTokens: latestThinkingEstimate)
         teardown()
-        resolve(.failed(.timedOut), token: token)
+        resolve(.failed(.timedOut(reason)), token: token)
     }
 
     private func armIdleTimer() {
@@ -893,6 +1051,8 @@ final class ClaudeCLISession: CompilerRunner {
         generation &+= 1
         runTimeoutTask?.cancel()
         runTimeoutTask = nil
+        silenceTask?.cancel()
+        silenceTask = nil
         stdoutPipe?.fileHandleForReading.readabilityHandler = nil
         stderrPipe?.fileHandleForReading.readabilityHandler = nil
         process?.terminationHandler = nil

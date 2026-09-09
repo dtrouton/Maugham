@@ -161,10 +161,55 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     func test_headerState_running() {
+        let since = Date(timeIntervalSince1970: 1_000)
         let state = DiagnosticsPane.headerState(
             runState: .running(docId: "d1", checking: counts(new: 14, revised: 0)),
-            lastRun: nil, noteCount: 0, docId: "d1")
-        XCTAssertEqual(state, .running(checking: counts(new: 14, revised: 0)))
+            lastRun: nil, noteCount: 0, docId: "d1",
+            runStartedAt: since, runProgress: RunProgress(thinkingTokens: 500, at: since))
+        XCTAssertEqual(state, .running(checking: counts(new: 14, revised: 0), since: since,
+                                       progress: RunProgress(thinkingTokens: 500, at: since)))
+    }
+
+    /// **The running header ticks** (spec 2026-09-09 §5): the same state read a
+    /// minute later says how long the writer has been waiting, and how far the
+    /// model has got. Pure, so the clock is assertable without a mount.
+    func test_theRunningHeaderSaysHowLongAndHowFar() {
+        let since = Date(timeIntervalSince1970: 1_000)
+        let state = DiagnosticsPane.HeaderState.running(
+            checking: counts(new: 457, revised: 0), since: since,
+            progress: RunProgress(thinkingTokens: 12_400, at: since))
+        XCTAssertEqual(
+            DiagnosticsPane.headerCopy(for: state, now: since.addingTimeInterval(130)),
+            "Checking 457 new paragraphs\u{2026} 2m 10s \u{00b7} thinking (12k tokens)")
+    }
+
+    /// A finished run says how long it took; a legacy run without timing says
+    /// exactly what it did before.
+    func test_theIdleHeaderCarriesReadIn() throws {
+        var run = makeRun()
+        XCTAssertFalse(DiagnosticsPane.headerCopy(for: .idle(lastRun: run)).contains("read in"))
+        run.timing = RunTiming(elapsed: 252, model: "opus", effort: "high")
+        XCTAssertTrue(DiagnosticsPane.headerCopy(for: .idle(lastRun: run))
+            .hasSuffix(" \u{00b7} read in 4m 12s"))
+    }
+
+    /// **The clean header says it too**, and this is the arm that matters most
+    /// for a first reader: she raises no conformance strain, so every check of
+    /// hers leaves this pane `.clean` and the `.idle` line above is never
+    /// reached. The suffix sits inside the sentence, before the full stop,
+    /// because the sentence is what the writer reads.
+    func test_theCleanHeaderCarriesReadIn() throws {
+        var run = makeRun()
+        let untimed = DiagnosticsPane.headerCopy(for: .clean(lastRun: run))
+        XCTAssertTrue(untimed.hasPrefix("Nothing to flag. Last checked "), untimed)
+        XCTAssertFalse(untimed.contains("read in"),
+                       "a run filed before timing existed says what it always did: \(untimed)")
+
+        run.timing = RunTiming(elapsed: 252, model: "opus", effort: "high")
+        let timed = DiagnosticsPane.headerCopy(for: .clean(lastRun: run))
+        XCTAssertEqual(timed,
+                       String(untimed.dropLast()) + " \u{00b7} read in 4m 12s.",
+                       "the suffix belongs inside the sentence, before the full stop")
     }
 
     // MARK: - The legible wait (requirement 5)
@@ -175,17 +220,21 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// on the answer to say them.
     func test_theRunningHeaderSaysWhatItIsReading() {
         XCTAssertEqual(
-            DiagnosticsPane.headerCopy(for: .running(checking: counts(new: 14, revised: 0))),
+            DiagnosticsPane.headerCopy(
+                for: .running(checking: counts(new: 14, revised: 0), since: nil, progress: nil)),
             "Checking 14 new paragraphs\u{2026}")
         XCTAssertEqual(
-            DiagnosticsPane.headerCopy(for: .running(checking: counts(new: 1, revised: 0))),
+            DiagnosticsPane.headerCopy(
+                for: .running(checking: counts(new: 1, revised: 0), since: nil, progress: nil)),
             "Checking 1 new paragraph\u{2026}",
             "one paragraph is not \u{201C}1 new paragraphs\u{201D}")
         XCTAssertEqual(
-            DiagnosticsPane.headerCopy(for: .running(checking: counts(new: 0, revised: 3))),
+            DiagnosticsPane.headerCopy(
+                for: .running(checking: counts(new: 0, revised: 3), since: nil, progress: nil)),
             "Checking 3 revised paragraphs\u{2026}")
         XCTAssertEqual(
-            DiagnosticsPane.headerCopy(for: .running(checking: counts(new: 14, revised: 3))),
+            DiagnosticsPane.headerCopy(
+                for: .running(checking: counts(new: 14, revised: 3), since: nil, progress: nil)),
             "Checking 14 new and 3 revised paragraphs\u{2026}")
     }
 
@@ -195,7 +244,8 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// wrong.
     func test_theRunningHeaderIsTotalOverCountsADeltaCannotHave() {
         XCTAssertEqual(
-            DiagnosticsPane.headerCopy(for: .running(checking: counts(new: 0, revised: 0))),
+            DiagnosticsPane.headerCopy(
+                for: .running(checking: counts(new: 0, revised: 0), since: nil, progress: nil)),
             "Checking\u{2026}")
         XCTAssertNil(RoundNarrative.paragraphPhrase(counts(new: 0, revised: 0)))
     }
@@ -203,7 +253,8 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// And the empty pane says the same thing, off the same spelling — two
     /// sentences about the same two numbers are two things that can disagree.
     func test_theEmptyPaneNamesTheSameDeltaTheHeaderDoes() {
-        let empty = DiagnosticsPane.emptyState(for: .running(checking: counts(new: 14, revised: 3)))
+        let empty = DiagnosticsPane.emptyState(
+            for: .running(checking: counts(new: 14, revised: 3), since: nil, progress: nil))
         XCTAssertEqual(empty.title, "Checking\u{2026}")
         XCTAssertTrue(empty.description.contains("14 new and 3 revised paragraphs"),
                       "got: \(empty.description)")
@@ -271,7 +322,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             .contains("Allow Claude to connect (MCP)"),
             "the copy must name the exact Settings toggle (General \u{2192} Claude integration), "
             + "not a paraphrase a writer cannot find")
-        XCTAssertFalse(RoundNarrative.failureCopy(.timedOut).isEmpty)
+        XCTAssertFalse(RoundNarrative.failureCopy(.timedOut()).isEmpty)
         XCTAssertTrue(RoundNarrative.failureCopy(.sessionDied(detail: "the CLI exited"))
             .contains("the CLI exited"))
         XCTAssertFalse(RoundNarrative.failureCopy(.unusableOutput).isEmpty)
@@ -416,7 +467,8 @@ final class DiagnosticsPaneTests: XCTestCase {
             runState: .running(docId: "doc-1", checking: counts(new: 1, revised: 0)),
             lastRun: previewed, noteCount: 1, docId: "doc-1")
 
-        XCTAssertEqual(state, .running(checking: counts(new: 1, revised: 0)),
+        XCTAssertEqual(state,
+                       .running(checking: counts(new: 1, revised: 0), since: nil, progress: nil),
                        "a section arriving must not end the wait")
         XCTAssertEqual(DiagnosticsPane.headerCopy(for: state), "Checking 1 new paragraph\u{2026}")
     }
@@ -578,7 +630,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         let runner = SpyRunner()
         // A failing turn leaves the delta marker exactly where it was, so
         // every run below has real prose to check and reaches `ensureRunner`.
-        runner.nextEvent = .failed(.timedOut)
+        runner.nextEvent = .failed(.timedOut())
 
         let orchestrator = CompilerOrchestrator()
         var environment = makeEnvironment(docId: docId, runner: runner)
@@ -745,7 +797,8 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertNotEqual(failed.symbol, "checkmark.seal")
         XCTAssertFalse(failed.title.contains("Nothing to flag"))
 
-        let running = DiagnosticsPane.emptyState(for: .running(checking: counts(new: 1, revised: 0)))
+        let running = DiagnosticsPane.emptyState(
+            for: .running(checking: counts(new: 1, revised: 0), since: nil, progress: nil))
         XCTAssertNotEqual(running.symbol, "checkmark.seal")
         XCTAssertFalse(running.title.contains("Nothing to flag"))
 
@@ -829,7 +882,8 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
             state: .clean(lastRun: makeRun()), liveParagraphCount: 2, hasRefused: false))
         XCTAssertFalse(DiagnosticsPane.showsColdStartOffer(
-            state: .running(checking: counts(new: 1, revised: 0)), liveParagraphCount: 2,
+            state: .running(checking: counts(new: 1, revised: 0), since: nil, progress: nil),
+            liveParagraphCount: 2,
             hasRefused: false),
             "a run already under way is not the never-run window either")
     }
@@ -1361,7 +1415,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                       "Author's Reread is a check; a round would have asked for a "
                       + "lane here and been refused \u{2014} got \(recorder.roundEditorAsks)")
 
-        runner.release(.failed(.timedOut))
+        runner.release(.failed(.timedOut()))
     }
 
     /// Every append the Reread press makes, in order. A reference box because
@@ -1410,7 +1464,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                        "a second read while one is under way starts nothing \u{2014} "
                        + "the button must say so rather than swallow the press")
 
-        runner.release(.failed(.timedOut))
+        runner.release(.failed(.timedOut()))
     }
 
     // MARK: - Drift (spec §4's last bullet, computed in Stage 3 by `DriftDetector`)
@@ -2553,7 +2607,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     func test_offersDurableActions_isFalseOnlyWhileThisDocumentIsRunning() {
         let run = makeRun()
         XCTAssertFalse(DiagnosticsPane.offersDurableActions(
-            state: .running(checking: counts(new: 1, revised: 0))))
+            state: .running(checking: counts(new: 1, revised: 0), since: nil, progress: nil)))
         XCTAssertTrue(DiagnosticsPane.offersDurableActions(state: .neverRun))
         XCTAssertTrue(DiagnosticsPane.offersDurableActions(state: .idle(lastRun: run)))
         XCTAssertTrue(DiagnosticsPane.offersDurableActions(state: .clean(lastRun: run)))
@@ -2561,7 +2615,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                       "a run that found nothing is over \u{2014} what stands is the last "
                       + "finished report, and it is answerable")
         XCTAssertTrue(DiagnosticsPane.offersDurableActions(
-            state: .failed(.timedOut, at: Date())),
+            state: .failed(.timedOut(), at: Date())),
                       "a run that died never replaced anything, so the previous run's "
                       + "notes must not be frozen behind it")
     }

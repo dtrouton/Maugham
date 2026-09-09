@@ -456,8 +456,19 @@ extension CompilerOrchestrator.Environment {
                 // section grouping into the lines below (references-shelf,
                 // Task 3): a run reads the same "## <region>" headings the
                 // writer sees in the pane, not a re-alphabetised flat list.
-                return Self.pinnedListingLines(PinnedReferenceResolver.pins(
-                    forDocId: docId, store: store, projectRoot: projectURL))
+                //
+                // **And the notes themselves ride in, under a cap** (the
+                // reader's-own-session spec §4). A shelf of titles reads to
+                // the model as work to be done before it can start — whole
+                // thinking phases went on fetching 700-character notes the
+                // briefing could have carried whole — and the writer pinned
+                // them precisely so the run would have read them.
+                return Self.pinnedListingLines(
+                    PinnedReferenceResolver.pins(
+                        forDocId: docId, store: store, projectRoot: projectURL),
+                    body: { pin in
+                        Self.pinnedBody(for: pin, store: store, projectRoot: projectURL)
+                    })
             },
             paletteListing: { [weak store] in
                 guard let store else { return [] }
@@ -493,23 +504,143 @@ extension CompilerOrchestrator.Environment {
     // MARK: - Pinned-reference formatting
 
     /// One pinned reference as the run's context listing shows it — title,
-    /// id, and the tool that fetches its full contents.
+    /// id, and then either the note itself or the tool that fetches it.
     ///
-    /// `CompilerPrompt`'s section header already says "fetch full contents
-    /// with read_document" for the whole pinned section, which predates the
-    /// palette/photo/scrap kinds landing in the same union (Task 2). A kind
-    /// whose real tool differs from the header's blanket claim says so on its
-    /// own line rather than leave the header's claim uncorrected — a
-    /// `.photo` pin has no read tool at all yet (Task 2's noted gap: Claude
-    /// cannot see an owned picture's pixels), and a `.scrap`'s words are
-    /// already inside `list_canvas`'s own response, not `read_document`'s.
-    private static func pinnedListingLine(_ pin: PinnedReference) -> String {
+    /// **A small research note is given whole** (the reader's-own-session spec
+    /// §4). A pointer costs the run a tool call and a thinking phase before it
+    /// can begin, over material the writer pinned so that it would be read;
+    /// past `inlineBodyCap`, or once `inlineBudget` is spent, the line goes
+    /// back to being a pointer and says how long the thing is. A LINK is never
+    /// advertised for `read_document` at all — that call answers nothing and
+    /// the model pays for it once per run.
+    ///
+    /// **Every line names its own tool, and the section header names none.**
+    /// The header used to say "fetch full contents with read_document" for the
+    /// whole section, which was already wrong for the palette/photo/scrap
+    /// kinds that landed in the same union (Task 2) — a `.photo` pin has no
+    /// read tool at all yet (Claude cannot see an owned picture's pixels), and
+    /// a `.scrap`'s words are already inside `list_canvas`'s own response. §4
+    /// finished the job: a link pin told to use `read_document` buys a wasted
+    /// call once per run, so the blanket claim is gone rather than corrected
+    /// line by line.
+    private static func pinnedListingLine(
+        _ pin: PinnedReference, body: PinnedBody?, spent: inout Int
+    ) -> String {
         let base = "\(pin.title) (\(pin.id))"
-        switch pin.kind {
-        case .research: return "\(base) — read_document"
-        case .palette: return "\(base) — read_palette_card"
-        case .scrap: return "\(base) — list_canvas"
-        case .photo: return "\(base) — no read tool yet, title only"
+        switch (pin.kind, body) {
+        case (.research, .text(let text)):
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.count <= inlineBodyCap, spent + trimmed.count <= inlineBudget {
+                spent += trimmed.count
+                // `omittingEmptySubsequences: false` on purpose: a blank line
+                // inside a note is a paragraph break, and dropping it would
+                // run two beats of the writer's own material together.
+                let indented = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
+                    .map { "  \($0)" }.joined(separator: "\n")
+                return "\(base):\n\(indented)"
+            }
+            let words = trimmed.split { $0.isWhitespace || $0.isNewline }.count
+            return "\(base) — \(RoundNarrative.thousands(words)) words, fetch with read_document"
+        case (.research, .link(let url)):
+            // An empty URL is a research item that never got one. The trailing
+            // colon would promise an address and then show none, which reads
+            // as a truncation rather than a fact about the item.
+            guard !url.isEmpty else { return "\(base) — web link, not readable" }
+            return "\(base) — web link, not readable: \(url)"
+        case (.research, .unreadable):
+            return "\(base) — title only"
+        case (.research, .longNote):
+            // No word count: nothing was read, and a number invented here
+            // would be the one thing this line cannot honestly carry.
+            return "\(base) — long note, fetch with read_document"
+        case (.research, nil): return "\(base) — read_document"
+        case (.palette, _): return "\(base) — read_palette_card"
+        case (.scrap, _): return "\(base) — list_canvas"
+        case (.photo, _): return "\(base) — no read tool yet, title only"
+        }
+    }
+
+    /// What a pin's full text is, for the listing (spec 2026-09-09 §4).
+    enum PinnedBody: Equatable {
+        case text(String)
+        case link(url: String)
+        /// An image, PDF or audio asset — nothing a briefing can carry.
+        case unreadable
+        /// A note whose FILE is over `inlineReadCeilingBytes` — refused on its
+        /// size alone, without being read. Distinct from a `.text` that turns
+        /// out to be over `inlineBodyCap`, which was read and so can say how
+        /// many words it holds.
+        case longNote
+    }
+
+    /// A note under this many characters travels in the briefing whole.
+    ///
+    /// Four thousand is roughly a thousand words: long enough that a scene
+    /// sketch, a character note or a page of dialogue fragments — the shapes a
+    /// writer actually pins to a chapter — arrive intact, short enough that
+    /// one sprawling file cannot be the whole briefing.
+    static let inlineBodyCap = 4_000
+    /// A file larger than this is never read to find out it is too long.
+    ///
+    /// About sixteen times the cap (16.4×), in BYTES against a cap in
+    /// CHARACTERS, so no note that would have been inlined can be refused
+    /// here: UTF-8 spends at most four bytes on a scalar, and this leaves
+    /// four times that headroom again. What it stops is the other end — a
+    /// pinned multi-megabyte file read whole on the main actor at every ⌘R,
+    /// only to be rejected by the cap one line later.
+    static let inlineReadCeilingBytes = 65_536
+    /// A briefing inlines at most this many characters of notes, in shelf
+    /// order.
+    ///
+    /// The per-note cap bounds one pin; this bounds the shelf. Spent from the
+    /// top down so a writer's own arrangement decides what travels: everything
+    /// past it keeps the pointer line it had before, so nothing is hidden,
+    /// only deferred to a tool call.
+    static let inlineBudget = 40_000
+
+    /// The body behind a `.research` pin, read off the manifest and the
+    /// project root the way `read_document` reads it. `nil` for every other
+    /// pin kind and for an item the manifest no longer holds.
+    ///
+    /// A research NOTE is not manuscript — tripwire 20's rule is about reading
+    /// derived manuscript `.md` as truth, and a note under `research/` has no
+    /// op log behind it to be truth instead. Hence the sanctioned annotation
+    /// on the read.
+    @MainActor
+    static func pinnedBody(
+        for pin: PinnedReference, store: ProjectStore, projectRoot: URL
+    ) -> PinnedBody? {
+        guard case .research(let itemId) = pin.kind,
+              let item = TreeWalk.find(id: itemId, in: store.manifest.research),
+              item.type == .asset
+        else { return nil }
+        switch item.kind {
+        case .document:
+            // Manifest-supplied path — a corrupted or hostile manifest must
+            // not be able to read a file outside the project root, exactly as
+            // `read_document`'s own research arm resolves it (A5).
+            guard let path = item.path,
+                  let abs = try? SafeRelativePath.resolve(path, under: projectRoot)
+            else { return nil }
+            // **Stat before read.** The cap below would refuse a huge note
+            // anyway, but only after it had been read whole, synchronously,
+            // on this actor. A file that cannot possibly inline is answered
+            // for out of its size alone. A stat that FAILS falls through to
+            // the read, which is the honest direction: the file may still be
+            // small, and the read has its own `try?`.
+            if let size = (try? abs.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+               size > inlineReadCeilingBytes {
+                return .longNote
+            }
+            guard let text = try? String(contentsOf: abs, encoding: .utf8) // adr-0018-ok: research-note body for the briefing, not manuscript
+            else { return nil }
+            return .text(text)
+        case .link:
+            return .link(url: item.url ?? "")
+        case .image, .pdf, .audio:
+            return .unreadable
+        case .none:
+            return nil
         }
     }
 
@@ -543,16 +674,41 @@ extension CompilerOrchestrator.Environment {
     /// unsupported because its source was truncated away is the failure this
     /// line exists to prevent. It names the surface that holds the rest, which
     /// is the one place the writer can act on it.
-    static func pinnedListingLines(_ shelf: PinnedShelf) -> [String] {
+    static func pinnedListingLines(
+        _ shelf: PinnedShelf,
+        body: (PinnedReference) -> PinnedBody? = { _ in nil }
+    ) -> [String] {
         var out: [String] = []
         var emitted = 0
+        // Spent across the whole shelf rather than per section, because the
+        // budget is the briefing's and the sections are the writer's grouping.
+        var spent = 0
         for section in shelf.sections where emitted < pinnedListingCap {
             let taken = section.references.prefix(pinnedListingCap - emitted)
             guard !taken.isEmpty else { continue }
             // The header only when something lands under it — a heading over
             // nothing is the same defect `PinnedShelf`'s own assembly drops.
             if let title = section.title { out.append("## \(title)") }
-            out.append(contentsOf: taken.map(pinnedListingLine))
+            for pin in taken {
+                // **Spent means spent — don't read what cannot be inlined**
+                // (whole-branch review, minor 4). `body` goes to disk, and a
+                // shelf of forty notes read all forty on the main actor at
+                // every ⌘R just to word-count the ones the budget had already
+                // refused. Past the budget a `.research` pin gets the bare
+                // fetch line, which is the line a pin with no body has always
+                // got; the word count is a courtesy, not one worth a file read
+                // apiece. Only `.research` reads a body at all — the other
+                // kinds ignore it — so the guard is theirs alone. Exact and
+                // not conservative: a pin the REMAINING budget cannot fit is
+                // still read once, because a shorter note behind it may fit,
+                // and refusing on "less than a note's cap remains" would cost
+                // the writer material that would have travelled.
+                if case .research = pin.kind, spent >= inlineBudget {
+                    out.append(pinnedListingLine(pin, body: nil, spent: &spent))
+                } else {
+                    out.append(pinnedListingLine(pin, body: body(pin), spent: &spent))
+                }
+            }
             emitted += taken.count
         }
         let total = shelf.references.count
