@@ -106,6 +106,18 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
    present and unreadable refuse the read loudly, as the op log's own strict
    reader does?**
 
+   **Decided 2026-09-09 (Denver, option B): refuse loudly, like the op log's
+   reader.** `TranslationStore.loadMerged` throws on a present-but-unreadable
+   device file, and the three callers surface it by name: the Publish desk's
+   status line (RULING-7's shape, the one the unreadable catalog already has),
+   `read_translation`/`translation_status` as an error naming the file, and the
+   compile coverage gate refusing the edition. No partial read anywhere — a
+   half-translated edition published silently was the cost being weighed, and
+   translations are content under the same rule as the manuscript (RULING-54).
+   Considered and declined: leave lenient (silent where it costs most); read
+   what reads and attach a notice (two behaviours for one condition). Lands as
+   a P2 task.
+
 1. **The 100 ms budget at 50k lines was not met as stated.** The plan's global
    constraint 3 says "50k ops must add under 100 ms to a cold open". Task 5's
    first measurement of that fixture added roughly **450 ms end to end**; after
@@ -138,6 +150,19 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
    be a way to acknowledge one?** The same question now applies to the Inbox
    pane's own half of that sentence (`InboxPane.setAsideNotice`).
 
+   **Decided 2026-09-09 (Denver, option B): acknowledge, per device, per
+   record.** An *Acknowledge* affordance on History's line and on the Inbox
+   notice writes the set of `.lines` record filenames seen into this device's
+   UI state; the sentence hides while every record is acknowledged and returns
+   the moment a new record appears, counting the new ones only. The records
+   are never touched, and the Integrity window (or a "show set-aside records"
+   disclosure) lists all of them regardless. The forensic contract is about
+   bytes; the sentence should be an event, not a fixture. Considered and
+   declined: leave permanent (the wording stops meaning anything after the
+   first time); delete from History (destroys the artifact); auto-hide after a
+   time (an arbitrary number that can hide an intrusion the writer was away
+   for). Lands as a P2 task; one predicate shared by both panes.
+
 3. **`OpLogDeviceState` rewrites its whole file on every `remember`, and prunes
    nothing** (review M5). Entries for deleted projects stay forever. Fine at
    today's sizes; a slow leak, and the write amplification grows with the number
@@ -146,8 +171,10 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
 
    **Decided 2026-09-09: prune-only, at load.** `OpLogDeviceState` now records
    the project ROOT beside each head (the key hashes that path and cannot be read
-   backwards) and drops, at load, every entry whose recorded root no longer has a
-   `.maugham` child; an entry with no recorded root is kept until its next
+   backwards) and drops, at load, every entry whose recorded root DIRECTORY no
+   longer exists (the whole-branch review's I1 narrowed the first cut, which
+   asked for `<root>/.maugham` and so pruned an unreadable-but-present
+   project); an entry with no recorded root is kept until its next
    `remember` records one. The whole-file rewrite shape is unchanged, and the
    persists were deliberately NOT coalesced: the head is written before the batch
    by design (ADR 0032 §3's crash window), so deferring it would turn a crash
@@ -160,6 +187,16 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
    and the next load adopts the file's own head — the safe direction, and the same
    thing a moved project already gets — but *unreachable ≠ deleted* is a
    distinction Denver may want drawn.
+
+   **Decided 2026-09-09 (Denver, option B): prune only when the PARENT directory
+   exists and the root does not.** A deleted project leaves its parent behind;
+   an unmounted volume takes its whole path with it, so `/Volumes/Archive/Novel`
+   is kept while `~/Documents/Novel` is dropped. One predicate, two temp
+   directories to test it. Residue accepted: a project deleted together with
+   its parent folder keeps a few hundred bytes of state forever. Declined:
+   leave as is (external-drive writers lose the check on every unplugged
+   launch, silently); an explicit "forget missing projects" control (a UI
+   surface nobody will look for). Lands as P2's first small task.
 
 4. **The project stream has no size ceiling.** `__project__` now seals like every
    other stream (review I5), but `sealTailIfNeeded` still refuses to rotate it —
