@@ -48,6 +48,9 @@ public struct LocalIdentities: Sendable {
         /// 7) — and, because the key is given rather than looked up, the shape
         /// a simulator can hold a signing key in.
         case authorGiven(DeviceIdentity)
+        /// Test-only: actors that appear ONE AT A TIME, as this device's own
+        /// do. See `LazyIdentitySource`.
+        case lazyForTesting(LazyIdentitySource)
     }
 
     private let source: Source
@@ -96,6 +99,14 @@ public struct LocalIdentities: Sendable {
         LocalIdentities(source: .authorGiven(identity))
     }
 
+    /// A device whose actors appear one at a time — the lazy rule itself, made
+    /// testable. `internal`, and the door tests actually use is
+    /// `LocalIdentities.lazySoftwareForTesting()` in `DeviceIdentity+Testing`,
+    /// which is where the keys come from.
+    static func forTesting(lazy source: LazyIdentitySource) -> LocalIdentities {
+        LocalIdentities(source: .lazyForTesting(source))
+    }
+
     // MARK: - Naming an actor (mints)
 
     /// The identity for one actor, MINTING it if this device has never used
@@ -122,6 +133,8 @@ public struct LocalIdentities: Sendable {
             }
         case let .authorGiven(identity):
             actor == .author ? identity : DeviceIdentity.identity(for: actor)
+        case let .lazyForTesting(source):
+            source.identity(for: actor)
         }
     }
 
@@ -151,6 +164,8 @@ public struct LocalIdentities: Sendable {
             DeviceActor.allCases.filter {
                 $0 == .author || DeviceIdentity.hasPersistedIdentity(for: $0)
             }
+        case let .lazyForTesting(source):
+            source.existingActors
         }
     }
 
@@ -198,4 +213,52 @@ public struct LocalIdentities: Sendable {
     /// disagree — minting on a path that is not writing as that actor at all.
     /// The one state that reaches `nil` here is genuinely another device's op,
     /// which is exactly what the plain unchained append is for.
+}
+
+// MARK: - The lazy rule, made testable
+
+/// A device whose actor keys come into existence ONE AT A TIME, exactly as this
+/// machine's own do: naming an actor mints it and remembers it, and enumerating
+/// answers only what has been named.
+///
+/// It exists because neither production source can stand where a test needs to
+/// stand. `.fixed` reports all four actors from its first call, so a test built
+/// on it can never watch `existingActors` GROW — which is the whole of the lazy
+/// rule and the reason `ensureDeviceRecord` is *ensure* rather than *write
+/// once*. `.device` would grow, but it mints ENCLAVE keys on a machine that has
+/// one and falls back to an unsigned token on a machine that does not, so the
+/// same test passes here and writes nothing at all on CI's VM.
+///
+/// **It constructs no key.** The mint is a closure the caller supplies, so the
+/// one file allowed to make a software key stays the one file that makes one
+/// (`DeviceIdentity+Testing.swift`, tripwire 36). Nothing in production builds
+/// one of these.
+final class LazyIdentitySource: @unchecked Sendable {
+    private let mint: @Sendable (DeviceActor) -> DeviceIdentity
+    private let lock = NSLock()
+    private var minted: [DeviceActor: DeviceIdentity] = [:]
+
+    init(mint: @escaping @Sendable (DeviceActor) -> DeviceIdentity) {
+        self.mint = mint
+    }
+
+    /// Name an actor: mints its key the first time and answers the same one
+    /// ever after.
+    func identity(for actor: DeviceActor) -> DeviceIdentity {
+        lock.lock()
+        defer { lock.unlock() }
+        if let already = minted[actor] { return already }
+        let fresh = mint(actor)
+        minted[actor] = fresh
+        return fresh
+    }
+
+    /// The actors that have been named, in `DeviceActor.allCases` order.
+    /// Enumerating mints nothing — the invariant this whole type is here to let
+    /// a test watch.
+    var existingActors: [DeviceActor] {
+        lock.lock()
+        defer { lock.unlock() }
+        return DeviceActor.allCases.filter { minted[$0] != nil }
+    }
 }

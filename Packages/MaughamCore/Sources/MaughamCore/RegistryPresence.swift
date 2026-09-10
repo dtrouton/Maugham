@@ -108,14 +108,24 @@ public enum RegistryPresence {
     /// Write this device's self-signed root `PersonRecord` when the book has no
     /// people in it at all, and answer the file if one was written.
     ///
-    /// **Three conditions, and each is a refusal in its own right.** The
-    /// registry names nobody (a malformed record names nobody either — it
-    /// contributes nothing, by the reader's own rule); this device has already
-    /// said who it is, because the root's `label`/`ownName` come from that
-    /// record and this device's name is decided in exactly one place; and this
-    /// device is a **Mac**. A phone never writes a root: it cannot be the
-    /// device that owns the folder, and a phone that made itself one would be a
-    /// second claimant on a book it can only see through the share (spec §3).
+    /// **Three conditions, and each is a refusal in its own right.** The book is
+    /// EMPTY of people; this device has already said who it is, because the
+    /// root's `label`/`ownName` come from that record and this device's name is
+    /// decided in exactly one place; and this device is a **Mac**. A phone never
+    /// writes a root: it cannot be the device that owns the folder, and a phone
+    /// that made itself one would be a second claimant on a book it can only see
+    /// through the share (spec §3).
+    ///
+    /// **Empty means no person record FILE at all** — not one this device could
+    /// not verify (Denver, 2026-09-10). A malformed person record is a root
+    /// somebody tampered with, or one iCloud brought down half-written, and
+    /// rooting beside it would put a second self-signed root next to a damaged
+    /// original with nothing on the folder to say which came first. It is the
+    /// distinction RULING-54 keeps everywhere else in this milestone: a thing
+    /// that is present and unreadable is not a thing that is absent. The
+    /// malformed record is already listed for Integrity by the reader, and
+    /// claiming a book whose root cannot be read is P2b's, at a surface, by the
+    /// writer.
     ///
     /// A book that already has people is somebody's, and adopting it is a claim
     /// — the writer's decision, made at a surface, never at an open (§5).
@@ -135,7 +145,8 @@ public enum RegistryPresence {
         }
 
         let registry = try RegistryReader.load(projectURL: projectURL, presenter: presenter)
-        guard registry.people.isEmpty else { return nil }
+        guard registry.people.isEmpty,
+              !holdsAnUnreadablePerson(registry, in: projectURL) else { return nil }
         guard let mine = registry.devices.first(where: { $0.device == author.fingerprint })
         else { return nil }
         guard mine.kind == .mac else { return nil }
@@ -146,6 +157,23 @@ public enum RegistryPresence {
             admittedAt: now(), admittedBy: author.fingerprint)
         return try RegistryWriter.write(
             record, signedBy: author, in: projectURL, presenter: presenter)
+    }
+
+    /// Is there a person record here this device could not vouch for?
+    ///
+    /// Asked of the malformed listing, by DIRECTORY: a record's own shape is
+    /// exactly what a malformed listing cannot tell you — the bytes would not
+    /// decode, or the name and the fingerprint disagree — so the only thing
+    /// left that says what it was meant to be is where it lives. Claims live
+    /// under `people/claims/`, a directory of their own, and are not people.
+    nonisolated private static func holdsAnUnreadablePerson(
+        _ registry: Registry, in projectURL: URL
+    ) -> Bool {
+        let people = RegistryWriter.directoryURL(.people, in: projectURL)
+            .standardizedFileURL.path
+        return registry.malformed.contains {
+            $0.url.deletingLastPathComponent().standardizedFileURL.path == people
+        }
     }
 
     // MARK: - The loud unsigned

@@ -43,9 +43,14 @@ final class RegistryPresenceTests: XCTestCase {
 
     /// This Mac, with a software key so the records it writes actually sign on
     /// a machine — or a CI runner — whose enclave this suite must not touch.
+    ///
+    /// `lazily` asks for the one whose `existingActors` GROWS as actors are
+    /// named, which is the only fixture that can stand at the lazy boundary.
     @discardableResult
-    private func beThisMac(_ url: URL) -> LocalIdentities {
-        let identities = LocalIdentities.forTesting(author: .softwareForTesting())
+    private func beThisMac(_ url: URL, lazily: Bool = false) -> LocalIdentities {
+        let identities: LocalIdentities = lazily
+            ? .lazySoftwareForTesting()
+            : .forTesting(author: .softwareForTesting())
         Document.localIdentitiesForTesting = identities
         Document.deviceStateForTesting = OpLogDeviceState(
             fileURL: url.appendingPathComponent("op-log-state.json"))
@@ -107,29 +112,41 @@ final class RegistryPresenceTests: XCTestCase {
                        "and no second root")
     }
 
-    /// The lazy-key case through the production path: a record written when
-    /// this Mac held one key is re-signed, on the next open, with every key it
-    /// holds now — which is how the assistant's seals stop reading as a
-    /// stranger's the day MCP first writes (spec §4.4).
-    func test_anOpenReSignsARecordThatIsMissingAnActorThisMacHolds() async throws {
+    /// **The lazy boundary through the production path.** The day MCP first
+    /// writes, the assistant's key comes into existence — and the next open has
+    /// to re-sign this Mac's record to list it, or every seal that key makes
+    /// reads on the other Mac as a stranger's (spec §4.4).
+    ///
+    /// This Mac is `lazySoftwareForTesting`, whose `existingActors` genuinely
+    /// grows: after the first open it has named the author alone, and the
+    /// assistant appears only because the line below names it. The `.fixed`
+    /// fixture the other cases use cannot stand here — it reports all four
+    /// actors from its first call, so the transition would never happen.
+    func test_mintingTheAssistantsKeyMakesTheNextOpenReSignThisMacsRecord() async throws {
         let url = try makeProject()
-        let identities = beThisMac(url)
+        let identities = beThisMac(url, lazily: true)
+
+        _ = try await DocumentStore.open(url: url)
         let author = identities.author
-        let earlier = DeviceRecord(
-            device: author.fingerprint, name: "Denver's MacBook", kind: .mac,
-            actors: [DeviceActor.author.rawValue: author.fingerprint],
-            madeAt: Date(timeIntervalSince1970: 10))
-        try RegistryWriter.write(earlier, signedBy: author, in: url)
+        let afterFirstOpen = try XCTUnwrap(
+            try RegistryReader.load(projectURL: url).devices.first)
+        XCTAssertEqual(
+            afterFirstOpen.actors, [DeviceActor.author.rawValue: author.fingerprint],
+            "a Mac that has named one actor lists one actor")
+        let madeAt = afterFirstOpen.madeAt
+
+        // MCP writes for the first time: naming the assistant is what mints it.
+        let assistant = identities.assistant
 
         _ = try await DocumentStore.open(url: url)
 
         let registry = try RegistryReader.load(projectURL: url)
         let device = try XCTUnwrap(registry.devices.first)
-        XCTAssertEqual(
-            Set(device.actors.keys), Set(DeviceActor.allCases.map(\.rawValue)),
-            "every actor key this Mac holds is now listed")
-        XCTAssertEqual(device.madeAt, Date(timeIntervalSince1970: 10),
-                       "and it is still the same device")
+        XCTAssertEqual(device.actors, [
+            DeviceActor.author.rawValue: author.fingerprint,
+            DeviceActor.assistant.rawValue: assistant.fingerprint,
+        ], "the key that did not exist at the last open is re-signed in at this one")
+        XCTAssertEqual(device.madeAt, madeAt, "and it is still the same device")
         XCTAssertTrue(registry.malformed.isEmpty)
     }
 
