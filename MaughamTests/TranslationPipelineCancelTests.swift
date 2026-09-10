@@ -72,7 +72,7 @@ final class TranslationPipelineCancelTests: XCTestCase {
                 if holdReaderBriefing {
                     await withCheckedContinuation { heldBriefing = $0 }
                 }
-                return await base.briefReader(docId, language)
+                return try await base.briefReader(docId, language)
             }
             world.pipeline.configure(environment: environment)
         }

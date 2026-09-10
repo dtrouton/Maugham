@@ -53,4 +53,24 @@ final class EditorHostTranslationSurfaceTests: XCTestCase {
         XCTAssertEqual(badges[0].status, .stale)
         XCTAssertEqual(badges[0].paragraphId, "a")
     }
+
+    // MARK: - A present-but-unreadable translation file (P2a D0)
+
+    /// **The read-only surface says why, and names the file.**
+    ///
+    /// The surface renders `translatedText ?? sourceText`, so a skipped actor
+    /// file would draw this document's SOURCE paragraphs into the translation
+    /// plane — a pane that looks like an untranslated manuscript over a
+    /// translation sitting on disk intact. The refusal takes the surface
+    /// instead, and it carries the filename.
+    func test_theSurfaceShowsTheRefusalsOwnSentenceNamingTheFile() {
+        let text = EditorHost.translationSurfaceRefusal(
+            OpLogStore.ReadError.unreadableFile(
+                name: "doc-1.es.maca-1234.jsonl",
+                underlying: "Permission denied"))
+        XCTAssertTrue(text.contains("doc-1.es.maca-1234.jsonl"),
+                      "the writer is told which file to go and fix: \(text)")
+        XCTAssertTrue(text.contains("Permission denied"),
+                      "…and what stopped the read: \(text)")
+    }
 }

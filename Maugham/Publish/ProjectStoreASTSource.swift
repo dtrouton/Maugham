@@ -147,7 +147,9 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
         mode: ProjectAST.Mode
     ) throws -> [(id: String, text: String)] {
         let state = try anchoredState(forDocId: docId, path: path)
-        let records = TranslationStore.loadMerged(
+        // P2a D0: an unreadable actor file refuses the body rather than
+        // emitting source text where its translations would have been.
+        let records = try TranslationStore.loadMerged(
             forDocId: docId, language: language, in: projectStore.url)
         let derived = TranslationDeriver.derive(
             records: records, sequence: state.sequence,

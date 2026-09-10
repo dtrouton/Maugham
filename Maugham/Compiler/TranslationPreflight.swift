@@ -31,10 +31,19 @@ enum TranslationPreflight {
     /// say" `budget` answers with `nil`, and distinct from a language whose
     /// figure is genuinely zero, which is present and 0. Off the body path only
     /// (tripwire 4).
+    ///
+    /// **Throws when a translation file is present and unreadable** (P2a D0).
+    /// A skipped actor file makes the figure too LARGE — every paragraph it
+    /// holds reads as untranslated and so as words still to brief — and "~N
+    /// words" is exactly the number the writer weighs a click against. The
+    /// desk draws no figure at all over the refusal, beside the Couldn't-read
+    /// line `EditionStatus` puts up in the same pass for the same file.
+    /// Distinct from the unreadable STATE above, which stays a per-document
+    /// skip: that one is the document, and it is already reported.
     @MainActor
     static func budgets(documentIds: [String], languages: [String],
                         store: ProjectStore, documentStore: DocumentStore?,
-                        projectURL: URL) -> [String: Int] {
+                        projectURL: URL) throws -> [String: Int] {
         guard !languages.isEmpty else { return [:] }
         var totals: [String: Int] = [:]
         var counted = false
@@ -44,7 +53,7 @@ enum TranslationPreflight {
                 projectURL: projectURL) else { continue }
             counted = true
             for language in languages {
-                let records = TranslationStore.loadMerged(
+                let records = try TranslationStore.loadMerged(
                     forDocId: docId, language: language, in: projectURL)
                 let derived = TranslationDeriver.derive(
                     records: records, sequence: state.sequence,
@@ -69,8 +78,8 @@ enum TranslationPreflight {
     /// state.
     @MainActor
     static func budget(documentIds: [String], language: String, store: ProjectStore,
-                       documentStore: DocumentStore?, projectURL: URL) -> Int? {
-        budgets(documentIds: documentIds, languages: [language], store: store,
-                documentStore: documentStore, projectURL: projectURL)[language]
+                       documentStore: DocumentStore?, projectURL: URL) throws -> Int? {
+        try budgets(documentIds: documentIds, languages: [language], store: store,
+                    documentStore: documentStore, projectURL: projectURL)[language]
     }
 }

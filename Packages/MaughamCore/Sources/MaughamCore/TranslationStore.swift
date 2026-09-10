@@ -192,25 +192,40 @@ public enum TranslationStore {
     ///
     /// This is `JSONLAppendStore.loadVerifiedStrict`'s body, spelled
     /// synchronously over the same nonisolated helpers, because `loadMerged` is
-    /// read from thirty synchronous call sites (the publish AST, the coverage
-    /// gate, the editor's translated surface) and because its per-file
-    /// leniency — warn and skip one unreadable device file rather than fail the
-    /// whole read — is the opposite of the strict reader's contract.
+    /// read from a dozen synchronous call sites (the publish AST, the coverage
+    /// gate, the editor's translated surface).
+    ///
+    /// **A file that is present and unreadable refuses the whole read** (P2a
+    /// D0; RULING-54's rule for the op log, applied here). Until P2a this
+    /// read was per-file lenient — warn and skip the one file it could not
+    /// open — and P1b is what made that leniency unsafe: a document's
+    /// translation is now spread over one file per (device, ACTOR), the
+    /// pipeline's own beside the author's review edits, so skipping one
+    /// answers with a PARTLY translated document. The author's edits stand
+    /// over source paragraphs the pipeline had already translated, every
+    /// derivation downstream reads them as `missing`, and a compile publishes
+    /// the mixture with nothing said anywhere. A file that is not in the
+    /// directory listing is still ABSENT, which is not a failure.
     public static func loadMerged(forDocId docId: String, language: String,
                                   in projectURL: URL,
                                   identities: LocalIdentities = .current,
-                                  state: OpLogDeviceState = .shared) -> [TranslationRecord] {
+                                  state: OpLogDeviceState = .shared) throws -> [TranslationRecord] {
         var all: [TranslationRecord] = []
         let trusted = identities.fingerprints
         for url in fileURLs(forDocId: docId, language: language, in: projectURL) {
             // The URL came from the directory listing, so it exists; a read
             // failure here means the device file is present but unreadable
-            // (permissions, iCloud eviction, corruption). Warn before skipping
-            // rather than silently dropping a whole device's translations.
-            guard let bytes = try? Data(contentsOf: url) else {  // adr-0018-ok: translation sidecar JSONL bytes, not manuscript-as-truth (ADR 0018)
-                translationLog.warning(
-                    "skipping unreadable translation file: \(url.lastPathComponent, privacy: .public)")
-                continue
+            // (permissions, iCloud eviction, corruption). The op log's own
+            // error, so the writer meets one sentence for one condition
+            // wherever the two stores are read side by side.
+            let bytes: Data
+            do { bytes = try Data(contentsOf: url) }  // adr-0018-ok: translation sidecar JSONL bytes, not manuscript-as-truth (ADR 0018)
+            catch {
+                translationLog.error(
+                    "refusing the translation read: \(url.lastPathComponent, privacy: .public) is present and unreadable")
+                throw OpLogStore.ReadError.unreadableFile(
+                    name: url.lastPathComponent,
+                    underlying: error.localizedDescription)
             }
             let fileKey = OpLogDeviceState.fileKey(url)
             let walked = OpLogChain.verify(

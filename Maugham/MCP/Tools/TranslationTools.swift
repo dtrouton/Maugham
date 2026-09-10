@@ -211,7 +211,12 @@ public enum ReadTranslationTool: MCPTool {
             documentId: params.document_id,
             registry: registry)
 
-        let records = TranslationStore.loadMerged(
+        // **A present-but-unreadable translation file fails this call by
+        // name** (P2a D0). Skipping it would answer with the OTHER actor's
+        // file alone — the author's review edits over source paragraphs the
+        // pipeline had already translated — and Claude would read that as
+        // work still to do.
+        let records = try TranslationStore.loadMerged(
             forDocId: params.document_id, language: params.language, in: state.projectURL)
         let derived = TranslationDeriver.derive(
             records: records, sequence: state.sequence,

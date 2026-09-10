@@ -43,7 +43,7 @@ final class TranslationPreflightTests: XCTestCase {
             forDocId: "doc-1", identity: LocalIdentities.current.translator, identities: .current,
             in: fixture.projectURL)
 
-        let both = TranslationPreflight.budgets(
+        let both = try TranslationPreflight.budgets(
             documentIds: ["doc-1"], languages: ["es", "fr"],
             store: fixture.projectStore, documentStore: fixture.documentStore,
             projectURL: fixture.projectURL)
@@ -58,7 +58,7 @@ final class TranslationPreflightTests: XCTestCase {
 
         // …and the single-language door answers exactly what the plural one does.
         XCTAssertEqual(
-            TranslationPreflight.budget(
+            try TranslationPreflight.budget(
                 documentIds: ["doc-1"], language: "es", store: fixture.projectStore,
                 documentStore: fixture.documentStore, projectURL: fixture.projectURL),
             both["es"])
@@ -71,11 +71,11 @@ final class TranslationPreflightTests: XCTestCase {
         let fixture = try await makeProject()
         defer { Task { await fixture.documentStore.close() } }
 
-        XCTAssertTrue(TranslationPreflight.budgets(
+        XCTAssertTrue(try TranslationPreflight.budgets(
             documentIds: ["no-such-doc"], languages: ["es"],
             store: fixture.projectStore, documentStore: fixture.documentStore,
             projectURL: fixture.projectURL).isEmpty)
-        XCTAssertNil(TranslationPreflight.budget(
+        XCTAssertNil(try TranslationPreflight.budget(
             documentIds: ["no-such-doc"], language: "es",
             store: fixture.projectStore, documentStore: fixture.documentStore,
             projectURL: fixture.projectURL))
@@ -88,6 +88,38 @@ final class TranslationPreflightTests: XCTestCase {
         let projectStore: ProjectStore
         let documentStore: DocumentStore
         let document: Document
+    }
+
+    /// **A pre-flight over an unreadable translation file refuses** (P2a D0).
+    ///
+    /// The figure is "~N words briefed", which the writer weighs a click
+    /// against, and a skipped actor file makes it too LARGE: every paragraph
+    /// that file holds reads as untranslated and so as words still to send.
+    /// The desk draws no figure over the refusal, beside the Couldn't-read
+    /// line `EditionStatus` puts up in the same pass.
+    @MainActor
+    func test_anUnreadableTranslationFileRefusesThePreflight() async throws {
+        let fixture = try await makeProject()
+        defer { Task { await fixture.documentStore.close() } }
+
+        let squat = TranslationStore.fileURL(
+            forDocId: fixture.document.docId, language: "es",
+            deviceSlug: DeviceSlug.make(from: "bad"), in: fixture.projectURL)
+        try FileManager.default.createDirectory(
+            at: squat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
+
+        XCTAssertThrowsError(
+            try TranslationPreflight.budgets(
+                documentIds: ["doc-1"], languages: ["es"],
+                store: fixture.projectStore, documentStore: fixture.documentStore,
+                projectURL: fixture.projectURL)
+        ) { error in
+            guard case OpLogStore.ReadError.unreadableFile(let name, _) = error else {
+                return XCTFail("expected OpLogStore.ReadError.unreadableFile, got \(error)")
+            }
+            XCTAssertEqual(name, squat.lastPathComponent)
+        }
     }
 
     /// One open, registered chapter — `DepartmentRunTests.makeProject`'s shape,

@@ -227,6 +227,77 @@ final class TranslationCoverageGateTests: XCTestCase {
         XCTAssertTrue(message.lowercased().contains("fallback"), message)
     }
 
+    // MARK: - A present-but-unreadable translation file (P2a D0)
+
+    /// **The gate refuses the edition and names the file** (P2a D0).
+    ///
+    /// Since P1b a document's translation is one file per (device, ACTOR) — the
+    /// pipeline's own beside the author's review edits. Skipping the one that
+    /// will not open used to leave the derivation reading every paragraph in it
+    /// as `missing`, which under `allow_stale` falls back to SOURCE text: a
+    /// half-Spanish book, published, with a per-paragraph warning that names
+    /// paragraphs rather than the file nobody could read. The gate now refuses,
+    /// and the refusal carries the filename the writer has to go and fix.
+    ///
+    /// The disable experiment: put `try?` back on the `loadMerged` in
+    /// `TranslationCoverage.check` and this call answers a Report with the
+    /// translated paragraph listed as `missing` — a gap report about a file
+    /// that is intact on disk.
+    func test_anUnreadableTranslationFileRefusesTheGateByName() async throws {
+        let fx = try await makeCompileFixture(content: """
+        First paragraph.
+
+        Second paragraph.
+        """)
+        let ids = fx.doc.sequence
+        try await writeTranslation(
+            fx, paragraphID: ids[0], text: "Primer párrafo.",
+            sourceHash: TranslationHash.hash(fx.doc.paragraphs[ids[0]] ?? ""))
+
+        // The unreadable-file primitive this suite's siblings use for op logs: a
+        // DIRECTORY squatting the path. It is a second ACTOR's file for the same
+        // (document, language) — exactly the P1b shape — so the readable
+        // translator file is still there behind it.
+        let squat = TranslationStore.fileURL(
+            forDocId: fx.docID, language: "es",
+            deviceSlug: DeviceSlug.make(from: "bad"), in: fx.projectURL)
+        try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
+
+        XCTAssertThrowsError(
+            try TranslationCoverage.check(projectStore: fx.store, language: "es")
+        ) { error in
+            guard case OpLogStore.ReadError.unreadableFile(let name, _) = error else {
+                return XCTFail("expected OpLogStore.ReadError.unreadableFile, got \(error)")
+            }
+            XCTAssertEqual(name, squat.lastPathComponent,
+                           "the refusal names the file, so the writer knows what to fix")
+            XCTAssertTrue(
+                error.localizedDescription.contains(squat.lastPathComponent),
+                "…and the sentence the compile shows carries that name: "
+                + error.localizedDescription)
+        }
+    }
+
+    /// The control: the same fixture with nothing squatted derives its gaps and
+    /// returns, so the assertion above is about the unreadable file rather than
+    /// about the fixture.
+    func test_aReadableTranslationLayerStillReportsItsGaps() async throws {
+        let fx = try await makeCompileFixture(content: """
+        First paragraph.
+
+        Second paragraph.
+        """)
+        let ids = fx.doc.sequence
+        try await writeTranslation(
+            fx, paragraphID: ids[0], text: "Primer párrafo.",
+            sourceHash: TranslationHash.hash(fx.doc.paragraphs[ids[0]] ?? ""))
+
+        let report = try TranslationCoverage.check(projectStore: fx.store, language: "es")
+        XCTAssertEqual(report.gaps.flatMap(\.missing), [ids[1]],
+                       "the untranslated paragraph, and only it")
+        XCTAssertNil(report.zeroLayerError)
+    }
+
     // MARK: - Scenario 3: zero-layer guard
 
     func test_zeroLayerGuard_failsWithSingleError() async throws {

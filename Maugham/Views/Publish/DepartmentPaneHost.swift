@@ -992,9 +992,21 @@ struct DepartmentPaneHost: View {
         // `refillsBudgets`. The previous figures stand; the round-ended event
         // brings this pass back when there is a new answer to give.
         if Self.refillsBudgets(pipeline: pipeline?.status ?? .idle) {
-            bookBudgets = TranslationPreflight.budgets(
-                documentIds: documentIds, languages: report.rows.map(\.language),
-                store: store, documentStore: documentStore, projectURL: projectURL)
+            do {
+                bookBudgets = try TranslationPreflight.budgets(
+                    documentIds: documentIds, languages: report.rows.map(\.language),
+                    store: store, documentStore: documentStore, projectURL: projectURL)
+            } catch {
+                // **No figure rather than a wrong one** (P2a D0). A pre-flight
+                // over a present-but-unreadable translation file would count
+                // every paragraph in it as words still to brief, and the row
+                // would quote a cost that is too high for a click the writer
+                // is weighing. `report.unreadable` above names the same file
+                // on the same pass, so the missing figure is not unexplained.
+                bookBudgets = [:]
+                _departmentLog.error(
+                    "the book's translation pre-flight refused: \(error, privacy: .public)")
+            }
         }
 
         do {
@@ -1033,9 +1045,16 @@ struct DepartmentPaneHost: View {
             chapterBudgets = [:]
             return
         }
-        chapterBudgets = TranslationPreflight.budgets(
-            documentIds: [docId], languages: languages.map(\.language),
-            store: store, documentStore: documentStore, projectURL: projectURL)
+        do {
+            chapterBudgets = try TranslationPreflight.budgets(
+                documentIds: [docId], languages: languages.map(\.language),
+                store: store, documentStore: documentStore, projectURL: projectURL)
+        } catch {
+            // The book figure's own rule, over one chapter (P2a D0).
+            chapterBudgets = [:]
+            _departmentLog.error(
+                "the chapter's translation pre-flight refused: \(error, privacy: .public)")
+        }
     }
 
     /// **Whether a pre-flight is worth taking now.**

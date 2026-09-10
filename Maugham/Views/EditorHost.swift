@@ -827,8 +827,21 @@ struct EditorHost: View {
             control.translationBadges = .empty
             return
         }
-        let records = TranslationStore.loadMerged(
-            forDocId: doc.docId, language: language, in: store.url)
+        let records: [TranslationRecord]
+        do {
+            records = try TranslationStore.loadMerged(
+                forDocId: doc.docId, language: language, in: store.url)
+        } catch {
+            // **The pane says why instead of showing the source** (P2a D0). A
+            // skipped actor file would render this document's paragraphs as
+            // `missing` and fall back to source text — a read-only surface
+            // that LOOKS like an untranslated manuscript, over a translation
+            // that is sitting on disk intact. The refusal's own sentence names
+            // the file, and the badges go empty so nothing claims coverage.
+            translatedSurfaceText = Self.translationSurfaceRefusal(error)
+            control.translationBadges = .empty
+            return
+        }
         let derived = TranslationDeriver.derive(
             records: records, sequence: doc.sequence,
             paragraphs: doc.paragraphs, language: language)
@@ -842,6 +855,13 @@ struct EditorHost: View {
         translatedSurfaceText = badgeEntries.map(\.text).joined(separator: "\n\n")
         control.translationBadges = EditorControl.TranslationBadgeModel(
             entries: badgeEntries, orphans: derived.orphans)
+    }
+
+    /// What the read-only translation surface shows when the read refuses
+    /// (P2a D0). Pure + static so `EditorHostTranslationSurfaceTests` can pin
+    /// that the file's own name reaches the writer without an AppKit surface.
+    static func translationSurfaceRefusal(_ error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
     /// Build the per-paragraph review entries from a derived translation. This

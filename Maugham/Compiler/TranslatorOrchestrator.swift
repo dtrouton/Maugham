@@ -286,7 +286,11 @@ final class TranslatorOrchestrator {
         /// the one the identity resolved: production reads both through
         /// `ProjectStore`'s translator row, which the mint has already put
         /// there by the time this is called.
-        var briefRound: @MainActor (String, String) async -> BriefedRound?
+        /// **Throwing, as of P2a D0**: `nil` is "not a run" and ends the
+        /// click in silence, which is right for a pair with nothing to do and
+        /// wrong for a translation file that is present and unreadable. A
+        /// throw ends the run with the refusal's own sentence, naming the file.
+        var briefRound: @MainActor (String, String) async throws -> BriefedRound?
         /// A FIX leg's briefing (spec §2's `.fix` mode): the same shape as
         /// `briefRound`, over the notes the pipeline hands it. Its work-list
         /// is built FROM those notes — one item per noted paragraph that still
@@ -295,7 +299,7 @@ final class TranslatorOrchestrator {
         /// exactly as above; an empty work-list (no noted paragraph has a
         /// translation any more) is `nothingToTranslate`, which the pipeline
         /// records as a skip.
-        var briefFix: @MainActor (String, String, [TranslatorBriefing.FixNote], Bool) async
+        var briefFix: @MainActor (String, String, [TranslatorBriefing.FixNote], Bool) async throws
             -> BriefedRound?
         /// The translator for a language, minting one the first time anybody
         /// asks (`ProjectStore.translatorRole(for:)`). **A run is a write
@@ -431,7 +435,7 @@ final class TranslatorOrchestrator {
     @discardableResult
     func runTranslation(docId: String, language: String) -> String? {
         start(pair: Pair(docId: docId, language: language)) { environment, pair in
-            await environment.briefRound(pair.docId, pair.language)
+            try await environment.briefRound(pair.docId, pair.language)
         }
     }
 
@@ -444,7 +448,7 @@ final class TranslatorOrchestrator {
     func runFix(docId: String, language: String,
                 notes: [TranslatorBriefing.FixNote], isFinalLeg: Bool) -> String? {
         start(pair: Pair(docId: docId, language: language)) { environment, pair in
-            await environment.briefFix(pair.docId, pair.language, notes, isFinalLeg)
+            try await environment.briefFix(pair.docId, pair.language, notes, isFinalLeg)
         }
     }
 
@@ -453,7 +457,7 @@ final class TranslatorOrchestrator {
     /// which is the one thing the two differ in.
     private func start(
         pair: Pair,
-        brief: @escaping @MainActor (Environment, Pair) async -> BriefedRound?
+        brief: @escaping @MainActor (Environment, Pair) async throws -> BriefedRound?
     ) -> String? {
         guard let environment, !isRunning else { return nil }
 
@@ -486,7 +490,7 @@ final class TranslatorOrchestrator {
     /// translation for a language IS the writer saying this edition has one.
     private func begin(
         pair: Pair, runId: String, generation: Int, environment: Environment,
-        brief: @MainActor (Environment, Pair) async -> BriefedRound?
+        brief: @MainActor (Environment, Pair) async throws -> BriefedRound?
     ) async {
         let identity: (name: String, roleId: String)
         do {
@@ -500,7 +504,22 @@ final class TranslatorOrchestrator {
         }
         guard runGeneration == generation else { return }
 
-        guard let round = await brief(environment, pair) else {
+        let briefed: BriefedRound?
+        do { briefed = try await brief(environment, pair) }
+        catch {
+            // **A refusal is not an absence** (P2a D0). The gather answers nil
+            // for a pair with nothing to do, and throws when it could not READ
+            // the edition — a present-but-unreadable translation file. Ending
+            // in silence there would leave the writer clicking Run on a book
+            // whose Spanish is sitting on disk intact.
+            guard runGeneration == generation else { return }
+            end(.failed(.run(.sessionDied(
+                detail: (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription))),
+                pair: pair, runId: runId)
+            return
+        }
+        guard let round = briefed else {
             // Not a run: the click had nothing to act on, so there is nothing
             // to report and nothing to end.
             guard runGeneration == generation else { return }

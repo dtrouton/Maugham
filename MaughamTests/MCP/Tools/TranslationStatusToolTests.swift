@@ -518,6 +518,49 @@ final class TranslationStatusToolTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    /// **An unreadable TRANSLATION file names the chapter too** (P2a D0).
+    ///
+    /// The op-log case above is issue #43's. This is the same degrade over the
+    /// other file a document's status is derived from, and P1b is what made it
+    /// matter: chapter 2 has the translator's own Spanish file AND a second
+    /// actor's that will not open, so a skip would report the pipeline's work
+    /// as the whole edition — a chapter reported PART translated on the
+    /// strength of which file happened to be readable.
+    ///
+    /// The disable experiment: put `try?` back on `EditionStatus`' `loadMerged`
+    /// and chapter 2 comes back as a row with its unreadable actor's
+    /// paragraphs counted `missing`, with `unreadable_documents` empty.
+    func test_anUnreadableTranslationFileIsNamedAndTheCallStillAnswers() async throws {
+        let h = try await makeHarness()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "uno")
+        try await seed(h, doc: h.doc2, paragraphId: h.doc2.sequence[0],
+                       language: "es", text: "dos")
+
+        // A second ACTOR's file for the same (document, language), squatted by a
+        // directory so it is present and unreadable. Chapter 2 stays OPEN on
+        // purpose: this is about the translation sidecar, not the op log, and an
+        // open document does not protect it.
+        let squat = TranslationStore.fileURL(
+            forDocId: h.doc2.docId, language: "es",
+            deviceSlug: DeviceSlug.make(from: "bad"), in: h.projectURL)
+        try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
+
+        let result = try await status(h, ["project_id": h.projectId])
+
+        XCTAssertEqual(result.unreadable_documents.map(\.document_id), ["doc-2"])
+        let skipped = try XCTUnwrap(result.unreadable_documents.first)
+        XCTAssertEqual(skipped.title, "Chapter 2")
+        XCTAssertTrue(skipped.reason.contains(squat.lastPathComponent),
+                      "the reason names the FILE, which is the thing the writer "
+                      + "can act on: \(skipped.reason)")
+
+        XCTAssertEqual(Set(result.rows.map(\.document_id)), ["doc-1"],
+                       "the readable chapter answers in full")
+
+        await h.documentStore.close()
+    }
+
     /// **A `document_id` the manifest does not hold still fails loudly** — the
     /// catalogue's unknown-id rule, which #43's degrade must not quietly soften.
     /// The degrade is for a document the manifest LISTS that will not open; a

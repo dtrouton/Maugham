@@ -1375,6 +1375,140 @@ final class TripwireGrepTests: XCTestCase {
             sites.first ?? "nothing caught")
     }
 
+    // MARK: - The translation read is never swallowed (P2a D0)
+
+    /// Every production site that swallows a `TranslationStore.loadMerged`
+    /// refusal. Whole-text rather than line-based, because the call is split
+    /// across lines almost everywhere it appears — `try?` on one line and the
+    /// call on the next would walk straight past a line scanner. Two shapes:
+    /// a `try?` in front of the call, and a `?? []` behind it. A comment
+    /// naming either is not a call. Shared with the self-check below.
+    private func loadMergedSwallowSites(in dirs: [URL]) throws -> [String] {
+        let patterns = [
+            #"try\?\s*(?://[^\n]*\n\s*)*(?:TranslationStore\s*\.\s*)?loadMerged\s*\("#,
+            #"loadMerged\s*\((?:[^()]|\([^()]*\))*\)\s*\?\?\s*\[\]"#,
+        ]
+        var offenders: [String] = []
+        for dir in dirs {
+            guard let walker = FileManager.default.enumerator(
+                at: dir, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                let ns = text as NSString
+                for pattern in patterns {
+                    let regex = try NSRegularExpression(pattern: pattern)
+                    regex.enumerateMatches(
+                        in: text, range: NSRange(location: 0, length: ns.length)
+                    ) { match, _, _ in
+                        guard let match else { return }
+                        let upTo = ns.substring(to: match.range.location)
+                        let lineNumber = upTo.reduce(into: 1) { if $1 == "\n" { $0 += 1 } }
+                        let start = (upTo as NSString).range(of: "\n", options: .backwards).location
+                        let lineStart = start == NSNotFound ? 0 : start + 1
+                        let end = ns.range(
+                            of: "\n", options: [],
+                            range: NSRange(location: match.range.location,
+                                           length: ns.length - match.range.location)).location
+                        let line = ns.substring(
+                            with: NSRange(location: lineStart,
+                                          length: (end == NSNotFound ? ns.length : end) - lineStart))
+                        let trimmed = line.trimmingCharacters(in: .whitespaces)
+                        if trimmed.hasPrefix("//") { return }
+                        offenders.append("\(url.lastPathComponent):\(lineNumber): \(trimmed)")
+                    }
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// Every production call of `loadMerged`, however it is spelled — the
+    /// non-vacuity control for the census below.
+    private func loadMergedCallSites(in dirs: [URL]) throws -> [String] {
+        var sites: [String] = []
+        for dir in dirs {
+            sites += try grepSwift(
+                in: dir, patterns: ["TranslationStore.loadMerged("],
+                excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") })
+        }
+        return sites
+    }
+
+    /// **Tripwire: a `TranslationStore.loadMerged` refusal is never swallowed**
+    /// (P2a D0; RULING-54 for the translation sidecar).
+    ///
+    /// Since P1b a document's translation is spread over one file per (device,
+    /// ACTOR) — the pipeline's own beside the author's review edits — so a read
+    /// that steps over the file it could not open answers with a PARTLY
+    /// translated document: the author's edits standing over source paragraphs
+    /// the pipeline had already translated. Every derivation downstream reads
+    /// those as `missing`, the compile gate falls back to source text under
+    /// `allow_stale`, and a half-Spanish book is published with nothing said.
+    /// The store refuses; a caller that answers `[]` for it puts the silence
+    /// back one level up, where nothing can see it.
+    ///
+    /// A ban rather than a census: there is no site where substituting an
+    /// empty read is the right answer. Refuse (the runs, the gate, the two MCP
+    /// readers), degrade by NAME (`EditionStatus`' `unreadable`, which both the
+    /// desk and `translation_status` draw), or show the sentence (the editor's
+    /// review pane, the desk's pre-flight figure).
+    func test_translationLoadMergedIsNeverSwallowed() throws {
+        let dirs = Self.translationReadRoots(repoRoot: repoRoot)
+        let offenders = try loadMergedSwallowSites(in: dirs)
+        XCTAssertTrue(
+            offenders.isEmpty,
+            "a production site swallows the translation read. `try?` or `?? []` "
+            + "here answers with a document that is part-translated by an "
+            + "accident of permissions. Refuse, degrade by name, or show the "
+            + "sentence. Offenders:\n" + offenders.joined(separator: "\n"))
+        // **Non-vacuous.** A scanner pointed at the wrong roots would find no
+        // offenders for the wrong reason, and go on passing forever.
+        XCTAssertFalse(
+            try loadMergedCallSites(in: dirs).isEmpty,
+            "the census found no `TranslationStore.loadMerged` call at all — "
+            + "check the roots before believing the empty offender list")
+    }
+
+    /// CONTROL for the census above: both planted swallows are caught, and
+    /// neither the honest `try` beside them nor a comment naming the verb is.
+    func test_theTranslationReadCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-translationread-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        enum SecondTranslationReader {
+            // A comment naming try? TranslationStore.loadMerged( is not a call.
+            static func swallowed(_ docId: String, _ projectURL: URL) -> [TranslationRecord] {
+                try? TranslationStore.loadMerged(
+                    forDocId: docId, language: "es", in: projectURL) ?? []
+            }
+
+            static func coalesced(_ docId: String, _ projectURL: URL) -> [TranslationRecord] {
+                (try? TranslationStore.loadMerged(forDocId: docId, language: "es", in: projectURL)) ?? []
+            }
+
+            static func honest(_ docId: String, _ projectURL: URL) throws -> [TranslationRecord] {
+                try TranslationStore.loadMerged(
+                    forDocId: docId, language: "es", in: projectURL)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SecondTranslationReader.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try loadMergedSwallowSites(in: [tmp])
+        let lines = Set(offenders.compactMap {
+            $0.split(separator: ":").dropFirst().first.map(String.init)
+        })
+        XCTAssertEqual(
+            lines, ["4", "9"],
+            "Self-check: the two planted swallows should be caught, and neither "
+            + "the honest `try` nor the comment. Got:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - Meta-tests: tripwires fire on planted offenders (task 4.8 / test gap #14)
 
     /// Self-check: prove the op-log filename tripwire FIRES on a planted
@@ -1683,6 +1817,15 @@ final class TripwireGrepTests: XCTestCase {
     /// Repo root, computed the same way `sourceDir` does (2x
     /// `deletingLastPathComponent()` off this file's `#filePath`), but without
     /// appending `Maugham/` — used to reach `Maugham/MaughamApp.swift` itself.
+    /// The three production trees a translation read can live in. The phone
+    /// has no `loadMerged` caller today, and it is in the list precisely so
+    /// that the first one it grows is judged by this census rather than
+    /// arriving unwatched.
+    static func translationReadRoots(repoRoot: URL) -> [URL] {
+        ["Maugham", "MaughamPhone", "Packages/MaughamCore/Sources"]
+            .map { repoRoot.appendingPathComponent($0, isDirectory: true) }
+    }
+
     private var repoRoot: URL {
         let here = URL(fileURLWithPath: #filePath)
         return here.deletingLastPathComponent().deletingLastPathComponent()

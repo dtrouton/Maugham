@@ -301,7 +301,11 @@ enum EditionStatus {
                 documentId: documentId, store: store,
                 documentStore: store.documentStore, projectURL: projectURL)
             let derived = TranslationDeriver.derive(
-                records: TranslationStore.loadMerged(
+                // P2a D0: an unreadable actor file throws, and the walk
+                // above records this whole chapter in `unreadable` with the
+                // error's own file-naming sentence — the degrade both the desk
+                // and `translation_status` already draw.
+                records: try TranslationStore.loadMerged(
                     forDocId: documentId, language: language, in: projectURL),
                 sequence: state.sequence,
                 paragraphs: state.paragraphs,

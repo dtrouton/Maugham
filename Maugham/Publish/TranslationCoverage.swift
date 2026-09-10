@@ -63,7 +63,12 @@ enum TranslationCoverage {
 
             let (sequence, paragraphs) = try sourceSplit(
                 projectStore: projectStore, docId: item.id, path: path)
-            let records = TranslationStore.loadMerged(
+            // **The gate refuses the edition rather than deriving over a
+            // partial read** (P2a D0): an unreadable actor file would make
+            // every paragraph that file holds read as `missing`, and under
+            // `allow_stale` the compile would fall back to source text and
+            // publish a half-translated book with a warning nobody can act on.
+            let records = try TranslationStore.loadMerged(
                 forDocId: item.id, language: language, in: projectStore.url)
             if !records.isEmpty { anyRecords = true }
 
