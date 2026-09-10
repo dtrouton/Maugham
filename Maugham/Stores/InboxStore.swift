@@ -67,13 +67,46 @@ final class InboxStore {
     /// no enclave.
     private let identity: DeviceIdentity
 
+    /// This device's four actors, as the trust table's `mine`. Injectable
+    /// beside `identity` for the same reason and it must move with it: a store
+    /// signing with a key the table does not call its own would file its own
+    /// appends as somebody else's history.
+    private let identities: LocalIdentities
+
     init(projectURL: URL,
          deviceId: String = InboxStore.currentDeviceId,
-         identity: DeviceIdentity = .author) {
+         identity: DeviceIdentity = .author,
+         identities: LocalIdentities = .current) {
         self.projectURL = projectURL
         self.inboxDir = projectURL.appendingPathComponent(".maugham/inbox")
         self.deviceId = deviceId
         self.identity = identity
+        self.identities = identities
+    }
+
+    /// Who this device trusts in this project, resolved once per store.
+    ///
+    /// The inbox is read on every `refresh`, so the registry is read once and
+    /// kept: a store is per project window, and admitting a device is already
+    /// a re-read of everything.
+    ///
+    /// **A registry this device cannot read leaves the inbox judging nobody**
+    /// rather than refusing the whole read. That is the lenient direction on
+    /// purpose and it is the only place in P2a that takes it: the inbox holds
+    /// the writer's own captures, `refresh` already names an unreadable
+    /// manifest rather than throwing, and applying a capture that should have
+    /// been held costs a row in a triage pane, while refusing the pane costs
+    /// the writer everything they dictated. The op log, whose refusal is about
+    /// a manuscript, throws (RULING-54).
+    private var resolvedTrust: TrustTable?
+
+    private func trust() -> TrustTable {
+        if let resolvedTrust { return resolvedTrust }
+        let table = (try? TrustResolution.resolve(
+            projectURL: projectURL, identities: identities))
+            ?? TrustResolution.keyless(mine: identities)
+        resolvedTrust = table
+        return table
     }
 
     /// The inbox's chain, for whichever manifest is being read or written: this
@@ -81,8 +114,10 @@ final class InboxStore {
     /// stream name in place of a docId (the manifest is a project's captures,
     /// not a document's history).
     private func chainPolicy() -> ChainPolicy {
-        ChainPolicy(identity: identity, state: .shared,
-                    docId: InboxManifest.chainDocId, projectURL: projectURL)
+        let table = trust()
+        return ChainPolicy(identity: identity, state: .shared,
+                           docId: InboxManifest.chainDocId, projectURL: projectURL,
+                           trust: { table.verdict(forSealKey: $0) })
     }
 
     private func manifestStore(at url: URL) -> JSONLAppendStore<InboxEntry> {

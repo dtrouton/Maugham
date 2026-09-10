@@ -29,7 +29,8 @@ final class InboxChainTests: XCTestCase {
     // MARK: - Fixture
 
     private func makeInbox(deviceId: String = "mac") -> InboxStore {
-        InboxStore(projectURL: projectURL, deviceId: deviceId, identity: identity)
+        InboxStore(projectURL: projectURL, deviceId: deviceId, identity: identity,
+                   identities: .forTesting(author: identity))
     }
 
     private func manifestURL(_ deviceId: String) -> URL {
@@ -88,7 +89,8 @@ final class InboxChainTests: XCTestCase {
 
     func test_aMacWithNoKeySealsNothingAndStillWritesItsRow() async throws {
         let unsigned = DeviceIdentity.unsignedForTesting(token: Data(repeating: 7, count: 32))
-        let inbox = InboxStore(projectURL: projectURL, deviceId: "mac", identity: unsigned)
+        let inbox = InboxStore(projectURL: projectURL, deviceId: "mac", identity: unsigned,
+                               identities: .forTesting(author: unsigned))
         let seed = farSideStore("mac", identity: unsigned)
         try await seed.append(entry("id1"))
 

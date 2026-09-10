@@ -22,8 +22,18 @@ public struct FileProvenance: Equatable, Sendable {
     /// with no signature of ours beside it. Applied — P1 has no registry — but
     /// never claimed as this device's own word.
     public let unsignedHistory: Int
-    /// Lines that were NOT applied: the chain broke at or before them.
+    /// Lines that were NOT applied: the chain broke at or before them, or the
+    /// key that sealed them was revoked or belongs to another claimant.
     public let quarantined: Int
+    /// Lines HELD: sealed by a key this device's chain says nothing about, so
+    /// neither applied nor refused (spec §3). Admitting the device applies
+    /// them on the next read; nothing is rewritten either way.
+    public let pending: Int
+    /// The same number split by the key that sealed each held span, so a
+    /// surface can offer *admit this device* about somebody in particular
+    /// rather than about a count. Keyed on the seal's own fingerprint, which is
+    /// what `TrustTable` takes to name a person.
+    public let pendingByDevice: [String: Int]
     /// Whether this file is a sealed `.mzseg` segment rather than a live tail.
     public let isSealedSegment: Bool
     /// For a sealed segment: whether its signature settled it (either read from
@@ -38,6 +48,8 @@ public struct FileProvenance: Equatable, Sendable {
         unsealed: Int = 0,
         unsignedHistory: Int = 0,
         quarantined: Int = 0,
+        pending: Int = 0,
+        pendingByDevice: [String: Int] = [:],
         isSealedSegment: Bool = false,
         segmentVerified: Bool? = nil
     ) {
@@ -47,6 +59,8 @@ public struct FileProvenance: Equatable, Sendable {
         self.unsealed = unsealed
         self.unsignedHistory = unsignedHistory
         self.quarantined = quarantined
+        self.pending = pending
+        self.pendingByDevice = pendingByDevice
         self.isSealedSegment = isSealedSegment
         self.segmentVerified = segmentVerified
     }
@@ -69,6 +83,21 @@ public struct OpLogProvenance: Equatable, Sendable {
     public var unsealedLines: Int { files.reduce(0) { $0 + $1.unsealed } }
     public var unsignedHistoryLines: Int { files.reduce(0) { $0 + $1.unsignedHistory } }
     public var quarantinedLines: Int { files.reduce(0) { $0 + $1.quarantined } }
+    /// Lines held for a stranger's key across every file of this document.
+    public var pendingLines: Int { files.reduce(0) { $0 + $1.pending } }
+
+    /// Held lines by the key that sealed them, summed across the files. The
+    /// question a surface asks is *who is waiting*, and one device's history
+    /// can be spread over more than one file.
+    public var pendingByDevice: [String: Int] {
+        files.reduce(into: [:]) { total, file in
+            for (key, count) in file.pendingByDevice { total[key, default: 0] += count }
+        }
+    }
+
+    /// Is anything waiting on the writer to admit a device? The one question
+    /// the pending state exists to let a surface ask.
+    public var hasPendingHistory: Bool { pendingLines > 0 }
 
     /// Does this document carry history from before the chain existed? Not a
     /// fault — every manuscript written before this milestone answers yes, and

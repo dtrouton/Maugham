@@ -327,16 +327,20 @@ public struct ChainPolicy: Sendable {
     /// The key this store SIGNS with: one actor, never a set. A seal names one
     /// device and one moment, and a line is written by one writer.
     public let identity: DeviceIdentity
-    /// The keys this store TRUSTS on read: every actor on this device
-    /// (`LocalIdentities.fingerprints`). Signing and trusting are different
-    /// questions and P1b is where they stop having the same answer — the
-    /// assistant's seal over the assistant's file is this device's own word,
-    /// and a trust set of one fingerprint would file it as another device's
-    /// unsigned history.
+    /// What a key that sealed something in this store's file is to this
+    /// device — the `TrustTable`'s own question, as a closure, so a store can
+    /// be built without one and a caller that has one passes it straight in.
     ///
-    /// Defaulted to the signer alone, so every caller that has one identity and
-    /// means it (the inbox, the phone's annotation writer) keeps P1's shape.
-    public let trustedFingerprints: Set<String>
+    /// **Its two readers ask different things of it.** The chained WRITE asks
+    /// only whether a key is `.mine`: this file has one writer by ADR 0012, so
+    /// anything else in it is a quarantine whatever the registry says. The
+    /// chained READ (`loadVerifiedStrict`) takes the full verdict, which is
+    /// what lets the inbox hold a stranger's entries rather than applying them.
+    ///
+    /// Defaulted to *the signer is this device and nobody else is judged* —
+    /// P1's shape exactly — so every caller that has one identity and means it
+    /// keeps what it had.
+    public let trust: @Sendable (String) -> TrustVerdict
     public let state: OpLogDeviceState
     public let docId: String
     public let projectURL: URL
@@ -346,10 +350,11 @@ public struct ChainPolicy: Sendable {
         state: OpLogDeviceState,
         docId: String,
         projectURL: URL,
-        trustedFingerprints: Set<String>? = nil
+        trust: (@Sendable (String) -> TrustVerdict)? = nil
     ) {
+        let signer = identity.fingerprint
         self.identity = identity
-        self.trustedFingerprints = trustedFingerprints ?? [identity.fingerprint]
+        self.trust = trust ?? { $0 == signer ? .mine : .noChain }
         self.state = state
         self.docId = docId
         self.projectURL = projectURL

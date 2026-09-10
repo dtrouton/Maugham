@@ -144,12 +144,15 @@ public enum TranslationStore {
         // seal over the batch — the op log's own shape, from the op log's own
         // store, so a translation line and a manuscript line are readable by
         // exactly the same walk.
+        // The WRITE asks one question of a table and it is which keys are this
+        // device's own, so the keyless one — no registry read on a write path.
+        let mine = TrustResolution.keyless(mine: identities)
         let store = JSONLAppendStore<TranslationRecord>(
             fileURL: url,
             chain: ChainPolicy(
                 identity: identity, state: state,
                 docId: docId, projectURL: projectURL,
-                trustedFingerprints: identities.fingerprints))
+                trust: { mine.verdict(forSealKey: $0) }))
         try await store.appendBatch(records)
         // Best-effort, like every other seal site in the codebase (the
         // whole-branch review's I2). The records above are durably written; a
@@ -175,11 +178,12 @@ public enum TranslationStore {
     /// opId-ascending, canonical-content tiebreak, first-wins dedup by opId —
     /// same total-order discipline as OpLogStore.mergeSortedDedup.
     ///
-    /// **Every file is walked before any of it is applied** (P1b). `trusted` is
-    /// all four of this device's actors, so the translator's own file reads as
-    /// this device's word; a file another device wrote carries a seal under a
-    /// key that is not ours and reads as unsigned history, which is history and
-    /// not damage. Lines the walk held back are recorded through the same
+    /// **Every file is walked before any of it is applied** (P1b). The table
+    /// answers `.mine` for all four of this device's actors, so the
+    /// translator's own file reads as this device's word; a file an admitted
+    /// device wrote is `verified` too, a stranger's is HELD, and a file from a
+    /// project with no chain at all reads as unsigned history, which is history
+    /// and not damage. Lines the walk held back are recorded through the same
     /// forensic path the op log uses, under the manuscript's own `docId` — the
     /// language is in the filename, so a `.lines` record files under the
     /// document History already shows.
@@ -209,9 +213,14 @@ public enum TranslationStore {
     public static func loadMerged(forDocId docId: String, language: String,
                                   in projectURL: URL,
                                   identities: LocalIdentities = .current,
-                                  state: OpLogDeviceState = .shared) throws -> [TranslationRecord] {
+                                  state: OpLogDeviceState = .shared,
+                                  trust: TrustTable? = nil) throws -> [TranslationRecord] {
         var all: [TranslationRecord] = []
-        let trusted = identities.fingerprints
+        // Resolved here when the caller did not hand one over. A caller reading
+        // a book's every language should resolve once and pass it: the
+        // resolution is a verified read of the registry folder.
+        let table = try trust ?? TrustResolution.resolve(
+            projectURL: projectURL, identities: identities)
         for url in fileURLs(forDocId: docId, language: language, in: projectURL) {
             // The URL came from the directory listing, so it exists; a read
             // failure here means the device file is present but unreadable
@@ -231,7 +240,7 @@ public enum TranslationStore {
             let fileKey = OpLogDeviceState.fileKey(url)
             let walked = OpLogChain.verify(
                 bytes: bytes,
-                trusted: { trusted.contains($0) },
+                trust: { table.verdict(forSealKey: $0) },
                 rememberedHead: state.head(for: fileKey))
             // The same absent-head decision the chained WRITE makes. If the two
             // disagreed, a load that held a tail back would be followed by an
