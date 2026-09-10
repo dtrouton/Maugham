@@ -378,6 +378,106 @@ final class PendingLoadTests: XCTestCase {
                        "the second claimant is recorded, loudly, and never merged")
     }
 
+    /// **A claim this device REFUSED is still recorded** (fix round 1, I1).
+    ///
+    /// The same-authority rule keeps the second root's admission out of the
+    /// registry — that is the point of it — but the registry is where
+    /// `admittingRoots` comes from, so the refusal takes the claim off the only
+    /// path B1 had to see it. `TrustResolution` reads the `.signerChanged`
+    /// listing instead, so the writer is shown the claimant even though nothing
+    /// about this device's chain moved.
+    ///
+    /// The test above is the same story with the folder's copy still in the
+    /// registry; this one reaches the claimant through the listing alone.
+    func test_aRefusedClaimIsStillRecordedAsAClaimant() throws {
+        let first = DeviceIdentity.softwareForTesting()
+        let second = DeviceIdentity.softwareForTesting()
+        try admit(first.fingerprint, under: first, at: 10)
+        try admit(root.author.fingerprint, under: first, at: 20)
+
+        // Verified once, so this device REMEMBERS being on the first root.
+        _ = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+        XCTAssertEqual(cache.joinedRoot(for: projectURL), first.fingerprint)
+
+        // The second root writes its own admission over the same record.
+        try admit(second.fingerprint, under: second, at: 30)
+        try admit(root.author.fingerprint, under: second, at: 40)
+
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(table.myRoot, first.fingerprint,
+                       "the refusal is what keeps this device on the root it joined")
+        XCTAssertEqual(cache.claimants(for: projectURL), [second.fingerprint],
+                       "and the claim it refused is recorded, not swallowed")
+        XCTAssertEqual(makeSameCache().claimants(for: projectURL), [second.fingerprint],
+                       "persisted, so a surface can show it after a relaunch")
+    }
+
+    /// Recorded once, however many times the project is opened — and the
+    /// listing is the same listing every time, so this is the clause that
+    /// matters.
+    func test_aRefusedClaimIsRecordedOncePerClaimant() throws {
+        let first = DeviceIdentity.softwareForTesting()
+        let second = DeviceIdentity.softwareForTesting()
+        try admit(first.fingerprint, under: first, at: 10)
+        try admit(root.author.fingerprint, under: first, at: 20)
+        _ = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        try admit(second.fingerprint, under: second, at: 30)
+        try admit(root.author.fingerprint, under: second, at: 40)
+        for _ in 0..<3 {
+            _ = try TrustResolution.resolve(
+                projectURL: projectURL, identities: root, cache: cache)
+        }
+
+        XCTAssertEqual(cache.claimants(for: projectURL), [second.fingerprint])
+    }
+
+    /// **A device is nobody's claimant to itself** (fix round 1, M1). A key of
+    /// OURS displacing a record of ours is this device re-signing its own
+    /// history; listing ourselves would be a permanent warning nobody can
+    /// answer.
+    func test_thisDevicesOwnKeyDisplacingItsOwnRecordClaimsNothing() throws {
+        let first = DeviceIdentity.softwareForTesting()
+        try admit(first.fingerprint, under: first, at: 10)
+        try admit(root.author.fingerprint, under: first, at: 20)
+        _ = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        // This device writes its own self-signed root record over the
+        // admission it was remembered under — a different signer, so the rule
+        // refuses it, but the signer is us.
+        try admit(root.author.fingerprint, under: root.author, at: 30)
+
+        // The branch under test is reached: without this the assertion below
+        // would pass on a folder that displaced nothing.
+        let listings = try cache.reconcile(
+            folder: try RegistryReader.load(projectURL: projectURL),
+            cached: cache.cached(for: projectURL), in: projectURL).registry.malformed
+        XCTAssertEqual(
+            listings.map(\.reason),
+            [.signerChanged(expected: first.fingerprint,
+                            found: root.author.fingerprint)],
+            "the same-authority rule did refuse it — the signer is simply ours")
+
+        _ = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(cache.claimants(for: projectURL), [],
+                       "this device does not claim its own book")
+    }
+
+    /// A second memory over the same file, to prove a claimant survives the
+    /// process rather than living in one instance.
+    private func makeSameCache() -> RegistryCache {
+        RegistryCache(
+            fileURL: projectURL.appendingPathComponent("registry-cache.json"),
+            identity: root.author.fingerprint)
+    }
+
     /// The registry folder deleted wholesale is a vanished chain, not the
     /// absence of one: this device's memory puts the records back.
     func test_aRegistryDeletedWholesaleIsRestoredRatherThanBelieved() async throws {

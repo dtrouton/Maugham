@@ -347,7 +347,7 @@ final class RegistryReaderWriterTests: XCTestCase {
             .signerIsNotTheExpectedKey(expected: "aaaa", found: "bbbb"),
             .signerIsNotARoot(named: "cccc"),
             .authorActorIsNotTheDevice(named: "dddd"), .authorActorIsNotTheDevice(named: nil),
-            .signerChanged(expected: "eeee", found: "ffff")]
+            .signerChanged(expected: "eeee", found: "ffff"), .notAJSONObject]
         for reason in reasons {
             XCTAssertFalse(reason.sentence.isEmpty, "\(reason) says nothing")
         }

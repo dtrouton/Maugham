@@ -28,6 +28,12 @@ public enum TrustResolution {
     /// memory are BOTH empty; otherwise every remembered record is put back and
     /// the resolution proceeds from what was restored.
     ///
+    /// **A claim this device REFUSED is still listed.** A record of ours that
+    /// the folder now shows under somebody else's key is kept out of the
+    /// registry by the same-authority rule, so it cannot reach
+    /// `table.admittingRoots` — `recordRefusedClaimants` reads those listings
+    /// so the writer is shown the claimant anyway (fix round 1, I1).
+    ///
     /// **A device never switches roots on its own** (B1), which decides the
     /// whole of the join. A device holding its own self-signed root record is
     /// already on a root — its own — so it JOINS nobody, and every other root
@@ -95,7 +101,46 @@ public enum TrustResolution {
             guard admitting != joined else { continue }
             cache.recordClaimant(root: admitting, for: projectURL)
         }
+        recordRefusedClaimants(
+            in: reconciled, mine: identities, cache: cache, projectURL: projectURL)
         return table
+    }
+
+    /// **A record of ours the folder now shows under another key is a claim we
+    /// refused, and a claim refused is still a claim heard.**
+    ///
+    /// The same-authority rule (`RegistryCache.reconcile`) keeps another root
+    /// from taking over a record this device already verified — but it keeps it
+    /// out of the registry to do so, and the registry above is where
+    /// `table.admittingRoots` comes from. Without this, the very path B1 exists
+    /// for — a second Mac writing its own admission over the one this device is
+    /// on — would go by in silence: refused, correct, and invisible.
+    ///
+    /// It lives here rather than in the cache for the reason the loop above
+    /// does. *Me* is four actor keys (`LocalIdentities.fingerprints`, which
+    /// enumerates what is on disk and mints nothing), not the author key alone;
+    /// and a second place that records claimants, with a different idea of who
+    /// this device is, is the shape that drifts.
+    ///
+    /// **A device is nobody's claimant to itself.** A key of ours displacing a
+    /// record of ours is this device re-signing its own history — a root record
+    /// written over an admission, say — and listing ourselves as a claimant on
+    /// our own book would be a permanent, unanswerable warning.
+    nonisolated private static func recordRefusedClaimants(
+        in registry: Registry,
+        mine: LocalIdentities,
+        cache: RegistryCache,
+        projectURL: URL
+    ) {
+        let ours = mine.fingerprints
+        guard !ours.isEmpty else { return }
+        for fault in registry.malformed {
+            guard case .signerChanged(_, let found) = fault.reason,
+                  let ref = fault.ref, ref.directory == .people,
+                  ours.contains(ref.fingerprint), !ours.contains(found)
+            else { continue }
+            cache.recordClaimant(root: found, for: projectURL)
+        }
     }
 
     /// The table a reader uses when there is nothing to judge by: this device's

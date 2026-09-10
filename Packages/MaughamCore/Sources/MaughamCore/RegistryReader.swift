@@ -45,6 +45,16 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
         /// a claim, and a claim is listed (`RegistryCache.reconcile`, spec §2.4
         /// P4, B1).
         case signerChanged(expected: String, found: String)
+        /// The bytes are not a JSON object, so there is nothing that could have
+        /// been signed — the canonical form has no object to take a signature
+        /// slot out of (`RegistryCanonicalError.notAJSONObject`).
+        ///
+        /// Near-unreachable through `load`, because `decode` runs first and
+        /// answers such a file `.undecodable`. It is named anyway rather than
+        /// folded into `.signatureDoesNotVerify`: *was changed after it was
+        /// signed* is a sentence about somebody's edit, and this file was never
+        /// a record at all (fix round 1, M7).
+        case notAJSONObject
 
         /// One sentence a surface can print.
         public var sentence: String {
@@ -66,6 +76,8 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
                     ?? "names no author key of its own"
             case .signerChanged(let expected, let found):
                 return "is now signed by \(found), where this device verified \(expected)"
+            case .notAJSONObject:
+                return "isn't a record at all — its bytes are not a JSON object"
             }
         }
     }
@@ -336,8 +348,14 @@ public enum RegistryReader {
         // record from a later build carries a field this one has no property
         // for, and hashing this build's vocabulary of it would refuse an honest
         // record (P2b Task 1).
-        guard let digest = try? RegistryCanonical.digestHex(ofJSON: bytes),
-              OpLogChain.credentialsVerify(credentials, over: digest) else {
+        //
+        // The two failures are kept apart: bytes that are not an object were
+        // never a record, and saying *changed after it was signed* about one
+        // would name an edit nobody made.
+        let digest: String
+        do { digest = try RegistryCanonical.digestHex(ofJSON: bytes) }
+        catch { return .init(url: url, reason: .notAJSONObject) }
+        guard OpLogChain.credentialsVerify(credentials, over: digest) else {
             return .init(url: url, reason: .signatureDoesNotVerify)
         }
         guard credentials.key == record.expectedSigner else {

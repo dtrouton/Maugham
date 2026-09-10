@@ -318,6 +318,17 @@ public final class RegistryCache: @unchecked Sendable {
     ///   folder's file is left exactly where it is (it is present; only an
     ///   absent record is restored). The claimant is shown, never merged — B1's
     ///   rule, one record down.
+    ///
+    ///   **The listing is where this ends.** Refusing the folder's copy takes it
+    ///   out of the registry, and the registry is where `TrustResolution` looks
+    ///   to find the roots that name this device — so a refusal that said
+    ///   nothing would close the hole and silence B1's claimant list in the same
+    ///   stroke. But recording the claimant is not this function's act: which
+    ///   fingerprints are THIS device's is a question about four actor keys
+    ///   (`LocalIdentities`), and this type holds one. `TrustResolution.resolve`
+    ///   reads these listings beside the loop where it already decides the join
+    ///   and the claimants, so there is one place that records a claimant rather
+    ///   than two with different ideas of *me* (fix round 1, I1).
     /// - Whatever it settles on is then remembered, so the next reconcile
     ///   starts from what this device last verified rather than from something
     ///   older than the folder.
@@ -381,20 +392,6 @@ public final class RegistryCache: @unchecked Sendable {
             Self.drop(ref, from: &devices, &people, &claims)
             sourceBytes[ref] = entry.bytes
             Self.take(ref, from: cached, into: &devices, &people, &claims)
-
-            // **The record refused is still a claim heard.** Refusing the
-            // folder's copy takes it out of the registry, and the registry is
-            // where `TrustResolution` looks to find the roots that name this
-            // device — so without this line the rule would close the hole and
-            // silence B1's claimant list in the same stroke, on the very path
-            // it is for: another Mac writing its own admission over the one
-            // this device already verified. The person record whose fingerprint
-            // is this device's identity IS the record about this device
-            // (labels only: a person is a device), so the key that signed the
-            // refused copy is a root claiming it.
-            if directory == .people, ref.fingerprint == identity {
-                recordClaimant(root: theirs, for: projectURL)
-            }
         }
 
         let resolved = Registry(
