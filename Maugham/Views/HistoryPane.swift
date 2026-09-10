@@ -140,6 +140,18 @@ struct HistoryPane: View {
     /// `SetAsideAcknowledgement.name(for:in:)` reads the quarantine directory
     /// and a per-row read from `body` is tripwire 4.
     @State private var setAsideRecordNames: [String] = []
+    /// Device fingerprint → the name that device's registry record gives it,
+    /// for the pending sentence (signed op log P2a). Empty when this project
+    /// has no registry, and empty when one could not be read: a name is
+    /// decoration on a count, so an unreadable registry costs the writer a code
+    /// rather than the sentence. Resolved in `reload()` because reading it is
+    /// disk work (tripwire 4).
+    @State private var chainDeviceNames: [String: String] = [:]
+    /// Whose chain this Mac is on, already as the sentence — nil when it has
+    /// joined nobody's. The whole line rather than the root's fingerprint,
+    /// because both halves it is built from (this device's registry memory and
+    /// the people records) are resolved in the same off-actor read.
+    @State private var joinedChainLine: String?
     @State private var isRetryingQuarantine: Bool = false
     /// The report from the most recently completed Retry, kept only long
     /// enough for the writer to view or dismiss it — cleared when the sheet
@@ -349,6 +361,108 @@ struct HistoryPane: View {
         + "set aside (\(reason))."
     }
 
+    // MARK: - The chain (signed op log P2a)
+
+    /// The pending line's control, as three constants `body` reads rather than
+    /// three literals inside it.
+    ///
+    /// It is the ONE History line that carries a control (spec §6), because
+    /// held history is the one thing on this list the writer can act on: every
+    /// other sentence here is a statement of fact. P2a DRAWS it; P2b wires it
+    /// to the admission sheet, and flipping `admitIsAvailable` is what that
+    /// costs here. Constants because the decision — drawn, disabled, and what
+    /// it says instead — is then pinnable with no window at all (tripwire 33:
+    /// no test presses a mounted control and waits for its effect).
+    static let admitTitle = "Admit…"
+    static let admitUnavailableHelp = "Admission arrives with the next update"
+    static let admitIsAvailable = false
+
+    /// A fingerprint as the writer sees it: the first four characters, the
+    /// "code" a device shows for itself. Shown wherever the record that would
+    /// give a name is missing — uppercased, because a code exists to be
+    /// compared against another screen and hex reads better in capitals.
+    ///
+    /// P2b's People & Devices shows codes too; when it lands, this is the
+    /// helper it should reach for rather than a second spelling.
+    nonisolated static func shortCode(_ fingerprint: String) -> String {
+        fingerprint.prefix(4).uppercased()
+    }
+
+    /// What is HELD — history written by a device this book's chain says
+    /// nothing about, kept out of the draft until the writer admits it (spec
+    /// §3). Nil when nothing is waiting.
+    ///
+    /// **Nothing is ever waiting on a device with no chain** (decision B3): a
+    /// device no root names judges nobody, so every foreign key falls back to
+    /// P1 and its lines are APPLIED as unsigned history — which the sentence
+    /// above says. That case reaches here as a zero count and this notice is
+    /// absent.
+    ///
+    /// **One device is named; several are counted.** With one, the writer can
+    /// act on a name — the device record's own where the registry holds one,
+    /// else its code, which is what that device shows for itself. With several,
+    /// naming them all would be a list inside a caption, so People & Devices
+    /// holds the roll and this says how many.
+    ///
+    /// `names` maps a DEVICE fingerprint to its record's name. It is an
+    /// argument rather than a lookup because the trust table carries no names
+    /// (it answers verdicts and names nobody, deliberately) and because a
+    /// notice that read the registry would do disk I/O on every `body` pass
+    /// (tripwire 4). `reload()` resolves it.
+    ///
+    /// This is a separate sentence from `unsignedHistoryNotice` rather than a
+    /// coalesced one: the pane's coalescing rule is per SUBJECT — one sentence
+    /// about one thing — and applied-anyway and held-back are two things with
+    /// two different offers, only one of which the writer can answer.
+    nonisolated static func pendingNotice(
+        provenance: OpLogProvenance?, names: [String: String]
+    ) -> String? {
+        guard let provenance, provenance.hasPendingHistory else { return nil }
+        let total = provenance.pendingLines
+        let noun = total == 1 ? "note" : "notes"
+        let verb = total == 1 ? "is" : "are"
+        let devices = provenance.pendingByDevice.keys.sorted()
+        let who: String
+        if devices.count > 1 {
+            who = "\(devices.count) devices"
+        } else if let device = devices.first {
+            who = names[device] ?? shortCode(device)
+        } else {
+            // Held lines nothing attributes to a device. Structurally unlikely
+            // — the tally is built off the same lines the count is — but the
+            // COUNT is what matters here, and going quiet about history that is
+            // not in the draft would be the one unacceptable answer.
+            who = "another device"
+        }
+        return "\(total) \(noun) from \(who) \(verb) waiting for admission."
+    }
+
+    /// Whose chain this Mac is on — nil when it has joined nobody's.
+    ///
+    /// A Mac that is its own root joins nothing (B1, `TrustTable.RootSource`'s
+    /// arm 2): there is no chain of somebody else's for it to be on, and the
+    /// cache records only a FOREIGN root. So the ordinary single-Mac project
+    /// never sees this line, and a Mac admitted to another's book always does.
+    ///
+    /// A second root that names this device is a CLAIMANT, not a new chain
+    /// (`RegistryCache.join` is write-once), so this goes on naming the chain
+    /// this Mac is actually on however many roots claim it. The claimants are
+    /// P2b's People & Devices to show.
+    ///
+    /// **No date, and that is a gap rather than a decision.** The spec's
+    /// sentence carries one (*…on 9 Sep*); the cache records the root it
+    /// joined and not when, and adding a field to it is not this task's. When
+    /// P2b stamps the join, the date belongs at the end of this sentence.
+    ///
+    /// `labels` maps a person fingerprint to the label its record gives them,
+    /// for the same reason `pendingNotice` takes `names`.
+    nonisolated static func joinedChainNotice(
+        cache: RegistryCache, projectURL: URL, labels: [String: String]
+    ) -> String? {
+        guard let root = cache.joinedRoot(for: projectURL) else { return nil }
+        return "This Mac joined \(labels[root] ?? shortCode(root))’s chain."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             filterToolbar
@@ -415,6 +529,46 @@ struct HistoryPane: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
+            // Signed op log P2a's two chain sentences, drawn together and in
+            // this order because the second is the first's context: what this
+            // Mac is holding, and whose chain it is holding it against.
+            if let notice = Self.pendingNotice(
+                provenance: documentProvenance, names: chainDeviceNames) {
+                HStack(spacing: 8) {
+                    Label(notice, systemImage: "person.badge.clock")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Spacer(minLength: 4)
+                    // The one History line with a control. It does nothing in
+                    // P2a — the admission sheet is P2b — so it is drawn
+                    // disabled and says when it will work, rather than being
+                    // left out and leaving the writer with a count they cannot
+                    // answer.
+                    Button(Self.admitTitle) {}
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                        .disabled(!Self.admitIsAvailable)
+                        .help(Self.admitUnavailableHelp)
+                        // .help is hover-only; the WHY must reach VoiceOver.
+                        .accessibilityHint(Text(Self.admitUnavailableHelp))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
+            if let notice = joinedChainLine {
+                // Secondary, not orange: nothing is wrong, and nothing is
+                // being asked of the writer. It is the standing fact the
+                // sentence above is measured against.
+                Label(notice, systemImage: "link")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
             if !setAsideRecordNames.isEmpty {
@@ -619,6 +773,48 @@ struct HistoryPane: View {
                 acknowledged: documentStore?.uiState.acknowledgedSetAsideRecords ?? [],
                 in: projectURL),
             in: projectURL)
+        await reloadChain()
+    }
+
+    /// The names the two chain sentences are told in, resolved off the main
+    /// actor (signed op log P2a).
+    ///
+    /// **Why the registry and not `OpLogStore.trust()`.** A `TrustTable`
+    /// answers verdicts and names nobody — that is deliberate, so that a table
+    /// need only be rebuilt when the registry changes. The names live in the
+    /// records, so this reads them.
+    ///
+    /// **Off the actor**, for `TrustResolution.resolve`'s own reason: it is a
+    /// directory read plus a signature verification per record.
+    ///
+    /// **A project with no registry directory short-circuits without a read.**
+    /// That is every project that has never joined a chain — the ordinary case,
+    /// which must cost nothing beyond three `fileExists`. A registry deleted
+    /// WHOLESALE therefore leaves both sentences quiet until something restores
+    /// it, which the next document load does on its way to any verdict.
+    ///
+    /// Never fatal: `RegistryReader.load` throws on a record it cannot read
+    /// (RULING-54) and refusing the whole pane over a name would be the wrong
+    /// trade. The counts and the join do not come from it.
+    private func reloadChain() async {
+        let url = projectURL
+        guard TrustResolution.hasRegistry(in: url) else {
+            chainDeviceNames = [:]
+            joinedChainLine = nil
+            return
+        }
+        let resolved = await Task.detached(priority: .userInitiated) {
+            () -> (names: [String: String], joined: String?) in
+            let registry = try? RegistryReader.load(projectURL: url)
+            var names: [String: String] = [:]
+            var labels: [String: String] = [:]
+            for device in registry?.devices ?? [] { names[device.device] = device.name }
+            for person in registry?.people ?? [] { labels[person.person] = person.label }
+            return (names, HistoryPane.joinedChainNotice(
+                cache: .shared, projectURL: url, labels: labels))
+        }.value
+        chainDeviceNames = resolved.names
+        joinedChainLine = resolved.joined
     }
 
     /// Put the set-aside sentence down: every record it could be about is

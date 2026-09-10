@@ -177,3 +177,234 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
         return url
     }
 }
+
+/// Static-copy pins for the signed op log's two CHAIN sentences in
+/// `HistoryPane` (P2a, spec §6) — what is HELD until the writer admits the
+/// device that wrote it, and whose chain this Mac is on.
+///
+/// Same pattern as the two sentences above: pure statics over values, so the
+/// grammar, the naming rule and the nil cases are assertable with no window.
+/// The Admit… control is pinned the same way — the decision (drawn, disabled,
+/// and what it says instead) is three constants `body` reads, never a press in
+/// a mounted window (tripwire 33).
+@MainActor
+final class HistoryPaneChainNoticeTests: XCTestCase {
+
+    // A device fingerprint is SHA-256 hex; four characters is the "code" a
+    // surface shows when no record gives the device a name.
+    private let phone = "4f2ka1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e"
+    private let mac = "9c8b7a6f5e4d3c2b1a0918273645ffee0011223344556677889900aabbccddee"
+
+    // MARK: - pendingNotice
+
+    func test_pendingNotice_nilForNoProvenance() {
+        XCTAssertNil(HistoryPane.pendingNotice(provenance: nil, names: [:]))
+    }
+
+    /// Decision B3: a device no root names has no chain to judge by, so every
+    /// foreign key answers `.noChain` and its lines are APPLIED as unsigned
+    /// history. Nothing is ever pending there, which reaches this function as a
+    /// zero count. (The loader half is pinned by `PendingLoadTests`'
+    /// no-registry case.)
+    func test_pendingNotice_nilWhenNothingIsWaiting() {
+        let provenance = OpLogProvenance(files: [
+            FileProvenance(name: "doc-a.mac.jsonl", verified: 20, unsignedHistory: 6)
+        ])
+        XCTAssertNil(
+            HistoryPane.pendingNotice(provenance: provenance, names: [:]),
+            "with no chain nothing is held — unsigned history is applied, and says so above")
+    }
+
+    func test_pendingNotice_oneDevice_namesItFromItsRecord() {
+        let provenance = OpLogProvenance(files: [
+            FileProvenance(name: "doc-a.phone.jsonl", pending: 14,
+                           pendingByDevice: [phone: 14])
+        ])
+        XCTAssertEqual(
+            HistoryPane.pendingNotice(provenance: provenance, names: [phone: "iPhone"]),
+            "14 notes from iPhone are waiting for admission.")
+    }
+
+    /// No device record names the key, so the writer gets the code they can
+    /// compare against the other device's own screen.
+    func test_pendingNotice_oneDevice_withNoRecordShowsItsCode() {
+        let provenance = OpLogProvenance(files: [
+            FileProvenance(name: "doc-a.phone.jsonl", pending: 3,
+                           pendingByDevice: [phone: 3])
+        ])
+        XCTAssertEqual(
+            HistoryPane.pendingNotice(provenance: provenance, names: [:]),
+            "3 notes from 4F2K are waiting for admission.")
+    }
+
+    func test_pendingNotice_oneNote_usesSingularGrammar() {
+        let provenance = OpLogProvenance(files: [
+            FileProvenance(name: "doc-a.phone.jsonl", pending: 1,
+                           pendingByDevice: [phone: 1])
+        ])
+        XCTAssertEqual(
+            HistoryPane.pendingNotice(provenance: provenance, names: [phone: "iPhone"]),
+            "1 note from iPhone is waiting for admission.")
+    }
+
+    /// Naming several devices would be a list inside a caption, so the sentence
+    /// counts them and People & Devices holds the roll.
+    func test_pendingNotice_severalDevices_countsThemRatherThanNamingThem() {
+        let provenance = OpLogProvenance(files: [
+            FileProvenance(name: "doc-a.phone.jsonl", pending: 14,
+                           pendingByDevice: [phone: 14]),
+            FileProvenance(name: "doc-a.mac.jsonl", pending: 2,
+                           pendingByDevice: [mac: 2]),
+        ])
+        XCTAssertEqual(
+            HistoryPane.pendingNotice(
+                provenance: provenance, names: [phone: "iPhone", mac: "Studio"]),
+            "16 notes from 2 devices are waiting for admission.")
+    }
+
+    /// One device writes as several actors, so its history is spread over one
+    /// file per actor. `pendingByDevice` is keyed on the DEVICE, so this is one
+    /// device waiting, not two (Task 7's fix round).
+    func test_pendingNotice_oneDeviceSpreadOverItsActorsFilesIsStillOneDevice() {
+        let provenance = OpLogProvenance(files: [
+            FileProvenance(name: "doc-a.phone-author.jsonl", pending: 5,
+                           pendingByDevice: [phone: 5]),
+            FileProvenance(name: "doc-a.phone-assistant.jsonl", pending: 4,
+                           pendingByDevice: [phone: 4]),
+        ])
+        XCTAssertEqual(
+            HistoryPane.pendingNotice(provenance: provenance, names: [phone: "iPhone"]),
+            "9 notes from iPhone are waiting for admission.")
+    }
+
+    /// Held lines that no device is attributed to still have to be counted:
+    /// the sentence names nobody rather than going quiet about history that is
+    /// not in the draft.
+    func test_pendingNotice_withNoDeviceAttributed_namesNobody() {
+        let provenance = OpLogProvenance(files: [
+            FileProvenance(name: "doc-a.phone.jsonl", pending: 3, pendingByDevice: [:])
+        ])
+        XCTAssertEqual(
+            HistoryPane.pendingNotice(provenance: provenance, names: [:]),
+            "3 notes from another device are waiting for admission.")
+    }
+
+    func test_pendingNotice_neverUsesInternalVocabulary() {
+        let provenance = OpLogProvenance(files: [
+            FileProvenance(name: "doc-a.phone.jsonl", pending: 4,
+                           pendingByDevice: [phone: 4])
+        ])
+        let notice = try! XCTUnwrap(
+            HistoryPane.pendingNotice(provenance: provenance, names: [phone: "iPhone"]))
+        for word in ["quarantine", "provenance", "chain", "seal", "hash", "pending", "trust"] {
+            XCTAssertFalse(
+                notice.localizedCaseInsensitiveContains(word),
+                "internal term ‘\(word)’ must never reach the writer — \(notice)")
+        }
+    }
+
+    // MARK: - The one History line that carries a control
+
+    /// Drawn and DISABLED, never pressed (tripwire 33). The row is drawn
+    /// exactly when the sentence exists; the button says when it will work.
+    /// P2b flips `admitIsAvailable` and this test moves with it.
+    func test_theAdmitControlIsDrawnAndDisabledUntilAdmissionExists() {
+        let provenance = OpLogProvenance(files: [
+            FileProvenance(name: "doc-a.phone.jsonl", pending: 14,
+                           pendingByDevice: [phone: 14])
+        ])
+        XCTAssertNotNil(
+            HistoryPane.pendingNotice(provenance: provenance, names: [phone: "iPhone"]),
+            "the sentence is what draws the row the control sits in")
+        XCTAssertEqual(HistoryPane.admitTitle, "Admit…")
+        XCTAssertFalse(
+            HistoryPane.admitIsAvailable,
+            "P2a draws the control; P2b wires it to the admission sheet")
+        XCTAssertEqual(
+            HistoryPane.admitUnavailableHelp,
+            "Admission arrives with the next update")
+    }
+
+    // MARK: - joinedChainNotice
+
+    func test_joinedChainNotice_nilWhenThisDeviceJoinedNothing() {
+        let project = makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+        XCTAssertNil(
+            HistoryPane.joinedChainNotice(
+                cache: makeCache(), projectURL: project, labels: [:]),
+            "a Mac that is its own root joined nobody's chain (B1, arm 2)")
+    }
+
+    func test_joinedChainNotice_namesTheRootsLabel() {
+        let project = makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let cache = makeCache()
+        cache.join(root: mac, for: project)
+        XCTAssertEqual(
+            HistoryPane.joinedChainNotice(
+                cache: cache, projectURL: project, labels: [mac: "Denver’s MacBook"]),
+            "This Mac joined Denver’s MacBook’s chain.")
+    }
+
+    func test_joinedChainNotice_withNoPersonRecordFallsBackToTheRootsCode() {
+        let project = makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let cache = makeCache()
+        cache.join(root: mac, for: project)
+        XCTAssertEqual(
+            HistoryPane.joinedChainNotice(cache: cache, projectURL: project, labels: [:]),
+            "This Mac joined 9C8B’s chain.")
+    }
+
+    /// B1's write-once rule reaches the sentence: a second root that names this
+    /// device is a CLAIMANT, and the line goes on naming the chain this Mac is
+    /// actually on.
+    func test_joinedChainNotice_namesTheJoinedRootAndNotAClaimant() {
+        let project = makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let cache = makeCache()
+        cache.join(root: mac, for: project)
+        cache.join(root: phone, for: project)
+        XCTAssertEqual(
+            HistoryPane.joinedChainNotice(
+                cache: cache, projectURL: project,
+                labels: [mac: "Denver’s MacBook", phone: "Somebody Else"]),
+            "This Mac joined Denver’s MacBook’s chain.")
+        XCTAssertEqual(cache.claimants(for: project), [phone])
+    }
+
+    func test_joinedChainNotice_isPerProject() {
+        let project = makeProject()
+        let other = makeProject()
+        defer {
+            try? FileManager.default.removeItem(at: project)
+            try? FileManager.default.removeItem(at: other)
+        }
+        let cache = makeCache()
+        cache.join(root: mac, for: project)
+        XCTAssertNil(
+            HistoryPane.joinedChainNotice(
+                cache: cache, projectURL: other, labels: [mac: "Denver’s MacBook"]))
+    }
+
+    // MARK: - Fixtures
+
+    /// A cache under a test identity, so nothing here reaches this machine's
+    /// own key material or the process-wide memory.
+    private func makeCache() -> RegistryCache {
+        RegistryCache(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("histchain-cache-\(UUID().uuidString).json"),
+            identity: "test-identity-fingerprint")
+    }
+
+    private func makeProject() -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("histchain-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(
+            at: url.appendingPathComponent(".maugham/ops"),
+            withIntermediateDirectories: true)
+        return url
+    }
+}
