@@ -271,10 +271,21 @@ public enum OpLogChain {
     /// used by the seal INSIDE a file and by the signature BESIDE a sealed
     /// segment, so the base64/X9.63 dance is written once and the two can never
     /// disagree about what a signature is.
-    struct Credentials {
-        let key: String
-        let pub: String
-        let sig: String
+    /// `Codable` and public because P2's registry records carry one as a
+    /// FIELD (`RegistryRecord`'s `sig`): the seal inside a file, the signature
+    /// beside a segment and the signature on a person record are the same
+    /// three fields, and a second spelling of them would be a second opinion
+    /// about what a signature is.
+    public struct Credentials: Codable, Equatable, Hashable, Sendable {
+        public let key: String
+        public let pub: String
+        public let sig: String
+
+        public init(key: String, pub: String, sig: String) {
+            self.key = key
+            self.pub = pub
+            self.sig = sig
+        }
     }
 
     /// Sign `digestHex`'s 32 bytes with `identity`.
