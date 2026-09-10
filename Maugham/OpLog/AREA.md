@@ -449,6 +449,20 @@ something else, leaving the opening op unchained and legacy forever.
 
 ## People and admission (P2a, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md) §8)
 
+> **No release may carry P2a without P2b.** Until the admission sheet exists, a
+> Mac that has rooted itself holds every phone op as pending with no way to
+> admit it. `ensureRootIfEmpty` writes this Mac a root at the first open of
+> every existing project, so B3's escape hatch closes for all of them, and the
+> phone's P1b-signed spans classify `.stranger` → `.pending` → held: every phone
+> annotation out of the Annotations pane, every phone capture out of the Inbox,
+> History's *waiting for admission* line beside an Admit… button drawn disabled.
+> Nothing is lost and admission re-reads, but the writer's own phone history is
+> invisible for the length of such a build. **A smoke of a P2a-only dev build on
+> a real project WILL show this** — and it will look arbitrary, because a
+> stranger's ROTATED `.mzseg` segment falls through `classifySegment` to the
+> keyless walk and applies as unsigned history, so older phone history reappears
+> while the live tail is held.
+
 P1 could tell this device's own hand from everything else. P2a puts the rest of
 the range in: a book has a **registry** of who may write in it, and a seal made
 by a key that registry admits is this book's word even though it is not this

@@ -42,7 +42,11 @@ public enum RegistryCanonical {
 
     /// SHA-256 over those bytes. Pass a record whose `sig` is nil — or use
     /// `digestHex(ofRecord:)`, which guarantees it.
-    nonisolated public static func digest(of value: some Encodable) throws -> Data {
+    ///
+    /// `internal`: the empty-`sig` contract is a convention this signature
+    /// cannot state, and `digestHex(ofRecord:)` is the one form that enforces
+    /// it. Nothing outside the module has a reason to hash an arbitrary value.
+    nonisolated static func digest(of value: some Encodable) throws -> Data {
         Data(SHA256.hash(data: try bytes(of: value)))
     }
 

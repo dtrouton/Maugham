@@ -84,6 +84,45 @@ final class ProjectStoreTasksTests: XCTestCase {
         XCTAssertTrue(tasks.contains { $0.id == projectTask.id })
     }
 
+    /// **An unreadable registry record leaves the walk KEYLESS, not empty**
+    /// (whole-branch review, I2). The closed-document arm of this walk records
+    /// nothing at all when it skips — a bare `continue` — so an unreadable
+    /// registry took every closed chapter's tasks out of the project pane with
+    /// no surface anywhere. Keyless is P1's behaviour: this device's own seals
+    /// verify, everything else is unsigned history, and the tasks are there.
+    func test_anUnreadableRegistryLeavesTheWalkKeylessRatherThanEmpty() async throws {
+        try XCTSkipIf(getuid() == 0, "root reads a mode-000 file, so nothing is refused")
+        let b = try await makeBundle()
+
+        // A CLOSED document with an inline task in its op log: opened, written
+        // to, flushed and closed, so the walk has to read it off disk.
+        let docURL = b.store.url.appendingPathComponent("manuscript/c1.md")
+        let doc = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil)
+        let log = try await doc.opLog()
+        let pid = try XCTUnwrap(
+            log.first(where: { $0.kind == .bootstrap })?.changes.first?.paragraphId)
+        doc.setParagraph(id: pid, text: "- [ ] closed-doc thing")
+        try await doc.flushBurstNow()
+        await doc.close()
+
+        let people = RegistryWriter.directoryURL(.people, in: b.store.url)
+        let fm = FileManager.default
+        try fm.createDirectory(at: people, withIntermediateDirectories: true)
+        let record = people.appendingPathComponent("deadbeef.json")
+        try Data("{}".utf8).write(to: record)
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: record.path)
+        addTeardownBlock {
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: record.path)
+        }
+
+        let tasks = b.store.listTasksAcrossProject(filter: .init(scope: .project))
+
+        XCTAssertTrue(
+            tasks.contains { $0.kind == .inlineMarkdown && $0.body == "closed-doc thing" },
+            "the closed document's task survives a registry this Mac cannot read")
+    }
+
     func test_projectTasksOpLog_returnsAppendedOps() async throws {
         let b = try await makeBundle()
         XCTAssertTrue(b.store.projectTasksOpLog().isEmpty)

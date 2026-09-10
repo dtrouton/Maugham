@@ -373,6 +373,37 @@ overwrite another root's self-signed record with an admission naming itself. The
 fix belongs with the claim path — a re-root goes through a claim record, never
 by overwriting.
 
+**No release may carry P2a without P2b.** Until the admission sheet exists, a
+Mac that has rooted itself holds every phone op as pending with no way to admit
+it: `ensureRootIfEmpty` writes this Mac a root at the first open of every
+existing project, which closes B3's escape hatch for all of them, and the
+phone's P1b-signed spans then classify `.stranger` → `.pending` → held. Every
+phone annotation leaves the Annotations pane, every phone capture leaves the
+Inbox, and History says *N notes are waiting for admission* beside a button
+that is drawn disabled. Nothing is lost — no `.lines` record is written, no
+file is rewritten, and admission re-reads — but for the length of such a build
+the writer's own phone history is invisible with no recourse. This is a
+stronger reason than the compatibility one the plan gives (that the phone
+learns to read records in P2a), and it binds the release on the Mac's side
+alone.
+
+**One thing must be fixed before the first tag that carries P2a: the canonical
+digest is lossy.** A record's signature is verified over a *re-encode of the
+decoded record*, and `JSONDecoder` drops unknown keys — so a record written by a
+later build carrying one extra field decodes, re-encodes without it, and fails
+to verify. It is unreachable today (nothing in P2a writes an unknown field), but
+the moment a release ships that writes records the canonicalization is frozen:
+changing it afterwards invalidates every record already on disk, and P2b adds
+claims while P3 adds roles. The contained fix is to canonicalize through
+`JSONSerialization` on both sides — the writer serializes the record's object
+form with sorted keys and signs those bytes; the reader parses the file's bytes,
+removes `"sig"`, and re-serializes the same way — so unknown members survive
+verification. That is ADR 0015's evolution rule, which `DeviceKind.unknown`
+already honours one level down. The destructive half is already closed:
+`RegistryCache.reconcile` restores only an ABSENT file, so a record it cannot
+verify is reported and left exactly as it is rather than overwritten with this
+device's older copy.
+
 ## Addendum — actors, 2026-09-08 (P1b)
 
 **A device is four writers, and each holds a key of its own.** P1 gave the

@@ -62,7 +62,7 @@ struct InboxPane: View {
     /// gives a document.
     ///
     /// Pure over the count, so the copy pins without a window and without disk.
-    /// The count comes from `InboxStore.setAsideLineCount`, which is the half
+    /// The count is taken over `InboxStore.setAsideRecords`, which is the half
     /// that has to read files.
     static func setAsideNotice(lineCount: Int) -> String? {
         guard lineCount > 0 else { return nil }

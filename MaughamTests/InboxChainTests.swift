@@ -20,17 +20,28 @@ final class InboxChainTests: XCTestCase {
             at: projectURL.appendingPathComponent(".maugham/inbox"),
             withIntermediateDirectories: true)
         identity = .softwareForTesting()
+        cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inbox-chain-cache-\(UUID().uuidString).json")
+        cache = RegistryCache(fileURL: cacheURL, identity: identity.fingerprint)
     }
 
     override func tearDown() async throws {
         try? FileManager.default.removeItem(at: projectURL)
+        try? FileManager.default.removeItem(at: cacheURL)
     }
 
     // MARK: - Fixture
 
+    /// The device's registry memory, per test. `OpLogStore` has taken one
+    /// since P2a and `InboxStore` did not, so every Mac test that gave a temp
+    /// project a registry read and wrote the DEVELOPER's real
+    /// `registry-cache.json` from a parallel worker (whole-branch review, I4).
+    private var cacheURL: URL!
+    private var cache: RegistryCache!
+
     private func makeInbox(deviceId: String = "mac") -> InboxStore {
         InboxStore(projectURL: projectURL, deviceId: deviceId, identity: identity,
-                   identities: .forTesting(author: identity))
+                   identities: .forTesting(author: identity), cache: cache)
     }
 
     private func manifestURL(_ deviceId: String) -> URL {
@@ -191,6 +202,31 @@ final class InboxChainTests: XCTestCase {
                       "no manifest failed; the registry did")
         XCTAssertTrue(inbox.entries.isEmpty,
                       "and nothing is applied under a registry this Mac cannot read")
+    }
+
+    /// **The inbox resolves against the cache it is GIVEN** (whole-branch
+    /// review, I4). Without the seam its resolution reached
+    /// `RegistryCache.shared` — machine-global mutable state written from
+    /// seven parallel workers, which is the confounder class the build-flow
+    /// notes warn about. Nothing was incorrect (entries self-prune and it is a
+    /// cache, not truth), but a test must be able to say which memory it means.
+    func test_theInboxResolvesAgainstTheCacheItIsGiven() async throws {
+        // A real registry: this device's own root, signed by the test key.
+        try RegistryWriter.write(
+            PersonRecord(person: identity.fingerprint, label: "Denver",
+                         ownName: "Denver's MacBook",
+                         admittedAt: Date(timeIntervalSince1970: 10),
+                         admittedBy: identity.fingerprint),
+            signedBy: identity, in: projectURL)
+
+        let inbox = makeInbox()
+        await inbox.refresh()
+
+        XCTAssertNil(inbox.unreadableRegistry, "the planted registry is readable")
+        XCTAssertNotNil(cache.cached(for: projectURL),
+                        "the injected memory is what the resolution reconciled against")
+        XCTAssertNil(RegistryCache.shared.cached(for: projectURL),
+                     "and the process-wide one was never touched")
     }
 
     func test_aManifestWrittenBeforeThisMilestoneStillReadsWhole() async throws {

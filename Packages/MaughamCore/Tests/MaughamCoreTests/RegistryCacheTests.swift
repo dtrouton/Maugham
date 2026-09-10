@@ -252,15 +252,27 @@ final class RegistryCacheTests: XCTestCase {
             "and the memory moves on to what it just verified")
     }
 
-    func test_aTamperedFolderRecordIsReplacedFromTheCacheAndListedMalformed() throws {
+    /// **A record that is PRESENT is never overwritten from this device's
+    /// memory** — not even one that no longer verifies (whole-branch review,
+    /// C2 fix 1).
+    ///
+    /// The device cannot tell *tampered with* from *written by a later build*:
+    /// the signature is checked over a re-encode of the decoded record, so a
+    /// record carrying one field this build does not know decodes, re-encodes
+    /// without it and fails to verify. Replacing it would silently downgrade a
+    /// newer device's signed record on shared storage, across devices, with
+    /// nothing said anywhere. And the defence it bought was redundant: a
+    /// malformed record already contributes nothing to the registry. So the
+    /// file is left exactly as it is, listed malformed, and Integrity shows it.
+    func test_aTamperedFolderRecordIsListedMalformedAndLeftOnDisk() throws {
         let registry = try writeASmallRegistry()
         let cache = makeCache()
         cache.remember(registry, for: projectURL)
 
         let url = RegistryWriter.url(.people, fingerprint: phone.fingerprint, in: projectURL)
-        let honest = try Data(contentsOf: url)
         var bytes = try Data(contentsOf: url)
         bytes[bytes.count / 2] = bytes[bytes.count / 2] == 0x61 ? 0x62 : 0x61
+        let tampered = bytes
         try bytes.write(to: url)
 
         let folder = try RegistryReader.load(projectURL: projectURL)
@@ -269,12 +281,70 @@ final class RegistryCacheTests: XCTestCase {
         let outcome = try cache.reconcile(
             folder: folder, cached: cache.cached(for: projectURL), in: projectURL)
 
-        XCTAssertEqual(outcome.removedBySomeone,
-                       [RecordRef(directory: .people, fingerprint: phone.fingerprint)])
-        XCTAssertEqual(try Data(contentsOf: url), honest,
-                       "the cache's bytes replace what no longer verifies")
+        XCTAssertTrue(outcome.removedBySomeone.isEmpty,
+                      "nothing was REMOVED — the file is right there")
+        XCTAssertTrue(outcome.restored.isEmpty, "so nothing is put back over it")
+        XCTAssertEqual(try Data(contentsOf: url), tampered,
+                       "and the bytes on disk are untouched")
         XCTAssertEqual(outcome.registry.malformed, folder.malformed,
-                       "and the malformed listing is carried out, not swallowed")
+                       "the malformed listing is carried out, not swallowed")
+        XCTAssertFalse(outcome.registry.people.contains { $0.person == phone.fingerprint },
+                       "a record that does not verify contributes nothing either way")
+    }
+
+    /// The other half of the same predicate: a record whose FILE is gone still
+    /// comes back, and it comes back even while another record beside it is
+    /// present-and-malformed. Absence is the one thing restore answers.
+    func test_aDeletedRecordIsStillRestoredBesideAMalformedOne() throws {
+        let registry = try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(registry, for: projectURL)
+
+        let deleted = RegistryWriter.url(.devices, fingerprint: root.fingerprint, in: projectURL)
+        let honest = try Data(contentsOf: deleted)
+        try FileManager.default.removeItem(at: deleted)
+
+        let tamperedURL = RegistryWriter.url(
+            .people, fingerprint: phone.fingerprint, in: projectURL)
+        var bytes = try Data(contentsOf: tamperedURL)
+        bytes[bytes.count / 2] = bytes[bytes.count / 2] == 0x61 ? 0x62 : 0x61
+        try bytes.write(to: tamperedURL)
+
+        let outcome = try cache.reconcile(
+            folder: try RegistryReader.load(projectURL: projectURL),
+            cached: cache.cached(for: projectURL), in: projectURL)
+
+        XCTAssertEqual(outcome.removedBySomeone,
+                       [RecordRef(directory: .devices, fingerprint: root.fingerprint)],
+                       "the absent record is reported, and only it")
+        XCTAssertEqual(try Data(contentsOf: deleted), honest,
+                       "and put back byte for byte")
+        XCTAssertTrue(outcome.registry.devices.contains { $0.device == root.fingerprint },
+                      "so the resolved registry holds it again")
+    }
+
+    /// A repeated `remember` of the same registry writes nothing (whole-branch
+    /// review, I1). Since Task 8 every opened project HAS a registry, so a
+    /// walk that resolves per document paid a whole-file atomic write of the
+    /// shared memory per iteration — the file is deleted here and its absence
+    /// afterwards is the observation that nothing was written.
+    func test_rememberingWhatIsAlreadyStoredWritesNothing() throws {
+        let registry = try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(registry, for: projectURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheURL.path),
+                      "the first remember persists")
+
+        try FileManager.default.removeItem(at: cacheURL)
+        cache.remember(registry, for: projectURL)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheURL.path),
+                       "nothing moved, so nothing is written")
+
+        // And a real change still lands.
+        cache.remember(Registry(), for: projectURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheURL.path),
+                      "a memory that DID move is persisted")
     }
 
     func test_reconcileRemembersWhatItResolved() throws {

@@ -127,11 +127,24 @@ struct ProjectPractice: Equatable, Sendable {
 
         // ONE trust resolution for the whole walk. `loadSyncMerged` resolves
         // its own when given none, and that is a verified read of the registry
-        // folder — thirty chapters would be thirty of them. A resolution that
-        // throws leaves this walk judging nobody, which is the same lenient
-        // stance the `try?` below takes for the same reason.
-        let trust = try? TrustResolution.resolve(
-            projectURL: projectURL, identities: .current)
+        // folder — thirty chapters would be thirty of them.
+        //
+        // **A resolution that throws leaves this walk KEYLESS, and the fallback
+        // has to be spelled** (whole-branch review, I2): a bare `try?` yields
+        // nil, `loadSyncMerged` then resolves its own table per document, that
+        // throws the same error again, and the `try?` below records every
+        // chapter as unreadable — the whole section emptied by one registry
+        // record, and blamed on the book. Keyless is P1's behaviour exactly,
+        // and the registry's own name goes into the same list so the notice
+        // still fires, about the registry.
+        let trust: TrustTable
+        do {
+            trust = try TrustResolution.resolve(
+                projectURL: projectURL, identities: .current)
+        } catch {
+            trust = TrustResolution.keyless(mine: .current)
+            unreadable.append(OpLogStore.unreadableName(error))
+        }
         for item in plan.documents {
             guard item.path != nil else { continue }
             // RULING-54 lenient, reason recorded: a window-wide READ skips a

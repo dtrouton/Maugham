@@ -141,6 +141,52 @@ final class ProjectAnnotationAggregationTests: XCTestCase {
 
     // MARK: - The walk
 
+    /// **An unreadable registry record leaves the walk KEYLESS, not empty**
+    /// (whole-branch review, I2). The walk resolves one trust table for the
+    /// whole book; a resolution that throws used to yield nil, and
+    /// `loadSyncMerged` then resolved its OWN table per document, threw the
+    /// same error again, and the call site's `try?` skipped every closed
+    /// document — so an unreadable registry record emptied a project-wide
+    /// count instead of making it lenient, which is the opposite of what the
+    /// comment beside it claims.
+    ///
+    /// Keyless is P1's behaviour exactly: this device's own seals verify and
+    /// everything else is unsigned history. The registry's own name is
+    /// recorded so the count surface can still say it is not the whole story —
+    /// attributed to the REGISTRY, not to a chapter the writer would then go
+    /// and look at.
+    func test_anUnreadableRegistryLeavesTheWalkKeylessRatherThanEmpty() async throws {
+        try XCTSkipIf(getuid() == 0, "root reads a mode-000 file, so nothing is refused")
+        let f = try await makeFixture()
+        try makeTheRegistryUnreadable(in: f.url)
+
+        let snapshot = f.store.listAnnotationsAcrossProject()
+
+        let c2 = snapshot.annotations.filter { $0.docId == "doc-c2" }
+        XCTAssertEqual(c2.count, 4,
+                       "the closed document's notes are still there, judged by nobody")
+        XCTAssertTrue(snapshot.unreadableDocIds.contains(unreadableRecordName),
+                      "and the registry record that could not be read is named: "
+                      + "\(snapshot.unreadableDocIds)")
+        XCTAssertFalse(snapshot.unreadableDocIds.contains("doc-c2"),
+                       "the chapter is not blamed for the registry")
+    }
+
+    /// The record this Mac cannot read, and its name.
+    private var unreadableRecordName: String { "deadbeef.json" }
+
+    private func makeTheRegistryUnreadable(in projectURL: URL) throws {
+        let people = RegistryWriter.directoryURL(.people, in: projectURL)
+        let fm = FileManager.default
+        try fm.createDirectory(at: people, withIntermediateDirectories: true)
+        let record = people.appendingPathComponent(unreadableRecordName)
+        try Data("{}".utf8).write(to: record)
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: record.path)
+        addTeardownBlock {
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: record.path)
+        }
+    }
+
     func test_aClosedDocsNotesComeFromItsOpLog() async throws {
         let f = try await makeFixture()
         let snapshot = f.store.listAnnotationsAcrossProject()

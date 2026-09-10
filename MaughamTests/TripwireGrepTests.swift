@@ -7446,8 +7446,18 @@ final class TripwireGrepTests: XCTestCase {
     /// The three registry directories, as a Swift source can spell them, plus
     /// the two acts that make a file in one of them a RECORD: the canonical
     /// digest a signature is made over, and the per-record URL.
+    ///
+    /// **Three spellings of each directory, not one** (whole-branch review,
+    /// Minor 2). The literal with its leading dot is the obvious one; a writer
+    /// composing the path a component at a time —
+    /// `.appendingPathComponent(".maugham").appendingPathComponent("devices")`
+    /// — walks straight past it, and so does a bare `"maugham/devices"` under
+    /// some other prefix. The last two patterns are what close those, and the
+    /// planted-offender control carries one of each shape.
     static let registryPathPatterns = [
         "\".maugham/devices", "\".maugham/people", "\".maugham/claims",
+        "maugham/devices", "maugham/people", "maugham/claims",
+        "PathComponent(\"devices", "PathComponent(\"people", "PathComponent(\"claims",
         "digestHex(ofRecord:", "RegistryWriter.url(",
     ]
 
@@ -7556,6 +7566,8 @@ final class TripwireGrepTests: XCTestCase {
         let people = projectURL.appendingPathComponent(".maugham/people")
         let digest = try RegistryCanonical.digestHex(ofRecord: record)
         let file = RegistryWriter.url(.devices, fingerprint: fp, in: projectURL)
+        let composed = base.appendingPathComponent(".maugham").appendingPathComponent("devices")
+        let bare = support.appendingPathComponent("maugham/claims")
         let sanctioned = RegistryWriter.directoryURL(.people, in: projectURL)
         """.write(to: registryTmp.appendingPathComponent("SecondRegistryWriter.swift"),
                   atomically: true, encoding: .utf8)
@@ -7565,10 +7577,15 @@ final class TripwireGrepTests: XCTestCase {
             patterns: Self.registryPathPatterns,
             allowed: Self.registryWriterAllowed,
             excludeLine: Self.admissionExcludeLine)
-        XCTAssertEqual(registry.count, 4,
-            "Self-check: the two path literals, the digest and the record URL "
-            + "should be caught, and neither the comment nor the sanctioned "
-            + "`directoryURL` read. Caught:\n" + registry.joined(separator: "\n"))
+        XCTAssertEqual(registry.count, 6,
+            "Self-check: the two path literals, the digest, the record URL, the "
+            + "component-at-a-time compose and the bare relative path should be "
+            + "caught, and neither the comment nor the sanctioned `directoryURL` "
+            + "read. Caught:\n" + registry.joined(separator: "\n"))
+        XCTAssertTrue(registry.contains(where: { $0.contains("let composed") }),
+            "a path composed one component at a time is still a registry path")
+        XCTAssertTrue(registry.contains(where: { $0.contains("let bare") }),
+            "and so is one written without the leading dot")
         XCTAssertFalse(registry.contains(where: { $0.contains("let sanctioned") }))
 
         try fm.moveItem(at: registryTmp.appendingPathComponent("SecondRegistryWriter.swift"),

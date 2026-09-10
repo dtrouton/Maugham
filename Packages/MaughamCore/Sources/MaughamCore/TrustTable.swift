@@ -73,7 +73,14 @@ public struct TrustTable: Equatable, Sendable {
     /// stays) and hands it back on the next resolve.
     public let myRoot: String?
 
-    /// Where `myRoot` came from.
+    /// Where `myRoot` came from — **diagnostic**, not a decision.
+    ///
+    /// Nothing in production reads it yet; P2b's People & Devices pane is what
+    /// wants it, and a surface saying *this Mac joined a chain* needs to know
+    /// which arm answered. What the JOIN itself asks is `ownRootRecord` below,
+    /// which is a different question: `rootSource` says which arm WON, and it
+    /// answers `.joined` for a device that had both a join and a root of its
+    /// own — the exact case B1 turns on.
     public let rootSource: RootSource
 
     /// This device's OWN self-signed root record, if it has one — whatever

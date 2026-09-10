@@ -85,15 +85,24 @@ final class InboxStore {
     /// appends as somebody else's history.
     private let identities: LocalIdentities
 
+    /// The registry memory this store reconciles against — `OpLogStore`'s own
+    /// parameter, verbatim and for its reason. `nil` means the process-wide
+    /// one; a test hands over a memory of its own so a temp project's registry
+    /// is not read and written through machine-global state from a parallel
+    /// worker (whole-branch review, I4).
+    private let registryCache: RegistryCache?
+
     init(projectURL: URL,
          deviceId: String = InboxStore.currentDeviceId,
          identity: DeviceIdentity = .author,
-         identities: LocalIdentities = .current) {
+         identities: LocalIdentities = .current,
+         cache: RegistryCache? = nil) {
         self.projectURL = projectURL
         self.inboxDir = projectURL.appendingPathComponent(".maugham/inbox")
         self.deviceId = deviceId
         self.identity = identity
         self.identities = identities
+        self.registryCache = cache
     }
 
     /// Who this device trusts in this project, and the shape of the registry
@@ -121,8 +130,10 @@ final class InboxStore {
         }
         let projectURL = self.projectURL
         let identities = self.identities
+        let cache = self.registryCache
         let table = try await Task.detached(priority: .userInitiated) {
-            try TrustResolution.resolve(projectURL: projectURL, identities: identities)
+            try TrustResolution.resolve(
+                projectURL: projectURL, identities: identities, cache: cache)
         }.value
         resolvedTrust = (signature, table)
         return table

@@ -63,6 +63,34 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
         self.url = url
         self.reason = reason
     }
+
+    /// Which record this FILE stands in the place of — where it sits and what
+    /// it is named — or nil when it is not in one of the registry's three
+    /// directories at all.
+    ///
+    /// The one thing a malformed listing still says for certain is that a file
+    /// is THERE. `RegistryCache.reconcile` asks it for exactly that: a record
+    /// it remembers and the folder no longer verifies must be left alone,
+    /// because a device cannot tell *tampered with* from *written by a later
+    /// build*, and restoring over it would silently downgrade a newer device's
+    /// signed record. Only an ABSENT file is restored.
+    ///
+    /// Named by the FILE rather than by what the bytes claim: a renamed record
+    /// (`.filenameMismatch`) occupies the name on disk, and the fingerprint it
+    /// carries has no file of its own.
+    ///
+    /// The directory is read off the path rather than re-spelled: the three
+    /// `RegistryDirectory` cases are named exactly as their folders are, so
+    /// this asks the same enum `RegistryWriter.directoryURL` builds from and
+    /// cannot become a second opinion about where a record lives.
+    public var ref: RecordRef? {
+        guard let directory = RegistryDirectory(
+            rawValue: url.deletingLastPathComponent().lastPathComponent)
+        else { return nil }
+        return RecordRef(
+            directory: directory,
+            fingerprint: url.deletingPathExtension().lastPathComponent)
+    }
 }
 
 /// Everything a project's registry says, once every signature has been checked:

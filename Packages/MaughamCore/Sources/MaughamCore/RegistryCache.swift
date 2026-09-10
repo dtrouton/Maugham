@@ -99,7 +99,7 @@ public final class RegistryCache: @unchecked Sendable {
     /// `RegistryCacheTests.test_aDeletedPersonRecordIsRestoredByteIdenticalAndReported`.
     /// Keeping bytes rather than fields means a later build of this code cannot
     /// re-encode a record into something its own signature no longer covers.
-    private struct Entry: Codable {
+    private struct Entry: Codable, Equatable {
         /// `RegistryDirectory.rawValue`. A string, so a directory a later build
         /// adds survives a read here rather than failing the whole decode.
         var directory: String
@@ -180,12 +180,21 @@ public final class RegistryCache: @unchecked Sendable {
     /// Malformed listings are NOT remembered: they are facts about the folder
     /// at one moment, not records, and a memory of them would restore nothing
     /// and mislead everything.
+    ///
+    /// **It persists only when something moved.** Since every opened project
+    /// gains a registry, a walk that resolves per document would otherwise pay
+    /// a whole-file atomic write of this shared memory per iteration — sixty
+    /// chapters in three languages is 180 of them, several on the main actor
+    /// (whole-branch review, I1). Comparing first is what makes the ordinary
+    /// case — the folder said what it said last time — cost nothing.
     public func remember(_ registry: Registry, for projectURL: URL) {
         let entries = Self.entries(of: registry)
         lock.lock()
         defer { lock.unlock() }
         var project = stored.projects[Self.projectKey(projectURL)] ?? Project()
-        project.root = projectURL.standardizedFileURL.path
+        let root = projectURL.standardizedFileURL.path
+        guard project.root != root || project.records != entries else { return }
+        project.root = root
         project.records = entries
         stored.projects[Self.projectKey(projectURL)] = project
         persistLocked()
@@ -277,13 +286,20 @@ public final class RegistryCache: @unchecked Sendable {
 
     /// The folder and this device's memory of it, resolved into one registry.
     ///
-    /// - A record this device remembers and the folder no longer has is
-    ///   **restored** from the remembered bytes and **reported**. That covers
-    ///   both ways a record goes: a file that was deleted, and a file that no
-    ///   longer verifies — to the registry those are the same event, the record
-    ///   is gone, and `folder.malformed` is what says which happened. The
-    ///   malformed listing is carried out untouched: a replacement is not an
-    ///   explanation, and Integrity shows both.
+    /// - A record this device remembers and the folder no longer HOLDS is
+    ///   **restored** from the remembered bytes and **reported**. Absence is
+    ///   the whole of that test: present means a file is there, whether or not
+    ///   it verified, so the fingerprints of `folder.malformed` count as
+    ///   present beside the verified refs.
+    /// - A record that is present and does NOT verify is reported malformed and
+    ///   **left exactly as it is**. A device cannot tell *tampered with* from
+    ///   *written by a later build* — the signature is checked over a re-encode
+    ///   of the decoded record, so one unknown field is enough to make an
+    ///   honest record fail — and overwriting it would silently downgrade a
+    ///   newer device's signed record on shared storage. The defence would buy
+    ///   nothing anyway: a malformed record already contributes nothing to the
+    ///   registry. The malformed listing is carried out untouched, and
+    ///   Integrity shows it.
     /// - A record the folder holds wins over the remembered one, always. The
     ///   folder's copy has already been verified by `RegistryReader`, and a
     ///   record legitimately changes: a device re-signs its own record when it
@@ -310,7 +326,10 @@ public final class RegistryCache: @unchecked Sendable {
             return (folder, [], [])
         }
 
-        let present = Set(Self.refs(of: folder))
+        // The files that EXIST. A verified record has one by definition; a
+        // malformed one has the file its listing names, which is precisely why
+        // it is not restored over (whole-branch review, C2).
+        let present = Set(Self.refs(of: folder) + folder.malformed.compactMap(\.ref))
         var restored: [URL] = []
         var removed: [RecordRef] = []
         var devices = folder.devices
