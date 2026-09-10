@@ -506,15 +506,34 @@ public final class ProjectStore {
         wordCountPopulationTask = Task { @MainActor [weak self] in
             for item in Self.collectDocuments(in: manifest.structure) {
                 if Task.isCancelled { return }
-                guard let self, let path = item.path else { continue }
-                // ADR 0018: derive from the op log, never the .md file.
-                // RULING-54 lenient, reason recorded: a background stats
-                // pass skips an unreadable doc; opening it refuses loudly.
-                guard let state = try? self.derivedCache.state(
-                    forDocId: item.id, in: projectURL) else { continue }
-                let text = state.paragraphs.values.joined(separator: " ")
-                let count = WritingModeFactory.mode(for: path).wordCount(text)
-                self.recordWordCount(forDocumentId: item.id, wordCount: count)
+                guard let path = item.path else { continue }
+                // **`self` is bound inside a scope that ENDS before the
+                // suspension below.** A `guard let self` at the top of the loop
+                // body binds a strong reference for the whole iteration, and
+                // the yield is inside it — so while this pass is parked, which
+                // is most of its life, it holds the entire project alive. A
+                // window closed mid-pass then survives until the last chapter
+                // is counted. `DesignerEnvironmentTests
+                // .test_theClosuresLetTheProjectWindowGo` measures exactly
+                // that, and this pass was what it caught: the weak capture on
+                // the Task is not enough on its own if the binding outlives an
+                // await.
+                //
+                // A nil `self` ENDS the pass rather than skipping one document:
+                // the store is gone, and there is nobody left to count for.
+                let storeIsStillHere: Bool = {
+                    guard let self else { return false }
+                    // ADR 0018: derive from the op log, never the .md file.
+                    // RULING-54 lenient, reason recorded: a background stats
+                    // pass skips an unreadable doc; opening it refuses loudly.
+                    guard let state = try? self.derivedCache.state(
+                        forDocId: item.id, in: projectURL) else { return true }
+                    let text = state.paragraphs.values.joined(separator: " ")
+                    let count = WritingModeFactory.mode(for: path).wordCount(text)
+                    self.recordWordCount(forDocumentId: item.id, wordCount: count)
+                    return true
+                }()
+                guard storeIsStillHere else { return }
                 await Task.yield()
             }
         }
