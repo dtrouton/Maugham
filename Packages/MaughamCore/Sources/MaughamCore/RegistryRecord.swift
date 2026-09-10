@@ -37,11 +37,11 @@ public protocol RegistryRecordProtocol: Codable, Equatable, Sendable {
     var sig: OpLogChain.Credentials? { get set }
     /// Which directory this kind of record lives in.
     static var directory: RegistryDirectory { get }
-    /// Whose key must have signed it, resolved against the registry's roots.
-    ///
-    /// `nil` means "a root must have signed this, and which root is stated by
-    /// the record" — see `PersonRecord`, the only record whose signer is not
-    /// itself.
+    /// Whose key must have signed it: the fingerprint the record itself names
+    /// as its signer — its own `device`, the `newRoot` of a claim, or the root
+    /// a person record says admitted it. `PersonRecord` is the only one of the
+    /// three whose signer is not itself, and the reader asks a second question
+    /// of it: that the named signer IS a root here.
     var expectedSigner: String { get }
 }
 

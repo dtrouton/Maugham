@@ -267,12 +267,44 @@ public final class OpLogStore {
             /// spread over several of these, which is why one that will not
             /// open cannot be stepped over.
             case translation
+            /// A signed record under `.maugham/people/` or `.maugham/devices/`
+            /// (P2a). The odd one out of the three: it holds none of the
+            /// writer's words, it belongs to the PROJECT rather than to one
+            /// manuscript, and what a half-read registry costs is not text but
+            /// the answer to who wrote this book — so every clause below
+            /// differs for it, not only the noun.
+            case registry
 
             /// The writer's own word for the file.
             var noun: String {
                 switch self {
                 case .history: return "history file"
                 case .translation: return "translation file"
+                case .registry: return "registry record"
+                }
+            }
+
+            /// Whose file it is — the phrase the sentence opens with.
+            var owner: String {
+                switch self {
+                case .history, .translation: return "The manuscript's"
+                case .registry: return "This project's"
+                }
+            }
+
+            /// What is safe, said in the terms of what the file actually holds.
+            var reassurance: String {
+                switch self {
+                case .history, .translation: return "Your words are intact inside it"
+                case .registry: return "None of your writing is in it"
+                }
+            }
+
+            /// What the writer reopens once they have fixed the file.
+            var reopens: String {
+                switch self {
+                case .history, .translation: return "the document"
+                case .registry: return "the project"
                 }
             }
 
@@ -283,6 +315,9 @@ public final class OpLogStore {
                     return "Maugham won't open a shortened version over it."
                 case .translation:
                     return "Maugham won't show or publish a partial translation over it."
+                case .registry:
+                    return "Maugham won't decide who may write in this book "
+                         + "from records it could only half read."
                 }
             }
         }
@@ -295,9 +330,9 @@ public final class OpLogStore {
         public var errorDescription: String? {
             switch self {
             case .unreadableFile(let name, let underlying, let kind):
-                return "The manuscript's \(kind.noun) “\(name)” exists but can't be read (\(underlying)). "
-                     + "Your words are intact inside it — check the file's permissions or wait for "
-                     + "iCloud to finish syncing, then reopen the document. \(kind.refusal)"
+                return "\(kind.owner) \(kind.noun) “\(name)” exists but can't be read (\(underlying)). "
+                     + "\(kind.reassurance) — check the file's permissions or wait for "
+                     + "iCloud to finish syncing, then reopen \(kind.reopens). \(kind.refusal)"
             case .unlistableOpsDirectory(let underlying):
                 return "The manuscript's history folder (.maugham/ops) exists but can't be listed "
                      + "(\(underlying)). Check its permissions, then reopen — opening without it "

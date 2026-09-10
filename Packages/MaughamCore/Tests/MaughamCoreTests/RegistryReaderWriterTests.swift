@@ -174,7 +174,7 @@ final class RegistryReaderWriterTests: XCTestCase {
 
         XCTAssertEqual(registry.people, [])
         XCTAssertEqual(registry.malformed.map(\.reason),
-                       [.filenameMismatch(named: root.fingerprint)])
+                       [.filenameMismatch(recordFingerprint: root.fingerprint)])
     }
 
     /// The admission rule: a person record that is not self-signed must be
@@ -198,7 +198,7 @@ final class RegistryReaderWriterTests: XCTestCase {
     func test_aPersonRecordSignedByOtherThanTheRootItNamesIsMalformed() throws {
         try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
         let impostor = DeviceIdentity.softwareForTesting()
-        try RegistryWriter.write(
+        try RegistryWriter.writeUnchecked(
             admittedRecord(phone, under: root), signedBy: impostor, in: projectURL)
 
         let registry = try RegistryReader.load(projectURL: projectURL)
@@ -211,7 +211,7 @@ final class RegistryReaderWriterTests: XCTestCase {
 
     /// A root record signed by anything but the person it names is not a root.
     func test_aSelfSignedRecordSignedByAnotherKeyIsMalformed() throws {
-        try RegistryWriter.write(rootRecord(root), signedBy: phone, in: projectURL)
+        try RegistryWriter.writeUnchecked(rootRecord(root), signedBy: phone, in: projectURL)
 
         let registry = try RegistryReader.load(projectURL: projectURL)
 
@@ -223,7 +223,7 @@ final class RegistryReaderWriterTests: XCTestCase {
 
     /// A device record must be signed by that device's own author key.
     func test_aDeviceRecordSignedByAnotherDeviceIsMalformed() throws {
-        try RegistryWriter.write(deviceRecord(root), signedBy: phone, in: projectURL)
+        try RegistryWriter.writeUnchecked(deviceRecord(root), signedBy: phone, in: projectURL)
 
         let registry = try RegistryReader.load(projectURL: projectURL)
 
@@ -266,9 +266,10 @@ final class RegistryReaderWriterTests: XCTestCase {
     func test_everyMalformedReasonSaysWhatIsWrong() {
         let reasons: [MalformedRecord.Reason] = [
             .undecodable("the decoder's own words"), .unsigned,
-            .filenameMismatch(named: "aaaa"), .signatureDoesNotVerify,
+            .filenameMismatch(recordFingerprint: "aaaa"), .signatureDoesNotVerify,
             .signerIsNotTheExpectedKey(expected: "aaaa", found: "bbbb"),
-            .signerIsNotARoot(named: "cccc")]
+            .signerIsNotARoot(named: "cccc"),
+            .authorActorIsNotTheDevice(named: "dddd"), .authorActorIsNotTheDevice(named: nil)]
         for reason in reasons {
             XCTAssertFalse(reason.sentence.isEmpty, "\(reason) says nothing")
         }
@@ -286,13 +287,118 @@ final class RegistryReaderWriterTests: XCTestCase {
             [.posixPermissions: 0o000], ofItemAtPath: url.path)
 
         XCTAssertThrowsError(try RegistryReader.load(projectURL: projectURL)) { error in
-            guard let refusal = error as? OpLogStore.ReadError else {
+            guard case OpLogStore.ReadError.unreadableFile(let name, _, let kind) = error else {
                 return XCTFail("expected the op log's own refusal, got \(error)")
             }
-            XCTAssertTrue(
-                refusal.errorDescription?.contains(url.lastPathComponent) == true,
-                "the refusal must NAME the file the writer has to go and fix")
+            XCTAssertEqual(name, url.lastPathComponent,
+                           "the refusal must NAME the file the writer has to go and fix")
+            XCTAssertEqual(kind, .registry, "and say what kind of file it is")
         }
+    }
+
+    /// The sentence a writer meets over a record that will not open. A record
+    /// holds no words, is not the manuscript's, and reopening the DOCUMENT
+    /// would not re-read it — so all three clauses are the registry's own.
+    func test_theRefusalCallsARecordARecordAndPromisesNothingAboutWords() throws {
+        let sentence = try XCTUnwrap(
+            OpLogStore.ReadError
+                .unreadableFile(name: "3f2a.json", underlying: "Permission denied",
+                                kind: .registry)
+                .errorDescription)
+
+        XCTAssertTrue(sentence.contains("registry record"), sentence)
+        XCTAssertTrue(sentence.contains("3f2a.json"), sentence)
+        XCTAssertFalse(sentence.contains("history file"),
+                       "the noun is the record's, not the op log's: " + sentence)
+        XCTAssertFalse(sentence.contains("Your words are intact"),
+                       "a record holds no words to reassure anybody about: " + sentence)
+        XCTAssertFalse(sentence.contains("shortened version"),
+                       "and the refusal is not the manuscript's: " + sentence)
+    }
+
+    /// The coordinator's third outcome: it neither ran the block nor reported a
+    /// failure. Empty bytes would read as a malformed record — a trust decision
+    /// made by an accident, which is the whole shape RULING-54 forbids.
+    func test_aCoordinatedReadThatNeverRanRefusesRatherThanReadingEmpty() {
+        XCTAssertThrowsError(
+            try RegistryReader.resolveRead(
+                bytes: nil, coordinationError: nil, readError: nil, name: "3f2a.json")
+        ) { error in
+            guard case OpLogStore.ReadError.unreadableFile(let name, _, let kind) = error else {
+                return XCTFail("expected the op log's own refusal, got \(error)")
+            }
+            XCTAssertEqual(name, "3f2a.json")
+            XCTAssertEqual(kind, .registry)
+        }
+        XCTAssertEqual(
+            try? RegistryReader.resolveRead(
+                bytes: Data("{}".utf8), coordinationError: nil, readError: nil, name: "x.json"),
+            Data("{}".utf8),
+            "bytes that DID arrive are the answer, empty or not")
+    }
+
+    // MARK: - A device vouches for its own author actor
+
+    /// The author actor's fingerprint IS the device's identity. A record whose
+    /// `actors["author"]` names another key asks a reader to trust an actor the
+    /// signer never vouched for as itself — so it is not a record.
+    func test_aDeviceRecordThatDisownsItsOwnAuthorActorIsMalformed() throws {
+        try RegistryWriter.write(
+            deviceRecord(root, actors: ["author": phone.fingerprint]),
+            signedBy: root, in: projectURL)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+
+        XCTAssertEqual(registry.devices, [])
+        XCTAssertEqual(registry.malformed.map(\.reason),
+                       [.authorActorIsNotTheDevice(named: phone.fingerprint)])
+    }
+
+    /// And a record that lists no author at all vouches for nothing: same
+    /// refusal, because the missing entry is the one that names the signer.
+    func test_aDeviceRecordWithNoAuthorActorIsMalformed() throws {
+        try RegistryWriter.write(
+            deviceRecord(root, actors: ["assistant": "bbbb"]),
+            signedBy: root, in: projectURL)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+
+        XCTAssertEqual(registry.devices, [])
+        XCTAssertEqual(registry.malformed.map(\.reason),
+                       [.authorActorIsNotTheDevice(named: nil)])
+    }
+
+    // MARK: - The writer refuses the wrong signer
+
+    /// A record signed by a key that is not the one the record NAMES is a file
+    /// every reader lists as malformed — which un-admits a device by accident.
+    /// The writer refuses it at the door instead, and leaves nothing behind.
+    func test_theWriterRefusesAnIdentityThatIsNotTheRecordsOwnSigner() {
+        XCTAssertThrowsError(
+            try RegistryWriter.write(rootRecord(root), signedBy: phone, in: projectURL)
+        ) { error in
+            XCTAssertEqual(
+                error as? RegistryWriteError,
+                .wrongSigner(expected: root.fingerprint, found: phone.fingerprint))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: projectURL.appendingPathComponent(".maugham/people").path),
+            "nothing is created on the refusing path")
+    }
+
+    /// A device record is the same rule from the other direction, and an
+    /// admission is the case the rule is FOR: only the root it names may sign.
+    func test_theWriterRefusesTheWrongSignerOnEveryKindOfRecord() {
+        XCTAssertThrowsError(
+            try RegistryWriter.write(deviceRecord(root), signedBy: phone, in: projectURL))
+        XCTAssertThrowsError(
+            try RegistryWriter.write(
+                admittedRecord(phone, under: root), signedBy: phone, in: projectURL))
+        XCTAssertThrowsError(
+            try RegistryWriter.write(
+                ClaimRecord(newRoot: root.fingerprint, adopted: [], claimedAt: Date()),
+                signedBy: phone, in: projectURL))
     }
 
     // MARK: - Nothing there

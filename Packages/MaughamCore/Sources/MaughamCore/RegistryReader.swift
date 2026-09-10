@@ -14,7 +14,9 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
         /// A record with no signature at all is not a record (spec §2).
         case unsigned
         /// The file was renamed: its name is not the fingerprint it carries.
-        case filenameMismatch(named: String)
+        /// The payload is the fingerprint the RECORD holds — the name on disk
+        /// is the `url` beside it.
+        case filenameMismatch(recordFingerprint: String)
         /// The signature does not hold together over these bytes — a flipped
         /// byte, or a record edited after it was signed.
         case signatureDoesNotVerify
@@ -24,6 +26,13 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
         /// A person admitted by someone who is not a root of this registry.
         /// Anybody can sign; only a root can admit.
         case signerIsNotARoot(named: String)
+        /// A device record whose `actors["author"]` is not the device itself
+        /// (`nil` when it lists no author at all). The author key's fingerprint
+        /// IS the device's identity, so a record naming another key there asks
+        /// a reader to trust an actor the signer never vouched for as itself —
+        /// and admitting a device admits every actor its record lists (spec
+        /// §4.4), which is what makes this worth refusing rather than ignoring.
+        case authorActorIsNotTheDevice(named: String?)
 
         /// One sentence a surface can print.
         public var sentence: String {
@@ -32,14 +41,17 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
                 return "isn't a record Maugham can read (\(underlying))"
             case .unsigned:
                 return "carries no signature, so nothing vouches for it"
-            case .filenameMismatch(let named):
-                return "was renamed — it carries the fingerprint \(named)"
+            case .filenameMismatch(let recordFingerprint):
+                return "was renamed — it carries the fingerprint \(recordFingerprint)"
             case .signatureDoesNotVerify:
                 return "was changed after it was signed"
             case .signerIsNotTheExpectedKey(let expected, let found):
                 return "was signed by \(found), not by \(expected)"
             case .signerIsNotARoot(let named):
                 return "was signed by \(named), who admits nobody here"
+            case .authorActorIsNotTheDevice(let named):
+                return named.map { "names \($0) as its own author key, which is another device" }
+                    ?? "names no author key of its own"
             }
         }
     }
@@ -214,7 +226,8 @@ public enum RegistryReader {
     ) -> MalformedRecord? {
         let named = url.deletingPathExtension().lastPathComponent
         guard named == record.fingerprint else {
-            return .init(url: url, reason: .filenameMismatch(named: record.fingerprint))
+            return .init(url: url,
+                         reason: .filenameMismatch(recordFingerprint: record.fingerprint))
         }
         guard let credentials = record.sig else {
             return .init(url: url, reason: .unsigned)
@@ -226,6 +239,16 @@ public enum RegistryReader {
         guard credentials.key == record.expectedSigner else {
             return .init(url: url, reason: .signerIsNotTheExpectedKey(
                 expected: record.expectedSigner, found: credentials.key))
+        }
+        // A device is the one record that vouches for OTHER keys, and the
+        // author entry is the one it cannot be wrong about: it is the key that
+        // just signed. A record listing another device there would have a
+        // reader trust actors on the strength of a signature that never
+        // claimed them.
+        if let device = record as? DeviceRecord,
+           device.actors[DeviceActor.author.rawValue] != device.device {
+            return .init(url: url, reason: .authorActorIsNotTheDevice(
+                named: device.actors[DeviceActor.author.rawValue]))
         }
         return nil
     }
@@ -282,7 +305,8 @@ public enum RegistryReader {
                 at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [])
         } catch {
             throw OpLogStore.ReadError.unreadableFile(
-                name: dir.lastPathComponent, underlying: error.localizedDescription)
+                name: dir.lastPathComponent, underlying: error.localizedDescription,
+                kind: .registry)
         }
         return entries
             .filter { !DotfileScan.isDotfile($0) }
@@ -308,10 +332,29 @@ public enum RegistryReader {
             do { bytes = try Data(contentsOf: target) }  // adr-0018-ok: a signed registry record, never manuscript text
             catch { readError = error }
         }
+        return try resolveRead(
+            bytes: bytes, coordinationError: coordinationError,
+            readError: readError, name: url.lastPathComponent)
+    }
+
+    /// What the coordinator's outcomes mean, as a decision with no file in it.
+    ///
+    /// Three of them, not two. The third — no bytes, no error, because the
+    /// block never ran — is the one worth naming: answering it with empty bytes
+    /// would make the record read as MALFORMED, and a device silently
+    /// un-admitted by an accident is exactly the shape RULING-54 exists to
+    /// forbid. A file that is there is read whole or refused by name.
+    nonisolated static func resolveRead(
+        bytes: Data?, coordinationError: NSError?, readError: Error?, name: String
+    ) throws -> Data {
         if let failure = (coordinationError as Error?) ?? readError {
             throw OpLogStore.ReadError.unreadableFile(
-                name: url.lastPathComponent, underlying: failure.localizedDescription)
+                name: name, underlying: failure.localizedDescription, kind: .registry)
         }
-        return bytes ?? Data()
+        guard let bytes else {
+            throw OpLogStore.ReadError.unreadableFile(
+                name: name, underlying: "the read never ran", kind: .registry)
+        }
+        return bytes
     }
 }
