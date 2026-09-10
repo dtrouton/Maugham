@@ -180,6 +180,14 @@ extension ProjectStore {
         var unreadable: [String] = []
         var sequences: [String: [String]] = [:]
 
+        // ONE trust resolution for the whole walk. `loadSyncMerged` resolves
+        // its own when given none, and that is a verified read of the registry
+        // folder — thirty chapters would be thirty of them. A resolution that
+        // throws leaves this walk judging nobody, which is the same lenient
+        // stance the `try?` below takes for the same reason.
+        let trust = try? TrustResolution.resolve(
+            projectURL: url, identities: .current)
+
         for item in Self.collectDocuments(in: manifest.structure) {
             if let doc = openDocs[item.id] {
                 sequences[item.id] = doc.sequence
@@ -198,7 +206,8 @@ extension ProjectStore {
             // read — opening that document still refuses loudly. It is not
             // silent, though: the id goes into `unreadableDocIds` so a count
             // surface can render "unknown" rather than a number that is short.
-            guard let ops = try? OpLogStore.loadSyncMerged(forDocId: item.id, in: url)
+            guard let ops = try? OpLogStore.loadSyncMerged(
+                forDocId: item.id, in: url, trust: trust)
             else {
                 unreadable.append(item.id)
                 continue

@@ -19,6 +19,11 @@ public enum TrustVerdict: Equatable, Hashable, Sendable {
     /// An actor key of a device admitted under this device's root.
     case admitted(person: String)
     /// A key this device's chain says nothing about. Held, not quarantined.
+    ///
+    /// `device` is the DEVICE record that names the key, nil when nothing on
+    /// disk describes it. It is what the walk counts held lines under: one
+    /// device holds four actor keys, and a phone that wrote as both its author
+    /// and its assistant is one device waiting for admission, not two.
     case stranger(device: String?)
     /// Admitted, then revoked. `highestOpIdSeen` is the line between what the
     /// root had already applied and what arrived after (spec §5).
@@ -41,12 +46,52 @@ public enum TrustVerdict: Equatable, Hashable, Sendable {
 /// argument, which is what lets every arm below be pinned as a value.
 public struct TrustTable: Equatable, Sendable {
 
+    /// Which of `resolve`'s four arms answered `myRoot`.
+    ///
+    /// The caller needs it for one decision and it is B1's: **only an
+    /// `.admitted` root is ever JOINED**. A Mac that is its own root has no
+    /// chain of somebody else's to be on, so joining itself would have every
+    /// surface that reads the join say *this Mac joined its own chain* — and,
+    /// since `RegistryCache.join` is write-once, would also mean the first
+    /// foreign root to name this device is filed as a claimant of a join that
+    /// was never anybody's.
+    public enum RootSource: Equatable, Sendable {
+        /// Arm 1: the root the caller remembers joining. Outranks everything.
+        case joined
+        /// Arm 2: a self-signed root record for one of this device's own keys.
+        case ownRecord
+        /// Arm 3: a root whose chain names one of this device's keys.
+        case admitted
+        /// Arm 4: no root at all (B3).
+        case none
+    }
+
     /// The root whose chain this device judges by, or `nil` — decision B3's
     /// *no chain*, in which every foreign key answers `.noChain`.
     ///
     /// The caller persists this as the cache's `joinedRoot` (B1: joined once,
     /// stays) and hands it back on the next resolve.
     public let myRoot: String?
+
+    /// Where `myRoot` came from.
+    public let rootSource: RootSource
+
+    /// Every root OTHER than this device's own that admitted it, by
+    /// fingerprint, whether or not one of them is the root this device is on.
+    ///
+    /// Separate from `myRoot` because B1 has two halves and this is the loud
+    /// one: once a device has joined a root, a SECOND root that names it is
+    /// somebody claiming a book this device already belongs to someone else's
+    /// copy of. `myRoot` cannot say so — it answers the join, which by B1 does
+    /// not move — so a claimant would be invisible without this.
+    ///
+    /// A LIST rather than the first of them, because which one is joined is
+    /// decided by WHEN this device saw it and the rest are claimants: an answer
+    /// of one would name whichever sorts lowest, and if that happened to be the
+    /// joined root the claimant beside it would go unrecorded. Sorted by
+    /// fingerprint, so a registry that arrives in a different order answers the
+    /// same, and `first` is arm 3 of `myRoot`.
+    public let admittingRoots: [String]
 
     /// This device's own actor keys.
     private let mine: Set<String>
@@ -87,10 +132,21 @@ public struct TrustTable: Equatable, Sendable {
         let myKeys = mine.fingerprints
         let roots = registry.roots.sorted { $0.person < $1.person }
 
-        let myRoot: String? =
-            joinedRoot
-            ?? roots.first { myKeys.contains($0.person) }?.person
-            ?? roots.first { !registry.chain(under: $0).isDisjoint(with: myKeys) }?.person
+        // The two arms are kept as named values rather than folded into one
+        // `??` chain, because the CALLER has to tell them apart: arm 2 is this
+        // device being its own root, arm 3 is somebody else taking it in, and
+        // only the second is ever joined.
+        let ownRecord = roots.first { myKeys.contains($0.person) }?.person
+        let admittingRoots = roots.filter {
+            $0.person != ownRecord && !registry.chain(under: $0).isDisjoint(with: myKeys)
+        }.map(\.person)
+
+        let myRoot: String? = joinedRoot ?? ownRecord ?? admittingRoots.first
+        let rootSource: RootSource =
+            joinedRoot != nil ? .joined
+            : ownRecord != nil ? .ownRecord
+            : admittingRoots.first != nil ? .admitted
+            : .none
 
         var deviceByActorKey: [String: String] = [:]
         for device in registry.devices.sorted(by: { $0.device < $1.device }) {
@@ -116,7 +172,8 @@ public struct TrustTable: Equatable, Sendable {
         }
 
         return TrustTable(
-            myRoot: myRoot, mine: myKeys, deviceByActorKey: deviceByActorKey,
+            myRoot: myRoot, rootSource: rootSource, admittingRoots: admittingRoots,
+            mine: myKeys, deviceByActorKey: deviceByActorKey,
             personByFingerprint: personByFingerprint, myChain: myChain,
             otherRootByMember: otherRootByMember)
     }

@@ -83,29 +83,79 @@ final class RegistryPresenceTests: XCTestCase {
                        "the file on disk was not touched")
     }
 
-    /// The lazy-key case, which is the whole reason this is *ensure* rather
-    /// than *write once*: the assistant's key exists only once MCP has written
-    /// something, and the record has to grow to say so.
-    func test_anActorThisDeviceDidNotHaveBeforeIsReSignedIntoTheRecord() throws {
-        let author = mine.author
-        let earlier = DeviceRecord(
-            device: author.fingerprint, name: "Denver's MacBook", kind: .mac,
-            actors: [DeviceActor.author.rawValue: author.fingerprint],
-            madeAt: Date(timeIntervalSince1970: 10))
-        try RegistryWriter.write(earlier, signedBy: author, in: projectURL)
+    /// **The lazy boundary itself**, which is the whole reason this is *ensure*
+    /// rather than *write once*: the assistant's key does not exist until MCP
+    /// first writes, and on the day it does the record has to grow to say so —
+    /// otherwise every seal that key makes reads on the other Mac as a
+    /// stranger's (spec §4.4).
+    ///
+    /// The device here is `lazySoftwareForTesting`, whose `existingActors`
+    /// genuinely GROWS between the calls below. A `.fixed` fixture cannot stand
+    /// here: it reports all four actors from its first call, so the transition
+    /// this test is about would never happen.
+    func test_anActorMintedBetweenTwoCallsIsReSignedIntoTheRecord() throws {
+        let device = LocalIdentities.lazySoftwareForTesting()
+        let author = device.author  // the first actor this device ever names
 
-        let url = try RegistryPresence.ensureDeviceRecord(
-            in: projectURL, identities: mine, name: "Denver's MacBook", kind: .mac,
+        let first = try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: device, name: "Denver's MacBook", kind: .mac,
+            now: { Date(timeIntervalSince1970: 10) })
+        XCTAssertNotNil(first)
+        let asWritten = try XCTUnwrap(
+            try registry().devices.first { $0.device == author.fingerprint })
+        XCTAssertEqual(asWritten.actors, [DeviceActor.author.rawValue: author.fingerprint],
+                       "a device that has named one actor lists one actor")
+
+        // MCP writes for the first time: naming the assistant is what mints it.
+        let assistant = device.assistant
+
+        let second = try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: device, name: "Denver's MacBook", kind: .mac,
             now: { Date(timeIntervalSince1970: 999) })
 
-        XCTAssertNotNil(url, "a record missing an actor this device holds is re-signed")
-        let record = try XCTUnwrap(myDeviceRecord())
-        XCTAssertEqual(
-            Set(record.actors.keys), Set(DeviceActor.allCases.map(\.rawValue)))
-        XCTAssertEqual(record.madeAt, Date(timeIntervalSince1970: 10),
+        XCTAssertNotNil(second, "the key that did not exist last time is re-signed in")
+        let grown = try XCTUnwrap(
+            try registry().devices.first { $0.device == author.fingerprint })
+        XCTAssertEqual(grown.actors, [
+            DeviceActor.author.rawValue: author.fingerprint,
+            DeviceActor.assistant.rawValue: assistant.fingerprint,
+        ])
+        XCTAssertEqual(grown.madeAt, Date(timeIntervalSince1970: 10),
                        "and it is the same device: `madeAt` is when it declared itself, "
                        + "not when it last re-signed")
-        XCTAssertTrue(try registry().malformed.isEmpty)
+        XCTAssertTrue(try registry().malformed.isEmpty,
+                      "the re-signed record verifies under the same author key")
+
+        XCTAssertNil(
+            try RegistryPresence.ensureDeviceRecord(
+                in: projectURL, identities: device, name: "Denver's MacBook", kind: .mac),
+            "and with nothing new to say, a third call writes nothing")
+    }
+
+    /// A device that has retired is left alone (spec §5): its record carries
+    /// its own signed `retiredAt`, and re-declaring it here would un-retire it.
+    /// Retirement is the device's own act and nothing else's — not even its own
+    /// next open's.
+    func test_aRetiredDeviceIsNotReDeclaredEvenWhenItsActorsDiffer() throws {
+        let author = mine.author
+        let retired = DeviceRecord(
+            device: author.fingerprint, name: "An old MacBook", kind: .mac,
+            actors: [DeviceActor.author.rawValue: author.fingerprint],
+            madeAt: Date(timeIntervalSince1970: 10),
+            retiredAt: Date(timeIntervalSince1970: 50))
+        let file = try RegistryWriter.write(retired, signedBy: author, in: projectURL)
+        let written = modified(file)
+
+        let url = try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "A new name", kind: .mac)
+
+        XCTAssertNil(url)
+        XCTAssertEqual(modified(file), written, "the file was not touched")
+        let record = try XCTUnwrap(myDeviceRecord())
+        XCTAssertEqual(record.retiredAt, Date(timeIntervalSince1970: 50),
+                       "it is still retired")
+        XCTAssertEqual(record.actors.count, 1)
+        XCTAssertEqual(record.name, "An old MacBook")
     }
 
     func test_aRenamedDeviceReSignsItsOwnRecord() throws {
@@ -175,8 +225,15 @@ final class RegistryPresenceTests: XCTestCase {
             projectURL: projectURL, identities: mine, cache: cache)
 
         XCTAssertEqual(table.myRoot, mine.author.fingerprint)
-        XCTAssertEqual(cache.joinedRoot(for: projectURL), mine.author.fingerprint,
-                       "and it joined its own chain, once")
+        XCTAssertEqual(table.rootSource, .ownRecord)
+        // Task 7's fix round, on the controller's ruling: the JOIN records only
+        // a foreign root that took this device in (B1). Being your own root is
+        // not joining one — a Mac that joined itself would have every surface
+        // reading the join say "this Mac joined its own chain", and, because
+        // `join` is write-once, would file the first root that really did admit
+        // it as a claimant of a join nobody made.
+        XCTAssertNil(cache.joinedRoot(for: projectURL),
+                     "there is no chain of anybody else's for it to be on")
     }
 
     func test_asecondCallWritesNoSecondRoot() throws {
@@ -209,6 +266,34 @@ final class RegistryPresenceTests: XCTestCase {
         XCTAssertNil(root, "it never writes a second root silently")
         XCTAssertNotNil(try myDeviceRecord(), "but it does say who it is")
         XCTAssertEqual(try registry().roots.map(\.person), [stranger.fingerprint])
+    }
+
+    /// **A book whose only person record cannot be read is not an empty book**
+    /// (Denver, 2026-09-10). Rooting beside a tampered or half-written root
+    /// would put a second self-signed root next to a damaged original, and
+    /// nothing on the folder would say which came first. Present-and-unreadable
+    /// is not absent — RULING-54's distinction, kept here too.
+    func test_aBookWhoseOnlyPersonRecordIsMalformedGetsNoRoot() throws {
+        let theirs = PersonRecord(
+            person: stranger.fingerprint, label: "Sam", ownName: "Sam's iMac",
+            admittedAt: Date(timeIntervalSince1970: 1), admittedBy: stranger.fingerprint)
+        let file = try RegistryWriter.write(theirs, signedBy: stranger, in: projectURL)
+        // Somebody edited it after it was signed.
+        var bytes = try XCTUnwrap(String(data: try Data(contentsOf: file), encoding: .utf8))
+        bytes = bytes.replacingOccurrences(of: "\"Sam\"", with: "\"Sammm\"")
+        try Data(bytes.utf8).write(to: file)
+        XCTAssertTrue(try registry().people.isEmpty, "precondition: it verifies for nobody")
+        XCTAssertFalse(try registry().malformed.isEmpty, "precondition: and it is listed")
+
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Denver's MacBook", kind: .mac)
+        let root = try RegistryPresence.ensureRootIfEmpty(in: projectURL, identities: mine)
+
+        XCTAssertNil(root, "no root beside a person record this device cannot vouch for")
+        XCTAssertTrue(try registry().roots.isEmpty)
+        XCTAssertNotNil(try myDeviceRecord(),
+                        "but the device record is this device's own statement, "
+                        + "and it is written regardless")
     }
 
     /// The root is the MAC's to write (spec §3). A phone waits to be admitted,

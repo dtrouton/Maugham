@@ -155,6 +155,39 @@ final class InboxChainTests: XCTestCase {
         XCTAssertEqual(records.first?.reason, "written by something that is not Maugham")
     }
 
+    /// RULING-54 at the inbox: a registry record that is present and cannot be
+    /// read refuses the read by name rather than leaving the inbox judging
+    /// nobody. Judging nobody would apply a stranger's captures as this
+    /// project's own, silently, which is the failure that ruling forbids.
+    func test_anUnreadableRegistryRecordRefusesTheInboxReadByName() async throws {
+        try XCTSkipIf(getuid() == 0, "root reads a mode-000 file, so nothing is refused")
+        let seed = farSideStore("mac", identity: identity)
+        try await seed.append(entry("a"))
+        try await seed.appendSeal()
+
+        let inbox = makeInbox()
+        await inbox.refresh()
+        XCTAssertEqual(inbox.entries.map(\.id), ["a"])
+
+        let people = projectURL.appendingPathComponent(".maugham/people", isDirectory: true)
+        try FileManager.default.createDirectory(at: people, withIntermediateDirectories: true)
+        let record = people.appendingPathComponent("deadbeef.json")
+        try Data("{}".utf8).write(to: record)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: record.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644], ofItemAtPath: record.path)
+        }
+
+        await inbox.refresh()
+
+        XCTAssertEqual(inbox.unreadableManifests, ["deadbeef.json"],
+                       "the record that stopped the read is named")
+        XCTAssertTrue(inbox.entries.isEmpty,
+                      "and nothing is applied under a registry this Mac cannot read")
+    }
+
     func test_aManifestWrittenBeforeThisMilestoneStillReadsWhole() async throws {
         // No chain policy at all: every line legacy, exactly what is on the
         // writer's disk today.

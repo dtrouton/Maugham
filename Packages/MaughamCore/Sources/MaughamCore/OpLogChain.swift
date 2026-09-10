@@ -419,11 +419,15 @@ public enum OpLogChain {
             /// The writer admits the device or does not, and admitting is a
             /// re-read: no line of the file is rewritten to make it apply.
             ///
-            /// It carries the sealing key's fingerprint because the one
-            /// question a surface asks about held lines is *whose*, and a line
-            /// that had to be matched back to its seal to answer it would be a
-            /// second walk.
-            case pending(key: String)
+            /// It carries the DEVICE the sealing key belongs to — not the key
+            /// — because the one question a surface asks about held lines is
+            /// *whose*, and a device holds four actor keys: a phone that wrote
+            /// as both its author and its assistant is one device waiting for
+            /// admission, not two. The key stands for itself when no device
+            /// record names it, which is `TrustVerdict.stranger`'s own rule.
+            /// A line that had to be matched back to its seal to answer this
+            /// would be a second walk.
+            case pending(device: String)
             /// Never applied: the chain broke at or before this line, or the
             /// key that sealed it was revoked or belongs to another claimant.
             case quarantined
@@ -456,9 +460,9 @@ public enum OpLogChain {
                 }
             }
 
-            /// The key that sealed a held span, when this is one.
-            public var pendingKey: String? {
-                if case let .pending(key) = self { return key }
+            /// The device whose seal is holding this line, when it is held.
+            public var pendingDevice: String? {
+                if case let .pending(device) = self { return device }
                 return nil
             }
         }
@@ -776,7 +780,9 @@ extension TrustVerdict {
     nonisolated func settling(sealKey: String) -> OpLogChain.Line.State {
         switch self {
         case .mine, .admitted: .verified
-        case .stranger: .pending(key: sealKey)
+        // The device the registry names for this key, and the key itself only
+        // when no device record does.
+        case let .stranger(device): .pending(device: device ?? sealKey)
         case .revoked, .otherRoot: .quarantined
         case .noChain: .unsignedHistory
         }
@@ -867,9 +873,14 @@ extension OpLogChain {
         return (quarantining(verification, after: anchor), nil)
     }
 
-    /// The index of the last line that is a seal this device's own key made —
-    /// `.verified` is exactly "covered by a seal the caller trusts", and a seal
-    /// line settles to its own span's state.
+    /// The index of the last line that is a seal whose key this device stands
+    /// behind — `.verified` is exactly "covered by a seal the caller calls its
+    /// own or its root's", and a seal line settles to its own span's state.
+    ///
+    /// Reachable only for a file this device remembers a head for, which is one
+    /// of its own, so in practice the seal it finds is this device's; an
+    /// admitted device's seal would anchor here too, and that is right — the
+    /// question is what the chain can be trusted back to, not who typed it.
     private nonisolated static func lastTrustedSealIndex(_ lines: [Line]) -> Int? {
         lines.lastIndex { $0.kind == .seal && $0.state == .verified }
     }
@@ -885,19 +896,15 @@ extension OpLogChain {
             lines[index].settle(.quarantined)
         }
 
-        var legacyCount = 0, verifiedCount = 0, unsealedCount = 0
-        var pendingCount = 0, foreignSealCount = 0
+        var legacyCount = 0, verifiedCount = 0, unsealedCount = 0, pendingCount = 0
         var quarantined: [Data] = []
         for line in lines {
             switch line.state {
             case .legacy: legacyCount += 1
             case .verified: verifiedCount += 1
             case .unsealed: unsealedCount += 1
-            case .pending:
-                pendingCount += 1
-                if line.kind == .seal { foreignSealCount += 1 }
-            case .unsignedHistory:
-                if line.kind == .seal { foreignSealCount += 1 }
+            case .pending: pendingCount += 1
+            case .unsignedHistory: break
             case .tornTail: break
             case .quarantined: quarantined.append(line.bytes)
             }
@@ -911,7 +918,13 @@ extension OpLogChain {
             verifiedCount: verifiedCount,
             unsealedCount: unsealedCount,
             pendingCount: pendingCount,
-            foreignSealCount: foreignSealCount,
+            // Carried, never recounted. `foreignSealCount` is a fact about the
+            // SEALS in the file — how many were made by a key this device does
+            // not call its own — and holding lines back does not change who
+            // signed them. Recounting it off the states would also be a second
+            // definition of the word, and a quieter one: `.verified` covers an
+            // admitted device's seal, which the walk counts as foreign.
+            foreignSealCount: verification.foreignSealCount,
             quarantined: quarantined,
             breakReason: cutShort,
             // A cause the walk already found stands: it happened first, and it

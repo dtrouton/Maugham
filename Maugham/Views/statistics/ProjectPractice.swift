@@ -125,6 +125,13 @@ struct ProjectPractice: Equatable, Sendable {
         var rows: [DocumentRow] = []
         var unreadable: [String] = []
 
+        // ONE trust resolution for the whole walk. `loadSyncMerged` resolves
+        // its own when given none, and that is a verified read of the registry
+        // folder — thirty chapters would be thirty of them. A resolution that
+        // throws leaves this walk judging nobody, which is the same lenient
+        // stance the `try?` below takes for the same reason.
+        let trust = try? TrustResolution.resolve(
+            projectURL: projectURL, identities: .current)
         for item in plan.documents {
             guard item.path != nil else { continue }
             // RULING-54 lenient, reason recorded: a window-wide READ skips a
@@ -132,7 +139,7 @@ struct ProjectPractice: Equatable, Sendable {
             // section — opening that document still refuses loudly. It is not
             // silent: the id goes into `unreadableDocIds`.
             guard let ops = try? OpLogStore.loadSyncMerged(
-                forDocId: item.id, in: projectURL)
+                forDocId: item.id, in: projectURL, trust: trust)
             else {
                 unreadable.append(item.id)
                 continue

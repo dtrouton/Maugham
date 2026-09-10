@@ -29,10 +29,14 @@ public struct FileProvenance: Equatable, Sendable {
     /// neither applied nor refused (spec §3). Admitting the device applies
     /// them on the next read; nothing is rewritten either way.
     public let pending: Int
-    /// The same number split by the key that sealed each held span, so a
-    /// surface can offer *admit this device* about somebody in particular
-    /// rather than about a count. Keyed on the seal's own fingerprint, which is
-    /// what `TrustTable` takes to name a person.
+    /// The same number split by the DEVICE whose seal is holding each span, so
+    /// a surface can offer *admit this device* about somebody in particular
+    /// rather than about a count.
+    ///
+    /// Keyed on the device record's fingerprint — never the actor key that made
+    /// the seal — because a device holds four of those, and a phone that wrote
+    /// as both its author and its assistant is one device waiting for
+    /// admission. A key no device record names stands for itself.
     public let pendingByDevice: [String: Int]
     /// Whether this file is a sealed `.mzseg` segment rather than a live tail.
     public let isSealedSegment: Bool
@@ -86,9 +90,9 @@ public struct OpLogProvenance: Equatable, Sendable {
     /// Lines held for a stranger's key across every file of this document.
     public var pendingLines: Int { files.reduce(0) { $0 + $1.pending } }
 
-    /// Held lines by the key that sealed them, summed across the files. The
-    /// question a surface asks is *who is waiting*, and one device's history
-    /// can be spread over more than one file.
+    /// Held lines by the device whose seal is holding them, summed across the
+    /// files. The question a surface asks is *who is waiting*, and one device's
+    /// history is spread over one file per actor it has written as.
     public var pendingByDevice: [String: Int] {
         files.reduce(into: [:]) { total, file in
             for (key, count) in file.pendingByDevice { total[key, default: 0] += count }

@@ -84,46 +84,56 @@ final class InboxStore {
         self.identities = identities
     }
 
-    /// Who this device trusts in this project, resolved once per store.
-    ///
-    /// The inbox is read on every `refresh`, so the registry is read once and
-    /// kept: a store is per project window, and admitting a device is already
-    /// a re-read of everything.
-    ///
-    /// **A registry this device cannot read leaves the inbox judging nobody**
-    /// rather than refusing the whole read. That is the lenient direction on
-    /// purpose and it is the only place in P2a that takes it: the inbox holds
-    /// the writer's own captures, `refresh` already names an unreadable
-    /// manifest rather than throwing, and applying a capture that should have
-    /// been held costs a row in a triage pane, while refusing the pane costs
-    /// the writer everything they dictated. The op log, whose refusal is about
-    /// a manuscript, throws (RULING-54).
-    private var resolvedTrust: TrustTable?
+    /// Who this device trusts in this project, and the shape of the registry
+    /// folder it was resolved from — the op log's own arrangement, for the same
+    /// two reasons: the inbox is read on every `refresh`, and admitting a
+    /// device must apply what it was holding on the next read rather than on
+    /// the next window.
+    private var resolvedTrust: (signature: String, table: TrustTable)?
 
-    private func trust() -> TrustTable {
-        if let resolvedTrust { return resolvedTrust }
-        let table = (try? TrustResolution.resolve(
-            projectURL: projectURL, identities: identities))
-            ?? TrustResolution.keyless(mine: identities)
-        resolvedTrust = table
+    /// The table, re-resolved whenever the registry folder has changed, and
+    /// **off the main actor** — this class is `@MainActor` and the resolution
+    /// is a folder read plus a P256 verification per record.
+    ///
+    /// **It throws, and the caller says so out loud** (RULING-54). A registry
+    /// record present and unreadable is not answered with *nobody is judged*:
+    /// judging nobody would apply a stranger's captures as this project's own,
+    /// which is the silent half of the failure that ruling exists to forbid.
+    /// `refresh` names the record it could not read the way it names a manifest
+    /// it could not read, and the write paths let it out through the throwing
+    /// channel they already have.
+    private func trust() async throws -> TrustTable {
+        let signature = TrustResolution.signature(of: projectURL)
+        if let resolvedTrust, resolvedTrust.signature == signature {
+            return resolvedTrust.table
+        }
+        let projectURL = self.projectURL
+        let identities = self.identities
+        let table = try await Task.detached(priority: .userInitiated) {
+            try TrustResolution.resolve(projectURL: projectURL, identities: identities)
+        }.value
+        resolvedTrust = (signature, table)
         return table
     }
+
+    /// Forget the resolved table, so the next read builds a fresh one — for the
+    /// caller that just changed the registry itself.
+    func invalidateTrust() { resolvedTrust = nil }
 
     /// The inbox's chain, for whichever manifest is being read or written: this
     /// device's key and memory, the project it belongs to, and the inbox's own
     /// stream name in place of a docId (the manifest is a project's captures,
     /// not a document's history).
-    private func chainPolicy() -> ChainPolicy {
-        let table = trust()
-        return ChainPolicy(identity: identity, state: .shared,
-                           docId: InboxManifest.chainDocId, projectURL: projectURL,
-                           trust: { table.verdict(forSealKey: $0) })
+    private func chainPolicy(trust table: TrustTable) -> ChainPolicy {
+        ChainPolicy(identity: identity, state: .shared,
+                    docId: InboxManifest.chainDocId, projectURL: projectURL,
+                    trust: { table.verdict(forSealKey: $0) })
     }
 
-    private func manifestStore(at url: URL) -> JSONLAppendStore<InboxEntry> {
+    private func manifestStore(at url: URL, trust table: TrustTable) -> JSONLAppendStore<InboxEntry> {
         // No dedupKey: we need every status-transition row, then collapse
         // last-wins ourselves (JSONLAppendStore's dedup keeps *first*).
-        JSONLAppendStore<InboxEntry>(fileURL: url, chain: chainPolicy())
+        JSONLAppendStore<InboxEntry>(fileURL: url, chain: chainPolicy(trust: table))
     }
 
     /// Mirrors `ProjectStore.projectOpDevice`: this device's key fingerprint, read once
@@ -142,13 +152,30 @@ final class InboxStore {
         let urls = manifestURLs()
         var rows: [InboxEntry] = []
         var unreadable: [String] = []
+        let table: TrustTable
+        do { table = try await trust() }
+        catch {
+            // RULING-54, and the strictest place it bites: a registry record
+            // that is present and cannot be read is NAMED, and nothing is
+            // applied under it. Reading on regardless would judge nobody, which
+            // means applying a stranger's captures as this project's own — the
+            // silent failure, and the worse of the two. The rows are intact on
+            // disk; the pane says which record stopped the read.
+            unreadableManifests = [OpLogStore.unreadableName(error)]
+            entries = []
+            trashedEntries = []
+            setAsideRecords = setAsideLineRecords()
+            inboxStoreLog.error(
+                "inbox read refused: \(OpLogStore.unreadableName(error), privacy: .public) is present and unreadable: \(error.localizedDescription, privacy: .public)")
+            return
+        }
         for url in urls {
             // The verified read (spec §4.2): seal lines never reach the entry
             // decoder, and a run of lines this device cannot vouch for is set
             // aside under the inbox's own stream name before the rest is
             // parsed — the same three steps the op log's tails take, in the
             // same implementation.
-            let store = manifestStore(at: url)
+            let store = manifestStore(at: url, trust: table)
             do { rows.append(contentsOf: try await store.loadVerifiedStrict().elements) }
             catch {
                 // Unreadable is RECORDED, never presented as empty (RULING-7):
@@ -160,9 +187,7 @@ final class InboxStore {
             }
         }
         unreadableManifests = unreadable.sorted()
-        setAsideRecords = OpLogQuarantine
-            .records(forDocId: InboxManifest.chainDocId, in: projectURL)
-            .filter { $0.kind == .lines }
+        setAsideRecords = setAsideLineRecords()
         // Last-wins by row-write time (writtenAt), across all files and all
         // rows for an id. createdAt is immutable across transition rows, so it
         // can't order them; writtenAt is stamped fresh on every append.
@@ -193,6 +218,13 @@ final class InboxStore {
         trashedEntries = trashed
             .filter { ($0.resolvedAt ?? writeTime($0)) >= cutoff }
             .sorted { writeTime($0) > writeTime($1) }
+    }
+
+    /// The `.lines` records filed under the inbox's own stream name.
+    private func setAsideLineRecords() -> [QuarantineRecord] {
+        OpLogQuarantine
+            .records(forDocId: InboxManifest.chainDocId, in: projectURL)
+            .filter { $0.kind == .lines }
     }
 
     private func manifestURLs() -> [URL] {
@@ -241,7 +273,7 @@ final class InboxStore {
         // worker re-transcribes in an infinite loop. (Smoke caught this.)
         let basis = entry.writtenAt ?? entry.createdAt
         stamped.writtenAt = max(Date(), basis.addingTimeInterval(0.001))
-        let store = manifestStore(at: ownManifestURL)
+        let store = manifestStore(at: ownManifestURL, trust: try await trust())
         try await store.append(stamped)
         // A seal per capture. Captures are rare — a photograph, a voice note, a
         // status flip — so one signature each is a cost the writer never feels,

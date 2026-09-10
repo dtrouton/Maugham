@@ -229,6 +229,13 @@ extension ProjectStore {
         //     every doc, and per-doc op logs are small. The aggregation
         //     cache key folds each closed doc's op-log mtime so we
         //     re-derive only when something on disk changes.
+        // ONE trust resolution for the whole walk. `loadSyncMerged` resolves
+        // its own when given none, and that is a verified read of the registry
+        // folder — thirty chapters would be thirty of them. A resolution that
+        // throws leaves this walk judging nobody, which is the same lenient
+        // stance the `try?` below takes for the same reason.
+        let trust = try? TrustResolution.resolve(
+            projectURL: url, identities: .current)
         for item in Self.collectDocuments(in: manifest.structure) {
             if openDocIds.contains(item.id) { continue }
             guard item.path != nil else { continue }
@@ -237,7 +244,8 @@ extension ProjectStore {
             // header note on avoiding async actor init per doc.
             // RULING-54 lenient, reason recorded: the task pane skips an
             // unreadable closed doc; opening it refuses loudly.
-            guard let ops = try? OpLogStore.loadSyncMerged(forDocId: item.id, in: url)
+            guard let ops = try? OpLogStore.loadSyncMerged(
+                forDocId: item.id, in: url, trust: trust)
             else { continue }
             let paragraphs = Deriver.deriveWithSequenceFallback(ops: ops).paragraphs
             // `maughamDeviceId: nil` — this projection reads and never writes,
