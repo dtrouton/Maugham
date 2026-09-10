@@ -252,15 +252,52 @@ public final class OpLogStore {
     /// to match — with the file's paragraphs superseded by the new sequence
     /// keyframe when it came back. Refusal at load is the only safe shape.
     public enum ReadError: Error, LocalizedError {
-        case unreadableFile(name: String, underlying: String)
+        /// **Which durable store the file belongs to** (P2a D0). ONE error
+        /// kind rather than one error type per store: a writer meeting the
+        /// same condition twice must meet the same sentence, and the only
+        /// things that legitimately differ are the noun for the file and what
+        /// Maugham is refusing to do over it. A store that grows a chained
+        /// JSONL of its own adds a case here rather than an error of its own.
+        public enum FileKind: Equatable, Sendable {
+            /// The per-device op log under `.maugham/ops/` — the manuscript
+            /// itself, and the surface RULING-54 was named for.
+            case history
+            /// A per-(device, actor) translation sidecar under
+            /// `.maugham/translations/`. Since P1b a document's translation is
+            /// spread over several of these, which is why one that will not
+            /// open cannot be stepped over.
+            case translation
+
+            /// The writer's own word for the file.
+            var noun: String {
+                switch self {
+                case .history: return "history file"
+                case .translation: return "translation file"
+                }
+            }
+
+            /// What Maugham is refusing to do rather than read a short answer.
+            var refusal: String {
+                switch self {
+                case .history:
+                    return "Maugham won't open a shortened version over it."
+                case .translation:
+                    return "Maugham won't show or publish a partial translation over it."
+                }
+            }
+        }
+
+        /// `kind` defaults to `.history`, so every op-log throw site — the
+        /// original ones and any added later — keeps its own wording without
+        /// having to say so.
+        case unreadableFile(name: String, underlying: String, kind: FileKind = .history)
         case unlistableOpsDirectory(underlying: String)
         public var errorDescription: String? {
             switch self {
-            case .unreadableFile(let name, let underlying):
-                return "The manuscript's history file “\(name)” exists but can't be read (\(underlying)). "
+            case .unreadableFile(let name, let underlying, let kind):
+                return "The manuscript's \(kind.noun) “\(name)” exists but can't be read (\(underlying)). "
                      + "Your words are intact inside it — check the file's permissions or wait for "
-                     + "iCloud to finish syncing, then reopen the document. Maugham won't open a "
-                     + "shortened version over it."
+                     + "iCloud to finish syncing, then reopen the document. \(kind.refusal)"
             case .unlistableOpsDirectory(let underlying):
                 return "The manuscript's history folder (.maugham/ops) exists but can't be listed "
                      + "(\(underlying)). Check its permissions, then reopen — opening without it "

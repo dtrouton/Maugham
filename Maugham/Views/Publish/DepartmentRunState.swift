@@ -183,10 +183,15 @@ struct DepartmentRunState: Equatable {
     var latestRound: TranslationRound? = nil
     /// `TranslationRoundStore.trend` — notes per round, oldest first.
     var trend: [Int] = []
-    /// `TranslationPreflight.budget` over the open chapter, and over the desk's
-    /// document set; nil when nothing could be counted.
-    var chapterWords: Int? = nil
-    var bookWords: Int? = nil
+    /// `TranslationPreflight.Budgets.answer` over the open chapter, and over
+    /// the desk's document set; nil when that scope has nothing to say.
+    ///
+    /// **An answer rather than a count** (P2a D0, fix round 1). The third
+    /// state is a translation file that is present and unreadable, and it has
+    /// to reach the row: caught at the desk and turned into an absent figure,
+    /// the writer watched the pre-flight clause vanish with nothing said.
+    var chapterPreflight: TranslationPreflight.Budgets.Answer? = nil
+    var bookPreflight: TranslationPreflight.Budgets.Answer? = nil
     var bookDocumentCount: Int = 0
     /// Injected so `roundLine`'s "2m ago" is assertable.
     var now: Date = Date()
@@ -245,7 +250,7 @@ struct DepartmentRunState: Equatable {
     /// has not happened.
     var detailLine: String? {
         guard case .idle = phase else { return nil }
-        let parts = [Self.preflightLine(words: chapterWords ?? bookWords),
+        let parts = [Self.preflightLine(chapterPreflight ?? bookPreflight),
                      Self.trendLine(trend)].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " \u{00b7} ")
     }
@@ -272,8 +277,8 @@ struct DepartmentRunState: Equatable {
                         pipeline: TranslationPipeline.Status = .idle,
                         latestRound: TranslationRound? = nil,
                         trend: [Int] = [],
-                        chapterWords: Int? = nil,
-                        bookWords: Int? = nil,
+                        chapterPreflight: TranslationPreflight.Budgets.Answer? = nil,
+                        bookPreflight: TranslationPreflight.Budgets.Answer? = nil,
                         bookDocumentCount: Int = 0,
                         now: Date = Date())
     -> DepartmentRunState {
@@ -307,7 +312,8 @@ struct DepartmentRunState: Equatable {
         return DepartmentRunState(phase: phase, report: report,
                                   refusal: refusal(target: target, session: session),
                                   latestRound: latestRound, trend: trend,
-                                  chapterWords: chapterWords, bookWords: bookWords,
+                                  chapterPreflight: chapterPreflight,
+                                  bookPreflight: bookPreflight,
                                   bookDocumentCount: bookDocumentCount, now: now)
     }
 
@@ -421,10 +427,11 @@ struct DepartmentRunState: Equatable {
     static func runBookAccessibilityLabel(language: String) -> String {
         "Run the whole book into " + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
     }
-    static func runBookHelp(language: String, count: Int, words: Int?) -> String {
+    static func runBookHelp(language: String, count: Int,
+                            preflight: TranslationPreflight.Budgets.Answer?) -> String {
         let edition = TranslationReviewIndicator.displayLabel(forLanguageTag: language)
         let chapters = count == 1 ? "1 chapter" : "\(count) chapters"
-        let budget = preflightLine(words: words).map { " \u{2014} \($0)" } ?? ""
+        let budget = preflightLine(preflight).map { " \u{2014} \($0)" } ?? ""
         return "Run one round on every chapter of this book into \(edition), in order: \(chapters)\(budget)."
     }
     static let nothingInTheBook =
@@ -471,9 +478,17 @@ struct DepartmentRunState: Equatable {
         return "notes per round " + counts.map(String.init).joined(separator: " \u{2192} ")
     }
 
-    static func preflightLine(words: Int?) -> String? {
-        guard let words else { return nil }
-        return "\(TranslationRound.Leg.allCases.count) legs \u{00b7} ~\(words.formatted(.number)) words briefed"
+    /// **What the pre-flight has to say, which is not always a number**
+    /// (P2a D0, fix round 1). A refusal takes the slot the figure would have
+    /// had and names the file, because an absent clause and a clean count of
+    /// zero look identical on the row and neither is true.
+    static func preflightLine(_ answer: TranslationPreflight.Budgets.Answer?) -> String? {
+        switch answer {
+        case .none: return nil
+        case .unreadable(let sentence): return sentence
+        case .words(let words):
+            return "\(TranslationRound.Leg.allCases.count) legs \u{00b7} ~\(words.formatted(.number)) words briefed"
+        }
     }
 
     /// A tag no edition can be written for. It names the tag, because the writer

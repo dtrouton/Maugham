@@ -115,11 +115,91 @@ final class TranslationPreflightTests: XCTestCase {
                 store: fixture.projectStore, documentStore: fixture.documentStore,
                 projectURL: fixture.projectURL)
         ) { error in
-            guard case OpLogStore.ReadError.unreadableFile(let name, _) = error else {
+            guard case OpLogStore.ReadError.unreadableFile(let name, _, _) = error else {
                 return XCTFail("expected OpLogStore.ReadError.unreadableFile, got \(error)")
             }
             XCTAssertEqual(name, squat.lastPathComponent)
         }
+    }
+
+    /// **The desk's own answer carries the refusal, in words** (P2a D0, fix
+    /// round 1).
+    ///
+    /// The throwing door above is for callers that propagate. This is the one
+    /// the department desk asks, and the whole point of its third state is
+    /// that the sentence reaches the row: caught and turned into an empty
+    /// dictionary, the writer watched the "~N words briefed" clause vanish
+    /// with nothing said, and the only thing naming the file was
+    /// `EditionStatus` happening to be derived on the same pass.
+    @MainActor
+    func test_theDesksAnswerCarriesTheRefusalNamingTheFile() async throws {
+        let fixture = try await makeProject()
+        defer { Task { await fixture.documentStore.close() } }
+
+        let squat = TranslationStore.fileURL(
+            forDocId: fixture.document.docId, language: "es",
+            deviceSlug: DeviceSlug.make(from: "bad"), in: fixture.projectURL)
+        try FileManager.default.createDirectory(
+            at: squat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
+
+        let budgets = TranslationPreflight.Budgets.over(
+            documentIds: ["doc-1"], languages: ["es"],
+            store: fixture.projectStore, documentStore: fixture.documentStore,
+            projectURL: fixture.projectURL)
+
+        guard case .unreadable(let sentence) = budgets else {
+            return XCTFail("expected .unreadable, got \(budgets)")
+        }
+        XCTAssertTrue(sentence.contains(squat.lastPathComponent),
+                      "the sentence the row draws names the file: \(sentence)")
+        XCTAssertTrue(sentence.contains("translation file"),
+                      "…and calls it what it is: \(sentence)")
+
+        // …and that is what the row draws where the figure would have been.
+        XCTAssertEqual(DepartmentRunState.preflightLine(budgets.answer(for: "es")), sentence)
+    }
+
+    /// The control: a readable set answers with figures, and the row draws the
+    /// pre-flight clause — so the assertion above is about the unreadable file
+    /// rather than about the fixture.
+    @MainActor
+    func test_aReadableSetAnswersWithFiguresTheRowCanDraw() async throws {
+        let fixture = try await makeProject()
+        defer { Task { await fixture.documentStore.close() } }
+
+        let budgets = TranslationPreflight.Budgets.over(
+            documentIds: ["doc-1"], languages: ["es"],
+            store: fixture.projectStore, documentStore: fixture.documentStore,
+            projectURL: fixture.projectURL)
+
+        guard case .counted(let byLanguage) = budgets else {
+            return XCTFail("expected .counted, got \(budgets)")
+        }
+        let words = try XCTUnwrap(byLanguage["es"])
+        XCTAssertGreaterThan(words, 0, "premise: the chapter has words in it")
+        XCTAssertEqual(budgets.answer(for: "es"), .words(words))
+        XCTAssertEqual(DepartmentRunState.preflightLine(budgets.answer(for: "es")),
+                       "7 legs · ~\(words.formatted(.number)) words briefed")
+    }
+
+    /// **A scope with nothing to say falls through to the next one** (P2a D0,
+    /// fix round 1) — the rule `detailLine`'s `chapter ?? book` depends on. A
+    /// chapter that REFUSED is not papered over with the book's figure, and a
+    /// chapter that counted is not reported through the book's refusal.
+    func test_aScopesAnswerIsWholeAndOnlyAnAbsentOneFallsThrough() {
+        let counted = TranslationPreflight.Budgets.counted(["es": 40])
+        let refused = TranslationPreflight.Budgets.unreadable("c1.es.bad.jsonl can't be read.")
+
+        XCTAssertNil(TranslationPreflight.Budgets.none.answer(for: "es"),
+                     "nothing asked falls through")
+        XCTAssertNil(counted.answer(for: "fr"),
+                     "a language this scope counted nothing for falls through")
+        XCTAssertEqual(counted.answer(for: "es"), .words(40))
+        XCTAssertEqual(refused.answer(for: "es"),
+                       .unreadable("c1.es.bad.jsonl can't be read."))
+        XCTAssertEqual(refused.answer(for: "fr"), refused.answer(for: "es"),
+                       "the file that would not open is not one language's problem")
     }
 
     /// One open, registered chapter — `DepartmentRunTests.makeProject`'s shape,

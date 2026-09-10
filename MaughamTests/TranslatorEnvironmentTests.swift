@@ -868,7 +868,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
             _ = try await harness.environment.briefRound(harness.doc.docId, "es")
             XCTFail("a present-but-unreadable translation file must refuse the run")
         } catch {
-            guard case OpLogStore.ReadError.unreadableFile(let name, _) = error else {
+            guard case OpLogStore.ReadError.unreadableFile(let name, _, _) = error else {
                 return XCTFail("expected OpLogStore.ReadError.unreadableFile, got \(error)")
             }
             XCTAssertEqual(name, squat.lastPathComponent,

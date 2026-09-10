@@ -266,7 +266,7 @@ final class TranslationCoverageGateTests: XCTestCase {
         XCTAssertThrowsError(
             try TranslationCoverage.check(projectStore: fx.store, language: "es")
         ) { error in
-            guard case OpLogStore.ReadError.unreadableFile(let name, _) = error else {
+            guard case OpLogStore.ReadError.unreadableFile(let name, _, _) = error else {
                 return XCTFail("expected OpLogStore.ReadError.unreadableFile, got \(error)")
             }
             XCTAssertEqual(name, squat.lastPathComponent,

@@ -8,6 +8,63 @@ import MaughamCore
 /// agrees with the checkpoint's word count.
 enum TranslationPreflight {
 
+    /// **What a pre-flight pass answered** (P2a D0, fix round 1).
+    ///
+    /// Three states rather than a dictionary, because a dictionary has only
+    /// two: figures, and an empty one standing in for everything else. Before
+    /// this, a refusal was caught at the desk and turned into `[:]` — the
+    /// writer watched the "~N words briefed" clause simply vanish, and the only
+    /// thing naming the file was `EditionStatus`' Couldn't-read line happening
+    /// to be derived on the same pass. That coupling was a habit and nothing
+    /// pinned it; this makes the pre-flight say it itself.
+    enum Budgets: Equatable {
+        /// Nothing was asked, or the scope has nothing in it. Draws no clause.
+        case none
+        /// Words to brief, per language tag.
+        case counted([String: Int])
+        /// A translation file is present and unreadable. Carries the refusal's
+        /// own sentence, which names the file.
+        case unreadable(String)
+
+        /// What this scope has to say about one language — words, or a
+        /// refusal, or nothing at all.
+        ///
+        /// `nil` is what lets the chapter's answer fall through to the book's
+        /// WHOLE: a chapter that refused is never papered over with the book's
+        /// figure, and a chapter that counted is never reported through the
+        /// book's refusal.
+        func answer(for language: String) -> Answer? {
+            switch self {
+            case .none: return nil
+            case .unreadable(let sentence): return .unreadable(sentence)
+            case .counted(let byLanguage): return byLanguage[language].map(Answer.words)
+            }
+        }
+
+        enum Answer: Equatable {
+            case words(Int)
+            case unreadable(String)
+        }
+
+        /// One pre-flight pass, folded into this answer: `budgets`' figures, or
+        /// the refusal's own sentence. The door the desk uses; the throwing
+        /// `budgets` stays for callers that genuinely propagate.
+        @MainActor
+        static func over(
+            documentIds: [String], languages: [String],
+            store: ProjectStore, documentStore: DocumentStore?, projectURL: URL
+        ) -> Budgets {
+            do {
+                return .counted(try TranslationPreflight.budgets(
+                    documentIds: documentIds, languages: languages, store: store,
+                    documentStore: documentStore, projectURL: projectURL))
+            } catch {
+                return .unreadable(
+                    (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            }
+        }
+    }
+
     static func wordCount(_ text: String) -> Int {
         text.split { $0.isWhitespace || $0.isNewline }.count
     }

@@ -156,12 +156,12 @@ struct DepartmentPaneHost: View {
     /// `TranslationPreflight.budget` over the whole desk set, per language.
     /// Derived here rather than on the body path because it opens every
     /// document's derived state (tripwire 4).
-    @State private var bookBudgets: [String: Int] = [:]
+    @State private var bookBudgets: TranslationPreflight.Budgets = .none
     /// The same figure for the OPEN chapter alone, and it is deliberately NOT
     /// `derive()`'s: that pass's key must not carry the window's subject, or a
     /// click in the tree would re-walk every chapter of the book. This is one
     /// document's budget across every language row, on a key of its own.
-    @State private var chapterBudgets: [String: Int] = [:]
+    @State private var chapterBudgets: TranslationPreflight.Budgets = .none
 
     /// What `openBrief(language:in:)` answered: the edition, and the statement
     /// the door found or made for it.
@@ -461,8 +461,13 @@ struct DepartmentPaneHost: View {
                 pipeline: pipeline?.status ?? .idle,
                 latestRound: latestRounds[row.language],
                 trend: trends[row.language] ?? [],
-                chapterWords: chapterBudgets[row.language],
-                bookWords: bookBudgets[row.language],
+                // **The chapter's answer outranks the book's, WHOLE** (P2a
+                // D0, fix round 1): a chapter that counted cleanly is not
+                // reported through the book's refusal, and a chapter whose
+                // own translation file would not open is not papered over
+                // with the book's figure.
+                chapterPreflight: chapterBudgets.answer(for: row.language),
+                bookPreflight: bookBudgets.answer(for: row.language),
                 bookDocumentCount: bookDocumentIds.count)
         }
         return states
@@ -992,21 +997,16 @@ struct DepartmentPaneHost: View {
         // `refillsBudgets`. The previous figures stand; the round-ended event
         // brings this pass back when there is a new answer to give.
         if Self.refillsBudgets(pipeline: pipeline?.status ?? .idle) {
-            do {
-                bookBudgets = try TranslationPreflight.budgets(
-                    documentIds: documentIds, languages: report.rows.map(\.language),
-                    store: store, documentStore: documentStore, projectURL: projectURL)
-            } catch {
-                // **No figure rather than a wrong one** (P2a D0). A pre-flight
-                // over a present-but-unreadable translation file would count
-                // every paragraph in it as words still to brief, and the row
-                // would quote a cost that is too high for a click the writer
-                // is weighing. `report.unreadable` above names the same file
-                // on the same pass, so the missing figure is not unexplained.
-                bookBudgets = [:]
-                _departmentLog.error(
-                    "the book's translation pre-flight refused: \(error, privacy: .public)")
-            }
+            // **The refusal takes the figure's slot** (P2a D0, fix round 1).
+            // A pre-flight over a present-but-unreadable translation file
+            // would count every paragraph in it as words still to brief, so
+            // the row would quote a cost that is too high for a click the
+            // writer is weighing. It says which file instead — in the row,
+            // rather than relying on `report.unreadable` above happening to
+            // name the same file on the same pass.
+            bookBudgets = .over(
+                documentIds: documentIds, languages: report.rows.map(\.language),
+                store: store, documentStore: documentStore, projectURL: projectURL)
         }
 
         do {
@@ -1038,23 +1038,17 @@ struct DepartmentPaneHost: View {
             // even while a round is up — and without clearing here,
             // `detailLine`'s `chapterWords ?? bookWords` would draw chapter
             // A's number under chapter B for the rest of the round.
-            chapterBudgets = [:]
+            chapterBudgets = .none
             return
         }
         guard let docId else {
-            chapterBudgets = [:]
+            chapterBudgets = .none
             return
         }
-        do {
-            chapterBudgets = try TranslationPreflight.budgets(
-                documentIds: [docId], languages: languages.map(\.language),
-                store: store, documentStore: documentStore, projectURL: projectURL)
-        } catch {
-            // The book figure's own rule, over one chapter (P2a D0).
-            chapterBudgets = [:]
-            _departmentLog.error(
-                "the chapter's translation pre-flight refused: \(error, privacy: .public)")
-        }
+        // The book figure's own rule, over one chapter (P2a D0).
+        chapterBudgets = .over(
+            documentIds: [docId], languages: languages.map(\.language),
+            store: store, documentStore: documentStore, projectURL: projectURL)
     }
 
     /// **Whether a pre-flight is worth taking now.**

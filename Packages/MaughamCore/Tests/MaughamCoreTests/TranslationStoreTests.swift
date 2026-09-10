@@ -415,7 +415,7 @@ final class TranslationStoreTests: XCTestCase {
         }
 
         XCTAssertThrowsError(try merged()) { error in
-            guard case OpLogStore.ReadError.unreadableFile(let name, _) = error else {
+            guard case OpLogStore.ReadError.unreadableFile(let name, _, _) = error else {
                 return XCTFail("expected OpLogStore.ReadError.unreadableFile, got \(error)")
             }
             XCTAssertEqual(name, url.lastPathComponent,
@@ -430,5 +430,58 @@ final class TranslationStoreTests: XCTestCase {
         XCTAssertEqual(try merged(), [],
                        "a document with no translation file has no translation, "
                        + "which is an answer rather than a failure")
+    }
+
+    /// **One error, and it knows what kind of file it names** (P2a D0, fix
+    /// round 1). A second error type per store would be a second sentence for
+    /// one condition; a kind on the one case is the noun and the refusal, and
+    /// nothing else moves. `.history` is the default, so every op-log throw
+    /// site keeps the wording it shipped with.
+    func test_theUnreadableFileSentenceNamesTheKindOfFileItIsAbout() {
+        let history = OpLogStore.ReadError
+            .unreadableFile(name: "c1.maca-1234.jsonl", underlying: "Permission denied")
+        let translation = OpLogStore.ReadError
+            .unreadableFile(name: "c1.es.maca-1234.jsonl", underlying: "Permission denied",
+                            kind: .translation)
+
+        let historySentence = try! XCTUnwrap(history.errorDescription)
+        XCTAssertTrue(historySentence.contains("history file"), historySentence)
+        XCTAssertTrue(historySentence.contains("c1.maca-1234.jsonl"), historySentence)
+        XCTAssertTrue(historySentence.contains("won't open a shortened version"),
+                      "the history file's own refusal: " + historySentence)
+
+        let translationSentence = try! XCTUnwrap(translation.errorDescription)
+        XCTAssertTrue(translationSentence.contains("translation file"), translationSentence)
+        XCTAssertTrue(translationSentence.contains("c1.es.maca-1234.jsonl"), translationSentence)
+        XCTAssertTrue(translationSentence.contains("partial translation"),
+                      "the translation file's own refusal: " + translationSentence)
+        XCTAssertFalse(translationSentence.contains("history file"),
+                       "the noun is the file's, not the op log's: " + translationSentence)
+    }
+
+    /// …and the store's own throw carries that kind, so the sentence a caller
+    /// shows is the translation one rather than the default.
+    func test_theStoresRefusalIsAboutATranslationFile() async throws {
+        try XCTSkipIf(geteuid() == 0, "root reads a mode-000 file, so there is nothing to refuse")
+        try await TranslationStore.append(
+            TranslationRecord(paragraphId: "aaaa", language: "es", text: "Hola",
+                              sourceHash: "deadbeefdeadbeef"),
+            forDocId: "doc1", identity: mine.translator,
+            identities: mine, state: myState, in: projectURL)
+        let url = TranslationStore.fileURL(
+            forDocId: "doc1", language: "es",
+            deviceSlug: mine.translator.slug, in: projectURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644], ofItemAtPath: url.path)
+        }
+
+        XCTAssertThrowsError(try merged()) { error in
+            guard case OpLogStore.ReadError.unreadableFile(_, _, let kind) = error else {
+                return XCTFail("expected OpLogStore.ReadError.unreadableFile, got \(error)")
+            }
+            XCTAssertEqual(kind, .translation)
+        }
     }
 }

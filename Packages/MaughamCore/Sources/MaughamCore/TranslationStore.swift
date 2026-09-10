@@ -225,7 +225,8 @@ public enum TranslationStore {
                     "refusing the translation read: \(url.lastPathComponent, privacy: .public) is present and unreadable")
                 throw OpLogStore.ReadError.unreadableFile(
                     name: url.lastPathComponent,
-                    underlying: error.localizedDescription)
+                    underlying: error.localizedDescription,
+                    kind: .translation)
             }
             let fileKey = OpLogDeviceState.fileKey(url)
             let walked = OpLogChain.verify(
