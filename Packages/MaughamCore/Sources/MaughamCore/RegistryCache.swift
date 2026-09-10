@@ -76,6 +76,16 @@ public final class RegistryCache: @unchecked Sendable {
         var records: [Entry] = []
         /// B1: the root whose chain first named this device here. Written once.
         var joinedRoot: String?
+        /// When that join happened — the FIRST one, written once beside the
+        /// root it stamps, because the sentence a surface makes of it (*on
+        /// <label>'s chain since 9 Sep*) is about the day this device joined
+        /// and not about the day a later claimant turned up.
+        ///
+        /// Optional for a second reason as well as the obvious one: a memory
+        /// written before this field existed has a join and no date, and it
+        /// must load rather than fail — a cache that failed to decode would
+        /// take every record this device can restore down with it.
+        var joinedAt: Date?
         /// Every other root that has since named it. Listed, never merged.
         var claimants: [String] = []
 
@@ -86,6 +96,7 @@ public final class RegistryCache: @unchecked Sendable {
             root = try container.decodeIfPresent(String.self, forKey: .root) ?? ""
             records = try container.decodeIfPresent([Entry].self, forKey: .records) ?? []
             joinedRoot = try container.decodeIfPresent(String.self, forKey: .joinedRoot)
+            joinedAt = try container.decodeIfPresent(Date.self, forKey: .joinedAt)
             claimants = try container.decodeIfPresent([String].self, forKey: .claimants) ?? []
         }
     }
@@ -224,6 +235,14 @@ public final class RegistryCache: @unchecked Sendable {
         return stored.projects[Self.projectKey(projectURL)]?.joinedRoot
     }
 
+    /// When this device joined the root it is on, if it has joined one. The
+    /// first join's date: `join` writes it once, beside the root.
+    public func joinedAt(for projectURL: URL) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored.projects[Self.projectKey(projectURL)]?.joinedAt
+    }
+
     /// Every other root that has since named this device here. Listed, never
     /// merged — each is somebody claiming a book this device already belongs to
     /// someone else's copy of.
@@ -241,8 +260,12 @@ public final class RegistryCache: @unchecked Sendable {
     /// cannot prove which Mac signed it, so a device that switched roots on the
     /// strength of one would be handing its history to whoever wrote last. The
     /// writer is shown the claimant and decides.
+    ///
+    /// **The date is written once with it**, so History can say *since 9 Sep*
+    /// (spec §6). `at` is defaulted rather than read from a clock inside, which
+    /// is what lets the stamp be pinned as a value; production passes nothing.
     @discardableResult
-    public func join(root: String, for projectURL: URL) -> String {
+    public func join(root: String, for projectURL: URL, at when: Date = Date()) -> String {
         lock.lock()
         defer { lock.unlock() }
         var project = stored.projects[Self.projectKey(projectURL)] ?? Project()
@@ -253,6 +276,7 @@ public final class RegistryCache: @unchecked Sendable {
         }
         guard let joined = project.joinedRoot else {
             project.joinedRoot = root
+            project.joinedAt = when
             return root
         }
         if root != joined, !project.claimants.contains(root) {

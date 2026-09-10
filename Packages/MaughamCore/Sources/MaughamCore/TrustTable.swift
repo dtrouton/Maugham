@@ -111,6 +111,21 @@ public struct TrustTable: Equatable, Sendable {
     /// same, and `first` is arm 3 of `myRoot`.
     public let admittingRoots: [String]
 
+    /// Every OTHER root whose chain this device's root has adopted, sorted —
+    /// transitively, so a root adopted by a root I adopted is here too.
+    ///
+    /// **Adoption is the claim's primitive and it is symmetric** (plan decision
+    /// P2). A claim written by MY root naming R takes R's chain in under mine:
+    /// on a keyless restore that is the whole claim, and between two live Macs
+    /// it is each saying *this is also me*. What it never is is somebody else's
+    /// decision — a claim by R adopting me is R's word about R, and until this
+    /// device writes its own claim R stays exactly the claimant it was (B1).
+    ///
+    /// Here rather than left to a surface to re-derive, because the closure it
+    /// takes is the same one `verdict` judges by, and People & Devices draws
+    /// these roots as *merged* off it (P2b Task 6).
+    public let adoptedRoots: [String]
+
     /// This device's own actor keys.
     private let mine: Set<String>
     /// Actor key → the device record that names it. One hop, spelled once.
@@ -142,6 +157,12 @@ public struct TrustTable: Equatable, Sendable {
     ///
     /// Ties inside (2) and (3) are broken by fingerprint, so a registry that
     /// arrives in a different order answers the same.
+    ///
+    /// **And then whose chain that root took in.** A `ClaimRecord` written by
+    /// my root adopting R admits R's chain under mine, transitively through R's
+    /// own adoptions (`adoptedRoots`). It moves none of the four answers above:
+    /// adoption says whose history this device VERIFIES, and the root it is on
+    /// is a different question with a different rule (B1).
     nonisolated public static func resolve(
         registry: Registry, mine: LocalIdentities, joinedRoot: String?
     ) -> TrustTable {
@@ -179,7 +200,32 @@ public struct TrustTable: Equatable, Sendable {
             personByFingerprint[person.person] = person
         }
 
-        let myChain = myRoot.map { registry.chain(underRoot: $0) } ?? []
+        // The roots MY root adopted, followed through their own adoptions. A
+        // root that adopted THIS one is not here: only claims written by a root
+        // in the closure widen it, which is what keeps the widening this
+        // device's own act.
+        var adoptedRoots: [String] = []
+        if let myRoot {
+            var reached: Set<String> = [myRoot]
+            var frontier: [String] = [myRoot]
+            while let root = frontier.popLast() {
+                for adopted in registry.adopted(by: root).sorted()
+                where reached.insert(adopted).inserted {
+                    adoptedRoots.append(adopted)
+                    frontier.append(adopted)
+                }
+            }
+            adoptedRoots.sort()
+        }
+
+        // Everyone under my root — and under every root it adopted. An adopted
+        // root that this registry holds no self-signed record for has no chain
+        // to take in (`chain(underRoot:)` answers empty for a non-root), so a
+        // claim naming a stranger admits nobody.
+        var myChain = myRoot.map { registry.chain(underRoot: $0) } ?? []
+        for adopted in adoptedRoots {
+            myChain.formUnion(registry.chain(underRoot: adopted))
+        }
 
         var otherRootByMember: [String: String] = [:]
         for root in roots where root.person != myRoot {
@@ -191,7 +237,7 @@ public struct TrustTable: Equatable, Sendable {
 
         return TrustTable(
             myRoot: myRoot, rootSource: rootSource, ownRootRecord: ownRecord,
-            admittingRoots: admittingRoots,
+            admittingRoots: admittingRoots, adoptedRoots: adoptedRoots,
             mine: myKeys, deviceByActorKey: deviceByActorKey,
             personByFingerprint: personByFingerprint, myChain: myChain,
             otherRootByMember: otherRootByMember)

@@ -90,7 +90,11 @@ final class RegistryReaderWriterTests: XCTestCase {
                        "the root is the one who admitted themselves")
     }
 
+    /// A claim is written by a root, so the fixture writes the new root's own
+    /// self-signed record beside it — which is what `RegistryAdmission.claim`
+    /// does in one act (P2b Task 8).
     func test_aClaimSurvivesTheTripThroughDisk() throws {
+        try RegistryWriter.write(rootRecord(phone), signedBy: phone, in: projectURL)
         let claim = ClaimRecord(
             newRoot: phone.fingerprint, adopted: [root.fingerprint],
             claimedAt: Date(timeIntervalSince1970: 30))
@@ -103,7 +107,70 @@ final class RegistryReaderWriterTests: XCTestCase {
         let registry = try RegistryReader.load(projectURL: projectURL)
         XCTAssertEqual(registry.malformed, [])
         XCTAssertEqual(registry.claims.first?.adopted, [root.fingerprint])
-        XCTAssertEqual(registry.people, [], "a claim is not a person record")
+        XCTAssertEqual(registry.people.map(\.person), [phone.fingerprint],
+                       "the claim itself is not a person record")
+    }
+
+    // MARK: - A claim is a root's act (P2b Task 2)
+
+    /// Adoption widens whose history a device verifies, so the same rule that
+    /// governs admission governs it: **only a root claims**. A claim whose
+    /// `newRoot` has no self-signed record here is signed by somebody who
+    /// admits nobody, and it is listed rather than read — otherwise anyone who
+    /// can write the folder could adopt a chain into existence with a fresh key.
+    func test_aClaimByAFingerprintThatIsNoRootIsMalformed() throws {
+        try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
+        let stranger = DeviceIdentity.softwareForTesting()
+        try RegistryWriter.write(
+            ClaimRecord(newRoot: stranger.fingerprint, adopted: [root.fingerprint],
+                        claimedAt: Date(timeIntervalSince1970: 30)),
+            signedBy: stranger, in: projectURL)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+
+        XCTAssertEqual(registry.claims, [], "it contributes no adoption")
+        XCTAssertEqual(registry.malformed.map(\.reason),
+                       [.signerIsNotARoot(named: stranger.fingerprint)])
+    }
+
+    /// And a claim must be signed by the root it names. A valid signature from
+    /// another key over `newRoot: someone-else` would be one Mac writing
+    /// another Mac's adoption.
+    func test_aClaimSignedByOtherThanItsNewRootIsMalformed() throws {
+        try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
+        try RegistryWriter.writeUnchecked(
+            ClaimRecord(newRoot: root.fingerprint, adopted: [phone.fingerprint],
+                        claimedAt: Date(timeIntervalSince1970: 30)),
+            signedBy: phone, in: projectURL)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+
+        XCTAssertEqual(registry.claims, [])
+        XCTAssertEqual(
+            registry.malformed.map(\.reason),
+            [.signerIsNotTheExpectedKey(expected: root.fingerprint,
+                                        found: phone.fingerprint)])
+    }
+
+    /// A root's claim is read whatever else the folder holds, and a malformed
+    /// one costs its own adoption and nothing else.
+    func test_aGoodClaimIsReadBesideARefusedOne() throws {
+        try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
+        let stranger = DeviceIdentity.softwareForTesting()
+        try RegistryWriter.write(
+            ClaimRecord(newRoot: root.fingerprint, adopted: [phone.fingerprint],
+                        claimedAt: Date(timeIntervalSince1970: 30)),
+            signedBy: root, in: projectURL)
+        try RegistryWriter.write(
+            ClaimRecord(newRoot: stranger.fingerprint, adopted: [root.fingerprint],
+                        claimedAt: Date(timeIntervalSince1970: 31)),
+            signedBy: stranger, in: projectURL)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+
+        XCTAssertEqual(registry.claims.map(\.newRoot), [root.fingerprint])
+        XCTAssertEqual(registry.adopted(by: root.fingerprint), [phone.fingerprint])
+        XCTAssertEqual(registry.malformed.count, 1)
     }
 
     /// The signature verifies on the way back in — the point of the whole file.
@@ -495,6 +562,7 @@ final class RegistryReaderWriterTests: XCTestCase {
     /// with a broken name.
     func test_theClaimsDirectoryIsNotReadAsAPerson() throws {
         try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
+        try RegistryWriter.write(rootRecord(phone), signedBy: phone, in: projectURL)
         try RegistryWriter.write(
             ClaimRecord(newRoot: phone.fingerprint, adopted: [root.fingerprint],
                         claimedAt: Date(timeIntervalSince1970: 1)),
@@ -503,7 +571,7 @@ final class RegistryReaderWriterTests: XCTestCase {
         let registry = try RegistryReader.load(projectURL: projectURL)
 
         XCTAssertEqual(registry.malformed, [])
-        XCTAssertEqual(registry.people.count, 1)
+        XCTAssertEqual(registry.people.count, 2)
         XCTAssertEqual(registry.claims.count, 1)
     }
 

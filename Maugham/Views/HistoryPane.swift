@@ -377,17 +377,6 @@ struct HistoryPane: View {
     static let admitUnavailableHelp = "Admission arrives with the next update"
     static let admitIsAvailable = false
 
-    /// A fingerprint as the writer sees it: the first four characters, the
-    /// "code" a device shows for itself. Shown wherever the record that would
-    /// give a name is missing — uppercased, because a code exists to be
-    /// compared against another screen and hex reads better in capitals.
-    ///
-    /// P2b's People & Devices shows codes too; when it lands, this is the
-    /// helper it should reach for rather than a second spelling.
-    nonisolated static func shortCode(_ fingerprint: String) -> String {
-        fingerprint.prefix(4).uppercased()
-    }
-
     /// What is HELD — history written by a device this book's chain says
     /// nothing about, kept out of the draft until the writer admits it (spec
     /// §3). Nil when nothing is waiting.
@@ -426,7 +415,7 @@ struct HistoryPane: View {
         if devices.count > 1 {
             who = "\(devices.count) devices"
         } else if let device = devices.first {
-            who = names[device] ?? shortCode(device)
+            who = names[device] ?? DeviceCode.short(device)
         } else {
             // Held lines nothing attributes to a device. Structurally unlikely
             // — the tally is built off the same lines the count is — but the
@@ -460,7 +449,7 @@ struct HistoryPane: View {
         cache: RegistryCache, projectURL: URL, labels: [String: String]
     ) -> String? {
         guard let root = cache.joinedRoot(for: projectURL) else { return nil }
-        return "This Mac joined \(labels[root] ?? shortCode(root))’s chain."
+        return "This Mac joined \(labels[root] ?? DeviceCode.short(root))’s chain."
     }
 
     var body: some View {

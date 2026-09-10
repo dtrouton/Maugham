@@ -172,6 +172,10 @@ final class RegistryCacheTests: XCTestCase {
     }
 
     func test_aDeletedClaimIsRestoredToTheClaimsDirectory() throws {
+        // The root's own record beside the claim: a claim is a root's act, so a
+        // claim whose `newRoot` is nobody's root here is refused by the reader
+        // and would never have been remembered (P2b Task 2).
+        try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
         try RegistryWriter.write(
             ClaimRecord(newRoot: root.fingerprint, adopted: [otherRoot.fingerprint],
                         claimedAt: Date(timeIntervalSince1970: 30)),
@@ -574,6 +578,67 @@ final class RegistryCacheTests: XCTestCase {
         cache.remember(try writeASmallRegistry(), for: projectURL)
 
         XCTAssertEqual(cache.joinedRoot(for: projectURL), root.fingerprint)
+    }
+
+    // MARK: - When the join happened (P2b Task 2)
+
+    /// The join's date is what History's *on this Mac since 9 Sep* sentence is
+    /// made of, so it has to survive the launch that draws it.
+    func test_theJoinStampSurvivesAReload() {
+        let cache = makeCache()
+        XCTAssertNil(cache.joinedAt(for: projectURL))
+
+        let when = Date(timeIntervalSince1970: 1_757_000_000)
+        cache.join(root: root.fingerprint, for: projectURL, at: when)
+
+        XCTAssertEqual(cache.joinedAt(for: projectURL), when)
+        XCTAssertEqual(makeCache().joinedAt(for: projectURL), when)
+    }
+
+    /// Write-once, exactly like the root it stamps: the FIRST join is the one
+    /// that happened. A second root is a claimant, and a claimant's arrival is
+    /// not the day this Mac joined anybody.
+    func test_theJoinStampIsTheFirstJoinsAndNeverMoves() {
+        let cache = makeCache()
+        let first = Date(timeIntervalSince1970: 1_757_000_000)
+        cache.join(root: root.fingerprint, for: projectURL, at: first)
+
+        cache.join(root: root.fingerprint, for: projectURL,
+                   at: Date(timeIntervalSince1970: 1_758_000_000))
+        cache.join(root: otherRoot.fingerprint, for: projectURL,
+                   at: Date(timeIntervalSince1970: 1_759_000_000))
+
+        XCTAssertEqual(cache.joinedRoot(for: projectURL), root.fingerprint)
+        XCTAssertEqual(cache.joinedAt(for: projectURL), first)
+        XCTAssertEqual(cache.claimants(for: projectURL), [otherRoot.fingerprint])
+    }
+
+    /// A device that has joined nobody has no date either — the two are one
+    /// fact, and a surface asks whichever half it needs.
+    func test_aProjectWithNoJoinHasNoStamp() {
+        let cache = makeCache()
+        cache.recordClaimant(root: otherRoot.fingerprint, for: projectURL)
+
+        XCTAssertNil(cache.joinedRoot(for: projectURL))
+        XCTAssertNil(cache.joinedAt(for: projectURL))
+    }
+
+    /// A memory written before this field existed still loads: the join it
+    /// remembers stands, and only the date is missing. The alternative — a
+    /// decode that fails on the absent key — would drop the whole cache, and
+    /// with it every record this device could restore.
+    func test_aMemoryFromBeforeTheStampKeepsItsJoinAndAnswersNoDate() throws {
+        let legacy = """
+            {"identity":"device-under-test","projects":{"\(RegistryCache.projectKey(projectURL))":\
+            {"root":"\(projectURL.standardizedFileURL.path)","records":[],\
+            "joinedRoot":"\(root.fingerprint)","claimants":[]}}}
+            """
+        try Data(legacy.utf8).write(to: cacheURL)
+
+        let cache = makeCache()
+
+        XCTAssertEqual(cache.joinedRoot(for: projectURL), root.fingerprint)
+        XCTAssertNil(cache.joinedAt(for: projectURL))
     }
 
     // MARK: - Pruning (the same two-clause rule as the op-log heads)

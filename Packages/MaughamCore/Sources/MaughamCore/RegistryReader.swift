@@ -23,8 +23,9 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
         /// A valid signature, from the wrong key: not the device's own author
         /// key, not the root the record names.
         case signerIsNotTheExpectedKey(expected: String, found: String)
-        /// A person admitted by someone who is not a root of this registry.
-        /// Anybody can sign; only a root can admit.
+        /// A person admitted — or a chain adopted — by someone who is not a
+        /// root of this registry. Anybody can sign; only a root admits, and
+        /// only a root claims (P2b Task 2).
         case signerIsNotARoot(named: String)
         /// A device record whose `actors["author"]` is not the device itself
         /// (`nil` when it lists no author at all). The author key's fingerprint
@@ -229,6 +230,22 @@ public struct Registry: Equatable, Sendable {
     public func person(_ fingerprint: String) -> PersonRecord? {
         people.first { $0.person == fingerprint }
     }
+
+    /// The roots this root has ADOPTED — the fingerprints named in the claims
+    /// it signed (spec §5, plan decision P2).
+    ///
+    /// **Directly, not transitively.** Adoption composes, but composing it is a
+    /// decision about whose chain THIS device verifies, and that decision is
+    /// `TrustTable`'s. This answers only what the folder says: these are the
+    /// roots that root wrote down.
+    ///
+    /// **One-way, by construction.** A claim is signed by its own `newRoot`, so
+    /// asking this of a root answers with what that root said about others and
+    /// never with what others said about it — which is the whole of B1 at the
+    /// level of a projection: nothing widens on somebody else's say-so.
+    public func adopted(by root: String) -> Set<String> {
+        Set(claims.filter { $0.newRoot == root }.flatMap(\.adopted))
+    }
 }
 
 /// The one reader of the registry's three directories.
@@ -313,6 +330,19 @@ public enum RegistryReader {
             }
             if let fault = verify(record, bytes: bytes, at: url) {
                 malformed.append(fault); continue
+            }
+            // A claim ADOPTS a chain — it widens whose history a device
+            // verifies — so the rule that governs admission governs it too:
+            // only a root claims. Without this, anybody who can write the
+            // folder mints a key, signs a claim adopting the book's real root,
+            // and every reader of that claim takes in the chain hanging off a
+            // fingerprint nobody vouched for. Read after the people, because
+            // which fingerprints are roots is not known until every self-signed
+            // record has been verified.
+            guard rootFingerprints.contains(record.newRoot) else {
+                malformed.append(.init(
+                    url: url, reason: .signerIsNotARoot(named: record.newRoot)))
+                continue
             }
             claims.append(record)
             keep(record, bytes)

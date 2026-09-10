@@ -51,6 +51,14 @@ final class TrustTableTests: XCTestCase {
             madeAt: Date(timeIntervalSince1970: 5))
     }
 
+    private func claimRecord(
+        _ newRoot: String, adopting adopted: [String], at seconds: TimeInterval = 30
+    ) -> ClaimRecord {
+        ClaimRecord(
+            newRoot: newRoot, adopted: adopted,
+            claimedAt: Date(timeIntervalSince1970: seconds))
+    }
+
     // MARK: - `.mine`
 
     func test_everyActorKeyThisDeviceHoldsIsMine() {
@@ -329,5 +337,217 @@ final class TrustTableTests: XCTestCase {
         XCTAssertEqual(
             table.verdict(forSealKey: phone),
             .revoked(person: phone, highestOpIdSeen: nil))
+    }
+
+    // MARK: - Adoption (P2b, plan decision P2)
+
+    /// The primitive: a claim written by MY root naming another root as adopted
+    /// means that root's whole chain is admitted under mine. Its devices' actor
+    /// keys stop being another claimant's and answer as people.
+    func test_aRootMyRootAdoptedBringsItsWholeChainIntoMine() {
+        let otherRoot = foreignKey()
+        let theirPhone = foreignKey()
+        let itsAssistant = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(
+                theirPhone, actors: [DeviceActor.assistant.rawValue: itsAssistant])],
+            people: [rootRecord(mine.author.fingerprint), rootRecord(otherRoot),
+                     admittedRecord(theirPhone, under: otherRoot)],
+            claims: [claimRecord(mine.author.fingerprint, adopting: [otherRoot])])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: otherRoot),
+                       .admitted(person: otherRoot))
+        XCTAssertEqual(table.verdict(forSealKey: theirPhone),
+                       .admitted(person: theirPhone))
+        XCTAssertEqual(table.verdict(forSealKey: itsAssistant),
+                       .admitted(person: theirPhone),
+                       "adopting a root admits every actor of every device on it")
+        XCTAssertEqual(table.adoptedRoots, [otherRoot])
+    }
+
+    /// The asymmetry that makes adoption safe (B1): somebody adopting ME
+    /// changes nothing here. A claim is written by its own root and vouches for
+    /// nothing on this Mac, so until this Mac writes its own the other root is
+    /// exactly what it was — a claimant.
+    func test_aRootThatAdoptedMeWithoutMyAdoptingItIsStillAClaimant() {
+        let otherRoot = foreignKey()
+        let theirPhone = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(theirPhone)],
+            people: [rootRecord(mine.author.fingerprint), rootRecord(otherRoot),
+                     admittedRecord(theirPhone, under: otherRoot)],
+            claims: [claimRecord(otherRoot, adopting: [mine.author.fingerprint])])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: otherRoot), .otherRoot(root: otherRoot))
+        XCTAssertEqual(table.verdict(forSealKey: theirPhone), .otherRoot(root: otherRoot))
+        XCTAssertEqual(table.adoptedRoots, [], "nothing widens on someone else's say-so")
+    }
+
+    /// Symmetric, once both have written: each Mac verifies the other's chain.
+    /// This is the two-roots exit (plan decision P1), at the table.
+    func test_mutualAdoptionHasEachRootVerifyingTheOthersChain() {
+        let theirs = LocalIdentities.softwareForTesting()
+        let myPhone = foreignKey()
+        let theirPhone = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(myPhone), deviceRecord(theirPhone)],
+            people: [rootRecord(mine.author.fingerprint), rootRecord(theirs.author.fingerprint),
+                     admittedRecord(myPhone, under: mine.author.fingerprint),
+                     admittedRecord(theirPhone, under: theirs.author.fingerprint)],
+            claims: [claimRecord(mine.author.fingerprint,
+                                 adopting: [theirs.author.fingerprint]),
+                     claimRecord(theirs.author.fingerprint,
+                                 adopting: [mine.author.fingerprint])])
+
+        let ours = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+        let theirTable = TrustTable.resolve(registry: registry, mine: theirs, joinedRoot: nil)
+
+        XCTAssertEqual(ours.verdict(forSealKey: theirPhone), .admitted(person: theirPhone))
+        XCTAssertEqual(theirTable.verdict(forSealKey: myPhone), .admitted(person: myPhone))
+    }
+
+    /// Adoption composes: a root I adopted may itself have adopted a third, and
+    /// its chain is what I took in — the whole of it.
+    func test_adoptionIsFollowedThroughTheRootsIAdopted() {
+        let second = foreignKey()
+        let third = foreignKey()
+        let thirdPhone = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(thirdPhone)],
+            people: [rootRecord(mine.author.fingerprint), rootRecord(second),
+                     rootRecord(third), admittedRecord(thirdPhone, under: third)],
+            claims: [claimRecord(mine.author.fingerprint, adopting: [second]),
+                     claimRecord(second, adopting: [third])])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: thirdPhone), .admitted(person: thirdPhone))
+        XCTAssertEqual(table.adoptedRoots, [second, third].sorted())
+    }
+
+    /// A claim by somebody who is not MY root is not my adoption, whoever it
+    /// names. Read straight, this is the same rule as the one above stated from
+    /// the other end: only my own root's claims widen my chain.
+    func test_aClaimByAThirdRootDoesNotWidenMyChain() {
+        let second = foreignKey()
+        let third = foreignKey()
+        let registry = Registry(
+            people: [rootRecord(mine.author.fingerprint), rootRecord(second),
+                     rootRecord(third)],
+            claims: [claimRecord(second, adopting: [third])])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: third), .otherRoot(root: third))
+        XCTAssertEqual(table.adoptedRoots, [])
+    }
+
+    /// Adoption admits a chain; it does not invent one. A fingerprint in an
+    /// `adopted` list that is nobody's root here has no chain to take in, and
+    /// the key stays exactly as unknown as it was.
+    func test_adoptingAFingerprintThatIsNoRootAdmitsNobody() {
+        let stranger = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(stranger)],
+            people: [rootRecord(mine.author.fingerprint)],
+            claims: [claimRecord(mine.author.fingerprint, adopting: [stranger])])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: stranger), .stranger(device: stranger))
+    }
+
+    /// Adoption is about whose history this Mac VERIFIES, and about nothing
+    /// else: the root it is on, where that answer came from, and the roots that
+    /// admitted it are all untouched (B1).
+    func test_adoptionMovesNeitherMyRootNorTheJoinNorTheClaimants() {
+        let otherRoot = foreignKey()
+        let registry = Registry(
+            people: [rootRecord(mine.author.fingerprint), rootRecord(otherRoot),
+                     admittedRecord(mine.author.fingerprint, under: otherRoot, at: 6)],
+            claims: [claimRecord(mine.author.fingerprint, adopting: [otherRoot])])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.myRoot, mine.author.fingerprint)
+        XCTAssertEqual(table.rootSource, .ownRecord)
+        XCTAssertEqual(table.ownRootRecord, mine.author.fingerprint)
+        XCTAssertEqual(table.admittingRoots, [otherRoot],
+                       "a root that named this device is still recorded as having done so")
+    }
+
+    /// A device this Mac has only JOINED adopts nothing of its own: the claims
+    /// that count are the ones written by the root it is on, and here that root
+    /// is somebody else's.
+    func test_theRootIAmOnIsTheOneWhoseAdoptionsCount() {
+        let mac = foreignKey()
+        let third = foreignKey()
+        let thirdPhone = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(mine.author.fingerprint), deviceRecord(thirdPhone)],
+            people: [rootRecord(mac), rootRecord(third),
+                     admittedRecord(mine.author.fingerprint, under: mac),
+                     admittedRecord(thirdPhone, under: third)],
+            claims: [claimRecord(mac, adopting: [third])])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: mac)
+
+        XCTAssertEqual(table.myRoot, mac)
+        XCTAssertEqual(table.verdict(forSealKey: thirdPhone), .admitted(person: thirdPhone))
+    }
+
+    /// With no chain at all there is nothing for an adoption to widen, and B3
+    /// still answers everything.
+    func test_aClaimChangesNothingForADeviceWithNoChain() {
+        let one = foreignKey()
+        let two = foreignKey()
+        let registry = Registry(
+            people: [rootRecord(one), rootRecord(two)],
+            claims: [claimRecord(one, adopting: [two])])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertNil(table.myRoot)
+        XCTAssertEqual(table.adoptedRoots, [])
+        XCTAssertEqual(table.verdict(forSealKey: two), .noChain)
+    }
+
+    /// A person adopted this way is a person like any other — revocation still
+    /// reads off their own record.
+    func test_aRevokedPersonInAnAdoptedChainIsStillRevoked() {
+        let otherRoot = foreignKey()
+        let theirPhone = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(theirPhone)],
+            people: [rootRecord(mine.author.fingerprint), rootRecord(otherRoot),
+                     admittedRecord(
+                        theirPhone, under: otherRoot,
+                        revokedAt: Date(timeIntervalSince1970: 99),
+                        revokedBy: otherRoot, highestOpIdSeen: "01J-SEEN")],
+            claims: [claimRecord(mine.author.fingerprint, adopting: [otherRoot])])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: theirPhone),
+                       .revoked(person: theirPhone, highestOpIdSeen: "01J-SEEN"))
+    }
+
+    // MARK: - The reader-side projection
+
+    func test_aRootsAdoptionsAreItsOwnClaimsAndNobodyElses() {
+        let one = foreignKey()
+        let two = foreignKey()
+        let three = foreignKey()
+        let registry = Registry(
+            claims: [claimRecord(one, adopting: [two, three]),
+                     claimRecord(two, adopting: [one])])
+
+        XCTAssertEqual(registry.adopted(by: one), [two, three])
+        XCTAssertEqual(registry.adopted(by: two), [one])
+        XCTAssertEqual(registry.adopted(by: three), [])
     }
 }
