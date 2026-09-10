@@ -64,6 +64,25 @@ public enum TrustResolution {
         presenter: NSFilePresenter? = nil,
         cache: RegistryCache? = nil
     ) throws -> TrustTable {
+        try resolveVerified(
+            projectURL: projectURL, identities: identities,
+            presenter: presenter, cache: cache).table
+    }
+
+    /// `resolve`, with the verified registry it judged from.
+    ///
+    /// The table answers what a KEY is to this device; a surface that names
+    /// the device — the Inbox's *from Denver*, People & Devices' rows — needs
+    /// the records the answer came from as well. Handing both back is what
+    /// stops such a surface reading the folder a second time and, worse,
+    /// describing a device off a registry the verdicts were not resolved
+    /// against.
+    nonisolated public static func resolveVerified(
+        projectURL: URL,
+        identities: LocalIdentities,
+        presenter: NSFilePresenter? = nil,
+        cache: RegistryCache? = nil
+    ) throws -> (registry: Registry, table: TrustTable) {
         // The cheap answer first, because it is the ordinary one: no registry
         // directory at all. Three `fileExists` decide it, and only then is a
         // cache consulted — and only to tell a project that never joined a
@@ -71,7 +90,9 @@ public enum TrustResolution {
         let folderPresent = hasRegistry(in: projectURL)
         let cache = cache ?? .shared
         let remembered = cache.cached(for: projectURL)
-        guard folderPresent || remembered != nil else { return keyless(mine: identities) }
+        guard folderPresent || remembered != nil else {
+            return (Registry(), keyless(mine: identities))
+        }
 
         let folder = folderPresent
             ? try RegistryReader.load(projectURL: projectURL, presenter: presenter)
@@ -103,7 +124,7 @@ public enum TrustResolution {
         }
         recordRefusedClaimants(
             in: reconciled, mine: identities, cache: cache, projectURL: projectURL)
-        return table
+        return (reconciled, table)
     }
 
     /// **A record of ours the folder now shows under another key is a claim we

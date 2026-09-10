@@ -289,6 +289,24 @@ written through a `JSONLAppendStore<InboxEntry>` carrying a `ChainPolicy`
 The phone writes the same bytes into its own stream through the same store —
 see `MaughamPhone/AREA.md`'s `Capture/` bullet (tripwire 19).
 
+**The rows say who a capture is from** (P2b, spec §6). `InboxStore.bylines` is
+`deviceId → "from <name>"`, resolved ONCE per `refresh` off the SAME verified
+registry the trust table came from (`TrustResolution.resolveVerified`, which
+answers with both — a second `RegistryReader.load` would be a second opinion
+about who wrote this book, and a per-row read would be one per capture). The
+composition is `Views/InboxByline.swift`, a pure static over
+`(deviceId, registry, table)`: an admitted device is named by its LABEL, one
+with a record of its own and no admission by its own name plus *(not yet
+admitted)*, one with no record at all by its four-character CODE — the same
+four characters that phone's Settings screen shows, which is what the writer
+compares. Three things it deliberately says NOTHING about: this Mac's own
+captures, every capture in a book on no chain (B3 — under P1 nothing is
+waiting, so *not yet admitted* would name a state the project is not in), and a
+stranger's SEALED rows, which never become rows at all because a stranger's
+span is held back (`JSONLAppendStore`) — the row a writer meets under a *not
+yet admitted* byline is one that arrived as unsigned history.
+
+
 ## Promote-into-card seam (2026-07-11)
 
 `InboxStore.promoteToPaletteCard(_:projectStore:cardId:)` is the palette sibling of `promoteToResearch` — same `.new`→`.promoted` status handling, same non-destructive copy-then-delete-original contract for assets, but it appends INTO an existing card rather than minting a research item: `.text`/`.audio` become a `PaletteCard.SensoryNote` (tagged when `InboxEntry.sense` maps to a known `PaletteCard.Sense`, untagged — never thrown — otherwise), `.image` copies into the card's `<slug>_assets/` well via `ProjectStore.addImage(toPaletteCard:fileURL:)`. The manifest only flips to `.promoted` after every mutating step succeeds, so a failure (e.g. an audio capture with no transcript yet) leaves the entry `.new` for retry rather than half-promoted. `Views/PalettePickerSheet.swift` drives the UI: card list pre-sorts a `paletteSubject` case-insensitive title match to the top and offers a "New Card…" row when the subject matches nothing (`InboxPane`'s direct "Promote to Palette: “card title”" menu item skips the sheet entirely when the subject already matches exactly one card). MCP `promote_inbox_entry` (`Maugham/MCP/Tools/InboxTools.swift`) exposes the same seam via `palette_card_id`/`palette_subject`, mutually exclusive with `target_document_id`.

@@ -373,6 +373,20 @@ struct InboxPane: View {
                         .foregroundStyle(entry.transcriptionState == .failed ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                         .lineLimit(1)
                 }
+                // **Who this capture is from** (spec §6). A line of its own
+                // rather than a clause of the subtitle: what it says about a
+                // device the Mac has not admitted — that the capture is
+                // waiting on the writer, not lost — is not a timestamp's
+                // business, and the subtitle already carries the transcription
+                // failure in its own colour. Absent for this Mac's own
+                // captures and for a book on no chain, where there is nothing
+                // to say (`InboxByline`).
+                if let byline = store.bylines[entry.deviceId] {
+                    Text(byline)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
         }
