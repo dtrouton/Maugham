@@ -256,14 +256,20 @@ final class RegistryCacheTests: XCTestCase {
     /// memory** — not even one that no longer verifies (whole-branch review,
     /// C2 fix 1).
     ///
-    /// The device cannot tell *tampered with* from *written by a later build*:
-    /// the signature is checked over a re-encode of the decoded record, so a
-    /// record carrying one field this build does not know decodes, re-encodes
-    /// without it and fails to verify. Replacing it would silently downgrade a
-    /// newer device's signed record on shared storage, across devices, with
-    /// nothing said anywhere. And the defence it bought was redundant: a
-    /// malformed record already contributes nothing to the registry. So the
-    /// file is left exactly as it is, listed malformed, and Integrity shows it.
+    /// The device cannot tell *tampered with* from *damaged in transit*, and
+    /// replacing the file would silently downgrade another device's signed
+    /// record on shared storage, across devices, with nothing said anywhere.
+    /// The defence it bought was redundant anyway: a malformed record already
+    /// contributes nothing to the registry. So the file is left exactly as it
+    /// is, listed malformed, and Integrity shows it.
+    ///
+    /// (P2b Task 1 narrowed the population this protects. The original
+    /// rationale was that a record from a LATER build failed to verify here at
+    /// all, because the digest was taken over a re-encode of the decoded
+    /// record; the digest is now over the file's own bytes, so such a record
+    /// verifies and is not malformed. The rule stands for the case it was
+    /// always really about: bytes this device cannot vouch for stay where they
+    /// are.)
     func test_aTamperedFolderRecordIsListedMalformedAndLeftOnDisk() throws {
         let registry = try writeASmallRegistry()
         let cache = makeCache()
@@ -362,6 +368,164 @@ final class RegistryCacheTests: XCTestCase {
             makeCache().cached(for: projectURL)?.people.map(\.person).sorted(),
             registry.people.map(\.person).sorted(),
             "the memory reloads holding the registry reconcile settled on")
+    }
+
+    // MARK: - The same-authority rule (P2b Task 1)
+
+    /// **A record changes hands only under the same key.** A cached record is
+    /// displaced by the folder's copy when the folder's copy was signed by the
+    /// key that signed the one this device remembers — a device re-signing its
+    /// own record, a root re-signing a person's. A folder record for the same
+    /// fingerprint signed by SOMEBODY ELSE is not a newer version of that
+    /// record; it is another key's claim over it, and it is listed rather than
+    /// applied.
+    func test_aFolderRecordSignedByAnotherKeyDoesNotDisplaceTheRememberedOne() throws {
+        try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
+        try RegistryWriter.write(admittedRecord(phone, under: root), signedBy: root, in: projectURL)
+        let cache = makeCache()
+        cache.remember(try RegistryReader.load(projectURL: projectURL), for: projectURL)
+
+        // A second root arrives and writes its own admission of the same
+        // person. It is a well-formed record — the reader verifies it, because
+        // a person record's expected signer is the root it NAMES — so nothing
+        // short of this rule stands between it and the remembered one.
+        try RegistryWriter.write(rootRecord(otherRoot), signedBy: otherRoot, in: projectURL)
+        let url = RegistryWriter.url(.people, fingerprint: phone.fingerprint, in: projectURL)
+        try RegistryWriter.write(
+            admittedRecord(phone, under: otherRoot), signedBy: otherRoot, in: projectURL)
+        let plantedBytes = try Data(contentsOf: url)
+
+        let folder = try RegistryReader.load(projectURL: projectURL)
+        XCTAssertEqual(folder.malformed, [], "the reader has no quarrel with it on its own terms")
+
+        let outcome = try cache.reconcile(
+            folder: folder, cached: cache.cached(for: projectURL), in: projectURL)
+
+        XCTAssertEqual(
+            outcome.registry.malformed.map(\.reason),
+            [.signerChanged(expected: root.fingerprint, found: otherRoot.fingerprint)],
+            "the folder's copy is listed, and says which key it expected")
+        XCTAssertEqual(
+            outcome.registry.people.first { $0.person == self.phone.fingerprint }?.admittedBy,
+            root.fingerprint,
+            "and the record this device verified is the one that stands")
+        XCTAssertEqual(outcome.restored, [], "nothing is put back — the file is right there")
+        XCTAssertEqual(outcome.removedBySomeone, [])
+        XCTAssertEqual(try Data(contentsOf: url), plantedBytes,
+                       "and the folder's bytes are not overwritten from this device's memory")
+
+        XCTAssertEqual(
+            makeCache().cached(for: projectURL)?
+                .people.first { $0.person == self.phone.fingerprint }?.admittedBy,
+            root.fingerprint,
+            "the memory keeps what it kept")
+    }
+
+    /// **The concrete hole this closes.** A root's own record is self-signed:
+    /// it is that person saying who they are. Another root can write a
+    /// perfectly valid person record for the same fingerprint — an ADMISSION,
+    /// signed by itself — and before this rule the folder's copy simply won,
+    /// so the second Mac to open the book took over the first one's identity
+    /// record and the whole chain hanging off it. It cannot.
+    func test_aRootsOwnRecordCannotBeDisplacedByAnotherRootsAdmissionOfIt() throws {
+        try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
+        let cache = makeCache()
+        cache.remember(try RegistryReader.load(projectURL: projectURL), for: projectURL)
+
+        // A second root arrives and admits the first as one of ITS people.
+        try RegistryWriter.write(rootRecord(otherRoot), signedBy: otherRoot, in: projectURL)
+        try RegistryWriter.write(
+            admittedRecord(root, under: otherRoot), signedBy: otherRoot, in: projectURL)
+
+        let folder = try RegistryReader.load(projectURL: projectURL)
+        XCTAssertEqual(folder.malformed, [],
+                       "the admission is a well-formed record — the reader has no quarrel with it")
+        XCTAssertEqual(folder.roots.map(\.person), [otherRoot.fingerprint],
+                       "and on the folder's word alone the first root is no longer a root")
+
+        let outcome = try cache.reconcile(
+            folder: folder, cached: cache.cached(for: projectURL), in: projectURL)
+
+        XCTAssertEqual(
+            outcome.registry.malformed.map(\.reason),
+            [.signerChanged(expected: root.fingerprint, found: otherRoot.fingerprint)])
+        XCTAssertTrue(
+            outcome.registry.people.contains { $0.person == self.root.fingerprint && $0.isRoot },
+            "this device keeps the self-signed record it verified")
+        XCTAssertEqual(
+            Set(outcome.registry.roots.map(\.person)),
+            [root.fingerprint, otherRoot.fingerprint],
+            "the second claimant is listed beside it, never merged (B1)")
+    }
+
+    /// The rule's other half, stated on a person record so it is not only the
+    /// device case: the SAME key re-signing its own record still wins.
+    func test_aRecordReSignedByTheSameKeyStillWins() throws {
+        try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
+        try RegistryWriter.write(admittedRecord(phone, under: root), signedBy: root, in: projectURL)
+        let cache = makeCache()
+        cache.remember(try RegistryReader.load(projectURL: projectURL), for: projectURL)
+
+        var revoked = admittedRecord(phone, under: root)
+        revoked = PersonRecord(
+            person: phone.fingerprint, label: "Denver", ownName: "Denver's iPhone",
+            admittedAt: revoked.admittedAt, admittedBy: root.fingerprint,
+            revokedAt: Date(timeIntervalSince1970: 99), revokedBy: root.fingerprint)
+        try RegistryWriter.write(revoked, signedBy: root, in: projectURL)
+
+        let outcome = try cache.reconcile(
+            folder: try RegistryReader.load(projectURL: projectURL),
+            cached: cache.cached(for: projectURL), in: projectURL)
+
+        XCTAssertEqual(outcome.registry.malformed, [], "a re-sign under the same key is ordinary")
+        XCTAssertTrue(
+            outcome.registry.people.first { $0.person == self.phone.fingerprint }?.isRevoked
+                == true,
+            "the root's own revocation lands")
+    }
+
+    // MARK: - The memory is byte-faithful about a record it cannot re-encode
+
+    /// A record carrying a field this build has no property for is remembered
+    /// as the BYTES that were on disk, so restoring it puts the unknown field
+    /// back too. Remembering the decoded fields instead would have this device
+    /// quietly rewrite another build's record into its own vocabulary, and the
+    /// signature it restored would then verify nowhere.
+    func test_aRecordFromALaterBuildIsRememberedAndRestoredByteIdentical() throws {
+        let url = try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
+
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: try Data(contentsOf: url))
+                as? [String: Any])
+        object["future"] = 1
+        object.removeValue(forKey: "sig")
+        let unsigned = try JSONSerialization.data(
+            withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
+        let credentials = try OpLogChain.credentials(
+            signing: Hex.encode(Data(SHA256.hash(data: unsigned))), identity: root)
+        object["sig"] = ["key": credentials.key, "pub": credentials.pub, "sig": credentials.sig]
+        try JSONSerialization.data(
+            withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
+            .write(to: url)
+        let onDisk = try Data(contentsOf: url)
+
+        let cache = makeCache()
+        cache.remember(try RegistryReader.load(projectURL: projectURL), for: projectURL)
+        XCTAssertEqual(
+            cache.rawBytes(of: RecordRef(directory: .people, fingerprint: root.fingerprint),
+                           for: projectURL),
+            onDisk,
+            "the memory keeps the file's own bytes, unknown field and all")
+
+        try FileManager.default.removeItem(at: url)
+        let outcome = try cache.reconcile(
+            folder: try RegistryReader.load(projectURL: projectURL),
+            cached: cache.cached(for: projectURL), in: projectURL)
+
+        XCTAssertEqual(outcome.restored, [url])
+        XCTAssertEqual(try Data(contentsOf: url), onDisk, "restored byte for byte")
+        XCTAssertEqual(try RegistryReader.load(projectURL: projectURL).malformed, [],
+                       "and what was put back still verifies")
     }
 
     // MARK: - B1: the root this device joined

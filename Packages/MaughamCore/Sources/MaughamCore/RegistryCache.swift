@@ -92,13 +92,17 @@ public final class RegistryCache: @unchecked Sendable {
 
     /// One remembered record: where it lives, what names it, and the bytes.
     ///
-    /// **The bytes are stored, not the fields.** They are produced by the one
-    /// canonical encoder (`RegistryCanonical.bytes`), which is the same
-    /// function `RegistryWriter` writes with, so what is kept here is what is on
-    /// disk — pinned byte-for-byte by
-    /// `RegistryCacheTests.test_aDeletedPersonRecordIsRestoredByteIdenticalAndReported`.
-    /// Keeping bytes rather than fields means a later build of this code cannot
-    /// re-encode a record into something its own signature no longer covers.
+    /// **The bytes are the FILE's, not a re-encode.** `RegistryReader` carries
+    /// each verified record's own bytes out of the read (`Registry.sourceBytes`)
+    /// and they are what is kept here — pinned byte-for-byte by
+    /// `RegistryCacheTests.test_aDeletedPersonRecordIsRestoredByteIdenticalAndReported`
+    /// and, for the case that makes it matter, by
+    /// `test_aRecordFromALaterBuildIsRememberedAndRestoredByteIdentical`.
+    /// A record written by a later build carries a field this one has no
+    /// property for; remembering the decoded fields would have this device
+    /// quietly rewrite that record into its own vocabulary, and the signature it
+    /// restored would then verify nowhere. Encoding the record is the fallback,
+    /// for a registry assembled in memory rather than read from a folder.
     private struct Entry: Codable, Equatable {
         /// `RegistryDirectory.rawValue`. A string, so a directory a later build
         /// adds survives a read here rather than failing the whole decode.
@@ -293,17 +297,27 @@ public final class RegistryCache: @unchecked Sendable {
     ///   present beside the verified refs.
     /// - A record that is present and does NOT verify is reported malformed and
     ///   **left exactly as it is**. A device cannot tell *tampered with* from
-    ///   *written by a later build* — the signature is checked over a re-encode
-    ///   of the decoded record, so one unknown field is enough to make an
-    ///   honest record fail — and overwriting it would silently downgrade a
-    ///   newer device's signed record on shared storage. The defence would buy
-    ///   nothing anyway: a malformed record already contributes nothing to the
-    ///   registry. The malformed listing is carried out untouched, and
-    ///   Integrity shows it.
-    /// - A record the folder holds wins over the remembered one, always. The
-    ///   folder's copy has already been verified by `RegistryReader`, and a
-    ///   record legitimately changes: a device re-signs its own record when it
-    ///   mints an actor key, a root re-signs a person's to revoke them.
+    ///   *damaged in transit*, and overwriting it would silently downgrade
+    ///   another device's signed record on shared storage. The defence would
+    ///   buy nothing anyway: a malformed record already contributes nothing to
+    ///   the registry. The malformed listing is carried out untouched, and
+    ///   Integrity shows it. (A record from a LATER build is no longer in this
+    ///   population — the digest is over the file's own bytes since P2b Task 1,
+    ///   so an unfamiliar field verifies rather than failing.)
+    /// - A record the folder holds wins over the remembered one **when the
+    ///   same key signed both**. A record legitimately changes: a device
+    ///   re-signs its own record when it mints an actor key, a root re-signs a
+    ///   person's to revoke them. What is not legitimate is a record changing
+    ///   HANDS. A person record's expected signer is the root it names, so
+    ///   another root can write a perfectly valid admission of somebody this
+    ///   device already verified — and on the folder's word alone the second
+    ///   Mac to open the book would take over the first one's record and the
+    ///   whole chain hanging off it. So a folder record for a remembered
+    ///   fingerprint under a DIFFERENT `sig.key` is listed
+    ///   `malformed(.signerChanged)`, the remembered record stands, and the
+    ///   folder's file is left exactly where it is (it is present; only an
+    ///   absent record is restored). The claimant is shown, never merged — B1's
+    ///   rule, one record down.
     /// - Whatever it settles on is then remembered, so the next reconcile
     ///   starts from what this device last verified rather than from something
     ///   older than the folder.
@@ -332,34 +346,54 @@ public final class RegistryCache: @unchecked Sendable {
         let present = Set(Self.refs(of: folder) + folder.malformed.compactMap(\.ref))
         var restored: [URL] = []
         var removed: [RecordRef] = []
+        var displaced: [MalformedRecord] = []
         var devices = folder.devices
         var people = folder.people
         var claims = folder.claims
+        var sourceBytes = folder.sourceBytes
 
         for entry in Self.entries(of: cached) {
             guard let directory = RegistryDirectory(rawValue: entry.directory) else { continue }
             let ref = RecordRef(directory: directory, fingerprint: entry.fingerprint)
-            guard !present.contains(ref) else { continue }
-            // The bytes this device kept when it verified the record, which
-            // are the bytes that were on disk; `cached` is decoded from them.
-            let bytes = rawBytes(of: ref, for: projectURL) ?? entry.bytes
-            restored.append(try RegistryWriter.restore(
-                rawBytes: bytes, to: directory, fingerprint: entry.fingerprint,
-                in: projectURL, presenter: presenter))
-            removed.append(ref)
-            switch directory {
-            case .devices:
-                if let record = cached.devices.first(where: { $0.device == ref.fingerprint }) {
-                    devices.append(record)
-                }
-            case .people:
-                if let record = cached.people.first(where: { $0.person == ref.fingerprint }) {
-                    people.append(record)
-                }
-            case .claims:
-                if let record = cached.claims.first(where: { $0.newRoot == ref.fingerprint }) {
-                    claims.append(record)
-                }
+
+            guard present.contains(ref) else {
+                // Gone from the folder: put it back, byte for byte, and say so.
+                // The bytes this device kept when it verified the record, which
+                // are the bytes that were on disk; `cached` is decoded from them.
+                let bytes = rawBytes(of: ref, for: projectURL) ?? entry.bytes
+                restored.append(try RegistryWriter.restore(
+                    rawBytes: bytes, to: directory, fingerprint: entry.fingerprint,
+                    in: projectURL, presenter: presenter))
+                removed.append(ref)
+                sourceBytes[ref] = bytes
+                Self.take(ref, from: cached, into: &devices, &people, &claims)
+                continue
+            }
+
+            // Present. The only question left is whose it is now.
+            guard let mine = Self.signer(of: ref, in: cached),
+                  let theirs = Self.signer(of: ref, in: folder),
+                  mine != theirs
+            else { continue }
+
+            displaced.append(.signerChanged(
+                ref, expected: mine, found: theirs, in: projectURL))
+            Self.drop(ref, from: &devices, &people, &claims)
+            sourceBytes[ref] = entry.bytes
+            Self.take(ref, from: cached, into: &devices, &people, &claims)
+
+            // **The record refused is still a claim heard.** Refusing the
+            // folder's copy takes it out of the registry, and the registry is
+            // where `TrustResolution` looks to find the roots that name this
+            // device — so without this line the rule would close the hole and
+            // silence B1's claimant list in the same stroke, on the very path
+            // it is for: another Mac writing its own admission over the one
+            // this device already verified. The person record whose fingerprint
+            // is this device's identity IS the record about this device
+            // (labels only: a person is a device), so the key that signed the
+            // refused copy is a root claiming it.
+            if directory == .people, ref.fingerprint == identity {
+                recordClaimant(root: theirs, for: projectURL)
             }
         }
 
@@ -367,9 +401,60 @@ public final class RegistryCache: @unchecked Sendable {
             devices: devices.sorted { $0.device < $1.device },
             people: people.sorted { $0.person < $1.person },
             claims: claims.sorted { $0.newRoot < $1.newRoot },
-            malformed: folder.malformed)
+            malformed: (folder.malformed + displaced).sorted { $0.url.path < $1.url.path },
+            sourceBytes: sourceBytes)
         remember(resolved, for: projectURL)
         return (resolved, restored, removed)
+    }
+
+    /// Whose signature stands on the copy of `ref` this registry holds, if it
+    /// holds one at all. A record with no signature never got this far — the
+    /// reader lists it `.unsigned` — so nil here means *no such record*.
+    private static func signer(of ref: RecordRef, in registry: Registry) -> String? {
+        switch ref.directory {
+        case .devices:
+            return registry.devices.first { $0.device == ref.fingerprint }?.sig?.key
+        case .people:
+            return registry.people.first { $0.person == ref.fingerprint }?.sig?.key
+        case .claims:
+            return registry.claims.first { $0.newRoot == ref.fingerprint }?.sig?.key
+        }
+    }
+
+    /// Move the remembered copy of `ref` into the answer being assembled.
+    private static func take(
+        _ ref: RecordRef, from cached: Registry,
+        into devices: inout [DeviceRecord], _ people: inout [PersonRecord],
+        _ claims: inout [ClaimRecord]
+    ) {
+        switch ref.directory {
+        case .devices:
+            if let record = cached.devices.first(where: { $0.device == ref.fingerprint }) {
+                devices.append(record)
+            }
+        case .people:
+            if let record = cached.people.first(where: { $0.person == ref.fingerprint }) {
+                people.append(record)
+            }
+        case .claims:
+            if let record = cached.claims.first(where: { $0.newRoot == ref.fingerprint }) {
+                claims.append(record)
+            }
+        }
+    }
+
+    /// Take the folder's copy of `ref` out of the answer. The FILE is untouched
+    /// — this decides only what the registry says, and the bytes on shared
+    /// storage are somebody else's to explain.
+    private static func drop(
+        _ ref: RecordRef, from devices: inout [DeviceRecord],
+        _ people: inout [PersonRecord], _ claims: inout [ClaimRecord]
+    ) {
+        switch ref.directory {
+        case .devices: devices.removeAll { $0.device == ref.fingerprint }
+        case .people: people.removeAll { $0.person == ref.fingerprint }
+        case .claims: claims.removeAll { $0.newRoot == ref.fingerprint }
+        }
     }
 
     // MARK: - Records ↔ entries
@@ -381,13 +466,21 @@ public final class RegistryCache: @unchecked Sendable {
     /// worse than no memory of that record at all.
     private static func entries(of registry: Registry) -> [Entry] {
         var entries: [Entry] = []
-        entries.append(contentsOf: registry.devices.compactMap(entry(of:)))
-        entries.append(contentsOf: registry.people.compactMap(entry(of:)))
-        entries.append(contentsOf: registry.claims.compactMap(entry(of:)))
+        entries.append(contentsOf: registry.devices.compactMap { entry(of: $0, in: registry) })
+        entries.append(contentsOf: registry.people.compactMap { entry(of: $0, in: registry) })
+        entries.append(contentsOf: registry.claims.compactMap { entry(of: $0, in: registry) })
         return entries
     }
 
-    private static func entry(of record: some RegistryRecordProtocol) -> Entry? {
+    private static func entry(
+        of record: some RegistryRecordProtocol, in registry: Registry
+    ) -> Entry? {
+        let ref = RecordRef(directory: type(of: record).directory,
+                            fingerprint: record.fingerprint)
+        if let onDisk = registry.sourceBytes[ref] {
+            return Entry(directory: ref.directory.rawValue,
+                         fingerprint: ref.fingerprint, bytes: onDisk)
+        }
         do {
             return Entry(
                 directory: type(of: record).directory.rawValue,
@@ -420,14 +513,21 @@ public final class RegistryCache: @unchecked Sendable {
         var devices: [DeviceRecord] = []
         var people: [PersonRecord] = []
         var claims: [ClaimRecord] = []
+        // The remembered bytes travel back out with the records they decode to,
+        // so a registry that came from this memory is as byte-faithful as one
+        // that came from the folder — and remembering it again keeps the same
+        // bytes rather than re-encoding them.
+        var sourceBytes: [RecordRef: Data] = [:]
         for entry in entries {
+            guard let directory = RegistryDirectory(rawValue: entry.directory) else { continue }
             do {
-                switch RegistryDirectory(rawValue: entry.directory) {
+                switch directory {
                 case .devices: devices.append(try decoder.decode(DeviceRecord.self, from: entry.bytes))
                 case .people: people.append(try decoder.decode(PersonRecord.self, from: entry.bytes))
                 case .claims: claims.append(try decoder.decode(ClaimRecord.self, from: entry.bytes))
-                case nil: continue
                 }
+                sourceBytes[RecordRef(directory: directory,
+                                      fingerprint: entry.fingerprint)] = entry.bytes
             } catch {
                 registryCacheLog.error("""
                     A remembered registry record (\(entry.fingerprint, privacy: .public)) \
@@ -438,7 +538,8 @@ public final class RegistryCache: @unchecked Sendable {
         return Registry(
             devices: devices.sorted { $0.device < $1.device },
             people: people.sorted { $0.person < $1.person },
-            claims: claims.sorted { $0.newRoot < $1.newRoot })
+            claims: claims.sorted { $0.newRoot < $1.newRoot },
+            sourceBytes: sourceBytes)
     }
 
     // MARK: - Pruning

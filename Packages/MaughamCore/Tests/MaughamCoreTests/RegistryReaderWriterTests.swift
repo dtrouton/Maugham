@@ -132,6 +132,83 @@ final class RegistryReaderWriterTests: XCTestCase {
         XCTAssertEqual(registry.devices.first?.actors["assistant"], "bbbb")
     }
 
+    // MARK: - A record from a later build (P2b Task 1)
+
+    /// **The release blocker.** A record written by a build that carries one
+    /// more field than this one decodes here, drops the field it has no
+    /// property for, and must still VERIFY — because the digest is taken over
+    /// the file's own bytes rather than over a re-encode of what was decoded.
+    /// Signing over a re-encode would mean that the first device to upgrade
+    /// silently un-admitted itself everywhere older copies read the folder.
+    func test_aRecordCarryingAFieldFromALaterBuildStillVerifies() throws {
+        let url = try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
+        try addFieldAndResign(at: url, "future", 1, with: root)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+
+        XCTAssertEqual(registry.malformed, [],
+                       "a field this build does not know is not a reason to refuse a record")
+        XCTAssertEqual(registry.people.map(\.person), [root.fingerprint])
+        XCTAssertEqual(registry.people.first?.label, "Denver",
+                       "and everything this build DOES know still reads")
+    }
+
+    /// The other side of it: the unknown field is part of what was signed, so
+    /// changing it breaks the signature like any other edit.
+    func test_changingTheUnknownFieldBreaksTheSignature() throws {
+        let url = try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
+        try addFieldAndResign(at: url, "future", 1, with: root)
+
+        var object = try JSONSerialization.jsonObject(with: try Data(contentsOf: url))
+            as? [String: Any] ?? [:]
+        object["future"] = 2
+        try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            .write(to: url)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+
+        XCTAssertEqual(registry.people, [])
+        XCTAssertEqual(registry.malformed.map(\.reason), [.signatureDoesNotVerify])
+    }
+
+    /// The reader carries each verified record's own file bytes out with it,
+    /// so the memory that remembers a record remembers what was on disk rather
+    /// than what this build can re-encode.
+    func test_theReaderCarriesEachVerifiedRecordsFileBytes() throws {
+        let url = try RegistryWriter.write(rootRecord(root), signedBy: root, in: projectURL)
+        try addFieldAndResign(at: url, "future", 1, with: root)
+        let onDisk = try Data(contentsOf: url)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+
+        XCTAssertEqual(
+            registry.sourceBytes[RecordRef(directory: .people, fingerprint: root.fingerprint)],
+            onDisk)
+    }
+
+    /// A test's own hand: add a top-level field to a record's JSON and re-sign
+    /// the result over the canonical form of the NEW object. It canonicalizes
+    /// with `JSONSerialization` directly rather than through
+    /// `RegistryCanonical`, so this is a statement about the format and not a
+    /// tautology over the code under test.
+    private func addFieldAndResign(
+        at url: URL, _ field: String, _ value: Any, with identity: DeviceIdentity
+    ) throws {
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: try Data(contentsOf: url))
+                as? [String: Any])
+        object[field] = value
+        object.removeValue(forKey: "sig")
+        let unsigned = try JSONSerialization.data(
+            withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
+        let credentials = try OpLogChain.credentials(
+            signing: Hex.encode(Data(SHA256.hash(data: unsigned))), identity: identity)
+        object["sig"] = ["key": credentials.key, "pub": credentials.pub, "sig": credentials.sig]
+        try JSONSerialization.data(
+            withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
+            .write(to: url)
+    }
+
     // MARK: - The writer refuses
 
     /// A device with no key cannot make a record. `.unsigned` is a first-class
@@ -269,7 +346,8 @@ final class RegistryReaderWriterTests: XCTestCase {
             .filenameMismatch(recordFingerprint: "aaaa"), .signatureDoesNotVerify,
             .signerIsNotTheExpectedKey(expected: "aaaa", found: "bbbb"),
             .signerIsNotARoot(named: "cccc"),
-            .authorActorIsNotTheDevice(named: "dddd"), .authorActorIsNotTheDevice(named: nil)]
+            .authorActorIsNotTheDevice(named: "dddd"), .authorActorIsNotTheDevice(named: nil),
+            .signerChanged(expected: "eeee", found: "ffff")]
         for reason in reasons {
             XCTAssertFalse(reason.sentence.isEmpty, "\(reason) says nothing")
         }

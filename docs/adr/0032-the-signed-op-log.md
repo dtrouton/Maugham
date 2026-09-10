@@ -387,22 +387,44 @@ stronger reason than the compatibility one the plan gives (that the phone
 learns to read records in P2a), and it binds the release on the Mac's side
 alone.
 
-**One thing must be fixed before the first tag that carries P2a: the canonical
-digest is lossy.** A record's signature is verified over a *re-encode of the
-decoded record*, and `JSONDecoder` drops unknown keys — so a record written by a
-later build carrying one extra field decodes, re-encodes without it, and fails
-to verify. It is unreachable today (nothing in P2a writes an unknown field), but
-the moment a release ships that writes records the canonicalization is frozen:
-changing it afterwards invalidates every record already on disk, and P2b adds
-claims while P3 adds roles. The contained fix is to canonicalize through
-`JSONSerialization` on both sides — the writer serializes the record's object
-form with sorted keys and signs those bytes; the reader parses the file's bytes,
-removes `"sig"`, and re-serializes the same way — so unknown members survive
-verification. That is ADR 0015's evolution rule, which `DeviceKind.unknown`
-already honours one level down. The destructive half is already closed:
-`RegistryCache.reconcile` restores only an ABSENT file, so a record it cannot
-verify is reported and left exactly as it is rather than overwritten with this
-device's older copy.
+**One thing had to be fixed before the first tag that carries P2a: the canonical
+digest was lossy. Fixed in P2b Task 1, 2026-09-10.** A record's signature was
+verified over a *re-encode of the decoded record*, and `JSONDecoder` drops
+unknown keys — so a record written by a later build carrying one extra field
+decoded, re-encoded without it, and failed to verify. It was unreachable at the
+time (nothing in P2a writes an unknown field), but the moment a release ships
+that writes records the canonicalization is frozen: changing it afterwards
+invalidates every record already on disk, and P2b adds claims while P3 adds
+roles. P2a being unreleased, the change simply invalidates the records P2a's dev
+builds wrote (tripwire 11: delete and recreate).
+
+**The canonical form, now frozen.** `RegistryCanonical.canonicalBytes(ofJSON:)`
+is the one spelling and it takes BYTES: parse the JSON object, remove the `"sig"`
+member by name, re-serialize with `JSONSerialization` under `.sortedKeys` and
+`.withoutEscapingSlashes`. The digest is SHA-256 over those bytes, hex-encoded.
+The writer encodes the record once and canonicalizes that; the reader
+canonicalizes the FILE it just read — so a member this build has no property for
+is part of what was signed on both sides, and an honest record from a later
+build still verifies. Sorted keys because a dictionary's insertion order is not
+a fact about the record (`actors` is one). Slashes unescaped because JSON permits
+both spellings of `/` and a device name may hold one, so a canonicalization that
+did not decide would give two devices two digests for one record. Dates are
+already ISO strings in the JSON, so nothing on this path reformats one.
+
+**A record changes hands only under the same key** (the same-authority rule,
+`RegistryCache.reconcile`). The destructive half of the old shape was already
+closed — `reconcile` restores only an ABSENT file, so a record it cannot verify
+is reported and left exactly as it is rather than overwritten. What was still
+open is the opposite direction: a person record's expected signer is the root it
+NAMES, so a second root can write a perfectly valid admission of somebody this
+device already verified, and the folder's copy simply won. The second Mac to
+open a book could take over the first one's self-signed root record and the whole
+chain hanging off it. So a folder record for a remembered fingerprint signed by a
+key other than the one that signed the remembered copy is listed
+`malformed(.signerChanged(expected:found:))`, the remembered record stands, and
+the folder's file is left where it is. Where the refused record is the one about
+THIS device, the displacing key is recorded as a claimant — B1's list is fed by
+the refusal rather than silenced by it.
 
 ## Addendum — actors, 2026-09-08 (P1b)
 

@@ -145,15 +145,107 @@ final class RegistryRecordTests: XCTestCase {
                           try RegistryCanonical.digestHex(ofRecord: relabelled))
     }
 
-    /// The digest is SHA-256 over exactly those bytes — spelled out once, so a
-    /// later reader of another language could recompute it.
+    /// The digest is SHA-256 over exactly the canonical bytes — spelled out
+    /// once, so a later reader of another language could recompute it.
+    ///
+    /// The expectation moved with the lossless digest (P2b Task 1): the bytes
+    /// hashed are no longer the encoder's output but that output put through
+    /// `canonicalBytes(ofJSON:)`, which is the one form both the writer and the
+    /// reader hash. For a record with nothing unknown in it the two spell the
+    /// same object; the function named here is the one that is authoritative.
     func test_theDigestIsSha256OverTheCanonicalBytes() throws {
         let record = ClaimRecord(
             newRoot: "new", adopted: ["old"], claimedAt: Date(timeIntervalSince1970: 0))
-        let bytes = try RegistryCanonical.bytes(of: record)
+        let canonical = try RegistryCanonical.canonicalBytes(
+            ofJSON: try RegistryCanonical.bytes(of: record))
 
-        XCTAssertEqual(try RegistryCanonical.digest(of: record),
-                       Data(SHA256.hash(data: bytes)))
+        XCTAssertEqual(try RegistryCanonical.digestHex(ofRecord: record),
+                       Hex.encode(Data(SHA256.hash(data: canonical))))
+    }
+
+    // MARK: - The canonical form is lossless (P2b Task 1)
+
+    /// **The canonicalization is over the JSON OBJECT, not over a re-encode of
+    /// a decoded record.** A record written by a later build carries a field
+    /// this one has no property for; a digest taken over what this build
+    /// decoded would drop it, and the record would fail to verify on every
+    /// older device that read it — a silent, permanent un-admission the moment
+    /// anybody upgrades. So the bytes that were signed are the bytes that are
+    /// there, minus the signature slot.
+    func test_aFieldThisBuildDoesNotKnowSurvivesIntoTheDigest() throws {
+        let plain = Data(#"{"adopted":[],"claimedAt":"1970-01-01T00:00:00.000Z","newRoot":"n"}"#.utf8)
+        let later = Data(#"{"adopted":[],"claimedAt":"1970-01-01T00:00:00.000Z","future":1,"newRoot":"n"}"#.utf8)
+
+        XCTAssertNotEqual(try RegistryCanonical.digestHex(ofJSON: plain),
+                          try RegistryCanonical.digestHex(ofJSON: later),
+                          "the unknown field is part of what was signed")
+
+        let decoded = try RegistryCanonical.decoder().decode(ClaimRecord.self, from: later)
+        XCTAssertEqual(decoded.newRoot, "n", "and this build still reads what it knows")
+        XCTAssertNotEqual(try RegistryCanonical.digestHex(ofRecord: decoded),
+                          try RegistryCanonical.digestHex(ofJSON: later),
+                          "a digest over the DECODED record is exactly the one that loses it")
+    }
+
+    /// The signature slot is removed by name, so signing and verifying ask the
+    /// same question of a file that already carries one.
+    func test_theCanonicalFormDropsTheSignatureSlotAndSortsTheKeys() throws {
+        let signed = Data(#"{"newRoot":"n","sig":{"key":"k","pub":"p","sig":"s"},"adopted":[],"claimedAt":"1970-01-01T00:00:00.000Z"}"#.utf8)
+
+        XCTAssertEqual(
+            String(decoding: try RegistryCanonical.canonicalBytes(ofJSON: signed), as: UTF8.self),
+            #"{"adopted":[],"claimedAt":"1970-01-01T00:00:00.000Z","newRoot":"n"}"#)
+    }
+
+    /// Two spellings of the same object — different key order, whitespace —
+    /// canonicalize to one byte string. Two devices writing the same record
+    /// must sign the same bytes.
+    func test_theCanonicalFormIsTheSameForTwoSpellingsOfTheSameObject() throws {
+        let one = Data(#"{"b":2,"a":"x","c":[1,2]}"#.utf8)
+        let other = Data("""
+            {
+              "c" : [1, 2],
+              "a" : "x",
+              "b" : 2
+            }
+            """.utf8)
+
+        XCTAssertEqual(try RegistryCanonical.canonicalBytes(ofJSON: one),
+                       try RegistryCanonical.canonicalBytes(ofJSON: other))
+    }
+
+    /// **The pinned escaping choice: a forward slash is written as itself.**
+    /// JSON permits `/` and `\/` for the same character, so a canonicalization
+    /// that did not decide would give two devices two digests for one record —
+    /// and a label or a device name may hold a slash. `withoutEscapingSlashes`
+    /// is the choice, on both sides of the write, and it is the form a writer
+    /// reading the file sees.
+    func test_theCanonicalFormLeavesAForwardSlashUnescaped() throws {
+        let json = Data(#"{"name":"Denver/spare"}"#.utf8)
+
+        XCTAssertEqual(
+            String(decoding: try RegistryCanonical.canonicalBytes(ofJSON: json), as: UTF8.self),
+            #"{"name":"Denver/spare"}"#)
+
+        // And the file the writer lays down is spelled the same way, so the
+        // bytes on disk and the bytes that were signed differ in the signature
+        // alone.
+        let record = DeviceRecord(
+            device: "aaaa", name: "Denver/spare", kind: .mac,
+            actors: ["author": "aaaa"], madeAt: Date(timeIntervalSince1970: 0))
+        XCTAssertTrue(
+            String(decoding: try RegistryCanonical.bytes(of: record), as: UTF8.self)
+                .contains("Denver/spare"),
+            "the encoder makes the same choice the canonical form does")
+    }
+
+    /// Anything that is not a JSON object is not a record, and says so rather
+    /// than hashing something arbitrary.
+    func test_bytesThatAreNotAJsonObjectCannotBeCanonicalized() {
+        XCTAssertThrowsError(
+            try RegistryCanonical.canonicalBytes(ofJSON: Data("[1,2,3]".utf8)))
+        XCTAssertThrowsError(
+            try RegistryCanonical.canonicalBytes(ofJSON: Data("not json".utf8)))
     }
 
     /// A date's precision must survive the encode → decode → encode trip, or a

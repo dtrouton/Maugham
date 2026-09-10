@@ -512,14 +512,17 @@ registry, in `registry-cache.json` beside `op-log-state.json`, keyed by the same
 project-root hash (`OpLogDeviceState.scopeHash(ofRoot:)`) and pruned by the same
 two-clause rule (`OpLogDeviceState.rootIsGone(atPath:)` — a deleted project
 loses its memory, a project on an unmounted volume keeps it). It stores each
-record's canonical BYTES, so a restore is byte-faithful and a later build cannot
-re-encode a record into something its own signature no longer covers.
-`reconcile(folder:cached:in:)` restores only refs the folder has no verified
-record for and reports what it put back, so **the folder always wins where it
-has one** — a device re-signing its own record to add an actor key is not a
-removal. A deleted record and a TAMPERED one look the same to it (a tampered
-file is in `folder.malformed`, not in the verified lists), and both restore.
-A registry deleted WHOLESALE is restored the same way, which is the case spec
+record's own FILE bytes, carried out of the read as `Registry.sourceBytes`, so a
+restore is byte-faithful and this build cannot re-encode a record into something
+its own signature no longer covers. `reconcile(folder:cached:in:)` restores only
+refs the folder has no FILE for — a present record, verified or not, is left
+exactly where it is — and reports what it put back. Where the folder has a file,
+**the folder wins under the same key and only under the same key**: a device
+re-signing its own record to add an actor key is not a removal, but a record
+signed by a key other than the one that signed the remembered copy is a record
+changing HANDS, and it is listed `malformed(.signerChanged(expected:found:))`
+with the remembered record standing (the same-authority rule, P2b Task 1). A
+registry deleted WHOLESALE is restored record by record, which is the case spec
 §2.4 says must be loud rather than a silent reversion to P1 trust.
 
 **The table** (`TrustTable`, `TrustVerdict`) is who a seal's key is to this
@@ -800,6 +803,9 @@ Failure modes:
 10. **Every trust closure is built from a `TrustTable`.** The walk takes a `TrustVerdict`; the Bool `trusted:` overload is P1's shape and can only say *mine* or *nobody*, and the middle of that range is the whole of P2a — an admitted device's sealed span applied as this device's own, or a stranger's applied as unsigned history instead of HELD. Both failures are silent: the words land in the manuscript and nothing goes red. Three keyless sites survive, each allow-listed by file AND spelling in `TripwireGrepTests.trustClosureAllowedSpellings` — two `trusted: { _ in false }` in `OpLogStore.swift` (the keyless reader `ProjectIntegrity.check` passes no table; the fallback walk of an unsettled segment's inner seals) and `trusted: { chain.trust($0) == .mine }` in `JSONLAppendStore.swift` (the chained write, which must not widen past this device's own hand). `ChainPolicy.trustedFingerprints` is gone. Census: `TripwireGrepTests.test_everyTrustClosureIsBuiltFromTheTrustTable` + `test_theAdmissionCensusesFireOnPlantedOffenders`; phone twin `TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone`. CLAUDE.md tripwire 39.
 
 11. **Registry records are written through `RegistryWriter` only.** Every record is signed, and a record written any other way is one no reader can vouch for — the reader's honest answer to it is *malformed*, which is a device silently un-admitted and its whole history left pending. One writer is what makes the signer check a door rather than call-site discipline, and one place spelling the three directory paths is what stops a second opinion about where a record lives. `RegistryWriter.swift`, `RegistryWriter+Restore.swift` and `RegistryReader.swift` are the allow-list; everything else asks `RegistryWriter.directoryURL`, which is a read. Census: `TripwireGrepTests.test_registryRecordsAreWrittenThroughRegistryWriterOnly` + the same planted-offender control; phone twin as above. CLAUDE.md tripwire 40.
+
+12. **One canonicalization, and it takes BYTES.** `RegistryCanonical.canonicalBytes(ofJSON:)` is the only place that decides what a registry record's signature was made over: parse the JSON object, remove `"sig"` by name, re-serialize with `.sortedKeys` and `.withoutEscapingSlashes`, SHA-256 the result. The writer canonicalizes the record it just encoded; the reader canonicalizes the FILE it just read, never a re-encode of what it decoded — because `JSONDecoder` drops a member this build has no property for, and hashing this build's vocabulary of a record written by a later one refuses an honest record. That failure is permanent and silent in the worst direction: the first device to upgrade un-admits itself everywhere an older copy reads the folder. `RegistryWriter.swift`, `RegistryWriter+Restore.swift`, `RegistryReader.swift` and `RegistryRecord.swift` may not name `JSONEncoder(`, `JSONSerialization` or `SHA256` at all — they ask. Census: `RegistryCanonicalCensusTests` (in MaughamCore's own package tests) with its converse and its planted offender. The escaping choice is frozen: a slash is written as itself, on both sides of the write.
+
 
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 
