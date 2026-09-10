@@ -125,6 +125,19 @@ public final class DocumentStore {
         self.uiState = uiState
     }
 
+    /// This Mac's own name, as a DISPLAY string — "Denver's MacBook", the words
+    /// People & Devices shows beside whatever label the writer chooses.
+    ///
+    /// A name, never an identity. This device IS its key's fingerprint
+    /// (tripwire 35): two Macs can answer to one name — the shipped default
+    /// twice over, or a machine restored from another's backup — and a device
+    /// identified that way shares an op-log file with a stranger. Nothing ever
+    /// reads this back to decide anything; it is the sentence a human
+    /// recognises their own machine by.
+    static var thisMacsName: String {
+        Host.current().localizedName ?? "This Mac"
+    }
+
     public static func open(url: URL) async throws -> DocumentStore {
         let uiStateURL = url
             .appendingPathComponent(".maugham")
@@ -168,6 +181,32 @@ public final class DocumentStore {
             projectURL: url, delegate: store)
         NSFileCoordinator.addFilePresenter(presenter)
         store._presenter = presenter
+
+        // This Mac says who it is, BEFORE it touches anything in the book (P2a,
+        // spec §2.1 and §3). Two acts and the order between them is the
+        // contract: the device record names this Mac's actor keys, and the root
+        // record — written only in a book with nobody in it yet — takes its
+        // label from that record's name, so this device's own name is decided
+        // in exactly one place.
+        //
+        // First in the open, ahead of the seal sweep, because everything after
+        // this line writes: a seal a reader meets should already have the
+        // record that says whose key made it. Best-effort with the sweep's own
+        // shape — a registry folder that will not read must not cost the writer
+        // their project — and quiet, because a record already saying this
+        // touches no file. A Mac with no enclave writes neither, and says so
+        // once per process (`RegistryPresence`).
+        do {
+            try RegistryPresence.ensureDeviceRecord(
+                in: url, identities: Document.loadIdentities,
+                name: thisMacsName, kind: .mac, presenter: store.presenter)
+            try RegistryPresence.ensureRootIfEmpty(
+                in: url, identities: Document.loadIdentities,
+                presenter: store.presenter)
+        } catch {
+            documentStoreLog.error(
+                "open-time registry presence failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
 
         // Project-open seal maintenance (ADR 0016 / growth spec §5.2): rotate
         // any of THIS Mac's oversized per-doc tails (e.g. grown while another

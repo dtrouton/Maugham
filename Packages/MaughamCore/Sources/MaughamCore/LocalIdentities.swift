@@ -43,6 +43,11 @@ public struct LocalIdentities: Sendable {
         /// (`DeviceState.directory`, memoized per actor); a URL is the
         /// test-only variant over a directory of the caller's choosing.
         case device(directory: URL?)
+        /// One given author key; every other actor is still this device's own.
+        /// The PHONE's shape — it is the author and nothing else (constraint
+        /// 7) — and, because the key is given rather than looked up, the shape
+        /// a simulator can hold a signing key in.
+        case authorGiven(DeviceIdentity)
     }
 
     private let source: Source
@@ -73,6 +78,24 @@ public struct LocalIdentities: Sendable {
         LocalIdentities(source: .device(directory: directory))
     }
 
+    /// This device around ONE given author key.
+    ///
+    /// The phone's shape, and the reason it exists: a phone writer already
+    /// holds its author identity — injected, because a simulator has no
+    /// enclave and a test must be able to hand it a key that signs — and
+    /// anything asking *which actor keys does this device hold* has to get an
+    /// answer built from that same identity. Two spellings of this device's
+    /// author key is one of them signing a record the other one names, which
+    /// `RegistryWriter` refuses and every reader lists as malformed.
+    ///
+    /// The other three actors are unchanged: they resolve as this device's own
+    /// (minting on demand, `subscript`'s rule) and appear in `existingActors`
+    /// only if a key for them is already on disk — which on a phone is never,
+    /// because nothing there names them.
+    public static func forAuthor(_ identity: DeviceIdentity) -> LocalIdentities {
+        LocalIdentities(source: .authorGiven(identity))
+    }
+
     // MARK: - Naming an actor (mints)
 
     /// The identity for one actor, MINTING it if this device has never used
@@ -97,6 +120,8 @@ public struct LocalIdentities: Sendable {
             } else {
                 DeviceIdentity.identity(for: actor)
             }
+        case let .authorGiven(identity):
+            actor == .author ? identity : DeviceIdentity.identity(for: actor)
         }
     }
 
@@ -108,7 +133,9 @@ public struct LocalIdentities: Sendable {
     // MARK: - Enumerating what exists (never mints)
 
     /// The actors this device has a key for, in `DeviceActor.allCases` order.
-    /// A fixed value is all four; a lazy one is exactly what is on disk.
+    /// A fixed value is all four; a lazy one is exactly what is on disk; a
+    /// given author is that author plus whatever else is on disk, which on a
+    /// phone is nothing.
     public var existingActors: [DeviceActor] {
         switch source {
         case .fixed: DeviceActor.allCases
@@ -119,6 +146,10 @@ public struct LocalIdentities: Sendable {
                 } else {
                     DeviceIdentity.hasPersistedIdentity(for: $0)
                 }
+            }
+        case .authorGiven:
+            DeviceActor.allCases.filter {
+                $0 == .author || DeviceIdentity.hasPersistedIdentity(for: $0)
             }
         }
     }
