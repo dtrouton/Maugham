@@ -344,7 +344,7 @@ final class HistoryPaneChainNoticeTests: XCTestCase {
         XCTAssertEqual(
             HistoryPane.joinedChainNotice(
                 cache: cache, projectURL: project, labels: [mac: "Denver’s MacBook"]),
-            "This Mac joined Denver’s MacBook’s chain.")
+            "This Mac is on Denver’s MacBook’s chain.")
     }
 
     func test_joinedChainNotice_withNoPersonRecordFallsBackToTheRootsCode() {
@@ -354,7 +354,7 @@ final class HistoryPaneChainNoticeTests: XCTestCase {
         cache.join(root: mac, for: project)
         XCTAssertEqual(
             HistoryPane.joinedChainNotice(cache: cache, projectURL: project, labels: [:]),
-            "This Mac joined 9C8B’s chain.")
+            "This Mac is on 9C8B’s chain.")
     }
 
     /// B1's write-once rule reaches the sentence: a second root that names this
@@ -370,7 +370,7 @@ final class HistoryPaneChainNoticeTests: XCTestCase {
             HistoryPane.joinedChainNotice(
                 cache: cache, projectURL: project,
                 labels: [mac: "Denver’s MacBook", phone: "Somebody Else"]),
-            "This Mac joined Denver’s MacBook’s chain.")
+            "This Mac is on Denver’s MacBook’s chain.")
         XCTAssertEqual(cache.claimants(for: project), [phone])
     }
 
@@ -386,6 +386,80 @@ final class HistoryPaneChainNoticeTests: XCTestCase {
         XCTAssertNil(
             HistoryPane.joinedChainNotice(
                 cache: cache, projectURL: other, labels: [mac: "Denver’s MacBook"]))
+    }
+
+    /// Ruling C's re-homing, stated as a test rather than left to the copy: the
+    /// banner is a FACT that holds now, so it never carries a past tense or a
+    /// date. The joining is a dated entry in the section below.
+    func test_theJoinedBannerStatesAStandingFactAndNotAnEvent() {
+        let project = makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let cache = makeCache()
+        cache.join(root: mac, for: project)
+        let banner = try! XCTUnwrap(HistoryPane.joinedChainNotice(
+            cache: cache, projectURL: project, labels: [mac: "Denver’s MacBook"]))
+
+        XCTAssertFalse(
+            banner.localizedCaseInsensitiveContains("joined"),
+            "the event moved to the project section — the banner says what holds")
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: TrustEvent(date: nil, kind: .joined, subject: mac,
+                                label: "Denver’s MacBook"),
+                labels: [:]),
+            "This Mac joined Denver’s MacBook’s chain.",
+            "and the event keeps the past tense the banner gave up")
+    }
+
+    // MARK: - The project section (ruling C's second shape)
+
+    func test_theProjectSectionIsHeadedByTheBooksOwnWord() {
+        XCTAssertEqual(HistoryPane.projectSectionTitle, "Project")
+    }
+
+    /// The section is DRAWN from these rows and nothing else, so pinning the
+    /// rows pins the section — no window, no press, no wait (tripwire 33).
+    func test_everyEventBecomesOneDatedRow() {
+        let events = [
+            TrustEvent(date: Date(timeIntervalSince1970: 90), kind: .revoked,
+                       subject: phone, label: "Sam", by: mac),
+            TrustEvent(date: Date(timeIntervalSince1970: 20), kind: .admitted,
+                       subject: phone, label: "Sam", by: mac),
+        ]
+        let lines = HistoryPane.trustEventLines(events, labels: [mac: "Denver"])
+
+        XCTAssertEqual(lines.map(\.sentence),
+                       ["Sam revoked by Denver.", "Sam admitted by Denver."])
+        XCTAssertEqual(lines.map(\.date), events.map(\.date))
+        XCTAssertEqual(Set(lines.map(\.id)).count, 2, "a ForEach needs two identities")
+    }
+
+    /// An undated event still draws — the row simply has no date in it. This is
+    /// Task 2's carry (a join from before the stamp existed) and B1's claimant,
+    /// both of which must appear rather than being dropped for want of a day.
+    func test_anUndatedEventStillDrawsItsRow() {
+        let lines = HistoryPane.trustEventLines(
+            [TrustEvent(date: nil, kind: .anotherClaimant, subject: mac)], labels: [:])
+
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertNil(lines[0].date)
+        XCTAssertEqual(lines[0].sentence,
+                       "Another Mac (9C8B) also claims this book.")
+    }
+
+    func test_nothingHappenedMeansNoSection() {
+        XCTAssertTrue(HistoryPane.trustEventLines([], labels: [:]).isEmpty)
+    }
+
+    /// Every kind gets a face of its own to the extent the vocabulary allows —
+    /// what this pins is that none is left without one, and that being let in
+    /// and being shown out never look the same.
+    func test_everyKindOfEventHasAnIconAndTheTwoOppositesDiffer() {
+        for kind in TrustEvent.Kind.allCases {
+            XCTAssertFalse(HistoryPane.symbol(for: kind).isEmpty, "\(kind)")
+        }
+        XCTAssertNotEqual(HistoryPane.symbol(for: .admitted),
+                          HistoryPane.symbol(for: .revoked))
     }
 
     // MARK: - Fixtures

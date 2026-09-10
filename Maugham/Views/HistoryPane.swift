@@ -152,6 +152,10 @@ struct HistoryPane: View {
     /// because both halves it is built from (this device's registry memory and
     /// the people records) are resolved in the same off-actor read.
     @State private var joinedChainLine: String?
+    /// The project's dated trust events, already as drawn rows (signed op log
+    /// P2b, ruling C). Resolved in `reloadChain` beside the names they are told
+    /// in, because both come out of the same off-actor registry read.
+    @State private var trustEventLines: [TrustEventLine] = []
     @State private var isRetryingQuarantine: Bool = false
     /// The report from the most recently completed Retry, kept only long
     /// enough for the writer to view or dismiss it — cleared when the sheet
@@ -438,10 +442,12 @@ struct HistoryPane: View {
     /// this Mac is actually on however many roots claim it. The claimants are
     /// P2b's People & Devices to show.
     ///
-    /// **No date, and that is a gap rather than a decision.** The spec's
-    /// sentence carries one (*…on 9 Sep*); the cache records the root it
-    /// joined and not when, and adding a field to it is not this task's. When
-    /// P2b stamps the join, the date belongs at the end of this sentence.
+    /// **A fact, not an event** (Denver's ruling C, 2026-09-10). P2a wrote this
+    /// as *This Mac JOINED …*, which is something that happened on a day; the
+    /// banner is for what holds NOW, so it says *is on*, and the joining — with
+    /// its date — is a `TrustEvent` in the section below. The two are the same
+    /// fact told in the two shapes ruling C separates, which is why this line
+    /// stays here rather than being replaced by the entry.
     ///
     /// `labels` maps a person fingerprint to the label its record gives them,
     /// for the same reason `pendingNotice` takes `names`.
@@ -449,7 +455,62 @@ struct HistoryPane: View {
         cache: RegistryCache, projectURL: URL, labels: [String: String]
     ) -> String? {
         guard let root = cache.joinedRoot(for: projectURL) else { return nil }
-        return "This Mac joined \(labels[root] ?? DeviceCode.short(root))’s chain."
+        return "This Mac is on \(labels[root] ?? DeviceCode.short(root))’s chain."
+    }
+
+    // MARK: - The project's trust log (signed op log P2b, ruling C)
+
+    /// The heading over History's project-scope section.
+    ///
+    /// One word, because the timeline below it is this DOCUMENT's and these
+    /// entries are the BOOK's: who was let in, who was shown out, which Macs
+    /// claim it. They do not change when the writer opens another chapter, and
+    /// the heading is what says so.
+    static let projectSectionTitle = "Project"
+
+    /// One drawn row: the sentence, the day it happened on where anything
+    /// stamps one, and an icon.
+    ///
+    /// Built once per reload rather than per row (tripwire 4) — and, more to
+    /// the point, built OFF the main actor with the registry read that supplies
+    /// its names, so `body` does no work at all beyond drawing it.
+    struct TrustEventLine: Identifiable, Equatable {
+        let id: String
+        let sentence: String
+        /// Nil for the two honestly undated events — a claimant, and a join
+        /// from a memory written before P2b stamped one. The row draws no date
+        /// rather than inventing one.
+        let date: Date?
+        let symbol: String
+    }
+
+    /// Events → rows. Pure, so the whole section is pinnable with no window.
+    nonisolated static func trustEventLines(
+        _ events: [TrustEvent], labels: [String: String]
+    ) -> [TrustEventLine] {
+        events.map { event in
+            TrustEventLine(
+                id: event.id,
+                sentence: TrustEventSentence.sentence(for: event, labels: labels),
+                date: event.date,
+                symbol: symbol(for: event.kind))
+        }
+    }
+
+    /// The icon for one kind. Exhaustive over `TrustEvent.Kind` on purpose: a
+    /// kind added later has to be given a face here rather than defaulting into
+    /// somebody else's.
+    nonisolated static func symbol(for kind: TrustEvent.Kind) -> String {
+        switch kind {
+        case .admitted, .silentlyAdmitted: return "person.badge.plus"
+        case .revoked: return "person.badge.minus"
+        case .retired: return "moon.zzz"
+        case .claimed: return "flag"
+        case .adopted: return "arrow.triangle.merge"
+        case .joined: return "link"
+        case .anotherClaimant: return "exclamationmark.triangle"
+        case .recordRestored: return "arrow.uturn.backward.circle"
+        }
     }
 
     var body: some View {
@@ -598,7 +659,7 @@ struct HistoryPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
-            if entries.isEmpty {
+            if entries.isEmpty && trustEventLines.isEmpty {
                 ContentUnavailableView(
                     emptyTitle,
                     systemImage: emptySymbol,
@@ -610,34 +671,47 @@ struct HistoryPane: View {
                     // never per row (tripwire 4: no per-row computation in
                     // list rows without caching).
                     let predecessors = Self.predecessorIndex(ops: ops)
-                    LazyVStack(spacing: 0) {
-                        ForEach(entries) { entry in
-                            HistoryRow(
-                                entry: entry,
-                                expanded: expanded.contains(entry.id),
-                                lookupOp: { id in opsByOpId[id] },
-                                rewindTarget: {
-                                    if case .op(let op) = entry {
-                                        return predecessors[op.opId]
-                                    }
-                                    return nil
-                                }(),
-                                onToggle: {
-                                    if expanded.contains(entry.id) {
-                                        expanded.remove(entry.id)
-                                    } else {
-                                        expanded.insert(entry.id)
-                                    }
-                                },
-                                onJump: { jump(entry) },
-                                onRevert: {
-                                    if case .checkpoint(let cp) = entry {
-                                        selectedCheckpoint = cp
-                                        showingRestorePicker = true
-                                    }
-                                },
-                                projectURL: projectURL)
-                            Divider()
+                    // The book's own entries lead the document's (ruling C).
+                    // They are FEW — an admission, a revocation, a claim — and
+                    // they are the context every entry below them is written
+                    // in, so they sit above rather than interleaved by date
+                    // into a timeline whose other rows are one document's.
+                    //
+                    // The outer `VStack` is load-bearing: a `ScrollView` does
+                    // not stack its children, so two views handed to it
+                    // directly would be drawn ON TOP of one another. The inner
+                    // stack stays lazy, which is where the rows are.
+                    VStack(spacing: 0) {
+                        projectSection
+                        LazyVStack(spacing: 0) {
+                            ForEach(entries) { entry in
+                                HistoryRow(
+                                    entry: entry,
+                                    expanded: expanded.contains(entry.id),
+                                    lookupOp: { id in opsByOpId[id] },
+                                    rewindTarget: {
+                                        if case .op(let op) = entry {
+                                            return predecessors[op.opId]
+                                        }
+                                        return nil
+                                    }(),
+                                    onToggle: {
+                                        if expanded.contains(entry.id) {
+                                            expanded.remove(entry.id)
+                                        } else {
+                                            expanded.insert(entry.id)
+                                        }
+                                    },
+                                    onJump: { jump(entry) },
+                                    onRevert: {
+                                        if case .checkpoint(let cp) = entry {
+                                            selectedCheckpoint = cp
+                                            showingRestorePicker = true
+                                        }
+                                    },
+                                    projectURL: projectURL)
+                                Divider()
+                            }
                         }
                     }
                 }
@@ -689,6 +763,45 @@ struct HistoryPane: View {
                     report: report,
                     document: documentStore?.document(forDocId: activeDocId),
                     onDismiss: { showingRecoveredHistorySheet = false })
+            }
+        }
+    }
+
+    /// History's project-scope section: what happened to this book's people,
+    /// dated, above the document's own timeline (ruling C).
+    ///
+    /// Absent entirely when nothing has happened — which is every project that
+    /// has never joined a chain, admitted anybody or been claimed, and so is
+    /// most of them. A heading over an empty list would be a permanent reminder
+    /// of a feature the writer is not using.
+    @ViewBuilder
+    private var projectSection: some View {
+        if !trustEventLines.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(Self.projectSectionTitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(trustEventLines) { line in
+                    HStack(spacing: 6) {
+                        Label(line.sentence, systemImage: line.symbol)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 4)
+                        if let date = line.date {
+                            Text(date.formatted(date: .abbreviated, time: .omitted))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Divider()
+                }
             }
         }
     }
@@ -790,20 +903,32 @@ struct HistoryPane: View {
         guard TrustResolution.hasRegistry(in: url) else {
             chainDeviceNames = [:]
             joinedChainLine = nil
+            trustEventLines = []
             return
         }
         let resolved = await Task.detached(priority: .userInitiated) {
-            () -> (names: [String: String], joined: String?) in
+            () -> (names: [String: String], joined: String?, events: [TrustEventLine]) in
             let registry = try? RegistryReader.load(projectURL: url)
             var names: [String: String] = [:]
             var labels: [String: String] = [:]
             for device in registry?.devices ?? [] { names[device.device] = device.name }
             for person in registry?.people ?? [] { labels[person.person] = person.label }
-            return (names, HistoryPane.joinedChainNotice(
-                cache: .shared, projectURL: url, labels: labels))
+            // The events are derived from whatever the read could vouch for —
+            // an unreadable registry costs the writer names, never the pane
+            // (RULING-54's trade, as P2a made it for the two banners). What a
+            // device REMEMBERS is still read: the join and the claimants are
+            // this Mac's own facts and survive a folder nobody can read.
+            let events = TrustEvents.derive(
+                registry: registry ?? Registry(), cache: .shared,
+                mine: .current, for: url)
+            return (names,
+                    HistoryPane.joinedChainNotice(
+                        cache: .shared, projectURL: url, labels: labels),
+                    HistoryPane.trustEventLines(events, labels: labels))
         }.value
         chainDeviceNames = resolved.names
         joinedChainLine = resolved.joined
+        trustEventLines = resolved.events
     }
 
     /// Put the set-aside sentence down: every record it could be about is
