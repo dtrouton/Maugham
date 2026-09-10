@@ -28,13 +28,20 @@ public enum TrustResolution {
     /// memory are BOTH empty; otherwise every remembered record is put back and
     /// the resolution proceeds from what was restored.
     ///
-    /// **The join is only ever a foreign root's** (B1). A root that names this
-    /// device is recorded through `RegistryCache.join`, whose own write-once
-    /// rule decides what a SECOND such root means: the first stands and the
-    /// later one is filed as a claimant, which is what a surface reads to say
-    /// *somebody else claims this book*. A device that is its own root joins
-    /// nothing — there is no chain of anybody else's for it to be on — which is
-    /// why the arm `myRoot` came from is asked rather than `myRoot` itself.
+    /// **A device never switches roots on its own** (B1), which decides the
+    /// whole of the join. A device holding its own self-signed root record is
+    /// already on a root — its own — so it JOINS nobody, and every other root
+    /// that names it is recorded as a *claimant*: somebody claiming a book this
+    /// device already has a chain of its own for. Only a device with no root
+    /// record of its own and no join yet takes one, and only the first; the
+    /// rest are claimants there too.
+    ///
+    /// The trap this shape exists to close is not malicious. Two Macs both open
+    /// an empty book before sync converges, each writes itself a root, then one
+    /// admits the other. Joining on *a root names me* would make the second
+    /// Mac's own root lose to the first on the next resolve — arm 1 outranks
+    /// arm 2 — and every peer it had admitted under its own root would turn
+    /// `.otherRoot`, quarantined, with a `.lines` record apiece.
     ///
     /// **It throws.** A registry record that is present and cannot be read
     /// refuses the whole resolution (RULING-54), because a device silently
@@ -51,6 +58,10 @@ public enum TrustResolution {
         presenter: NSFilePresenter? = nil,
         cache: RegistryCache? = nil
     ) throws -> TrustTable {
+        // The cheap answer first, because it is the ordinary one: no registry
+        // directory at all. Three `fileExists` decide it, and only then is a
+        // cache consulted — and only to tell a project that never joined a
+        // chain apart from one whose registry something DELETED.
         let folderPresent = hasRegistry(in: projectURL)
         let cache = cache ?? .shared
         let remembered = cache.cached(for: projectURL)
@@ -70,16 +81,19 @@ public enum TrustResolution {
             registry: reconciled, mine: identities,
             joinedRoot: cache.joinedRoot(for: projectURL))
 
-        // Every root that took this device in, in turn: the first becomes the
-        // join and every one after it a claimant. `join` makes that decision —
-        // the guards here only keep a resolve with nothing new to say from
-        // taking the lock and persisting. Re-read inside the loop, because the
-        // first pass is what sets the join the second is measured against.
+        // A device on a root of its own joins nothing, ever. Otherwise the
+        // first root that names it becomes the join and the rest are claimants.
+        // `joined` is carried through the loop rather than re-read because the
+        // first iteration is what the later ones are measured against.
+        let onItsOwnRoot = table.ownRootRecord != nil
+        var joined = cache.joinedRoot(for: projectURL)
         for admitting in table.admittingRoots {
-            guard admitting != cache.joinedRoot(for: projectURL),
-                  !cache.claimants(for: projectURL).contains(admitting)
-            else { continue }
-            cache.join(root: admitting, for: projectURL)
+            if !onItsOwnRoot, joined == nil {
+                joined = cache.join(root: admitting, for: projectURL)
+                continue
+            }
+            guard admitting != joined else { continue }
+            cache.recordClaimant(root: admitting, for: projectURL)
         }
         return table
     }

@@ -248,6 +248,31 @@ public final class RegistryCache: @unchecked Sendable {
         return joined
     }
 
+    /// Record `root` as somebody CLAIMING this device, without touching the
+    /// join. Deduped; answers whether it was new.
+    ///
+    /// Separate from `join` because the two are different acts and only one of
+    /// them is ever right for a device that is its own root. `join` writes the
+    /// join when there is none, which for such a device would hand its book to
+    /// the first other Mac that names it — arm 1 outranks arm 2 on the next
+    /// resolve, so the device would switch chains and quarantine every peer it
+    /// had admitted under its own root. A device with a root record of its own
+    /// only ever LISTS a claimant (B1, spec §5).
+    @discardableResult
+    public func recordClaimant(root: String, for projectURL: URL) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        var project = stored.projects[Self.projectKey(projectURL)] ?? Project()
+        guard project.joinedRoot != root, !project.claimants.contains(root) else {
+            return false
+        }
+        project.root = projectURL.standardizedFileURL.path
+        project.claimants.append(root)
+        stored.projects[Self.projectKey(projectURL)] = project
+        persistLocked()
+        return true
+    }
+
     // MARK: - Reconciling the folder against the memory
 
     /// The folder and this device's memory of it, resolved into one registry.

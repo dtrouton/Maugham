@@ -83,6 +83,20 @@ struct InboxPane: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if let registryNotice = store.unreadableRegistry {
+                // A registry record, not a capture. Its own sentence, because
+                // wrapping it in "some captures can't be read" would name a
+                // file that holds none of the writer's words and say the wrong
+                // thing about what is missing and why (RULING-54's wording
+                // lives on `ReadError.FileKind`).
+                Label(registryNotice, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
             if !store.unreadableManifests.isEmpty {
                 // RULING-7 (M8-IN-012): an unreadable device manifest used to
                 // read as EMPTY — every capture from that device silently gone

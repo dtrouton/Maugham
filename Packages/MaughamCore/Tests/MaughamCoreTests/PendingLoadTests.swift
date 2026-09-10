@@ -300,9 +300,51 @@ final class PendingLoadTests: XCTestCase {
 
         XCTAssertEqual(table.myRoot, root.author.fingerprint)
         XCTAssertEqual(table.rootSource, .ownRecord)
+        XCTAssertEqual(table.ownRootRecord, root.author.fingerprint)
         XCTAssertEqual(table.admittingRoots, [])
         XCTAssertNil(cache.joinedRoot(for: projectURL),
                      "being your own root is not joining one")
+    }
+
+    /// B1's sharpest case, and it needs no malice: two Macs both open an empty
+    /// book before sync converges, each writes itself a root, then one admits
+    /// the other. A device that JOINED on *a root names me* would lose its own
+    /// root to the other one on the very next resolve — arm 1 outranks arm 2 —
+    /// and every peer it had admitted would turn `.otherRoot` and be
+    /// quarantined. A device on a root of its own joins nobody.
+    func test_aDeviceOnItsOwnRootNeverJoinsARootThatNamesIt() throws {
+        try writeRootRecord()
+        try admit(stranger.fingerprint, under: root.author, at: 20)
+
+        // The other Mac: its own root, and it takes this device into its chain
+        // by one of the OTHER three actor keys. It has to be another key: a
+        // person record is named by its fingerprint, so an admission of this
+        // device's AUTHOR key would overwrite the very root record above rather
+        // than sit beside it, which is a different event and a different fix.
+        let other = DeviceIdentity.softwareForTesting()
+        try admit(other.fingerprint, under: other, at: 30)
+        try admit(root.assistant.fingerprint, under: other, at: 40)
+
+        let first = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+        XCTAssertEqual(first.myRoot, root.author.fingerprint)
+        XCTAssertEqual(first.ownRootRecord, root.author.fingerprint)
+        XCTAssertNil(cache.joinedRoot(for: projectURL),
+                     "a device already on a root of its own joins nobody")
+        XCTAssertEqual(cache.claimants(for: projectURL), [other.fingerprint],
+                       "the other Mac is listed as claiming this book")
+
+        // The resolve that would have gone wrong: arm 1 has nothing to outrank
+        // arm 2 with, so the chain is exactly where it was.
+        let second = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+        XCTAssertEqual(second.myRoot, root.author.fingerprint)
+        XCTAssertEqual(second.rootSource, .ownRecord)
+        XCTAssertEqual(second.verdict(forSealKey: stranger.fingerprint),
+                       .admitted(person: stranger.fingerprint),
+                       "and this device's own admittee is still admitted")
+        XCTAssertEqual(cache.claimants(for: projectURL), [other.fingerprint],
+                       "recorded once, not once per load")
     }
 
     /// B1, both halves: the FOREIGN root that first names this device is

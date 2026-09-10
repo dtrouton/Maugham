@@ -76,6 +76,17 @@ public struct TrustTable: Equatable, Sendable {
     /// Where `myRoot` came from.
     public let rootSource: RootSource
 
+    /// This device's OWN self-signed root record, if it has one — whatever
+    /// `myRoot` ended up being.
+    ///
+    /// B1 has a half that `rootSource` cannot state on its own: **a device with
+    /// its own root record is on its own root, and never switches.** A device
+    /// that answers this non-nil must therefore never JOIN anybody, however
+    /// many other roots name it — each of those is a claimant. `rootSource`
+    /// says which arm won and would answer `.joined` for a device that had
+    /// both, so the join decision asks this instead.
+    public let ownRootRecord: String?
+
     /// Every root OTHER than this device's own that admitted it, by
     /// fingerprint, whether or not one of them is the root this device is on.
     ///
@@ -172,7 +183,8 @@ public struct TrustTable: Equatable, Sendable {
         }
 
         return TrustTable(
-            myRoot: myRoot, rootSource: rootSource, admittingRoots: admittingRoots,
+            myRoot: myRoot, rootSource: rootSource, ownRootRecord: ownRecord,
+            admittingRoots: admittingRoots,
             mine: myKeys, deviceByActorKey: deviceByActorKey,
             personByFingerprint: personByFingerprint, myChain: myChain,
             otherRootByMember: otherRootByMember)

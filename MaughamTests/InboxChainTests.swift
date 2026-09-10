@@ -182,8 +182,13 @@ final class InboxChainTests: XCTestCase {
 
         await inbox.refresh()
 
-        XCTAssertEqual(inbox.unreadableManifests, ["deadbeef.json"],
-                       "the record that stopped the read is named")
+        let notice = try XCTUnwrap(inbox.unreadableRegistry)
+        XCTAssertTrue(notice.contains("deadbeef.json"),
+                      "the record that stopped the read is named")
+        XCTAssertTrue(notice.contains("registry record"),
+                      "in the registry's own words, not the captures' — \(notice)")
+        XCTAssertTrue(inbox.unreadableManifests.isEmpty,
+                      "no manifest failed; the registry did")
         XCTAssertTrue(inbox.entries.isEmpty,
                       "and nothing is applied under a registry this Mac cannot read")
     }

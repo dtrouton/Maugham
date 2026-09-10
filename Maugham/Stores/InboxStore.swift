@@ -40,6 +40,18 @@ final class InboxStore {
     /// pane shows a notice when non-empty; the rows are intact on disk.
     private(set) var unreadableManifests: [String] = []
 
+    /// The sentence for a REGISTRY record this Mac could not read, or nil.
+    ///
+    /// Separate from `unreadableManifests` because the two are different
+    /// refusals and the writer's question about each is different. A manifest
+    /// that will not open costs one device's captures and the honest thing to
+    /// say is that they are still in the file. A registry record that will not
+    /// open costs the answer to *who may write in this book*, and nothing was
+    /// read at all — so the sentence is `ReadError`'s own for a `.registry`
+    /// file, which already says that none of the writer's words are in it and
+    /// what Maugham is refusing to do rather than half-read it.
+    private(set) var unreadableRegistry: String?
+
     /// The manifest ROWS the verified read held back — runs of lines something
     /// other than Maugham wrote into an inbox stream, kept as forensics and
     /// never applied (signed op log P1).
@@ -161,7 +173,8 @@ final class InboxStore {
             // means applying a stranger's captures as this project's own — the
             // silent failure, and the worse of the two. The rows are intact on
             // disk; the pane says which record stopped the read.
-            unreadableManifests = [OpLogStore.unreadableName(error)]
+            unreadableRegistry = error.localizedDescription
+            unreadableManifests = []
             entries = []
             trashedEntries = []
             setAsideRecords = setAsideLineRecords()
@@ -186,6 +199,7 @@ final class InboxStore {
                     "inbox manifest unreadable: \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
+        unreadableRegistry = nil
         unreadableManifests = unreadable.sorted()
         setAsideRecords = setAsideLineRecords()
         // Last-wins by row-write time (writtenAt), across all files and all
