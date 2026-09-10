@@ -68,7 +68,7 @@ public enum RegistryWriter {
     /// A coordinated atomic write — the store's own idiom, so a record landing
     /// while iCloud is reading the folder is a whole file or the old one, never
     /// half of either.
-    nonisolated private static func writeCoordinated(
+    nonisolated internal static func writeCoordinated(
         _ bytes: Data, to url: URL, presenter: NSFilePresenter?
     ) throws {
         let coordinator = NSFileCoordinator(filePresenter: presenter)
