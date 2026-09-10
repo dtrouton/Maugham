@@ -99,7 +99,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         let fileKey = OpLogDeviceState.fileKey(fileURL)
         let walked = OpLogChain.verify(
             bytes: bytes,
-            trusted: { chain.trustedFingerprints.contains($0) },
+            trust: chain.trust,
             rememberedHead: chain.state.head(for: fileKey))
         // The same absent-head decision the op log's own reader and this
         // store's chained WRITE make — one rule for every chained stream, so
@@ -148,8 +148,13 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         return (parsed.elements, parsed.diagnostics, verification)
     }
 
-    /// The bytes a verification KEPT — the whole input when it quarantined
-    /// nothing, and otherwise the applied lines rebuilt in file order.
+    /// The bytes a verification KEPT — the whole input when it held nothing
+    /// back, and otherwise the applied lines rebuilt in file order.
+    ///
+    /// Held back is quarantined OR pending: a stranger's sealed span is not
+    /// applied either, and it is filtered by STATE rather than by position,
+    /// because a verdict can refuse a span in the middle of a file that chains
+    /// perfectly to its end.
     ///
     /// One spelling for the reader (which hands them to the parser) and the
     /// chained writer (which writes them back over the file), because the two
@@ -158,9 +163,10 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     nonisolated static func applied(
         _ verification: OpLogChain.Verification, whole: Data
     ) -> Data {
-        guard !verification.quarantined.isEmpty else { return whole }
+        guard !verification.quarantined.isEmpty || verification.pendingCount > 0
+        else { return whole }
         var out = Data()
-        for line in verification.lines where line.state != .quarantined {
+        for line in verification.lines where !line.state.isHeldBack {
             out.append(line.bytes)
             out.append(0x0A)
         }
@@ -182,7 +188,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         guard !verification.quarantined.isEmpty else { return nil }
         return try OpLogQuarantine.setAsideLines(
             verification.quarantined, from: fileURL, docId: docId,
-            reason: quarantineReason(verification.breakReason), in: projectURL)
+            reason: quarantineReason(verification.quarantineCause), in: projectURL)
     }
 
     /// The strict twin of `readBytes`: absent is still empty, unreadable throws.
@@ -282,14 +288,15 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     ///
     /// 1. **Read the tail** off the coordinated URL itself — never a nested
     ///    coordination, which would deadlock on the write we already hold.
-    /// 2. **Verify** against this device's remembered head. `trusted` is this
-    ///    device's own fingerprints and nothing else — all four of its actors
-    ///    since P1b, one for a store built with a single identity: P1 has no
-    ///    registry, and a seal from anyone else is history rather than this
-    ///    device's word.
+    /// 2. **Verify** against this device's remembered head. A key is trusted
+    ///    here when the policy's table calls it `.mine` and never otherwise —
+    ///    all four of this device's actors since P1b, one for a store built
+    ///    with a single identity. Admission does not widen it: a device this
+    ///    project's root took in still does not write into THIS device's file.
     /// 3. **Set aside** whatever the verifier quarantined, then rewrite the
-    ///    kept bytes. Quarantined lines are always a suffix (the walk stops at
-    ///    the first break and quarantines everything after it), so "kept" is a
+    ///    kept bytes. Quarantined lines are always a suffix here (the walk
+    ///    stops at the first break and quarantines everything after it, and a
+    ///    `.mine`-only walk can refuse a span no other way), so "kept" is a
     ///    prefix and the rewrite is a truncation. Rewriting a file another
     ///    writer might be appending to would be reckless; this one has exactly
     ///    one writer by ADR 0012, the same argument `sealTailIfNeeded` makes.
@@ -315,9 +322,13 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         coord.coordinate(writingItemAt: fileURL, options: [], error: &coordErr) { wu in
             do {
                 let existing = (try? Data(contentsOf: wu)) ?? Data()  // adr-0018-ok: append-store (op-log / inbox JSONL) bytes — the log IS the source of truth (ADR 0018)
+                // `.mine` and nothing looser. The read may HOLD an admitted
+                // stranger's span; the write may not, because the step below
+                // rewrites the file down to what it kept, and that truncation
+                // is licensed by this file having exactly one writer.
                 let walked = OpLogChain.verify(
                     bytes: existing,
-                    trusted: { chain.trustedFingerprints.contains($0) },
+                    trusted: { chain.trust($0) == .mine },
                     rememberedHead: chain.state.head(for: fileKey))
                 // The same decision the READ makes about a remembered head that
                 // is nowhere in the file, from the same function. If the two
@@ -393,15 +404,26 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         return wrote
     }
 
-    /// The writer's own words for why a line was set aside. Two reasons, not
-    /// five: a line that chains correctly but arrived after the head this
-    /// device remembers, and one that has no `prev` at all after the chain
-    /// began, both mean something else wrote into this file. Everything else is
+    /// The writer's own words for why a line was set aside. Four, and each is
+    /// a different event: a line that chains correctly but arrived after the
+    /// head this device remembers, and one with no `prev` at all after the
+    /// chain began, both mean something else wrote into this file; a seal made
+    /// by a device this project's root took in and then put out is not damage
+    /// at all; nor is one from a second claimant's chain. Everything else is
     /// the chain itself failing to hold together.
-    nonisolated static func quarantineReason(_ reason: OpLogChain.BreakReason?) -> String {
-        switch reason {
-        case .afterRememberedHead, .unchainedAfterChain:
+    ///
+    /// The words are derived from the cause and never passed in, so no caller
+    /// can file the same event under a sentence of its own.
+    nonisolated static func quarantineReason(
+        _ cause: OpLogChain.QuarantineCause?
+    ) -> String {
+        switch cause {
+        case .chainBroke(.afterRememberedHead), .chainBroke(.unchainedAfterChain):
             return "written by something that is not Maugham"
+        case .afterRevocation:
+            return "written after this device's access was withdrawn"
+        case .anotherClaimants:
+            return "written under another claimant's copy of this book"
         default:
             return "the history's chain is broken"
         }

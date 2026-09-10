@@ -321,6 +321,38 @@ final class ProjectPracticeTests: XCTestCase {
         XCTAssertEqual(practice.frontier?.frontier.paragraphId, twoId)
     }
 
+    /// **An unreadable registry record leaves the walk KEYLESS, not empty**
+    /// (whole-branch review, I2). See the same test in
+    /// `ProjectAnnotationAggregationTests` for the mechanism: the hoisted
+    /// resolution's `try?` yielded nil, `loadSyncMerged` re-resolved per
+    /// document, threw the same error, and the skip arm emptied the section.
+    func test_anUnreadableRegistryLeavesTheWalkKeylessRatherThanEmpty() async throws {
+        try XCTSkipIf(getuid() == 0, "root reads a mode-000 file, so nothing is refused")
+        let fixture = try await makeProject(type: .novel, docs: [chapterOne])
+        try await write(fixture, chapterOne) { _ = $0.insertParagraph(after: nil, text: "One.") }
+
+        let people = RegistryWriter.directoryURL(.people, in: fixture.url)
+        let fm = FileManager.default
+        try fm.createDirectory(at: people, withIntermediateDirectories: true)
+        let record = people.appendingPathComponent("deadbeef.json")
+        try Data("{}".utf8).write(to: record)
+        let original = try XCTUnwrap(
+            fm.attributesOfItem(atPath: record.path)[.posixPermissions] as? NSNumber)
+        permissionsToRestore.append((record.path, original))
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: record.path)
+
+        let practice = ProjectPractice.derive(
+            plan: .init(store: fixture.store),
+            projectURL: fixture.url, now: Date())
+
+        XCTAssertEqual(practice.rows.map(\.id), ["ch-1"],
+                       "the chapter still derives, judged by nobody")
+        XCTAssertTrue(practice.unreadableDocIds.contains("deadbeef.json"),
+                      "and the registry record is named: \(practice.unreadableDocIds)")
+        XCTAssertFalse(practice.unreadableDocIds.contains("ch-1"),
+                       "the chapter is not blamed for the registry")
+    }
+
     // MARK: - Excerpts
 
     /// A row draws the paragraph's own words, not its id (constraint 31: the

@@ -110,8 +110,8 @@ final class TranslatorEnvironmentTests: XCTestCase {
 
     private func records(
         _ harness: Harness, language: String = "es"
-    ) -> [TranslationRecord] {
-        TranslationStore.loadMerged(
+    ) throws -> [TranslationRecord] {
+        try TranslationStore.loadMerged(
             forDocId: harness.doc.docId, language: language, in: harness.projectURL)
     }
 
@@ -149,7 +149,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertNil(outcome.rejection)
         XCTAssertEqual(outcome.entriesWritten, 2)
 
-        let latest = TranslationStore.latestByParagraph(records(harness))
+        let latest = TranslationStore.latestByParagraph(try records(harness))
         XCTAssertEqual(latest[ids[0]]?.text, "Llegó la niebla.")
         XCTAssertEqual(latest[ids[0]]?.verbatim, false)
         // Verbatim carries the CURRENT source across — the pipeline's rule, not
@@ -182,7 +182,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertTrue(rejection.contains("zzzz"),
                       "the sentence the writer reads must name the id: \(rejection)")
         XCTAssertEqual(outcome.entriesWritten, 0)
-        XCTAssertTrue(records(harness).isEmpty,
+        XCTAssertTrue(try records(harness).isEmpty,
                       "a rejected batch writes nothing at all, its good entries included")
 
         await harness.documentStore.close()
@@ -206,7 +206,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
 
         // The round is briefed here, against the fog.
         _ = try await harness.environment.translatorIdentity("es")
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let round = try XCTUnwrap(gathered)
         XCTAssertEqual(round.sourceHashes[ids[0]], TranslationHash.hash("The fog came in."),
                        "the hash is of the RAW source, the string the pipeline stamps from")
@@ -231,7 +231,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertFalse(rejection.contains(ids[1]),
                        "…and only that one: \(rejection)")
         XCTAssertEqual(outcome.entriesWritten, 0)
-        XCTAssertTrue(records(harness).isEmpty,
+        XCTAssertTrue(try records(harness).isEmpty,
                       "all-or-nothing: the untouched paragraph's translation is not "
                       + "written either")
         XCTAssertEqual(outcome.queriesMinted, 0)
@@ -249,7 +249,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         let ids = harness.doc.sequence
 
         _ = try await harness.environment.translatorIdentity("es")
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let round = try XCTUnwrap(gathered)
 
         harness.doc.setParagraph(id: ids[2], text: "Nobody spoke at all.")
@@ -284,7 +284,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertEqual(outcome.entriesWritten, 1)
         XCTAssertTrue(outcome.warnings.contains { $0.contains("verbatim") },
                       "an identical translation earns the advisory: \(outcome.warnings)")
-        XCTAssertFalse(records(harness).isEmpty, "…and is still written")
+        XCTAssertFalse(try records(harness).isEmpty, "…and is still written")
 
         await harness.documentStore.close()
     }
@@ -462,7 +462,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
             in: harness.projectURL)
 
         _ = try await harness.environment.translatorIdentity("es")
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered).inputs
 
         XCTAssertEqual(inputs.workList.map(\.paragraphId), [ids[1], ids[2]])
@@ -517,7 +517,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
                 on: twoDaysAgo.addingTimeInterval(-7 * 86_400), to: markdown)
         }
 
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered).inputs
 
         XCTAssertEqual(inputs.workList.map(\.paragraphId), [ids[0]])
@@ -553,7 +553,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
             kind: .editionBrief("es"), forScope: .project,
             store: harness.projectStore, world: nil)
 
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered).inputs
 
         let last = try XCTUnwrap(inputs.workList.first { $0.paragraphId == ids[2] })
@@ -573,7 +573,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         let harness = try await makeHarness()
 
         let identity = try await harness.environment.translatorIdentity("es")
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered).inputs
 
         XCTAssertEqual(inputs.translatorName, identity.name)
@@ -587,7 +587,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
     func test_aMalformedLanguageTagIsNotARun() async throws {
         let harness = try await makeHarness()
 
-        let round = await harness.environment.briefRound(harness.doc.docId, "Español!")
+        let round = try await harness.environment.briefRound(harness.doc.docId, "Español!")
 
         XCTAssertNil(round, "an invalid tag must not cost a whole session to discover")
 
@@ -605,7 +605,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         try await harness.projectStore.appendToStatement(
             "Usted, nunca tuteo.", to: statement, session: "test-\(UUID().uuidString)")
 
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered).inputs
         let brief = try XCTUnwrap(inputs.editionBriefText)
         XCTAssertTrue(brief.contains("Usted, nunca tuteo."), brief)
@@ -629,7 +629,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
                       establishedAt: nil, docId: harness.doc.docId, recordedAt: Date()),
         ])
 
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered).inputs
 
         XCTAssertEqual(inputs.bibleFacts.map(\.subject), ["the fog"],
@@ -649,7 +649,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         let harness = try await makeHarness()
         _ = try await harness.environment.translatorIdentity("es")
 
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered).inputs
 
         XCTAssertTrue(inputs.bibleFacts.isEmpty)
@@ -684,7 +684,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         try await harness.doc.acceptAnnotation(
             id: answerable.id, userResponse: "Traducido.")
 
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered).inputs
 
         XCTAssertEqual(inputs.openQueries.map(\.text), ["¿La doctora es mujer?"],
@@ -720,7 +720,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
             ]),
             context(harness, language: "de", name: "Kurt Meyer", roleId: "role-de"))
 
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered).inputs
 
         XCTAssertEqual(inputs.openQueries.count, 1,
@@ -750,7 +750,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         let minted = try XCTUnwrap(queries(harness).first)
         try await harness.doc.acceptAnnotation(id: minted.id, userResponse: "Usted.")
 
-        let gathered = await harness.environment.briefRound(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefRound(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered).inputs
 
         XCTAssertTrue(inputs.openQueries.isEmpty)
@@ -841,6 +841,41 @@ final class TranslatorEnvironmentTests: XCTestCase {
 
     // MARK: - The fix gather (Plan 3)
 
+    // MARK: - A present-but-unreadable translation file (P2a D0)
+
+    /// **The gather THROWS rather than answering nil.**
+    ///
+    /// `nil` is this gather's "not a run" — a bad language tag, a document with
+    /// no current paragraphs — and the orchestrator ends a nil in silence,
+    /// which is right for a click with nothing to act on. A translation file
+    /// that is present and unreadable is not that: the edition exists and
+    /// cannot be read, and briefing the translator off whichever actor file
+    /// happened to open would show them paragraphs as untranslated that are
+    /// translated on disk, so the round would write second renderings of them.
+    func test_anUnreadableTranslationFileRefusesTheBriefingByName() async throws {
+        let harness = try await makeHarness()
+        try await seedTranslation(harness, paragraph: 0, text: "Llegó la niebla.")
+        _ = try await harness.environment.translatorIdentity("es")
+
+        // A second ACTOR's file for the same (document, language) — the P1b
+        // shape — squatted by a directory so it is present and unreadable.
+        let squat = TranslationStore.fileURL(
+            forDocId: harness.doc.docId, language: "es",
+            deviceSlug: DeviceSlug.make(from: "bad"), in: harness.projectURL)
+        try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
+
+        do {
+            _ = try await harness.environment.briefRound(harness.doc.docId, "es")
+            XCTFail("a present-but-unreadable translation file must refuse the run")
+        } catch {
+            guard case OpLogStore.ReadError.unreadableFile(let name, _, _) = error else {
+                return XCTFail("expected OpLogStore.ReadError.unreadableFile, got \(error)")
+            }
+            XCTAssertEqual(name, squat.lastPathComponent,
+                           "the refusal the writer sees names the file")
+        }
+    }
+
     private func seedTranslation(_ harness: Harness, paragraph index: Int,
                                  text: String, language: String = "es") async throws {
         let id = harness.doc.sequence[index]
@@ -873,7 +908,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
 
         // Hoisted out of `XCTUnwrap`: an `await` cannot live inside an
         // autoclosure, so the gather runs first and the unwrap reads a value.
-        let gathered = await harness.environment.briefFix(
+        let gathered = try await harness.environment.briefFix(
             harness.doc.docId, "es", notes, true)
         let round = try XCTUnwrap(gathered)
         let inputs = round.inputs
@@ -902,7 +937,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         let notes = [TranslatorBriefing.FixNote(
             id: "n1", paragraphId: harness.doc.sequence[0], author: "Ocampo",
             kind: "rhythm", severity: nil, text: "Limps.")]
-        let gathered = await harness.environment.briefFix(
+        let gathered = try await harness.environment.briefFix(
             harness.doc.docId, "es", notes, false)
         let round = try XCTUnwrap(gathered)
         XCTAssertTrue(round.inputs.workList.isEmpty)
@@ -916,7 +951,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         try await seedTranslation(harness, paragraph: 0, text: "Llegó la niebla.")
         let id = harness.doc.sequence[0]
         let before = try XCTUnwrap(
-            TranslationStore.latestByParagraph(records(harness))[id])
+            TranslationStore.latestByParagraph(try records(harness))[id])
         let report = TranslatorReport(
             entries: [.init(paragraphId: id, text: "Vino la niebla.", verbatim: nil)],
             queries: [], addressed: ["n1"],
@@ -937,7 +972,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertEqual(rewrite.after, "Vino la niebla.")
         XCTAssertNotEqual(rewrite.afterRecordId, before.opId)
         XCTAssertEqual(rewrite.afterRecordId,
-                       TranslationStore.latestByParagraph(records(harness))[id]?.opId)
+                       TranslationStore.latestByParagraph(try records(harness))[id]?.opId)
         await harness.documentStore.close()
     }
 

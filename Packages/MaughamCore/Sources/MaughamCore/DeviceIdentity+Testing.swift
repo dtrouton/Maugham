@@ -54,3 +54,16 @@ extension LocalIdentities {
             maugham: .softwareForTesting(actor: .maugham))
     }
 }
+
+extension LocalIdentities {
+    /// A device whose actor keys appear one at a time, each a software key.
+    ///
+    /// The lazy rule at its real boundary: `existingActors` is empty until
+    /// something NAMES an actor, and grows by exactly the actors named. That is
+    /// what `LocalIdentities.current` does on a real machine, and what neither
+    /// `softwareForTesting()` (all four, always) nor `device(in:)` (enclave
+    /// here, an unsigned token on CI) can stand in for.
+    static func lazySoftwareForTesting() -> LocalIdentities {
+        forTesting(lazy: LazyIdentitySource { .softwareForTesting(actor: $0) })
+    }
+}

@@ -229,6 +229,20 @@ extension ProjectStore {
         //     every doc, and per-doc op logs are small. The aggregation
         //     cache key folds each closed doc's op-log mtime so we
         //     re-derive only when something on disk changes.
+        // ONE trust resolution for the whole walk. `loadSyncMerged` resolves
+        // its own when given none, and that is a verified read of the registry
+        // folder — thirty chapters would be thirty of them.
+        //
+        // **A resolution that throws leaves this walk KEYLESS, and the fallback
+        // has to be spelled** (whole-branch review, I2): a bare `try?` yields
+        // nil, `loadSyncMerged` then resolves its own table per document, that
+        // throws the same error again, and the `try?` below skips EVERY closed
+        // chapter — so an unreadable registry record emptied the project pane's
+        // closed-document tasks with nothing recorded anywhere. Keyless is P1's
+        // behaviour exactly: this device's own seals verify and everything else
+        // is unsigned history.
+        let trust = (try? TrustResolution.resolve(projectURL: url, identities: .current))
+            ?? TrustResolution.keyless(mine: .current)
         for item in Self.collectDocuments(in: manifest.structure) {
             if openDocIds.contains(item.id) { continue }
             guard item.path != nil else { continue }
@@ -237,7 +251,8 @@ extension ProjectStore {
             // header note on avoiding async actor init per doc.
             // RULING-54 lenient, reason recorded: the task pane skips an
             // unreadable closed doc; opening it refuses loudly.
-            guard let ops = try? OpLogStore.loadSyncMerged(forDocId: item.id, in: url)
+            guard let ops = try? OpLogStore.loadSyncMerged(
+                forDocId: item.id, in: url, trust: trust)
             else { continue }
             let paragraphs = Deriver.deriveWithSequenceFallback(ops: ops).paragraphs
             // `maughamDeviceId: nil` — this projection reads and never writes,

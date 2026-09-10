@@ -56,6 +56,38 @@ final class EditionStatusTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    /// **The desk's own answer over an unreadable TRANSLATION file** (P2a D0).
+    ///
+    /// The test above squats an op LOG. This is the sidecar the same walk
+    /// derives coverage from, and P1b is what made skipping it unsafe: chapter
+    /// 2 holds the translator's Spanish file AND a second actor's that will not
+    /// open, so a skip reports the pipeline's half as the whole edition. The
+    /// desk draws this value directly — `DepartmentPane.unreadable` is a row
+    /// per entry above the language rows — so composing it correctly here is
+    /// composing the writer's line correctly, with no window in it.
+    func test_anUnreadableTranslationFileDegradesTheChapterByFileName() async throws {
+        let h = try await makeProject()
+        let squat = TranslationStore.fileURL(
+            forDocId: h.doc2Id, language: "es",
+            deviceSlug: DeviceSlug.make(from: "bad"), in: h.projectURL)
+        try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
+
+        let report = await EditionStatus.languageRows(
+            in: h.projectStore, projectURL: h.projectURL)
+
+        XCTAssertEqual(report.unreadable.map(\.documentId), ["doc-2"])
+        let skipped = try XCTUnwrap(report.unreadable.first)
+        XCTAssertEqual(skipped.title, "Chapter 2")
+        XCTAssertTrue(skipped.reason.contains(squat.lastPathComponent),
+                      "the desk's line names the FILE the writer has to fix: "
+                      + skipped.reason)
+
+        let es = try XCTUnwrap(report.rows.first { $0.language == "es" })
+        XCTAssertEqual(es.fresh, 1, "chapter 1's own coverage is untouched")
+
+        await h.documentStore.close()
+    }
+
     /// The control: the same fixture with nothing squatted. Both chapters
     /// contribute, and the report says nothing was skipped — so the assertions
     /// above are about the squat rather than about the fixture.

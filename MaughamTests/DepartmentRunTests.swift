@@ -244,15 +244,21 @@ final class DepartmentRunTests: XCTestCase {
     /// row's slot rather than adding a line each), and the line is absent when
     /// neither has anything to say.
     func test_theDetailLineCarriesPreflightAndTrendAndIsAbsentWithNeither() {
-        XCTAssertEqual(DepartmentRunState.preflightLine(words: 1200), "7 legs · ~1,200 words briefed")
-        XCTAssertNil(DepartmentRunState.preflightLine(words: nil))
+        XCTAssertEqual(DepartmentRunState.preflightLine(.words(1200)), "7 legs · ~1,200 words briefed")
+        XCTAssertNil(DepartmentRunState.preflightLine(nil))
+        // **A refusal takes the figure's slot and names the file** (P2a D0,
+        // fix round 1): the row says why there is no number, rather than
+        // dropping the clause and leaving the writer to guess.
+        XCTAssertEqual(
+            DepartmentRunState.preflightLine(.unreadable("“c1.es.maca-1234.jsonl” can't be read.")),
+            "“c1.es.maca-1234.jsonl” can't be read.")
         XCTAssertEqual(DepartmentRunState.trendLine([6, 4, 1]), "notes per round 6 → 4 → 1")
         XCTAssertEqual(DepartmentRunState.trendLine([4]), "notes per round 4")
         XCTAssertNil(DepartmentRunState.trendLine([]))
 
         var state = DepartmentRunState()
         XCTAssertNil(state.detailLine)
-        state.chapterWords = 1200
+        state.chapterPreflight = .words(1200)
         state.trend = [6, 4, 1]
         XCTAssertEqual(state.detailLine, "7 legs · ~1,200 words briefed · notes per round 6 → 4 → 1")
         state.phase = .running(.leg(.read, book: nil))
@@ -674,7 +680,7 @@ final class DepartmentRunTests: XCTestCase {
     /// the desk — one round in flight must not describe every edition.
     func test_theRowDrawsItsLegAndItsDetailLine() async throws {
         var idle = DepartmentRunState()
-        idle.chapterWords = 900
+        idle.chapterPreflight = .words(900)
         idle.trend = [3, 1]
         let running = DepartmentRunState(phase: .running(.leg(.collate, book: .init(position: 2, count: 5))))
         let window = mount(languages: ["es", "fr"],

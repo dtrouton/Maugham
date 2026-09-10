@@ -144,12 +144,15 @@ public enum TranslationStore {
         // seal over the batch — the op log's own shape, from the op log's own
         // store, so a translation line and a manuscript line are readable by
         // exactly the same walk.
+        // The WRITE asks one question of a table and it is which keys are this
+        // device's own, so the keyless one — no registry read on a write path.
+        let mine = TrustResolution.keyless(mine: identities)
         let store = JSONLAppendStore<TranslationRecord>(
             fileURL: url,
             chain: ChainPolicy(
                 identity: identity, state: state,
                 docId: docId, projectURL: projectURL,
-                trustedFingerprints: identities.fingerprints))
+                trust: { mine.verdict(forSealKey: $0) }))
         try await store.appendBatch(records)
         // Best-effort, like every other seal site in the codebase (the
         // whole-branch review's I2). The records above are durably written; a
@@ -175,11 +178,12 @@ public enum TranslationStore {
     /// opId-ascending, canonical-content tiebreak, first-wins dedup by opId —
     /// same total-order discipline as OpLogStore.mergeSortedDedup.
     ///
-    /// **Every file is walked before any of it is applied** (P1b). `trusted` is
-    /// all four of this device's actors, so the translator's own file reads as
-    /// this device's word; a file another device wrote carries a seal under a
-    /// key that is not ours and reads as unsigned history, which is history and
-    /// not damage. Lines the walk held back are recorded through the same
+    /// **Every file is walked before any of it is applied** (P1b). The table
+    /// answers `.mine` for all four of this device's actors, so the
+    /// translator's own file reads as this device's word; a file an admitted
+    /// device wrote is `verified` too, a stranger's is HELD, and a file from a
+    /// project with no chain at all reads as unsigned history, which is history
+    /// and not damage. Lines the walk held back are recorded through the same
     /// forensic path the op log uses, under the manuscript's own `docId` — the
     /// language is in the filename, so a `.lines` record files under the
     /// document History already shows.
@@ -192,30 +196,51 @@ public enum TranslationStore {
     ///
     /// This is `JSONLAppendStore.loadVerifiedStrict`'s body, spelled
     /// synchronously over the same nonisolated helpers, because `loadMerged` is
-    /// read from thirty synchronous call sites (the publish AST, the coverage
-    /// gate, the editor's translated surface) and because its per-file
-    /// leniency — warn and skip one unreadable device file rather than fail the
-    /// whole read — is the opposite of the strict reader's contract.
+    /// read from a dozen synchronous call sites (the publish AST, the coverage
+    /// gate, the editor's translated surface).
+    ///
+    /// **A file that is present and unreadable refuses the whole read** (P2a
+    /// D0; RULING-54's rule for the op log, applied here). Until P2a this
+    /// read was per-file lenient — warn and skip the one file it could not
+    /// open — and P1b is what made that leniency unsafe: a document's
+    /// translation is now spread over one file per (device, ACTOR), the
+    /// pipeline's own beside the author's review edits, so skipping one
+    /// answers with a PARTLY translated document. The author's edits stand
+    /// over source paragraphs the pipeline had already translated, every
+    /// derivation downstream reads them as `missing`, and a compile publishes
+    /// the mixture with nothing said anywhere. A file that is not in the
+    /// directory listing is still ABSENT, which is not a failure.
     public static func loadMerged(forDocId docId: String, language: String,
                                   in projectURL: URL,
                                   identities: LocalIdentities = .current,
-                                  state: OpLogDeviceState = .shared) -> [TranslationRecord] {
+                                  state: OpLogDeviceState = .shared,
+                                  trust: TrustTable? = nil) throws -> [TranslationRecord] {
         var all: [TranslationRecord] = []
-        let trusted = identities.fingerprints
+        // Resolved here when the caller did not hand one over. A caller reading
+        // a book's every language should resolve once and pass it: the
+        // resolution is a verified read of the registry folder.
+        let table = try trust ?? TrustResolution.resolve(
+            projectURL: projectURL, identities: identities)
         for url in fileURLs(forDocId: docId, language: language, in: projectURL) {
             // The URL came from the directory listing, so it exists; a read
             // failure here means the device file is present but unreadable
-            // (permissions, iCloud eviction, corruption). Warn before skipping
-            // rather than silently dropping a whole device's translations.
-            guard let bytes = try? Data(contentsOf: url) else {  // adr-0018-ok: translation sidecar JSONL bytes, not manuscript-as-truth (ADR 0018)
-                translationLog.warning(
-                    "skipping unreadable translation file: \(url.lastPathComponent, privacy: .public)")
-                continue
+            // (permissions, iCloud eviction, corruption). The op log's own
+            // error, so the writer meets one sentence for one condition
+            // wherever the two stores are read side by side.
+            let bytes: Data
+            do { bytes = try Data(contentsOf: url) }  // adr-0018-ok: translation sidecar JSONL bytes, not manuscript-as-truth (ADR 0018)
+            catch {
+                translationLog.error(
+                    "refusing the translation read: \(url.lastPathComponent, privacy: .public) is present and unreadable")
+                throw OpLogStore.ReadError.unreadableFile(
+                    name: url.lastPathComponent,
+                    underlying: error.localizedDescription,
+                    kind: .translation)
             }
             let fileKey = OpLogDeviceState.fileKey(url)
             let walked = OpLogChain.verify(
                 bytes: bytes,
-                trusted: { trusted.contains($0) },
+                trust: { table.verdict(forSealKey: $0) },
                 rememberedHead: state.head(for: fileKey))
             // The same absent-head decision the chained WRITE makes. If the two
             // disagreed, a load that held a tail back would be followed by an

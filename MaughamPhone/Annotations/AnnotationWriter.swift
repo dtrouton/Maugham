@@ -346,6 +346,12 @@ struct AnnotationWriter: Sendable {
         _ op: Op, to url: URL, identity: DeviceIdentity,
         docId: String, projectRoot: URL
     ) async throws {
+        // Who wrote this, BEFORE what they wrote (P2a, spec §2.1): a reader
+        // meeting the seal below should already have the record that says
+        // whose key it is. Best-effort — `PhoneDeviceRecord` never fails a
+        // write — and quiet, because a record that already says this touches
+        // no file.
+        PhoneDeviceRecord.ensure(in: projectRoot, identity: identity)
         let store = JSONLAppendStore<Op>(
             fileURL: url,
             chain: ChainPolicy(

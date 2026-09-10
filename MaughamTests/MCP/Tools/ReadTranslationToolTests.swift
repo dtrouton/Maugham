@@ -186,4 +186,40 @@ final class ReadTranslationToolTests: XCTestCase {
 
         await h.documentStore.close()
     }
+
+    // MARK: - A present-but-unreadable translation file (P2a D0)
+
+    /// **The call fails, naming the file** (P2a D0). An unknown language is not
+    /// an error — the test above pins that every paragraph reads as `missing` —
+    /// and that is exactly why a file that is present and unreadable cannot be
+    /// skipped: the two would answer identically, and Claude would set about
+    /// re-translating a chapter that is already translated on disk.
+    func test_anUnreadableTranslationFileFailsTheCallByName() async throws {
+        let h = try await makeHarness()
+        let ids = h.doc.sequence
+        try await seed(h, paragraphId: ids[0], language: "es", text: "Primero", fresh: true)
+
+        // A second ACTOR's file for the same (document, language) — the P1b
+        // shape — squatted by a directory so it is present and unreadable.
+        let squat = TranslationStore.fileURL(
+            forDocId: h.doc.docId, language: "es",
+            deviceSlug: DeviceSlug.make(from: "bad"), in: h.projectURL)
+        try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
+
+        do {
+            _ = try await read(h, [
+                "project_id": h.projectId,
+                "document_id": h.doc.docId,
+                "language": "es"
+            ])
+            XCTFail("a present-but-unreadable translation file must fail the read")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains(squat.lastPathComponent),
+                "the failure names the file rather than reporting the chapter "
+                + "as part-translated: \(error.localizedDescription)")
+        }
+
+        await h.documentStore.close()
+    }
 }

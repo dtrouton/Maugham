@@ -47,7 +47,20 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
     }
 
     public func orderedPieces() throws -> [ProjectASTBuilder.PieceRef] {
-        try publishablePieces().compactMap { try pieceRef(for: $0) }
+        // ONE trust resolution for the whole book (whole-branch review, I1).
+        // `TranslationStore.loadMerged` resolves its own when handed none, and
+        // that is a verified read of the registry folder plus a reconcile —
+        // once per piece, per compile. Resolved only for a translated build,
+        // because the source-language path reads no translation sidecar at all.
+        // A registry this Mac cannot read throws here rather than per piece,
+        // which is the same refusal D0 already makes over an unreadable actor
+        // file: a body emitted under a registry nobody could verify would put
+        // source text where translations belong.
+        let trust = try language.map { _ in
+            try TrustResolution.resolve(
+                projectURL: projectStore.url, identities: .current)
+        }
+        return try publishablePieces().compactMap { try pieceRef(for: $0, trust: trust) }
     }
 
     /// **Which structure items this source will turn into sections** — the
@@ -75,7 +88,9 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
             .filter { $0.pieceKind != .reference && $0.path != nil }
     }
 
-    private func pieceRef(for item: StructureItem) throws -> ProjectASTBuilder.PieceRef? {
+    private func pieceRef(
+        for item: StructureItem, trust: TrustTable?
+    ) throws -> ProjectASTBuilder.PieceRef? {
         guard let path = item.path else { return nil }
         let mode: ProjectAST.Mode = path.lowercased().hasSuffix(".fountain")
             ? .fountain
@@ -88,7 +103,8 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
         let paragraphs: [(id: String, text: String)]
         if let language {
             paragraphs = try translatedParagraphs(
-                forDocId: item.id, path: path, language: language, mode: mode)
+                forDocId: item.id, path: path, language: language, mode: mode,
+                trust: trust)
             text = paragraphs.map(\.text).joined(separator: "\n\n")
         } else {
             let state = try anchoredState(forDocId: item.id, path: path)
@@ -144,11 +160,13 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
     /// same preserved text for its drift warning.
     private func translatedParagraphs(
         forDocId docId: String, path: String, language: String,
-        mode: ProjectAST.Mode
+        mode: ProjectAST.Mode, trust: TrustTable?
     ) throws -> [(id: String, text: String)] {
         let state = try anchoredState(forDocId: docId, path: path)
-        let records = TranslationStore.loadMerged(
-            forDocId: docId, language: language, in: projectStore.url)
+        // P2a D0: an unreadable actor file refuses the body rather than
+        // emitting source text where its translations would have been.
+        let records = try TranslationStore.loadMerged(
+            forDocId: docId, language: language, in: projectStore.url, trust: trust)
         let derived = TranslationDeriver.derive(
             records: records, sequence: state.sequence,
             paragraphs: state.paragraphs, language: language)

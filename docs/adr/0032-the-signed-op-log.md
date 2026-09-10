@@ -243,7 +243,7 @@ document's history was written before this book was signed" stops appearing once
 that legacy tail has been rotated into a signed segment. Nothing was rewritten;
 the sentence became false.
 
-### 6. Three states, of which P1 builds two
+### 6. Three states, of which P1 builds two (P2a builds the third)
 
 The spec's verification states are **verified**, **pending** and
 **quarantined**, with legacy as *unsigned history* beside them. P1 has no
@@ -266,6 +266,44 @@ event under different words: *written by something that is not Maugham* for a
 line after the remembered head or an unchained line after the chain began, and
 *the history's chain is broken* for everything else.
 
+**Amended 2026-09-10 (P2a): pending exists, and the rule between the three
+states is a verdict.** With a registry there is somebody to be un-admitted, so
+`Line.State` gained `pending(device:)` and the walk takes a `TrustVerdict`
+rather than a Bool. The mapping lives in exactly one switch,
+`TrustVerdict.settling(sealKey:)`, so a seventh verdict is a compile error and
+never a silent *unsigned history*:
+
+| verdict | state | applied? | `.lines` record? |
+|---|---|---|---|
+| `.mine`, `.admitted(person:)` | verified | yes | — |
+| `.stranger(device:)` | **pending** | **no** | **no** |
+| `.revoked(person:_)` | quarantined | no | yes, *written after this device's access was withdrawn* |
+| `.otherRoot(root:)` | quarantined | no | yes, *written under another claimant's copy of this book* |
+| `.noChain` | unsigned history | yes | — |
+
+The rule between them: **verified is applied, quarantined is refused and
+recorded, pending is neither.** A held span is not wrong — the device that wrote
+it may be admitted five minutes from now — so it earns no `.lines` record and no
+quarantine sentence, and admitting the device applies everything it held on the
+next read. The two new quarantine sentences are derived in the walk from
+`OpLogChain.QuarantineCause`, like every other one, so no caller can file the
+same event under different words.
+
+**Decision B3, restated: no registry means P1's behaviour, exactly.** A device
+with no chain resolves `myRoot` to `nil`, every foreign key answers `.noChain`,
+and those lines are APPLIED as unsigned history. That is not a fallback bolted
+on for compatibility — it is what `TrustResolution.keyless(mine:)` computes, and
+it is why the whole P1 test body passes unchanged with pending in the tree.
+A book nobody has joined never holds a word back.
+
+**And a refused span does not break the chain.** A verdict is about whose word a
+span is, not about whether the bytes follow from each other, so the walk carries
+on and a later span from an admitted key still applies. Held-back lines are
+therefore no longer necessarily a suffix on the READ path; `applied` filters by
+state and never by position. The chained WRITE is unchanged and judges by
+`.mine` alone (ADR 0012 gives the file one writer, which is what licenses its
+truncating rewrite), so it cannot produce one.
+
 ### 7. What the writer is told
 
 Two sentences in the History pane, both pure statics, neither with a control
@@ -287,6 +325,84 @@ revocation, the claim-and-adopt on a keyless restore, and the People & Devices
 pane. None of it changes the wire format: a seal already carries the key that
 verifies it, so P2 supplies the `trusted` closure `OpLogChain.verify` already
 takes and *pending* becomes reachable. P3 adds roles and the per-op-kind check.
+
+**Amended 2026-09-10 (P2a).** The prediction held — the wire format is
+byte-unchanged — with one correction: `OpLogChain.verify` no longer takes a
+`trusted` closure but a `trust` one, answering a `TrustVerdict` rather than a
+Bool, because a Bool could not express *held*. The Bool overload survives as a
+keyless shorthand and is P1's behaviour exactly.
+
+**What P2a built.** The registry, as signed records under three directories:
+`DeviceRecord`, `PersonRecord` and `ClaimRecord`
+(`RegistryRecord.swift`/`RegistryCanonical.swift`), written by
+`RegistryWriter` alone — which refuses an identity that is not the one the
+record names, and refuses a device with no key, both before creating anything —
+and read by `RegistryReader`, which verifies the filename, the presence of a
+signature, the signature itself over the canonical bytes, the signer the record's
+shape expects, and a device record's claim on its own author actor. Read
+`MalformedRecord.Reason` for the whole list. People are read in two passes so that a person admitted
+by a key that is nobody's root here is malformed rather than admitted. Malformed
+records are listed and never read; a record that is present and unreadable
+throws (`ReadError.unreadableFile(kind: .registry)`) rather than quietly
+un-admitting somebody. `RegistryCache` is this device's own byte-faithful memory
+of the last verified registry, restoring — loudly — a record that was deleted or
+tampered with, and a registry deleted wholesale with it. `TrustTable`/
+`TrustResolution` answer the six verdicts; `RegistryPresence` writes this
+device's record at `DocumentStore.open` (and, on the phone, at the first write),
+with the first Mac in an empty book writing the root. History says what is held
+and whose chain this Mac joined.
+
+**The root order, and the rule that a device never switches chains** — the one
+place P2a settled something §3's spec left open. `myRoot` resolves as: the root
+already joined (write-once); else this device's **own** self-signed root record;
+else a foreign root whose chain names one of this device's keys; else `nil`. The
+second arm outranks the third because a self-signed root record for my key is
+the one statement in the registry that nobody but this device could have
+written, while an admission naming me is somebody's assertion. And a device that
+holds its own root record **never joins another**: a foreign root that names it
+is recorded as a claimant and its spans read `.otherRoot`. Otherwise any Mac
+that can write the folder writes itself a root plus an admission of you and
+takes over a book you created.
+
+**What P2b adds.** Admission itself — the Admit… control is drawn and disabled
+in P2a — plus revocation with its op-id split (*after revocation* versus *may be
+late sync*), the claim-and-adopt path, the People & Devices pane, and the
+phone joining a chain rather than signing alone. A known hole is carried into
+it: a person record is keyed by its own fingerprint, so a verified root can
+overwrite another root's self-signed record with an admission naming itself. The
+fix belongs with the claim path — a re-root goes through a claim record, never
+by overwriting.
+
+**No release may carry P2a without P2b.** Until the admission sheet exists, a
+Mac that has rooted itself holds every phone op as pending with no way to admit
+it: `ensureRootIfEmpty` writes this Mac a root at the first open of every
+existing project, which closes B3's escape hatch for all of them, and the
+phone's P1b-signed spans then classify `.stranger` → `.pending` → held. Every
+phone annotation leaves the Annotations pane, every phone capture leaves the
+Inbox, and History says *N notes are waiting for admission* beside a button
+that is drawn disabled. Nothing is lost — no `.lines` record is written, no
+file is rewritten, and admission re-reads — but for the length of such a build
+the writer's own phone history is invisible with no recourse. This is a
+stronger reason than the compatibility one the plan gives (that the phone
+learns to read records in P2a), and it binds the release on the Mac's side
+alone.
+
+**One thing must be fixed before the first tag that carries P2a: the canonical
+digest is lossy.** A record's signature is verified over a *re-encode of the
+decoded record*, and `JSONDecoder` drops unknown keys — so a record written by a
+later build carrying one extra field decodes, re-encodes without it, and fails
+to verify. It is unreachable today (nothing in P2a writes an unknown field), but
+the moment a release ships that writes records the canonicalization is frozen:
+changing it afterwards invalidates every record already on disk, and P2b adds
+claims while P3 adds roles. The contained fix is to canonicalize through
+`JSONSerialization` on both sides — the writer serializes the record's object
+form with sorted keys and signs those bytes; the reader parses the file's bytes,
+removes `"sig"`, and re-serializes the same way — so unknown members survive
+verification. That is ADR 0015's evolution rule, which `DeviceKind.unknown`
+already honours one level down. The destructive half is already closed:
+`RegistryCache.reconcile` restores only an ABSENT file, so a record it cannot
+verify is reported and left exactly as it is rather than overwritten with this
+device's older copy.
 
 ## Addendum — actors, 2026-09-08 (P1b)
 
@@ -395,9 +511,12 @@ appending to. The sweep stays the one place all four rotate, and is safe there
 because it runs before the first `Document.load`.
 
 **Signing and trusting stopped having the same answer.** A line is signed by
-one actor; `ChainPolicy.trustedFingerprints` and every `trusted:` closure on the
-read side are **all four**, because the assistant's seal over the assistant's
-own file is this device's own word. A narrower set would file the writer's own
+one actor; every read judges by **all four**, because the assistant's seal over
+the assistant's own file is this device's own word. (P2a retired the value that
+used to say so: `ChainPolicy.trustedFingerprints` is gone and `ChainPolicy.trust`
+is a `(String) -> TrustVerdict` in its place, with the four local keys as the
+`.mine` arm of `TrustTable` — a set could only answer *mine* or *nobody*, and
+admission put four more answers between them.) A narrower set would file the writer's own
 MCP history as another device's unsigned history, and History's *"changes from
 another device"* would start counting Claude on this Mac. `OpLogStore` has no
 single `identity` property any more: it holds `identities`, and a reader wanting

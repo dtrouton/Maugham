@@ -93,7 +93,7 @@ final class WriteTranslationToolTests: XCTestCase {
         XCTAssertEqual(result.language, "es")
         XCTAssertTrue(result.warnings.isEmpty, "no construct drift expected: \(result.warnings)")
 
-        let records = TranslationStore.loadMerged(
+        let records = try TranslationStore.loadMerged(
             forDocId: h.doc.docId, language: "es", in: h.projectURL)
         XCTAssertEqual(records.count, 2)
         let byId = Dictionary(uniqueKeysWithValues: records.map { ($0.paragraphId, $0) })
@@ -130,7 +130,7 @@ final class WriteTranslationToolTests: XCTestCase {
         }
 
         // All-or-nothing: nothing appended, including the valid entry.
-        let records = TranslationStore.loadMerged(
+        let records = try TranslationStore.loadMerged(
             forDocId: h.doc.docId, language: "es", in: h.projectURL)
         XCTAssertTrue(records.isEmpty, "store must be empty after all-or-nothing reject")
 
@@ -151,7 +151,7 @@ final class WriteTranslationToolTests: XCTestCase {
             "entries": [["paragraph_id": pid, "verbatim": true]]
         ])
 
-        let records = TranslationStore.loadMerged(
+        let records = try TranslationStore.loadMerged(
             forDocId: h.doc.docId, language: "es", in: h.projectURL)
         XCTAssertEqual(records.count, 1)
         XCTAssertEqual(records[0].text, src, "verbatim entry copies the source text")
@@ -266,7 +266,7 @@ final class WriteTranslationToolTests: XCTestCase {
             "got: \(result.warnings)")
 
         // The write still lands.
-        let records = TranslationStore.loadMerged(
+        let records = try TranslationStore.loadMerged(
             forDocId: h.doc.docId, language: "es", in: h.projectURL)
         XCTAssertEqual(records.count, 1)
         XCTAssertEqual(records[0].text, src)
@@ -371,7 +371,7 @@ final class WriteTranslationToolTests: XCTestCase {
         }
 
         // All-or-nothing: nothing appended.
-        let records = TranslationStore.loadMerged(
+        let records = try TranslationStore.loadMerged(
             forDocId: h.doc.docId, language: "es", in: h.projectURL)
         XCTAssertTrue(records.isEmpty, "store must be empty after duplicate-id reject")
 
@@ -407,7 +407,7 @@ final class WriteTranslationToolTests: XCTestCase {
                       "a delete has no text to advise on: \(deleteResult.warnings)")
 
         // Both records survive on disk (append-only); the tombstone is last.
-        let records = TranslationStore.loadMerged(
+        let records = try TranslationStore.loadMerged(
             forDocId: h.doc.docId, language: "es", in: h.projectURL)
         XCTAssertEqual(records.count, 2, "append-only: the tombstone joins the value")
         XCTAssertNil(records.last?.text, "the delete entry persists text: nil")
@@ -455,7 +455,7 @@ final class WriteTranslationToolTests: XCTestCase {
             WriteTranslationTool.Result.self, from: resultData)
         XCTAssertEqual(result.written, 1, "deleting an orphaned id is legal")
 
-        var records = TranslationStore.loadMerged(
+        var records = try TranslationStore.loadMerged(
             forDocId: h.doc.docId, language: "es", in: h.projectURL)
         XCTAssertTrue(records.isEmpty, "nothing to remove, so nothing recorded")
         XCTAssertTrue(
@@ -482,7 +482,7 @@ final class WriteTranslationToolTests: XCTestCase {
                 "entries": [["paragraph_id": livePid, "delete": true]]
             ])
         }
-        records = TranslationStore.loadMerged(
+        records = try TranslationStore.loadMerged(
             forDocId: h.doc.docId, language: "es", in: h.projectURL)
         XCTAssertEqual(records.count, 3, "the value plus both tombstones are on disk")
         XCTAssertTrue(TranslationStore.latestByParagraph(records).isEmpty,
@@ -508,7 +508,7 @@ final class WriteTranslationToolTests: XCTestCase {
                            "a delete entry's id is exempt from the unknown-id check: \(msg)")
         }
         XCTAssertTrue(
-            TranslationStore.loadMerged(
+            try TranslationStore.loadMerged(
                 forDocId: h.doc.docId, language: "fr", in: h.projectURL).isEmpty,
             "all-or-nothing includes the batch's delete entries")
 
@@ -555,7 +555,7 @@ final class WriteTranslationToolTests: XCTestCase {
         }
 
         XCTAssertTrue(
-            TranslationStore.loadMerged(
+            try TranslationStore.loadMerged(
                 forDocId: h.doc.docId, language: "es", in: h.projectURL).isEmpty,
             "no rejected entry wrote anything")
 

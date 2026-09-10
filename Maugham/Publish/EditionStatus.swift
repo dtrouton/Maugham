@@ -214,6 +214,17 @@ enum EditionStatus {
         // writer has only just named reports a row for every manuscript
         // document instead of none at all.
         let roleLanguages = storedTranslatorLanguages(in: store.manifest)
+        // ONE trust resolution for the whole book (whole-branch review, I1).
+        // `TranslationStore.loadMerged` resolves its own when handed none, and
+        // that is a verified read of the registry folder plus a reconcile — a
+        // sixty-chapter book in three languages paid 180 of them, several on
+        // the main actor. Held as a `Result` rather than resolved inside the
+        // loop so a registry this Mac cannot read still degrades exactly as it
+        // did: every chapter is recorded in `unreadable` with the registry
+        // error's own file-naming sentence, and the walk itself never fails.
+        let resolved = Result {
+            try TrustResolution.resolve(projectURL: projectURL, identities: .current)
+        }
         for documentId in documentIds {
             do {
                 // All of this chapter's rows or none of them: a document that
@@ -223,7 +234,7 @@ enum EditionStatus {
                 // happened to land.
                 rows += try await documentRows(
                     documentId: documentId, roleLanguages: roleLanguages,
-                    store: store, projectURL: projectURL)
+                    store: store, projectURL: projectURL, trust: try resolved.get())
             } catch {
                 unreadable.append(UnreadableDocument(
                     documentId: documentId,
@@ -255,7 +266,7 @@ enum EditionStatus {
     /// half that never does.
     private static func documentRows(
         documentId: String, roleLanguages: [String],
-        store: ProjectStore, projectURL: URL
+        store: ProjectStore, projectURL: URL, trust: TrustTable
     ) async throws -> [DocumentRow] {
         // Languages with an actual translation file — a cheap filename scan.
         let fileLanguages = Set(
@@ -301,8 +312,13 @@ enum EditionStatus {
                 documentId: documentId, store: store,
                 documentStore: store.documentStore, projectURL: projectURL)
             let derived = TranslationDeriver.derive(
-                records: TranslationStore.loadMerged(
-                    forDocId: documentId, language: language, in: projectURL),
+                // P2a D0: an unreadable actor file throws, and the walk
+                // above records this whole chapter in `unreadable` with the
+                // error's own file-naming sentence — the degrade both the desk
+                // and `translation_status` already draw.
+                records: try TranslationStore.loadMerged(
+                    forDocId: documentId, language: language, in: projectURL,
+                    trust: trust),
                 sequence: state.sequence,
                 paragraphs: state.paragraphs,
                 language: language)

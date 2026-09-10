@@ -345,6 +345,17 @@ The canvas half is `Maugham/Canvas/CanvasCapture.swift` — read `Maugham/Canvas
 
 8. **Adding a new `extension ProjectStore`** for a new seam is the established pattern (Collection-Pieces does this). Don't introduce a new top-level store class for something that's logically project-scoped.
 
+9. **A `Task { [weak self] … guard let self … await … }` holds the owner for the whole of the await.** `guard let self` turns the weak capture into a STRONG one for the rest of the closure, so a store the window has finished with is kept alive across every suspension after it — and if the closure also writes back through a `Binding` or a store the caller has released, the write lands somewhere nobody is watching. This is a NOTE rather than a fix: the shape is not a defect by itself, and none of the live instances below is measured as one.
+
+   The instance that WAS a defect is `14ee45e9` — the word-count pass, where the strong `self` outlived the project the binding wrote into. The fix's shape is the one to copy: bind `self` inside a scope that ENDS before the suspension, take what the await needs as plain values, and end the pass when the store is gone.
+
+   Three live instances, found by the heuristic (`Task { [weak self] … guard let self … await`) and left alone:
+   - `Maugham/Stores/DebounceScheduler.swift:24` — `guard let self`, then `try? await Task.sleep(for: delay)`: the owner is held for the whole debounce window (750 ms for autosave) after a window closes.
+   - `Maugham/Stores/ProjectStore+Search.swift:23` — the guard is correctly AFTER the debounce sleep, but then holds `self` across `flushPendingSave()` and `engine.search(...)`, which is a whole-project walk.
+   - `Maugham/Stores/DocumentStore.swift:574` — held across one `appendSessionEvent`; short.
+
+   There is deliberately no census: the shape is legitimate far more often than not, so a grep guard would be noise. Read this row before writing a fourth one.
+
 ## The trash after the rulings (2026-08-09)
 
 `TrashStore` + `ProjectStore+Trash` were reworked to seven of Denver's rulings; the full list with

@@ -1375,6 +1375,140 @@ final class TripwireGrepTests: XCTestCase {
             sites.first ?? "nothing caught")
     }
 
+    // MARK: - The translation read is never swallowed (P2a D0)
+
+    /// Every production site that swallows a `TranslationStore.loadMerged`
+    /// refusal. Whole-text rather than line-based, because the call is split
+    /// across lines almost everywhere it appears — `try?` on one line and the
+    /// call on the next would walk straight past a line scanner. Two shapes:
+    /// a `try?` in front of the call, and a `?? []` behind it. A comment
+    /// naming either is not a call. Shared with the self-check below.
+    private func loadMergedSwallowSites(in dirs: [URL]) throws -> [String] {
+        let patterns = [
+            #"try\?\s*(?://[^\n]*\n\s*)*(?:TranslationStore\s*\.\s*)?loadMerged\s*\("#,
+            #"loadMerged\s*\((?:[^()]|\([^()]*\))*\)\s*\?\?\s*\[\]"#,
+        ]
+        var offenders: [String] = []
+        for dir in dirs {
+            guard let walker = FileManager.default.enumerator(
+                at: dir, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                let ns = text as NSString
+                for pattern in patterns {
+                    let regex = try NSRegularExpression(pattern: pattern)
+                    regex.enumerateMatches(
+                        in: text, range: NSRange(location: 0, length: ns.length)
+                    ) { match, _, _ in
+                        guard let match else { return }
+                        let upTo = ns.substring(to: match.range.location)
+                        let lineNumber = upTo.reduce(into: 1) { if $1 == "\n" { $0 += 1 } }
+                        let start = (upTo as NSString).range(of: "\n", options: .backwards).location
+                        let lineStart = start == NSNotFound ? 0 : start + 1
+                        let end = ns.range(
+                            of: "\n", options: [],
+                            range: NSRange(location: match.range.location,
+                                           length: ns.length - match.range.location)).location
+                        let line = ns.substring(
+                            with: NSRange(location: lineStart,
+                                          length: (end == NSNotFound ? ns.length : end) - lineStart))
+                        let trimmed = line.trimmingCharacters(in: .whitespaces)
+                        if trimmed.hasPrefix("//") { return }
+                        offenders.append("\(url.lastPathComponent):\(lineNumber): \(trimmed)")
+                    }
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// Every production call of `loadMerged`, however it is spelled — the
+    /// non-vacuity control for the census below.
+    private func loadMergedCallSites(in dirs: [URL]) throws -> [String] {
+        var sites: [String] = []
+        for dir in dirs {
+            sites += try grepSwift(
+                in: dir, patterns: ["TranslationStore.loadMerged("],
+                excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") })
+        }
+        return sites
+    }
+
+    /// **Tripwire: a `TranslationStore.loadMerged` refusal is never swallowed**
+    /// (P2a D0; RULING-54 for the translation sidecar).
+    ///
+    /// Since P1b a document's translation is spread over one file per (device,
+    /// ACTOR) — the pipeline's own beside the author's review edits — so a read
+    /// that steps over the file it could not open answers with a PARTLY
+    /// translated document: the author's edits standing over source paragraphs
+    /// the pipeline had already translated. Every derivation downstream reads
+    /// those as `missing`, the compile gate falls back to source text under
+    /// `allow_stale`, and a half-Spanish book is published with nothing said.
+    /// The store refuses; a caller that answers `[]` for it puts the silence
+    /// back one level up, where nothing can see it.
+    ///
+    /// A ban rather than a census: there is no site where substituting an
+    /// empty read is the right answer. Refuse (the runs, the gate, the two MCP
+    /// readers), degrade by NAME (`EditionStatus`' `unreadable`, which both the
+    /// desk and `translation_status` draw), or show the sentence (the editor's
+    /// review pane, the desk's pre-flight figure).
+    func test_translationLoadMergedIsNeverSwallowed() throws {
+        let dirs = Self.translationReadRoots(repoRoot: repoRoot)
+        let offenders = try loadMergedSwallowSites(in: dirs)
+        XCTAssertTrue(
+            offenders.isEmpty,
+            "a production site swallows the translation read. `try?` or `?? []` "
+            + "here answers with a document that is part-translated by an "
+            + "accident of permissions. Refuse, degrade by name, or show the "
+            + "sentence. Offenders:\n" + offenders.joined(separator: "\n"))
+        // **Non-vacuous.** A scanner pointed at the wrong roots would find no
+        // offenders for the wrong reason, and go on passing forever.
+        XCTAssertFalse(
+            try loadMergedCallSites(in: dirs).isEmpty,
+            "the census found no `TranslationStore.loadMerged` call at all — "
+            + "check the roots before believing the empty offender list")
+    }
+
+    /// CONTROL for the census above: both planted swallows are caught, and
+    /// neither the honest `try` beside them nor a comment naming the verb is.
+    func test_theTranslationReadCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-translationread-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        enum SecondTranslationReader {
+            // A comment naming try? TranslationStore.loadMerged( is not a call.
+            static func swallowed(_ docId: String, _ projectURL: URL) -> [TranslationRecord] {
+                try? TranslationStore.loadMerged(
+                    forDocId: docId, language: "es", in: projectURL) ?? []
+            }
+
+            static func coalesced(_ docId: String, _ projectURL: URL) -> [TranslationRecord] {
+                (try? TranslationStore.loadMerged(forDocId: docId, language: "es", in: projectURL)) ?? []
+            }
+
+            static func honest(_ docId: String, _ projectURL: URL) throws -> [TranslationRecord] {
+                try TranslationStore.loadMerged(
+                    forDocId: docId, language: "es", in: projectURL)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SecondTranslationReader.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try loadMergedSwallowSites(in: [tmp])
+        let lines = Set(offenders.compactMap {
+            $0.split(separator: ":").dropFirst().first.map(String.init)
+        })
+        XCTAssertEqual(
+            lines, ["4", "9"],
+            "Self-check: the two planted swallows should be caught, and neither "
+            + "the honest `try` nor the comment. Got:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - Meta-tests: tripwires fire on planted offenders (task 4.8 / test gap #14)
 
     /// Self-check: prove the op-log filename tripwire FIRES on a planted
@@ -1683,6 +1817,15 @@ final class TripwireGrepTests: XCTestCase {
     /// Repo root, computed the same way `sourceDir` does (2x
     /// `deletingLastPathComponent()` off this file's `#filePath`), but without
     /// appending `Maugham/` — used to reach `Maugham/MaughamApp.swift` itself.
+    /// The three production trees a translation read can live in. The phone
+    /// has no `loadMerged` caller today, and it is in the list precisely so
+    /// that the first one it grows is judged by this census rather than
+    /// arriving unwatched.
+    static func translationReadRoots(repoRoot: URL) -> [URL] {
+        ["Maugham", "MaughamPhone", "Packages/MaughamCore/Sources"]
+            .map { repoRoot.appendingPathComponent($0, isDirectory: true) }
+    }
+
     private var repoRoot: URL {
         let here = URL(fileURLWithPath: #filePath)
         return here.deletingLastPathComponent().deletingLastPathComponent()
@@ -7159,5 +7302,301 @@ final class TripwireGrepTests: XCTestCase {
         let missing = try spawnSitesMissingSettingSources(in: tmp)
         XCTAssertEqual(missing, ["BadSpawn.swift"],
             "Self-check: the spawn without --setting-sources is the one caught")
+    }
+
+    // MARK: - Trust closures are built from the TrustTable only (tripwire 39)
+
+    /// The three roots the P2a censuses scan. The shared substrate is in the
+    /// list because a hand-built trust decision there would reach BOTH
+    /// surfaces at once.
+    private var admissionRoots: [URL] {
+        [sourceDir,
+         repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true),
+         repoRoot.appendingPathComponent("Packages/MaughamCore/Sources", isDirectory: true)]
+    }
+
+    /// Prose may name a trust closure or the field this milestone retired;
+    /// code may not build one. SHARED by the census and its self-check.
+    static func admissionExcludeLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+    }
+
+    /// The shapes a trust decision took before `TrustTable` existed.
+    ///
+    /// `trusted: {` is the Bool overload of the walk — it can say *mine* or
+    /// *nobody* and nothing in between, so a caller that builds one has
+    /// decided, off its own bat, that an admitted device's sealed span is
+    /// either this device's own hand or unsigned history. `trustedFingerprints`
+    /// was `ChainPolicy`'s set-of-my-keys, removed in P2a;
+    /// `identities.fingerprints` / `.fingerprints.contains` are the membership
+    /// test that set was for.
+    static let trustClosurePatterns = [
+        "trusted: {", "trustedFingerprints",
+        "identities.fingerprints", ".fingerprints.contains",
+    ]
+
+    /// The KEYLESS sites, by file and by spelling. Each holds no key to judge
+    /// by, or must not widen past this device's own hand:
+    ///
+    /// - `OpLogStore.swift` — `trusted: { _ in false }` twice: the keyless
+    ///   reader (`ProjectIntegrity.check`, which passes no table) and the
+    ///   fallback walk of an unsettled segment's inner seals. Both judge
+    ///   nobody, which is what P1 did for every caller.
+    /// - `JSONLAppendStore.swift` — `trusted: { chain.trust($0) == .mine }`:
+    ///   the chained WRITE, whose rewrite assumes a prefix. ADR 0012 gives the
+    ///   file one writer, so a stranger's line in MY file is a quarantine and
+    ///   never a hold, and the write path must not widen past `.mine`.
+    ///
+    /// A spelling rather than a bare filename, so a NEW `trusted:` closure in
+    /// either file fires. A reflow that splits one of these across two lines
+    /// fires too — which is the moment to re-read the rule, not route around it.
+    static let trustClosureAllowedSpellings: [String: Set<String>] = [
+        "OpLogStore.swift": ["trusted: { _ in false }"],
+        "JSONLAppendStore.swift": ["trusted: { chain.trust($0) == .mine }"],
+    ]
+
+    /// Walk `roots`, recording every line matching `patterns` except where the
+    /// file's entry in `allowedSpellings` names a substring the line carries.
+    /// File-and-spelling rather than file alone: the allow-listed files hold
+    /// the sanctioned closures AND the sanctioned table-built ones, so allowing
+    /// a whole file would let a fourth keyless site in beside them.
+    private func grepSwift(
+        in roots: [URL],
+        patterns: [String],
+        allowedSpellings: [String: Set<String>],
+        excludeLine: @escaping (String) -> Bool
+    ) throws -> [String] {
+        var offenders: [String] = []
+        for root in roots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: [],
+                excludeLine: excludeLine,
+                extraOffender: nil,
+                perFile: { name, line in
+                    guard patterns.contains(where: { line.contains($0) }) else { return false }
+                    let allowed = allowedSpellings[name] ?? []
+                    return !allowed.contains(where: { line.contains($0) })
+                })
+        }
+        return offenders
+    }
+
+    /// `grepSwift` with a predicate that sees the FILE NAME as well as the
+    /// line. The existing overloads cannot: their allow-list is whole-file and
+    /// their `extraOffender` sees a line with no idea where it came from.
+    private func grepSwift(
+        in dir: URL,
+        patterns: [String],
+        excludeLine: ((String) -> Bool)?,
+        extraOffender: ((String) -> Bool)?,
+        perFile: (String, String) -> Bool
+    ) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let lineStr = String(line)
+                if let exclude = excludeLine, exclude(lineStr) { continue }
+                var hit = patterns.contains { lineStr.contains($0) }
+                if !hit, let extra = extraOffender { hit = extra(lineStr) }
+                if !hit { hit = perFile(name, lineStr) }
+                if hit {
+                    offenders.append("\(name):\(i + 1): "
+                        + lineStr.trimmingCharacters(in: .whitespaces))
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// Tripwire 39. Who a seal's key is to this device is `TrustTable`'s one
+    /// answer, in six words (`.mine`, `.admitted`, `.stranger`, `.revoked`,
+    /// `.otherRoot`, `.noChain`), and a walk takes the verdict. A closure built
+    /// anywhere else can only say *mine* or *nobody*, and the middle of that
+    /// range is the whole of P2a: an admitted device's sealed span applied as
+    /// this device's own, a stranger's applied as unsigned history rather than
+    /// HELD. Both failures are silent — the words land in the manuscript and
+    /// nothing goes red.
+    func test_everyTrustClosureIsBuiltFromTheTrustTable() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.trustClosurePatterns,
+            allowedSpellings: Self.trustClosureAllowedSpellings,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file decides trust without a `TrustTable`. The walk "
+            + "takes a `TrustVerdict`; the Bool `trusted:` overload is P1's "
+            + "shape and survives at three keyless sites only (two in "
+            + "OpLogStore.swift, one in JSONLAppendStore.swift), each named in "
+            + "`trustClosureAllowedSpellings` with the reason. "
+            + "`ChainPolicy.trustedFingerprints` is gone. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    // MARK: - Registry records are written through RegistryWriter only
+    //         (tripwire 40)
+
+    /// The three registry directories, as a Swift source can spell them, plus
+    /// the two acts that make a file in one of them a RECORD: the canonical
+    /// digest a signature is made over, and the per-record URL.
+    ///
+    /// **Three spellings of each directory, not one** (whole-branch review,
+    /// Minor 2). The literal with its leading dot is the obvious one; a writer
+    /// composing the path a component at a time —
+    /// `.appendingPathComponent(".maugham").appendingPathComponent("devices")`
+    /// — walks straight past it, and so does a bare `"maugham/devices"` under
+    /// some other prefix. The last two patterns are what close those, and the
+    /// planted-offender control carries one of each shape.
+    static let registryPathPatterns = [
+        "\".maugham/devices", "\".maugham/people", "\".maugham/claims",
+        "maugham/devices", "maugham/people", "maugham/claims",
+        "PathComponent(\"devices", "PathComponent(\"people", "PathComponent(\"claims",
+        "digestHex(ofRecord:", "RegistryWriter.url(",
+    ]
+
+    /// The three files that may spell a registry path or sign a record.
+    /// `RegistryWriter.swift` builds the paths and makes the signature;
+    /// `RegistryWriter+Restore.swift` puts already-signed bytes back for the
+    /// cache; `RegistryReader.swift` re-derives the digest to verify one.
+    /// Everything else asks `RegistryWriter.directoryURL` — a read, and the
+    /// door those three are behind.
+    static let registryWriterAllowed: Set<String> = [
+        "RegistryWriter.swift", "RegistryWriter+Restore.swift", "RegistryReader.swift",
+    ]
+
+    /// Tripwire 40. Every record is signed, and a record written any other way
+    /// is one no reader can vouch for — the reader's honest answer to it is
+    /// *malformed*, which is a device silently un-admitted and its whole
+    /// history left pending. One writer is what makes the signer check
+    /// (`RegistryWriteError.wrongSigner`) a door rather than call-site
+    /// discipline, and one place spelling `.maugham/devices` / `.maugham/people`
+    /// / `.maugham/people/claims` is what stops a second opinion about where a
+    /// record lives.
+    func test_registryRecordsAreWrittenThroughRegistryWriterOnly() throws {
+        var offenders: [String] = []
+        for root in admissionRoots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: Self.registryPathPatterns,
+                allowed: Self.registryWriterAllowed,
+                excludeLine: Self.admissionExcludeLine)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file outside RegistryWriter.swift, "
+            + "RegistryWriter+Restore.swift and RegistryReader.swift spells a "
+            + "registry path or signs a record. `RegistryWriter.write` is the "
+            + "one door (it refuses an identity that is not the one the record "
+            + "names); `RegistryWriter.directoryURL` is what a reader asks. "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for both P2a censuses: the SAME patterns and the SAME
+    /// exclusions, over planted files, catch every offender, let the three
+    /// sanctioned trust spellings and the sanctioned `directoryURL` call
+    /// through, and honour the allow-lists by name.
+    func test_theAdmissionCensusesFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-admission-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name trusted: { _ in true } and trustedFingerprints.
+        let bad = chain.verify(bytes: data, trusted: { _ in true })
+        let stale = policy.trustedFingerprints
+        let member = identities.fingerprints
+        let test = mine.fingerprints.contains(key)
+        let good = chain.verify(bytes: data, trust: { table.verdict(forSealKey: $0) })
+        """.write(to: tmp.appendingPathComponent("SecondTrustOpinion.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let trust = try grepSwift(
+            in: [tmp],
+            patterns: Self.trustClosurePatterns,
+            allowedSpellings: Self.trustClosureAllowedSpellings,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(trust.count, 4,
+            "Self-check: the four planted decisions should be caught, and "
+            + "neither the comment nor the table-built walk. Caught:\n"
+            + trust.joined(separator: "\n"))
+        XCTAssertTrue(trust.contains(where: { $0.contains("let bad") }))
+        XCTAssertTrue(trust.contains(where: { $0.contains("let stale") }))
+        XCTAssertTrue(trust.contains(where: { $0.contains("let member") }))
+        XCTAssertTrue(trust.contains(where: { $0.contains("let test") }))
+
+        // The allow-list is a FILE plus a SPELLING: the two keyless sites pass
+        // under their own names, a fourth one in the same file does not.
+        try """
+        let keyless = chain.verify(bytes: data, trusted: { _ in false })
+        let widened = chain.verify(bytes: data, trusted: { _ in true })
+        """.write(to: tmp.appendingPathComponent("OpLogStore.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        let write = chain.verify(bytes: data, trusted: { chain.trust($0) == .mine })
+        """.write(to: tmp.appendingPathComponent("JSONLAppendStore.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let allowed = try grepSwift(
+            in: [tmp],
+            patterns: Self.trustClosurePatterns,
+            allowedSpellings: Self.trustClosureAllowedSpellings,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(allowed.filter { $0.hasPrefix("OpLogStore.swift") }.count, 1,
+            "Self-check: the keyless spelling passes and a NEW closure in the "
+            + "same file does not. Caught:\n" + allowed.joined(separator: "\n"))
+        XCTAssertTrue(allowed.contains(where: { $0.contains("let widened") }))
+        XCTAssertFalse(allowed.contains(where: { $0.contains("let keyless") }))
+        XCTAssertFalse(allowed.contains(where: { $0.contains("let write") }))
+
+        // The registry census, over its own planted file.
+        let registryTmp = tmp.appendingPathComponent("registry")
+        try fm.createDirectory(at: registryTmp, withIntermediateDirectories: true)
+        try """
+        // A comment may name .maugham/devices and digestHex(ofRecord:).
+        let dir = projectURL.appendingPathComponent(".maugham/devices", isDirectory: true)
+        let people = projectURL.appendingPathComponent(".maugham/people")
+        let digest = try RegistryCanonical.digestHex(ofRecord: record)
+        let file = RegistryWriter.url(.devices, fingerprint: fp, in: projectURL)
+        let composed = base.appendingPathComponent(".maugham").appendingPathComponent("devices")
+        let bare = support.appendingPathComponent("maugham/claims")
+        let sanctioned = RegistryWriter.directoryURL(.people, in: projectURL)
+        """.write(to: registryTmp.appendingPathComponent("SecondRegistryWriter.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let registry = try grepSwift(
+            in: registryTmp,
+            patterns: Self.registryPathPatterns,
+            allowed: Self.registryWriterAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(registry.count, 6,
+            "Self-check: the two path literals, the digest, the record URL, the "
+            + "component-at-a-time compose and the bare relative path should be "
+            + "caught, and neither the comment nor the sanctioned `directoryURL` "
+            + "read. Caught:\n" + registry.joined(separator: "\n"))
+        XCTAssertTrue(registry.contains(where: { $0.contains("let composed") }),
+            "a path composed one component at a time is still a registry path")
+        XCTAssertTrue(registry.contains(where: { $0.contains("let bare") }),
+            "and so is one written without the leading dot")
+        XCTAssertFalse(registry.contains(where: { $0.contains("let sanctioned") }))
+
+        try fm.moveItem(at: registryTmp.appendingPathComponent("SecondRegistryWriter.swift"),
+                        to: registryTmp.appendingPathComponent("RegistryWriter.swift"))
+        let allowedRegistry = try grepSwift(
+            in: registryTmp,
+            patterns: Self.registryPathPatterns,
+            allowed: Self.registryWriterAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(allowedRegistry.isEmpty,
+            "Self-check: an allow-listed file is skipped whole. Caught:\n"
+            + allowedRegistry.joined(separator: "\n"))
     }
 }

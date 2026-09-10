@@ -88,8 +88,8 @@ final class TranslationPipeline {
         /// briefing, `TranslatorOrchestrator.begin`'s order, for its reason.
         var readerIdentity: @MainActor (String) async throws -> (name: String, roleId: String)
         var collatorIdentity: @MainActor (String) async throws -> (name: String, roleId: String)
-        var briefReader: @MainActor (String, String) async -> ReaderBriefing.Inputs?
-        var briefCollator: @MainActor (String, String) async -> CollatorBriefing.Inputs?
+        var briefReader: @MainActor (String, String) async throws -> ReaderBriefing.Inputs?
+        var briefCollator: @MainActor (String, String) async throws -> CollatorBriefing.Inputs?
         /// `ColdCall.call(message:preamble:model:)`.
         var coldCall: @MainActor (String, String?, String) async -> CompilerRunEvent
         var cancelColdCall: @MainActor () -> Void
@@ -125,6 +125,14 @@ final class TranslationPipeline {
     static let translatorRefusedSentence = "The translator refused to start a leg."
     static func unbriefableSentence(role: String) -> String {
         "The \(role) could not be briefed on this document."
+    }
+    /// The same refusal when the gather said WHY (P2a D0): a present-but-
+    /// unreadable translation file names itself, and a leg that stopped over
+    /// one must hand the writer the file to go and fix rather than the bare
+    /// sentence above.
+    static func unbriefableSentence(role: String, error: Error) -> String {
+        "The \(role) could not be briefed on this document: "
+        + ((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
     }
     static func identitySentence(role: String, error: Error) -> String {
         "The \(role)'s identity could not be resolved: \(error)"
@@ -548,7 +556,13 @@ final class TranslationPipeline {
             }
             guard generation == gen else { return (.cancelled, nil, identity) }
         }
-        guard let inputs = await env.briefReader(docId, language) else {
+        let brief: ReaderBriefing.Inputs?
+        do { brief = try await env.briefReader(docId, language) }
+        catch {
+            guard generation == gen else { return (.cancelled, nil, identity) }
+            return (.failed(Self.unbriefableSentence(role: "reader", error: error)), nil, identity)
+        }
+        guard let inputs = brief else {
             guard generation == gen else { return (.cancelled, nil, identity) }
             return (.failed(Self.unbriefableSentence(role: "reader")), nil, identity)
         }
@@ -582,7 +596,13 @@ final class TranslationPipeline {
             }
             guard generation == gen else { return (.cancelled, nil, identity) }
         }
-        guard let inputs = await env.briefCollator(docId, language) else {
+        let brief: CollatorBriefing.Inputs?
+        do { brief = try await env.briefCollator(docId, language) }
+        catch {
+            guard generation == gen else { return (.cancelled, nil, identity) }
+            return (.failed(Self.unbriefableSentence(role: "collator", error: error)), nil, identity)
+        }
+        guard let inputs = brief else {
             guard generation == gen else { return (.cancelled, nil, identity) }
             return (.failed(Self.unbriefableSentence(role: "collator")), nil, identity)
         }

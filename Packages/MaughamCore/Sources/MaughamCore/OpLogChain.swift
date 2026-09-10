@@ -25,9 +25,10 @@ import Foundation
 ///
 /// **What the verifier does and does not do.** It classifies; it never refuses
 /// (spec §3). Every line comes back as `.legacy`, `.verified`, `.unsealed`,
-/// `.unsignedHistory` or `.quarantined`, and the caller decides what to apply.
-/// It holds no policy about WHO is trusted — that is the `trusted` closure —
-/// and no memory of its own; the remembered head is a parameter.
+/// `.unsignedHistory`, `.pending` or `.quarantined`, and the caller decides
+/// what to apply. It holds no policy about WHO is trusted — that is the `trust`
+/// closure, which a store builds from one `TrustTable` — and no memory of its
+/// own; the remembered head is a parameter.
 /// Lowercase hex, table-driven.
 ///
 /// It has a type of its own because the obvious spelling —
@@ -271,10 +272,21 @@ public enum OpLogChain {
     /// used by the seal INSIDE a file and by the signature BESIDE a sealed
     /// segment, so the base64/X9.63 dance is written once and the two can never
     /// disagree about what a signature is.
-    struct Credentials {
-        let key: String
-        let pub: String
-        let sig: String
+    /// `Codable` and public because P2's registry records carry one as a
+    /// FIELD (`RegistryRecord`'s `sig`): the seal inside a file, the signature
+    /// beside a segment and the signature on a person record are the same
+    /// three fields, and a second spelling of them would be a second opinion
+    /// about what a signature is.
+    public struct Credentials: Codable, Equatable, Hashable, Sendable {
+        public let key: String
+        public let pub: String
+        public let sig: String
+
+        public init(key: String, pub: String, sig: String) {
+            self.key = key
+            self.pub = pub
+            self.sig = sig
+        }
     }
 
     /// Sign `digestHex`'s 32 bytes with `identity`.
@@ -397,10 +409,27 @@ public enum OpLogChain {
             case verified
             /// Chained, and no seal covers it yet.
             case unsealed
-            /// Covered by a seal from a key the caller does not trust. Applied
-            /// (P1 has no registry) — but never claimed as this device's word.
+            /// Covered by a seal from a key the caller cannot judge, because it
+            /// belongs to no chain here. Applied — that is decision B3, and P1's
+            /// whole world — but never claimed as this device's word.
             case unsignedHistory
-            /// Never applied: the chain broke at or before this line.
+            /// Covered by a seal that HOLDS, made by a key this device's chain
+            /// says nothing about: **held** (spec §3). Not applied, and not
+            /// quarantined either — nothing broke, and nothing is recorded.
+            /// The writer admits the device or does not, and admitting is a
+            /// re-read: no line of the file is rewritten to make it apply.
+            ///
+            /// It carries the DEVICE the sealing key belongs to — not the key
+            /// — because the one question a surface asks about held lines is
+            /// *whose*, and a device holds four actor keys: a phone that wrote
+            /// as both its author and its assistant is one device waiting for
+            /// admission, not two. The key stands for itself when no device
+            /// record names it, which is `TrustVerdict.stranger`'s own rule.
+            /// A line that had to be matched back to its seal to answer this
+            /// would be a second walk.
+            case pending(device: String)
+            /// Never applied: the chain broke at or before this line, or the
+            /// key that sealed it was revoked or belongs to another claimant.
             case quarantined
             /// The FILE'S LAST line, whose bytes do not form a complete JSON
             /// object: a write interrupted mid-line, which is the one thing a
@@ -415,6 +444,27 @@ public enum OpLogChain {
             /// half-written op was "written by something that is not Maugham",
             /// in a record that never clears (the whole-branch review's L62).
             case tornTail
+
+            /// Whether the reader keeps this line OUT of what it applies.
+            ///
+            /// Two states, one question, and the two are held back for
+            /// opposite reasons: a quarantined line is refused, a pending one
+            /// is merely not judged yet. A `.tornTail` is deliberately NOT
+            /// here — its bytes go on to the element decoder, which reports
+            /// them in `diagnostics.skipped` exactly as a torn line was
+            /// reported before the chain existed.
+            public var isHeldBack: Bool {
+                switch self {
+                case .quarantined, .pending: true
+                case .legacy, .verified, .unsealed, .unsignedHistory, .tornTail: false
+                }
+            }
+
+            /// The device whose seal is holding this line, when it is held.
+            public var pendingDevice: String? {
+                if case let .pending(device) = self { return device }
+                return nil
+            }
         }
 
         public let bytes: Data
@@ -454,6 +504,27 @@ public enum OpLogChain {
         case cutShortBeforeRememberedHead(lineIndex: Int)
     }
 
+    /// Why a walk held lines back, in the walk's own terms.
+    ///
+    /// The reason a `.lines` record carries is DERIVED from this and never
+    /// passed in (ADR 0032 §6), which is what stops two callers filing the same
+    /// event under different words. Before P2a a broken chain was the only way
+    /// to be refused, so `BreakReason` was the whole answer; a verdict can now
+    /// refuse a span that chains perfectly, and those two are different events
+    /// with different sentences for the writer.
+    ///
+    /// One cause per verification, and it is the FIRST one the walk met: a
+    /// break stops the walk outright, so a break is always the last word, and a
+    /// verdict that refused an earlier span is the one the writer needs to see.
+    public enum QuarantineCause: Equatable, Sendable {
+        /// The chain did not hold together.
+        case chainBroke(BreakReason)
+        /// A seal made by a key this device's root admitted and then revoked.
+        case afterRevocation(person: String)
+        /// A seal from a second self-signed root's chain: listed, never merged.
+        case anotherClaimants(root: String)
+    }
+
     public struct Verification: Equatable, Sendable {
         /// Every non-blank line, in file order, classified.
         public let lines: [Line]
@@ -463,11 +534,43 @@ public enum OpLogChain {
         public let legacyCount: Int
         public let verifiedCount: Int
         public let unsealedCount: Int
-        /// Seals that held together under a key the caller does not trust.
+        /// Lines held under a seal whose key belongs to no chain here — not
+        /// applied, not refused (spec §3).
+        public let pendingCount: Int
+        /// Seals that held together under a key the caller does not call its
+        /// own. Every verdict but `.mine` counts here, because the one reader
+        /// of this number (`resolveAbsentHead`'s crash window) asks whether
+        /// every seal in the file is this device's.
         public let foreignSealCount: Int
         /// The raw bytes of every quarantined line, in file order.
         public let quarantined: [Data]
         public let breakReason: BreakReason?
+        /// Why the quarantined lines were held back, when any were.
+        public let quarantineCause: QuarantineCause?
+
+        public init(
+            lines: [Line],
+            head: String?,
+            legacyCount: Int,
+            verifiedCount: Int,
+            unsealedCount: Int,
+            pendingCount: Int = 0,
+            foreignSealCount: Int,
+            quarantined: [Data],
+            breakReason: BreakReason?,
+            quarantineCause: QuarantineCause? = nil
+        ) {
+            self.lines = lines
+            self.head = head
+            self.legacyCount = legacyCount
+            self.verifiedCount = verifiedCount
+            self.unsealedCount = unsealedCount
+            self.pendingCount = pendingCount
+            self.foreignSealCount = foreignSealCount
+            self.quarantined = quarantined
+            self.breakReason = breakReason
+            self.quarantineCause = quarantineCause
+        }
     }
 
     /// Test-only counting seam: called once at the top of every `verify`.
@@ -499,11 +602,20 @@ public enum OpLogChain {
     ///    only while nothing chained or sealed has been seen yet in these bytes:
     ///    legacy is a prefix, never a suffix.
     /// 5. A seal must name the running head and hold together, and it settles
-    ///    every `.unsealed` line since the last seal: `.verified` when
-    ///    `trusted(seal.key)`, `.unsignedHistory` when not.
+    ///    every `.unsealed` line since the last seal to whatever `trust`
+    ///    answers about the key that made it — `.verified`, `.pending`,
+    ///    `.unsignedHistory` or `.quarantined`, per `TrustVerdict.settling`.
+    ///
+    /// **A refused span does not break the chain.** A verdict is about WHOSE
+    /// word a span is, not about whether the bytes follow from each other, so
+    /// the walk goes on and a later span from an admitted key still applies.
+    /// That is also why quarantined lines are no longer necessarily a suffix on
+    /// this path — `applied` filters by state and never by position, and the
+    /// chained WRITE (whose rewrite does assume a prefix) judges by `.mine`
+    /// alone, so it cannot produce one of these.
     public nonisolated static func verify(
         bytes: Data,
-        trusted: (String) -> Bool,
+        trust: (String) -> TrustVerdict,
         rememberedHead: String?
     ) -> Verification {
         verifyObserverForTesting?()
@@ -512,8 +624,15 @@ public enum OpLogChain {
         var sawChainOrSeal = false
         var spanStart = 0
         var breakReason: BreakReason?
+        var cause: QuarantineCause?
         var foreignSealCount = 0
         var reachedRememberedHead = false
+
+        // One cause per verification, and it is the first one met.
+        func broke(_ reason: BreakReason) {
+            breakReason = reason
+            if cause == nil { cause = .chainBroke(reason) }
+        }
 
         let lineData = bytes.split(separator: 0x0A, omittingEmptySubsequences: false)
             .filter { !$0.isEmpty }
@@ -527,7 +646,7 @@ public enum OpLogChain {
                 continue
             }
             if reachedRememberedHead {
-                breakReason = .afterRememberedHead(lineIndex: index)
+                broke(.afterRememberedHead(lineIndex: index))
                 lines.append(Line(bytes: line, kind: kind, state: .quarantined))
                 continue
             }
@@ -549,7 +668,7 @@ public enum OpLogChain {
                     // any other, and breaks.
                     let expected = head ?? genesis
                     guard declared == expected else {
-                        breakReason = .prevMismatch(lineIndex: index)
+                        broke(.prevMismatch(lineIndex: index))
                         lines.append(Line(bytes: line, kind: kind, state: .quarantined))
                         continue
                     }
@@ -557,7 +676,7 @@ public enum OpLogChain {
                     lines.append(Line(bytes: line, kind: kind, state: .unsealed))
                 } else {
                     guard !sawChainOrSeal else {
-                        breakReason = .unchainedAfterChain(lineIndex: index)
+                        broke(.unchainedAfterChain(lineIndex: index))
                         lines.append(Line(bytes: line, kind: kind, state: .quarantined))
                         continue
                     }
@@ -566,7 +685,7 @@ public enum OpLogChain {
 
             case .seal:
                 guard let seal = Seal.parse(line) else {
-                    breakReason = .sealSignatureInvalid(lineIndex: index)
+                    broke(.sealSignatureInvalid(lineIndex: index))
                     lines.append(Line(bytes: line, kind: kind, state: .quarantined))
                     continue
                 }
@@ -574,18 +693,21 @@ public enum OpLogChain {
                 // least one line, so a seal as the first line of a file has
                 // nothing to seal and names a head that was never reached.
                 guard seal.head == head else {
-                    breakReason = .sealHeadMismatch(lineIndex: index)
+                    broke(.sealHeadMismatch(lineIndex: index))
                     lines.append(Line(bytes: line, kind: kind, state: .quarantined))
                     continue
                 }
                 guard seal.verifies() else {
-                    breakReason = .sealSignatureInvalid(lineIndex: index)
+                    broke(.sealSignatureInvalid(lineIndex: index))
                     lines.append(Line(bytes: line, kind: kind, state: .quarantined))
                     continue
                 }
-                let isTrusted = trusted(seal.key)
-                if !isTrusted { foreignSealCount += 1 }
-                let settled: Line.State = isTrusted ? .verified : .unsignedHistory
+                let verdict = trust(seal.key)
+                if verdict != .mine { foreignSealCount += 1 }
+                let settled = verdict.settling(sealKey: seal.key)
+                if settled == .quarantined, cause == nil {
+                    cause = verdict.refusal
+                }
                 for covered in spanStart..<index where lines[covered].state == .unsealed {
                     lines[covered].settle(settled)
                 }
@@ -601,13 +723,14 @@ public enum OpLogChain {
         // One pass, not five. The tallies used to be four `filter`s and a `map`
         // over the same array, which on a long novel's tail is five extra walks
         // of every line for numbers a single loop already has in hand.
-        var legacyCount = 0, verifiedCount = 0, unsealedCount = 0
+        var legacyCount = 0, verifiedCount = 0, unsealedCount = 0, pendingCount = 0
         var quarantined: [Data] = []
         for line in lines {
             switch line.state {
             case .legacy: legacyCount += 1
             case .verified: verifiedCount += 1
             case .unsealed: unsealedCount += 1
+            case .pending: pendingCount += 1
             case .unsignedHistory: break
             case .tornTail: break
             case .quarantined: quarantined.append(line.bytes)
@@ -619,9 +742,68 @@ public enum OpLogChain {
             legacyCount: legacyCount,
             verifiedCount: verifiedCount,
             unsealedCount: unsealedCount,
+            pendingCount: pendingCount,
             foreignSealCount: foreignSealCount,
             quarantined: quarantined,
-            breakReason: breakReason)
+            breakReason: breakReason,
+            quarantineCause: quarantined.isEmpty ? nil : cause)
+    }
+
+    /// The keyless walk: `true` is this device's own key, `false` is a key it
+    /// has no chain to judge by.
+    ///
+    /// It exists for the two readers that genuinely have no registry in hand —
+    /// `ProjectIntegrity.check`, which inspects a project without opening it,
+    /// and the fallback walk inside an unsettled segment — plus the tests that
+    /// pin the chain's own rules without a trust table. Every other production
+    /// caller builds a `TrustTable` and calls `verify(bytes:trust:)`.
+    public nonisolated static func verify(
+        bytes: Data,
+        trusted: (String) -> Bool,
+        rememberedHead: String?
+    ) -> Verification {
+        verify(
+            bytes: bytes,
+            trust: { trusted($0) ? .mine : .noChain },
+            rememberedHead: rememberedHead)
+    }
+}
+
+// MARK: - What a verdict does to a span
+
+extension TrustVerdict {
+
+    /// The state this verdict settles a sealed span to. The spec's §3 table,
+    /// as one switch: it is the only place a verdict becomes a line state, so
+    /// a seventh verdict is a compile error here rather than a silent
+    /// `unsignedHistory`.
+    nonisolated func settling(sealKey: String) -> OpLogChain.Line.State {
+        switch self {
+        case .mine, .admitted: .verified
+        // The device the registry names for this key, and the key itself only
+        // when no device record does.
+        case let .stranger(device): .pending(device: device ?? sealKey)
+        case .revoked, .otherRoot: .quarantined
+        case .noChain: .unsignedHistory
+        }
+    }
+
+    /// The words for a refusal, when this verdict is one.
+    nonisolated var refusal: OpLogChain.QuarantineCause? {
+        switch self {
+        case let .revoked(person, _): .afterRevocation(person: person)
+        case let .otherRoot(root): .anotherClaimants(root: root)
+        case .mine, .admitted, .stranger, .noChain: nil
+        }
+    }
+
+    /// Whether a signature made under this verdict is a word this device stands
+    /// behind — its own, or one its root admitted.
+    nonisolated public var isOurWord: Bool {
+        switch self {
+        case .mine, .admitted: true
+        case .stranger, .revoked, .otherRoot, .noChain: false
+        }
     }
 }
 
@@ -691,9 +873,14 @@ extension OpLogChain {
         return (quarantining(verification, after: anchor), nil)
     }
 
-    /// The index of the last line that is a seal this device's own key made —
-    /// `.verified` is exactly "covered by a seal the caller trusts", and a seal
-    /// line settles to its own span's state.
+    /// The index of the last line that is a seal whose key this device stands
+    /// behind — `.verified` is exactly "covered by a seal the caller calls its
+    /// own or its root's", and a seal line settles to its own span's state.
+    ///
+    /// Reachable only for a file this device remembers a head for, which is one
+    /// of its own, so in practice the seal it finds is this device's; an
+    /// admitted device's seal would anchor here too, and that is right — the
+    /// question is what the chain can be trusted back to, not who typed it.
     private nonisolated static func lastTrustedSealIndex(_ lines: [Line]) -> Int? {
         lines.lastIndex { $0.kind == .seal && $0.state == .verified }
     }
@@ -709,28 +896,39 @@ extension OpLogChain {
             lines[index].settle(.quarantined)
         }
 
-        var legacyCount = 0, verifiedCount = 0, unsealedCount = 0, foreignSealCount = 0
+        var legacyCount = 0, verifiedCount = 0, unsealedCount = 0, pendingCount = 0
         var quarantined: [Data] = []
         for line in lines {
             switch line.state {
             case .legacy: legacyCount += 1
             case .verified: verifiedCount += 1
             case .unsealed: unsealedCount += 1
-            case .unsignedHistory:
-                if line.kind == .seal { foreignSealCount += 1 }
+            case .pending: pendingCount += 1
+            case .unsignedHistory: break
             case .tornTail: break
             case .quarantined: quarantined.append(line.bytes)
             }
         }
 
+        let cutShort = BreakReason.cutShortBeforeRememberedHead(lineIndex: anchor + 1)
         return Verification(
             lines: lines,
             head: lineHash(lines[anchor].bytes),
             legacyCount: legacyCount,
             verifiedCount: verifiedCount,
             unsealedCount: unsealedCount,
-            foreignSealCount: foreignSealCount,
+            pendingCount: pendingCount,
+            // Carried, never recounted. `foreignSealCount` is a fact about the
+            // SEALS in the file — how many were made by a key this device does
+            // not call its own — and holding lines back does not change who
+            // signed them. Recounting it off the states would also be a second
+            // definition of the word, and a quieter one: `.verified` covers an
+            // admitted device's seal, which the walk counts as foreign.
+            foreignSealCount: verification.foreignSealCount,
             quarantined: quarantined,
-            breakReason: .cutShortBeforeRememberedHead(lineIndex: anchor + 1))
+            breakReason: cutShort,
+            // A cause the walk already found stands: it happened first, and it
+            // is the one that explains lines this truncation did not touch.
+            quarantineCause: verification.quarantineCause ?? .chainBroke(cutShort))
     }
 }

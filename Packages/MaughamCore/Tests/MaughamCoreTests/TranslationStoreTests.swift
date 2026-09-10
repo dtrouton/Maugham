@@ -31,8 +31,8 @@ final class TranslationStoreTests: XCTestCase {
 
     // MARK: - Fixture
 
-    private func merged(docId: String = "doc1", language: String = "es") -> [TranslationRecord] {
-        TranslationStore.loadMerged(
+    private func merged(docId: String = "doc1", language: String = "es") throws -> [TranslationRecord] {
+        try TranslationStore.loadMerged(
             forDocId: docId, language: language, in: projectURL,
             identities: mine, state: myState)
     }
@@ -84,7 +84,7 @@ final class TranslationStoreTests: XCTestCase {
                                     at: Date(timeIntervalSince1970: 1_753_000_000))
         try await TranslationStore.append(rec, forDocId: "doc1", identity: mine.translator,
                                           identities: mine, state: myState, in: projectURL)
-        XCTAssertEqual(merged(), [rec])
+        XCTAssertEqual(try merged(), [rec])
     }
 
     func test_loadMerged_mergesAcrossDeviceFiles_opIdOrdered_deduped() async throws {
@@ -100,7 +100,7 @@ final class TranslationStoreTests: XCTestCase {
         // Duplicate opId, into a file that already holds r2.
         try await TranslationStore.append(r1, forDocId: "doc1", identity: mine.translator,
                                           identities: mine, state: myState, in: projectURL)
-        XCTAssertEqual(merged().map(\.opId), [r1.opId, r2.opId])
+        XCTAssertEqual(try merged().map(\.opId), [r1.opId, r2.opId])
     }
 
     func test_latestByParagraph_lastOpIdWins_andTombstoneRemoves() {
@@ -128,7 +128,7 @@ final class TranslationStoreTests: XCTestCase {
         XCTAssertEqual(try recordLines(of: mine.translator).count, 3)
         XCTAssertEqual(try seals(of: mine.translator).count, 1,
                        "one batch, one seal — not one per record")
-        XCTAssertEqual(Set(merged().map(\.paragraphId)), Set(records.map(\.paragraphId)))
+        XCTAssertEqual(Set(try merged().map(\.paragraphId)), Set(records.map(\.paragraphId)))
     }
 
     func test_appendBatch_failurePathWritesNothing() async throws {
@@ -188,7 +188,7 @@ final class TranslationStoreTests: XCTestCase {
 
         XCTAssertEqual(try recordLines(of: mine.translator).count, 2,
                        "the tombstone appends to the real language's file")
-        XCTAssertTrue(TranslationStore.latestByParagraph(merged()).isEmpty,
+        XCTAssertTrue(TranslationStore.latestByParagraph(try merged()).isEmpty,
                       "and it still removes the paragraph")
     }
 
@@ -208,7 +208,7 @@ final class TranslationStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath:
             TranslationStore.fileURL(forDocId: "doc1", language: "es",
                                      deviceSlug: mine.translator.slug, in: projectURL).path))
-        XCTAssertTrue(TranslationStore.latestByParagraph(merged()).isEmpty,
+        XCTAssertTrue(TranslationStore.latestByParagraph(try merged()).isEmpty,
                       "the sibling device's translation is removed")
     }
 
@@ -219,7 +219,7 @@ final class TranslationStoreTests: XCTestCase {
             forDocId: "doc1", language: "es", identity: mine.translator,
             identities: mine, state: myState, in: projectURL)
         XCTAssertEqual(TranslationStore.languages(forDocId: "doc1", in: projectURL), ["es"])
-        XCTAssertEqual(merged().count, 2)
+        XCTAssertEqual(try merged().count, 2)
     }
 
     func test_tombstoneRemovesKey_andLaterValueRestoresIt() {
@@ -384,5 +384,104 @@ final class TranslationStoreTests: XCTestCase {
 
         // Should still find only the valid "en" language
         XCTAssertEqual(TranslationStore.languages(forDocId: "doc", in: projectURL), ["en"])
+    }
+
+    // MARK: - RULING-54 for the translation sidecar (P2a D0)
+
+    /// **A file that is PRESENT and unreadable refuses the whole read.**
+    ///
+    /// Since P1b a document's translation is spread over one file per (device,
+    /// actor) — the translator pipeline writes one, the author's own review
+    /// edits another. Skipping the unreadable one used to answer with the
+    /// records of every OTHER file, which for a two-actor document is a PARTLY
+    /// translated manuscript: the author's edits standing over source
+    /// paragraphs the pipeline had already translated. A compile publishes
+    /// that without a word. RULING-54's rule for the op log is this file's
+    /// too: unreadable-yet-present is never empty.
+    func test_presentButUnreadableFile_refusesTheReadByName() async throws {
+        try XCTSkipIf(geteuid() == 0, "root reads a mode-000 file, so there is nothing to refuse")
+        let rec = TranslationRecord(paragraphId: "aaaa", language: "es",
+                                    text: "Hola", sourceHash: "deadbeefdeadbeef",
+                                    at: Date(timeIntervalSince1970: 1_753_000_000))
+        try await TranslationStore.append(rec, forDocId: "doc1", identity: mine.translator,
+                                          identities: mine, state: myState, in: projectURL)
+        let url = TranslationStore.fileURL(
+            forDocId: "doc1", language: "es",
+            deviceSlug: mine.translator.slug, in: projectURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644], ofItemAtPath: url.path)
+        }
+
+        XCTAssertThrowsError(try merged()) { error in
+            guard case OpLogStore.ReadError.unreadableFile(let name, _, _) = error else {
+                return XCTFail("expected OpLogStore.ReadError.unreadableFile, got \(error)")
+            }
+            XCTAssertEqual(name, url.lastPathComponent,
+                           "the refusal must NAME the file the writer has to go and fix")
+        }
+    }
+
+    /// The other half of the same rule: a file that is not there is ABSENT,
+    /// not damaged. Nothing has been translated yet, and that reads as no
+    /// records rather than as a refusal.
+    func test_missingFile_readsAsAbsent() throws {
+        XCTAssertEqual(try merged(), [],
+                       "a document with no translation file has no translation, "
+                       + "which is an answer rather than a failure")
+    }
+
+    /// **One error, and it knows what kind of file it names** (P2a D0, fix
+    /// round 1). A second error type per store would be a second sentence for
+    /// one condition; a kind on the one case is the noun and the refusal, and
+    /// nothing else moves. `.history` is the default, so every op-log throw
+    /// site keeps the wording it shipped with.
+    func test_theUnreadableFileSentenceNamesTheKindOfFileItIsAbout() {
+        let history = OpLogStore.ReadError
+            .unreadableFile(name: "c1.maca-1234.jsonl", underlying: "Permission denied")
+        let translation = OpLogStore.ReadError
+            .unreadableFile(name: "c1.es.maca-1234.jsonl", underlying: "Permission denied",
+                            kind: .translation)
+
+        let historySentence = try! XCTUnwrap(history.errorDescription)
+        XCTAssertTrue(historySentence.contains("history file"), historySentence)
+        XCTAssertTrue(historySentence.contains("c1.maca-1234.jsonl"), historySentence)
+        XCTAssertTrue(historySentence.contains("won't open a shortened version"),
+                      "the history file's own refusal: " + historySentence)
+
+        let translationSentence = try! XCTUnwrap(translation.errorDescription)
+        XCTAssertTrue(translationSentence.contains("translation file"), translationSentence)
+        XCTAssertTrue(translationSentence.contains("c1.es.maca-1234.jsonl"), translationSentence)
+        XCTAssertTrue(translationSentence.contains("partial translation"),
+                      "the translation file's own refusal: " + translationSentence)
+        XCTAssertFalse(translationSentence.contains("history file"),
+                       "the noun is the file's, not the op log's: " + translationSentence)
+    }
+
+    /// …and the store's own throw carries that kind, so the sentence a caller
+    /// shows is the translation one rather than the default.
+    func test_theStoresRefusalIsAboutATranslationFile() async throws {
+        try XCTSkipIf(geteuid() == 0, "root reads a mode-000 file, so there is nothing to refuse")
+        try await TranslationStore.append(
+            TranslationRecord(paragraphId: "aaaa", language: "es", text: "Hola",
+                              sourceHash: "deadbeefdeadbeef"),
+            forDocId: "doc1", identity: mine.translator,
+            identities: mine, state: myState, in: projectURL)
+        let url = TranslationStore.fileURL(
+            forDocId: "doc1", language: "es",
+            deviceSlug: mine.translator.slug, in: projectURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644], ofItemAtPath: url.path)
+        }
+
+        XCTAssertThrowsError(try merged()) { error in
+            guard case OpLogStore.ReadError.unreadableFile(_, _, let kind) = error else {
+                return XCTFail("expected OpLogStore.ReadError.unreadableFile, got \(error)")
+            }
+            XCTAssertEqual(kind, .translation)
+        }
     }
 }

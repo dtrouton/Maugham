@@ -828,7 +828,7 @@ struct DepartmentPane: View {
             .help(run.bookRefusal
                   ?? DepartmentRunState.runBookHelp(language: row.language,
                                                     count: run.bookDocumentCount,
-                                                    words: run.bookWords))
+                                                    preflight: run.bookPreflight))
         if run.isRunning {
             Button(DepartmentRunState.cancelTitle) { cancelRun() }
                 .controlSize(.small)

@@ -93,8 +93,8 @@ final class TranslationChainTests: XCTestCase {
             rememberedHead: myState.head(for: OpLogDeviceState.fileKey(url)))
     }
 
-    private func merged() -> [TranslationRecord] {
-        TranslationStore.loadMerged(forDocId: docId, language: "es", in: projectURL,
+    private func merged() throws -> [TranslationRecord] {
+        try TranslationStore.loadMerged(forDocId: docId, language: "es", in: projectURL,
                                     identities: mine, state: myState)
     }
 
@@ -140,7 +140,7 @@ final class TranslationChainTests: XCTestCase {
         XCTAssertNil(OpLogChain.Seal.parse(written[1]),
                      "and no seal line was written")
 
-        let merged = TranslationStore.loadMerged(
+        let merged = try TranslationStore.loadMerged(
             forDocId: docId, language: "es", in: projectURL,
             identities: trusting, state: myState)
         XCTAssertEqual(merged.count, 2,
@@ -196,7 +196,7 @@ final class TranslationChainTests: XCTestCase {
         let verification = try walk(mine.translator)
         XCTAssertNil(verification.breakReason)
         XCTAssertEqual(try lines(of: mine.translator).filter(OpLogChain.isSealLine).count, 2)
-        XCTAssertEqual(merged().count, 3)
+        XCTAssertEqual(try merged().count, 3)
     }
 
     // MARK: - (b) The whole device is trusted, not just the signer
@@ -269,7 +269,7 @@ final class TranslationChainTests: XCTestCase {
             "the writer's edit is not written into the pipeline's file")
 
         // And one merged answer: the writer's.
-        let all = merged()
+        let all = try merged()
         XCTAssertEqual(all.count, 2, "both lines survive the merge")
         XCTAssertEqual(TranslationStore.latestByParagraph(all)["aaaa"]?.text,
                        "Hola de nuevo")
@@ -281,7 +281,7 @@ final class TranslationChainTests: XCTestCase {
         try await write([record("aaaa", "Hola")], as: mine.translator)
         try await write([record("aaaa", nil)], as: mine.author)
 
-        XCTAssertTrue(TranslationStore.latestByParagraph(merged()).isEmpty)
+        XCTAssertTrue(TranslationStore.latestByParagraph(try merged()).isEmpty)
     }
 
     // MARK: - (d) A stranger's file is history, not damage
@@ -304,7 +304,7 @@ final class TranslationChainTests: XCTestCase {
         XCTAssertTrue(theirWalk.quarantined.isEmpty,
                       "a foreign seal is history, never damage")
 
-        XCTAssertEqual(Set(merged().map(\.paragraphId)), ["aaaa", "bbbb"])
+        XCTAssertEqual(Set(try merged().map(\.paragraphId)), ["aaaa", "bbbb"])
     }
 
     /// **What the narrow trust set actually costs, on the read path.**
@@ -336,7 +336,7 @@ final class TranslationChainTests: XCTestCase {
         rebuilt.append(0x0A)
         try rebuilt.write(to: url, options: .atomic)
 
-        XCTAssertEqual(merged().map(\.paragraphId), ["aaaa"],
+        XCTAssertEqual(try merged().map(\.paragraphId), ["aaaa"],
                        "everything after the translator's last own seal is held "
                        + "back — which needs the translator's seal to be "
                        + "TRUSTED, not read as another device's")
@@ -359,7 +359,7 @@ final class TranslationChainTests: XCTestCase {
         try handle.write(contentsOf: intruder + Data([0x0A]))
         try handle.close()
 
-        let all = merged()
+        let all = try merged()
         XCTAssertEqual(all.map(\.paragraphId), ["aaaa"],
                        "the line written after this device's head is not applied")
 

@@ -199,8 +199,18 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// directories never collide.
     public nonisolated static func fileKey(_ url: URL) -> String {
         let standardized = url.standardizedFileURL
-        let scope = (projectRoot(of: url) ?? standardized.deletingLastPathComponent()).path
-        return "\(hex(SHA256.hash(data: Data(scope.utf8))))/\(standardized.lastPathComponent)"
+        let scope = projectRoot(of: url) ?? standardized.deletingLastPathComponent()
+        return "\(scopeHash(ofRoot: scope))/\(standardized.lastPathComponent)"
+    }
+
+    /// The hash half of a `fileKey`, taken over a project root directly.
+    ///
+    /// Exists so that a device-local memory keyed by PROJECT rather than by
+    /// file (`RegistryCache`) can key on the very same hash instead of taking a
+    /// second hash of the same path. Two spellings of "which project this is"
+    /// is how one memory prunes an entry another memory still needs.
+    nonisolated static func scopeHash(ofRoot root: URL) -> String {
+        hex(SHA256.hash(data: Data(root.standardizedFileURL.path.utf8)))
     }
 
     /// The project `fileKey` scopes this file to: the nearest ancestor
@@ -234,6 +244,18 @@ public final class OpLogDeviceState: @unchecked Sendable {
         String(fileKey.prefix { $0 != "/" })
     }
 
+    /// D3′ in one predicate, so every device-local memory prunes on the same
+    /// two clauses: **a recorded root is dead only when the root is absent AND
+    /// its parent is present.** A deleted project leaves its enclosing folder
+    /// behind; an unmounted volume takes its whole path with it. Without the
+    /// second clause the two are indistinguishable, and a volume that happens
+    /// to be absent at launch costs a project a memory nothing ever touched.
+    nonisolated static func rootIsGone(atPath path: String) -> Bool {
+        guard !FileManager.default.fileExists(atPath: path) else { return false }
+        let parent = URL(fileURLWithPath: path).deletingLastPathComponent().path
+        return FileManager.default.fileExists(atPath: parent)
+    }
+
     /// Drops every head whose recorded project is no longer on disk, and
     /// answers whether anything went.
     ///
@@ -248,6 +270,16 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// reported. A root that is present but has lost its `.maugham` has no
     /// lines for those heads to protect, so keeping them costs nothing.
     ///
+    /// **D3′ (Denver's ruling): a root is dead only when the root is absent
+    /// AND its parent is present.** A deleted project leaves its parent
+    /// directory behind — the enclosing folder is still there, only the
+    /// project inside it is gone. An unmounted volume takes its whole path
+    /// with it: the parent is gone too, not just the leaf. Without the second
+    /// clause an unmounted volume reads exactly like a deleted project and
+    /// loses its heads on every launch it happens to be absent for, silently
+    /// giving up one launch's worth of tamper detection for a project that was
+    /// never touched at all.
+    ///
     /// An entry pruned by mistake is still the ADOPT case, the same fall-back a
     /// moved project already takes — the safe direction — but the narrower
     /// predicate reaches for it far less often.
@@ -256,9 +288,7 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// and belongs to no project — and so is any head whose hash has no
     /// recorded root, which is every head written before this field existed.
     private nonisolated static func prune(_ stored: inout Stored) -> Bool {
-        let dead = stored.roots.filter { _, path in
-            !FileManager.default.fileExists(atPath: path)
-        }
+        let dead = stored.roots.filter { _, path in rootIsGone(atPath: path) }
         guard !dead.isEmpty else { return false }
         let hashes = Set(dead.keys)
         stored.heads = stored.heads.filter { !hashes.contains(scopeHash(ofKey: $0.key)) }
@@ -297,16 +327,20 @@ public struct ChainPolicy: Sendable {
     /// The key this store SIGNS with: one actor, never a set. A seal names one
     /// device and one moment, and a line is written by one writer.
     public let identity: DeviceIdentity
-    /// The keys this store TRUSTS on read: every actor on this device
-    /// (`LocalIdentities.fingerprints`). Signing and trusting are different
-    /// questions and P1b is where they stop having the same answer — the
-    /// assistant's seal over the assistant's file is this device's own word,
-    /// and a trust set of one fingerprint would file it as another device's
-    /// unsigned history.
+    /// What a key that sealed something in this store's file is to this
+    /// device — the `TrustTable`'s own question, as a closure, so a store can
+    /// be built without one and a caller that has one passes it straight in.
     ///
-    /// Defaulted to the signer alone, so every caller that has one identity and
-    /// means it (the inbox, the phone's annotation writer) keeps P1's shape.
-    public let trustedFingerprints: Set<String>
+    /// **Its two readers ask different things of it.** The chained WRITE asks
+    /// only whether a key is `.mine`: this file has one writer by ADR 0012, so
+    /// anything else in it is a quarantine whatever the registry says. The
+    /// chained READ (`loadVerifiedStrict`) takes the full verdict, which is
+    /// what lets the inbox hold a stranger's entries rather than applying them.
+    ///
+    /// Defaulted to *the signer is this device and nobody else is judged* —
+    /// P1's shape exactly — so every caller that has one identity and means it
+    /// keeps what it had.
+    public let trust: @Sendable (String) -> TrustVerdict
     public let state: OpLogDeviceState
     public let docId: String
     public let projectURL: URL
@@ -316,10 +350,11 @@ public struct ChainPolicy: Sendable {
         state: OpLogDeviceState,
         docId: String,
         projectURL: URL,
-        trustedFingerprints: Set<String>? = nil
+        trust: (@Sendable (String) -> TrustVerdict)? = nil
     ) {
+        let signer = identity.fingerprint
         self.identity = identity
-        self.trustedFingerprints = trustedFingerprints ?? [identity.fingerprint]
+        self.trust = trust ?? { $0 == signer ? .mine : .noChain }
         self.state = state
         self.docId = docId
         self.projectURL = projectURL

@@ -49,13 +49,13 @@ extension TranslationPipeline.Environment {
             },
             briefReader: { [weak store, weak documentStore] docId, language in
                 guard let store else { return nil }
-                return readerBriefing(docId: docId, language: language, store: store,
-                                      documentStore: documentStore, projectURL: projectURL)
+                return try readerBriefing(docId: docId, language: language, store: store,
+                                          documentStore: documentStore, projectURL: projectURL)
             },
             briefCollator: { [weak store, weak documentStore] docId, language in
                 guard let store else { return nil }
-                return collatorBriefing(docId: docId, language: language, store: store,
-                                        documentStore: documentStore, projectURL: projectURL)
+                return try collatorBriefing(docId: docId, language: language, store: store,
+                                            documentStore: documentStore, projectURL: projectURL)
             },
             coldCall: { [weak coldCall] message, preamble, model in
                 guard let coldCall else {
@@ -87,14 +87,21 @@ extension TranslationPipeline.Environment {
     /// the one spelling of stored-then-preset); the identity closure has
     /// already stored the row by the time this runs.
     @MainActor
+    ///
+    /// **Throws where the translation cannot be READ** (P2a D0), distinct from
+    /// the `nil` above: `nil` is "there is nothing to brief on", and a leg
+    /// answers it with its own sentence. A present-but-unreadable actor file
+    /// is neither — briefing the reader over the file that DID open would show
+    /// them a document part-translated by an accident of permissions, and
+    /// their notes would be about the gap rather than the prose.
     static func readerBriefing(
         docId: String, language: String, store: ProjectStore,
         documentStore: DocumentStore?, projectURL: URL
-    ) -> ReaderBriefing.Inputs? {
+    ) throws -> ReaderBriefing.Inputs? {
         guard let state = try? currentParagraphState(
             documentId: docId, store: store, documentStore: documentStore, projectURL: projectURL)
         else { return nil }
-        let records = TranslationStore.loadMerged(forDocId: docId, language: language, in: projectURL)
+        let records = try TranslationStore.loadMerged(forDocId: docId, language: language, in: projectURL)
         let derived = TranslationDeriver.derive(
             records: records, sequence: state.sequence, paragraphs: state.paragraphs, language: language)
         let role = store.manifest.storedReader(for: language)
@@ -120,14 +127,15 @@ extension TranslationPipeline.Environment {
     /// glossary). Freshness governs the translation half exactly as it does
     /// the reader's: a stale rendering is not what this edition says.
     @MainActor
+    /// Throws for the same reason `readerBriefing` does (P2a D0).
     static func collatorBriefing(
         docId: String, language: String, store: ProjectStore,
         documentStore: DocumentStore?, projectURL: URL
-    ) -> CollatorBriefing.Inputs? {
+    ) throws -> CollatorBriefing.Inputs? {
         guard let state = try? currentParagraphState(
             documentId: docId, store: store, documentStore: documentStore, projectURL: projectURL)
         else { return nil }
-        let records = TranslationStore.loadMerged(forDocId: docId, language: language, in: projectURL)
+        let records = try TranslationStore.loadMerged(forDocId: docId, language: language, in: projectURL)
         let derived = TranslationDeriver.derive(
             records: records, sequence: state.sequence, paragraphs: state.paragraphs, language: language)
         let role = store.manifest.storedCollator(for: language)

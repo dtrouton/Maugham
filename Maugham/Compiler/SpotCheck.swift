@@ -158,10 +158,21 @@ enum SpotCheck {
         store: ProjectStore, documentStore: DocumentStore?, projectURL: URL,
         coldCall: ColdCall, model: String
     ) async -> Outcome<CollatorReport> {
-        guard let whole = TranslationPipeline.Environment.collatorBriefing(
-            docId: docId, language: language, store: store,
-            documentStore: documentStore, projectURL: projectURL)
-        else { return .refused(TranslationPipeline.unbriefableSentence(role: "collator")) }
+        // P2a D0: an unreadable actor file refuses the spot-check by name
+        // rather than asking the collator about a document it can only half
+        // see. `nil` keeps its own meaning — nothing to brief on.
+        let whole: CollatorBriefing.Inputs?
+        do {
+            whole = try TranslationPipeline.Environment.collatorBriefing(
+                docId: docId, language: language, store: store,
+                documentStore: documentStore, projectURL: projectURL)
+        } catch {
+            return .refused(TranslationPipeline.unbriefableSentence(
+                role: "collator", error: error))
+        }
+        guard let whole else {
+            return .refused(TranslationPipeline.unbriefableSentence(role: "collator"))
+        }
         guard let narrowed = narrow(whole, to: paragraphId),
               narrowed.briefedParagraphIds.contains(paragraphId)
         else { return .refused(noTranslationRefusal) }

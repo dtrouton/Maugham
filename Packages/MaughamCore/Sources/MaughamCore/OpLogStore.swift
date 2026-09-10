@@ -120,13 +120,69 @@ public final class OpLogStore {
         projectURL: URL,
         presenter: NSFilePresenter? = nil,
         identities: LocalIdentities = .current,
-        state: OpLogDeviceState = .shared
+        state: OpLogDeviceState = .shared,
+        cache: RegistryCache? = nil
     ) {
         self.projectURL = projectURL
         self.presenter = presenter
         self.identities = identities
         self.deviceState = state
+        self.registryCache = cache
     }
+
+    /// The registry memory this store reconciles against — `nil` means the
+    /// process-wide one, resolved only if a registry folder actually exists, so
+    /// a project that never joined a chain touches neither the cache nor this
+    /// machine's keys.
+    private let registryCache: RegistryCache?
+
+    /// Who this device trusts in this project, and the shape of the registry
+    /// folder it was resolved from.
+    ///
+    /// Kept rather than resolved per file: re-reading the registry for every
+    /// file of a thirty-file glob would cost a verified read of the whole
+    /// folder thirty times over. Kept with a SIGNATURE rather than forever,
+    /// because spec §4.1 promises that admitting a device applies its held ops
+    /// on the next read — not on the next store — and a table cached for the
+    /// life of a window would make the admission sheet quietly do nothing.
+    private var resolvedTrust: (signature: String, table: TrustTable)?
+
+    /// The table, re-resolving it whenever the registry folder has changed
+    /// since the one in hand was built.
+    ///
+    /// **Resolved off the main actor.** This class is `@MainActor` and the
+    /// resolution is a folder read plus a P256 verification per record, so it
+    /// goes to a detached task; the comparison that usually makes it
+    /// unnecessary is a few stats and stays here. The presenter is deliberately
+    /// not carried across: it presents this document's own files, and no
+    /// registry record is one of them.
+    ///
+    /// Throws what the resolution throws: a registry record that is present and
+    /// unreadable refuses the load rather than quietly un-admitting whoever it
+    /// names (RULING-54).
+    func trust() async throws -> TrustTable {
+        let signature = TrustResolution.signature(of: projectURL)
+        if let resolvedTrust, resolvedTrust.signature == signature {
+            return resolvedTrust.table
+        }
+        let projectURL = self.projectURL
+        let identities = self.identities
+        let cache = self.registryCache
+        let table = try await Task.detached(priority: .userInitiated) {
+            try TrustResolution.resolve(
+                projectURL: projectURL, identities: identities, cache: cache)
+        }.value
+        resolvedTrust = (signature, table)
+        return table
+    }
+
+    /// Forget the resolved table, so the next read builds a fresh one.
+    ///
+    /// The signature check above catches a registry that changed on disk, but a
+    /// caller that JUST changed it — the admission sheet writing a person
+    /// record — should say so rather than hope a modification time moved far
+    /// enough to be seen.
+    public func invalidateTrust() { resolvedTrust = nil }
 
     /// Lines this device has appended to each file since that file's last seal.
     /// In memory and per store instance on purpose: it is a cadence, not a
@@ -172,13 +228,14 @@ public final class OpLogStore {
     {
         let urls = Self.opLogFileURLs(forDocId: docId, in: projectURL)
         guard !urls.isEmpty else { return ([], ParseDiagnostics(), OpLogProvenance()) }
+        let table = try await trust()
         var merged: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var files: [FileProvenance] = []
         for url in urls {
             let result = try await Self.loadFileDiagnosed(
                 url: url, presenter: presenter,
-                identities: identities, state: deviceState)
+                identities: identities, state: deviceState, trust: table)
             merged.append(contentsOf: result.ops)
             skipped.append(contentsOf: result.diagnostics.skipped)
             files.append(result.provenance)
@@ -212,11 +269,26 @@ public final class OpLogStore {
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var unreadable: [CheckpointLoad.UnreadableFile] = []
         var files: [FileProvenance] = []
+        // A resolution that throws is the registry being unreadable, which is a
+        // fact about the PROJECT and not about one file — so this rung does not
+        // refuse the whole document over it. It does not SWALLOW it either:
+        // RULING-54's rule is that an unreadable file is named, and this is a
+        // load rather than an integrity check, so the record joins the
+        // unreadable list beside whatever op-log files could not be opened and
+        // the read goes on judging nobody.
+        let table: TrustTable
+        do { table = try await trust() }
+        catch {
+            unreadable.append(.init(
+                name: Self.unreadableName(error),
+                reason: error.localizedDescription))
+            table = TrustResolution.keyless(mine: identities)
+        }
         for url in Self.opLogFileURLs(forDocId: docId, in: projectURL) {
             do {
                 let result = try await Self.loadFileDiagnosed(
                     url: url, presenter: presenter,
-                    identities: identities, state: deviceState)
+                    identities: identities, state: deviceState, trust: table)
                 all.append(contentsOf: result.ops)
                 skipped.append(contentsOf: result.diagnostics.skipped)
                 files.append(result.provenance)
@@ -252,15 +324,87 @@ public final class OpLogStore {
     /// to match — with the file's paragraphs superseded by the new sequence
     /// keyframe when it came back. Refusal at load is the only safe shape.
     public enum ReadError: Error, LocalizedError {
-        case unreadableFile(name: String, underlying: String)
+        /// **Which durable store the file belongs to** (P2a D0). ONE error
+        /// kind rather than one error type per store: a writer meeting the
+        /// same condition twice must meet the same sentence, and the only
+        /// things that legitimately differ are the noun for the file and what
+        /// Maugham is refusing to do over it. A store that grows a chained
+        /// JSONL of its own adds a case here rather than an error of its own.
+        public enum FileKind: Equatable, Sendable {
+            /// The per-device op log under `.maugham/ops/` — the manuscript
+            /// itself, and the surface RULING-54 was named for.
+            case history
+            /// A per-(device, actor) translation sidecar under
+            /// `.maugham/translations/`. Since P1b a document's translation is
+            /// spread over several of these, which is why one that will not
+            /// open cannot be stepped over.
+            case translation
+            /// A signed record under `.maugham/people/` or `.maugham/devices/`
+            /// (P2a). The odd one out of the three: it holds none of the
+            /// writer's words, it belongs to the PROJECT rather than to one
+            /// manuscript, and what a half-read registry costs is not text but
+            /// the answer to who wrote this book — so every clause below
+            /// differs for it, not only the noun.
+            case registry
+
+            /// The writer's own word for the file.
+            var noun: String {
+                switch self {
+                case .history: return "history file"
+                case .translation: return "translation file"
+                case .registry: return "registry record"
+                }
+            }
+
+            /// Whose file it is — the phrase the sentence opens with.
+            var owner: String {
+                switch self {
+                case .history, .translation: return "The manuscript's"
+                case .registry: return "This project's"
+                }
+            }
+
+            /// What is safe, said in the terms of what the file actually holds.
+            var reassurance: String {
+                switch self {
+                case .history, .translation: return "Your words are intact inside it"
+                case .registry: return "None of your writing is in it"
+                }
+            }
+
+            /// What the writer reopens once they have fixed the file.
+            var reopens: String {
+                switch self {
+                case .history, .translation: return "the document"
+                case .registry: return "the project"
+                }
+            }
+
+            /// What Maugham is refusing to do rather than read a short answer.
+            var refusal: String {
+                switch self {
+                case .history:
+                    return "Maugham won't open a shortened version over it."
+                case .translation:
+                    return "Maugham won't show or publish a partial translation over it."
+                case .registry:
+                    return "Maugham won't decide who may write in this book "
+                         + "from records it could only half read."
+                }
+            }
+        }
+
+        /// `kind` defaults to `.history`, so every op-log throw site — the
+        /// original ones and any added later — keeps its own wording without
+        /// having to say so.
+        case unreadableFile(name: String, underlying: String, kind: FileKind = .history)
         case unlistableOpsDirectory(underlying: String)
         public var errorDescription: String? {
             switch self {
-            case .unreadableFile(let name, let underlying):
-                return "The manuscript's history file “\(name)” exists but can't be read (\(underlying)). "
-                     + "Your words are intact inside it — check the file's permissions or wait for "
-                     + "iCloud to finish syncing, then reopen the document. Maugham won't open a "
-                     + "shortened version over it."
+            case .unreadableFile(let name, let underlying, let kind):
+                return "\(kind.owner) \(kind.noun) “\(name)” exists but can't be read (\(underlying)). "
+                     + "\(kind.reassurance) — check the file's permissions or wait for "
+                     + "iCloud to finish syncing, then reopen \(kind.reopens). \(kind.refusal)"
             case .unlistableOpsDirectory(let underlying):
                 return "The manuscript's history folder (.maugham/ops) exists but can't be listed "
                      + "(\(underlying)). Check its permissions, then reopen — opening without it "
@@ -311,17 +455,21 @@ public final class OpLogStore {
         return bytes ?? Data()
     }
 
+    /// `trust` is who this device judges the file's seals by. Nil is the
+    /// KEYLESS reader — `ProjectIntegrity.check`, and anything else that
+    /// inspects a project without opening it — which holds no key and judges
+    /// nobody, so every seal it meets is somebody's unsigned history.
     public static func loadFileDiagnosed(
         url: URL, presenter: NSFilePresenter?,
-        identities: LocalIdentities? = nil, state: OpLogDeviceState? = nil
+        identities: LocalIdentities? = nil, state: OpLogDeviceState? = nil,
+        trust: TrustTable? = nil
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance) {
         guard let bytes = try readCoordinated(url: url, presenter: presenter) else {
             return ([], ParseDiagnostics(),
                     FileProvenance(name: url.lastPathComponent,
                                    isSealedSegment: url.pathExtension == OpLogSegment.fileExtension))
         }
-        let classified = classify(
-            url: url, bytes: bytes, identities: identities, state: state)
+        let classified = classify(url: url, bytes: bytes, state: state, trust: trust)
 
         // The three writes a load is allowed to make, all of them derived
         // bookkeeping and every one best-effort: nothing here may cost the
@@ -365,6 +513,13 @@ public final class OpLogStore {
         return (classified.ops, classified.diagnostics, classified.provenance)
     }
 
+    /// The file a `ReadError` names, for a caller that reports unreadable
+    /// files by name and has caught something that might not be one.
+    nonisolated public static func unreadableName(_ error: Error) -> String {
+        if case let ReadError.unreadableFile(name, _, _) = error { return name }
+        return "the project's registry"
+    }
+
     /// The project root a `.maugham/ops/<file>` URL sits under.
     private nonisolated static func projectRoot(of url: URL) -> URL {
         url.deletingLastPathComponent()      // .maugham/ops
@@ -400,27 +555,45 @@ public final class OpLogStore {
     }
 
     nonisolated static func classify(
-        url: URL, bytes: Data, identities: LocalIdentities?, state: OpLogDeviceState?
+        url: URL, bytes: Data,
+        state: OpLogDeviceState?, trust: TrustTable? = nil
     ) -> FileClassification {
         url.pathExtension == OpLogSegment.fileExtension
-            ? classifySegment(url: url, container: bytes, identities: identities, state: state)
-            : classifyTail(url: url, bytes: bytes, identities: identities, state: state)
+            ? classifySegment(url: url, container: bytes, state: state, trust: trust)
+            : classifyTail(url: url, bytes: bytes, state: state, trust: trust)
     }
 
     /// A live `.jsonl` tail: verified against this device's remembered head,
     /// with everything the walk quarantined held back.
+    ///
+    /// It takes no `identities`, for the same reason `classifySegment` does not:
+    /// the only question it ever asked of them — is this key ours — is the
+    /// table's. A parameter still here would let a future caller pass keys and
+    /// no table and silently judge nobody where P1 judged its own.
     private nonisolated static func classifyTail(
-        url: URL, bytes: Data, identities: LocalIdentities?, state: OpLogDeviceState?
+        url: URL, bytes: Data,
+        state: OpLogDeviceState?, trust: TrustTable?
     ) -> FileClassification {
         let fileKey = OpLogDeviceState.fileKey(url)
-        // Trusted is EVERY actor on this device: the assistant's seal over the
-        // assistant's own file is this device's word, and a trust set of one
-        // fingerprint would file the writer's own MCP history under "another
-        // device's unsigned history" in the History pane.
-        let trusted = identities?.fingerprints ?? []
-        let walked = OpLogChain.verify(
+        // The table answers `.mine` for EVERY actor on this device — the
+        // assistant's seal over the assistant's own file is this device's word,
+        // and a trust set of one fingerprint would file the writer's own MCP
+        // history under "another device's unsigned history" in the History
+        // pane — and, since P2a, `.admitted` for the devices this device's root
+        // took in, `.stranger` for a key it can say nothing about (held), and
+        // `.revoked`/`.otherRoot` for a key it refuses.
+        //
+        // With no identities there is no table to build: that reader holds no
+        // key, judges nobody, and every seal it meets is unsigned history.
+        let walked = trust.map {
+            table in
+            OpLogChain.verify(
+                bytes: bytes,
+                trust: { table.verdict(forSealKey: $0) },
+                rememberedHead: state?.head(for: fileKey))
+        } ?? OpLogChain.verify(
             bytes: bytes,
-            trusted: { trusted.contains($0) },
+            trusted: { _ in false },
             rememberedHead: state?.head(for: fileKey))
 
         // The adopt rule (spec §4.2's crash window) and its converse, both in
@@ -453,8 +626,12 @@ public final class OpLogStore {
     /// are settled WHOLE and never walked again. If not — a foreign signature,
     /// no signature at all, a segment minted before this milestone — the lines
     /// are walked keylessly, which still catches a break.
+    ///
+    /// It takes no `identities`: the two questions it once asked of them — is
+    /// this signature ours, and is this key trusted — are both the table's now.
     private nonisolated static func classifySegment(
-        url: URL, container: Data, identities: LocalIdentities?, state: OpLogDeviceState?
+        url: URL, container: Data,
+        state: OpLogDeviceState?, trust: TrustTable?
     ) -> FileClassification {
         let decoded = OpLogSegment.decodeVerifying(container)
         var skipped: [ParseDiagnostics.SkippedLine] = []
@@ -481,11 +658,17 @@ public final class OpLogStore {
         if let digest {
             if state?.isVerified(segmentDigest: digest) == true {
                 settled = true
-            } else if let identities,
+            } else if let trust,
                       let signature = SegmentSignature.read(
                           at: segmentSignatureURL(for: url)),
                       signature.digest == digest,
-                      identities.fingerprints.contains(signature.key),
+                      // A segment is settled WHOLE, so the only verdicts that
+                      // can settle one are the two that are a word this device
+                      // stands behind. A stranger's segment falls through to
+                      // the keyless walk below rather than being held: holding
+                      // is a per-SPAN decision the walk makes, and a segment
+                      // that never settled is walked line by line anyway.
+                      trust.verdict(forSealKey: signature.key).isOurWord,
                       signature.verifies() {
                 settled = true
                 toRemember = digest
@@ -555,12 +738,17 @@ public final class OpLogStore {
         isSealedSegment: Bool, segmentVerified: Bool?
     ) -> FileProvenance {
         var legacy = 0, verified = 0, unsealed = 0, unsignedHistory = 0, quarantined = 0
+        var pending = 0
+        var pendingByDevice: [String: Int] = [:]
         for line in lines {
             switch line.state {
             case .legacy: legacy += 1
             case .verified: verified += 1
             case .unsealed: unsealed += 1
             case .unsignedHistory: unsignedHistory += 1
+            case let .pending(device):
+                pending += 1
+                pendingByDevice[device, default: 0] += 1
             // A torn last line is in no provenance class: it was never
             // applied as history and it was never held back either. The
             // element decoder reports it in `diagnostics.skipped`, which is
@@ -572,6 +760,7 @@ public final class OpLogStore {
         return FileProvenance(
             name: name, legacy: legacy, verified: verified, unsealed: unsealed,
             unsignedHistory: unsignedHistory, quarantined: quarantined,
+            pending: pending, pendingByDevice: pendingByDevice,
             isSealedSegment: isSealedSegment, segmentVerified: segmentVerified)
     }
 
@@ -725,7 +914,13 @@ public final class OpLogStore {
     private func store(
         forDocId docId: String, deviceSlug: DeviceSlug, signer: DeviceIdentity?
     ) -> JSONLAppendStore<Op> {
-        JSONLAppendStore<Op>(
+        // The WRITE path asks one question of the table and it is not a trust
+        // question: which keys are this device's own. A stranger's line in MY
+        // file is a quarantine whatever the registry says, because ADR 0012
+        // gives this file one writer and the rewrite that follows assumes it.
+        // So the KEYLESS table — the registry is not read on a write path.
+        let mine = TrustResolution.keyless(mine: identities)
+        return JSONLAppendStore<Op>(
             fileURL: Self.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL),
             presenter: presenter,
             dedupKey: { $0.opId },
@@ -734,7 +929,7 @@ public final class OpLogStore {
                 ChainPolicy(
                     identity: $0, state: deviceState,
                     docId: docId, projectURL: projectURL,
-                    trustedFingerprints: identities.fingerprints)
+                    trust: { mine.verdict(forSealKey: $0) })
             })
     }
 
@@ -1024,8 +1219,16 @@ public final class OpLogStore {
     public nonisolated static func loadSyncMerged(
         forDocId docId: String, in projectURL: URL,
         identities: LocalIdentities? = .current,
-        state: OpLogDeviceState? = .shared
+        state: OpLogDeviceState? = .shared,
+        trust: TrustTable? = nil
     ) throws -> [Op] {
+        // Resolved here when the caller did not hand one over, so this reader
+        // and the coordinated one hold a document to be made of the same ops.
+        // A caller in a loop over a book's chapters should resolve ONCE and
+        // pass it: the resolution is a verified read of the registry folder.
+        let table = try trust ?? identities.map {
+            try TrustResolution.resolve(projectURL: projectURL, identities: $0)
+        }
         var ops: [Op] = []
         for url in opLogFileURLs(forDocId: docId, in: projectURL) {
             let data: Data
@@ -1041,7 +1244,7 @@ public final class OpLogStore {
                     underlying: error.localizedDescription)
             }
             ops.append(contentsOf: classify(
-                url: url, bytes: data, identities: identities, state: state).ops)
+                url: url, bytes: data, state: state, trust: table).ops)
         }
         return mergeSortedDedup(ops)
     }

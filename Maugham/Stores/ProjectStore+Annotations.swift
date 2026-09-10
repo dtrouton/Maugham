@@ -180,6 +180,27 @@ extension ProjectStore {
         var unreadable: [String] = []
         var sequences: [String: [String]] = [:]
 
+        // ONE trust resolution for the whole walk. `loadSyncMerged` resolves
+        // its own when given none, and that is a verified read of the registry
+        // folder — thirty chapters would be thirty of them.
+        //
+        // **A resolution that throws leaves this walk KEYLESS, and the fallback
+        // has to be spelled** (whole-branch review, I2): a bare `try?` yields
+        // nil, `loadSyncMerged` then resolves its own table per document, that
+        // throws the same error again, and the `try?` below records every
+        // closed chapter as unreadable — a project-wide count emptied by one
+        // registry record, and blamed on the chapters. Keyless is P1's
+        // behaviour exactly. The registry's OWN name goes into the same list,
+        // so the count surface still says it is not the whole story and says
+        // it about the registry.
+        let trust: TrustTable
+        do {
+            trust = try TrustResolution.resolve(projectURL: url, identities: .current)
+        } catch {
+            trust = TrustResolution.keyless(mine: .current)
+            unreadable.append(OpLogStore.unreadableName(error))
+        }
+
         for item in Self.collectDocuments(in: manifest.structure) {
             if let doc = openDocs[item.id] {
                 sequences[item.id] = doc.sequence
@@ -198,7 +219,8 @@ extension ProjectStore {
             // read — opening that document still refuses loudly. It is not
             // silent, though: the id goes into `unreadableDocIds` so a count
             // surface can render "unknown" rather than a number that is short.
-            guard let ops = try? OpLogStore.loadSyncMerged(forDocId: item.id, in: url)
+            guard let ops = try? OpLogStore.loadSyncMerged(
+                forDocId: item.id, in: url, trust: trust)
             else {
                 unreadable.append(item.id)
                 continue

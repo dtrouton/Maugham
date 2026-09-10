@@ -83,14 +83,14 @@ extension TranslatorOrchestrator.Environment {
             model: model,
             briefRound: { [weak store, weak documentStore, weak bible] docId, language in
                 guard let store else { return nil }
-                return briefing(
+                return try briefing(
                     docId: docId, language: language, store: store,
                     documentStore: documentStore, bible: bible,
                     projectURL: projectURL)
             },
             briefFix: { [weak store, weak documentStore, weak bible] docId, language, notes, isFinalLeg in
                 guard let store else { return nil }
-                return fixBriefing(
+                return try fixBriefing(
                     docId: docId, language: language, notes: notes, isFinalLeg: isFinalLeg,
                     store: store, documentStore: documentStore, bible: bible,
                     projectURL: projectURL)
@@ -155,7 +155,7 @@ extension TranslatorOrchestrator.Environment {
     private static func roundContext(
         docId: String, language: String, store: ProjectStore,
         documentStore: DocumentStore?, projectURL: URL
-    ) -> RoundContext? {
+    ) throws -> RoundContext? {
         // The pipeline's own gate, called here so a malformed tag costs a
         // refused click rather than a whole session — the ingest would catch it
         // at the end of the round otherwise.
@@ -174,7 +174,11 @@ extension TranslatorOrchestrator.Environment {
         }
         let intentText = craftIntentText(docId: docId, store: store)
         let briefText = editionBriefText(language: language, store: store)
-        let records = TranslationStore.loadMerged(
+        // **A run that cannot READ the edition refuses, by name** (P2a D0),
+        // and it THROWS rather than answering nil: nil is "not a run" and ends
+        // the click in silence, which is right for a pair with nothing to do
+        // and wrong for a translation file that is present and unreadable.
+        let records = try TranslationStore.loadMerged(
             forDocId: docId, language: language, in: projectURL)
         return RoundContext(
             state: state,
@@ -208,8 +212,8 @@ extension TranslatorOrchestrator.Environment {
     private static func briefing(
         docId: String, language: String, store: ProjectStore,
         documentStore: DocumentStore?, bible: BibleStore?, projectURL: URL
-    ) -> TranslatorOrchestrator.BriefedRound? {
-        guard let context = roundContext(
+    ) throws -> TranslatorOrchestrator.BriefedRound? {
+        guard let context = try roundContext(
             docId: docId, language: language, store: store,
             documentStore: documentStore, projectURL: projectURL) else { return nil }
         let state = context.state
@@ -308,8 +312,8 @@ extension TranslatorOrchestrator.Environment {
         docId: String, language: String, notes: [TranslatorBriefing.FixNote],
         isFinalLeg: Bool, store: ProjectStore, documentStore: DocumentStore?,
         bible: BibleStore?, projectURL: URL
-    ) -> TranslatorOrchestrator.BriefedRound? {
-        guard let context = roundContext(
+    ) throws -> TranslatorOrchestrator.BriefedRound? {
+        guard let context = try roundContext(
             docId: docId, language: language, store: store,
             documentStore: documentStore, projectURL: projectURL) else { return nil }
 
@@ -529,9 +533,19 @@ extension TranslatorOrchestrator.Environment {
             // one. Read for a translate leg too: the shape is the same and a
             // paragraph translated for the first time simply has nil on the
             // before side, which is the honest answer rather than an omission.
-            let before = TranslationStore.latestByParagraph(
-                TranslationStore.loadMerged(
-                    forDocId: context.docId, language: context.language, in: projectURL))
+            let before: [String: TranslationRecord]
+            do {
+                // P2a D0: the before/after pair is what the round REPORTS as
+                // its rewrites, so a partial read here would report a
+                // first-time translation over a paragraph that already had
+                // one. The write has not happened yet, so refusing costs
+                // nothing but the click.
+                before = TranslationStore.latestByParagraph(
+                    try TranslationStore.loadMerged(
+                        forDocId: context.docId, language: context.language, in: projectURL))
+            } catch {
+                return .init(rejection: sentence(for: error))
+            }
             do {
                 // **The one shared write pipeline**, which re-validates every
                 // `¶id` against the state resolved a line ago rather than
@@ -553,9 +567,19 @@ extension TranslatorOrchestrator.Environment {
             } catch {
                 return .init(rejection: sentence(for: error))
             }
-            let after = TranslationStore.latestByParagraph(
-                TranslationStore.loadMerged(
-                    forDocId: context.docId, language: context.language, in: projectURL))
+            let after: [String: TranslationRecord]
+            do {
+                after = TranslationStore.latestByParagraph(
+                    try TranslationStore.loadMerged(
+                        forDocId: context.docId, language: context.language, in: projectURL))
+            } catch {
+                // The write above SUCCEEDED — the translation is on disk. What
+                // failed is reading it back, so the honest answer is the
+                // refusal's own sentence rather than a rewrite list with empty
+                // `after` halves, which would read as a round that wrote
+                // nothing over paragraphs it had just written.
+                return .init(rejection: sentence(for: error))
+            }
             rewrites = report.entries.map { entry in
                 TranslatorOrchestrator.ParagraphRewrite(
                     paragraphId: entry.paragraphId,

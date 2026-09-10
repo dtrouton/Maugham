@@ -90,7 +90,7 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
     func test_theReaderIsBriefedWithFreshTranslationsOnlyAndNeverTheSource() async throws {
         let harness = try await makeHarness()
         try await seed(harness, paragraph: 0, text: "Llegó la niebla.")
-        let gathered = await harness.environment.briefReader(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefReader(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered)
         XCTAssertEqual(inputs.readerName, "Ocampo", "the preset, read without minting")
         XCTAssertEqual(inputs.language, "es")
@@ -111,7 +111,7 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
             forDocId: harness.doc.docId,
             identity: LocalIdentities.current.translator, identities: .current,
             in: harness.projectURL)
-        let gathered = await harness.environment.briefReader(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefReader(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered)
         XCTAssertNil(inputs.paragraphs[1].translation, "stale is not the edition either")
         await harness.documentStore.close()
@@ -130,7 +130,7 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
             language: "es", documentId: harness.doc.docId,
             state: (harness.doc.sequence, harness.doc.paragraphs, harness.projectURL),
             actor: .translator)
-        let gathered = await harness.environment.briefReader(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefReader(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered)
         XCTAssertEqual(inputs.paragraphs[2].translation, harness.doc.paragraphs[id],
                        "a verbatim record's text is the source paragraph itself, not a gap")
@@ -150,7 +150,7 @@ final class TranslationPipelineEnvironmentTests: XCTestCase {
             provenance: Ruling.Provenance.translatorsNote,
             kind: .editionBrief("es"), forScope: .project,
             store: harness.store, world: nil)
-        let gathered = await harness.environment.briefCollator(harness.doc.docId, "es")
+        let gathered = try await harness.environment.briefCollator(harness.doc.docId, "es")
         let inputs = try XCTUnwrap(gathered)
         XCTAssertEqual(inputs.collatorName, "Borges")
         XCTAssertEqual(inputs.authorLanguage, "English")

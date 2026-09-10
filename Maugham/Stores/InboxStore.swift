@@ -40,16 +40,32 @@ final class InboxStore {
     /// pane shows a notice when non-empty; the rows are intact on disk.
     private(set) var unreadableManifests: [String] = []
 
-    /// How many manifest ROWS the verified read held back — lines something
+    /// The sentence for a REGISTRY record this Mac could not read, or nil.
+    ///
+    /// Separate from `unreadableManifests` because the two are different
+    /// refusals and the writer's question about each is different. A manifest
+    /// that will not open costs one device's captures and the honest thing to
+    /// say is that they are still in the file. A registry record that will not
+    /// open costs the answer to *who may write in this book*, and nothing was
+    /// read at all — so the sentence is `ReadError`'s own for a `.registry`
+    /// file, which already says that none of the writer's words are in it and
+    /// what Maugham is refusing to do rather than half-read it.
+    private(set) var unreadableRegistry: String?
+
+    /// The manifest ROWS the verified read held back — runs of lines something
     /// other than Maugham wrote into an inbox stream, kept as forensics and
     /// never applied (signed op log P1).
     ///
     /// The records were being written and surfaced NOWHERE: `HistoryPane` only
     /// ever asks for a DOCUMENT's records, and the inbox files its own under
     /// `InboxManifest.chainDocId`. A refusal nobody is told about is the one
-    /// shape constraint 7 forbids, so the pane says it here. Counted once, on
-    /// `refresh` — the notice itself is pure over this number.
-    private(set) var setAsideLineCount: Int = 0
+    /// shape constraint 7 forbids, so the pane says it.
+    ///
+    /// **The RECORDS rather than a count**, since P2a's D2: what the pane draws
+    /// is a count of the lines in the records the writer has not yet
+    /// acknowledged, and the acknowledgements are UI state the pane holds, not
+    /// the store. Read once, on `refresh`.
+    private(set) var setAsideRecords: [QuarantineRecord] = []
 
     private let projectURL: URL
     private let inboxDir: URL
@@ -63,28 +79,84 @@ final class InboxStore {
     /// no enclave.
     private let identity: DeviceIdentity
 
+    /// This device's four actors, as the trust table's `mine`. Injectable
+    /// beside `identity` for the same reason and it must move with it: a store
+    /// signing with a key the table does not call its own would file its own
+    /// appends as somebody else's history.
+    private let identities: LocalIdentities
+
+    /// The registry memory this store reconciles against — `OpLogStore`'s own
+    /// parameter, verbatim and for its reason. `nil` means the process-wide
+    /// one; a test hands over a memory of its own so a temp project's registry
+    /// is not read and written through machine-global state from a parallel
+    /// worker (whole-branch review, I4).
+    private let registryCache: RegistryCache?
+
     init(projectURL: URL,
          deviceId: String = InboxStore.currentDeviceId,
-         identity: DeviceIdentity = .author) {
+         identity: DeviceIdentity = .author,
+         identities: LocalIdentities = .current,
+         cache: RegistryCache? = nil) {
         self.projectURL = projectURL
         self.inboxDir = projectURL.appendingPathComponent(".maugham/inbox")
         self.deviceId = deviceId
         self.identity = identity
+        self.identities = identities
+        self.registryCache = cache
     }
+
+    /// Who this device trusts in this project, and the shape of the registry
+    /// folder it was resolved from — the op log's own arrangement, for the same
+    /// two reasons: the inbox is read on every `refresh`, and admitting a
+    /// device must apply what it was holding on the next read rather than on
+    /// the next window.
+    private var resolvedTrust: (signature: String, table: TrustTable)?
+
+    /// The table, re-resolved whenever the registry folder has changed, and
+    /// **off the main actor** — this class is `@MainActor` and the resolution
+    /// is a folder read plus a P256 verification per record.
+    ///
+    /// **It throws, and the caller says so out loud** (RULING-54). A registry
+    /// record present and unreadable is not answered with *nobody is judged*:
+    /// judging nobody would apply a stranger's captures as this project's own,
+    /// which is the silent half of the failure that ruling exists to forbid.
+    /// `refresh` names the record it could not read the way it names a manifest
+    /// it could not read, and the write paths let it out through the throwing
+    /// channel they already have.
+    private func trust() async throws -> TrustTable {
+        let signature = TrustResolution.signature(of: projectURL)
+        if let resolvedTrust, resolvedTrust.signature == signature {
+            return resolvedTrust.table
+        }
+        let projectURL = self.projectURL
+        let identities = self.identities
+        let cache = self.registryCache
+        let table = try await Task.detached(priority: .userInitiated) {
+            try TrustResolution.resolve(
+                projectURL: projectURL, identities: identities, cache: cache)
+        }.value
+        resolvedTrust = (signature, table)
+        return table
+    }
+
+    /// Forget the resolved table, so the next read builds a fresh one — for the
+    /// caller that just changed the registry itself.
+    func invalidateTrust() { resolvedTrust = nil }
 
     /// The inbox's chain, for whichever manifest is being read or written: this
     /// device's key and memory, the project it belongs to, and the inbox's own
     /// stream name in place of a docId (the manifest is a project's captures,
     /// not a document's history).
-    private func chainPolicy() -> ChainPolicy {
+    private func chainPolicy(trust table: TrustTable) -> ChainPolicy {
         ChainPolicy(identity: identity, state: .shared,
-                    docId: InboxManifest.chainDocId, projectURL: projectURL)
+                    docId: InboxManifest.chainDocId, projectURL: projectURL,
+                    trust: { table.verdict(forSealKey: $0) })
     }
 
-    private func manifestStore(at url: URL) -> JSONLAppendStore<InboxEntry> {
+    private func manifestStore(at url: URL, trust table: TrustTable) -> JSONLAppendStore<InboxEntry> {
         // No dedupKey: we need every status-transition row, then collapse
         // last-wins ourselves (JSONLAppendStore's dedup keeps *first*).
-        JSONLAppendStore<InboxEntry>(fileURL: url, chain: chainPolicy())
+        JSONLAppendStore<InboxEntry>(fileURL: url, chain: chainPolicy(trust: table))
     }
 
     /// Mirrors `ProjectStore.projectOpDevice`: this device's key fingerprint, read once
@@ -103,13 +175,31 @@ final class InboxStore {
         let urls = manifestURLs()
         var rows: [InboxEntry] = []
         var unreadable: [String] = []
+        let table: TrustTable
+        do { table = try await trust() }
+        catch {
+            // RULING-54, and the strictest place it bites: a registry record
+            // that is present and cannot be read is NAMED, and nothing is
+            // applied under it. Reading on regardless would judge nobody, which
+            // means applying a stranger's captures as this project's own — the
+            // silent failure, and the worse of the two. The rows are intact on
+            // disk; the pane says which record stopped the read.
+            unreadableRegistry = error.localizedDescription
+            unreadableManifests = []
+            entries = []
+            trashedEntries = []
+            setAsideRecords = setAsideLineRecords()
+            inboxStoreLog.error(
+                "inbox read refused: \(OpLogStore.unreadableName(error), privacy: .public) is present and unreadable: \(error.localizedDescription, privacy: .public)")
+            return
+        }
         for url in urls {
             // The verified read (spec §4.2): seal lines never reach the entry
             // decoder, and a run of lines this device cannot vouch for is set
             // aside under the inbox's own stream name before the rest is
             // parsed — the same three steps the op log's tails take, in the
             // same implementation.
-            let store = manifestStore(at: url)
+            let store = manifestStore(at: url, trust: table)
             do { rows.append(contentsOf: try await store.loadVerifiedStrict().elements) }
             catch {
                 // Unreadable is RECORDED, never presented as empty (RULING-7):
@@ -120,11 +210,9 @@ final class InboxStore {
                     "inbox manifest unreadable: \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
+        unreadableRegistry = nil
         unreadableManifests = unreadable.sorted()
-        setAsideLineCount = OpLogQuarantine.setAsideLineCount(
-            records: OpLogQuarantine.records(
-                forDocId: InboxManifest.chainDocId, in: projectURL),
-            in: projectURL)
+        setAsideRecords = setAsideLineRecords()
         // Last-wins by row-write time (writtenAt), across all files and all
         // rows for an id. createdAt is immutable across transition rows, so it
         // can't order them; writtenAt is stamped fresh on every append.
@@ -155,6 +243,13 @@ final class InboxStore {
         trashedEntries = trashed
             .filter { ($0.resolvedAt ?? writeTime($0)) >= cutoff }
             .sorted { writeTime($0) > writeTime($1) }
+    }
+
+    /// The `.lines` records filed under the inbox's own stream name.
+    private func setAsideLineRecords() -> [QuarantineRecord] {
+        OpLogQuarantine
+            .records(forDocId: InboxManifest.chainDocId, in: projectURL)
+            .filter { $0.kind == .lines }
     }
 
     private func manifestURLs() -> [URL] {
@@ -203,7 +298,7 @@ final class InboxStore {
         // worker re-transcribes in an infinite loop. (Smoke caught this.)
         let basis = entry.writtenAt ?? entry.createdAt
         stamped.writtenAt = max(Date(), basis.addingTimeInterval(0.001))
-        let store = manifestStore(at: ownManifestURL)
+        let store = manifestStore(at: ownManifestURL, trust: try await trust())
         try await store.append(stamped)
         // A seal per capture. Captures are rare — a photograph, a voice note, a
         // status flip — so one signature each is a cost the writer never feels,

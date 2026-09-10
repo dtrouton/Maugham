@@ -23,13 +23,19 @@ enum RecoveryCause: Equatable {
     ) -> RecoveryCause? {
         guard let readError = loadError as? OpLogStore.ReadError else { return nil }
         switch readError {
-        case .unreadableFile(let name, let underlying):
+        // **The manuscript's own history, and nothing else** (P2a D0). The
+        // ladder below builds a `.maugham/ops` URL from the name and offers
+        // read-only manuscript recovery over it; a translation sidecar has
+        // neither that path nor that remedy, so it is not this door's case.
+        case .unreadableFile(let name, let underlying, .history):
             let url = projectURL
                 .appendingPathComponent(".maugham/ops", isDirectory: true)
                 .appendingPathComponent(name)
             return isDatalessStub(url)
                 ? .icloudNotDownloaded(fileName: name, fileURL: url)
                 : .unreadableFile(fileName: name, fileURL: url, reason: underlying)
+        case .unreadableFile:
+            return nil
         case .unlistableOpsDirectory(let underlying):
             return .unlistableOpsDirectory(reason: underlying)
         }

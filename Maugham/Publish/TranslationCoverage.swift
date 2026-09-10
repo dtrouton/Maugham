@@ -53,6 +53,17 @@ enum TranslationCoverage {
         var anyRecords = false
         var anyTranslatable = false
 
+        // ONE trust resolution for the whole gate (whole-branch review, I1).
+        // `TranslationStore.loadMerged` resolves its own when handed none, and
+        // that is a verified read of the registry folder plus a reconcile — a
+        // sixty-chapter book would pay sixty of them here alone. It THROWS on a
+        // registry record that is present and unreadable, which refuses the
+        // edition exactly as D0 already refuses one over an unreadable actor
+        // file: a coverage figure derived under a registry this Mac cannot read
+        // is a figure nobody can act on.
+        let trust = try TrustResolution.resolve(
+            projectURL: projectStore.url, identities: .current)
+
         for item in docs {
             if item.pieceKind == .reference { continue }
             // F1: an excluded piece isn't in this edition, so its untranslated
@@ -63,8 +74,14 @@ enum TranslationCoverage {
 
             let (sequence, paragraphs) = try sourceSplit(
                 projectStore: projectStore, docId: item.id, path: path)
-            let records = TranslationStore.loadMerged(
-                forDocId: item.id, language: language, in: projectStore.url)
+            // **The gate refuses the edition rather than deriving over a
+            // partial read** (P2a D0): an unreadable actor file would make
+            // every paragraph that file holds read as `missing`, and under
+            // `allow_stale` the compile would fall back to source text and
+            // publish a half-translated book with a warning nobody can act on.
+            let records = try TranslationStore.loadMerged(
+                forDocId: item.id, language: language, in: projectStore.url,
+                trust: trust)
             if !records.isEmpty { anyRecords = true }
 
             let derived = TranslationDeriver.derive(

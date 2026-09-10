@@ -264,6 +264,25 @@ final class OpLogDeviceStateTests: XCTestCase {
         XCTAssertEqual(state.persistCountForTesting, before + 3, "forgetting persists too")
     }
 
+    /// An unmounted volume must not read as a deleted project (Denver's ruling,
+    /// D3′): it takes its whole path with it, so the project's PARENT is gone
+    /// too, not just the project. A deleted project leaves its parent behind.
+    /// The predicate is two clauses — root absent AND parent present — and
+    /// this fixture satisfies only the first, so the head must survive.
+    func test_aRootWhoseParentIsGoneIsKept() throws {
+        let archive = tmp.appendingPathComponent("Volumes-like/Archive")
+        let root = archive.appendingPathComponent("Novel")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".maugham/ops"), withIntermediateDirectories: true)
+        let key = OpLogDeviceState.fileKey(
+            root.appendingPathComponent(".maugham/ops/d.author-a.jsonl"))
+        OpLogDeviceState(fileURL: stateURL, identity: mine)
+            .remember(head: "h", for: key, root: root)
+        try FileManager.default.removeItem(at: archive)
+
+        XCTAssertEqual(OpLogDeviceState(fileURL: stateURL, identity: mine).head(for: key), "h")
+    }
+
     /// Pruning asks one question — is the recorded root still on disk — and a
     /// path that is simply gone answers no. It is best-effort: nothing throws,
     /// nothing is skipped, the entry goes and the next load adopts.

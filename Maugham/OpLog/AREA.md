@@ -13,10 +13,14 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `OpLogStore.swift` and `CheckpointStore.swift` — wrappers over `JSONLAppendStore<T>` that keep hot-path (op log, every typing burst) and cold-path (checkpoints, ⌘S) concurrency profiles explicit; `JSONLAppendStore` is the shared persistence primitive. **Both partition per device** — a writer appends only to its own `<stem>.<deviceSlug>.jsonl` and readers glob-merge every sibling, the legacy unsuffixed file included (ADR 0012; `PartitionedJSONLFile` in MaughamCore holds the checkpoint/publication template, `OpLogStore` its own). Checkpoints were left out of ADR 0012's scope and were fixed by FM-1; `formal/OpLogSync.tla`'s `_cpshared`/`_cppartitioned` pair is the proof that partitioning is the fix rather than a tidy-up.
 - `JSONLAppendStore.swift` — generic append + read + tail for any JSONL-typed store. Extend here if you need new shared persistence semantics. **It is chained when it holds a `ChainPolicy` and plain when it does not** (signed op log P1): the op log and the inbox pass one; publications and checkpoints do not, and keep the append they have always had. Project-scope TASK ops are not an exception — they are `Op`s appended through `OpLogStore` into `__project__.jsonl`, so they are chained like any other op.
 - `DeviceActor.swift` (MaughamCore) — the closed enum of who, on this device, wrote an op: `author`, `assistant`, `translator`, `maugham`. The raw value is both the device-id prefix and the key-file suffix, so a fifth actor is a spec amendment and a new file on disk rather than a case added in passing; nothing switches over it with a `default`.
-- `LocalIdentities.swift` (MaughamCore) — this device's four writers in one value: `subscript(actor:)` (exhaustive, so a fifth case is a compile error), `all` in `DeviceActor.allCases` order, `fingerprints` (what *trusted* means on read), and `identity(forDeviceId:)`, which matches on the WHOLE id and never a prefix — another Mac's author carries `author-` too. `current` is computed over `DeviceIdentity.identity(for:)`'s per-actor memoization, so nothing is minted until it is asked for; the phone, which is the author alone, must reach `DeviceIdentity.author` directly rather than through here.
+- `LocalIdentities.swift` (MaughamCore) — this device's four writers in one value: `subscript(actor:)` (exhaustive, so a fifth case is a compile error), `all` in `DeviceActor.allCases` order, `fingerprints` (the keys this device holds, which `TrustTable.resolve` reads to answer `.mine` — it ENUMERATES and mints nothing), and `identity(forDeviceId:)`, which matches on the WHOLE id and never a prefix — another Mac's author carries `author-` too. `current` is computed over `DeviceIdentity.identity(for:)`'s per-actor memoization, so nothing is minted until it is asked for; the phone, which is the author alone, must reach `DeviceIdentity.author` directly rather than through here.
 - `DeviceIdentity.swift` / `DeviceState.swift` (MaughamCore) — one enclave key **per actor**, each persisted by the app as a plain blob under Application Support (`device-key.blob`/`device-token` for the author, `device-key.<actor>.blob`/`device-token.<actor>` for the other three), and the id/fingerprint/slug derived from it. `DeviceIdentity.author` is the writer's; `DeviceIdentity.identity(for:)` is any of the four. `DeviceIdentity+Testing.swift` holds the test-only software signer, and is the one allow-list entry of `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`.
 - `OpLogChain.swift` (MaughamCore) — the wire format (`prev` as the first key; the seal line) and the pure verifier that classifies every line. No I/O, no clock, no policy about who is trusted: the `trusted` closure and the remembered head are parameters. `Hex` lives here too, shared with the segment container and the fingerprint.
 - `OpLogDeviceState.swift` (MaughamCore) — what this device remembers: the chain head it last wrote into each file, and the digests of segments it has already verified. Also `ChainPolicy`, the value a chained `JSONLAppendStore` carries.
+- `RegistryRecord.swift` / `RegistryCanonical.swift` / `RegistryWriter.swift` / `RegistryWriter+Restore.swift` / `RegistryReader.swift` (MaughamCore) — the book's register of who may write in it: the three record shapes, the bytes a signature is made over, the one writer (and the restore door beside it), and the reader that verifies a record's filename, signature, signer and own author actor before it counts as one, and lists what fails.
+- `RegistryCache.swift` (MaughamCore) — this device's memory of the last verified registry, and the root it joined. Restores a record something deleted or tampered with, byte-faithfully, and reports it.
+- `TrustTable.swift` / `TrustResolution.swift` (MaughamCore) — `TrustVerdict`'s six answers to *who is this seal's key to me*, as a pure function of the registry (`TrustTable`) and the impure half that reads the folder, reconciles the cache and records the join (`TrustResolution`). `keyless(mine:)` is P1's behaviour exactly.
+- `RegistryPresence.swift` (MaughamCore) — what a device says about itself at open, and the first Mac's root. `Maugham/Stores/DocumentStore.swift` calls it; the phone's `PhoneDeviceRecord` is its other caller.
 - `ISO8601Fast.swift` (MaughamCore) — the byte-level parser for the two ISO-8601 spellings the app writes (no fraction, or exactly three digits), tried before `ISO8601DateFormatter` on the op log's decode path. Equivalence by construction rather than by replicating Foundation's undocumented truncation: every other shape falls through to the formatter chain untouched. See "Where the time goes" item 4.
 - `OpLogProvenance.swift` (MaughamCore) — `FileProvenance` per file and `OpLogProvenance` over a document, the load's own account of what its history is made of. What `HistoryPane`'s unsigned-history sentence reads.
 - `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`.
@@ -220,10 +224,16 @@ of this device's actors wrote the op — `author`, `assistant`, `translator`,
 plain append when the answer is nil, logging at `.notice`. The match is on the
 whole id and never a prefix: another Mac's author carries `author-` too.
 Signing and trusting have stopped having the same answer — a line is signed by
-one actor, while `ChainPolicy.trustedFingerprints` (and every `trusted:` closure
-on the read side) is *all four*, because the assistant's seal over the
-assistant's own file is this device's own word and a narrower set would file the
-writer's own MCP history as another device's unsigned history. `DeviceSlug.make` is deterministic, so every op
+one actor, while every read judges by *all four*, because the assistant's seal
+over the assistant's own file is this device's own word and a narrower set would
+file the writer's own MCP history as another device's unsigned history. **P2a
+retired the set that used to say so.** `ChainPolicy.trustedFingerprints` is gone
+and `ChainPolicy.trust` is a `@Sendable (String) -> TrustVerdict` in its place,
+because a set can only answer *mine* or *nobody* and admission put four more
+answers between them; the four local keys are now one arm of `TrustTable`
+(`.mine`), and the closure's default — `{ $0 == identity.fingerprint ? .mine :
+.noChain }` — is P1's shape for a caller holding one identity and meaning it.
+See *People and admission* below. `DeviceSlug.make` is deterministic, so every op
 carrying a SENTINEL rather than a device id lands in a file every Mac derives the
 same name for — the single exception to ADR 0012's one-writer premise, which is
 precisely what licenses the chained append's truncating rewrite. **P1b Task 3
@@ -399,7 +409,22 @@ filed under the manifest stream's own id (`InboxManifest.chainDocId`) and
 `HistoryPane` only ever asks for a DOCUMENT's, so they were written and shown to
 nobody. Both panes count through `OpLogQuarantine.setAsideLineCount`, one
 implementation, because one record can hold a run of lines and the writer's
-question is how many CHANGES. **`unsealed`
+question is how many CHANGES. **And the sentence is ACKNOWLEDGED, per device per
+record** (P2a, D2, `SetAsideAcknowledgement.swift`): what P1 shipped summed every
+record forever, so one foreign line found once was a standing accusation the
+writer could only silence by deleting the forensics it was about. An
+**Acknowledge** button beside each notice records the ARCHIVE FILENAMES in this
+device's `UIState.acknowledgedSetAsideRecords` (through
+`DocumentStore.acknowledgeSetAsideRecords`, which unions), the sentence counts
+only what `SetAsideAcknowledgement.unacknowledged` returns, and a record filed
+tomorrow brings it back counting only itself. **Both panes call that one
+predicate and neither restates the filter** — a census in
+`SetAsideAcknowledgementTests` holds the field to four files: `UIState`, the
+store's verb, and the two panes that hand it to the predicate. **Nothing under
+`.maugham/conflicts/` is touched**: the History pane's `Set-aside records`
+disclosure lists every record whether acknowledged or not, because what the
+writer put down is the sentence, not the evidence. Per DEVICE because UI state
+is this machine's — acknowledging here says nothing about the phone. **`unsealed`
 lines are never mentioned**: the live tail is always partly unsealed, so naming
 it would be a permanent notice about nothing. **The production load door names an ACTOR:**
 `Document.load(url:actor:session:presenter:)` takes a `DeviceActor` and derives
@@ -421,6 +446,162 @@ takes that store rather than building one** (P1b Task 3): the bootstrap op is a
 document's first line, and a store of `Bootstrap`'s own would sign it with
 `LocalIdentities.current` while the load chained everything after it with
 something else, leaving the opening op unchained and legacy forever.
+
+## People and admission (P2a, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md) §8)
+
+> **No release may carry P2a without P2b.** Until the admission sheet exists, a
+> Mac that has rooted itself holds every phone op as pending with no way to
+> admit it. `ensureRootIfEmpty` writes this Mac a root at the first open of
+> every existing project, so B3's escape hatch closes for all of them, and the
+> phone's P1b-signed spans classify `.stranger` → `.pending` → held: every phone
+> annotation out of the Annotations pane, every phone capture out of the Inbox,
+> History's *waiting for admission* line beside an Admit… button drawn disabled.
+> Nothing is lost and admission re-reads, but the writer's own phone history is
+> invisible for the length of such a build. **A smoke of a P2a-only dev build on
+> a real project WILL show this** — and it will look arbitrary, because a
+> stranger's ROTATED `.mzseg` segment falls through `classifySegment` to the
+> keyless walk and applies as unsigned history, so older phone history reappears
+> while the live tail is held.
+
+P1 could tell this device's own hand from everything else. P2a puts the rest of
+the range in: a book has a **registry** of who may write in it, and a seal made
+by a key that registry admits is this book's word even though it is not this
+device's. The state that did not exist before is **pending** — a stranger's
+sealed span is HELD, neither applied nor quarantined, until somebody admits the
+device that wrote it. Nothing here refuses to open a manuscript; the writer's
+own words are never what is held.
+
+**The records.** `RegistryRecord.swift` (MaughamCore) holds `DeviceRecord`,
+`PersonRecord` and `ClaimRecord`, plus `DeviceKind` and `RegistryDirectory`.
+Under labels-only a **person IS a device's author key**, which is why a device
+record must name its own author actor (`actors["author"] == device`) and a
+reader that finds otherwise lists it malformed: admitting a device admits every
+actor its record lists, and an author entry naming another key would have a
+reader trust an actor the signature never claimed. `RegistryCanonical` is the
+bytes a signature is made over and their digest — `.sortedKeys` plus the store's
+own date encoding, so field order cannot change what was signed.
+
+**One writer, one reader.** `RegistryWriter.write(_:signedBy:in:presenter:)` is
+the ONE production door, and the one place `.maugham/devices`,
+`.maugham/people` and `.maugham/people/claims` are spelled. It refuses an
+identity that is not the one the record names
+(`RegistryWriteError.wrongSigner`) and refuses a device with no key
+(`DeviceIdentityError.unsigned`), both before anything is created, so a refusing
+path leaves no directory behind; `writeUnchecked` is `internal` and exists for
+the tests that must plant a record the reader has to refuse.
+`RegistryWriter+Restore.swift` is the second door and writes already-signed
+bytes without signing anything — the cache's restore, deliberately dumb, so the
+reader keeps the only opinion about what a record is. `RegistryReader.load`
+verifies, in order: the filename is the fingerprint the record carries, a
+signature is present, it holds together over the canonical bytes
+(`OpLogChain.credentialsVerify`, the seal's own verifier), the signer is the key
+the record's shape expects, and — for a device record — its `actors["author"]`
+is its own `device`. Read `MalformedRecord.Reason`, not this sentence. People are read in **two passes**,
+because a non-root person record is only a record if a ROOT signed it and which
+fingerprints are roots is not known until every self-signed record has verified
+— otherwise anyone who can write the folder admits themselves with a second key.
+**Malformed is listed, never read**: one bad file costs its own record and
+nothing else. A record that is PRESENT and unreadable is different and throws —
+`OpLogStore.ReadError.unreadableFile(kind: .registry)`, the third `FileKind`
+beside `.history` and `.translation`, with a refusal sentence of its own,
+because a permissions error or a half-downloaded iCloud file would otherwise
+un-admit a device by accident (RULING-54).
+
+**The cache** (`RegistryCache`) is this device's own memory of the last verified
+registry, in `registry-cache.json` beside `op-log-state.json`, keyed by the same
+project-root hash (`OpLogDeviceState.scopeHash(ofRoot:)`) and pruned by the same
+two-clause rule (`OpLogDeviceState.rootIsGone(atPath:)` — a deleted project
+loses its memory, a project on an unmounted volume keeps it). It stores each
+record's canonical BYTES, so a restore is byte-faithful and a later build cannot
+re-encode a record into something its own signature no longer covers.
+`reconcile(folder:cached:in:)` restores only refs the folder has no verified
+record for and reports what it put back, so **the folder always wins where it
+has one** — a device re-signing its own record to add an actor key is not a
+removal. A deleted record and a TAMPERED one look the same to it (a tampered
+file is in `folder.malformed`, not in the verified lists), and both restore.
+A registry deleted WHOLESALE is restored the same way, which is the case spec
+§2.4 says must be loud rather than a silent reversion to P1 trust.
+
+**The table** (`TrustTable`, `TrustVerdict`) is who a seal's key is to this
+device, in six words: `.mine`, `.admitted(person:)`, `.stranger(device:)`,
+`.revoked(person:highestOpIdSeen:)`, `.otherRoot(root:)`, `.noChain`. It is a
+pure function of a `Registry`, this device's `LocalIdentities` and the root it
+has joined — no I/O, no clock — and `verdict(forSealKey:)` is O(1) because
+`resolve` precomputes its lookups. `.mine` is answered before the chain, so a
+device with no registry at all still knows its own hand. The impure half is
+`TrustResolution`: it reads the folder, reconciles it against the cache,
+resolves the table and records the join. **`TrustResolution.keyless(mine:)` is
+P1's behaviour exactly** — this device's keys answer `.mine`, every other key
+answers `.noChain` — which is why the whole P1 suite passes unchanged.
+
+**The root order, and the rule that a device never switches chains.** `myRoot`
+resolves in four arms, and the order is load-bearing:
+
+1. the root this device already **joined** (`RegistryCache.joinedRoot`,
+   write-once — B1);
+2. this device's **own self-signed root record**, if the registry holds one;
+3. a **foreign root whose chain names one of my keys** —
+   `TrustTable.admittingRoots.first`, sorted, so the answer is deterministic;
+4. `nil`, which is `.noChain`.
+
+Arm 2 outranks arm 3 because a self-signed root record for my key is the one
+statement in the registry that nobody but this device could have written, while
+an admission naming me is merely somebody's assertion. **A device that has its
+own root record NEVER joins another** (`TrustTable.ownRootRecord`, asked rather
+than `rootSource`, because B1's rule is about the record and not about which arm
+won): a foreign root that names it is recorded as a **claimant**
+(`RegistryCache.recordClaimant`) and its spans read `.otherRoot`. Every foreign
+root beyond the joined one is a claimant too. Without this, any Mac that can
+write the folder writes itself a root plus an admission of you and takes over a
+book you created.
+
+**The third line state.** `Line.State.pending(device: String)` joined `legacy`,
+`verified`, `unsealed`, `unsignedHistory`, `quarantined` and `tornTail` — read
+the enum, not this sentence — and the mapping
+from verdict to state lives in exactly one switch,
+`TrustVerdict.settling(sealKey:)`: `.mine`/`.admitted` verify and apply;
+`.stranger` is **pending** — not applied, not quarantined, and **no `.lines`
+record**, because nothing is wrong with it and it may be admitted five minutes
+from now; `.revoked` and `.otherRoot` quarantine, in their own words (*written
+after this device's access was withdrawn* / *written under another claimant's
+copy of this book*), derived in the walk as every quarantine reason is;
+`.noChain` is unsigned history, applied, which **is** P1 (decision B3). A
+refused span does not break the chain — a verdict is about whose word a span is,
+not about whether the bytes follow from each other — so a later span from an
+admitted key still applies and held-back lines are no longer necessarily a
+suffix. `FileProvenance.pending` / `.pendingByDevice` count what is held, keyed
+by **device** rather than by key, because two actor keys of one Mac are one
+device waiting; `OpLogProvenance` sums them across files.
+
+**The write path did not learn pending.** `JSONLAppendStore.chainedAppend` still
+judges by `.mine` alone: ADR 0012 gives each file one writer, and the truncating
+rewrite is licensed by exactly that, so a stranger's line in MY file is a
+quarantine and never a hold.
+
+**Every device declares itself** (`RegistryPresence`). `ensureDeviceRecord`
+names `.author` — a write path, and naming an actor is the writer's act — and
+then only ENUMERATES (`LocalIdentities.existingActors`), so declaring oneself
+mints no other key; it writes when there is no record, or when the record on
+disk disagrees about the name, the kind or the actor set, carrying `madeAt`
+over, and leaves a retired record alone. `ensureRootIfEmpty` writes the first
+root and refuses on three conditions in their own right: the registry already
+names somebody, this device has not written its own record yet (the root's label
+comes from it), or this device is not a `.mac`. **A malformed-only registry is
+not an empty book** — no root is written beside a tampered one. On the Mac both
+run in `DocumentStore.open`, after the presenter is wired and before the seal
+sweep; on the phone `PhoneDeviceRecord.ensure` runs at the first write inside
+the writers' existing main-actor hop, because the phone has no open. An unsigned
+device writes nothing and says so once per process.
+
+**What History says, and what it does not yet do.** `HistoryPane.pendingNotice`
+is the one line in that pane with a control — *14 notes from iPhone are waiting
+for admission* — and the Admit… button beside it is **drawn and disabled** until
+P2b, with `.help` and an accessibility hint saying so. `joinedChainNotice` is
+the quiet line under it: *This Mac joined Denver's MacBook's chain*, absent when
+this Mac is its own root. Both read names from the registry directly, because
+the table carries none.
+
+**Two tripwires, both censuses** — see items 10 and 11 below.
 
 ## Sealed segments (ADR 0016, M2)
 
@@ -457,9 +638,12 @@ exactly one of **three** outcomes, in this order. **Cached** —
 `OpLogDeviceState.isVerified(segmentDigest:)` already holds this digest: the
 chain walk is skipped entirely, every line counts `verified`, and nothing is
 read but the container itself. **Trusted sidecar** — the `.sig` beside it names
-this digest under a key equal to `identity.fingerprint` and verifies: the walk
-is skipped the same way and the digest is remembered (`markVerified`), so the
-next load takes the first outcome. A settled segment's lines count as
+this digest under a key that verifies and that this device stands behind: the
+walk is skipped the same way and the digest is remembered (`markVerified`), so
+the next load takes the first outcome. *Stands behind* was `identity.fingerprint`
+under P1 and is `TrustVerdict.isOurWord` since P2a — `.mine` or `.admitted` —
+so an admitted device's segment now settles as verified where P1 walked it
+keylessly. A settled segment's lines count as
 **verified** whatever they were before rotation, legacy included: the device
 signed those exact bytes, which is the whole claim a seal makes. The
 consequence is that a document's "written before this book was signed" sentence
@@ -489,6 +673,20 @@ under **100 ms** on the fixture's 8×-oversized 6,250-line tail. The second
 figure is measured (33.9 ms); the first is DERIVED — a real tail is a tenth of
 the fixture's, so ≈ 3.4 ms — because the fixture only ever walks its own tail.
 Full tables in `docs/superpowers/notes/2026-09-09-perf-step-measurements.md`.
+
+**P2a added a term those numbers do not contain: a registry read on every
+project open.** Every project this Mac opens now HAS a registry, because
+`RegistryPresence` writes this device's record at `DocumentStore.open` — so
+`TrustResolution`'s three-`fileExists` short-circuit, which used to spare the
+ordinary case any cost at all, now fires only for projects last opened before
+P2a. What replaces it is `TrustResolution.signature(of:)` — every record's name
+and modification time across the three directories, three listings and a stat
+apiece, nothing opened and no signature verified — which `OpLogStore.trust()`
+and `InboxStore.trust()` compare before reusing the table they already hold. So
+a folder read plus a P256 verify per record is paid once per store, and again
+only when the registry has actually changed; the resolve itself runs off the
+main actor. The unmeasured case is a book with many devices in it, where the
+verify is per record rather than per store.
 
 What keeps the cost where it is, and must not be undone:
 
@@ -598,6 +796,10 @@ Failure modes:
 8. **A seal line is recognised in `OpLogChain` only.** `isSealLine` is the one door onto the `{"seal":` prefix, and `JSONLAppendStore.parse` — the one parser every reader shares (tails, decompressed segments, the inbox) — is its one caller. A second recogniser is a second opinion about what a seal is, and the failure is silent: a reader that hands a seal to an element decoder reports a healthy file as damaged.
 
 9. **A production `Document.load` names an actor, never a device string.** `Document.load(url:actor:session:presenter:)` is the production door; the `device: String` overloads are `internal` and test-only. A literal names no key, so `OpLogStore.append` takes the plain unchained path and the op is signed by nobody — which is exactly what happened to everything Claude wrote through MCP (`"mcp"`), both automations of the writer's hand (`"wiki-rename"`, `"find-replace"`) and the task rebalance (`"rebalance"`) under P1. `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` is the census; `test_theDocumentLoadActorCensusFiresOnAPlantedOffender` is its control. CLAUDE.md tripwire 38.
+
+10. **Every trust closure is built from a `TrustTable`.** The walk takes a `TrustVerdict`; the Bool `trusted:` overload is P1's shape and can only say *mine* or *nobody*, and the middle of that range is the whole of P2a — an admitted device's sealed span applied as this device's own, or a stranger's applied as unsigned history instead of HELD. Both failures are silent: the words land in the manuscript and nothing goes red. Three keyless sites survive, each allow-listed by file AND spelling in `TripwireGrepTests.trustClosureAllowedSpellings` — two `trusted: { _ in false }` in `OpLogStore.swift` (the keyless reader `ProjectIntegrity.check` passes no table; the fallback walk of an unsettled segment's inner seals) and `trusted: { chain.trust($0) == .mine }` in `JSONLAppendStore.swift` (the chained write, which must not widen past this device's own hand). `ChainPolicy.trustedFingerprints` is gone. Census: `TripwireGrepTests.test_everyTrustClosureIsBuiltFromTheTrustTable` + `test_theAdmissionCensusesFireOnPlantedOffenders`; phone twin `TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone`. CLAUDE.md tripwire 39.
+
+11. **Registry records are written through `RegistryWriter` only.** Every record is signed, and a record written any other way is one no reader can vouch for — the reader's honest answer to it is *malformed*, which is a device silently un-admitted and its whole history left pending. One writer is what makes the signer check a door rather than call-site discipline, and one place spelling the three directory paths is what stops a second opinion about where a record lives. `RegistryWriter.swift`, `RegistryWriter+Restore.swift` and `RegistryReader.swift` are the allow-list; everything else asks `RegistryWriter.directoryURL`, which is a read. Census: `TripwireGrepTests.test_registryRecordsAreWrittenThroughRegistryWriterOnly` + the same planted-offender control; phone twin as above. CLAUDE.md tripwire 40.
 
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 

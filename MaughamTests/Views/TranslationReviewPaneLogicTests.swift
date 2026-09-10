@@ -205,7 +205,7 @@ final class TranslationReviewPaneLogicTests: XCTestCase {
                        "one tombstone line per id, in one batch, in the "
                        + "writer's own file")
 
-        let loaded = TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: dir)
+        let loaded = try TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: dir)
         XCTAssertEqual(loaded.count, 4)
         XCTAssertEqual(loaded.suffix(2).filter { $0.text == nil }.count, 2,
                        "the batch appended is two tombstones")
@@ -231,7 +231,7 @@ final class TranslationReviewPaneLogicTests: XCTestCase {
             ["zzzz"], docId: "doc1", language: "es",
             identities: identities, projectURL: dir)
 
-        let records = TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: dir)
+        let records = try TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: dir)
         let derived = TranslationDeriver.derive(
             records: records, sequence: ["aaaa"],
             paragraphs: ["aaaa": "One"], language: "es")
