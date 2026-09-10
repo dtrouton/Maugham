@@ -61,7 +61,7 @@ Signed by the new root. It has no cryptographic authority over the old chain and
 
 The wire format: `prev`, seal lines, `.lines` records, the segment container and its sidecar, `op-log-state.json`'s shape. `OpLogChain.verify` takes the same `trusted` closure it took in P1; P2 supplies a better closure. `DeviceSlug`, filenames, `DeviceActor`, `LocalIdentities`: untouched.
 
-## 3. Trust resolution — one pure function
+## 3. Trust resolution — one pure function *(amended 2026-09-10 (P2a) — the root order below is what was built)*
 
 ```
 TrustTable.resolve(registry: Registry, mine: LocalIdentities) -> TrustTable
@@ -75,11 +75,24 @@ TrustTable.classify(sealFingerprint) -> .mine | .admitted(person) | .stranger(de
 - **`.revoked`** — a person record under this root carrying `revokedAt`. Seals from it whose opIds exceed `highestOpIdSeen` are quarantined with the reason *after revocation*; seals with earlier opIds arriving later are quarantined with *may be late sync or may be backdated* and the History line offers Apply (parent §4.6).
 - **`.otherRoot`** — a self-signed person record that is not this device's root and did not admit it: another claimant. Its seals, and the seals of everyone admitted under it, are quarantined with the reason *another claimant's*; People & Devices lists the claimant; nothing merges.
 
-Which root is *mine*: the root whose chain first named this device (B1), remembered in the cache; absent that, this device itself once it has admitted anyone or written its own root record. A device that finds itself named under two roots keeps the first and lists the second as a claimant. A root cannot be revoked, only claimed over (§5). **Who writes the first root record:** a Mac opening a project that has no registry at all writes its own self-signed root record at that open — it created the book or owns the folder, and there is nobody else to ask. A Mac opening a project that already has a root it is not under, and no record naming it, is offered the claim (§5) or reads as `.noChain` (B3); it never writes a second root silently.
+Which root is *mine* — **amended 2026-09-10 (P2a); the four arms below are `TrustTable.resolve`'s, in order**:
+
+1. the root this device already **joined** — `RegistryCache.joinedRoot`, write-once (B1);
+2. this device's **own self-signed root record**, if the registry holds one;
+3. a **foreign root whose chain names one of this device's keys** — `TrustTable.admittingRoots.first`, the list sorted by fingerprint so the answer is deterministic;
+4. `nil`, which is `.noChain`.
+
+The sentence this replaces put arm 3 ahead of arm 2. **Arm 2 outranks arm 3** because a self-signed root record carrying my fingerprint is the one statement in this registry that nobody but this device could have written — a root record is signed by the key it names — whereas an admission naming me is merely somebody's assertion, which is what B1 says outright. Under the original order any Mac that can write the folder writes itself a root plus an admission of you and takes over a book you created.
+
+**And a device that holds its own root record never joins another.** `TrustTable.ownRootRecord` is asked rather than which arm won, because B1's rule is about the record. A foreign root that names such a device is recorded as a **claimant** (`RegistryCache.recordClaimant`) and its spans read `.otherRoot`; the device's own chain is unchanged. A device with no root of its own joins the first foreign root that names it and lists every later one as a claimant — which is the original sentence's rule, kept.
+
+*(The reachable shape of the never-joins case is two different KEYS, not one: a person record is named by its own fingerprint, so a root admitting device B overwrites B's self-signed record rather than sitting beside it. The state arises when this Mac roots itself with its author key and another Mac admits one of its other three actor keys. That overwrite is a hole P2a carries: a re-root must go through the claim record, never by overwriting.)* A root cannot be revoked, only claimed over (§5). **Who writes the first root record:** a Mac opening a project that has no registry at all writes its own self-signed root record at that open — it created the book or owns the folder, and there is nobody else to ask. A Mac opening a project that already has a root it is not under, and no record naming it, is offered the claim (§5) or reads as `.noChain` (B3); it never writes a second root silently.
 
 `OpLogStore` builds the closure from the table and classifies a new `OpLogChain.Line.State.pending(device:)`; `OpLogProvenance`/`FileProvenance` gain a `pending` count and a per-device breakdown; `Document.load` applies nothing pending and stamps the counts on the document as it stamps unsigned history today. Admission re-reads; nothing is rewritten and no `.lines` record is ever made for a pending line.
 
-**Censuses (tripwire shape):** no `trusted:` closure is built anywhere in production except from a `TrustTable` (`OpLogStore` today has two: the load's and the integrity check's keyless one — the second stays keyless by design and is allow-listed by name); no record under `.maugham/people/` or `.maugham/devices/` is written except through `RegistryWriter`, which signs.
+**Censuses (tripwire shape):** no `trusted:` closure is built anywhere in production except from a `TrustTable`; no record under `.maugham/people/` or `.maugham/devices/` is written except through `RegistryWriter`, which signs.
+
+*Amended 2026-09-10 (P2a): both landed, as CLAUDE.md tripwires 39 and 40, each with a planted-offender control and a phone twin. The keyless survivors are allow-listed by file **and** spelling rather than by file alone — allowing a file whole would let a new keyless site in beside the sanctioned ones — and there are three of them, not the two this paragraph predicted: `trusted: { _ in false }` twice in `OpLogStore.swift` (the integrity check's keyless reader, and the fallback walk of an unsettled segment's inner seals, which is P1 behaviour and unchanged) and `trusted: { chain.trust($0) == .mine }` in `JSONLAppendStore.swift`, the chained write. Read `TripwireGrepTests.trustClosureAllowedSpellings`, not this paragraph.*
 
 ## 4. Admission
 

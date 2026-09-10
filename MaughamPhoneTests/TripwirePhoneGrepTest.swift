@@ -677,4 +677,92 @@ final class TripwirePhoneGrepTest: XCTestCase {
         XCTAssertTrue(offenders.contains(where: { $0.contains("let escaped") }))
         XCTAssertTrue(offenders.contains(where: { $0.contains("let raw") }))
     }
+
+    // MARK: - People and admission (P2a, phone twins of tripwires 39 and 40)
+
+    /// Prose may name a trust closure, the retired field, or a registry path;
+    /// code may not build one. SHARED by the census and its self-check.
+    private func admissionExcludeLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+    }
+
+    /// The Mac's `TripwireGrepTests.trustClosurePatterns` and
+    /// `registryPathPatterns`, folded into one list because the phone's
+    /// allow-list for both is EMPTY: no phone source may build a trust closure
+    /// or spell a registry path at all.
+    ///
+    /// The phone judges nobody of its own accord — `ChainPolicy`'s default
+    /// single-signer closure lives in MaughamCore and the phone's two writers
+    /// take it — and it declares itself through `PhoneDeviceRecord`, which
+    /// calls `RegistryPresence` in MaughamCore and never names a record, a
+    /// path or a fingerprint. Both halves are tripwire 19 (the phone must not
+    /// reimplement what the Mac implements) arriving as a silent one: a phone
+    /// that decided trust locally would apply a stranger's sealed captures as
+    /// this device's own, and a record it wrote by hand is one no reader can
+    /// vouch for.
+    private var admissionPatterns: [String] {
+        ["trusted: {", "trustedFingerprints",
+         "identities.fingerprints", ".fingerprints.contains",
+         "\".maugham/devices", "\".maugham/people", "\".maugham/claims",
+         "digestHex(ofRecord:", "RegistryWriter.url("]
+    }
+
+    func test_noTrustDecisionOrRegistryWriteOnThePhone() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+
+        let offenders = try grepSwiftDir(
+            in: sourceDir,
+            patterns: admissionPatterns,
+            excludeLine: admissionExcludeLine,
+            extraOffender: { _ in false })
+
+        XCTAssertTrue(offenders.isEmpty,
+            "A phone source decides trust or writes a registry record. "
+            + "`TrustTable` (MaughamCore) is the one answer to who a seal's key "
+            + "is to this device, and `RegistryWriter` is the one door onto "
+            + "`.maugham/devices` / `.maugham/people` / `.maugham/people/claims`; "
+            + "the phone reaches both through `PhoneDeviceRecord` → "
+            + "`RegistryPresence` and never spells either (tripwires 19, 39, 40). "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: the same patterns, over a planted file, catch every offender
+    /// and let the comment naming them through.
+    func test_phoneAdmissionCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-admission-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name trusted: { _ in true } and .maugham/devices.
+        let bad = chain.verify(bytes: data, trusted: { _ in true })
+        let stale = policy.trustedFingerprints
+        let dir = projectURL.appendingPathComponent(\".maugham/devices\", isDirectory: true)
+        let digest = try RegistryCanonical.digestHex(ofRecord: record)
+        let good = PhoneDeviceRecord.ensure(in: projectURL, identity: identity)
+        """.write(to: tmp.appendingPathComponent("BadPhoneTrust.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwiftDir(
+            in: tmp,
+            patterns: admissionPatterns,
+            excludeLine: admissionExcludeLine,
+            extraOffender: { _ in false })
+
+        XCTAssertEqual(offenders.count, 4,
+            "Self-check: the four planted offenders should be caught, and "
+            + "neither the comment nor the sanctioned call. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let bad") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let stale") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let dir") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let digest") }))
+        XCTAssertFalse(offenders.contains(where: { $0.contains("let good") }))
+    }
 }
