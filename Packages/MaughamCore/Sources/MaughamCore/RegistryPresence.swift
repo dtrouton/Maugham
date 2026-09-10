@@ -159,6 +159,85 @@ public enum RegistryPresence {
             record, signedBy: author, in: projectURL, presenter: presenter)
     }
 
+    // MARK: - And I already know who you are (decision B2)
+
+    /// Admit, without asking, every stranger in this project whose fingerprint
+    /// this writer has already named — and answer the records it wrote.
+    ///
+    /// The sheet in §4.1 is worth putting up once per device. A phone syncs
+    /// into a second book, a third, a tenth, and the honest answer to the
+    /// second sheet is *you already told me*: the label is in `AdmissionMemory`,
+    /// so the person record is written at open and History says *admitted as
+    /// Denver, remembered from Playlist*.
+    ///
+    /// **Only a root does this.** A device with no root record of its own here
+    /// signs nothing any reader takes as an admission, and a remembered label
+    /// is this writer's word rather than authority over somebody else's chain
+    /// — so on another writer's book this admits nobody and says nothing.
+    ///
+    /// **A device the folder already has a person record for is left alone**,
+    /// whoever admitted it. Under my own root there is nothing to do; under
+    /// ANOTHER root it is a second claimant, and merging chains is the writer's
+    /// own act at a surface (Task 8's claim), never an open's.
+    ///
+    /// A **retired** device is admitted like any other if it is remembered:
+    /// retirement quarantines what it writes AFTER retiring, and refusing it a
+    /// person record would instead take its whole past out of the chain, which
+    /// is a different and much larger claim.
+    ///
+    /// `ownName` comes from the device record in this folder — the device
+    /// saying its own name now — rather than from the memory's copy, which is
+    /// what a surface falls back to when there is no record here at all.
+    ///
+    /// The CALLER invalidates trust afterwards (`OpLogStore.invalidateTrust()`
+    /// on every open document's store) and logs what came back: this function
+    /// knows about a folder and a memory, not about open documents or History.
+    ///
+    /// Throws what the read and the writes throw. It reads the folder ONCE and
+    /// refreshes the cache once at the end, so an open that admits three
+    /// devices costs one verified read, three writes and one more read — not
+    /// two reads per device.
+    @discardableResult
+    nonisolated public static func admitRemembered(
+        in projectURL: URL,
+        identities: LocalIdentities,
+        cache: RegistryCache,
+        memory: AdmissionMemory,
+        now: () -> Date = { Date() },
+        presenter: NSFilePresenter? = nil
+    ) throws -> [PersonRecord] {
+        let author = identities.author
+        guard author.canSign else {
+            reportUnsigned()
+            return []
+        }
+
+        let registry = try RegistryReader.load(projectURL: projectURL, presenter: presenter)
+        guard registry.roots.contains(where: { $0.person == author.fingerprint })
+        else { return [] }
+
+        var admitted: [PersonRecord] = []
+        // Sorted, so an open that admits several devices writes them in the
+        // same order whatever order the folder was read in — History reads the
+        // same twice.
+        for device in registry.devices.sorted(by: { $0.device < $1.device })
+        where registry.person(device.device) == nil {
+            guard let remembered = memory.label(for: device.device) else { continue }
+            admitted.append(try RegistryAdmission.admit(
+                device: device.device, label: remembered.label, ownName: device.name,
+                in: projectURL, by: author, within: registry,
+                memory: memory, now: now, presenter: presenter))
+        }
+
+        guard !admitted.isEmpty else { return [] }
+        // One read for the cache and for the answer both: the records above are
+        // the ones this open DECIDED, and a caller deriving History from them
+        // should hold what a reader verifies.
+        let verified = try RegistryAdmission.refresh(
+            projectURL, cache: cache, presenter: presenter)
+        return admitted.map { verified.person($0.person) ?? $0 }
+    }
+
     /// Is there a person record here this device could not vouch for?
     ///
     /// Asked of the malformed listing, by DIRECTORY: a record's own shape is
