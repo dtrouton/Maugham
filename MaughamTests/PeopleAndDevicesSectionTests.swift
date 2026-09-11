@@ -42,6 +42,8 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
 
     private func model(
         refusal: String? = nil,
+        revokedPhone: Bool = false,
+        retiredThisMac: Bool = false,
         pending: Bool = true,
         claimants: Bool = true,
         merged: Bool = false,
@@ -53,7 +55,8 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
             devices: [
                 DeviceRecord(device: root, name: "Denver's MacBook", kind: .mac,
                              actors: ["author": root, "assistant": "assist-\(root)"],
-                             madeAt: made),
+                             madeAt: made,
+                             retiredAt: retiredThisMac ? admitted : nil),
                 DeviceRecord(device: phone, name: "Denver's iPhone", kind: .phone,
                              actors: ["author": phone], madeAt: made),
                 DeviceRecord(device: stranger, name: "The old iPhone", kind: .phone,
@@ -63,7 +66,9 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
                 PersonRecord(person: root, label: "Denver", ownName: "Denver's MacBook",
                              admittedAt: admitted, admittedBy: root),
                 PersonRecord(person: phone, label: "Amelia", ownName: "Denver's iPhone",
-                             admittedAt: admitted, admittedBy: root),
+                             admittedAt: admitted, admittedBy: root,
+                             revokedAt: revokedPhone ? admitted : nil,
+                             revokedBy: revokedPhone ? root : nil),
             ],
             claims: merged
                 ? [ClaimRecord(newRoot: root, adopted: [claimant], claimedAt: admitted)]
@@ -234,6 +239,46 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
                       "and asks nothing")
     }
 
+    // MARK: - The way back, and the retirement fact (fix round 1)
+
+    /// A revoked row carries **Re-admit** where it carried a dead Revoke: a
+    /// disabled button reading "Already revoked" restated the line above it and
+    /// could never act, and the way back belongs in that space.
+    func test_arevokedRowCarriesReadmitInPlaceOfADeadRevoke() throws {
+        let window = mount(model(revokedPhone: true))
+
+        let labels = try axButtonLabels(in: window)
+        XCTAssertFalse(try axButtons(labelled: "Re-admit", in: window).isEmpty,
+                       "the way back is drawn: \(labels)")
+        XCTAssertEqual(
+            try axButtons(labelled: "Revoke", in: window).count, 1,
+            "the root's own row still carries its refused Revoke, the revoked row does not")
+    }
+
+    /// And it is LIVE — the one control on this section that undoes something.
+    func test_readmitIsPressableAndHandsBackWhoItIsAbout() throws {
+        let model = model(revokedPhone: true)
+        var readmitted: [String] = []
+        let section = PeopleAndDevicesSection(
+            model: model, readmit: { readmitted.append($0.fingerprint) })
+        let person = try XCTUnwrap(model.people.first { $0.fingerprint == phone })
+
+        section.readmitForTesting(person)
+
+        XCTAssertEqual(readmitted, [phone])
+    }
+
+    /// **The machine that retired is told what retirement means** — on its own
+    /// row, in `DeviceStanding`'s own words.
+    func test_thismacsRetiredRowSaysWhatItStillDoesAndWhatNobodyElseDoes() throws {
+        let window = mount(model(retiredThisMac: true))
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(
+            texts.contains { $0.contains("retired on") && $0.contains("set aside everywhere else") },
+            "\(texts)")
+    }
+
     // MARK: - The two live verbs
 
     /// Called directly rather than pressed: what the closure does is the host's
@@ -305,4 +350,5 @@ private extension PeopleAndDevicesSection {
     func admitForTesting() { admit() }
     func revokeForTesting(_ fingerprint: String) { revoke(fingerprint) }
     func retireForTesting(_ fingerprint: String) { retire(fingerprint) }
+    func readmitForTesting(_ person: PeopleAndDevicesModel.Person) { readmit(person) }
 }

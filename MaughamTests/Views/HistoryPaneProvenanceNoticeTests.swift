@@ -325,6 +325,50 @@ final class HistoryPaneChainNoticeTests: XCTestCase {
             "and it says what admitting will do, for the hover and for VoiceOver")
     }
 
+    // MARK: - The retirement banner (fix round 1, Important 2)
+
+    /// **The one machine that can see both halves of the divergence is told
+    /// about it.** A retired Mac goes on writing and goes on applying its own
+    /// lines (`.mine` outranks `.retired`), while every peer sets them aside;
+    /// the row in Settings reads "retired 11 Sep", which is a fact and not a
+    /// warning, and History is where a standing fact belongs.
+    func test_aretiredMacIsToldWhatItsRetirementMeans() throws {
+        let standing = DeviceStanding(
+            code: "AB12", label: "Denver", rootLabel: "Denver",
+            admitted: true, isRoot: true,
+            retiredAt: Date(timeIntervalSince1970: 1_757_000_000))
+
+        let notice = try XCTUnwrap(HistoryPane.retirementNotice(standing: standing))
+
+        XCTAssertTrue(notice.hasPrefix("This Mac retired on "), notice)
+        XCTAssertTrue(
+            notice.contains(
+                "what it writes now stays on this Mac and is set aside everywhere else"),
+            notice)
+    }
+
+    /// Nil while this Mac is still at work — the ordinary case, and the banner
+    /// is absent rather than empty.
+    func test_amacStillAtWorkDrawsNoRetirementBanner() {
+        let standing = DeviceStanding(
+            code: "AB12", label: "Denver", rootLabel: "Denver",
+            admitted: true, isRoot: true)
+
+        XCTAssertNil(HistoryPane.retirementNotice(standing: standing))
+    }
+
+    /// The sentence is `DeviceStanding`'s, not this pane's: the phone draws the
+    /// same fact from the same value, and a second spelling here would be the
+    /// two screens disagreeing about what happened (tripwire 19).
+    func test_thebannerSaysExactlyWhatTheSharedValueSays() {
+        let retiredAt = Date(timeIntervalSince1970: 1_757_000_000)
+        let standing = DeviceStanding(code: "AB12", retiredAt: retiredAt)
+
+        XCTAssertEqual(
+            HistoryPane.retirementNotice(standing: standing),
+            DeviceStanding.retirementNotice(device: "Mac", retiredAt: retiredAt))
+    }
+
     // MARK: - joinedChainNotice
 
     func test_joinedChainNotice_nilWhenThisDeviceJoinedNothing() {

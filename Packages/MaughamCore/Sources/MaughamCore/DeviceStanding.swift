@@ -57,6 +57,20 @@ public struct DeviceStanding: Equatable, Sendable {
     /// coming.
     public let revoked: Bool
 
+    /// When THIS device said it had stopped writing in this book (spec §5),
+    /// off its own device record. Nil for a device still at work.
+    ///
+    /// **It is not the opposite of `admitted`, and it is the one fact this type
+    /// carries that the machine holding it must be told about.** A retired
+    /// device's key removes its own future AUTHORITY and not its ability to
+    /// write: `TrustTable` answers `.mine` before it answers `.retired`, so
+    /// this device goes on appending and goes on applying its own lines, while
+    /// every peer quarantines them as *after retirement*. The divergence is
+    /// permanent, and the only machine that can see both halves of it is this
+    /// one — which is why `retirementNotice` exists and why two surfaces draw
+    /// it (fix round 1, Important 2).
+    public let retiredAt: Date?
+
     /// The registry read's own sentence, when the read refused. Nil otherwise.
     public let refusal: String?
 
@@ -68,6 +82,7 @@ public struct DeviceStanding: Equatable, Sendable {
         admitted: Bool = false,
         isRoot: Bool = false,
         revoked: Bool = false,
+        retiredAt: Date? = nil,
         refusal: String? = nil
     ) {
         self.code = code
@@ -77,6 +92,7 @@ public struct DeviceStanding: Equatable, Sendable {
         self.admitted = admitted
         self.isRoot = isRoot
         self.revoked = revoked
+        self.retiredAt = retiredAt
         self.refusal = refusal
     }
 
@@ -105,10 +121,18 @@ public struct DeviceStanding: Equatable, Sendable {
             registry: registry, mine: mine,
             joinedRoot: cache.joinedRoot(for: projectURL))
 
+        // **Read before the chain guard, on purpose.** A retirement is a
+        // device's word about ITSELF, signed by its own key, and it is true
+        // whether or not anybody admitted it: a Mac that retired and was then
+        // dropped from every chain has still stopped, and the sentence it is
+        // owed does not depend on a root.
+        let retiredAt = registry.devices
+            .first { $0.device == author.fingerprint }?.retiredAt
+
         guard let root = table.myRoot,
               registry.chain(underRoot: root).contains(author.fingerprint)
         else {
-            return DeviceStanding(code: code)
+            return DeviceStanding(code: code, retiredAt: retiredAt)
         }
 
         let record = registry.person(author.fingerprint)
@@ -125,7 +149,8 @@ public struct DeviceStanding: Equatable, Sendable {
             joinedAt: isRoot ? nil : cache.joinedAt(for: projectURL),
             admitted: !revoked,
             isRoot: isRoot,
-            revoked: revoked)
+            revoked: revoked,
+            retiredAt: retiredAt)
     }
 
     /// The standing of a device whose registry could not be read: its own code,
@@ -155,6 +180,44 @@ public struct DeviceStanding: Equatable, Sendable {
         let chain = "\(me) on \(rootLabel ?? code)’s chain"
         guard let joinedAt else { return chain }
         return "\(chain) since \(Self.dayFormatter.string(from: joinedAt))"
+    }
+
+    // MARK: - What retirement means, on the machine that did it
+
+    /// **What every retirement sentence ends in**, so the notice and the
+    /// warning cannot drift apart: two surfaces and a confirmation alert all
+    /// describe one consequence, and a writer who reads it before pressing and
+    /// again afterwards must meet the same words.
+    ///
+    /// `device` is the machine's own noun — *Mac*, *iPhone* — because this type
+    /// is shared (tripwire 19) and a phone saying *this Mac* about itself is
+    /// the comparison between two screens failing.
+    nonisolated public static func retirementTail(device: String) -> String {
+        "stays on this \(device) and is set aside everywhere else"
+    }
+
+    /// The standing fact, for the machine that retired: what it is still doing,
+    /// and what nobody else is doing with it.
+    nonisolated public static func retirementNotice(
+        device: String, retiredAt: Date
+    ) -> String {
+        "This \(device) retired on \(dayFormatter.string(from: retiredAt)); "
+        + "what it writes now \(retirementTail(device: device))."
+    }
+
+    /// This device's own notice, or nil while it is still at work.
+    nonisolated public func retirementNotice(device: String) -> String? {
+        guard let retiredAt else { return nil }
+        return Self.retirementNotice(device: device, retiredAt: retiredAt)
+    }
+
+    /// The same consequence in the future tense, for the confirmation the
+    /// writer meets BEFORE the act (fix round 1, Important 3a). Retirement has
+    /// no inverse — a device that retired can only come back as a new key — and
+    /// the sentence says so rather than leaving the writer to find out.
+    nonisolated public static func retirementConsequence(device: String) -> String {
+        "From then on, what this \(device) writes \(retirementTail(device: device)). "
+        + "A \(device) can’t be un-retired."
     }
 
     /// *9 Sep* — day and month, localized, because a chain a writer joined

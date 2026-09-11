@@ -152,6 +152,11 @@ struct HistoryPane: View {
     /// because both halves it is built from (this device's registry memory and
     /// the people records) are resolved in the same off-actor read.
     @State private var joinedChainLine: String?
+    /// **What retirement means, on the machine that did it** (fix round 1,
+    /// Important 2). Nil until this Mac has retired itself in this book; a
+    /// standing fact afterwards, drawn with no control, because there is
+    /// nothing to press — a device cannot be un-retired.
+    @State private var retirementLine: String?
     /// The project's dated trust events, already as drawn rows (signed op log
     /// P2b, ruling C). Resolved in `reloadChain` beside the names they are told
     /// in, because both come out of the same off-actor registry read.
@@ -459,6 +464,22 @@ struct HistoryPane: View {
     ///
     /// `labels` maps a person fingerprint to the label its record gives them,
     /// for the same reason `pendingNotice` takes `names`.
+    /// **What retirement means, told to the machine that did it** (fix round 1,
+    /// Important 2).
+    ///
+    /// A pure function of this device's own standing, so the pane's decision —
+    /// draw it, and in whose words — is assertable with no window and no disk.
+    /// The noun is `"Mac"` because this app IS one; the phone asks the same
+    /// value for the same sentence with its own noun (tripwire 19), which is
+    /// why the words live in `DeviceStanding` and not here.
+    ///
+    /// Nil while this Mac is still at work — the ordinary case. The banner is a
+    /// standing FACT and carries no control: there is nothing to press, because
+    /// a device cannot be un-retired.
+    nonisolated static func retirementNotice(standing: DeviceStanding) -> String? {
+        standing.retirementNotice(device: "Mac")
+    }
+
     nonisolated static func joinedChainNotice(
         cache: RegistryCache, projectURL: URL, labels: [String: String]
     ) -> String? {
@@ -623,6 +644,20 @@ struct HistoryPane: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
+            if let notice = retirementLine {
+                // Orange, unlike the joined-chain fact beneath it: this one is
+                // a DIVERGENCE the writer can see from nowhere else. This Mac
+                // goes on applying what it writes (`.mine` outranks `.retired`)
+                // and every peer sets those lines aside, so the machine holding
+                // the words is the only one that can be told.
+                Label(notice, systemImage: "moon.zzz")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
             if let notice = joinedChainLine {
@@ -928,11 +963,13 @@ struct HistoryPane: View {
         guard TrustResolution.hasRegistry(in: url) else {
             chainDeviceNames = [:]
             joinedChainLine = nil
+            retirementLine = nil
             trustEventLines = []
             return
         }
         let resolved = await Task.detached(priority: .userInitiated) {
-            () -> (names: [String: String], joined: String?, events: [TrustEventLine]) in
+            () -> (names: [String: String], joined: String?, retired: String?,
+                   events: [TrustEventLine]) in
             let registry = try? RegistryReader.load(projectURL: url)
             var names: [String: String] = [:]
             var labels: [String: String] = [:]
@@ -946,13 +983,22 @@ struct HistoryPane: View {
             let events = TrustEvents.derive(
                 registry: registry ?? Registry(), cache: .shared,
                 mine: .current, for: url)
+            // This Mac's own standing, for the one fact on it that the machine
+            // itself has to be told: `DeviceStanding` owns the sentence so the
+            // pane and People & Devices cannot word it differently (tripwire
+            // 19), and the noun is this app's — a Mac.
+            let standing = DeviceStanding.resolve(
+                registry: registry ?? Registry(), cache: .shared,
+                mine: .current, for: url)
             return (names,
                     HistoryPane.joinedChainNotice(
                         cache: .shared, projectURL: url, labels: labels),
+                    HistoryPane.retirementNotice(standing: standing),
                     HistoryPane.trustEventLines(events, labels: labels))
         }.value
         chainDeviceNames = resolved.names
         joinedChainLine = resolved.joined
+        retirementLine = resolved.retired
         trustEventLines = resolved.events
     }
 

@@ -317,6 +317,112 @@ final class PeopleAndDevicesModelTests: XCTestCase {
         XCTAssertEqual(theirs.whyNotRetirable, PeopleAndDevicesModel.retireNotThisDevice)
     }
 
+    // MARK: - The way back, and what retirement means (fix round 1)
+
+    /// **The inverse of a revocation is an admission by the same authority**
+    /// (Important 3b), so the row that revoked them offers it — and only that
+    /// row: `RegistryAdmission.admit` refuses anybody else's record, and a
+    /// button that cannot act is worse than none.
+    func test_arevokedRowOffersTheWayBack() throws {
+        let model = model(registry(revoked: true))
+        let person = try XCTUnwrap(model.people.first { $0.fingerprint == phone.fingerprint })
+
+        XCTAssertTrue(person.canReadmit)
+        XCTAssertFalse(person.canRevoke, "there is nothing left to revoke")
+        XCTAssertEqual(person.recordedOwnName, "Denver's iPhone",
+                       "and a re-admission writes the name the record holds, not a rename")
+    }
+
+    /// A person who is not revoked is not offered a way back into a room they
+    /// are standing in.
+    func test_anadmittedRowOffersNoReadmission() throws {
+        let model = model(registry())
+        let person = try XCTUnwrap(model.people.first { $0.fingerprint == phone.fingerprint })
+
+        XCTAssertFalse(person.canReadmit)
+        XCTAssertTrue(person.canRevoke)
+    }
+
+    /// A revoked person under somebody ELSE's root is not this Mac's to let
+    /// back in, for the reason they were not this Mac's to revoke.
+    func test_arevokedPersonOfAnotherRootIsNotThisMacsToReadmit() throws {
+        let registry = Registry(
+            devices: [deviceRecord(mac, name: "Denver's MacBook", kind: .mac),
+                      deviceRecord(phone, name: "Denver's iPhone")],
+            people: [person(otherRoot, label: "Amelia", ownName: "Amelia's MacBook",
+                            admittedBy: otherRoot),
+                     person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: otherRoot),
+                     person(phone, label: "Denver", ownName: "Denver's iPhone",
+                            admittedBy: otherRoot, revoked: true)])
+        let table = TrustTable.resolve(
+            registry: registry, mine: .forAuthor(mac), joinedRoot: nil)
+
+        let model = PeopleAndDevicesModel.make(
+            registry: registry, table: table, remembered: [:], requests: [],
+            claimants: [], standing: standing(), me: mac.fingerprint)
+
+        let theirs = try XCTUnwrap(model.people.first { $0.fingerprint == phone.fingerprint })
+        XCTAssertFalse(theirs.canReadmit)
+    }
+
+    /// **The machine that retired is told what retirement means** (Important
+    /// 2): its key removed its own future authority and not its ability to
+    /// write, so it goes on applying its own lines while every peer sets them
+    /// aside — and nothing else on this screen says so.
+    func test_thismacsOwnRetiredRowSaysWhatRetirementMeans() throws {
+        let retired = Registry(
+            devices: [deviceRecord(mac, name: "Denver's MacBook", kind: .mac,
+                                   retiredAt: Date(timeIntervalSince1970: 1_757_000_000)),
+                      deviceRecord(phone, name: "Denver's iPhone")],
+            people: [person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: mac),
+                     person(phone, label: "Denver", ownName: "Denver's iPhone",
+                            admittedBy: mac)])
+        let model = PeopleAndDevicesModel.make(
+            registry: retired,
+            table: TrustTable.resolve(
+                registry: retired, mine: .forAuthor(mac), joinedRoot: nil),
+            remembered: [:], requests: [], claimants: [],
+            standing: standing(), me: mac.fingerprint)
+
+        let mine = try XCTUnwrap(
+            model.people.flatMap(\.devices).first { $0.fingerprint == mac.fingerprint })
+        let notice = try XCTUnwrap(mine.retirementNotice)
+        XCTAssertTrue(notice.hasPrefix("This Mac retired on "), notice)
+        XCTAssertTrue(
+            notice.contains(
+                "what it writes now stays on this Mac and is set aside everywhere else"),
+            notice)
+        XCTAssertFalse(mine.canRetire, "and it cannot retire twice")
+    }
+
+    /// **A peer's retirement is a fact about a machine the writer is not
+    /// sitting at.** The date is on the row; the sentence about what is still
+    /// being applied is not, because it would be a claim about somebody else's
+    /// desk.
+    func test_apeersRetiredRowCarriesTheDateAndNotTheSentence() throws {
+        let retired = Registry(
+            devices: [deviceRecord(mac, name: "Denver's MacBook", kind: .mac),
+                      deviceRecord(phone, name: "Denver's iPhone",
+                                   retiredAt: Date(timeIntervalSince1970: 1_757_000_000))],
+            people: [person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: mac),
+                     person(phone, label: "Denver", ownName: "Denver's iPhone",
+                            admittedBy: mac)])
+        let model = PeopleAndDevicesModel.make(
+            registry: retired,
+            table: TrustTable.resolve(
+                registry: retired, mine: .forAuthor(mac), joinedRoot: nil),
+            remembered: [:], requests: [], claimants: [],
+            standing: standing(), me: mac.fingerprint)
+
+        let theirs = try XCTUnwrap(
+            model.people.flatMap(\.devices).first { $0.fingerprint == phone.fingerprint })
+        XCTAssertNil(theirs.retirementNotice)
+        XCTAssertTrue(theirs.detail.contains("retired"), theirs.detail)
+    }
+
     // MARK: - Claimants and merged roots
 
     /// Somebody claiming a book this device already belongs to another copy of.

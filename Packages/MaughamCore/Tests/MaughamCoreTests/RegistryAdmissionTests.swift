@@ -620,6 +620,154 @@ final class RegistryAdmissionTests: XCTestCase {
         XCTAssertTrue(try registry().person(phone.author.fingerprint)?.isRevoked == true)
     }
 
+    // MARK: - Re-admission is the revocation's inverse (fix round 1, Important 3b)
+
+    /// **The root that revoked them can let them back in**, and the record it
+    /// writes says nothing about the revocation: the three fields are cleared,
+    /// because the same authority is saying the opposite thing and a record
+    /// carrying both would leave every reader quarantining a device the writer
+    /// has just re-admitted.
+    func test_readmittingClearsTheRevocationItReverses() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: "01J0000000000000000000000A",
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 100) })
+
+        let readmitted = try admitThePhone(at: Date(timeIntervalSince1970: 900))
+
+        XCTAssertNil(readmitted.revokedAt)
+        XCTAssertNil(readmitted.revokedBy)
+        XCTAssertNil(readmitted.highestOpIdSeen)
+        XCTAssertFalse(readmitted.isRevoked)
+        XCTAssertEqual(
+            readmitted.admittedAt, Date(timeIntervalSince1970: 10),
+            "they were admitted the day they were admitted; the return is a second fact")
+        let onDisk = try XCTUnwrap(try registry().person(phone.author.fingerprint))
+        XCTAssertEqual(onDisk, readmitted, "and a reader verifies it")
+        XCTAssertTrue(try registry().malformed.isEmpty)
+    }
+
+    /// The idempotent arm must not swallow a re-admission. Same label, same own
+    /// name, and a revoked record: the old rule answered "nothing to write" and
+    /// left the writer pressing Re-admit at a device that stayed shut out.
+    func test_areadmissionWithTheSameLabelStillWrites() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone(label: "Denver", ownName: "Denver's iPhone")
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: nil, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+
+        let readmitted = try admitThePhone(
+            label: "Denver", ownName: "Denver's iPhone",
+            at: Date(timeIntervalSince1970: 900))
+
+        XCTAssertFalse(readmitted.isRevoked, "the same words are a different act now")
+    }
+
+    /// And an ordinary admission is still idempotent: nothing revoked, nothing
+    /// renamed, nothing written.
+    func test_anadmissionThatChangesNothingStillWritesNothing() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        let bytes = try bytesOfPersonFile(phone.author.fingerprint)
+
+        try admitThePhone(at: Date(timeIntervalSince1970: 900))
+
+        XCTAssertEqual(try bytesOfPersonFile(phone.author.fingerprint), bytes)
+    }
+
+    /// Re-admission is the ADMITTING root's to perform. Another Mac's root is
+    /// refused exactly as it is refused for a first admission — the record is
+    /// not theirs to sign.
+    func test_anotherRootCannotReadmitSomebodyMyRootRevoked() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try becomeRootBeside(otherRoot, name: "Somebody else's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: nil, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+
+        XCTAssertThrowsError(try RegistryAdmission.admit(
+            device: phone.author.fingerprint, label: "Theirs",
+            ownName: "Denver's iPhone", in: projectURL, by: otherRoot.author,
+            cache: makeCache(), memory: makeMemory(),
+            now: { Date(timeIntervalSince1970: 900) })
+        ) { error in
+            XCTAssertEqual(
+                error as? RegistryAdmissionError,
+                .alreadyAdmittedElsewhere(root: mine.author.fingerprint))
+        }
+        XCTAssertTrue(
+            try registry().person(phone.author.fingerprint)?.isRevoked == true,
+            "and they stay revoked")
+    }
+
+    // MARK: - The re-sign door refuses an edit that changes WHO (Minor 2)
+
+    /// The URL and the signer check are both decided from the record handed in,
+    /// so an edit that moves the identity would write a well-signed file under
+    /// a name that no longer describes it — and the reader would refuse it in
+    /// the un-admitting direction.
+    func test_aresignThatMovesTheFingerprintIsRefused() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        let admitted = try admitThePhone()
+        let bytes = try bytesOfPersonFile(phone.author.fingerprint)
+
+        XCTAssertThrowsError(try RegistryWriter.resign(
+            admitted, signedBy: mine.author, in: projectURL
+        ) { object in
+            object["person"] = otherRoot.author.fingerprint
+        }) { error in
+            XCTAssertEqual(
+                error as? RegistryWriteError,
+                .identityChanged(fingerprint: phone.author.fingerprint))
+        }
+        XCTAssertEqual(try bytesOfPersonFile(phone.author.fingerprint), bytes,
+                       "and nothing was written")
+    }
+
+    func test_aresignThatMovesTheSignerIsRefused() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        let admitted = try admitThePhone()
+
+        XCTAssertThrowsError(try RegistryWriter.resign(
+            admitted, signedBy: mine.author, in: projectURL
+        ) { object in
+            object["admittedBy"] = otherRoot.author.fingerprint
+        }) { error in
+            XCTAssertEqual(
+                error as? RegistryWriteError,
+                .identityChanged(fingerprint: phone.author.fingerprint))
+        }
+    }
+
+    /// And the door still passes the edits the two verbs make — the guard is
+    /// about identity, not about change.
+    func test_aresignThatChangesAFactIsAllowed() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        let admitted = try admitThePhone()
+
+        try RegistryWriter.resign(
+            admitted, signedBy: mine.author, in: projectURL
+        ) { object in
+            object["label"] = "Amelia"
+        }
+
+        XCTAssertEqual(try registry().person(phone.author.fingerprint)?.label, "Amelia")
+        XCTAssertTrue(try registry().malformed.isEmpty)
+    }
+
     // MARK: - Retirement is the device's own (spec §5)
 
     func test_aDeviceRetiresItself() throws {

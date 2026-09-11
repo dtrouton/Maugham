@@ -36,6 +36,11 @@ struct ProjectSettingsSheet: View {
     /// next press, so it describes the act the writer just performed and never
     /// an older one.
     @State private var peopleNotice: String?
+    /// The act the writer has asked for and not yet confirmed (fix round 1,
+    /// Important 3a). Revoke and Retire are irreversible enough to be worth a
+    /// sentence first; the alert is presented here because a section is not the
+    /// presenter of its own dialogs.
+    @State private var confirming: PeopleAndDevicesConfirmation?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -106,13 +111,27 @@ struct ProjectSettingsSheet: View {
                             dismiss()
                         },
                         forget: forgetDevice,
-                        revoke: revokeDevice,
-                        retire: retireThisMac,
+                        revoke: confirmRevoke,
+                        retire: confirmRetire,
+                        readmit: readmitDevice,
                         notice: peopleNotice)
                 }
                 reviewPassesSection()
             }
             .formStyle(.grouped)
+            // **The consequence, before the act** (fix round 1, Important 3a).
+            // `item:` rather than a bool, so the alert cannot be up about a
+            // device the writer has since scrolled past: the value IS the
+            // question, and dismissing it drops the question.
+            .alert(item: $confirming) { confirmation in
+                Alert(
+                    title: Text(confirmation.title),
+                    message: Text(confirmation.message),
+                    primaryButton: .destructive(Text(confirmation.confirmTitle)) {
+                        perform(confirmation)
+                    },
+                    secondaryButton: .cancel())
+            }
 
             HStack {
                 Spacer()
@@ -408,11 +427,59 @@ struct ProjectSettingsSheet: View {
         }.value
     }
 
+    /// Ask first. The row hands back the fingerprint; the name comes from the
+    /// model the row was drawn from, so the alert says who it is about in the
+    /// words the writer gave them.
+    private func confirmRevoke(_ fingerprint: String) {
+        peopleNotice = nil
+        let name = peopleAndDevices?.people
+            .first { $0.fingerprint == fingerprint }?.title
+            ?? DeviceCode.short(fingerprint)
+        confirming = .revoke(person: fingerprint, named: name)
+    }
+
+    private func confirmRetire(_ fingerprint: String) {
+        peopleNotice = nil
+        let device = peopleAndDevices?.people
+            .flatMap(\.devices)
+            .first { $0.fingerprint == fingerprint }
+        confirming = .retire(
+            device: fingerprint,
+            named: device?.name ?? DeviceCode.short(fingerprint),
+            kind: device?.kind ?? "Mac")
+    }
+
+    /// The writer confirmed. One switch, so a third act cannot be added to the
+    /// value without being given a verb here.
+    private func perform(_ confirmation: PeopleAndDevicesConfirmation) {
+        switch confirmation.verb {
+        case .revoke: revokeDevice(confirmation.fingerprint)
+        case .retire: retireThisMac(confirmation.fingerprint)
+        }
+    }
+
+    /// **Let a device back in** (fix round 1, Important 3b) — the same
+    /// admission door, under the label and the name the record already holds,
+    /// so re-admitting is not also a rename.
+    private func readmitDevice(_ person: PeopleAndDevicesModel.Person) {
+        peopleNotice = nil
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do {
+                try await store.admit(
+                    device: person.fingerprint, label: person.label,
+                    ownName: person.recordedOwnName)
+            } catch {
+                peopleNotice = AdmissionDecision.refusal(error)
+            }
+            await loadPeopleAndDevices()
+        }
+    }
+
     /// **Stop applying what a device writes** (spec §5). The store writes the
     /// record, forgets every resolved table and re-reads what is open; this
     /// only reloads the rows and says so when it refuses.
     private func revokeDevice(_ fingerprint: String) {
-        peopleNotice = nil
         Task { @MainActor in
             guard let store = store.documentStore else { return }
             do { try await store.revoke(person: fingerprint) }
@@ -425,7 +492,6 @@ struct ProjectSettingsSheet: View {
     /// own row alone — a device signs its own retirement — and refused by
     /// `RegistryAdmission` for anything else, which is where the rule lives.
     private func retireThisMac(_ fingerprint: String) {
-        peopleNotice = nil
         Task { @MainActor in
             guard let store = store.documentStore else { return }
             do { try await store.retire(device: fingerprint) }

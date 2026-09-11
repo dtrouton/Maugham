@@ -669,7 +669,10 @@ read but the container itself. **Trusted sidecar** — the `.sig` beside it name
 this digest under a key that verifies and that this device stands behind: the
 walk is skipped the same way and the digest is remembered (`markVerified`), so
 the next load takes the first outcome. *Stands behind* was `identity.fingerprint`
-under P1 and is `TrustVerdict.isOurWord` since P2a — `.mine` or `.admitted` —
+under P1 and is `TrustVerdict.isOurWord(sealedAt:)` since P2a — `.mine` or
+`.admitted`, and a RETIRED device's own word for a signature it made before it
+stopped (P2b Task 7; the question takes the signature's own `at`, and there is
+no undated form of it to reach for) —
 so an admitted device's segment now settles as verified where P1 walked it
 keylessly. A settled segment's lines count as
 **verified** whatever they were before rotation, legacy included: the device

@@ -52,6 +52,10 @@ struct PeopleAndDevicesModel: Equatable {
     static let revokeARoot = "A root is claimed over, never revoked"
     static let alreadyRevoked = "Already revoked"
 
+    /// What Re-admit says, and what it is: the same door an admission goes
+    /// through, pressed by the root that closed it.
+    static let readmitHelp = "Let this device write in this book again"
+
     /// And Retire, which is a device’s word about itself.
     static let retireHelp = "Say this Mac has stopped writing in this book"
     static let retireNotThisDevice = "A device retires itself"
@@ -108,6 +112,13 @@ struct PeopleAndDevicesModel: Equatable {
         /// so.
         let canRetire: Bool
         let whyNotRetirable: String?
+        /// **What retirement means, on the machine that did it** (fix round 1,
+        /// Important 2). Non-nil on this Mac's own retired row and nowhere
+        /// else: a peer's retirement is a fact about a machine the writer is
+        /// not sitting at, and *what it writes now stays on this Mac* would be
+        /// a lie told about somebody else's desk. `DeviceStanding`'s own
+        /// sentence, so History and this row cannot drift (tripwire 19).
+        let retirementNotice: String?
 
         var id: String { fingerprint }
 
@@ -142,6 +153,15 @@ struct PeopleAndDevicesModel: Equatable {
         /// Why not, when not. The button is drawn either way (P2a's Admit…
         /// pattern) and says what would make it live.
         let whyNotRevocable: String?
+        /// **Whether this Mac may let them back in** (fix round 1, Important
+        /// 3b): they are revoked, and this Mac is the root that revoked them.
+        /// The inverse of a revocation is an admission by the same authority,
+        /// so the row offers it where the row offered Revoke.
+        let canReadmit: Bool
+        /// The device's own name as the RECORD holds it — what a re-admission
+        /// writes back. `ownName` above is nil when it matches the label, which
+        /// is a drawing decision; this is the fact.
+        let recordedOwnName: String
         /// *this Mac*, or *<label>'s Mac* for a root somebody else owns. Nil
         /// for everyone who is not the root of this book's chain.
         let mark: String?
@@ -333,7 +353,13 @@ struct PeopleAndDevicesModel: Equatable {
                     // reader would accept (spec §5).
                     canRetire: isThisMac && device.retiredAt == nil,
                     whyNotRetirable: !isThisMac ? retireNotThisDevice
-                        : device.retiredAt != nil ? alreadyRetired : nil)
+                        : device.retiredAt != nil ? alreadyRetired : nil,
+                    retirementNotice: isThisMac
+                        ? device.retiredAt.map {
+                            DeviceStanding.retirementNotice(
+                                device: word(for: device.kind), retiredAt: $0)
+                        }
+                        : nil)
             }
         return Person(
             fingerprint: record.person, label: record.label,
@@ -342,6 +368,11 @@ struct PeopleAndDevicesModel: Equatable {
             revokedAt: record.revokedAt,
             canRevoke: revocable(record, me: me),
             whyNotRevocable: whyNotRevocable(record, me: me),
+            // The inverse of a revocation, offered only by the authority that
+            // performed it: `RegistryAdmission.admit` refuses anybody else's
+            // record, so a button here would be a control that cannot act.
+            canReadmit: record.isRevoked && !record.isRoot && record.admittedBy == me,
+            recordedOwnName: record.ownName,
             mark: mark(for: record, myRoot: myRoot, me: me),
             devices: devices)
     }

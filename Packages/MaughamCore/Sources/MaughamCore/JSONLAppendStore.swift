@@ -190,7 +190,8 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     }
 
     /// Record the lines a walk held back, in the writer's own words for why.
-    /// Answers nil — writing nothing — when the walk held nothing back.
+    /// Answers the records it wrote, and an empty array when the walk held
+    /// nothing back or every body was already on file.
     ///
     /// Every caller that sets lines aside goes through here: the chained
     /// append, the verified read, and the op log's own load. The REASON is
@@ -201,8 +202,8 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         _ verification: OpLogChain.Verification,
         groupedBy groups: [QuarantineGroup]? = nil,
         from fileURL: URL, docId: String, in projectURL: URL
-    ) throws -> QuarantineRecord? {
-        guard !verification.quarantined.isEmpty else { return nil }
+    ) throws -> [QuarantineRecord] {
+        guard !verification.quarantined.isEmpty else { return [] }
         // One group is the ordinary case and the default: the whole refused
         // span under the walk's own cause. A caller that can tell two halves
         // apart — `OpLogStore`, splitting a revoked span by the opId the root
@@ -212,14 +213,19 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         // under different words.
         let groups = groups ?? [QuarantineGroup(
             cause: verification.quarantineCause, lines: verification.quarantined)]
-        var first: QuarantineRecord?
+        // EVERY record, not the first of them (fix round 1, Minor 5): a split
+        // revocation files two, and a signature that answered one would
+        // under-report what the call did to any caller that ever reads it.
+        // Content-deduped bodies answer nil, and those are not records.
+        var written: [QuarantineRecord] = []
         for group in groups where !group.lines.isEmpty {
-            let record = try OpLogQuarantine.setAsideLines(
+            if let record = try OpLogQuarantine.setAsideLines(
                 group.lines, from: fileURL, docId: docId,
-                reason: quarantineReason(group.cause), in: projectURL)
-            if first == nil { first = record }
+                reason: quarantineReason(group.cause), in: projectURL) {
+                written.append(record)
+            }
         }
-        return first
+        return written
     }
 
     /// The strict twin of `readBytes`: absent is still empty, unreadable throws.

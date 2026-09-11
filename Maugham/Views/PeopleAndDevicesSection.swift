@@ -39,6 +39,9 @@ struct PeopleAndDevicesSection: View {
     /// Say this Mac has stopped writing in this book. Offered on this Mac's own
     /// row alone: a device signs its own retirement.
     var retire: (String) -> Void = { _ in }
+    /// Let a device this Mac revoked write again — the revocation's inverse,
+    /// through the admission door (fix round 1, Important 3b).
+    var readmit: (PeopleAndDevicesModel.Person) -> Void = { _ in }
     /// What the last verb said when it refused, or nil.
     var notice: String?
 
@@ -133,13 +136,25 @@ struct PeopleAndDevicesSection: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Button("Revoke") { revoke(person.fingerprint) }
-                    .controlSize(.small)
-                    .disabled(!person.canRevoke)
-                    .help(person.whyNotRevocable ?? PeopleAndDevicesModel.revokeHelp)
-                    // .help is hover-only; the WHY must reach VoiceOver too.
-                    .accessibilityHint(Text(
-                        person.whyNotRevocable ?? PeopleAndDevicesModel.revokeHelp))
+                if person.canReadmit {
+                    // **The inverse, where the act was** (fix round 1,
+                    // Important 3b): a revoked row used to carry a dead Revoke
+                    // saying "Already revoked", which is a fact the row above
+                    // already states and a control that could never act. The
+                    // way back belongs in that space.
+                    Button("Re-admit") { readmit(person) }
+                        .controlSize(.small)
+                        .help(PeopleAndDevicesModel.readmitHelp)
+                        .accessibilityHint(Text(PeopleAndDevicesModel.readmitHelp))
+                } else {
+                    Button("Revoke") { revoke(person.fingerprint) }
+                        .controlSize(.small)
+                        .disabled(!person.canRevoke)
+                        .help(person.whyNotRevocable ?? PeopleAndDevicesModel.revokeHelp)
+                        // .help is hover-only; the WHY must reach VoiceOver too.
+                        .accessibilityHint(Text(
+                            person.whyNotRevocable ?? PeopleAndDevicesModel.revokeHelp))
+                }
             }
             if person.canRevoke {
                 // Spec §5's own sentence, beside the button rather than in the
@@ -171,6 +186,15 @@ struct PeopleAndDevicesSection: View {
                 Text(device.detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let notice = device.retirementNotice {
+                    // A standing FACT, orange because it is a divergence the
+                    // writer cannot see from anywhere else: this Mac goes on
+                    // applying what it writes and nobody else does (fix round
+                    // 1, Important 2).
+                    Text(notice)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
             Spacer(minLength: 8)
             Button("Retire") { retire(device.fingerprint) }

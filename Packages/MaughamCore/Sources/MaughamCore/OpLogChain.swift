@@ -841,23 +841,23 @@ extension TrustVerdict {
 
     /// Whether a signature made under this verdict is a word this device stands
     /// behind — its own, or one its root admitted.
-    nonisolated public var isOurWord: Bool {
-        switch self {
-        case .mine, .admitted: true
-        // A retirement is dated and this question is not, so the honest answer
-        // without a moment in hand is the safe one: ask `isOurWord(sealedAt:)`,
-        // which every production caller does.
-        case .stranger, .revoked, .otherRoot, .retired, .noChain: false
-        }
-    }
-
-    /// The same question about a signature made at a known moment — what a
-    /// SEGMENT's signature is, and the form `.retired` needs: a segment signed
+    /// **The only form of this question, and it takes a moment** (fix round 1,
+    /// Minor 3). An undated twin stood beside it for one commit with no
+    /// production caller, and the next caller to reach for it would have
+    /// silently refused a retired device's pre-retirement segment — a signature
+    /// that IS that device's word, read as though it were nobody's. A `Date` is
+    /// always in hand where this is asked: a segment signature carries `at`,
+    /// and so does a seal.
+    ///
+    /// `sealedAt` is what makes `.retired` answerable at all: a segment signed
     /// before its device stopped is still that device's word, and one signed
     /// after it is not.
     nonisolated public func isOurWord(sealedAt: Date) -> Bool {
-        if case let .retired(_, retiredAt) = self { return sealedAt < retiredAt }
-        return isOurWord
+        switch self {
+        case .mine, .admitted: true
+        case let .retired(_, retiredAt): sealedAt < retiredAt
+        case .stranger, .revoked, .otherRoot, .noChain: false
+        }
     }
 }
 

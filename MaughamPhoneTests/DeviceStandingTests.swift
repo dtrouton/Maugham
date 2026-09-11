@@ -60,6 +60,22 @@ final class DeviceStandingTests: XCTestCase {
             people: people)
     }
 
+    /// The same registry with the phone's own device record saying it has
+    /// stopped writing.
+    private func registry(
+        admittingPhoneAs label: String?, retiredAt: Date
+    ) -> Registry {
+        let base = registry(admittingPhoneAs: label)
+        return Registry(
+            devices: base.devices.map { device in
+                DeviceRecord(
+                    device: device.device, name: device.name, kind: device.kind,
+                    actors: device.actors, madeAt: device.madeAt,
+                    retiredAt: retiredAt)
+            },
+            people: base.people)
+    }
+
     // MARK: - The code
 
     /// The code is this device's own, whatever the folder says — it exists to
@@ -151,6 +167,80 @@ final class DeviceStandingTests: XCTestCase {
         XCTAssertFalse(standing.admitted)
         XCTAssertTrue(standing.revoked)
         XCTAssertEqual(standing.sentence, "No longer admitted to Denver's MacBook’s chain")
+    }
+
+    // MARK: - Retirement (fix round 1, Important 2)
+
+    /// **The machine that retired is the one machine that must be told what
+    /// retirement means.** Its key removes its own future authority and not its
+    /// ability to write: it goes on appending and goes on applying its own
+    /// lines, while every peer sets them aside. Nothing else on either screen
+    /// says so.
+    func test_aretiredDeviceCarriesTheDateAndSaysWhatItMeans() {
+        let standing = DeviceStanding.resolve(
+            registry: registry(admittingPhoneAs: "Denver",
+                               retiredAt: Date(timeIntervalSince1970: 1_757_000_000)),
+            cache: cache(), mine: mine, for: projectURL)
+
+        XCTAssertEqual(standing.retiredAt, Date(timeIntervalSince1970: 1_757_000_000))
+        let notice = try? XCTUnwrap(standing.retirementNotice(device: "iPhone"))
+        XCTAssertTrue(notice?.hasPrefix("This iPhone retired on ") == true, "\(notice ?? "nil")")
+        XCTAssertTrue(
+            notice?.contains(
+                "what it writes now stays on this iPhone and is set aside everywhere else")
+                == true,
+            "\(notice ?? "nil")")
+    }
+
+    /// A device still at work says nothing about retirement — the notice is a
+    /// fact's absence, not an empty string.
+    func test_adeviceStillAtWorkHasNoRetirementNotice() {
+        let standing = DeviceStanding.resolve(
+            registry: registry(admittingPhoneAs: "Denver"), cache: cache(),
+            mine: mine, for: projectURL)
+
+        XCTAssertNil(standing.retiredAt)
+        XCTAssertNil(standing.retirementNotice(device: "iPhone"))
+    }
+
+    /// **A retirement is this device's word about ITSELF**, signed by its own
+    /// key, and it is true whether or not anybody admitted it: a device dropped
+    /// from every chain has still stopped, and the sentence it is owed does not
+    /// depend on a root.
+    func test_aretirementSurvivesHavingNoChainAtAll() {
+        let standing = DeviceStanding.resolve(
+            registry: registry(admittingPhoneAs: nil,
+                               retiredAt: Date(timeIntervalSince1970: 1_757_000_000)),
+            cache: cache(), mine: mine, for: projectURL)
+
+        XCTAssertFalse(standing.admitted)
+        XCTAssertNotNil(standing.retiredAt)
+        XCTAssertNotNil(standing.retirementNotice(device: "iPhone"))
+    }
+
+    /// **The noun is the machine's own** (tripwire 19): a phone saying *this
+    /// Mac* about itself is the comparison between two screens failing.
+    func test_thedeviceNounIsTheMachinesOwnInBothHalvesOfTheSentence() {
+        let mac = DeviceStanding.retirementNotice(
+            device: "Mac", retiredAt: Date(timeIntervalSince1970: 1_757_000_000))
+
+        XCTAssertTrue(mac.hasPrefix("This Mac retired on "), mac)
+        XCTAssertTrue(mac.contains("stays on this Mac"), mac)
+        XCTAssertFalse(mac.contains("iPhone"), mac)
+    }
+
+    /// The warning the writer meets BEFORE the act carries the same
+    /// consequence as the notice they meet after it, and says there is no way
+    /// back — the two are built from one clause so they cannot drift.
+    func test_theconfirmationSaysTheSameConsequenceAndThatThereIsNoWayBack() {
+        let consequence = DeviceStanding.retirementConsequence(device: "Mac")
+        let notice = DeviceStanding.retirementNotice(
+            device: "Mac", retiredAt: Date(timeIntervalSince1970: 1_757_000_000))
+        let tail = DeviceStanding.retirementTail(device: "Mac")
+
+        XCTAssertTrue(consequence.contains(tail), consequence)
+        XCTAssertTrue(notice.contains(tail), notice)
+        XCTAssertTrue(consequence.contains("can’t be un-retired"), consequence)
     }
 
     // MARK: - The refusal

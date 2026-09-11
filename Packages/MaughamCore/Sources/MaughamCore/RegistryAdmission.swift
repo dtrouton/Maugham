@@ -190,21 +190,35 @@ public enum RegistryAdmission {
         // `ownName` counts here (fix round 1, M6): keying idempotence on the
         // label alone would leave a renamed phone carrying a name nobody uses
         // in the one record every surface reads it from.
-        if let existing, existing.label == label, existing.ownName == ownName {
+        //
+        // **A REVOKED record is never the idempotent case** (P2b Task 7 fix
+        // round 1, Important 3b): admitting somebody this root revoked is the
+        // inverse act, and answering "nothing to write" would leave the writer
+        // pressing Re-admit at a device that stays shut out.
+        if let existing, !existing.isRevoked,
+           existing.label == label, existing.ownName == ownName {
             memory.remember(fingerprint, label: label, ownName: ownName, at: existing.admittedAt)
             return existing
         }
 
-        // A relabel — or a rename — keeps everything the record already decided:
-        // when they were admitted, and, if they have been, that they are
-        // revoked. Renaming somebody is not admitting them again, and it is
-        // certainly not un-revoking them; that is Revoke's own verb.
+        // **An admission written by the root that revoked them is the
+        // revocation's inverse** (fix round 1, Important 3b). The three
+        // revocation fields are CLEARED rather than carried: this is the same
+        // authority saying the opposite thing, explicitly, at a surface, and a
+        // record that said both would leave every reader quarantining a device
+        // the writer has just let back in. `admittedAt` is preserved — they
+        // were admitted the day they were admitted, and the return is a second
+        // fact rather than a rewriting of the first.
+        //
+        // History pays for it: the events derive from the records, so a cleared
+        // `revokedAt` takes the revoked event with it. The carry is named in
+        // the fix report — a durable event log would keep both.
         let record = PersonRecord(
             person: fingerprint, label: label, ownName: ownName, role: "author",
             admittedAt: existing?.admittedAt ?? now(),
             admittedBy: root.fingerprint,
-            revokedAt: existing?.revokedAt, revokedBy: existing?.revokedBy,
-            highestOpIdSeen: existing?.highestOpIdSeen)
+            revokedAt: nil, revokedBy: nil,
+            highestOpIdSeen: nil)
         try RegistryWriter.write(
             record, signedBy: root, in: projectURL, presenter: presenter)
         memory.remember(fingerprint, label: label, ownName: ownName, at: now())
