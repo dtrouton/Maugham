@@ -367,23 +367,25 @@ struct HistoryPane: View {
 
     // MARK: - The chain (signed op log P2a)
 
-    /// The pending line's control, as three constants `body` reads rather than
-    /// three literals inside it.
+    /// The pending line's control, as constants `body` reads rather than
+    /// literals inside it.
     ///
     /// It is the ONE History line that carries a control (spec §6), because
     /// held history is the one thing on this list the writer can act on: every
     /// other sentence here is a statement of fact. P2a DRAWS it; P2b wires it
     /// to the admission sheet, and flipping `admitIsAvailable` is what that
-    /// costs here. Constants because the decision — drawn, disabled, and what
-    /// it says instead — is then pinnable with no window at all (tripwire 33:
-    /// no test presses a mounted control and waits for its effect).
+    /// costs here. Constants because the decision — drawn, live, and what it
+    /// says — is then pinnable with no window at all (tripwire 33: no test
+    /// presses a mounted control and waits for its effect).
+    ///
+    /// P2b's wiring is what the press does: it asks this window to put the
+    /// admission sheet up (`MaughamEvent.postAdmissionRequested(forced:)`),
+    /// which is the writer's own ask and therefore reopens a sheet they
+    /// dismissed earlier in this session. The disabled shape's own sentence is
+    /// GONE (P2b Task 4's minor (c)): it was kept for a test that never read it
+    /// and for a day that has arrived the other way round, and a constant
+    /// nothing reads is a sentence nobody maintains.
     static let admitTitle = "Admit…"
-    static let admitUnavailableHelp = "Admission arrives with the next update"
-    /// P2b wired it: pressing it asks this window to put the admission sheet up
-    /// (`MaughamEvent.postAdmissionRequested(forced:)`), which is the writer's
-    /// own ask and therefore reopens a sheet they dismissed earlier in this
-    /// session. `admitUnavailableHelp` stays for the disabled shape's test and
-    /// for the day another build has to draw it dead again.
     static let admitIsAvailable = true
     static let admitHelp = "Say who this device belongs to, and apply what it wrote"
 
