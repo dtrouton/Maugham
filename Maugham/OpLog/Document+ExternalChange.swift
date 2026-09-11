@@ -88,9 +88,19 @@ extension Document {
         // nothing: `load` is `loadDiagnosed(...).ops`.
         //
         // Stamped BEFORE the echo guard, for the same reason.
+        //
+        // **And only when it CHANGED** (the review's Important 2). `Document`
+        // is `@Observable` and `HistoryPane` reads `provenance` in `body`, so
+        // an unconditional assignment here is an observable write on every
+        // presenter callback — and this callback fires on THIS device's own
+        // appends, which is the whole reason the echo guard below exists. With
+        // the pane open, every typing burst invalidated it and recomputed the
+        // document's whole merged history on the main actor (tripwire 3's
+        // shape). `OpLogProvenance` is `Equatable`, so the guard costs one
+        // comparison and removes the churn entirely.
         let loaded = try await opStore.loadDiagnosed(docId: docId)
         let ops = loaded.ops
-        self.provenance = loaded.provenance
+        if provenance != loaded.provenance { provenance = loaded.provenance }
 
         // Echo guard: every op we ourselves appended is already in
         // _opLogMirror. If the disk log has no ops we haven't seen, this

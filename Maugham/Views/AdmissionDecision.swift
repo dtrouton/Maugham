@@ -161,21 +161,88 @@ enum AdmissionDecision {
     /// says (RULING-7: a thing that failed is never presented as a thing that
     /// did nothing).
     ///
-    /// Both `RegistryAdmissionError` cases are refusals of AUTHORITY, and they
-    /// want different sentences because they want different next moves: one is
-    /// *this Mac cannot do this at all*, the other is *somebody else already
-    /// did, and merging is a different act*.
+    /// Anything that is not a `RegistryAdmissionError` — a write that failed, a
+    /// folder that would not read — falls back to its own description, because
+    /// this function has nothing to add to it. An admission refusal, though,
+    /// goes to the exhaustive switch below, so a case added to that enum
+    /// **cannot compile** until somebody has written the writer a sentence.
+    ///
+    /// **The fallback names no verb** (Task 7, 2026-09-11). This became the
+    /// shared refusal door for Revoke and Retire as well as Admit, and a
+    /// sentence reading *That device couldn't be admitted* over a failed
+    /// revocation tells the writer the opposite of what happened — that
+    /// somebody was kept out, when the truth is that they were not shut out.
+    /// Every arm of the switch below names its own act because each knows it;
+    /// this one does not know it, so it says nothing it cannot stand behind.
     static func refusal(_ error: Error) -> String {
-        switch error {
-        case RegistryAdmissionError.notARoot:
+        guard let refusal = error as? RegistryAdmissionError else {
+            return "That didn’t work: \(error.localizedDescription)"
+        }
+        return sentence(for: refusal)
+    }
+
+    /// Every refusal of AUTHORITY, with the writer's next move in each.
+    ///
+    /// **Exhaustive on purpose, with no `default`** (the review's Important 1):
+    /// a `default` arm here sent the third case to `localizedDescription`, and
+    /// `RegistryAdmissionError` has no `LocalizedError` conformance anywhere, so
+    /// the writer read *"The operation couldn't be completed.
+    /// (MaughamCore.RegistryAdmissionError error 2.)"* about the one refusal of
+    /// the three that is ROUTINE. Count the arms, never a number in prose
+    /// (`feedback_prose_counts_are_unmaintainable`).
+    ///
+    /// Each wants a sentence of its own because each wants a different next
+    /// move: *this Mac cannot do this at all*; *somebody else already did, and
+    /// merging is a different act*; *wait, this will fix itself*; *there is
+    /// nobody there*; *a root is claimed over, never revoked*; *only that
+    /// machine can say this about itself*.
+    ///
+    /// The last three are revocation and retirement refusals rather than
+    /// admission ones, and the exhaustive switch is how they arrived: they were
+    /// added to the enum while this task was in its fix round, and the build
+    /// stopped until somebody had written them. That is the guard working, and
+    /// it is why there is no `default` here.
+    ///
+    /// **This is the ONE place a `RegistryAdmissionError` becomes a sentence**
+    /// (the team lead's ruling, 2026-09-11). People & Devices' Revoke and
+    /// Retire call here rather than spelling their own: two vocabularies for
+    /// one enum means the same refusal reads two ways depending on which
+    /// surface the writer happened to be standing in, and the arm nobody
+    /// remembered to write twice is the one that falls back to an error
+    /// domain — which is the defect this function was fixed for.
+    static func sentence(for refusal: RegistryAdmissionError) -> String {
+        switch refusal {
+        case .notARoot:
             return "This Mac isn’t this book’s root, so nothing it signs would let a "
                 + "device in. Admit from the Mac that started the book."
-        case RegistryAdmissionError.alreadyAdmittedElsewhere(let root):
+        case .alreadyAdmittedElsewhere(let root):
             return "Another Mac (code \(DeviceCode.short(root))) already admitted this "
                 + "device. Two chains are merged by claiming the book, never by "
                 + "admitting into both."
-        default:
-            return "That device couldn’t be admitted: \(error.localizedDescription)"
+        case .recordUnreadable(let fingerprint):
+            // The routine one, and the only refusal here that resolves ITSELF:
+            // another Mac has admitted this device and its own root record has
+            // not arrived yet, so everything that record is signed with reads
+            // as not-a-root until it does. Writing over it would destroy their
+            // admission. So the sentence is a wait, not a fix — and it names
+            // the code rather than the file, because a path under
+            // `.maugham/people/` may not be spelled outside `RegistryWriter`
+            // (tripwire 40) and a code is what the writer can compare anyway.
+            return "There’s already a record for this device (code "
+                + "\(DeviceCode.short(fingerprint))) that Maugham can’t read yet — "
+                + "usually another Mac’s admission whose own record hasn’t synced. "
+                + "Admitting now would overwrite it. Try again in a minute."
+        case .notAdmitted(let fingerprint):
+            return "This book has no record of the device with code "
+                + "\(DeviceCode.short(fingerprint)), so there’s nothing to withdraw."
+        case .cannotRevokeARoot(let fingerprint):
+            return "The device with code \(DeviceCode.short(fingerprint)) is this "
+                + "book’s root, and a root answers to itself. To take a book away "
+                + "from it, claim the book on the Mac you want to keep."
+        case .notThatDevice(let device):
+            return "Only the device with code \(DeviceCode.short(device)) can retire "
+                + "itself — a retirement signed by anything else is a record no other "
+                + "Mac would read. Retire it from that machine."
         }
     }
 }

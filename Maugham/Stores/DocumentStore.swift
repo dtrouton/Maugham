@@ -890,15 +890,74 @@ public final class DocumentStore {
         announcePendingHistory(of: document)
     }
 
-    /// Tell this project's windows that a device is waiting, if this document's
-    /// load actually held anything of anybody's.
+    /// Device fingerprints this store has already announced as waiting.
+    ///
+    /// What makes the post *once per stranger* rather than once per callback.
+    /// Never emptied: a device announced and then admitted must not be
+    /// announced again when another of its files syncs in, and a device the
+    /// writer said *Not now* to is the window's business (`dismissed`), not
+    /// this store's.
+    private var announcedPendingDevices: Set<String> = []
+
+    /// The presenter's path to `announcePendingHistory`, coalesced.
+    ///
+    /// A device syncing into this project delivers one callback per FILE, and a
+    /// device that has written as several actors across several chapters is
+    /// several files landing within a second or two of each other. The
+    /// newcomer guard already collapses that to one post *per fingerprint*, but
+    /// a phone and an iPad arriving together would still be two — so the
+    /// presenter's side waits a second and asks once for whatever the burst
+    /// turned out to contain. Built lazily for `DebounceScheduler`'s own reason:
+    /// it captures the store.
+    ///
+    /// `register`'s path is deliberately NOT debounced: a document finishing
+    /// its load is one event, the writer is looking at that document now, and a
+    /// second of silence before the question would be a second of them reading
+    /// a draft that is quietly missing somebody's notes.
+    /// Built on first use rather than `lazy`, which `@Observable` refuses, and
+    /// on the `_inboxStore` idiom this class already uses for the same reason.
+    private var _pendingAnnounceScheduler: DebounceScheduler<String>?
+    private var pendingAnnounceScheduler: DebounceScheduler<String> {
+        if let existing = _pendingAnnounceScheduler { return existing }
+        let scheduler = DebounceScheduler<String>(delay: .seconds(1)) { [weak self] docId in
+            guard let self, let document = self.document(forDocId: docId) else { return }
+            self.announcePendingHistory(of: document)
+        }
+        _pendingAnnounceScheduler = scheduler
+        return scheduler
+    }
+
+    /// Tell this project's windows that a device is waiting — **only when a
+    /// fingerprint nothing has announced yet turns up**.
     ///
     /// The predicate is `provenance`, never the registry: pending exists only
     /// relative to a chain this device belongs to (decision B3), and the load
     /// has already asked that question once. Asking it again here would be a
     /// second opinion about who is a stranger.
+    ///
+    /// **Two guards, and the second is the review's Important 3.** A bare
+    /// `pendingLines > 0` posts on EVERY external-change callback — including
+    /// this device's own typing echoes, which is what the echo guard in
+    /// `handleExternalLogChange` exists for — and each post costs the receiving
+    /// window a detached `TrustResolution.resolveVerified`: a folder read plus
+    /// a P256 verification per record. For as long as anything was pending, the
+    /// writer's own keystrokes drove a registry re-verification per burst,
+    /// which is tripwire 3's shape.
+    ///
+    /// **Whether a new fingerprint is really a STRANGER is deliberately not
+    /// decided here.** `AdmissionDecision.requests` is the one authority on
+    /// that — it answers no request for a fingerprint carrying any person
+    /// record — and it already runs on the receiving side. Answering the same
+    /// question here would put a verified registry read back on the keystroke
+    /// path in order to duplicate a rule living one hop away. So this narrows
+    /// the post to *something not seen before is held*, and the window decides
+    /// whether there is anything to ask about.
     private func announcePendingHistory(of document: Document) {
-        guard (document.provenance?.pendingLines ?? 0) > 0 else { return }
+        let waiting = Set((document.provenance?.pendingByDevice ?? [:])
+            .filter { $0.value > 0 }.keys)
+        let newcomers = waiting.subtracting(announcedPendingDevices)
+        guard !newcomers.isEmpty else { return }
+        announcedPendingDevices.formUnion(newcomers)
         MaughamEvent.postAdmissionRequested(projectURL: projectURL)
     }
 
@@ -1016,9 +1075,11 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                     // **A stranger's file arriving through sync** (spec §4.1's
                     // second trigger). The re-read above is what discovers it,
                     // and the same predicate guards the post as at register
-                    // time — held lines, never the shape of a filename — so
-                    // this stays silent on every one of our own appends.
-                    self.announcePendingHistory(of: doc)
+                    // time — a fingerprint nothing has announced yet, never the
+                    // shape of a filename — so this stays silent on every one
+                    // of our own appends. Debounced, because a device arrives
+                    // as a burst of files rather than as one.
+                    self.pendingAnnounceScheduler.schedule(docId)
                 }
             } else {
                 // **The document is not open, so nothing else can notice.**

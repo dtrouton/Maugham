@@ -107,9 +107,13 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         store.register(document: held, for: "manuscript/c1.md")
         XCTAssertGreaterThan(held.provenance?.pendingLines ?? 0, 0,
                              "the stranger's history is held, not applied")
-        XCTAssertEqual(held.provenance?.pendingByDevice[stranger.fingerprint],
-                       held.provenance?.pendingLines,
-                       "and it is counted under the device waiting for admission")
+        // Two ops and the seal that holds them: THREE lines are held, and the
+        // writer is waiting on TWO of them. `pendingByDevice` counts ops alone
+        // (P2b Task 10) because every reader of it puts a noun after the number
+        // — *2 notes from Denver's iPhone* — and a seal is not a note.
+        XCTAssertEqual(held.provenance?.pendingLines, 3)
+        XCTAssertEqual(held.provenance?.pendingByDevice[stranger.fingerprint], 2,
+                       "and they are counted under the device waiting for admission")
         let before = try await held.opStore.loadDiagnosed(docId: docId)
         XCTAssertFalse(before.ops.map(\.opId).contains("02"),
                        "nothing the stranger wrote is in the draft")
@@ -169,6 +173,46 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         }
         XCTAssertNil(try registry().person(stranger.fingerprint),
                      "nothing was written")
+    }
+
+    // MARK: - The re-stamp is a CHANGE, not a callback (review's Important 2)
+
+    /// `Document` is `@Observable` and `HistoryPane` reads `provenance` in
+    /// `body`, so an unconditional re-stamp is an observable write on every
+    /// presenter callback — and the callback fires on this device's OWN
+    /// appends, which is what the echo guard beside it exists for. With the
+    /// pane open that recomputed the document's whole merged history on the
+    /// main actor, per typing burst.
+    func test_anEchoOfThisDevicesOwnWriteDoesNotMoveProvenance() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        store.register(document: doc, for: "manuscript/c1.md")
+
+        let before = try XCTUnwrap(doc.provenance)
+        // Exactly what the presenter delivers when our own append lands.
+        try await doc.handleExternalLogChange()
+
+        XCTAssertEqual(doc.provenance, before,
+                       "an echo re-reads and finds the same account of the file")
+        await doc.close()
+    }
+
+    /// And the other half: when the file really has changed underneath, the
+    /// count moves. A guard that never assigned would be just as wrong.
+    func test_aStrangersFileArrivingDoesMoveProvenance() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        store.register(document: doc, for: "manuscript/c1.md")
+        XCTAssertEqual(doc.provenance?.pendingLines, 0, "nothing is held yet")
+
+        try await writeStrangerFile(docId: doc.docId, opIds: ["02"])
+        try await doc.handleExternalLogChange()
+
+        XCTAssertGreaterThan(doc.provenance?.pendingLines ?? 0, 0,
+                             "held lines produce no op, so only the re-stamp can see them")
+        await doc.close()
     }
 
     // MARK: - Silent admission at open (decision B2)

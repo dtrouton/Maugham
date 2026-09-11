@@ -61,6 +61,23 @@ struct AdmissionModifier: ViewModifier {
                     onAdmit: { typed in admit(request, typedLabel: typed) },
                     onNotNow: { notNow(request) })
             }
+            // **What "the next open" actually means** (the review's Minor 2).
+            // Spec §4.1 says *Not now* dismisses until the next open, and
+            // relying on this modifier's `@State` being fresh does not deliver
+            // that: SwiftUI retains a closed `WindowGroup` scene's view graph
+            // (which is why `ProjectWindow.onDisappear` scorches its own heavy
+            // state by hand), and a modifier's `@State` is outside that sweep —
+            // so a reopened window could carry a dismissal from a session the
+            // writer has already forgotten. A project open mints a NEW
+            // `DocumentStore`, so its identity is the honest key, and the reset
+            // rides on it rather than on a comment asking to be believed.
+            .onChange(of: documentStore.map(ObjectIdentifier.init)) { _, _ in
+                dismissed = []
+                queue = []
+                presented = nil
+                shown = nil
+                refusal = nil
+            }
             .task(id: projectURL) { await recompute(forced: false) }
             .onProjectEvent(.maughamAdmissionRequested, url: projectURL, window: window) { note in
                 let forced = note.userInfo?[MaughamEvent.admissionForcedKey] as? Bool ?? false
@@ -128,7 +145,12 @@ struct AdmissionModifier: ViewModifier {
                 }
             }
         guard !pending.isEmpty else {
+            // Nothing is held on any open document any more, so nobody is
+            // waiting — including whoever this window is currently asking
+            // about, which is how an admission made in a SECOND window reaches
+            // this one's sheet.
             queue = []
+            takeDownAVanishedSheet()
             return
         }
 
@@ -157,7 +179,29 @@ struct AdmissionModifier: ViewModifier {
             pending: pending, registry: resolved.registry,
             memory: remembered, myRoot: resolved.myRoot)
         queue = requests.filter { !dismissed.contains($0.fingerprint) }
+        takeDownAVanishedSheet()
         presentHeadIfIdle()
+    }
+
+    /// Close a sheet whose subject is no longer a stranger (the review's Minor
+    /// 1).
+    ///
+    /// A second window on the same book — or the silent admission at open —
+    /// can let this device in while its sheet stands here. Leaving it up is not
+    /// merely stale: `RegistryAdmission.admit` treats a label change as a
+    /// REWRITE rather than a refusal, so pressing Admit on the stale sheet
+    /// would relabel a person record somebody has already settled, with this
+    /// window's field deciding a name nobody asked it about.
+    ///
+    /// Only when the request is gone from a queue that was actually rebuilt —
+    /// the early return above leaves `queue` alone when there is nothing
+    /// pending on any open document, which is the ordinary state of a window
+    /// whose chapter simply has no held lines of its own.
+    private func takeDownAVanishedSheet() {
+        guard let shown,
+              !queue.contains(where: { $0.fingerprint == shown.fingerprint })
+        else { return }
+        presented = nil
     }
 
     // MARK: - Answering

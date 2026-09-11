@@ -201,4 +201,67 @@ final class AdmissionDecisionTests: XCTestCase {
         XCTAssertNotEqual(notARoot, elsewhere,
                           "two refusals with two different next moves")
     }
+
+    /// The routine refusal, and the one that used to reach the writer as
+    /// *"(MaughamCore.RegistryAdmissionError error 2.)"* — a `default` arm sent
+    /// it to `localizedDescription` and the enum conforms to `LocalizedError`
+    /// nowhere.
+    func test_theRefusalThatResolvesItselfSaysSoAndNamesTheDevice() {
+        let unreadable = AdmissionDecision.refusal(
+            RegistryAdmissionError.recordUnreadable(fingerprint: phone))
+
+        XCTAssertTrue(unreadable.contains(DeviceCode.short(phone)),
+                      "it names the device by the code the writer can compare: \(unreadable)")
+        XCTAssertTrue(unreadable.localizedCaseInsensitiveContains("try again"),
+                      "and says the true next move, which is to wait: \(unreadable)")
+        XCTAssertFalse(unreadable.contains("RegistryAdmissionError"),
+                       "never an error domain: \(unreadable)")
+        XCTAssertFalse(unreadable.contains("maugham/people"),
+                       "and never a registry path (tripwire 40): \(unreadable)")
+    }
+
+    /// Every case of the enum, told apart. The switch behind these is
+    /// exhaustive with no `default`, so a case added later cannot compile until
+    /// somebody writes the writer a sentence — this asserts the sentences are
+    /// actually DIFFERENT, which is the half a compiler cannot check.
+    func test_noTwoRefusalsShareASentence() {
+        let sentences = [
+            RegistryAdmissionError.notARoot,
+            .alreadyAdmittedElsewhere(root: root),
+            .recordUnreadable(fingerprint: phone),
+            .notAdmitted(fingerprint: phone),
+            .cannotRevokeARoot(fingerprint: root),
+            .notThatDevice(device: other),
+        ].map(AdmissionDecision.sentence(for:))
+
+        XCTAssertEqual(Set(sentences).count, sentences.count,
+                       "each refusal has a next move of its own: \(sentences)")
+        for sentence in sentences {
+            XCTAssertFalse(sentence.isEmpty)
+            XCTAssertFalse(sentence.contains("couldn’t be completed"),
+                           "no Foundation boilerplate: \(sentence)")
+        }
+    }
+
+    /// Anything that is NOT an admission refusal still says what it was. The
+    /// fallback is on the outer function, not a `default` inside the switch,
+    /// which is what keeps the enum's own arms compiler-checked.
+    ///
+    /// **And it names no verb.** This function is the shared refusal door for
+    /// Revoke and Retire as well as Admit, so a fallback saying *couldn't be
+    /// admitted* would tell a writer whose revocation failed the opposite of
+    /// what happened.
+    func test_anErrorThatIsNotAnAdmissionRefusalStillSpeaksAndNamesNoVerb() {
+        struct Disk: LocalizedError {
+            var errorDescription: String? { "The folder is read-only." }
+        }
+
+        let sentence = AdmissionDecision.refusal(Disk())
+
+        XCTAssertTrue(sentence.contains("The folder is read-only."), sentence)
+        for verb in ["admitted", "revoked", "retired"] {
+            XCTAssertFalse(sentence.localizedCaseInsensitiveContains(verb),
+                           "the fallback does not know which act failed: \(sentence)")
+        }
+    }
 }
